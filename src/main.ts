@@ -2141,6 +2141,11 @@ function createWindow() {
     mainWindow.webContents.on('did-finish-load', () => {
         console.log('[DeskFlow] Page loaded successfully');
     });
+    
+    // CRITICAL: Call pollForeground ONCE immediately on startup to detect current app
+    // This fixes the issue where tracking doesn't start until app CHANGE is detected
+    pollForeground();
+    
     // Start polling (every 2 seconds — like active-win spec)
     trackingInterval = setInterval(pollForeground, 2000);
     // Send tracking heartbeat to renderer every 5 seconds
