@@ -1,0 +1,26 @@
+
+---
+### 2026-05-06 (Part 9) — Fix computedWebsiteData + Chart Width Fix
+
+**What Changed:**
+1. ✅ **FIXED** `computedWebsiteData is not defined` error
+   - Line 1560: Changed `computedWebsiteData` → `chartExternalData`
+   - `computedWebsiteData` was never defined, caused runtime error
+2. ✅ **FIXED** Weekly chart bars now fill container width
+   - Changed `min-w-[16px] flex-shrink-0` → `minWidth: '0' maxWidth: '100%'`
+   - Bars now uniform width, fill entire container
+   - Removed `overflow-x-auto` (no longer needed with proper sizing)
+
+**Files Modified:**
+- `src/pages/DashboardPage.tsx` - Fixed `chartExternalData` reference (line 1560), chart width (line 2156)
+
+**Why:**
+- `computedWebsiteData` was used but never defined as a variable
+- `chartExternalData` is the correct Map for external data
+- Chart bars were "squashed" because `min-w-[16px]` didn't stretch properly
+- User reported "bars not uniform" and "doesn't fill container"
+
+**Result:**
+- No more `computedWebsiteData` ReferenceError
+- Chart bars now uniform width, fill entire container
+- Weekly/Monthly charts display properly

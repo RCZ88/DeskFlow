@@ -18,6 +18,64 @@
 3. Test with minimal repro
 4. Check file existence and paths
 
+---
+
+## 🔴 React TDZ Error: "Cannot access 'X' before initialization"
+
+**Symptoms:**
+- Runtime error in compiled output: "Cannot access 'At' before initialization" (minified var)
+- Error points to line in compiled code, not source
+- Usually happens after code changes to component
+
+**Root Cause:**
+- `const` variable (ref, state) declared AFTER its first usage in same scope
+- Common when adding refs at bottom of component, but using in useEffect dep array at top
+- React's exhaustive-deps ESLint rule doesn't catch this (different scope issue)
+- Minified variables (At, bs, Jt, etc.) = original variable names
+
+**Example:**
+```typescript
+// Line 342: Using ref in dep array
+}, [currentProductiveMs, stopwatchStartRef.current, ...]);
+
+// Line 557: Ref declared here (AFTER usage)
+const stopwatchStartRef = useRef<number | null>(null);
+```
+
+**Fix:**
+1. Move ALL ref declarations to TOP of component (right after useState calls)
+2. Ensure declaration order matches usage order
+3. Run build after moving to catch minified variable errors
+4. Use grep/search to find ALL references before renaming variables
+
+**Prevention:**
+- Always declare refs immediately after useState declarations
+- Never declare refs at bottom of component
+- Use `Select-String -Pattern "refName"` to verify no forward references exist
+- When renaming: update ALL references before testing
+
+**Real Example (2026-05-07):**
+- Renamed `productiveStartRef` → `stopwatchStartRef`
+- Forgot to update lines 327 and 342
+- Caused "productiveStartRef is not defined" error
+- Then moved refs to line 557 but dep array at line 342 referenced them → TDZ error
+
+---
+
+## 🐛 Common Issue: Empty Data Showing "--" or Empty
+
+**Symptom:** UI shows "--" or empty instead of actual data
+
+**Root Cause:** API not exposed in preload.ts
+
+**Debug Steps:**
+1. Find where data comes from (e.g., `window.deskflowAPI.getSomeData`)
+2. Check if function exists in preload.ts
+3. Check if IPC handler exists in main.ts
+4. Only then check display logic
+
+**Example:** Activity buttons showing "--" → `getExternalStats` existed in main.ts but not in preload.ts
+
 ### Step 3: Fix and Verify
 1. Make minimal fix
 2. Rebuild
@@ -148,9 +206,17 @@ const distance = semiLatusRectum / (1 + eccentricity * Math.cos(angle + longitud
 ### Better-SQLite3 NODE_MODULE_VERSION Mismatch
 **Error:** `The module 'better_sqlite3.node' was compiled against a different Node.js version`
 
-**Cause:** Native module compiled for Node.js, not Electron
+**Cause:** Native module compiled for Node.js, not Electron; rebuild fails if Visual Studio Build Tools are missing
 
-**Fix:**
+**Fix (Preferred - if rebuild fails):**
+Use sql.js (pure JS/WebAssembly, no native dependencies) to read databases:
+1. Read buffer: `const dbBuffer = fs.readFileSync(dbPath)`
+2. Init: `const SQL = await initSqlJs()`
+3. Load: `const db = new SQL.Database(new Uint8Array(dbBuffer))`
+4. Check tables: `db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='table'")`
+- **Why**: No native bindings, works across all Node/Electron versions, no rebuild needed
+
+**Fix (If build tools available):**
 1. Ensure Visual Studio Build Tools installed
 2. Path must not have spaces
 3. Run: `npm rebuild better-sqlite3 --runtime=electron --target=41.1.1`
@@ -543,6 +609,78 @@ Tailwind v4's engine ignores `@tailwind` directives. They get passed through as 
 
 ---
 
+## 🎣 useMemo with Object Dependencies Causes React TDZ Initialization Error
+
+**Severity:** P1 — Crashes component with "Cannot access 'X' before initialization"
+
+**Symptoms:**
+- Error message: "Cannot access 'Jt'/'bs' before initialization" (minified names)
+- useMemo dependency array contains complex objects
+- Error occurs during React's dependency comparison phase
+- Only happens when object dependencies are invalidated/recreated
+- Breaks component and all children unexpectedly
+
+**Root Cause:**
+useMemo's dependency comparison triggers React's Temporal Dead Zone (TDZ) when checking object references during initialization order issues.
+
+**Wrong Pattern (DO NOT USE):**
+```typescript
+// ❌ BROKEN - Object dependencies in useMemo
+const chartBarsResult = useMemo(() => {
+  return expensiveComputation();
+}, [heatmapData, chartExternalData]); // Objects cause TDZ
+```
+
+**Correct Pattern (USE THIS):**
+```typescript
+// ✅ FIXED - useState + useEffect with primitive dependencies
+const [chartBarsResult, setChartBarsResult] = useState<T | null>(null);
+
+useEffect(() => {
+  const result = expensiveComputation();
+  setChartBarsResult(result);
+}, [primitive1, primitive2]); // Only primitives
+```
+
+**Why This Works:**
+1. useEffect runs AFTER render (avoids TDZ)
+2. Dependency array only contains primitives (no object comparison)
+3. Explicit timing control (clearer intent)
+4. React doesn't try to compare complex object references during init
+
+**When to Apply:**
+- useMemo dependency contains Map, array of objects, or complex structures
+- You see minified React errors ('Jt', 'bs', 'ab', etc.)
+- Error message mentions "before initialization"
+- Changes in other components trigger hidden initialization bugs
+
+**Fixed in:** 2026-05-06 (DashboardPage.tsx line 787)
+
+---
+
+## 🎯 generate-prompt Skill Workflow
+
+**When user says:** "use prompt engineer skill" or "use generate-prompt skill"
+
+**What to do:**
+1. Update `state.md` FIRST (mark as IN PROGRESS)
+2. Read `agent/skills/generate-prompt/SKILL.md`
+3. Gather context: `state.md`, relevant files, data layer
+4. CREATE a prompt (don't solve it yourself)
+5. Save prompt to `agent/docs/<topic>-prompt.md`
+6. Tell user: "Here's the prompt. Send it to the AI to get the full solution."
+
+**What NOT to do:**
+- ❌ Solve the problem yourself
+- ❌ Edit code directly
+- ❌ Skip updating state.md first
+
+**The skill creates prompts FOR another AI to solve.**
+
+**Added:** 2026-05-08 (after idiot moment #8)
+
+---
+
 ## 🔄 Version History
 
 | Version | Date | Changes |
@@ -554,8 +692,9 @@ Tailwind v4's engine ignores `@tailwind` directives. They get passed through as 
 | 1.4 | 2026-04-16 | Added 3D Camera/Clipping Debugging Pattern |
 | 1.5 | 2026-04-17 | Added Electron + Three.js/WebGL Memory Leak Pattern |
 | 1.6 | 2026-04-19 | Added Tailwind v4 CSS Silent Failure pattern |
+| 1.7 | 2026-05-06 | Added useMemo object dependencies TDZ pattern |
 
 ---
 
-**Last Updated:** 2026-04-19
+**Last Updated:** 2026-05-06
 **Maintained By:** AI Development Team

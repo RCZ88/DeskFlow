@@ -5,6 +5,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 
+
+
 declare global {
   interface Window {
     deskflowAPI?: {
@@ -12,7 +14,7 @@ declare global {
       resizeTerminal: (terminalId: string, cols: number, rows: number) => Promise<{ success: boolean }>;
       spawnTerminal: (terminalId: string, cwd: string) => Promise<{ success: boolean; error?: string }>;
       killTerminal: (terminalId: string) => Promise<{ success: boolean }>;
-      onTerminalData?: (callback: (data: { terminalId: string; data: string }) => void) => void;
+      onTerminalData?: (callback: (data: { terminalId: string; data: string }) => void) => (() => void);
     };
   }
 }
@@ -27,6 +29,7 @@ export function TerminalPane({ terminalId, onTerminalReady, onFocus }: TerminalP
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const hasReceivedData = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -83,16 +86,23 @@ export function TerminalPane({ terminalId, onTerminalReady, onFocus }: TerminalP
       });
     }
 
+    // Write placeholder text BEFORE calling onTerminalReady so it appears immediately
+    terminal.write('Terminal initialized. Waiting for shell...\r\n');
+    
     onTerminalReady?.(terminalId, terminal);
     
-    // Check container dimensions and write test text
+    // Diagnostic: if no data received after 5 seconds, show diagnostic message
+    const diagTimeout = setTimeout(() => {
+      if (!hasReceivedData.current && terminalRef.current) {
+        terminalRef.current.write('\r\n\x1b[33m[Diagnostic] No shell data received after 5s. Shell may have failed to spawn.\x1b[0m\r\n');
+      }
+    }, 5000);
+    
+    // Check container dimensions
     setTimeout(() => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         console.log('[TerminalPane] Container dimensions:', rect.width, 'x', rect.height);
-        
-        // Write test text directly to terminal to see if it renders
-        terminal.write('Terminal initialized. Waiting for shell...\r\n');
       }
     }, 100);
 
@@ -105,6 +115,7 @@ export function TerminalPane({ terminalId, onTerminalReady, onFocus }: TerminalP
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      clearTimeout(diagTimeout);
       resizeObserver.disconnect();
       terminal.dispose();
       window.deskflowAPI.terminalAPI?.destroy(terminalId);
@@ -113,24 +124,30 @@ export function TerminalPane({ terminalId, onTerminalReady, onFocus }: TerminalP
 
   // Listen for data from the PTY
   useEffect(() => {
-    if (!window.deskflowAPI) return;
+    if (!window.deskflowAPI || !window.deskflowAPI.onTerminalData) return;
 
     const handleData = (data: { terminalId: string; data: string }) => {
       if (data.terminalId === terminalId && terminalRef.current) {
+        // Clear placeholder text on first real data from shell
+        if (!hasReceivedData.current) {
+          hasReceivedData.current = true;
+          terminalRef.current.clear();
+        }
         terminalRef.current.write(data.data);
       }
     };
 
-    // Use the onTerminalData API
-    window.deskflowAPI.onTerminalData?.((data) => {
-      console.log('[TerminalPane] Data received:', data.terminalId, 'data length:', data.data.length);
+    // Register listener and get cleanup function
+    const cleanup = window.deskflowAPI.onTerminalData((data) => {
+      console.log('[TerminalPane] Data received:', data.terminalId, 'data length:', data.data.length, 'expected:', terminalId);
+      if (data.terminalId === terminalId) {
+        console.log('[TerminalPane] Writing data to xterm for', terminalId);
+      }
       handleData(data);
     });
 
     return () => {
-      // Note: The current IPC setup doesn't support removing individual listeners
-      // This is a known limitation - listeners accumulate but terminal instances are few
-      // If issues arise, we should modify the IPC to return an unsubscribe function
+      if (cleanup) cleanup();
     };
   }, [terminalId]);
 
@@ -163,22 +180,58 @@ interface TerminalLayoutProps {
   initialLayout?: PaneNode;
   onPaneClick?: (paneId: string) => void;
   onLayoutChange?: (layout: PaneNode) => void;
+  onActiveTerminalChange?: (terminalId: string) => void;
   spawnTerminal: (terminalId: string, cwd?: string) => Promise<boolean>;
+  defaultCwd?: string;
 }
 
 function createPaneNode(id: string): PaneNode {
   return { id, type: 'leaf', terminalId: id, size: 50 };
 }
 
-export function TerminalLayout({ initialLayout, onPaneClick, onLayoutChange, spawnTerminal }: TerminalLayoutProps) {
+export function TerminalLayout({ initialLayout, onPaneClick, onLayoutChange, onActiveTerminalChange, spawnTerminal, defaultCwd }: TerminalLayoutProps) {
   const { layout, setLayout, isLoading } = useTerminalLayout(initialLayout);
   const [activeTerminal, setActiveTerminal] = useState<string>('root');
+  // Use a ref for spawn tracking so it resets when this layout instance unmounts
+  const spawnedTerminalsRef = useRef(new Set<string>());
+
+  // CRITICAL: Clear spawn tracking when project/CWD changes
+  // This ensures terminals respawn when switching projects
+  useEffect(() => {
+    console.log('[TerminalLayout] CWD changed to:', defaultCwd, '- clearing spawn tracking');
+    spawnedTerminalsRef.current.clear();
+  }, [defaultCwd]);
 
   useEffect(() => {
     if (layout && onLayoutChange) {
       onLayoutChange(layout);
     }
   }, [layout, onLayoutChange]);
+
+  // Initialize active terminal to the first leaf in the layout
+  useEffect(() => {
+    if (layout) {
+      const findFirstLeaf = (node: PaneNode): string | null => {
+        if (node.type === 'leaf') return node.terminalId || node.id;
+        if (node.children) {
+          for (const child of node.children) {
+            const found = findFirstLeaf(child);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      const firstTerminal = findFirstLeaf(layout);
+      if (firstTerminal && firstTerminal !== activeTerminal) {
+        console.log('[TerminalLayout] Setting initial active terminal:', firstTerminal);
+        setActiveTerminal(firstTerminal);
+      }
+    }
+  }, [layout]);
+
+  useEffect(() => {
+    onActiveTerminalChange?.(activeTerminal);
+  }, [activeTerminal, onActiveTerminalChange]);
 
   const splitPane = useCallback((parentId: string, direction: SplitDirection) => {
     if (!layout) return;
@@ -198,10 +251,7 @@ export function TerminalLayout({ initialLayout, onPaneClick, onLayoutChange, spa
           splitType: direction.type === 'horizontal' ? 'horizontal' : 'vertical',
           direction: direction.direction,
           size: 100,
-          children: [
-            { ...node, size: 50 },
-            newPane,
-          ],
+          children: [node, newPane]
         };
       }
       if (node.children) {
@@ -211,11 +261,31 @@ export function TerminalLayout({ initialLayout, onPaneClick, onLayoutChange, spa
     };
 
     setLayout(updateLayout(layout));
-    spawnTerminal(newTerminalId);
-  }, [layout, setLayout, spawnTerminal]);
+    setActiveTerminal(newTerminalId);
+    spawnTerminal(newTerminalId, defaultCwd);
+  }, [layout, setLayout, spawnTerminal, defaultCwd]);
 
   const closePane = useCallback((paneId: string) => {
     if (!layout) return;
+    // Find the terminalId for this pane so we can kill the process
+    const findTerminalId = (node: PaneNode): string | null => {
+      if (node.id === paneId) return node.terminalId || node.id;
+      if (node.children) {
+        for (const child of node.children) {
+          const found = findTerminalId(child);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const termId = findTerminalId(layout);
+    if (termId) {
+      spawnedTerminalsRef.current.delete(termId);
+      // Actually kill the terminal process via IPC
+      if (window.deskflowAPI?.terminalAPI?.destroy) {
+        window.deskflowAPI.terminalAPI.destroy(termId);
+      }
+    }
     const removeAndReparent = (node: PaneNode): PaneNode | null => {
       if (node.id === paneId) return null;
       if (node.children) {
@@ -229,17 +299,28 @@ export function TerminalLayout({ initialLayout, onPaneClick, onLayoutChange, spa
     setLayout(closed || createPaneNode('root'));
   }, [layout, setLayout]);
 
-  const handleTerminalReady = useCallback(async (terminalId: string, _terminal: Terminal) => {
+  const handleTerminalReady = useCallback(async (terminalId: string, terminal: Terminal) => {
     console.log('[TerminalLayout] Terminal ready:', terminalId);
-    // Only spawn if not already spawned
-    const alreadySpawned = localStorage.getItem('terminal-spawned-' + terminalId);
-    console.log('[TerminalLayout] Already spawned?', alreadySpawned);
-    if (!alreadySpawned) {
-      localStorage.setItem('terminal-spawned-' + terminalId, 'true');
-      const result = await spawnTerminal(terminalId);
-      console.log('[TerminalLayout] Spawn result:', result);
+    // Only spawn if not already spawned in THIS layout instance
+    if (spawnedTerminalsRef.current.has(terminalId)) {
+      console.log('[TerminalLayout] Terminal already spawned in this layout:', terminalId);
+      return;
     }
-  }, [spawnTerminal]);
+    spawnedTerminalsRef.current.add(terminalId);
+    console.log('[TerminalLayout] Spawning terminal:', terminalId, 'cwd:', defaultCwd);
+    try {
+      const result = await spawnTerminal(terminalId, defaultCwd);
+      console.log('[TerminalLayout] Spawn result:', result);
+      if (!result) {
+        spawnedTerminalsRef.current.delete(terminalId); // Allow retry
+        terminal.write('\r\n\x1b[31m[ERROR] Failed to spawn terminal shell.\x1b[0m\r\n');
+      }
+    } catch (e: any) {
+      spawnedTerminalsRef.current.delete(terminalId); // Allow retry
+      console.error('[TerminalLayout] Spawn error:', e);
+      terminal.write(`\r\n\x1b[31m[ERROR] Terminal spawn failed: ${e.message}\x1b[0m\r\n`);
+    }
+  }, [spawnTerminal, defaultCwd]);
 
   useEffect(() => {
     const handleClosePaneEvent = (e: CustomEvent) => {

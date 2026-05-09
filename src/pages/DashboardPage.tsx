@@ -16,6 +16,9 @@ interface HeatmapCell {
   day: number;
   value: number;
   productivity: number;
+  deviceSeconds?: number;
+  externalSeconds?: number;
+  externalBreakdown?: Record<string, { seconds: number; color: string; icon: string }>;
 }
 
 interface ExternalActivity {
@@ -180,26 +183,74 @@ export default function DashboardPage({
   });
 
   const [currentProductiveMs, setCurrentProductiveMs] = useState(persistedTimer.productiveMs);
-  const [sessionStartTime, setSessionStartTime] = useState<number>(persistedTimer.startTime);
   const [isPaused, setIsPaused] = useState(persistedTimer.paused);
   const [lastTier, setLastTier] = useState<'productive' | 'neutral' | 'distracting' | null>(persistedTimer.lastTier);
-  
-// Persist external stopwatch too
+  const isCurrentlyProductive = lastTier === 'productive' && !isPaused;
+  const isDistracting = lastTier === 'distracting' && !isPaused;
+
+  // Stopwatch refs - declared early to avoid TDZ issues
+  const stopwatchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const stopwatchStartRef = useRef<number | null>(null);
+
+  // Persist external stopwatch too
+  // FIX: If session is running but start time is missing, recalculate from database
   const [externalSessionRunning, setExternalSessionRunning] = useState(persistedTimer.externalRunning);
-  const [externalSessionStart, setExternalSessionStart] = useState<Date | null>(persistedTimer.externalStart ? new Date(persistedTimer.externalStart) : null);
-  const [externalElapsedMs, setExternalElapsedMs] = useState(persistedTimer.externalElapsed);
+  const [externalSessionStart, setExternalSessionStart] = useState<Date | null>(null); // Will be set in useEffect
+  const [externalElapsedMs, setExternalElapsedMs] = useState(0); // Will be calculated in useEffect
+  
+  // Restore external session on mount - fetch from database if running
+  useEffect(() => {
+    if (!externalSessionRunning) return;
+    
+    // Try to get active session from database
+    if (window.deskflowAPI?.getActiveExternalSession) {
+      window.deskflowAPI.getActiveExternalSession().then((session: any) => {
+        if (session?.started_at) {
+          const startTime = new Date(session.started_at);
+          setExternalSessionStart(startTime);
+          const elapsed = Date.now() - startTime.getTime();
+          setExternalElapsedMs(elapsed);
+          console.log('[Dashboard] Restored external session from DB:', session.name, 'elapsed:', Math.floor(elapsed/1000), 's');
+        } else {
+          // Fallback to persisted values
+          const fallbackStart = persistedTimer.externalStart ? new Date(persistedTimer.externalStart) : null;
+          if (fallbackStart) {
+            setExternalSessionStart(fallbackStart);
+            setExternalElapsedMs(Date.now() - fallbackStart.getTime());
+          }
+        }
+      }).catch(err => {
+        console.error('[Dashboard] Failed to restore external session:', err);
+        // Fallback to persisted values
+        const fallbackStart = persistedTimer.externalStart ? new Date(persistedTimer.externalStart) : null;
+        if (fallbackStart) {
+          setExternalSessionStart(fallbackStart);
+          setExternalElapsedMs(Date.now() - fallbackStart.getTime());
+        }
+      });
+    } else {
+      // No IPC available - use persisted values
+      const fallbackStart = persistedTimer.externalStart ? new Date(persistedTimer.externalStart) : null;
+      if (fallbackStart) {
+        setExternalSessionStart(fallbackStart);
+        setExternalElapsedMs(Date.now() - fallbackStart.getTime());
+      }
+    }
+  }, [externalSessionRunning]);
   const [externalTrackingMode, setExternalTrackingMode] = useState<'immediate' | 'interaction'>('immediate');
 const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   const [pinnedActivities, setPinnedActivities] = useState<ExternalActivity[]>([]);
   const [pinnedActivitiesExpanded, setPinnedActivitiesExpanded] = useState(true);
+  const [addPinnedPicker, setAddPinnedPicker] = useState<ExternalActivity[]>([]);
   const [pausedByTrackerApp, setPausedByTrackerApp] = useState(false);
   // Load persisted activity feed from localStorage
-const getPersistedActivityFeed = (): ActivityFeedItem[] => {
+  const getPersistedActivityFeed = (): ActivityFeedItem[] => {
     // Try parent activityFeed first
-if (feedFromParent && feedFromParent.length > 0) {
+    if (feedFromParent && feedFromParent.length > 0) {
       return feedFromParent.map((item: any) => ({
         ...item,
-        timestamp: new Date(item.timestamp)
+        timestamp: new Date(item.timestamp),
+        isActive: false // FIX: Clear active state on restore
       }));
     }
     // Fallback to localStorage
@@ -210,12 +261,13 @@ if (feedFromParent && feedFromParent.length > 0) {
         const parsed = JSON.parse(saved);
         return parsed.map((item: any) => ({
           ...item,
-          timestamp: new Date(item.timestamp)
+          timestamp: new Date(item.timestamp),
+          isActive: false // FIX: Clear active state on restore - prevents stale elapsed times
         }));
       }
     } catch (e) {}
     return [];
-};
+  };
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>(getPersistedActivityFeed());
   const activityFeedRef = useRef<ActivityFeedItem[]>(getPersistedActivityFeed());
   
@@ -238,7 +290,8 @@ if (feedFromParent && feedFromParent.length > 0) {
       const feedItems: ActivityFeedItem[] = recentLogs.map((log: any, idx) => {
         const timestamp = log.timestamp instanceof Date ? log.timestamp : new Date(log.timestamp);
         const tsMs = timestamp.getTime();
-        const isBrowserType = log.is_browser_tracking || log.domain; // browser logs have domain or flag
+        // FIX: Only check is_browser_tracking flag, NOT domain (domain can be null)
+        const isBrowserType = log.is_browser_tracking === true || log.is_browser_tracking === 1;
         
         // Handle both duration (seconds) and duration_ms (milliseconds)
         let durationSec = 0;
@@ -256,7 +309,7 @@ if (feedFromParent && feedFromParent.length > 0) {
           name: log.app || log.title || log.domain || 'Unknown',
           category: log.category || 'Unknown',
           tier: getTierFromCategory(log.category),
-          isActive: idx === recentLogs.length - 1, // Only most recent is active
+          isActive: false, // FIX: Don't mark any as active - let pollForeground determine active app
           duration: durationSec // Use duration from log if available
         };
       });
@@ -274,11 +327,19 @@ if (feedFromParent && feedFromParent.length > 0) {
     localStorage.setItem('deskflow-activity-feed', JSON.stringify(activityFeed));
   }, [activityFeed]);
   
+  // Sync selectedPeriod from top nav with chart periodOffset
+  useEffect(() => {
+    // When top nav period changes, reset periodOffset to 0 to show current period
+    setPeriodOffset(0);
+    // Also sync weekOffset for heatmap
+    setWeekOffset(0);
+  }, [selectedPeriod]);
+  
   // Persist timer state to parent and localStorage
   useEffect(() => {
     const newState = {
       productiveMs: currentProductiveMs,
-      startTime: sessionStartTime,
+      startTime: stopwatchStartRef.current,
       paused: isPaused,
       lastTier: lastTier,
       externalRunning: externalSessionRunning,
@@ -293,14 +354,19 @@ if (feedFromParent && feedFromParent.length > 0) {
     // Also persist to localStorage as backup
     if (typeof window === 'undefined') return;
     localStorage.setItem('deskflow-timer-state', JSON.stringify(newState));
-  }, [currentProductiveMs, sessionStartTime, isPaused, lastTier, externalSessionRunning, externalSessionStart, externalElapsedMs, selectedExternalActivity, onTimerStateChange]);
+  }, [currentProductiveMs, stopwatchStartRef.current, isPaused, lastTier, externalSessionRunning, externalSessionStart, externalElapsedMs, selectedExternalActivity, onTimerStateChange]);
   
   const [resetCount, setResetCount] = useState(0);
   const [currentApp, setCurrentApp] = useState<ForegroundData | null>(null);
   const [isInBrowser, setIsInBrowser] = useState(false); // Track if currently in tracking browser
   const [lastNonBrowserApp, setLastNonBrowserApp] = useState<ForegroundData | null>(null);
-  const [hoveredCell, setHoveredCell] = useState<{ day: number; hour: number; value: number; productivity: number } | null>(null);
+  const [hoveredCell, setHoveredCell] = useState<{ day: number; hour: number; value: number; productivity: number; deviceSeconds?: number; externalSeconds?: number } | null>(null);
+  const [selectedHeatmapHour, setSelectedHeatmapHour] = useState<number | null>(null);
+  const [heatmapMode, setHeatmapMode] = useState<'device' | 'external' | 'combined'>('external');
+  const [externalHourlyData, setExternalHourlyData] = useState<Map<string, { externalSeconds: number; breakdown: Record<string, { seconds: number; color: string; icon: string }> }>>(new Map());
   const [weekOffset, setWeekOffset] = useState(0);
+  const [periodOffset, setPeriodOffset] = useState(0);
+  const [chartExternalData, setChartExternalData] = useState<Map<string, number>>(new Map());
   const [expandedModal, setExpandedModal] = useState<'heatmap' | 'solar' | null>(null);
   const [solarFullscreen, setSolarFullscreen] = useState(false);
   const [currentWebsite, setCurrentWebsite] = useState<{ title?: string; url?: string; category?: string } | null>(null);
@@ -417,6 +483,8 @@ window.deskflowAPI.onForegroundChange((data: ForegroundData) => {
       }
 
       const tier = getTierFromCategory(data.category);
+      // Update lastTier so isCurrentlyProductive works
+      setLastTier(tier);
       const now = Date.now();
       const newItem: ActivityFeedItem = {
         id: `${now}-${Math.random().toString(36).substr(2, 9)}`,
@@ -500,116 +568,365 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     });
   }, [isInBrowser, trackingBrowser]);
 
-  // Auto-counting timer logic for app/browser productivity
+  // SIMPLE stopwatch - single timer for both productive and external
   useEffect(() => {
-    // Get current category to check tier
-    const currentCategory = isInBrowser 
-      ? (currentWebsite?.category || lastNonBrowserApp?.category) 
-      : currentApp?.category;
-    const currentTier = getTierFromCategory(currentCategory);
-    
-    // Resume timer from persisted state if it was running
-    // ONLY count if we have a start time, not paused, AND in productive tier
-    if (sessionStartTime > 0 && !isPaused && currentTier === 'productive') {
-      console.log('[Dashboard] Timer running (productive):', sessionStartTime, 'isPaused:', isPaused, 'tier:', currentTier);
-      const interval = setInterval(() => {
-        setCurrentProductiveMs(prev => prev + 1000);
-      }, 1000);
-      return () => clearInterval(interval);
-    } else {
-      console.log('[Dashboard] Timer NOT running - tier:', currentTier, 'start:', sessionStartTime, 'paused:', isPaused);
+    // Clear existing timer
+    if (stopwatchTimerRef.current) {
+      clearInterval(stopwatchTimerRef.current);
+      stopwatchTimerRef.current = null;
     }
-    
-    // Only handle tier transitions if we have an app/website (no point otherwise)
-    if (!currentApp && !currentWebsite && !lastNonBrowserApp) {
-      console.log('[Dashboard] No active app/website');
-      return;
-    }
-    
-    // Handle distracting tier IMMEDIATELY - even without transition
-    console.log('[Dashboard] currentTier:', currentTier, 'lastTier:', lastTier, 'category:', currentCategory);
-    
-    // Handle distracting tier IMMEDIATELY - even without transition
-    // If current app is distracting and timerBehavior says reset, do it now
-    if (currentTier === 'distracting' && timerBehavior?.distractingAction === 'reset') {
-      console.log('[Dashboard] RESETTING - distracting app detected immediately');
-      setCurrentProductiveMs(0);
-      setSessionStartTime(0);
-      setIsPaused(true); // PAUSE the timer, don't unpause it
-      setLastTier(currentTier);
-      return;
-    }
-    
-    // Also handle if pausing
-    if (currentTier === 'distracting' && timerBehavior?.distractingAction === 'pause') {
-      console.log('[Dashboard] PAUSING - distracting app detected immediately');
-      setIsPaused(true);
-      setLastTier(currentTier);
-      return;
-    }
-    
-    // Handle tier transitions (from one tier to another)
-    const tierTransition = lastTier && lastTier !== currentTier;
-    
-    console.log('[Dashboard] Tier check - lastTier:', lastTier, 'currentTier:', currentTier, 'tierTransition:', tierTransition);
-    
-    if (tierTransition) {
-        // Determining action based on which tier we came FROM and where we're going
-        let action: 'reset' | 'pause' | null = null;
-        
-        if (lastTier === 'productive') {
-          // Transitioning FROM productive to something else - check action for the target tier
-          if (currentTier === 'neutral' && timerBehavior?.neutralAction) {
-            action = timerBehavior.neutralAction;
-          } else if (currentTier === 'distracting' && timerBehavior?.distractingAction) {
-            action = timerBehavior.distractingAction;
-          }
-        } else if (lastTier === 'neutral' && currentTier === 'distracting') {
-          // Transitioning neutral -> distracting, always apply distracting action
-          action = timerBehavior?.distractingAction || null;
-        }
-        
-        console.log('[Dashboard] Tier transition detected, action:', action);
-        
-// Apply the action
-        if (action === 'reset') {
-          console.log('[Dashboard] RESETTING timer - distracting app detected');
-          setCurrentProductiveMs(0);
-          setSessionStartTime(0);
-          setIsPaused(true); // Keep paused until productive again
-        } else if (action === 'pause') {
-          console.log('[Dashboard] PAUSING timer - distracting app detected');
-          setIsPaused(true);
-        }
-      } else {
-        console.log('[Dashboard] No tier transition - lastTier:', lastTier, 'currentTier:', currentTier);
-      }
 
-    // Handle returning to productive (always resume, unless paused by tracker app)
-    if (currentTier === 'productive') {
-      if (isPaused && !pausedByTrackerApp) {
-        setIsPaused(false);
-      }
-      if (sessionStartTime === 0 && !pausedByTrackerApp) {
-        setSessionStartTime(Date.now());
-      }
-      setLastTier(currentTier);
-    } else if (currentTier === 'neutral' || currentTier === 'distracting') {
-      // Stop counting if not productive - set tier for transition tracking
-      setLastTier(currentTier);
+    // Determine what's active
+    const isProductive = (() => {
+      const currentCategory = isInBrowser
+        ? (currentWebsite?.category || lastNonBrowserApp?.category)
+        : currentApp?.category;
+      const tier = getTierFromCategory(currentCategory || '');
+      return tier === 'productive' && !isPaused;
+    })();
+
+    const isExternal = externalSessionRunning && externalSessionStart;
+
+    // Nothing active
+    if (!isProductive && !isExternal) {
+      console.log('[Dashboard] Stopwatch: nothing active');
+      stopwatchStartRef.current = null;
+      setCurrentProductiveMs(0);
+      setExternalElapsedMs(0);
+      return;
     }
-  }, [currentApp, currentWebsite, isInBrowser, lastTier, sessionStartTime, isPaused, timerBehavior, pausedByTrackerApp]);
+
+    // Start timer
+    const startTime = isExternal ? externalSessionStart.getTime() : Date.now();
+    stopwatchStartRef.current = startTime;
+
+    if (isProductive) {
+      console.log('[Dashboard] Stopwatch: productive STARTED at', new Date(startTime).toLocaleTimeString());
+    } else {
+      console.log('[Dashboard] Stopwatch: external STARTED at', new Date(startTime).toLocaleTimeString());
+    }
+
+    stopwatchTimerRef.current = setInterval(() => {
+      if (stopwatchStartRef.current) {
+        const elapsed = Date.now() - stopwatchStartRef.current;
+        if (isExternal) {
+          setExternalElapsedMs(elapsed);
+        } else {
+          setCurrentProductiveMs(elapsed);
+        }
+      }
+    }, 1000);
+
+    return () => {
+      if (stopwatchTimerRef.current) {
+        clearInterval(stopwatchTimerRef.current);
+        stopwatchTimerRef.current = null;
+      }
+    };
+  }, [currentApp, currentWebsite, isInBrowser, lastNonBrowserApp, isPaused, externalSessionRunning, externalSessionStart]);
 
   // External activity manual stopwatch
   useEffect(() => {
-    if (!externalSessionRunning || !externalSessionStart) return;
+    const loadExternalData = async () => {
+      if (!window.deskflowAPI?.getExternalSessions) {
+        console.log('[Dashboard] getExternalSessions API not available');
+        return;
+      }
+      
+      try {
+        const now = new Date();
+        const currentWeekStart = new Date(now);
+        currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+        currentWeekStart.setHours(0, 0, 0, 0);
+        const targetWeekStart = new Date(currentWeekStart.getTime() + (weekOffset * 7 * 24 * 60 * 60 * 1000));
+        const targetWeekEnd = new Date(targetWeekStart.getTime() + (7 * 24 * 60 * 60 * 1000));
+        
+        const sessions = await window.deskflowAPI.getExternalSessions('all');
+        console.log('[Dashboard] Loaded external sessions:', sessions?.length || 0);
+        
+        const newExternalHourlyData = new Map<string, { externalSeconds: number; breakdown: Record<string, { seconds: number; color: string; icon: string }> }>();
+        
+        (sessions || []).forEach((session: any) => {
+          const startMs = new Date(session.started_at).getTime();
+          const endMs = session.ended_at ? new Date(session.ended_at).getTime() : Date.now();
+          const durationSec = (endMs - startMs) / 1000;
+          
+          if (startMs >= targetWeekEnd || endMs < targetWeekStart) return;
+          
+          let currentMs = startMs;
+          while (currentMs < endMs) {
+            const currentDate = new Date(currentMs);
+            const currentDay = currentDate.getDay();
+            const currentHour = currentDate.getHours();
+            const hourStart = currentDate.getTime();
+            const hourEnd = hourStart + 3600000;
+            
+            if (currentDate >= targetWeekStart && currentDate < targetWeekEnd) {
+              const segmentStart = Math.max(currentMs, hourStart);
+              const segmentEnd = Math.min(endMs, hourEnd);
+              const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
+              
+              if (segmentSeconds > 0) {
+                const key = `${currentDay}-${currentHour}`;
+                const existing = newExternalHourlyData.get(key) || { externalSeconds: 0, breakdown: {} };
+                existing.externalSeconds = Math.min(existing.externalSeconds + segmentSeconds, 3600);
+                
+                const activityName = session.activity_name || 'Unknown';
+                if (!existing.breakdown[activityName]) {
+                  existing.breakdown[activityName] = { seconds: 0, color: session.color || '#8b5cf6', icon: session.icon || '🎮' };
+                }
+                existing.breakdown[activityName].seconds += segmentSeconds;
+                
+                newExternalHourlyData.set(key, existing);
+              }
+            }
+            currentMs = hourEnd;
+          }
+        });
+        
+        setExternalHourlyData(newExternalHourlyData);
+      } catch (err) {
+        console.error('[Dashboard] Error loading external sessions:', err);
+      }
+    };
+    
+    loadExternalData();
+  }, [weekOffset]);
 
-    const interval = setInterval(() => {
+  // Load external data for Weekly Productivity chart based on selectedPeriod + periodOffset
+  useEffect(() => {
+    if (!window.deskflowAPI?.getExternalSessions) return;
+    const computePeriodRange = () => {
       const now = new Date();
-      setExternalElapsedMs(now.getTime() - externalSessionStart.getTime());
+      if (selectedPeriod === 'today') {
+        const d = new Date(now);
+        d.setDate(d.getDate() - periodOffset);
+        d.setHours(0, 0, 0, 0);
+        const start = new Date(d);
+        const end = new Date(d);
+        end.setHours(23, 59, 59, 999);
+        return { start, end, label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
+      } else if (selectedPeriod === 'week') {
+        const currentWeekStart = new Date(now);
+        currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+        currentWeekStart.setHours(0, 0, 0, 0);
+        const targetWeekStart = new Date(currentWeekStart.getTime() - (periodOffset * 7 * 24 * 60 * 60 * 1000));
+        const targetWeekEnd = new Date(targetWeekStart.getTime() + (7 * 24 * 60 * 60 * 1000) - 1);
+        const label = `${targetWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${targetWeekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+        return { start: targetWeekStart, end: targetWeekEnd, label };
+      } else if (selectedPeriod === 'month') {
+        const targetMonth = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
+        const start = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1);
+        const end = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+        const label = targetMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        return { start, end, label };
+      }
+      // 'all' - no range limit
+      return { start: new Date(0), end: new Date(), label: 'All Time' };
+    };
+    const { start: periodStart, end: periodEnd } = computePeriodRange();
+    window.deskflowAPI.getExternalSessions('all').then((sessions: any[]) => {
+      const newChartExternal = new Map<string, number>();
+      (sessions || []).forEach((session: any) => {
+        const sStart = new Date(session.started_at).getTime();
+        const sEnd = session.ended_at ? new Date(session.ended_at).getTime() : Date.now();
+        if (sStart >= periodEnd.getTime() || sEnd < periodStart.getTime()) return;
+        let cur = sStart;
+        while (cur < sEnd) {
+          const d = new Date(cur);
+          if (d >= periodStart && d < periodEnd) {
+            let key;
+            if (selectedPeriod === 'today') {
+              key = `${d.getHours()}`;
+            } else if (selectedPeriod === 'week') {
+              key = `${d.getDay()}`;
+            } else if (selectedPeriod === 'month') {
+              key = `${d.getDate()}`;
+            } else {
+              key = `${d.toISOString().slice(0, 10)}`;
+            }
+            const hourStart = d.getTime();
+            const hourEnd = hourStart + 3600000;
+            const segStart = Math.max(cur, hourStart);
+            const segEnd = Math.min(sEnd, hourEnd);
+            const segSec = Math.max(0, (segEnd - segStart) / 1000);
+            if (segSec > 0) {
+              newChartExternal.set(key, (newChartExternal.get(key) || 0) + segSec);
+            }
+          }
+          cur = d.getTime() + (3600000 - (d.getTime() % 3600000));
+        }
+      });
+      setChartExternalData(newChartExternal);
+    }).catch(err => console.error('[Dashboard] Error loading chart external data:', err));
+  }, [selectedPeriod, periodOffset]);
+
+  // Compute chart bars based on selectedPeriod + periodOffset
+  const [chartBarsResult, setChartBarsResult] = useState<{ chartBars: { label: string; deviceSeconds: number; externalSeconds: number; isToday?: boolean }[]; maxBarSeconds: number }>({ chartBars: [], maxBarSeconds: 1 });
+
+  useEffect(() => {
+    if (!selectedPeriod || !chartExternalData) {
+      setChartBarsResult({ chartBars: [], maxBarSeconds: 1 });
+      return;
+    }
+
+    const logs = allLogs || [];
+    const now = new Date();
+    let bars: { label: string; deviceSeconds: number; externalSeconds: number; isToday?: boolean }[] = [];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  if (selectedPeriod === 'today') {
+      // Show 24 hours for target date - compute from allLogs
+      const targetDate = new Date(now);
+      targetDate.setDate(targetDate.getDate() - periodOffset);
+      targetDate.setHours(0, 0, 0, 0);
+
+      for (let h = 0; h < 24; h++) {
+        const hourStart = new Date(targetDate);
+        hourStart.setHours(h);
+        const hourEnd = new Date(hourStart);
+        hourEnd.setHours(h + 1);
+
+        const deviceSec = logs
+          .filter(l => l.timestamp >= hourStart && l.timestamp < hourEnd)
+          .reduce((s, l) => s + (l.duration_ms || ((l.duration || 0) * 1000)), 0) / 1000;
+
+        const extSec = chartExternalData.get(`${h}`) || 0;
+        bars.push({ label: `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`, deviceSeconds: deviceSec, externalSeconds: extSec });
+      }
+    } else if (selectedPeriod === 'week') {
+      // Show 7 days for target week (offset goes back in time)
+      const currentWeekStart = new Date(now);
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      currentWeekStart.setHours(0, 0, 0, 0);
+      const targetWeekStart = new Date(currentWeekStart.getTime() - (periodOffset * 7 * 24 * 60 * 60 * 1000));
+
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(targetWeekStart);
+        d.setDate(d.getDate() + i);
+        const dayNum = d.getDay();
+        const dayStart = new Date(d);
+        const dayEnd = new Date(d);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        // Device seconds from allLogs
+        const deviceSec = logs
+          .filter(l => l.timestamp >= dayStart && l.timestamp <= dayEnd)
+          .reduce((s, l) => s + (l.duration_ms || ((l.duration || 0) * 1000)), 0) / 1000;
+
+        // External seconds from chartExternalData
+        const extSec = chartExternalData.get(`${dayNum}`) || 0;
+
+        const isToday = periodOffset === 0 && dayNum === now.getDay();
+        bars.push({ label: dayNames[dayNum], deviceSeconds: deviceSec, externalSeconds: extSec, isToday });
+      }
+    } else if (selectedPeriod === 'month') {
+      // Show days for target month (offset goes back in time)
+      const targetMonth = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
+      const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const d = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), day);
+        const dayStart = new Date(d);
+        const dayEnd = new Date(d);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const deviceSec = logs
+          .filter(l => l.timestamp >= dayStart && l.timestamp <= dayEnd)
+          .reduce((s, l) => s + (l.duration_ms || ((l.duration || 0) * 1000)), 0) / 1000;
+
+        const key = `${d.getDate()}`;
+        const extSec = chartExternalData.get(key) || 0;
+        bars.push({ label: `${day}`, deviceSeconds: deviceSec, externalSeconds: extSec });
+      }
+    } else {
+      // 'all' - Show monthly totals
+      const monthMap: Record<string, { device: number; external: number }> = {};
+
+      logs.forEach(l => {
+        const key = `${l.timestamp.getFullYear()}-${l.timestamp.getMonth() + 1}`;
+        if (!monthMap[key]) monthMap[key] = { device: 0, external: 0 };
+        monthMap[key].device += (l.duration_ms || ((l.duration || 0) * 1000)) / 1000;
+      });
+
+      chartExternalData.forEach((sec, key) => {
+        if (!monthMap[key]) monthMap[key] = { device: 0, external: 0 };
+        monthMap[key].external += sec;
+      });
+
+      Object.entries(monthMap).sort(([a], [b]) => a.localeCompare(b)).forEach(([key, val]) => {
+        const [yr, mo] = key.split('-');
+        bars.push({
+          label: new Date(parseInt(yr), parseInt(mo) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+          deviceSeconds: val.device,
+          externalSeconds: val.external
+        });
+      });
+    }
+
+    const max = Math.max(1, ...bars.map(b => b.deviceSeconds + b.externalSeconds));
+    setChartBarsResult({ chartBars: bars, maxBarSeconds: max });
+  }, [selectedPeriod, periodOffset, chartExternalData, allLogs]);
+
+  // External activity stopwatch - adaptive: shows external activity if running
+  const stopwatchIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Adaptive display: show what's actually running
+  const displayTime = useMemo(() => {
+    const isProductive = (() => {
+      const currentCategory = isInBrowser
+        ? (currentWebsite?.category || lastNonBrowserApp?.category)
+        : currentApp?.category;
+      const tier = getTierFromCategory(currentCategory || '');
+      return tier === 'productive' && !isPaused;
+    })();
+
+    // External takes priority (user wants to see it when running)
+    if (externalSessionRunning && externalElapsedMs > 0) {
+      return { ms: externalElapsedMs, label: `External: ${selectedExternalActivity?.name || 'Running'}` };
+    }
+
+    // Productive app running
+    if (isProductive) {
+      return { ms: currentProductiveMs, label: 'Productive' };
+    }
+
+    // Nothing productive
+    return { ms: currentProductiveMs, label: isPaused ? 'Paused' : 'Idle' };
+  }, [externalSessionRunning, externalElapsedMs, currentProductiveMs, selectedExternalActivity, currentApp, currentWebsite, isInBrowser, lastNonBrowserApp, isPaused]);
+
+  // Stopwatch interval - only runs when external session is active
+  useEffect(() => {
+    // Clear any existing interval
+    if (stopwatchIntervalRef.current) {
+      clearInterval(stopwatchIntervalRef.current);
+      stopwatchIntervalRef.current = null;
+    }
+
+    if (!externalSessionRunning || !externalSessionStart) {
+      return;
+    }
+
+    console.log('[Dashboard] Stopwatch started, startTime:', externalSessionStart.getTime());
+    
+    // Calculate and set initial elapsed immediately
+    const now = Date.now();
+    const initialElapsed = now - externalSessionStart.getTime();
+    setExternalElapsedMs(initialElapsed);
+    
+    // Start interval
+    stopwatchIntervalRef.current = setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - externalSessionStart.getTime();
+      setExternalElapsedMs(elapsed);
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (stopwatchIntervalRef.current) {
+        clearInterval(stopwatchIntervalRef.current);
+        stopwatchIntervalRef.current = null;
+      }
+    };
   }, [externalSessionRunning, externalSessionStart]);
 
   const handleSelectExternalActivity = useCallback((activity: ExternalActivity) => {
@@ -662,9 +979,11 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       }
     }
     
-    setExternalSessionStart(new Date());
+    const now = new Date();
+    setExternalSessionStart(now);
     setExternalSessionRunning(true);
     setExternalElapsedMs(0);
+    console.log('[Dashboard] Stopwatch started manually, startTime:', now.getTime());
   }, [selectedExternalActivity]);
 
   const handleStopExternalSession = useCallback(async () => {
@@ -830,15 +1149,16 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     { day: 'Sun', hours: 3.2, productivity: 0.75 },
   ], []);
 
-  // Compute hourly heatmap from allLogs (24h × 7 days grid) - MUST be defined before reference
+  // Compute hourly heatmap from allLogs (24h × 7 days grid) - based on weekOffset
   const hourlyHeatmapData = useMemo(() => {
     const now = new Date();
     const currentWeekStart = new Date(now);
-    currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+    currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay()); // Sunday
     currentWeekStart.setHours(0, 0, 0, 0);
+    // Apply weekOffset: 0 = current week, -1 = previous week, etc.
     const targetWeekStart = new Date(currentWeekStart.getTime() + (weekOffset * 7 * 24 * 60 * 60 * 1000));
     const targetWeekEnd = new Date(targetWeekStart.getTime() + (7 * 24 * 60 * 60 * 1000));
-
+    
     const cellMap = new Map<string, { totalSeconds: number; productiveSeconds: number }>();
     for (let dayOffset = 6; dayOffset >= 0; dayOffset--) {
       const date = new Date(targetWeekStart);
@@ -848,10 +1168,9 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         cellMap.set(`${day}-${hour}`, { totalSeconds: 0, productiveSeconds: 0 });
       }
     }
-
+    
     const addSession = (startMs: number, durationSec: number, category: string) => {
       const endMs = startMs + durationSec * 1000;
-      if (startMs >= targetWeekEnd || endMs < targetWeekStart) return;
       let currentMs = startMs;
       while (currentMs < endMs) {
         const currentDate = new Date(currentMs);
@@ -859,10 +1178,13 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         const currentHour = currentDate.getHours();
         const hourStart = currentDate.getTime();
         const hourEnd = hourStart + 3600000;
+        
+        // Only process if this hour is within our target week
         if (currentDate >= targetWeekStart && currentDate < targetWeekEnd) {
           const segmentStart = Math.max(currentMs, hourStart);
           const segmentEnd = Math.min(endMs, hourEnd);
           const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
+          
           if (segmentSeconds > 0) {
             const key = `${currentDay}-${currentHour}`;
             const current = cellMap.get(key) || { totalSeconds: 0, productiveSeconds: 0 };
@@ -876,14 +1198,13 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         currentMs = hourEnd;
       }
     };
-
+    
     for (const log of allLogs) {
       const sessionStartMs = new Date(log.timestamp).getTime();
-      // Handle both duration (seconds) and duration_ms (milliseconds)
       const durationSec = log.duration_ms ? log.duration_ms / 1000 : (log.duration || 0);
       addSession(sessionStartMs, durationSec, log.category);
     }
-
+    
     const result: HeatmapCell[] = [];
     for (let dayOffset = 6; dayOffset >= 0; dayOffset--) {
       const date = new Date(targetWeekStart);
@@ -892,14 +1213,32 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       for (let hour = 0; hour < 24; hour++) {
         const cell = cellMap.get(`${day}-${hour}`) || { totalSeconds: 0, productiveSeconds: 0 };
         const productivity = cell.totalSeconds > 0 ? cell.productiveSeconds / cell.totalSeconds : 0;
-        result.push({ day, hour, value: cell.totalSeconds, productivity });
+        
+        // Get external data for this cell
+        const extData = externalHourlyData.get(`${day}-${hour}`);
+        const deviceSeconds = cell.totalSeconds;
+        const externalSeconds = extData?.externalSeconds || 0;
+        
+        result.push({ 
+          day, 
+          hour, 
+          value: cell.totalSeconds, 
+          productivity,
+          deviceSeconds,
+          externalSeconds,
+          externalBreakdown: extData?.breakdown || {}
+        });
       }
     }
     return result;
-  }, [allLogs, weekOffset, tierAssignments]);
+  }, [allLogs, weekOffset, tierAssignments, externalHourlyData]);
 
-  // Use hourlyHeatmapData - prioritize real data over props
-  const heatmapData = allLogs.length > 0 ? hourlyHeatmapData : (hourlyHeatmap.length > 0 ? hourlyHeatmap : []);
+  // Use locally computed hourly heatmap data
+  const heatmapData = hourlyHeatmapData;
+  
+  // Debug: check if data is loading
+  const nonZeroCells = heatmapData.filter(c => (c.value || 0) > 0 || (c.externalSeconds || 0) > 0);
+  console.log('[DEBUG] heatmapData length:', heatmapData.length, 'non-zero:', nonZeroCells.length, 'allLogs:', allLogs?.length);
 
   const heatmapWeekLabel = useMemo(() => {
     const now = new Date();
@@ -912,187 +1251,429 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     return `${formatDate(targetWeekStart)} - ${formatDate(targetWeekEnd)}`;
   }, [weekOffset]);
 
-  const renderHeatmap = () => {
+    const renderHeatmap = () => {
     const currentHour = new Date().getHours();
     const currentDay = new Date().getDay();
-
-    const getHeatColor = (val: number, productivity: number) => {
-      if (val === 0) return 'rgba(55, 65, 81, 1)'; // #374151 visible gray
+    
+    const getHeatColor = (cell: HeatmapCell | undefined) => {
+      if (!cell) return 'rgba(55, 65, 81, 1)';
       
-      const prod = Math.max(0, Math.min(1, productivity));
+      let valueToUse = 0;
+      let productivityToUse = 0;
+      let isExternalOnly = false;
+      let hasBoth = false;
       
-      // Opacity based on duration: 1 hour = full opacity, more = saturated, less = transparent
-      const opacity = Math.min(1, 0.3 + (val / 3600) * 0.7);
-      
-      // Red (#ef4444) -> Yellow (#eab308) -> Green (#22c55e)
-      let r, g, b;
-      if (prod < 0.5) {
-        const t = prod * 2;
-        r = Math.round(239 * (1 - t) + 234 * t);
-        g = Math.round(68 * (1 - t) + 216 * t);
-        b = Math.round(68 * (1 - t) + 8 * t);
+      if (heatmapMode === 'device') {
+        valueToUse = cell.deviceSeconds || cell.value || 0;
+        productivityToUse = cell.productivity || 0;
+      } else if (heatmapMode === 'external') {
+        valueToUse = cell.externalSeconds || 0;
+        productivityToUse = valueToUse > 0 ? 1 : 0;
+        isExternalOnly = valueToUse > 0;
       } else {
-        const t = (prod - 0.5) * 2;
-        r = Math.round(234 * (1 - t) + 34 * t);
-        g = Math.round(216 * (1 - t) + 197 * t);
-        b = Math.round(8 * (1 - t) + 94 * t);
+        // Combined mode
+        const hasExternal = (cell.externalSeconds || 0) > 0;
+        const hasDevice = (cell.deviceSeconds || cell.value || 0) > 0;
+        
+        if (hasExternal && !hasDevice) {
+          valueToUse = cell.externalSeconds || 0;
+          productivityToUse = 1;
+          isExternalOnly = true;
+        } else if (!hasExternal && hasDevice) {
+          valueToUse = cell.deviceSeconds || cell.value || 0;
+          productivityToUse = cell.productivity || 0;
+        } else {
+          hasBoth = true;
+          valueToUse = Math.max(cell.deviceSeconds || 0, cell.externalSeconds || 0);
+          const deviceProd = cell.productivity || 0;
+          const externalProd = (cell.externalSeconds || 0) > 0 ? 1 : 0;
+          productivityToUse = (deviceProd + externalProd) / 2;
+        }
       }
       
-      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+      if (valueToUse === 0) return 'rgba(55, 65, 81, 1)';
+      
+      // Intensity based on usage: max 1 hour = full opacity, more = saturated
+      const maxSeconds = heatmapMode === 'external' ? 3600 : 7200; // External max 1h, device max 2h
+      const intensity = Math.min(1, valueToUse / maxSeconds);
+      const opacity = 0.2 + intensity * 0.8; // Range: 0.2 - 1.0
+      
+      // External color scheme (distinct purple)
+      if (isExternalOnly || (heatmapMode === 'combined' && (cell.externalSeconds || 0) > (cell.deviceSeconds || 0))) {
+        // Purple gradient: light purple = low usage, deep purple = high usage
+        const r = Math.round(147 + (99 - 147) * intensity);
+        const g = Math.round(51 + (102 - 51) * intensity);
+        const b = Math.round(234 + (236 - 234) * intensity);
+        return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+      }
+      
+      // Device color scheme (red -> yellow -> green based on productivity)
+      // Also used for "both" in combined mode
+      const prod = Math.max(0, Math.min(1, productivityToUse));
+      let r, g, b;
+      
+      if (hasBoth) {
+        // "Both" mode: mix green (device) + purple (external) tints
+        const deviceColor = prod < 0.5 
+          ? { r: 239 - (239-234) * prod*2, g: 68 + (216-68) * prod*2, b: 68 + (8-68) * prod*2 }
+          : { r: 234 + (34-234) * (prod-0.5)*2, g: 216 + (197-216) * (prod-0.5)*2, b: 8 + (94-8) * (prod-0.5)*2 };
+        
+        // Blend with purple (external) - 30% purple tint
+        const purpleTint = 0.3;
+        r = Math.round(deviceColor.r * (1 - purpleTint) + 99 * purpleTint);
+        g = Math.round(deviceColor.g * (1 - purpleTint) + 102 * purpleTint);
+        b = Math.round(deviceColor.b * (1 - purpleTint) + 236 * purpleTint);
+      } else {
+        // Pure device mode: red -> green gradient
+        if (prod < 0.5) {
+          r = Math.round(239 * (1 - prod*2) + 234 * prod*2);
+          g = Math.round(68 * (1 - prod*2) + 216 * prod*2);
+          b = Math.round(68 * (1 - prod*2) + 8 * prod*2);
+        } else {
+          r = Math.round(234 * (1 - (prod-0.5)*2) + 34 * (prod-0.5)*2);
+          g = Math.round(216 * (1 - (prod-0.5)*2) + 197 * (prod-0.5)*2);
+          b = Math.round(8 * (1 - (prod-0.5)*2) + 94 * (prod-0.5)*2);
+        }
+      }
+      
+      return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${opacity})`;
     };
-
+    
+    const handleDayClick = (dayIdx: number) => {
+      console.log('[Dashboard] Day clicked:', dayIdx, 'weekOffset:', weekOffset);
+      const now = new Date();
+      const currentWeekStart = new Date(now);
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      currentWeekStart.setHours(0, 0, 0, 0);
+      const targetWeekStart = new Date(currentWeekStart.getTime() + (weekOffset * 7 * 24 * 60 * 60 * 1000));
+      const targetDate = new Date(targetWeekStart);
+      targetDate.setDate(targetDate.getDate() + dayIdx); // dayIdx 0=Sun, 1=Mon, etc.
+      const dateStr = targetDate.toISOString().split('T')[0];
+      console.log('[Dashboard] Day click date:', dateStr);
+      setSelectedHeatmapHour(null);
+      // Day detail popup removed - using inline detail panel
+      
+      if (window.deskflowAPI?.getDayDetail) {
+        window.deskflowAPI.getDayDetail(dateStr).then(detail => {
+          console.log('[Dashboard] Day detail:', detail);
+          setHeatmapDayDetail(detail || { externalSessions: [], appSessions: [], browserSessions: [], logs: [] });
+        });
+      }
+    };
+    
     return (
       <div className="relative w-full">
         <div className="overflow-x-auto">
           <div className="w-full bg-zinc-950 rounded-2xl border border-zinc-800 p-6">
+            {/* Day Headers - aligned with grid */}
             <div className="flex items-center mb-3">
               <div className="w-14 flex-shrink-0"></div>
-              {DAYS.map((day, dayIdx) => (
-                <div
-                  key={dayIdx}
-                  className={`flex-1 text-center text-sm font-semibold mx-px ${dayIdx === currentDay ? 'text-emerald-400' : 'text-zinc-400'}`}
-                >
-                  {day}
-                </div>
-              ))}
-            </div>
-
-            {Array.from({ length: 24 }, (_, hourIdx) => (
-              <div key={hourIdx} className="flex items-center py-[1px]">
-                <div className={`w-14 flex-shrink-0 pr-3 text-xs font-mono text-right ${hourIdx === currentHour ? 'text-emerald-400 font-bold' : 'text-zinc-500'}`}>
-                  {hourIdx.toString().padStart(2, '0')}:00
-                </div>
-                {DAYS.map((_, dayIdx) => {
-                  const cell = hourlyHeatmapData.find(c => c.day === dayIdx && c.hour === hourIdx);
-                  const val = cell?.value || 0;
-                  const productivity = cell?.productivity || 0;
-                  const isToday = dayIdx === currentDay;
-                  const isCurrentHour = hourIdx === currentHour;
-                  const bgColor = getHeatColor(val, productivity);
-                  const prodPercent = Math.round(productivity * 100);
-                  const timeDisplay = val >= 3600 ? '1h' : val >= 60 ? `${Math.floor(val / 60)}m` : `${val}s`;
-                  
-                  // Parse the RGBA values for glow
-                  const rgbaMatch = bgColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-                  const glowRgb = rgbaMatch ? `${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}` : '34, 197, 94';
-
-                  return (
-                    <motion.div
-                      key={dayIdx}
-                      className="flex-1 h-6 mx-px rounded-md cursor-pointer relative min-w-[28px]"
-                      style={{
-                        backgroundColor: bgColor,
-                        boxShadow: val > 70 ? `0 0 12px rgba(${glowRgb}, 0.5)` : 'inset 0 0 2px rgba(255,255,255,0.08)'
-                      }}
-                      onMouseEnter={() => setHoveredCell({ day: dayIdx, hour: hourIdx, value: val, productivity })}
-                      onMouseLeave={() => setHoveredCell(null)}
-                      whileHover={{ scale: 1.08, zIndex: 20 }}
-                      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                    >
-                      {isCurrentHour && isToday && (
-                        <div className="absolute inset-0 rounded-md ring-2 ring-emerald-400 ring-offset-2 ring-offset-zinc-950" />
-                      )}
-                    </motion.div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 mt-5">
-          <div className="flex items-center justify-center gap-4 text-sm text-zinc-400">
-            <span>Distracting</span>
-            <div className="flex items-center gap-1.5">
-              {[0, 0.25, 0.5, 0.75, 1].map((p, i) => {
-                const r = p === 0 ? '#374151' : p < 0.5 ? Math.round(239 * (1 - p*2) + 234 * p*2) : Math.round(234 * (1 - (p-0.5)*2) + 34 * (p-0.5)*2);
-                const g = p === 0 ? '#374151' : p < 0.5 ? Math.round(68 * (1 - p*2) + 216 * p*2) : Math.round(216 * (1 - (p-0.5)*2) + 197 * (p-0.5)*2);
-                const b = p === 0 ? '#374151' : p < 0.5 ? Math.round(68 * (1 - p*2) + 8 * p*2) : Math.round(8 * (1 - (p-0.5)*2) + 94 * (p-0.5)*2);
-                return (
+              <div className="flex-1 flex">
+                {DAYS.map((day, dayIdx) => (
                   <div
-                    key={i}
-                    className="w-7 h-4 rounded relative"
-                    style={{ backgroundColor: `rgb(${r}, ${g}, ${b})`, border: '1px solid #27272a' }}
-                    title={`${Math.round(p * 100)}% productive`}
-                  />
+                    key={dayIdx}
+                    className={`flex-1 text-center text-sm font-semibold mx-px cursor-pointer hover:text-white transition ${dayIdx === currentDay ? 'text-emerald-400' : 'text-zinc-400'}`}
+                    onClick={() => handleDayClick(dayIdx)}
+                  >
+                    {day}
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Mode Toggle - below day headers */}
+            <div className="flex justify-end mb-3">
+              <div className="flex bg-zinc-800 rounded-lg p-1 gap-1">
+                {(['device', 'external', 'combined'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setHeatmapMode(mode)}
+                    className={`px-3 py-1.5 text-xs rounded-md transition capitalize ${heatmapMode === mode ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  >
+                    {mode === 'device' ? '📱 Device' : mode === 'external' ? '🎮 External' : '🔄 Combined'}
+                  </button>
+                ))}
+              </div>
+            </div>
+             
+              {Array.from({ length: 24 }, (_, hourIdx) => {
+                const hourStr = hourIdx.toString().padStart(2, '0');
+                return (
+                  <div key={hourIdx} className="flex items-center py-[1px]">
+                    <div className={`w-10 flex-shrink-0 pr-1 text-[10px] font-mono text-right text-zinc-500`}>
+                      {hourStr}
+                    </div>
+                    {DAYS.map((_, dayIdx) => {
+                      const actualHour = hourIdx;
+                      const cell = heatmapData.find(c => c.day === dayIdx && c.hour === actualHour);
+                      if (!cell) return <div key={dayIdx} className="flex-1 h-6 mx-px" />;
+                      
+                      const bgColor = getHeatColor(cell);
+                      const isToday = dayIdx === currentDay;
+                      const isCurrentHour = actualHour === currentHour;
+                      
+                      const rgbaMatch = bgColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+                      const glowRgb = rgbaMatch ? `${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}` : '34, 197, 94';
+                      
+                      return (
+                        <motion.div
+                          key={dayIdx}
+                          className="flex-1 h-6 mx-px rounded-md cursor-pointer relative min-w-[28px]"
+                          style={{
+                            backgroundColor: bgColor,
+                            boxShadow: (cell.deviceSeconds || cell.externalSeconds || 0) > 70 ? `0 0 12px rgba(${glowRgb}, 0.5)` : 'inset 0 0 2px rgba(255,255,255,0.08)'
+                          }}
+                          onClick={() => {
+                            setSelectedHeatmapHour(selectedHeatmapHour === actualHour ? null : actualHour);
+                            setHoveredCell({ 
+                              day: dayIdx, 
+                              hour: actualHour, 
+                              value: cell.value, 
+                              productivity: cell.productivity,
+                              deviceSeconds: cell.deviceSeconds,
+                              externalSeconds: cell.externalSeconds
+                            });
+                          }}
+                          onMouseEnter={() => setHoveredCell({ 
+                            day: dayIdx, 
+                            hour: actualHour, 
+                            value: cell.value, 
+                            productivity: cell.productivity,
+                            deviceSeconds: cell.deviceSeconds,
+                            externalSeconds: cell.externalSeconds
+                          })}
+                          onMouseLeave={() => setHoveredCell(null)}
+                          whileHover={{ scale: 1.08, zIndex: 20 }}
+                          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                        >
+                          {isCurrentHour && isToday && (
+                            <div className="absolute inset-0 rounded-md ring-2 ring-emerald-400 ring-offset-1 ring-offset-zinc-950" />
+                          )}
+                        </motion.div>
+                      );
+                    })}
+                  </div>
                 );
               })}
-            </div>
-            <span>Productive</span>
-          </div>
-          <div className="flex justify-center gap-1 text-xs text-zinc-600 -mt-1">
-            <span className="w-7 text-center">0%</span>
-            <span className="w-7 text-center">25%</span>
-            <span className="w-7 text-center">50%</span>
-            <span className="w-7 text-center">75%</span>
-            <span className="w-7 text-center">100%</span>
-          </div>
-          <div className="text-center text-xs text-zinc-500">
-            Colors show <span className="text-zinc-300 font-medium">productivity percentage</span> — red = distracting, green = productive.
           </div>
         </div>
-
+        
+        {/* Hover Tooltip */}
         <AnimatePresence>
-          {hoveredCell && (
+          {hoveredCell && !selectedHeatmapHour && (
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 8 }}
               className="absolute glass px-4 py-2.5 rounded-xl border border-zinc-700 shadow-xl z-50 pointer-events-none"
               style={{
-                minWidth: '200px',
+                minWidth: '220px',
                 left: '50%',
                 transform: 'translateX(-50%)',
                 top: `${(hoveredCell.hour * 26) + 50}px`
               }}
             >
-              <div className="font-semibold text-white text-xs mb-1.5">
-                {DAYS[hoveredCell.day]} at {hoveredCell.hour.toString().padStart(2, '0')}:00 – {(hoveredCell.hour + 1).toString().padStart(2, '0')}:00
+              <div className="font-semibold text-white text-xs mb-2">
+                {DAYS[hoveredCell.day]} • {hoveredCell.hour.toString().padStart(2, '0')}:00 – {(hoveredCell.hour + 1).toString().padStart(2, '0')}:00
               </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-zinc-400 text-xs">Time:</span>
-                <span className="font-mono text-lg text-emerald-400 tabular-nums">
-                  {formatDuration(Math.floor(hoveredCell.value) * 1000)}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between mt-0.5">
-                <span className="text-zinc-400 text-xs">Productivity:</span>
-                <span className={`font-mono text-sm tabular-nums ${hoveredCell.productivity >= 0.5 ? 'text-emerald-400' : hoveredCell.productivity > 0 ? 'text-yellow-400' : 'text-red-400'}`}>
-                  {Math.round(hoveredCell.productivity * 100)}%
-                </span>
+              <div className="space-y-1">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-zinc-400 text-xs">📱 Device:</span>
+                  <span className="font-mono text-sm text-emerald-400 tabular-nums">
+                    {formatDuration((hoveredCell.deviceSeconds || 0) * 1000)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-zinc-400 text-xs">🎮 External:</span>
+                  <span className="font-mono text-sm text-purple-400 tabular-nums">
+                    {formatDuration((hoveredCell.externalSeconds || 0) * 1000)}
+                  </span>
+                </div>
               </div>
             </motion.div>
           )}
+        </AnimatePresence>
+        
+        {/* Click Detail Panel */}
+        <AnimatePresence>
+          {selectedHeatmapHour !== null && (() => {
+            const clickedCell = hourlyHeatmapData.find(c => c.hour === selectedHeatmapHour);
+            if (!clickedCell) return null;
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 20, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: 'auto' }}
+                exit={{ opacity: 0, y: 20, height: 0 }}
+                className="mt-6 p-4 rounded-xl border border-zinc-700 bg-zinc-900/30 space-y-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-white">
+                    {DAYS[clickedCell.day]} • {selectedHeatmapHour.toString().padStart(2, '0')}:00 – {(selectedHeatmapHour + 1).toString().padStart(2, '0')}:00
+                  </div>
+                  <button
+                    onClick={() => setSelectedHeatmapHour(null)}
+                    className="text-zinc-400 hover:text-zinc-300 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Device Column */}
+                  <div className="space-y-3">
+                    <div className="font-semibold text-emerald-400 text-sm flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-emerald-400" />
+                      Device Activity
+                    </div>
+                    {clickedCell.deviceSeconds === 0 ? (
+                      <div className="text-xs text-zinc-500 italic">No device activity this hour</div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-baseline justify-between text-xs">
+                          <span className="text-zinc-400">Total Time:</span>
+                          <span className="font-mono text-emerald-400">{formatDuration((clickedCell.deviceSeconds || 0) * 1000)}</span>
+                        </div>
+                        <div className="text-xs text-zinc-600 border-t border-zinc-700 pt-2 mt-2">
+                          Apps and browser usage from this hour
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* External Column */}
+                  <div className="space-y-3">
+                    <div className="font-semibold text-purple-400 text-sm flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-purple-400" />
+                      External Activity
+                    </div>
+                    {clickedCell.externalSeconds === 0 ? (
+                      <div className="text-xs text-zinc-500 italic">No external activity this hour</div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-baseline justify-between text-xs">
+                          <span className="text-zinc-400">Total Time:</span>
+                          <span className="font-mono text-purple-400">{formatDuration((clickedCell.externalSeconds || 0) * 1000)}</span>
+                        </div>
+                        {(() => {
+                          const breakdown = clickedCell.externalBreakdown || {};
+                          const activities = Object.entries(breakdown).sort((a, b) => b[1].seconds - a[1].seconds);
+                          
+                          return activities.length > 0 ? (
+                            <div className="space-y-1 border-t border-zinc-700 pt-2 mt-2">
+                              {activities.map(([activity, data]: [string, any]) => (
+                                <div key={activity} className="flex items-baseline justify-between text-xs">
+                                  <span className="text-zinc-400 truncate flex items-center gap-1">
+                                    {data.icon || '🎮'} {activity}:
+                                  </span>
+                                  <span className="font-mono text-purple-300 ml-2 flex-shrink-0">{formatDuration(data.seconds * 1000)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })()}
         </AnimatePresence>
       </div>
     );
   };
 
-  // Compute real solar system data from allLogs (filtered by selectedPeriod)
+// Compute website data from allLogs (filtered by selectedPeriod + periodOffset)
+  const computedWebsiteData = useMemo(() => {
+    const websiteUsage: Record<string, number> = {};
+
+    // Filter logs by selectedPeriod + periodOffset (same as chart)
+    const now = new Date();
+    let targetStart: Date;
+    let targetEnd: Date;
+
+    if (selectedPeriod === 'today') {
+      targetStart = new Date(now);
+      targetStart.setDate(targetStart.getDate() - periodOffset);
+      targetStart.setHours(0, 0, 0, 0);
+      targetEnd = new Date(targetStart);
+      targetEnd.setHours(23, 59, 59, 999);
+    } else if (selectedPeriod === 'week') {
+      const currentWeekStart = new Date(now);
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      currentWeekStart.setHours(0, 0, 0, 0);
+      targetStart = new Date(currentWeekStart.getTime() - (periodOffset * 7 * 24 * 60 * 60 * 1000));
+      targetEnd = new Date(targetStart.getTime() + (7 * 24 * 60 * 60 * 1000) - 1);
+    } else if (selectedPeriod === 'month') {
+      targetStart = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
+      targetEnd = new Date(targetStart.getFullYear(), targetStart.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else {
+      // 'all' - no filter
+      targetStart = new Date(0);
+      targetEnd = new Date();
+    }
+
+    const filteredLogs = allLogs.filter(log => {
+      const logTime = log.timestamp.getTime();
+      return logTime >= targetStart.getTime() && logTime <= targetEnd.getTime();
+    });
+
+    filteredLogs.forEach((log: any) => {
+      // Only browser logs
+      if (!log.is_browser_tracking) return;
+      const domain = log.domain || log.url || log.app || 'Unknown';
+      const durationMs = log.duration_ms || ((log.duration || 0) * 1000);
+      if (!websiteUsage[domain]) {
+        websiteUsage[domain] = 0;
+      }
+      websiteUsage[domain] += durationMs;
+    });
+
+    return Object.entries(websiteUsage)
+      .map(([name, usage_ms]) => ({ name, usage_ms, category: 'Website' }))
+      .sort((a, b) => b.usage_ms - a.usage_ms);
+  }, [allLogs, selectedPeriod, periodOffset]);
+
+  // Compute real solar system data from allLogs (filtered by selectedPeriod + periodOffset)
   const computedSolarData = useMemo(() => {
     const appUsage: Record<string, number> = {};
     const selectedBrowser = trackingBrowser?.toLowerCase() || '';
-    
-    // Filter logs by selectedPeriod first
+
+    // Filter logs by selectedPeriod + periodOffset (same as chart)
     const now = new Date();
-    let filteredLogs = allLogs;
-    
+    let targetStart: Date;
+    let targetEnd: Date;
+
     if (selectedPeriod === 'today') {
-      filteredLogs = allLogs.filter(log =>
-        log.timestamp.getDate() === now.getDate() &&
-        log.timestamp.getMonth() === now.getMonth() &&
-        log.timestamp.getFullYear() === now.getFullYear()
-      );
+      targetStart = new Date(now);
+      targetStart.setDate(targetStart.getDate() - periodOffset);
+      targetStart.setHours(0, 0, 0, 0);
+      targetEnd = new Date(targetStart);
+      targetEnd.setHours(23, 59, 59, 999);
     } else if (selectedPeriod === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      filteredLogs = allLogs.filter(log => log.timestamp >= weekAgo);
+      const currentWeekStart = new Date(now);
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      currentWeekStart.setHours(0, 0, 0, 0);
+      targetStart = new Date(currentWeekStart.getTime() - (periodOffset * 7 * 24 * 60 * 60 * 1000));
+      targetEnd = new Date(targetStart.getTime() + (7 * 24 * 60 * 60 * 1000) - 1);
     } else if (selectedPeriod === 'month') {
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      filteredLogs = allLogs.filter(log => log.timestamp >= monthAgo);
+      targetStart = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
+      targetEnd = new Date(targetStart.getFullYear(), targetStart.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else {
+      // 'all' - no filter
+      targetStart = new Date(0);
+      targetEnd = new Date();
     }
-    
+
+    const filteredLogs = allLogs.filter(log => {
+      const logTime = log.timestamp.getTime();
+      return logTime >= targetStart.getTime() && logTime <= targetEnd.getTime();
+    });
+
     filteredLogs.forEach((log: any) => {
       if (!log.app) return;
+      // Skip browser tracking logs
+      if (log.is_browser_tracking) return;
       const appLower = (log.app || '').toLowerCase();
       if (selectedBrowser && appLower.includes(selectedBrowser)) return;
       const durationMs = log.duration_ms || ((log.duration || 0) * 1000);
@@ -1101,48 +1682,11 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       }
       appUsage[log.app] += durationMs;
     });
-    
+
     return Object.entries(appUsage)
-      .map(([name, usage_ms]) => ({ name, usage_ms, category: 'Tool' }))
-      .sort((a, b) => b.usage_ms - a.usage_ms)
-      .slice(0, 5);
-  }, [allLogs, trackingBrowser, selectedPeriod]);
-  
-  // Compute website solar data
-  const computedWebsiteData = useMemo(() => {
-    const websiteUsage: Record<string, number> = {};
-    const now = new Date();
-    let filteredLogs = allLogs.filter((log: any) => log.is_browser_tracking || log.domain);
-    
-    if (selectedPeriod === 'today') {
-      filteredLogs = filteredLogs.filter(log =>
-        log.timestamp.getDate() === now.getDate() &&
-        log.timestamp.getMonth() === now.getMonth() &&
-        log.timestamp.getFullYear() === now.getFullYear()
-      );
-    } else if (selectedPeriod === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      filteredLogs = filteredLogs.filter(log => log.timestamp >= weekAgo);
-    } else if (selectedPeriod === 'month') {
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      filteredLogs = filteredLogs.filter(log => log.timestamp >= monthAgo);
-    }
-    
-    filteredLogs.forEach((log: any) => {
-      const domain = log.domain || log.app;
-      if (!domain) return;
-      const durationMs = log.duration_ms || ((log.duration || 0) * 1000);
-      if (!websiteUsage[domain]) {
-        websiteUsage[domain] = 0;
-      }
-      websiteUsage[domain] += durationMs;
-    });
-    
-    return Object.entries(websiteUsage)
-      .map(([name, usage_ms]) => ({ name, usage_ms, category: 'Website' }))
-      .sort((a, b) => b.usage_ms - a.usage_ms)
-      .slice(0, 5);
-  }, [allLogs, selectedPeriod]);
+      .map(([name, usage_ms]) => ({ name, usage_ms, category: 'App' }))
+      .sort((a, b) => b.usage_ms - a.usage_ms);
+  }, [allLogs, selectedPeriod, periodOffset]);
 
   // Toggle for App/Website view in solar system
   const [solarMode, setSolarMode] = useState<'apps' | 'websites'>('apps');
@@ -1154,14 +1698,13 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     { name: 'Chrome', usage_ms: 3600000, category: 'Browser' },
     { name: 'Antigravity', usage_ms: 1800000, category: 'IDE' },
   ];
-  const solar = solarMode === 'websites' 
+
+  // Use computed data based on selectedPeriod + periodOffset (same as chart)
+  const solar = solarMode === 'websites'
     ? (allLogs.length > 0 ? computedWebsiteData : defaultSolarData)
-    : (solarSystemData.length > 0 ? solarSystemData : (allLogs.length > 0 ? computedSolarData : defaultSolarData));
+    : (allLogs.length > 0 ? computedSolarData : defaultSolarData);
   const maxUsage = Math.max(...solar.map(d => d.usage_ms), 1);
 
-  const isCurrentlyProductive = lastTier === 'productive' && !isPaused;
-  const isDistracting = lastTier === 'distracting' && !isPaused;
-  
   // Border colors for different states
   const borderColor = externalSessionRunning 
     ? 'rgba(139, 92, 246, 0.3)'  // Purple for external
@@ -1253,9 +1796,10 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
   // Calculate active session elapsed time with live updates
   const getElapsedDuration = (item: ActivityFeedItem): string => {
     if (!item.isActive || !item.startTime) return '';
-    const elapsed = tick * 1000; // approximate - real calculation below
     const elapsedMs = Date.now() - item.startTime;
-    const elapsedSec = Math.floor(elapsedMs / 1000);
+    // SAFETY: Cap at 24 hours to prevent showing insane durations from bad startTime
+    const cappedMs = Math.min(elapsedMs, 86400000); // 24 hours max
+    const elapsedSec = Math.floor(cappedMs / 1000);
     const elapsedMin = Math.floor(elapsedSec / 60);
     const elapsedHr = Math.floor(elapsedMin / 60);
     
@@ -1351,7 +1895,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
               }}
             >
               <div className="text-center space-y-6">
-                {/* Status indicator */}
+                {/* Status indicator - Adaptive: shows external if running */}
 <motion.div
                   animate={{ opacity: (isCurrentlyProductive || externalSessionRunning || isDistracting) ? [1, 0.7, 1] : 1 }}
                   transition={{ duration: 2, repeat: (isCurrentlyProductive || externalSessionRunning || isDistracting) ? Infinity : 0 }}
@@ -1360,7 +1904,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                   <div 
                     className="w-3 h-3 rounded-full"
                     style={{ 
-                      backgroundColor: externalSessionRunning 
+                      backgroundColor: displayTime.label.includes('External')
                         ? '#8b5cf6'  // Purple for external
                         : isDistracting 
                           ? '#ef4444'  // Red for distracting
@@ -1369,46 +1913,46 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                             : '#6b7280'  // Gray for idle
                     }}
                   />
-                   <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
-                      {isPaused 
-                        ? '⏸ Paused' 
-                        : externalSessionRunning 
-                          ? `External: ${selectedExternalActivity?.name}`
+                 <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+                    {isPaused 
+                      ? '⏸ Paused' 
+                      : displayTime.label.includes('External')
+                        ? displayTime.label
                           : isDistracting 
-                            ? '⛔ Distracting'
-                            : isCurrentlyProductive 
-                              ? '🔒 Locked In' 
-                              : '⏸ Idle'}
-                   </span>
+                          ? '⛔ Distracting'
+                          : isCurrentlyProductive 
+                            ? '🔒 Locked In' 
+                            : '⏸ Idle'}
+                  </span>
                 </motion.div>
 
-                {/* Giant Timer */}
+                {/* Giant Timer - Adaptive: shows external if running, otherwise productive */}
                 <motion.div
-                  key={externalSessionRunning ? externalElapsedMs : currentProductiveMs}
+                  key={externalSessionRunning ? 'external' : 'productive'}
                   initial={{ scale: 0.95, opacity: 0.8 }}
                   animate={{ scale: 1, opacity: 1 }}
                   className="font-mono font-bold"
                   style={{
-                    fontSize: externalSessionRunning ? '80px' : '120px',
+                    fontSize: displayTime.label.includes('External') ? '80px' : '120px',
                     lineHeight: '1',
-                    color: externalSessionRunning 
+                    color: displayTime.label.includes('External') 
                       ? '#8b5cf6'  // Purple for external
                       : isDistracting 
                         ? '#ef4444'  // Red for distracting
                         : isCurrentlyProductive 
                           ? '#10b981'  // Green for productive
                           : '#9ca3af',  // Gray for idle
-textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isDistracting) 
-                      ? (externalSessionRunning 
-                          ? '0 0 30px rgba(139, 92, 246, 0.3)' 
-                          : isDistracting 
-                            ? '0 0 30px rgba(239, 68, 68, 0.3)'
-                            : '0 0 30px rgba(16, 185, 129, 0.3)') 
-: 'none',
+                    textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isDistracting) 
+                      ? (displayTime.label.includes('External') 
+                        ? '0 0 30px rgba(139, 92, 246, 0.3)' 
+                        : isDistracting 
+                          ? '0 0 30px rgba(239, 68, 68, 0.3)' 
+                          : '0 0 30px rgba(16, 185, 129, 0.3)') 
+                      : 'none',
                     letterSpacing: '-0.02em'
                   }}
                 >
-                  {externalSessionRunning ? formatDuration(externalElapsedMs) : formatDuration(currentProductiveMs)}
+                  {formatDuration(displayTime.ms)}
                 </motion.div>
                 
                 {/* Show external activity name when running */}
@@ -1468,7 +2012,7 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
                   </motion.div>
                 )}
 
-                {/* Helpful message */}
+                {/* Helpful message - Adaptive */}
                 <div className="text-xs text-zinc-600 pt-4 border-t border-zinc-800">
                   {externalSessionRunning 
                     ? `External activity: ${selectedExternalActivity?.name}. Timer running.`
@@ -1476,8 +2020,10 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
                       ? 'Productive work detected. Timer running.'
                       : 'No productive activity detected. Open an IDE, editor, or learning tool to start.')}
                 </div>
-              </div>
-            </div>
+                   </div>
+
+{/* View Heatmap Button - REMOVED, now in Weekly Productivity section */}
+                 </div>
           </motion.div>
 
           {/* Stats Cards Row */}
@@ -1517,13 +2063,13 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
               <div className="text-2xl font-bold text-red-400">{resetCount}</div>
             </div>
 
-            {/* External Time */}
-            <div className="rounded-xl p-4 border backdrop-blur-sm" style={{ backgroundColor: 'rgba(10, 10, 10, 0.8)', borderColor: 'rgba(107, 114, 128, 0.2)' }}>
-              <div className="text-xs text-zinc-400 uppercase tracking-wider mb-1">External</div>
-              <div className="text-2xl font-bold text-white">
-                {formatDuration(externalElapsedMs).substring(0, 5)}
+              {/* Adaptive Time Card - shows External if running, otherwise Productive */}
+              <div className="rounded-xl p-4 border backdrop-blur-sm" style={{ backgroundColor: 'rgba(10, 10, 10, 0.8)', borderColor: displayTime.label.includes('External') ? 'rgba(139, 92, 246, 0.3)' : 'rgba(107, 114, 128, 0.2)' }}>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-1">{displayTime.label.includes('External') ? 'External' : 'Productive'}</div>
+                <div className="text-2xl font-bold" style={{ color: displayTime.label.includes('External') ? '#a78bfa' : '#10b981' }}>
+                  {formatDuration(displayTime.ms)}
+                </div>
               </div>
-            </div>
           </motion.div>
 
           {/* Pinned Activities */}
@@ -1615,9 +2161,13 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
                   <motion.div className="relative">
                     <motion.button
                       onClick={() => {
-                        const availableActivities = activities.filter(a => !pinnedActivities.find(p => p.id === a.id));
-                        if (availableActivities.length > 0) {
-                          setPinnedActivities(prev => [...prev, availableActivities[0]]);
+                        const available = activities.filter(a => !pinnedActivities.find(p => p.id === a.id));
+                        if (available.length === 0) {
+                          // No more activities to add
+                        } else if (available.length === 1) {
+                          setPinnedActivities(prev => [...prev, available[0]]);
+                        } else {
+                          setAddPinnedPicker(available);
                         }
                       }}
                       whileHover={{ scale: 1.05 }}
@@ -1631,6 +2181,38 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
                       <Plus className="w-6 h-6 mx-auto mb-2 text-zinc-500" />
                       <div className="text-xs font-semibold text-zinc-500">Add</div>
                     </motion.button>
+                    
+                    {/* Activity picker dropdown */}
+                    {addPinnedPicker && addPinnedPicker.length > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="absolute top-full left-0 right-0 mt-2 z-50 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl max-h-48 overflow-y-auto"
+                      >
+                        {addPinnedPicker.map(activity => (
+                          <button
+                            key={activity.id}
+                            onClick={() => {
+                              setPinnedActivities(prev => [...prev, activity]);
+                              setAddPinnedPicker([]);
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-800 flex items-center gap-2"
+                          >
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: activity.color }}
+                            />
+                            {activity.name}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => setAddPinnedPicker([])}
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-800 text-zinc-500 border-t border-zinc-700"
+                        >
+                          Cancel
+                        </button>
+                      </motion.div>
+                    )}
                   </motion.div>
                 )}
                 
@@ -1691,137 +2273,230 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
 
            {/* Two-Column Stats Section */}
            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
-             {/* Weekly Heatmap */}
-             <motion.div
-               initial={{ opacity: 0, y: 20 }}
-               animate={{ opacity: 1, y: 0 }}
-               transition={{ delay: 0.2 }}
-               onClick={() => setExpandedModal('heatmap')}
-               className="rounded-2xl p-8 border backdrop-blur-sm cursor-pointer hover:border-zinc-500 transition-colors"
-               style={{
-                 backgroundColor: 'rgba(10, 10, 10, 0.8)',
-                 borderColor: 'rgba(107, 114, 128, 0.2)'
-               }}
-             >
-<div className="space-y-4">
-                  <div>
-                    <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Weekly Productivity</h2>
-                    <p className="text-xs text-zinc-600 mt-1">Days × Hours (click to expand)</p>
-                  </div>
-                  {/* Same grid as App.tsx: 7 days x top 9 hours */}
-                  <div className="flex items-end justify-between gap-1 h-40">
-                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayName, dayIdx) => {
-                      const dayData = heatmapData.filter(c => c.day === dayIdx);
-                      const totalSeconds = dayData.reduce((sum, c) => sum + (c.value || 0), 0);
-                      const hours = totalSeconds / 3600;
-                      const height = Math.min(100, (hours / 8) * 100);
-                      const todayIdx = new Date().getDay();
-                      const isToday = dayIdx === todayIdx;
-                      
-                      const bg = hours < 0.1 ? '#18181b' : hours >= 2 ? '#22c55e' : hours >= 1 ? '#16a34a' : '#15803d';
-                      const glow = hours < 0.1 ? 'none' : '0 0 8px rgba(34, 197, 94, 0.4)';
-                      
-                      return (
-                        <div key={dayName} className="flex-1 flex flex-col items-center gap-1 group cursor-pointer min-w-12">
-                          <div className="flex-1 w-full flex items-end justify-center h-36">
-                            <motion.div
-                              initial={{ height: '2px' }}
-                              animate={{ height: `${Math.max(height, 2)}%` }}
-                              transition={{ delay: dayIdx * 0.05, duration: 0.4 }}
-                              className="w-3/4 rounded-t-md"
-                              style={{ 
-                                backgroundColor: bg,
-                                minHeight: '2px',
-                                boxShadow: glow,
-                              }}
-                            />
-                          </div>
-                          <div className={`text-xs font-mono font-semibold ${isToday ? 'text-emerald-400' : 'text-zinc-600'}`}>
-                            {dayName}
-                          </div>
-                          <div className="text-[10px] text-zinc-500 group-hover:text-zinc-400 transition-colors leading-tight text-center">
-                            {hours < 0.1 ? (
-                              <span className="text-zinc-700">--</span>
-                            ) : (
-                              <span>{hours >= 1 ? `${hours.toFixed(1)}h` : `${Math.round(hours * 60)}m`}</span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-               </div>
-            </motion.div>
-
-             {/* App Usage Solar System */}
-             <motion.div
-               initial={{ opacity: 0, y: 20 }}
-               animate={{ opacity: 1, y: 0 }}
-               transition={{ delay: 0.3 }}
-               onClick={() => setExpandedModal('solar')}
-               className="rounded-2xl p-8 border backdrop-blur-sm cursor-pointer hover:border-zinc-500 transition-colors"
-               style={{
-                 backgroundColor: 'rgba(10, 10, 10, 0.8)',
-                 borderColor: 'rgba(107, 114, 128, 0.2)'
-               }}
->
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">App Ecosystem</h2>
-                      <p className="text-xs text-zinc-600 mt-1">Your top tools in orbit (click to expand)</p>
-                    </div>
-                    <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+              {/* Weekly Heatmap */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="rounded-2xl p-8 border backdrop-blur-sm transition-colors"
+                style={{
+                  backgroundColor: 'rgba(10, 10, 10, 0.8)',
+                  borderColor: 'rgba(107, 114, 128, 0.2)'
+                }}
+               >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Weekly Productivity</h2>
+                        <p className="text-xs text-zinc-600 mt-1">App + External Activity</p>
+                      </div>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setSolarMode('apps'); }}
-                        className={`px-2 py-1 text-xs rounded transition-colors ${solarMode === 'apps' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        onClick={() => setExpandedModal('heatmap')}
+                        className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 hover:text-white transition-colors border border-zinc-700 hover:border-zinc-600"
                       >
-                        Apps
+                        View Heatmap
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setSolarMode('websites'); }}
-                        className={`px-2 py-1 text-xs rounded transition-colors ${solarMode === 'websites' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                      >
-                        Websites
-                      </button>
-                    </div>
-                  </div>
-                   <div className="relative h-48 flex items-center justify-center">
-                    <div className="absolute w-12 h-12 rounded-full border border-zinc-700 flex items-center justify-center">
-                      <Sun className="w-6 h-6 text-zinc-600" />
-                    </div>
-                    
-                    {solarData.slice(0, 5).map((app, i) => {
-                     const size = Math.max(48, 28 + (app.usage_ms / maxUsage) * 56);
-                     const angle = (i * 360) / Math.min(solar.length, 5);
-                     const radius = 60 + (i % 2) * 30;
-                     const rad = (angle * Math.PI) / 180;
-                     const x = Math.cos(rad) * radius;
-                     const y = Math.sin(rad) * radius;
-                     
-                     return (
-                       <motion.div
-                         key={app.name}
-                         initial={{ scale: 0, x: 0, y: 0 }}
-                         animate={{ scale: 1, x, y }}
-                         transition={{ delay: 0.3 + i * 0.1 }}
-                         className="absolute rounded-full border border-zinc-700 flex flex-col items-center justify-center text-xs font-semibold text-zinc-300 hover:border-zinc-500 transition-colors p-2"
-                         style={{ 
-                           width: size, 
-                           height: size,
-                           backgroundColor: 'rgba(24, 24, 27, 0.9)',
-                           cursor: 'pointer'
-                         }}
-                         title={`${app.name}: ${Math.round((app.usage_ms / 1000 / 3600) * 10) / 10}h`}
+                      <div className="flex items-center gap-3">
+                       {/* Period navigation */}
+                       <button
+                         onClick={() => setPeriodOffset(o => o + 1)}
+                         className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white transition"
+                         title="Previous period"
                        >
-                         <div className="text-center truncate">{app.name.length > 8 ? app.name.substring(0, 8) + '...' : app.name}</div>
-                         <div className="text-xs text-zinc-500 mt-0.5">{Math.round((app.usage_ms / 1000 / 3600) * 10) / 10}h</div>
-                       </motion.div>
-                     );
-                   })}
-                 </div>
-               </div>
+                         <ChevronLeft className="w-4 h-4" />
+                       </button>
+                       <button
+                         onClick={() => setPeriodOffset(0)}
+                         className="px-2 py-0.5 text-xs rounded hover:bg-zinc-800 text-zinc-500 hover:text-white transition"
+                       >
+                         Today
+                       </button>
+                       <button
+                         onClick={() => setPeriodOffset(o => Math.max(o - 1, 0))}
+                         disabled={periodOffset <= 0}
+                         className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed"
+                         title="Next period"
+                       >
+                         <ChevronRight className="w-4 h-4" />
+                       </button>
+                       <div className="text-right ml-2">
+                         <div className="text-xs text-zinc-500">
+                           {periodOffset === 0 && selectedPeriod === 'today' ? 'Today' : 
+                            periodOffset === 0 && selectedPeriod === 'week' ? 'This Week' : 
+                            periodOffset === 0 && selectedPeriod === 'month' ? 'This Month' :
+                            periodOffset === 0 && selectedPeriod === 'all' ? 'All Time' :
+                            periodOffset > 0 ? `${selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'Week' : selectedPeriod === 'month' ? 'Month' : 'Period'} -${periodOffset}` :
+                            selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === 'month' ? 'This Month' : 'All Time'}
+                         </div>
+                         <div className="text-lg font-bold text-emerald-400">
+                           {chartBarsResult.chartBars.length > 0 ? (() => {
+                             const total = chartBarsResult.chartBars.reduce((sum, bar) => sum + bar.deviceSeconds + bar.externalSeconds, 0);
+                             return total > 0 ? `${(total / 3600).toFixed(1)}h` : '--';
+                           })() : '--'}
+                         </div>
+                       </div>
+                     </div>
+                   </div>
+
+{/* BAR CHART - Fixed width to fill container */}
+                    <div className="flex items-end justify-between gap-1 px-1 w-full overflow-x-auto" style={{ minHeight: '240px', maxHeight: selectedPeriod === 'month' || selectedPeriod === 'all' ? '320px' : '240px' }}>
+                      {chartBarsResult.chartBars.map((bar, idx) => {
+                        const totalSec = bar.deviceSeconds + bar.externalSeconds;
+                        const totalHours = totalSec / 3600;
+                        const maxHeight = selectedPeriod === 'month' || selectedPeriod === 'all' ? 200 : 160;
+                        const barHeight = totalSec > 0 ? Math.max(4, (totalSec / Math.max(chartBarsResult.maxBarSeconds, 1)) * maxHeight) : 0;
+                        const deviceH = totalSec > 0 ? (bar.deviceSeconds / totalSec) * barHeight : 0;
+                        const extH = barHeight - deviceH;
+
+                        return (
+                          <div
+                            key={idx}
+                            className="flex flex-col items-center gap-0.5 flex-shrink-0"
+                            style={{ minWidth: selectedPeriod === 'month' ? '24px' : selectedPeriod === 'week' ? '40px' : '28px' }}
+                          >
+                            <div className="w-full flex flex-col justify-end" style={{ height: `${maxHeight}px` }}>
+                              {extH > 0 && (
+                                <div
+                                  className="w-full rounded-t"
+                                  style={{
+                                    height: `${extH}px`,
+                                    backgroundColor: '#8b5cf6',
+                                    boxShadow: '0 0 8px rgba(139, 92, 246, 0.6)',
+                                  }}
+                                />
+                              )}
+                              <div
+                                className="w-full rounded-b"
+                                style={{
+                                  height: `${deviceH}px`,
+                                  backgroundColor: totalHours < 0.1 ? '#27272a' : totalHours >= 4 ? '#22c55e' : totalHours >= 2 ? '#16a34a' : '#15803d',
+                                  boxShadow: totalHours < 0.1 ? 'none' : '0 0 8px rgba(34, 197, 94, 0.6)',
+                                  borderTopLeftRadius: extH === 0 ? '0.375rem' : '0',
+                                  borderTopRightRadius: extH === 0 ? '0.375rem' : '0',
+                                }}
+                              />
+                            </div>
+                            <div className={`text-[10px] font-medium ${bar.isToday ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                              {bar.label}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                  {/* Legend */}
+                  <div className="flex items-center justify-center gap-6 text-xs pt-2 border-t border-zinc-800">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded bg-emerald-500" />
+                      <span className="text-zinc-400">App/Device</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded bg-purple-500" />
+                      <span className="text-zinc-400">External</span>
+                    </div>
+                  </div>
+                </div>
              </motion.div>
+
+               {/* App Usage Solar System */}
+               <motion.div
+                 initial={{ opacity: 0, y: 20 }}
+                 animate={{ opacity: 1, y: 0 }}
+                 transition={{ delay: 0.3 }}
+                 className="rounded-2xl p-8 border backdrop-blur-sm transition-colors"
+                 style={{
+                   backgroundColor: 'rgba(10, 10, 10, 0.8)',
+                   borderColor: 'rgba(107, 114, 128, 0.2)'
+                 }}
+               >
+                <div className="space-y-4">
+                   <div className="flex items-center justify-between">
+                     <div>
+                       <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">App Ecosystem</h2>
+                       <p className="text-xs text-zinc-600 mt-1">Your top tools in orbit</p>
+                     </div>
+                     <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                       {/* Solar mode toggle */}
+                       <button
+                         onClick={(e) => { e.stopPropagation(); setSolarMode('apps'); }}
+                         className={`px-2 py-1 text-xs rounded transition-colors ${solarMode === 'apps' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                       >
+                         Apps
+                       </button>
+                       <button
+                         onClick={(e) => { e.stopPropagation(); setSolarMode('websites'); }}
+                         className={`px-2 py-1 text-xs rounded transition-colors ${solarMode === 'websites' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                       >
+                         Websites
+                       </button>
+                       <div className="ml-2">
+                         <span className="text-xs text-zinc-500">
+                           {periodOffset === 0 && selectedPeriod === 'today' ? 'Today' : 
+                            periodOffset === 0 && selectedPeriod === 'week' ? 'This Week' : 
+                            periodOffset === 0 && selectedPeriod === 'month' ? 'This Month' :
+                            periodOffset === 0 && selectedPeriod === 'all' ? 'All Time' :
+                            `${selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'Week' : selectedPeriod === 'month' ? 'Month' : 'Period'} -${periodOffset}`}
+                         </span>
+                       </div>
+                     </div>
+                   </div>
+<div className="relative h-64 flex items-center justify-center">
+                      <div className="absolute w-12 h-12 rounded-full border border-zinc-700 flex items-center justify-center">
+                        <Sun className="w-6 h-6 text-zinc-600" />
+                      </div>
+                      
+                      {solar.slice(0, 5).map((app, i) => {
+                       const size = Math.max(70, 24 + (app.usage_ms / maxUsage) * 48);
+                       const angle = (i * 360) / Math.min(solar.length, 5);
+                       const radius = 70 + (i % 2) * 35;
+                       const rad = (angle * Math.PI) / 180;
+                       const x = Math.cos(rad) * radius;
+                       const y = Math.sin(rad) * radius;
+                       
+                       return (
+                         <motion.div
+                           key={app.name}
+                           initial={{ scale: 0, x: 0, y: 0 }}
+                           animate={{ scale: 1, x, y }}
+                           transition={{ delay: 0.3 + i * 0.1 }}
+                           className="absolute"
+                           style={{ 
+                             width: Math.max(size, 60),
+                             height: Math.max(size, 60),
+                           }}
+                           title={`${app.name}: ${Math.round((app.usage_ms / 1000 / 3600) * 10) / 10}h`}
+                         >
+                           {/* Circle with text inside - NO truncation */}
+                           <div 
+                             className="w-full h-full rounded-full border border-zinc-700 hover:border-zinc-500 transition-colors flex flex-col items-center justify-center"
+                             style={{ 
+                               backgroundColor: 'rgba(24, 24, 27, 0.9)',
+                               cursor: 'pointer'
+                             }}
+                           >
+                             {/* App name - FULL name, no truncate */}
+                             <div className="text-xs font-semibold text-zinc-300 px-2 text-center">
+                               {app.name}
+                             </div>
+                             {/* Duration */}
+                             <div className="text-[10px] text-zinc-500 mt-0.5">
+                               {Math.round((app.usage_ms / 1000 / 3600) * 10) / 10}h
+                             </div>
+                           </div>
+                         </motion.div>
+                       );
+                     })}
+                  </div>
+
+                  {/* View Solar System Button */}
+                  <button
+                    onClick={() => setExpandedModal('solar')}
+                    className="w-full py-2 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-sm text-zinc-300 hover:text-white transition-colors border border-zinc-700 hover:border-zinc-600"
+                  >
+                    View Solar System
+                  </button>
+                 </div>
+               </motion.div>
           </div>
 
 {/* Expanded Heatmap Modal */}
@@ -1894,7 +2569,7 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="fixed inset-0 z-50"
+                  className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
                   onClick={() => setExpandedModal(null)}
                 >
                   <motion.div
@@ -1903,6 +2578,7 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
                     exit={{ scale: 0.95, opacity: 0 }}
                     className={solarFullscreen ? "fixed inset-0 z-50 bg-black flex flex-col" : "rounded-2xl p-8 border max-w-4xl w-full max-h-[90vh] overflow-hidden"}
                     style={{
+                      backgroundColor: 'rgba(10, 10, 10, 0.95)',
                       borderColor: solarFullscreen ? 'transparent' : 'rgba(107, 114, 128, 0.2)'
                     }}
                     onClick={(e) => e.stopPropagation()}
@@ -1914,22 +2590,6 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
                         <p className="text-xs text-zinc-600 mt-1">Your top tools in orbit</p>
                       </div>
                       <div className="flex items-center gap-3">
-                        {/* Timeline selector */}
-                        <div className="flex bg-zinc-800 rounded-lg p-1">
-                          {(['today', 'week', 'month', 'all'] as const).map((period) => (
-                            <button
-                              key={period}
-                              onClick={() => setSelectedPeriod(period)}
-                              className={`px-3 py-1.5 text-xs rounded-md transition ${
-                                selectedPeriod === period 
-                                  ? 'bg-zinc-700 text-white' 
-                                  : 'text-zinc-400 hover:text-white'
-                              }`}
-                            >
-                              {period === 'today' ? 'Day' : period.charAt(0).toUpperCase() + period.slice(1)}
-                            </button>
-                          ))}
-                        </div>
                         <button
                           onClick={() => setSolarFullscreen(!solarFullscreen)}
                           className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
@@ -1949,7 +2609,7 @@ textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isD
                     
                     {/* OrbitSystem container */}
                     <Suspense fallback={<div className="h-[400px] flex items-center justify-center"><div className="text-zinc-400">Loading 3D visualization...</div></div>}>
-                      <div className={solarFullscreen ? 'w-full h-screen' : 'h-[500px]'}>
+                      <div className={solarFullscreen ? 'w-full h-screen' : 'h-[500px] w-full'}>
                         <OrbitSystem 
                           logs={allLogs} 
                           websiteLogs={browserLogs}

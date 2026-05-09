@@ -16,7 +16,7 @@ export function useTerminalLayout(projectId: string | null = null, initialLayout
       if (loggedProjects.has('timeout')) return;
       loggedProjects.add('timeout');
       console.warn('[useTerminalLayout] Layout load timeout - using default');
-      setLayoutState(initialLayout || { id: 'root', type: 'leaf', terminalId: 'term-initial', size: 50 });
+      setLayoutState(initialLayout || null);
       setIsLoading(false);
     }, 3000);
 
@@ -44,10 +44,10 @@ export function useTerminalLayout(projectId: string | null = null, initialLayout
           }
         } catch (e) {
           console.warn('[useTerminalLayout] Failed to parse layout data:', e);
-          setLayoutState(initialLayout || { id: 'root', type: 'leaf', terminalId: 'term-initial', size: 50 });
+          setLayoutState(initialLayout || null);
         }
       } else {
-        setLayoutState(initialLayout || { id: 'root', type: 'leaf', terminalId: 'term-initial', size: 50 });
+        setLayoutState(initialLayout || null);
       }
     } catch (e) {
       clearTimeout(timeout);
@@ -55,7 +55,7 @@ export function useTerminalLayout(projectId: string | null = null, initialLayout
         console.warn('[useTerminalLayout] Failed to load layout:', e);
         loggedProjects.add(projectId);
       }
-      setLayoutState(initialLayout || { id: 'root', type: 'leaf', terminalId: 'term-initial', size: 50 });
+      setLayoutState(initialLayout || null);
     }
     setIsLoading(false);
   }, [projectId, initialLayout]);

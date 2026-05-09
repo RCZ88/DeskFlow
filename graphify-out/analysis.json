@@ -1,13 +1,17 @@
 {
   "communities": {
     "0": [
-      "main",
+      "app_handlestoragechange",
+      "app_handletimersync",
+      "app_loadoverrides",
+      "dist_electron_main_js",
       "main_addide",
       "main_addlog",
       "main_calculatecost",
       "main_calculateproductivityscore",
       "main_categorizeapp",
       "main_categorizedomain",
+      "main_checkmorningprompt",
       "main_createtray",
       "main_createwindow",
       "main_execasync",
@@ -17,11 +21,11 @@
       "main_extractjsonfromresponse",
       "main_findexe",
       "main_getbrowsercategorystats",
-      "main_getbrowserdomainstats",
       "main_getbrowserlogs",
-      "main_getlogs",
       "main_getmodelpricing",
       "main_getopenrouterapikey",
+      "main_getproblemsservice",
+      "main_getprojectpath",
       "main_getstats",
       "main_gettierforcategory",
       "main_handlebrowserdata",
@@ -29,11 +33,14 @@
       "main_initializestorage",
       "main_loadcategoryconfig",
       "main_loadpreferences",
+      "main_loadsleepstate",
       "main_pathexists",
       "main_pollforeground",
+      "main_readdir",
       "main_savecategoryconfig",
       "main_savejsonlogs",
       "main_savepreferences",
+      "main_savesleepstate",
       "main_scanprojecttools",
       "main_startbrowsersessionflushtimer",
       "main_startbrowsertrackingserver",
@@ -41,13 +48,53 @@
       "main_syncallaiagents",
       "main_updateaggregates",
       "main_updateallaggregates",
-      "main_yieldtoeventloop"
+      "main_yieldtoeventloop",
+      "problemsparser_problemsparser_parse",
+      "src_main_ts"
     ],
     "1": [
-      "app",
+      "orbitsystem_adjustcolor",
+      "orbitsystem_animatecamera",
+      "orbitsystem_calculateangularspeed",
+      "orbitsystem_calculateorbitalperiod",
+      "orbitsystem_calculateorbitradiuslogarithmic",
+      "orbitsystem_computeplanets",
+      "orbitsystem_createseededrandom",
+      "orbitsystem_focusonplanet",
+      "orbitsystem_for",
+      "orbitsystem_fpscounter",
+      "orbitsystem_galaxydustcloud",
+      "orbitsystem_getcategorycolor",
+      "orbitsystem_getdistinctcolor",
+      "orbitsystem_getplanetcolorbyorbit",
+      "orbitsystem_getsystemposition",
+      "orbitsystem_glcleanup",
+      "orbitsystem_handlecategoryselect",
+      "orbitsystem_handleclosesystem",
+      "orbitsystem_handleentersystem",
+      "orbitsystem_handleinteractionend",
+      "orbitsystem_handleinteractionstart",
+      "orbitsystem_handleplanetclick",
+      "orbitsystem_handleplanetpositionupdate",
+      "orbitsystem_handlerefreshtextures",
+      "orbitsystem_handleselectsystem",
+      "orbitsystem_handlezoomout",
+      "orbitsystem_hashstring",
+      "orbitsystem_hextorgb",
+      "orbitsystem_lerpcolor",
+      "orbitsystem_resetcameratogalaxy",
+      "orbitsystem_seededrandom",
+      "orbitsystem_setstoredanimationspeed",
+      "orbitsystem_switchtogalaxy",
+      "src_components_orbitsystem_tsx"
+    ],
+    "2": [
+      "app_async",
+      "app_checkmorningsleep",
       "app_cleancorrupteddata",
       "app_cleardata",
       "app_cleartoday",
+      "app_dismisssleepprompt",
       "app_exportdata",
       "app_formatduration",
       "app_formattime",
@@ -63,52 +110,35 @@
       "app_hsltohex",
       "app_loaddata",
       "app_loaddbtables",
-      "app_loadoverrides",
       "app_loadtrackingbrowser",
       "app_reloadoverrides",
       "app_switchapp",
       "app_toggletracking",
-      "idehelppage",
-      "idehelppage_handlekeydown",
-      "insightspage",
-      "insightspage_formathours",
-      "statspage",
-      "statspage_formatduration",
-      "statspage_statspage"
-    ],
-    "2": [
-      "orbitsystem",
-      "orbitsystem_adjustcolor",
-      "orbitsystem_animatecamera",
-      "orbitsystem_computeplanets",
-      "orbitsystem_createseededrandom",
-      "orbitsystem_focusonplanet",
-      "orbitsystem_for",
-      "orbitsystem_fpscounter",
-      "orbitsystem_galaxydustcloud",
-      "orbitsystem_getcategorycolor",
-      "orbitsystem_getdistinctcolor",
-      "orbitsystem_getsystemposition",
-      "orbitsystem_glcleanup",
-      "orbitsystem_handlecategoryselect",
-      "orbitsystem_handleclosesystem",
-      "orbitsystem_handleentersystem",
-      "orbitsystem_handleinteractionend",
-      "orbitsystem_handleinteractionstart",
-      "orbitsystem_handleplanetclick",
-      "orbitsystem_handleplanetpositionupdate",
-      "orbitsystem_handlerefreshtextures",
-      "orbitsystem_handleselectsystem",
-      "orbitsystem_handlezoomout",
-      "orbitsystem_hashstring",
-      "orbitsystem_hextorgb",
-      "orbitsystem_resetcameratogalaxy",
-      "orbitsystem_seededrandom",
-      "orbitsystem_setstoredanimationspeed",
-      "orbitsystem_switchtogalaxy"
+      "main_getlogs",
+      "src_app_tsx",
+      "src_main_tsx"
     ],
     "3": [
-      "background",
+      "dist_electron_services_problemsservice_js",
+      "problemsservice_problemsservice",
+      "problemsservice_problemsservice_constructor",
+      "problemsservice_problemsservice_createproblem",
+      "problemsservice_problemsservice_deleteproblem",
+      "problemsservice_problemsservice_ensureagentdir",
+      "problemsservice_problemsservice_generatemarkdown",
+      "problemsservice_problemsservice_getdefaultbasedir",
+      "problemsservice_problemsservice_getnextissuenumber",
+      "problemsservice_problemsservice_getproblem",
+      "problemsservice_problemsservice_getproblems",
+      "problemsservice_problemsservice_getprojectid",
+      "problemsservice_problemsservice_getprojectpath",
+      "problemsservice_problemsservice_parseproblems",
+      "problemsservice_problemsservice_setprojectid",
+      "problemsservice_problemsservice_updateproblem",
+      "problemsservice_problemsservice_updatestatus",
+      "src_services_problemsservice_ts"
+    ],
+    "4": [
       "background_checkbrowserfocus",
       "background_detectbrowsername",
       "background_extractdomain",
@@ -123,184 +153,394 @@
       "background_sendtodeskflow",
       "background_shouldexclude",
       "background_startfocuscheckpolling",
-      "background_updateactivetab"
-    ],
-    "4": [
-      "ideprojectspage",
-      "ideprojectspage_getmetricvalue",
-      "ideprojectspage_ideprojectspage",
-      "terminalpage",
-      "terminalpage_formatdate",
-      "terminalpage_generateterminalid",
-      "terminalpage_logonce",
-      "terminalwindow",
-      "terminalwindow_createpanenode",
-      "terminalwindow_handleclosepaneevent",
-      "terminalwindow_terminalpane",
-      "useterminallayout",
-      "useterminallayout_useterminallayout"
+      "background_updateactivetab",
+      "browser_extension_background_js"
     ],
     "5": [
-      "browseractivitypage",
       "browseractivitypage_formatduration",
       "browseractivitypage_handlecategorychange",
       "browseractivitypage_handleevent",
       "browseractivitypage_handlesavelogs",
       "browseractivitypage_init",
       "browseractivitypage_starteditcategory",
-      "browseractivitypage_toggleexpanded"
+      "browseractivitypage_toggleexpanded",
+      "complete_beep",
+      "complete_main",
+      "complete_py",
+      "complete_rationale_16",
+      "complete_rationale_43",
+      "complete_speak",
+      "src_pages_browseractivitypage_tsx"
     ],
     "6": [
-      "dashboardpage",
-      "dashboardpage_formatduration",
-      "dashboardpage_formathours",
-      "dashboardpage_getheatcolor",
-      "dashboardpage_getheatmapcolor",
-      "dashboardpage_getpersistedactivityfeed",
-      "dashboardpage_getpersistedtimerstate",
-      "dashboardpage_gettierfromcategory"
+      "agent_skills_maintain_context_graphify_maintain_py",
+      "graphify_maintain_rationale_120",
+      "graphify_maintain_rationale_209",
+      "graphify_maintain_rebuild_code_fix",
+      "graphify_maintain_sync_to_vault",
+      "graphify_maintain_validate_report",
+      "problemsparser_problemsparser",
+      "problemsparser_problemsparser_formatcategoryname",
+      "problemsparser_problemsparser_formatproblem",
+      "problemsparser_problemsparser_generate",
+      "problemsparser_problemsparser_generatecategorysummary",
+      "problemsparser_problemsparser_groupbysession",
+      "problemsparser_problemsparser_parseissueblock",
+      "src_services_problemsparser_ts"
     ],
     "7": [
-      "settingspage",
+      "dist_electron_services_requestsservice_js",
+      "requestsservice_requestsservice",
+      "requestsservice_requestsservice_constructor",
+      "requestsservice_requestsservice_createrequest",
+      "requestsservice_requestsservice_deleterequest",
+      "requestsservice_requestsservice_ensureagentdir",
+      "requestsservice_requestsservice_generatemarkdown",
+      "requestsservice_requestsservice_getdefaultbasedir",
+      "requestsservice_requestsservice_getrequest",
+      "requestsservice_requestsservice_getrequests",
+      "requestsservice_requestsservice_linkproblem",
+      "requestsservice_requestsservice_parserequests",
+      "requestsservice_requestsservice_updatestatus",
+      "src_services_requestsservice_ts"
+    ],
+    "8": [
+      "agent_docs_externalpage_insights_ideas_27042026_externalpage_tsx",
+      "externalpage_async",
+      "externalpage_calculatesleepduration",
+      "externalpage_formatbedtime",
+      "externalpage_formatduration",
+      "externalpage_formathours",
+      "externalpage_gethex",
+      "externalpage_geticon",
+      "externalpage_gettailwind",
+      "externalpage_handlekeydown",
+      "externalpage_handleoverlayclick",
+      "externalpage_handlerestoresession",
+      "src_pages_externalpage_tsx"
+    ],
+    "9": [
+      "main_getbrowserdomainstats",
       "settingspage_activeid",
       "settingspage_async",
       "settingspage_fetchdomainstats",
       "settingspage_handleclickoutside",
       "settingspage_handleesc",
+      "settingspage_if",
       "settingspage_loadoverrides",
-      "settingspage_setlocalappcolors"
-    ],
-    "8": [
-      "complete",
-      "complete_beep",
-      "complete_main",
-      "complete_rationale_16",
-      "complete_rationale_43",
-      "complete_speak"
-    ],
-    "9": [
-      "graphify_maintain",
-      "graphify_maintain_rationale_120",
-      "graphify_maintain_rationale_209",
-      "graphify_maintain_rebuild_code_fix",
-      "graphify_maintain_sync_to_vault",
-      "graphify_maintain_validate_report"
+      "settingspage_loadtrackingsettings",
+      "settingspage_setappcolors",
+      "settingspage_seteditingkeywordsets",
+      "settingspage_setlocalappcolors",
+      "src_pages_settingspage_tsx"
     ],
     "10": [
-      "externalpage",
-      "externalpage_calculatesleepduration",
-      "externalpage_formatbedtime",
-      "externalpage_formatduration",
-      "externalpage_formathours",
-      "externalpage_geticon"
+      "problemssyncservice_problemssyncservice",
+      "problemssyncservice_problemssyncservice_constructor",
+      "problemssyncservice_problemssyncservice_createproblem",
+      "problemssyncservice_problemssyncservice_syncfrommarkdown",
+      "problemssyncservice_problemssyncservice_synctomarkdown",
+      "problemssyncservice_problemssyncservice_updateproblem",
+      "src_pages_terminalpage_tsx",
+      "src_services_problemssyncservice_ts",
+      "terminalpage_formatdate",
+      "terminalpage_generateterminalid",
+      "terminalpage_handlestatuschange",
+      "terminalpage_handlesubmit",
+      "terminalpage_logonce"
     ],
     "11": [
-      "databasepage",
+      "dashboardpage_computeperiodrange",
+      "dashboardpage_formatduration",
+      "dashboardpage_getheatcolor",
+      "dashboardpage_getheatmapcolor",
+      "dashboardpage_getpersistedactivityfeed",
+      "dashboardpage_getpersistedtimerstate",
+      "dashboardpage_gettierfromcategory",
+      "dashboardpage_handledayclick",
+      "dashboardpage_handleinteraction",
+      "dashboardpage_handlekeydown",
+      "dashboardpage_loadexternaldata",
+      "src_pages_dashboardpage_tsx"
+    ],
+    "12": [
+      "dist_electron_services_skillsservice_js",
+      "skillsservice_skillsservice",
+      "skillsservice_skillsservice_constructor",
+      "skillsservice_skillsservice_ensureskillsdir",
+      "skillsservice_skillsservice_generatedescription",
+      "skillsservice_skillsservice_getdefaultbasedir",
+      "skillsservice_skillsservice_getskillbyid",
+      "skillsservice_skillsservice_getskillcontext",
+      "skillsservice_skillsservice_getskills",
+      "skillsservice_skillsservice_loadskillfromfile",
+      "src_services_skillsservice_ts"
+    ],
+    "13": [
+      "agent_docs_externalpage_insights_ideas_27042026_insightspage_tsx",
+      "insightspage_circulargauge",
+      "insightspage_formathours",
+      "insightspage_getactivitycolor",
+      "insightspage_getactivityhex",
+      "insightspage_getheatcolor",
+      "insightspage_goalstreak",
+      "insightspage_statuscolor",
+      "insightspage_statuslabel",
+      "src_pages_insightspage_tsx"
+    ],
+    "14": [
+      "src_components_terminalwindow_tsx",
+      "terminalwindow_findfirstleaf",
+      "terminalwindow_findterminalid",
+      "terminalwindow_handleclosepaneevent",
+      "terminalwindow_handledata",
+      "terminalwindow_removeandreparent",
+      "terminalwindow_updatelayout"
+    ],
+    "15": [
+      "daydetailpopup_adddays",
+      "daydetailpopup_daydetailpopup",
+      "daydetailpopup_formatduration",
+      "daydetailpopup_formatdurationshort",
+      "daydetailpopup_formathour",
+      "src_components_daydetailpopup_tsx"
+    ],
+    "16": [
       "databasepage_databasepage",
       "databasepage_formatcellvalue",
       "databasepage_formatduration",
-      "databasepage_settabledata"
+      "databasepage_settabledata",
+      "src_pages_databasepage_tsx"
     ],
-    "12": [
-      "productivitypage",
+    "17": [
       "productivitypage_formatduration",
       "productivitypage_formathours",
       "productivitypage_getcategorycolor",
-      "productivitypage_toggledomain"
-    ],
-    "13": [
-      "graphify_pipeline",
-      "graphify_pipeline_rationale_1"
-    ],
-    "14": [
-      "preload",
-      "preload_handler"
-    ],
-    "15": [
-      "electron_vite_config"
-    ],
-    "16": [
-      "eslint_config"
-    ],
-    "17": [
-      "vite_config"
+      "productivitypage_toggledomain",
+      "src_pages_productivitypage_tsx"
     ],
     "18": [
-      "node_pty_d"
+      "agent_docs_externalpage_insights_ideas_27042026_demo_data_ts",
+      "demo_data_generatedailydata",
+      "demo_data_generateheatmapdata",
+      "demo_data_getactivitystats"
+    ],
+    "19": [
+      "dayganttchart_formatduration",
+      "dayganttchart_getcategorycolor",
+      "dayganttchart_getcategoryicon",
+      "src_components_dayganttchart_tsx"
+    ],
+    "20": [
+      "sessioncontextservice_sessioncontextservice",
+      "sessioncontextservice_sessioncontextservice_extractcontext",
+      "sessioncontextservice_sessioncontextservice_generatebriefcontext",
+      "src_services_sessioncontextservice_ts"
+    ],
+    "21": [
+      "dist_electron_preload_js",
+      "preload_handler",
+      "src_preload_ts"
+    ],
+    "22": [
+      "ideprojectspage_getmetricvalue",
+      "ideprojectspage_ideprojectspage",
+      "src_pages_ideprojectspage_tsx"
+    ],
+    "23": [
+      "src_pages_statspage_tsx",
+      "statspage_formatduration",
+      "statspage_statspage"
+    ],
+    "24": [
+      "agent_docs_graphify_graphify_pipeline_py",
+      "graphify_pipeline_rationale_1"
+    ],
+    "25": [
+      "src_hooks_useterminallayout_ts",
+      "useterminallayout_useterminallayout"
+    ],
+    "26": [
+      "idehelppage_handlekeydown",
+      "src_pages_idehelppage_tsx"
+    ],
+    "27": [
+      "check_db_js"
+    ],
+    "28": [
+      "electron_vite_config_ts"
+    ],
+    "29": [
+      "eslint_config_js"
+    ],
+    "30": [
+      "migrate_fixed_mjs"
+    ],
+    "31": [
+      "migrate_sqlite_to_json_sqljs_mjs"
+    ],
+    "32": [
+      "migrate_sqlite_to_json_js"
+    ],
+    "33": [
+      "migrate_sqlite_to_json_mjs"
+    ],
+    "34": [
+      "vite_config_ts"
+    ],
+    "35": [
+      "agent_docs_externalpage_insights_ideas_27042026_types_ts"
+    ],
+    "36": [
+      "src_node_pty_d_ts"
     ]
   },
   "cohesion": {
-    "0": 0.07,
-    "1": 0.07,
-    "2": 0.09,
-    "3": 0.28,
-    "4": 0.17,
-    "5": 0.25,
-    "6": 0.25,
-    "7": 0.25,
-    "8": 0.47,
-    "9": 0.33,
-    "10": 0.33,
-    "11": 0.5,
-    "12": 0.4,
-    "13": 1.0,
-    "14": 1.0,
-    "15": 1.0,
-    "16": 1.0,
-    "17": 1.0,
-    "18": 1.0
+    "0": 0.09,
+    "1": 0.08,
+    "2": 0.08,
+    "3": 0.2,
+    "4": 0.28,
+    "5": 0.16,
+    "6": 0.2,
+    "7": 0.29,
+    "8": 0.17,
+    "9": 0.17,
+    "10": 0.18,
+    "11": 0.17,
+    "12": 0.29,
+    "13": 0.2,
+    "14": 0.29,
+    "15": 0.33,
+    "16": 0.5,
+    "17": 0.4,
+    "18": 0.5,
+    "19": 0.5,
+    "20": 0.5,
+    "21": 0.67,
+    "22": 0.67,
+    "23": 0.67,
+    "24": 1.0,
+    "25": 1.0,
+    "26": 1.0,
+    "27": 1.0,
+    "28": 1.0,
+    "29": 1.0,
+    "30": 1.0,
+    "31": 1.0,
+    "32": 1.0,
+    "33": 1.0,
+    "34": 1.0,
+    "35": 1.0,
+    "36": 1.0
   },
   "gods": [
     {
+      "id": "problemsservice_problemsservice",
+      "label": "ProblemsService",
+      "degree": 17
+    },
+    {
+      "id": "requestsservice_requestsservice",
+      "label": "RequestsService",
+      "degree": 13
+    },
+    {
+      "id": "skillsservice_skillsservice",
+      "label": "SkillsService",
+      "degree": 10
+    },
+    {
       "id": "background_onstartup",
       "label": "onStartup()",
-      "edges": 8
+      "degree": 8
+    },
+    {
+      "id": "problemsparser_problemsparser",
+      "label": "ProblemsParser",
+      "degree": 8
     },
     {
       "id": "background_updateactivetab",
       "label": "updateActiveTab()",
-      "edges": 7
+      "degree": 7
     },
     {
       "id": "background_savestate",
       "label": "saveState()",
-      "edges": 6
+      "degree": 6
     },
     {
       "id": "orbitsystem_animatecamera",
       "label": "animateCamera()",
-      "edges": 6
+      "degree": 6
+    },
+    {
+      "id": "problemssyncservice_problemssyncservice",
+      "label": "ProblemsSyncService",
+      "degree": 6
     },
     {
       "id": "background_logprevioussession",
       "label": "logPreviousSession()",
-      "edges": 5
-    },
-    {
-      "id": "background_sanitizeurl",
-      "label": "sanitizeUrl()",
-      "edges": 4
-    },
-    {
-      "id": "background_periodicsync",
-      "label": "periodicSync()",
-      "edges": 4
-    },
-    {
-      "id": "main_savecategoryconfig",
-      "label": "saveCategoryConfig()",
-      "edges": 4
-    },
-    {
-      "id": "main_addlog",
-      "label": "addLog()",
-      "edges": 4
-    },
-    {
-      "id": "main_handlebrowserdata",
-      "label": "handleBrowserData()",
-      "edges": 4
+      "degree": 5
     }
   ],
-  "surprises": []
+  "surprises": [
+    {
+      "source": "loadData()",
+      "target": "getLogs()",
+      "source_files": [
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\App.tsx",
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\main.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; peripheral node `loadData()` unexpectedly reaches hub `getLogs()`"
+    },
+    {
+      "source": "clearToday()",
+      "target": "getLogs()",
+      "source_files": [
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\App.tsx",
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\main.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; peripheral node `clearToday()` unexpectedly reaches hub `getLogs()`"
+    },
+    {
+      "source": "cleanCorruptedData()",
+      "target": "getLogs()",
+      "source_files": [
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\App.tsx",
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\main.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; peripheral node `cleanCorruptedData()` unexpectedly reaches hub `getLogs()`"
+    },
+    {
+      "source": "speak()",
+      "target": "init()",
+      "source_files": [
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\complete.py",
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\pages\\BrowserActivityPage.tsx"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories"
+    },
+    {
+      "source": "fetchDomainStats()",
+      "target": "getBrowserDomainStats()",
+      "source_files": [
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\pages\\SettingsPage.tsx",
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\main.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories"
+    }
+  ]
 }

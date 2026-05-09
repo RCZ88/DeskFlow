@@ -359,6 +359,7 @@ interface PlanetData {
   radius: number;
   orbitRadius: number; // semi-major axis
   speed: number; // orbit speed
+  orbitalPeriod?: number; // orbital period (from Kepler's 3rd Law)
   rotationSpeed?: number; // self-rotation speed
   eccentricity?: number; // orbital eccentricity (0 = circle, 0.9 = very elliptical)
   inclination?: number; // orbital tilt in radians
@@ -483,6 +484,129 @@ function getCategoryColor(category: string, indexInCategory: number): string {
 // Compute planet data from logs with optional custom colors and category overrides
 // Includes all desktop apps including browsers, only excludes browser-tracked websites
 
+// ============================================
+// ORBITAL MECHANICS - Based on Kepler's Laws
+// ============================================
+
+// Configuration constants - Logarithmic spacing with visual speed balance
+const ORBIT_CONFIG = {
+  // Radius range - inner planets CLOSE to sun (like Mercury at 0.39 AU)
+  // Sun size is ~3.5, so minOrbitRadius must be > sun size
+  minOrbitRadius: 10,         // First orbit just outside the sun (visual proximity)
+  maxOrbitRadius: 80,         // Outer planets far out (like Neptune at 30 AU)
+
+  // Speed configuration (Kepler's 3rd Law with visual balance factor)
+  baseAngularSpeed: 2.0,      // Reference speed at r=1
+  visualBalanceFactor: 0.65,  // Boosts outer planet speed for visibility (0.6-0.7 range)
+
+  // Sun properties
+  sunRadius: 3,               // Sun sphere geometry radius
+  sunGlowSize: 3.5,           // Corona halo radius
+
+  // Eccentricity (real solar system: 0.01 - 0.21)
+  eccentricityRange: { min: 0.01, max: 0.08 },
+  // Inclination (degrees, Mercury = 7°)
+  inclinationRange: { min: 0, max: 5 },
+};
+
+/**
+ * Calculates orbit radius using LOGARITHMIC interpolation.
+ * This mimics Kepler's natural orbital distribution and spreads planets visually.
+ * 
+ * Formula: orbitRadius = minR * (maxR / minR) ^ (n / totalPlanets)
+ * 
+ * @param planetIndex - Index of planet (0 to totalPlanets-1)
+ * @param totalPlanets - Total number of planets
+ * @param minR - Minimum orbit radius (inner planet)
+ * @param maxR - Maximum orbit radius (outer planet)
+ */
+function calculateOrbitRadiusLogarithmic(
+  planetIndex: number,
+  totalPlanets: number,
+  minR: number,
+  maxR: number
+): number {
+  // Normalize index to 0–1 range
+  const t = totalPlanets > 1 ? planetIndex / (totalPlanets - 1) : 0.5;
+  
+  // Logarithmic interpolation
+  const ratio = maxR / minR;
+  const orbitRadius = minR * Math.pow(ratio, t);
+  
+  return orbitRadius;
+}
+
+/**
+ * Calculates angular speed using BALANCED Kepler's 3rd Law.
+ * Formula: ω = baseSpeed / sqrt(adjustedRadius * r)
+ * where adjustedRadius = orbitRadius * visualBalanceFactor
+ * 
+ * This boosts outer planet visibility while maintaining Kepler-like physics.
+ * Strict Kepler makes outer planets too slow (boring).
+ * Balance factor 0.65 makes all planets visibly move while staying physics-grounded.
+ */
+function calculateAngularSpeed(radius: number): number {
+  const { baseAngularSpeed, visualBalanceFactor } = ORBIT_CONFIG;
+  
+  // Apply visual balance factor to outer planets
+  const adjustedRadius = radius * visualBalanceFactor;
+  
+  // Modified Kepler: ω ∝ 1 / sqrt(adjustedRadius * r)
+  return baseAngularSpeed / Math.sqrt(adjustedRadius * radius);
+}
+
+/**
+ * Calculates orbital period from radius.
+ * T = 2π/ω = 2π/(k·r^(-3/2)) = (2π/k) · r^(3/2)
+ */
+function calculateOrbitalPeriod(radius: number): number {
+  const { baseAngularSpeed } = ORBIT_CONFIG;
+  return (2 * Math.PI / baseAngularSpeed) * Math.pow(radius, 1.5);
+}
+
+/**
+ * Color mapping: inner planets (hot/yellow) → outer planets (cold/blue)
+ */
+function getPlanetColorByOrbit(radius: number, minR: number, maxR: number): string {
+  const t = (radius - minR) / (maxR - minR);
+
+  // Gradient: inner (hot/yellow) → outer (cold/blue)
+  const colors = [
+    { pos: 0.0, color: '#FCD34D' },   // Yellow (Mercury-like)
+    { pos: 0.2, color: '#F97316' },   // Orange (Venus-like)
+    { pos: 0.4, color: '#10B981' },   // Green (Earth-like)
+    { pos: 0.6, color: '#06B6D4' },   // Cyan (Mars-like)
+    { pos: 0.8, color: '#3B82F6' },   // Blue (Jupiter-like)
+    { pos: 1.0, color: '#8B5CF6' },   // Purple (Neptune-like)
+  ];
+
+  // Find color segment
+  for (let i = 0; i < colors.length - 1; i++) {
+    if (t <= colors[i + 1].pos) {
+      const localT = (t - colors[i].pos) / (colors[i + 1].pos - colors[i].pos);
+      return lerpColor(colors[i].color, colors[i + 1].color, localT);
+    }
+  }
+
+  return colors[colors.length - 1].color;
+}
+
+function lerpColor(color1: string, color2: string, t: number): string {
+  const r1 = parseInt(color1.slice(1, 3), 16);
+  const g1 = parseInt(color1.slice(3, 5), 16);
+  const b1 = parseInt(color1.slice(5, 7), 16);
+
+  const r2 = parseInt(color2.slice(1, 3), 16);
+  const g2 = parseInt(color2.slice(3, 5), 16);
+  const b2 = parseInt(color2.slice(5, 7), 16);
+
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
 function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>, categoryOverrides?: Record<string, string>): PlanetData[] {
   // Fallback: load category overrides directly from localStorage to ensure sync
   let effectiveOverrides = categoryOverrides;
@@ -494,9 +618,7 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
       }
     } catch { /* ignore */ }
   }
-  // DEBUG: Log what's being passed
-  
-  
+
   // Filter: include all apps including browsers, only exclude browser-tracked websites
   const validLogs = (logs || []).filter((log: any) =>
     log && log.app && typeof log.app === 'string' && log.app.trim().length > 0 &&
@@ -504,11 +626,16 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
   );
 
   if (validLogs.length === 0) {
-    // Return demo data so UI doesn't break
+    // Return demo data with CLEAR spacing from sun
+    // Planet 1: radius 12 (close to sun)
+    // Planet 2: radius 35 (middle)
+    // Planet 3: radius 60 (far)
+    // Planet 4: radius 80 (furthest)
     return [
-      { name: 'VS Code', category: 'IDE', color: '#4f46e5', time: 120, sessions: 5, radius: 1.5, orbitRadius: 5, speed: 0.12, eccentricity: 0.1, inclination: 0.05, longitudeOfPerihelion: 0, moons: [], rings: [{ innerRadius: 2.2, outerRadius: 3.8, opacity: 0.45, color: '#6366f1', tilt: 0.2 }] },
-      { name: 'Chrome', category: 'Browser', color: '#3b82f6', time: 45, sessions: 3, radius: 1.2, orbitRadius: 7.2, speed: 0.09, eccentricity: 0.15, inclination: 0.1, longitudeOfPerihelion: 1.2, moons: [], rings: [] },
-      { name: 'Claude', category: 'AI Tools', color: '#8b5cf6', time: 60, sessions: 4, radius: 1.3, orbitRadius: 9.4, speed: 0.1, eccentricity: 0.2, inclination: 0.15, longitudeOfPerihelion: 2.1, moons: [], rings: [{ innerRadius: 1.8, outerRadius: 2.1, opacity: 0.08, color: '#a78bfa', tilt: -0.3 }] },
+      { name: 'VS Code', category: 'IDE', color: '#FCD34D', time: 120, sessions: 5, radius: 0.8, orbitRadius: 12, speed: calculateAngularSpeed(12), orbitalPeriod: calculateOrbitalPeriod(12), eccentricity: 0.05, inclination: 0.05, longitudeOfPerihelion: 0, moons: [], rings: [{ innerRadius: 2.2, outerRadius: 3.8, opacity: 0.45, color: '#6366f1', tilt: 0.2 }] },
+      { name: 'Chrome', category: 'Browser', color: '#F97316', time: 45, sessions: 3, radius: 0.6, orbitRadius: 35, speed: calculateAngularSpeed(35), orbitalPeriod: calculateOrbitalPeriod(35), eccentricity: 0.08, inclination: 0.1, longitudeOfPerihelion: 1.2, moons: [], rings: [] },
+      { name: 'Claude', category: 'AI Tools', color: '#10B981', time: 60, sessions: 4, radius: 0.7, orbitRadius: 60, speed: calculateAngularSpeed(60), orbitalPeriod: calculateOrbitalPeriod(60), eccentricity: 0.1, inclination: 0.15, longitudeOfPerihelion: 2.1, moons: [], rings: [] },
+      { name: 'Slack', category: 'Communication', color: '#06B6D4', time: 30, sessions: 2, radius: 0.5, orbitRadius: 80, speed: calculateAngularSpeed(80), orbitalPeriod: calculateOrbitalPeriod(80), eccentricity: 0.06, inclination: 0.08, longitudeOfPerihelion: 0.5, moons: [], rings: [] },
     ];
   }
 
@@ -521,20 +648,15 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
     }, {})
   ));
 
-  
-
+  // Group by app name
   const grouped: Record<string, any[]> = {};
-
   for (const log of validLogs) {
     const appName = log.app.trim();
     if (!grouped[appName]) grouped[appName] = [];
     grouped[appName].push(log);
   }
 
-  const planets: PlanetData[] = [];
-  
   // Sort by time ASCENDING: least used = closest to sun, most used = furthest
-  // This matches real solar systems AND user's request: most focus = biggest + furthest
   const sortedApps = Object.entries(grouped)
     .sort(([, a], [, b]) => {
       const timeA = a.reduce((sum, l) => sum + (l.duration || 0), 0);
@@ -542,16 +664,10 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
       return timeA - timeB; // ascending: smallest first (closest to sun)
     });
 
-  // Count apps per category for color assignment
   const categoryCount: Record<string, number> = {};
 
-  // Generate unique orbit radii with collision avoidance
-  const baseRadius = 5;
-  const minSpacing = 2.0; // Minimum distance between orbits
-
-  for (let idx = 0; idx < sortedApps.length; idx++) {
-    const [appName, appLogs] = sortedApps[idx];
-
+  // Use map() as per the full spec
+  const planets: PlanetData[] = sortedApps.map(([appName, appLogs], idx) => {
     // Priority: user override → database category → fallback dict → 'Other'
     const dbCategory = appLogs[0]?.category;
     const catInfo = APP_CATEGORIES[appName] || { cat: 'Other', color: '#64748b' };
@@ -562,79 +678,48 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
 
     // Assign color: custom override > category family color > fallback palette
     const idxInCategory = categoryCount[category] || 0;
-categoryCount[category] = idxInCategory + 1;
+    categoryCount[category] = idxInCategory + 1;
     const color = customColor || getCategoryColor(category, idxInCategory);
-    
-    // === PLANET PHYSICS EXPLANATION ===
-    // Planet variables are calculated from REAL app usage data:
-    // - appTime: Total seconds user spent in this app
-    // - sessions: Number of times user opened this app
-    // - maxTime: Maximum time among ALL apps in this category (for comparison)
-    
+
+    // Planet physics calculations
     const appTime = appLogs.reduce((sum: number, l: any) => sum + (l.duration || 0), 0);
     const sessions = appLogs.length;
     const avgSessionLength = appTime / sessions;
-    
-    // === PLANET SIZE CALCULATION ===
-    // Formula: radius = 0.8 + sqrt(timeRatio) * 2.0
-    // - More total time = bigger planet
-    // - Uses sqrt() to prevent extreme sizes
-    // - Range: 0.8 (rarely used) to 2.8 (heavily used)
+
+    // Planet size based on usage (more usage = larger)
     const timeRatio = maxTime > 0 ? appTime / maxTime : 0.5;
-    const baseSize = 0.8 + Math.sqrt(timeRatio) * 2.0;
-    const radius = Math.max(1.0, Math.min(3.5, baseSize));
+    const baseSize = 0.3;
+    const sizeMultiplier = 0.5 + timeRatio * 0.5;
+    const radius = Math.max(0.3, Math.min(1.5, baseSize * sizeMultiplier));
 
-    // === ORBIT RADIUS CALCULATION ===
-    // Formula: orbitRadius = minOrbit + (ln(time)^(1/3)) * (maxOrbit - minOrbit)
-    // - More total time = further from sun (like outer planets)
-    // - Uses ln() then cube root: prevents huge gaps between planets
-    // - Range: 24 (inner) to 240 (outer) units
-    const minOrbitRadius = 24;
-    const maxOrbitRadius = 240;
-    const logAppTime = Math.log(appTime + 1);
-    const logMaxTime = Math.max(Math.log(maxTime + 1), 1);
-    const orbitTimeRatio = logAppTime / logMaxTime;
-    const gentleRatio = Math.pow(orbitTimeRatio, 1/3);
-    const perturbation = Math.sin(idx * 2.7 + 0.5) * 3;
-    const orbitRadius = minOrbitRadius + gentleRatio * (maxOrbitRadius - minOrbitRadius) + perturbation;
+    // Orbit radius - logarithmic spacing for proper planet distribution
+    const { minOrbitRadius, maxOrbitRadius } = ORBIT_CONFIG;
+    const orbitRadius = calculateOrbitRadiusLogarithmic(idx, sortedApps.length, minOrbitRadius, maxOrbitRadius);
 
-    // === ORBITAL ECCENTRICITY ===
-    // Formula: 0.05 + seed * 0.25
-    // - How "oval" the orbit is (0 = circle, 0.5 = very elliptical)
-    // - Random but stable per planet
-    const eccentricity = 0.05 + (seededRandom(idx * 7.1) * 0.25);
+    // Angular speed using Kepler's 3rd Law
+    const angularSpeed = calculateAngularSpeed(orbitRadius);
+    const orbitalPeriod = calculateOrbitalPeriod(orbitRadius);
 
-    // === ORBITAL INCLINATION ===
-    // Formula: seed * 0.4 - 0.2
-    // - How tilted the orbit is (-0.2 to 0.2 radians)
-    const inclination = (seededRandom(idx * 7.2) * 0.4) - 0.2;
+    // Eccentricity (slight variation for visual interest)
+    const { eccentricityRange } = ORBIT_CONFIG;
+    const eccentricity = eccentricityRange.min +
+      Math.random() * (eccentricityRange.max - eccentricityRange.min);
 
-    // === LONGITUDE OF PERIHELION ===
-    // Formula: seed * 2π
-    // - Where in the orbit the planet starts (0 to 360 degrees)
-    const longitudeOfPerihelion = seededRandom(idx * 7.3) * Math.PI * 2;
+    // Inclination (slight tilt for 3D depth)
+    const { inclinationRange } = ORBIT_CONFIG;
+    const inclination = (inclinationRange.min +
+      Math.random() * (inclinationRange.max - inclinationRange.min))
+      * (Math.PI / 180);
 
-    // === ORBIT SPEED (Kepler's Law - inverse to time!) ===
-    // Formula: baseSpeed * (1 - ratio^(1/3) * 0.7)
-    // - FURTHER planets orbit SLOWER (like real solar systems!)
-    // - More time used = further = slower
-    // - Range: 0.045 (outer/slow) to 0.15 (inner/fast)
-    const baseSpeed = 0.15;
-    const speedRatio = Math.pow(timeRatio, 1/3);
-    const orbitSpeed = baseSpeed * (1 - speedRatio * 0.7);
+    // Longitude of perihelion (where in orbit planet starts)
+    const longitudeOfPerihelion = Math.random() * Math.PI * 2;
 
-    // === PLANET ROTATION SPEED ===
-    // Formula: 0.5 + ratio^(1/3) * 1.5
-    // - Longer avg sessions = slower rotation
-    // - Range: 0.5 (long sessions) to 2.0 (short sessions)
-    const logAvgSession = Math.log(avgSessionLength + 1);
-    const logMaxSession = Math.max(Math.log(maxTime + 1), 1);
-    const rotationRatio = logAvgSession / logMaxSession;
-    const rotationSpeed = 0.5 + Math.pow(rotationRatio, 1/3) * 1.5;
+    // Planet rotation speed (based on session length)
+    const rotationRatio = maxTime > 0 ? avgSessionLength / (maxTime + 1) : 0.5;
+    const rotationSpeed = 0.5 + rotationRatio * 1.5;
 
-    // Safe project extraction
+    // Moons (projects)
     const projects = [...new Set(appLogs.map((l: any) => l.project).filter((p: any) => p && typeof p === 'string'))] as string[];
-
     const moons = projects.slice(0, 3).map((proj: string, mIdx: number) => ({
       name: proj,
       radius: 0.25,
@@ -643,22 +728,20 @@ categoryCount[category] = idxInCategory + 1;
       color: color + '88'
     }));
 
-    // Generate rings: ~40% chance, with varied thickness and opacity
+    // Rings (~40% chance)
     const rings: RingData[] = [];
     const hasRings = Math.random() < 0.4;
     if (hasRings) {
-      const ringCount = 1 + Math.floor(Math.random() * 3); // 1-3 ring bands
+      const ringCount = 1 + Math.floor(Math.random() * 3);
       const rgb = hexToRgb(color);
-      // Slightly desaturate ring color for realism
       const ringColor = `#${((1 << 24) + (Math.min(255, Math.floor(rgb.r * 0.85) + 30) << 16) + (Math.min(255, Math.floor(rgb.g * 0.85) + 30) << 8) + Math.min(255, Math.floor(rgb.b * 0.85) + 30)).toString(16).slice(1)}`;
-      // Opacity: some barely visible (0.05-0.15), some thick (0.3-0.6)
-      const isThick = Math.random() < 0.3; // 30% chance of Saturn-like thick rings
+      const isThick = Math.random() < 0.3;
       const baseOpacity = isThick ? (0.3 + Math.random() * 0.3) : (0.05 + Math.random() * 0.1);
       const innerRadius = radius * (1.4 + Math.random() * 0.4);
       const outerRadius = isThick
-        ? innerRadius + radius * (0.8 + Math.random() * 0.6)  // thick: Saturn-like
-        : innerRadius + radius * (0.15 + Math.random() * 0.2); // thin: Uranus-like
-      const tilt = (Math.random() * 0.8) - 0.4; // -0.4 to 0.4 radians
+        ? innerRadius + radius * (0.8 + Math.random() * 0.6)
+        : innerRadius + radius * (0.15 + Math.random() * 0.2);
+      const tilt = (Math.random() * 0.8) - 0.4;
 
       for (let r = 0; r < ringCount; r++) {
         const spread = (outerRadius - innerRadius) / ringCount;
@@ -672,27 +755,26 @@ categoryCount[category] = idxInCategory + 1;
       }
     }
 
-    planets.push({
+    return {
       name: appName,
       category: category,
-      color: color,
+      color: getPlanetColorByOrbit(orbitRadius, minOrbitRadius, maxOrbitRadius),
       time: appTime,
       sessions: sessions,
       radius: radius,
       orbitRadius: orbitRadius,
-      speed: orbitSpeed,
+      speed: angularSpeed,
+      orbitalPeriod: orbitalPeriod,
       rotationSpeed: rotationSpeed,
       eccentricity: eccentricity,
       inclination: inclination,
       longitudeOfPerihelion: longitudeOfPerihelion,
       moons: moons,
       rings: rings,
-    });
-  }
+    };
+  });
 
-  return planets.length > 0 ? planets : [
-    { name: 'VS Code', category: 'IDE', color: '#4f46e5', time: 120, sessions: 5, radius: 1.5, orbitRadius: 5, speed: 0.12, eccentricity: 0.1, inclination: 0.05, longitudeOfPerihelion: 0, moons: [], rings: [] }
-  ];
+return planets;
 }
 
 // Helper: parse hex color to RGB
@@ -1585,6 +1667,9 @@ function TexturedPlanet({
               letterSpacing: '0.03em',
               fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
               boxShadow: isHovered ? `0 0 16px ${data.color}44` : '0 2px 8px rgba(0,0,0,0.4)',
+              maxWidth: '200px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
             {data.name}
@@ -1880,8 +1965,6 @@ function computePlanetsFromStats(
     .sort((a, b) => a.time - b.time); // ascending: smallest first (closest to sun)
 
   const maxTime = Math.max(...sortedApps.map(a => a.time), 1);
-  const baseRadius = 5;
-  const minSpacing = 2.0;
 
   // Count apps per category for color assignment
   const categoryCount: Record<string, number> = {};
@@ -1899,11 +1982,12 @@ function computePlanetsFromStats(
     const timeRatio = maxTime > 0 ? app.time / maxTime : 0.5;
     const radius = 0.8 + timeRatio * 1.2;
 
-    // Calculate orbit radius (further = more time)
-    const orbitRadius = baseRadius + idx * minSpacing;
+    // Calculate orbit radius using logarithmic spacing
+    const { minOrbitRadius, maxOrbitRadius } = ORBIT_CONFIG;
+    const orbitRadius = calculateOrbitRadiusLogarithmic(idx, sortedApps.length, minOrbitRadius, maxOrbitRadius);
 
-    // Speed based on orbit radius (Kepler-ish)
-    const speed = 0.15 - (idx * 0.008);
+    // Speed based on Kepler's 3rd Law
+    const speed = calculateAngularSpeed(orbitRadius);
 
     // Add some eccentricity and variation
     const eccentricity = 0.05 + Math.random() * 0.15;
@@ -2070,22 +2154,23 @@ function computeWebsitePlanets(
 
     const maxTime = Math.max(...sortedApps.map(([, logs]) => logs.reduce((sum: number, l: any) => sum + ((l as any).duration_ms || (l as any).duration || 0) / 1000, 0)), 1);
     
-    // LN-based orbit spacing - same formula as apps for consistency
+     // LN-based orbit spacing - logarithmic distribution for websites
     const minOrbitRadius = 24;
     const maxOrbitRadius = 240;
-    const logAppTime = Math.log(appTime + 1);
-    const logMaxTime = Math.max(Math.log(maxTime + 1), 1);
-    const timeRatio = logAppTime / logMaxTime;
+    
+    // Use index-based logarithmic spacing (same approach as apps)
+    const orbitRadius = calculateOrbitRadiusLogarithmic(idx, sortedApps.length, minOrbitRadius, maxOrbitRadius);
+    
+    // Calculate time ratio for planet size
+    const timeRatio = appTime / maxTime;
     
     // Cube root for gentle scaling
     const gentleRatio = Math.pow(timeRatio, 1/3);
     
     const radius = 0.8 + gentleRatio * 1.2;
-    const orbitRadius = minOrbitRadius + gentleRatio * (maxOrbitRadius - minOrbitRadius);
     
-    // Orbit speed: inverse to time (further = slower)
-    const speedRatio = Math.pow(timeRatio, 1/3);
-    const speed = 0.15 * (1 - speedRatio * 0.7); // Range: 0.045 to 0.15
+    // Orbit speed using Kepler-like physics
+    const speed = calculateAngularSpeed(orbitRadius) * 0.1; // Scale down for slower website orbits
     
     const eccentricity = 0.05 + seededRandom(idx * 7.1) * 0.15;
     const inclination = (seededRandom(idx * 7.2) - 0.5) * 0.3;
@@ -2919,7 +3004,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   };
 
   return (
-    <div className="relative w-full rounded-none overflow-visible">
+    <div className="relative w-full h-full rounded-none overflow-visible flex flex-col">
       {/* Galaxy type indicator - shows which galaxy user is viewing */}
       <div className="absolute top-4 left-4 z-20">
         <div className={`text-xs font-semibold tracking-wider px-3 py-1.5 rounded-lg border ${
@@ -3091,11 +3176,29 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
         )}
       </div>
       
-      <div className="w-full h-[600px] bg-transparent">
+      <div ref={(el) => {
+          if (el) {
+            const ro = new ResizeObserver((entries) => {
+              for (const entry of entries) {
+                const { width, height } = entry.contentRect;
+                const canvas = el.querySelector('canvas');
+                if (canvas) {
+                  canvas.width = width * window.devicePixelRatio;
+                  canvas.height = height * window.devicePixelRatio;
+                  canvas.style.width = width + 'px';
+                  canvas.style.height = height + 'px';
+                }
+              }
+            });
+            ro.observe(el);
+          }
+        }} className="w-full flex-1 bg-transparent">
         {(() => {
           try {
             return (
-              <Canvas 
+              <Canvas
+                resize={{ scroll: false, offsetSize: true }}
+                style={{ width: '100%', height: '100%' }} 
                 key={`canvas-${textureRefreshKey}`} 
                 camera={{ position: viewMode === 'galaxy' ? (galaxyType === 'websites' ? [3250, 100, 200] : [0, 100, 200]) : [0, 100, 180], fov: 45, near: 0.1, far: 10000 }} 
                 onError={(e) => console.error('[OrbitSystem] Canvas error:', e)}

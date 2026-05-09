@@ -20,6 +20,7 @@ import TerminalPage from './pages/TerminalPage';
 import ExternalPage from './pages/ExternalPage';
 import InsightsPage from './pages/InsightsPage';
 import DashboardPage from './pages/DashboardPage';
+// Agent dashboard is disabled - file incomplete
 
 // Lazy load OrbitSystem - it's heavy and should only load when needed
 const OrbitSystem = lazy(() => import('./components/OrbitSystem').then(module => ({ default: module.default })));
@@ -322,7 +323,7 @@ function App() {
   const [showStorageDetails, setShowStorageDetails] = useState(false);
 
   // State used by loadInitialData effect
-  const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('today');
+  const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('week');
   const [allLogs, setAllLogs] = useState<ActivityLog[]>([]); // ALL logs - never changes (for heatmap)
   
   // Computed filtered logs from allLogs based on selectedPeriod (replaces logs state)
@@ -349,7 +350,6 @@ function App() {
     setLogs(filteredLogs);
   }, [filteredLogs]);
 
-  const [appStats, setAppStats] = useState<any[]>([]); // Per-app detailed stats
   const [browserCategoryStats, setBrowserCategoryStats] = useState<any[]>([]); // Browser domain/category stats
   const [browserLogs, setBrowserLogs] = useState<ActivityLog[]>([]); // Browser tracking logs (website data)
   const [allWebsiteStats, setAllWebsiteStats] = useState<any[]>([]); // All time website stats for Settings
@@ -629,6 +629,34 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Sleep prompt on app open - check morning condition
+  const [showMorningSleepPrompt, setShowMorningSleepPrompt] = useState(false);
+  const [sleepLatencyMinutes, setSleepLatencyMinutes] = useState(15);
+  
+  useEffect(() => {
+    const checkMorningSleep = async () => {
+      try {
+        if (window.deskflowAPI?.getMorningPrompt) {
+          const data = await window.deskflowAPI.getMorningPrompt();
+          if (data?.show) {
+            console.log('[App] Morning sleep prompt available:', data);
+            setShowMorningSleepPrompt(true);
+          }
+        }
+      } catch { /* ignore */ }
+    };
+    checkMorningSleep();
+  }, []);
+
+  const dismissSleepPrompt = async () => {
+    setShowMorningSleepPrompt(false);
+    try {
+      if (window.deskflowAPI?.dismissMorningPrompt) {
+        await window.deskflowAPI.dismissMorningPrompt();
+      }
+    } catch { /* ignore */ }
+  };
+
   useEffect(() => {
     const loadOverrides = async () => {
       const overrides: Record<string, string> = {};
@@ -696,41 +724,60 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
 
   // Compute app stats - filtered by selectedPeriod (for display pages)
-  const computedAppStats = useMemo(() => {
-    const now = new Date();
-    let filtered = allLogs;
+  const [computedAppStats, setComputedAppStats] = useState({
+    totalTimeMs: 0,
+    productiveTimeMs: 0,
+    productivePercent: 0,
+    categories: {} as Record<string, number>,
+    appBreakdown: [] as Array<{ app: string; category: string; durationMs: number; percentage: number }>
+  });
 
-    // Filter by period
-    if (selectedPeriod === 'today') {
-      filtered = allLogs.filter(log =>
-        log.timestamp.getDate() === now.getDate() &&
-        log.timestamp.getMonth() === now.getMonth() &&
-        log.timestamp.getFullYear() === now.getFullYear()
-      );
-    } else if (selectedPeriod === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      filtered = allLogs.filter(log => log.timestamp >= weekAgo);
-    } else if (selectedPeriod === 'month') {
-      // Month shows ALL available data (not just last 30 days)
-      filtered = allLogs;
+  // External weekly stats for DashboardPage Weekly Overview
+  const [externalWeeklyStats, setExternalWeeklyStats] = useState<{
+    byDay: Record<string, number>;
+    total_seconds: number;
+  } | null>(null);
+
+  // Fetch external stats for ALL time - weekly overview will filter by weekOffset
+  useEffect(() => {
+    if (window.deskflowAPI?.getExternalStats) {
+      window.deskflowAPI.getExternalStats('all').then((stats: any) => {
+        console.log('[App] Got external stats (all):', stats);
+        console.log('[App] byDay keys:', Object.keys(stats?.byDay || {}));
+        console.log('[App] byDay sample:', JSON.stringify(stats?.byDay));
+        setExternalWeeklyStats({
+          byDay: stats?.byDay || {},
+          total_seconds: stats?.total_seconds || 0
+        });
+      }).catch(err => console.error('[App] Failed to get external stats:', err));
     }
+  }, []); // Load once on mount - weekly overview filters by weekOffset
 
-    // Include apps (excluding tracking browser, which is tracked via websites) but exclude actual websites
-    const appLogs = filtered.filter(log => {
-      // Exclude actual website tracking data
-      if (log.is_browser_tracking) return false;
-      return true;
-    });
+  // Compute period-filtered app stats (for StatsPage)
+  const appStats = useMemo(() => {
+    const now = new Date();
+    let filteredLogs = allLogs.filter(log => !log.is_browser_tracking);
 
-    // Apply category overrides
+    // Filter by selectedPeriod
+    if (selectedPeriod === 'today') {
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      filteredLogs = filteredLogs.filter(log => new Date(log.timestamp) >= todayStart);
+    } else if (selectedPeriod === 'week') {
+      const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      filteredLogs = filteredLogs.filter(log => new Date(log.timestamp) >= weekStart);
+    } else if (selectedPeriod === 'month') {
+      const monthStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      filteredLogs = filteredLogs.filter(log => new Date(log.timestamp) >= monthStart);
+    }
+    // 'all' shows all logs (no filtering)
+
     const getCategory = (app: string, defaultCategory: string) => {
       const override = categoryOverrides[app.toLowerCase()];
       return override || defaultCategory;
     };
 
-    // Group by app
     const grouped: Record<string, { total_ms: number; sessions: number; first_seen: string; last_seen: string; category: string }> = {};
-    for (const log of appLogs) {
+    for (const log of filteredLogs) {
       const category = getCategory(log.app, log.category || 'Other');
       if (!grouped[log.app]) {
         grouped[log.app] = { total_ms: 0, sessions: 0, first_seen: log.timestamp.toISOString(), last_seen: log.timestamp.toISOString(), category };
@@ -741,7 +788,6 @@ function App() {
       if (log.timestamp.toISOString() > grouped[log.app].last_seen) grouped[log.app].last_seen = log.timestamp.toISOString();
     }
 
-    // Convert to array
     const stats = Object.entries(grouped).map(([app, data]) => ({
       app,
       ...data,
@@ -749,7 +795,7 @@ function App() {
     }));
 
     return stats.sort((a, b) => b.total_ms - a.total_ms);
-  }, [allLogs, selectedPeriod, categoryOverrides, trackingBrowser]);
+  }, [allLogs, categoryOverrides, selectedPeriod]);
 
   // Compute ALL TIME app stats - no filtering by period (for Settings page)
   const allTimeAppStats = useMemo(() => {
@@ -888,6 +934,30 @@ function App() {
     }
     return { productiveMs: 0, startTime: 0, paused: false, lastTier: null, externalRunning: false, externalStart: null, externalElapsed: 0, selectedExternalActivity: null };
   });
+
+// Sync timerState when localStorage changes from other sources (e.g., ExternalPage)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const saved = localStorage.getItem('deskflow-timer-state');
+      if (saved) {
+        setTimerState(JSON.parse(saved));
+      }
+    };
+    // Listen for storage changes (cross-tab)
+    window.addEventListener('storage', handleStorageChange);
+    // Listen for custom timer-sync event (same-tab, from ExternalPage)
+    const handleTimerSync = () => {
+      const saved = localStorage.getItem('deskflow-timer-state');
+      if (saved) {
+        setTimerState(JSON.parse(saved));
+      }
+    };
+    window.addEventListener('timer-sync', handleTimerSync);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('timer-sync', handleTimerSync);
+    };
+  }, []);
   
   // Activity feed - persisted at App level to survive tab switches
   const [activityFeed, setActivityFeed] = useState<any[]>(() => {
@@ -1134,6 +1204,10 @@ function App() {
       if (!isMountedRef.current) return;
       if (idleRef.current) {
         console.log('[DeskFlow] Window focused - resuming tracking');
+        // Stop AFK external session when returning
+        if (window.deskflowAPI?.stopAfkSession) {
+          window.deskflowAPI.stopAfkSession().catch(console.error);
+        }
         setIsIdle(false);
         setIsTracking(true);
         setSessionStart(new Date());
@@ -1144,6 +1218,10 @@ function App() {
       if (!isMountedRef.current) return;
       if (document.visibilityState === 'visible' && idleRef.current) {
         console.log('[DeskFlow] Window visible - resuming tracking');
+        // Stop AFK external session when returning
+        if (window.deskflowAPI?.stopAfkSession) {
+          window.deskflowAPI.stopAfkSession().catch(console.error);
+        }
         setIsIdle(false);
         setIsTracking(true);
         setSessionStart(new Date());
@@ -1195,6 +1273,10 @@ function App() {
             };
             setLogs(prev => [newLog, ...prev].slice(0, 20));
           }
+          // Start AFK external session
+          if (window.deskflowAPI?.startAfkSession) {
+            window.deskflowAPI.startAfkSession().catch(console.error);
+          }
           setIsTracking(false);
           setElapsedTime(0);
           return;
@@ -1234,6 +1316,10 @@ function App() {
     setSessionStart(new Date());
     setLastActivity(Date.now());
     setIsIdle(false);
+    // Stop AFK session when manually starting tracking
+    if (window.deskflowAPI?.stopAfkSession) {
+      window.deskflowAPI.stopAfkSession().catch(console.error);
+    }
   };
 
   // Toggle tracking
@@ -1267,6 +1353,10 @@ function App() {
       if (newTracking) {
         setElapsedTime(0);
         setSessionStart(new Date());
+        // Stop AFK session when manually turning on tracking
+        if (window.deskflowAPI?.stopAfkSession) {
+          window.deskflowAPI.stopAfkSession().catch(console.error);
+        }
       } else {
         setElapsedTime(0);
       }
@@ -1682,7 +1772,6 @@ Trend: +14% vs. yesterday. Keep it up!`;
       await window.deskflowAPI.clearData();
       setAllLogs([]);
       setLogs([]);
-      setAppStats([]);
     } else {
       setAllLogs([]);
       setLogs([]);
@@ -1773,17 +1862,17 @@ Trend: +14% vs. yesterday. Keep it up!`;
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
 
-   const sidebarItems = [
-     { icon: Home, label: 'Dashboard', path: '/' },
-     { icon: Target, label: 'Productivity', path: '/productivity' },
-     { icon: PieChart, label: 'Applications', path: '/stats' },
-     { icon: Globe, label: 'Browser Activity', path: '/browser' },
-     { icon: Code2, label: 'IDE Projects', path: '/ide' },
-     { icon: Clock4, label: 'External', path: '/external' },
-     { icon: BarChart3, label: 'Insights', path: '/reports' },
-     { icon: Database, label: 'Database', path: '/database' },
-     { icon: Settings, label: 'Settings', path: '/settings' },
-   ];
+    const sidebarItems = [
+      { icon: Home, label: 'Dashboard', path: '/' },
+      { icon: Target, label: 'Productivity', path: '/productivity' },
+      { icon: PieChart, label: 'Applications', path: '/stats' },
+      { icon: Globe, label: 'Browser Activity', path: '/browser' },
+      { icon: Code2, label: 'IDE Projects', path: '/ide' },
+      { icon: Clock4, label: 'External', path: '/external' },
+      { icon: BarChart3, label: 'Insights', path: '/reports' },
+      { icon: Database, label: 'Database', path: '/database' },
+      { icon: Settings, label: 'Settings', path: '/settings' },
+    ];
 
   const renderHeatmap = () => {
     const currentHour = new Date().getHours();
@@ -2078,21 +2167,38 @@ Trend: +14% vs. yesterday. Keep it up!`;
           <AnimatePresence mode="sync">
             <Routes location={location} key={location.pathname}>
               {/* Dashboard */}
-<Route path="/" element={
-                   <DashboardPage logs={logs} allLogs={allLogs} browserLogs={browserLogs} appColors={appColors} categoryOverrides={categoryOverrides} timerBehavior={timerBehavior} selectedPeriod={selectedPeriod} trackingBrowser={trackingBrowser} trackerAppMode={trackerAppMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} timerState={timerState} onTimerStateChange={setTimerState} activityFeed={activityFeed} onActivityFeedChange={handleActivityFeedChange} externalActivities={externalActivities} />
-                 } />
+              <Route path="/" element={
+                <DashboardPage 
+                  logs={logs} 
+                  allLogs={allLogs} 
+                  browserLogs={browserLogs} 
+                  appColors={appColors} 
+                  categoryOverrides={categoryOverrides} 
+                  timerBehavior={timerBehavior} 
+                  selectedPeriod={selectedPeriod} 
+                  trackingBrowser={trackingBrowser} 
+                  trackerAppMode={trackerAppMode} 
+                  tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} 
+                  timerState={timerState} 
+                  onTimerStateChange={setTimerState} 
+                  activityFeed={activityFeed} 
+                  onActivityFeedChange={handleActivityFeedChange} 
+                  externalActivities={externalActivities} 
+                  externalWeeklyStats={externalWeeklyStats}
+                />
+              } />
               {/* Stats Page */}
-              <Route path="/stats" element={<StatsPage logs={logs} appStats={computedAppStats} selectedPeriod={selectedPeriod} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
+              <Route path="/stats" element={<StatsPage logs={logs} appStats={appStats} selectedPeriod={selectedPeriod} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
               {/* Productivity Page */}
-              <Route path="/productivity" element={<ProductivityPage logs={logs} browserLogs={browserLogs} appStats={computedAppStats} selectedPeriod={selectedPeriod} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} domainKeywordRules={domainKeywordRules} timeMode={timeMode} />} />
+              <Route path="/productivity" element={<ProductivityPage logs={logs} browserLogs={browserLogs} appStats={appStats} selectedPeriod={selectedPeriod} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} domainKeywordRules={domainKeywordRules} timeMode={timeMode} />} />
               {/* Browser Page */}
               <Route path="/browser" element={<BrowserActivityPage selectedPeriod={selectedPeriod} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
               {/* IDE Page */}
               <Route path="/ide" element={<IDEProjectsPage />} />
 
-              <Route path="/external" element={<ExternalPage />} />
+              <Route path="/external" element={<ExternalPage selectedPeriod={selectedPeriod} />} />
               {/* Legacy routes */}
-              <Route path="/old-dashboard" element={<ExternalPage />} />
+              <Route path="/old-dashboard" element={<ExternalPage selectedPeriod={selectedPeriod} />} />
 
               <Route path="/ide-help" element={<IDEHelpPage />} />
 
@@ -2104,7 +2210,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               {/* Pricing Page */}
               <Route path="/pricing" element={<div className="glass rounded-3xl p-8 flex items-center justify-center h-96"><div className="text-center text-zinc-400"><div className="text-4xl mb-4">!</div><div className="text-lg font-medium">Not Yet Added Feature</div><div className="text-sm text-zinc-500 mt-1">Pricing plans are coming soon</div></div></div>} />
               {/* Settings Page */}
-              <Route path="/settings" element={<SettingsPage logs={logs} appStats={allTimeAppStats} websiteStats={allTimeWebsiteStats} onRegisterSave={handleRegisterSave} onReloadData={loadData} onCategoryOverridesChange={setCategoryOverrides} onHasChangesChange={setSettingsHasChanges} timerBehavior={timerBehavior} setTimerBehavior={setTimerBehavior} trackerAppMode={trackerAppMode} setTrackerAppMode={setTrackerAppMode} />} />
+<Route path="/settings" element={<SettingsPage logs={logs} appStats={allTimeAppStats} websiteStats={allTimeWebsiteStats} onRegisterSave={handleRegisterSave} onReloadData={loadData} onCategoryOverridesChange={setCategoryOverrides} onHasChangesChange={setSettingsHasChanges} timerBehavior={timerBehavior} setTimerBehavior={setTimerBehavior} trackerAppMode={trackerAppMode} setTrackerAppMode={setTrackerAppMode} />} />
             </Routes>
           </AnimatePresence>
 
@@ -2159,7 +2265,77 @@ Trend: +14% vs. yesterday. Keep it up!`;
             )}
           </AnimatePresence>
 
-          {/* ── Confirm Export Modal ── */}
+          {/* ── Morning Sleep Prompt Modal ── */}
+          <AnimatePresence>
+            {showMorningSleepPrompt && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+                onClick={dismissSleepPrompt}
+              >
+                <motion.div
+                  initial={{ scale: 0.95 }}
+                  animate={{ scale: 1 }}
+                  exit={{ scale: 0.95 }}
+                  className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="text-center mb-6">
+                    <div className="text-6xl mb-4">🌤️</div>
+                    <h2 className="text-xl font-semibold text-zinc-100">Good Morning!</h2>
+                    <p className="text-zinc-400 mt-2">It looks like you slept last night. Want to track your sleep?</p>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-sm text-zinc-400 mb-2">
+                      How long after closing the app did you fall asleep?
+                    </label>
+                    <select
+                      value={sleepLatencyMinutes}
+                      onChange={(e) => setSleepLatencyMinutes(parseInt(e.target.value))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
+                    >
+                      <option value={0}>Immediately</option>
+                      <option value={5}>5 min</option>
+                      <option value={15}>15 min</option>
+                      <option value={30}>30 min</option>
+                      <option value={60}>1 hour</option>
+                    </select>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={dismissSleepPrompt}
+                      className="flex-1 px-4 py-3 bg-zinc-800 rounded-xl"
+                    >
+                      Skip
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (window?.deskflowAPI?.addSleep) {
+                          const bedtime = new Date(Date.now() - sleepLatencyMinutes * 60 * 1000);
+                          await window.deskflowAPI.addSleep({
+                            started_at: bedtime.toISOString(),
+                            ended_at: new Date().toISOString(),
+                            device_off_to_sleep_seconds: sleepLatencyMinutes * 60,
+                            wake_up_to_app_seconds: 0
+                          });
+                        }
+                        dismissSleepPrompt();
+                      }}
+                      className="flex-1 px-4 py-3 bg-violet-500 rounded-xl text-white font-medium"
+                    >
+                      Track Sleep
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Confirm Export Modal */}
           <AnimatePresence>
             {showConfirmExport && (
               <div className="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center z-[60]" onClick={() => setShowConfirmExport(null)}>

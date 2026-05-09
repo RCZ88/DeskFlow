@@ -8,11 +8,14 @@ C:\Users\cleme\Documents\CZVault\00_Projects\AppTracker\Graph\
 
 A local copy also exists at: `graphify-out/`
 
-### Always (every chat instance):
-- BEFORE answering ANY question about this project's architecture, codebase, or structure:
-  1. Read `C:\Users\cleme\Documents\CZVault\00_Projects\AppTracker\Graph\GRAPH_REPORT.md` for god nodes and community structure
-  2. If you need details, open the relevant note from the Graph folder
-- This applies to NEW CHATS - assume I already know about this graph unless told otherwise
+### When to use graphify:
+- ONLY when answering questions about **architecture, codebase structure, or complex data flows**
+- ONLY in NEW CHATS when you don't know the project structure yet
+- **DO NOT use graphify for routine bug fixes, styling changes, or small tasks**
+
+### Quick reference (use only when needed):
+- Read `C:\Users\cleme\Documents\CZVault\00_Projects\AppTracker\Graph\GRAPH_REPORT.md` for god nodes and community structure
+- Run `python agent/skills/maintain-context/graphify_maintain.py rebuild` for AST-only rebuild (fast, no LLM)
 
 ### After completing ANY task that modified files:
 Run the `maintain-context` skill (`agent/skills/maintain-context/SKILL.md`). The skill is **dynamic** — it assesses the scale of changes and only runs what's needed:
@@ -25,45 +28,130 @@ Run the `maintain-context` skill (`agent/skills/maintain-context/SKILL.md`). The
 | **4 — Significant** (new module, file add/remove) | Full state.md + arch notes. Rebuild graphify (consider --update). |
 | **5 — Major** (restructure, framework change) | Full state.md + version bump. Full graphify pipeline. |
 
-Key commands (do NOT use `_rebuild_code()` directly — Windows UTF-8 bug):
-- `python agent/skills/maintain-context/graphify_maintain.py rebuild` — AST-only, fast, no LLM
-- `python agent/skills/maintain-context/graphify_maintain.py validate` — Check/fix GRAPH_REPORT.md
-- `python agent/skills/maintain-context/graphify_maintain.py sync` — Copy to Obsidian vault
-- `python agent/skills/maintain-context/graphify_maintain.py full` — All three at once
-
 **Do not over-update.** A typo fix does not need a graphify rebuild. A color change does not need PROBLEMS.md. Match the response to the severity.
 
 Graphify covers architecture/context; the .md files below cover state/issues/patterns.
 
 ---
 
-## Still-Relevant Agent Markdown Files
+# RULE: DO NOT USE ANY GIT COMMANDS UNLESS INSTRUCTED TO DO SO.
 
-These files contain information NOT captured in graphify and must still be maintained:
+## Complete Agent Markdown Files Reference
+
+All markdown files in the `agent/` directory. Organized by category.
+
+### Core Agent Files (Required Reading)
 
 | File | What It Tracks | When to Update |
 |------|---------------|----------------|
 | `agent/state.md` | Version, recent changes, IPC endpoints, known issues | After EVERY code change |
-| `agent/PROBLEMS.md` | Issue tracker with status, priority, root causes | When bugs are found or fixes attempted |
-| `agent/debugging.md` | Error patterns and solutions | When a new debugging pattern is discovered |
-| `agent/data.md` | DB schemas, IPC endpoint reference | When IPC endpoints or DB schema change |
-| `agent/docs/quick-prompt.md` | Diagnostic prompt templates | When a reusable diagnostic pattern is found |
-| `agent/docs/RESTORE_PROMPT.md` | Emergency restoration procedure | When project structure changes significantly |
-| `agent/docs/SETTINGS_PAGE_FEATURES.md` | Complete Settings page feature reference | When modifying Settings page |
-| `agent/COMMITS.md` | Git commit history and conventions | After git commits |
-| `agent/REQUESTS.md` | User request history | When user asks for something |
-| `agent/constraints.md` | Hard rules and limitations | When new constraints discovered |
 | `agent/context.md` | Architecture, tech stack, data flow | When architecture changes |
+| `agent/AGENTS.md` | This file - project instructions for AI agents | When project rules change |
+| `agent/agents.md` | General instructions for AI agents | When project rules change |
+| `agent/constraints.md` | Hard rules and limitations | When new constraints discovered |
 | `agent/patterns.md` | Reusable code patterns | When new patterns introduced |
 | `agent/glossary.md` | Term definitions | When new terms introduced |
+
+### Issue & Debugging Files
+
+| File | What It Tracks | When to Update |
+|------|---------------|----------------|
+| `agent/PROBLEMS.md` | Issue tracker with status, priority, root causes | When bugs are found or fixes attempted |
+| `agent/debugging.md` | Error patterns and solutions | When a new debugging pattern is discovered |
+| `agent/HUMAN_TEST_CHECKLIST.md` | Human testing checklist for changes | When new features need testing |
+
+### User & Request Tracking
+
+| File | What It Tracks | When to Update |
+|------|---------------|----------------|
+| `agent/REQUESTS.md` | User request history | When user asks for something |
+| `agent/COMMITS.md` | Git commit history and conventions | After git commits |
+
+### Feature Documentation
+
+| File | What It Tracks | When to Update |
+|------|---------------|----------------|
+| `agent/FEATURE_TRACKER.md` | Complete inventory of all pages and features | When new features added/changed |
+| `agent/WORKSPACE_CONTEXT.md` | Workspace/IDE projects/terminal system context | When workspace features change |
+| `agent/docs/SETTINGS_PAGE_FEATURES.md` | Complete Settings page feature reference | When modifying Settings page |
+| `agent/data.md` | DB schemas, IPC endpoint reference | When IPC endpoints or DB schema change |
+
+### Prompt & Design Files
+
+| File | What It Tracks | When to Update |
+|------|---------------|----------------|
+| `agent/prompt.md` | Prompt templates (legacy) | When new prompts created |
+| `agent/prompts.md` | Prompt collection (superseded) | When new prompts created |
+| `agent/docs/quick-prompt.md` | Diagnostic prompt templates | When a reusable diagnostic pattern is found |
+| `agent/docs/RESTORE_PROMPT.md` | Emergency restoration procedure | When project structure changes significantly |
+| `agent/docs/DASHBOARD_DESIGN_PLAN.md` | Dashboard design planning | When dashboard design changes |
+| `agent/docs/DESIGN_PROMPT.md` | Design prompt templates | When creating design prompts |
+| `agent/docs/external-page-chart-design-prompt.md` | External page chart design | When modifying external charts |
+| `agent/docs/terminal-ai-projects-revamp.md` | Terminal/AI projects revamp plan | When revamping terminal |
+| `agent/docs/TERMINAL_INTEGRATION_PROMPT.md` | Terminal integration prompts | When working on terminal features |
+
+### Research & Implementation Docs
+
+| File | What It Tracks | When to Update |
+|------|---------------|----------------|
+| `agent/docs/IMPLEMENTATION_TASKS.md` | Implementation task lists | When tasks change |
+| `agent/docs/ROOT-CAUSE.md` | Root cause analysis | When analyzing issues |
+| `agent/docs/ide-fixes-plan.md` | IDE fixes implementation plan | When fixing IDE features |
+| `agent/docs/IDE-pageDetails-specifications-160426/` | IDE page specifications | When IDE page changes |
+| `agent/docs/ide-terminal-features-19042026/` | IDE terminal features docs | When terminal features change |
+| `agent/docs/ai-agent-data-storage-research-18042026/` | AI agent data storage research | When researching agent storage |
+| `agent/docs/externalpage-insights-ideas-27042026/` | External page insights ideas | When planning external page |
+| `agent/docs/externalTrackerInsightsData-22042026/` | External tracker insights data | When analyzing external data |
+| `agent/docs/research-impl/` | Research implementation docs | When researching features |
+| `agent/docs/6-research-prompt-IDEtracker-15042026/` | IDE tracker research prompts | When researching IDE tracking |
+
+### Visual & UI Docs
+
+| File | What It Tracks | When to Update |
+|------|---------------|----------------|
+| `agent/docs/galaxyColorScheme.md` | Galaxy color scheme design | When changing color schemes |
+| `agent/docs/enhancingVisualOptimization.md` | Visual optimization plans | When optimizing visuals |
+| `agent/docs/particleBackendOpt.md` | Particle backend optimization | When optimizing particles |
+| `agent/docs/TEXTURE_DEBUG_PROMPT.md` | Texture debug prompts | When debugging textures |
+| `agent/docs/TEXTURE_DEBUG_FINAL.md` | Texture debug final report | When texture work complete |
+| `agent/docs/ORBIT_DEBUG_PROMPT.md` | Orbit debug prompts | When debugging orbit system |
+| `agent/docs/exact-bug.md` | Exact bug documentation | When documenting specific bugs |
+| `agent/docs/discordStyledSave.md` | Discord-styled save design | When changing save UI |
+| `agent/docs/stitch-prompts/` | Stitch AI design prompts | When using Stitch for UI design |
+| `agent/docs/graphify/` | Graphify-related prompts | When working with graphify |
+
+### Qwen-Specific Files
+
+| File | What It Tracks | When to Update |
+|------|---------------|----------------|
 | `agent/qwen.md` | Qwen-specific rules | When Qwen instructions change |
+| `agent/GENERIC_AGENT.md` | Generic agent instructions | When creating reusable agent instructions |
 
-### Redundant Files (content already in graphify - do NOT maintain separately)
+### Skills Documentation
 
-- `agent/agents.md` — replaced by graphify + this AGENTS.md
-- `agent/README.md` — outdated
-- `agent/prompt.md` — superseded
-- `agent/prompts.md` — superseded by debugging.md and quick-prompt.md
+| File | What It Tracks | When to Update |
+|------|---------------|----------------|
+| `agent/skills.md` | Available skills overview | When skills change |
+| `agent/skills/README.md` | Skills directory README | When skills structure changes |
+| `agent/skills/agent-reflect/` | Agent reflection skill | When reflection patterns change |
+| `agent/skills/commit/` | Commit skill | When commit process changes |
+| `agent/skills/deep-research/` | Deep research skill | When research methods change |
+| `agent/skills/deep-research-prompt/` | Deep research prompt skill | When prompts change |
+| `agent/skills/fix-problems/` | Fix problems skill | When fix procedures change |
+| `agent/skills/frontend-design/` | Frontend design skill | When design process changes |
+| `agent/skills/generate-problem/` | Generate problem skill | When problem generation changes |
+| `agent/skills/generate-prompt/` | Generate prompt skill | When prompt generation changes |
+| `agent/skills/google-stitch/` | Google Stitch skill | When Stitch integration changes |
+| `agent/skills/maintain-context/` | Maintain context skill | When context maintenance changes |
+| `agent/skills/readme-generator/` | README generator skill | When generator changes |
+| `agent/skills/recursive-playwright/` | Recursive Playwright skill | When testing approach changes |
+
+### Other Files
+
+| File | What It Tracks | When to Update |
+|------|---------------|----------------|
+| `agent/README.md` | Agent directory README (outdated) | Rarely - being phased out |
+| `agent/dictionary.md` | Word dictionary (purpose unclear) | When dictionary changes |
 
 ---
 
@@ -77,11 +165,15 @@ When changes require user testing, add an entry to `agent/PROBLEMS.md` AND link 
 
 | Change | Test Steps | Expected | PROBLEMS.md Ref |
 |--------|-----------|----------|-----------------|
-| App switching reverts to website | 1. Open browser with YouTube 2. Switch to another app (VS Code) 3. Wait 5+ seconds | Timer shows the new app, not website | Issue #51 (App switching) |
-| Timer/activity colors by tier | 1. Open app with productive app 2. Open distracting app 3. Start external activity | Border/timer changes: Green (productive), Red (distracting), Purple (external), Gray (idle) | Issue #52 (Timer colors) |
-| Elapsed time wrong (4:59:10) | 1. View Recent Sessions 2. Look at duration | Duration shows correct time difference, not inverted | Issue #53 (Elapsed time bug) |
-| Fullscreen height | 1. Click fullscreen on Solar 2. Check height | Full height, no cut off | Issue #54 (Fullscreen height) |
-| Duplicate activity buttons | 1. Go to External page 2. Check buttons | No duplicate buttons | Issue #50 (External page layout) |
+| Recent sessions showing websites | 1. Use app (VS Code) 2. Check Recent Sessions in Dashboard | Shows "App" not "Website" for app entries | Issue #51 |
+| Weekly Overview data | 1. Check Dashboard Weekly Overview 2. Verify today's hours are realistic | Shows actual hours (not 21h), Device bar visible | Issue #52 |
+| Heatmap hour selection | 1. Click hour cell in heatmap 2. Should select hour only | Hour highlighted, no day popup | Issue #53 |
+| Day column hover highlight | 1. Hover on day text (Mon, Tue, etc.) | Entire day column highlights purple | Issue #53 |
+| Heatmap day click | 1. Click day text (Mon, Tue, etc.) | Shows day detail page | Issue #53 |
+| External page period selector | 1. Go to /external 2. Click today/week/month/all | Stats and charts update accordingly | Issue #54 |
+| Sleep chart respects period | 1. Select different periods on External 2. Check Sleep Trends chart | Shows correct number of days (1/7/30/90) | Issue #55 |
+| Weekly Overview styling | 1. Look at Weekly Overview chart | Rounded bar corners, total hours below chart | Issue #56 |
+| Always-visible timer | 1. Go to /external when no activity running | Shows "00:00:00" with "Click to start tracking" | New feature |
 
 ### Example Entry:
 ```
@@ -173,6 +265,20 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
+## 🔄 Auto-Reflect on "idiot" Trigger
+
+**CRITICAL RULE:** When the user says **"idiot"** (or variations like "IDIOT", "idiot", etc.), you MUST:
+
+1. **Stop immediately**
+2. **Trigger reflection** by saying: `"reflect"`
+3. **Document the mistake** in `agent/skills/agent-reflect/logs/YYYY-MM-DD_idiot_trigger.md`
+4. **Add pattern to `agent/debugging.md`** if it's a debugging issue
+5. **Learn from it** - Don't repeat the same mistake
+
+This applies to ANY situation where the user calls you "idiot" - it means you made a mistake that should have been avoided.
+
+---
+
 ## Current Active Issues (Check PROBLEMS.md First)
 
 | Issue # | Title | Priority | Status |
@@ -182,6 +288,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
+## ⚡ Before Starting ANY Task
+
+**ALWAYS check `agent/state.md` first** to understand current project status. This file contains:
+- Current version and recent changes
+- All implemented features
+- Known issues and IPC endpoints
+- Project structure overview
+
+If state.md says "See GRAPH_REPORT.md" - use graphify for architecture context.
+
+---
+
 @agent/agents.md
 
-**Last Updated:** 2026-04-26
+**Last Updated:** 2026-04-28

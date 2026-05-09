@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { 
@@ -323,7 +323,7 @@ export default function SettingsPage({
   trackerAppMode: trackerAppModeProp = 'track',
   setTrackerAppMode: setTrackerAppModeProp = () => {},
 }: Partial<SettingsPageProps> & { onRegisterSave: (fn: () => void) => void; onReloadData?: () => void }) {
-  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general'>(() => {
+  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general' | 'tracking'>(() => {
     const saved = localStorage.getItem('settings-activeTab');
     return (saved as any) || 'category';
   });
@@ -356,6 +356,10 @@ export default function SettingsPage({
   const [autoStartEnabled, setAutoStartEnabled] = useState(autoStartEnabledProp);
   const [localTimerBehavior, setLocalTimerBehavior] = useState(timerBehaviorProp);
   const [trackerAppMode, setTrackerAppMode] = useState(trackerAppModeProp);
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  
+  const allCategories = useMemo(() => [...DEFAULT_CATEGORIES, ...customCategories], [customCategories]);
   
   // Sync tracker app mode from props when they change
   useEffect(() => {
@@ -473,8 +477,29 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
           if (config?.domainDefaultCategories) {
             setDomainDefaultCategories(config.domainDefaultCategories);
           }
+          // Load custom categories
+          if (config?.customCategories) {
+            setCustomCategories(config.customCategories);
+          }
         } catch { /* ignore */ }
-}
+      }
+      
+      // Load tier assignments from backend (ensures custom categories are in tiers)
+      if (window.deskflowAPI?.getTierAssignments) {
+        try {
+          const backendTiers = await window.deskflowAPI.getTierAssignments();
+          if (backendTiers) {
+            setTierAssignments(prev => {
+              const merged = {
+                productive: [...new Set([...prev.productive, ...(backendTiers.productive || [])])],
+                neutral: [...new Set([...prev.neutral, ...(backendTiers.neutral || [])])],
+                distracting: [...new Set([...prev.distracting, ...(backendTiers.distracting || [])])],
+              };
+              return merged;
+            });
+          }
+        } catch { /* ignore */ }
+      }
        
       // Load keyword-enabled domains and their keyword sets
       if (window.deskflowAPI?.getKeywordEnabledDomains) {
@@ -608,7 +633,24 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
 
   const getUnassignedCategories = () => {
     const assigned = getAssignedCategories();
-    return DEFAULT_CATEGORIES.filter(cat => !assigned.has(cat));
+    return allCategories.filter(cat => !assigned.has(cat));
+  };
+
+  const handleAddCategory = async () => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    if (allCategories.includes(name)) return;
+    if (window.deskflowAPI?.addCategory) {
+      await window.deskflowAPI.addCategory(name);
+    }
+    setCustomCategories(prev => [...prev, name]);
+    setTierAssignments(prev => ({
+      ...prev,
+      neutral: [...prev.neutral, name]
+    }));
+    setNewCategoryName('');
+    setHasChanges(true);
+    onHasChangesChange(true);
   };
 
   const saveChanges = async () => {
@@ -778,7 +820,8 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
   const tabs = [
     { id: 'category', label: 'Category' },
     { id: 'colors', label: 'Colors' },
-    { id: 'general', label: 'General' }
+    { id: 'general', label: 'General' },
+    { id: 'tracking', label: 'Tracking' }
   ];
 
   const [domainStats, setDomainStats] = useState<any[]>([]);
@@ -833,6 +876,28 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
   const [editingKeywordSets, setEditingKeywordSets] = useState<{ category: string; keywords: string[] }[]>([]);
   const [tempKeywordInput, setTempKeywordInput] = useState('');
   const [tempCategoryForNewSet, setTempCategoryForNewSet] = useState('Education');
+
+  // Tracking settings state
+  const [sleepGapMs, setSleepGapMs] = useState(10000);
+  const [maxSessionMs, setMaxSessionMs] = useState(300000);
+
+  // Load tracking settings on mount
+  useEffect(() => {
+    const loadTrackingSettings = async () => {
+      if (window.deskflowAPI?.getTrackingSettings) {
+        const settings = await window.deskflowAPI.getTrackingSettings();
+        setSleepGapMs(settings.sleep_gap_ms || 10000);
+        setMaxSessionMs(settings.max_session_ms || 300000);
+      }
+    };
+    loadTrackingSettings();
+  }, []);
+
+  const handleSaveTrackingSetting = async (key: string, value: number) => {
+    if (window.deskflowAPI?.setTrackingSetting) {
+      await window.deskflowAPI.setTrackingSetting(key, value.toString());
+    }
+  };
 
   const ITEMS_PER_PAGE = 5;
 
@@ -926,6 +991,71 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                 {syncMessage}
               </div>
             )}
+          </div>
+
+          {/* Custom Categories */}
+          <div className="glass rounded-3xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold">Custom Categories</h2>
+                <p className="text-xs text-zinc-500">Add new categories beyond the defaults</p>
+              </div>
+            </div>
+
+            {customCategories.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {customCategories.map(cat => {
+                  const catColor = getCategoryColor(cat);
+                  return (
+                    <div
+                      key={cat}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
+                      style={{ backgroundColor: `${catColor}20`, color: catColor }}
+                    >
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: catColor }} />
+                      <span>{cat}</span>
+                      <button
+                        onClick={async () => {
+                          if (window.deskflowAPI?.removeCategory) {
+                            await window.deskflowAPI.removeCategory(cat);
+                          }
+                          setCustomCategories(prev => prev.filter(c => c !== cat));
+                          setTierAssignments(prev => ({
+                            productive: prev.productive.filter(c => c !== cat),
+                            neutral: prev.neutral.filter(c => c !== cat),
+                            distracting: prev.distracting.filter(c => c !== cat),
+                          }));
+                          setHasChanges(true);
+                          onHasChangesChange(true);
+                        }}
+                        className="ml-1 p-0.5 hover:bg-white/10 rounded transition-all"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddCategory(); }}
+                placeholder="New category name..."
+                className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+              />
+              <button
+                onClick={handleAddCategory}
+                disabled={!newCategoryName.trim()}
+                className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Add
+              </button>
+            </div>
           </div>
 
           {/* Productivity Tiers */}
@@ -1228,7 +1358,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                   />
                 </div>
                 <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-                  {DEFAULT_CATEGORIES.filter(cat => cat.toLowerCase().includes(appSearchQuery.toLowerCase())).map((cat) => {
+                  {allCategories.filter(cat => cat.toLowerCase().includes(appSearchQuery.toLowerCase())).map((cat) => {
                     const catColor = getCategoryColor(cat);
                     const appData = appStats.find((a: any) => a.app === editingAppCategory);
                     const displayCategory = getAppDisplayCategory(appData);
@@ -1452,7 +1582,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                   />
                 </div>
                 <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-                  {DEFAULT_CATEGORIES.filter(cat => cat.toLowerCase().includes(domainSearchQuery.toLowerCase())).map((cat) => {
+                  {allCategories.filter(cat => cat.toLowerCase().includes(domainSearchQuery.toLowerCase())).map((cat) => {
                     const catColor = getCategoryColor(cat);
                     const siteData = domainStats.find((s: any) => s.domain === editingDomainCategory);
                     const displayCategory = domainCategoryOverrides[editingDomainCategory] || siteData?.category || 'Other';
@@ -1629,7 +1759,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                             }}
                             className="px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-xs text-white"
                           >
-                            {DEFAULT_CATEGORIES.map(cat => (
+                            {allCategories.map(cat => (
                               <option key={cat} value={cat}>{cat}</option>
                             ))}
                           </select>
@@ -1737,7 +1867,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     onChange={(e) => setTempCategoryForNewSet(e.target.value)}
                     className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-white"
                   >
-                    {DEFAULT_CATEGORIES.map(cat => (
+                    {allCategories.map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
@@ -2083,7 +2213,85 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
         </div>
       )}
 
+      {activeTab === 'tracking' && (
+        <div className="space-y-4">
+          <div className="glass rounded-3xl p-5 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold mb-1">Tracking Settings</h2>
+              <p className="text-xs text-zinc-500">Configure how app usage is tracked</p>
+            </div>
 
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-medium text-zinc-300">Sleep Gap Detection</label>
+                  <p className="text-xs text-zinc-500">Time before app is considered "sleep"</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={sleepGapMs}
+                    onChange={(e) => setSleepGapMs(parseInt(e.target.value) || 10000)}
+                    className="w-24 px-2 py-1 text-sm bg-zinc-800 border border-zinc-700 rounded text-white text-right font-mono"
+                  />
+                  <span className="text-xs text-zinc-500">ms</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {[5000, 10000, 15000, 30000].map(ms => (
+                  <button
+                    key={ms}
+                    onClick={() => { setSleepGapMs(ms); handleSaveTrackingSetting('sleep_gap_ms', ms); }}
+                    className={`px-3 py-1 rounded text-xs font-medium transition ${sleepGapMs === ms ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'}`}
+                  >
+                    {ms / 1000}s
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-medium text-zinc-300">Max Session Duration</label>
+                  <p className="text-xs text-zinc-500">Maximum app session length</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={maxSessionMs}
+                    onChange={(e) => setMaxSessionMs(parseInt(e.target.value) || 300000)}
+                    className="w-24 px-2 py-1 text-sm bg-zinc-800 border border-zinc-700 rounded text-white text-right font-mono"
+                  />
+                  <span className="text-xs text-zinc-500">ms</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {[60000, 180000, 300000, 600000].map(ms => (
+                  <button
+                    key={ms}
+                    onClick={() => { setMaxSessionMs(ms); handleSaveTrackingSetting('max_session_ms', ms); }}
+                    className={`px-3 py-1 rounded text-xs font-medium transition ${maxSessionMs === ms ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'}`}
+                  >
+                    {ms === 60000 ? '1m' : ms === 180000 ? '3m' : ms === 300000 ? '5m' : '10m'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-zinc-700/50 grid grid-cols-2 gap-4 text-xs">
+              <div className="bg-zinc-800/50 rounded-lg p-3">
+                <div className="text-zinc-500 mb-1">Sleep Gap</div>
+                <div className="text-white font-mono">{(sleepGapMs / 1000).toFixed(1)}s</div>
+              </div>
+              <div className="bg-zinc-800/50 rounded-lg p-3">
+                <div className="text-zinc-500 mb-1">Max Session</div>
+                <div className="text-white font-mono">{(maxSessionMs / 60000).toFixed(1)}m</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeTab === 'colors' && (
         <div className="space-y-4">

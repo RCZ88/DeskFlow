@@ -82,30 +82,40 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
     };
   }, []);
 
-  // Sort apps by total time
+  // Filter and sort apps based on timeMode
   const sortedApps = useMemo(() => {
-    return [...appStats].sort((a, b) => b.total_ms - a.total_ms);
-  }, [appStats]);
+    const filtered = timeMode === 'focus' 
+      ? appStats.filter(app => tierAssignments?.productive.includes(app.category))
+      : appStats;
+    return [...filtered].sort((a, b) => b.total_ms - a.total_ms);
+  }, [appStats, timeMode, tierAssignments]);
 
-  // Aggregate stats
+  // Aggregate stats - filtered by timeMode
   const totals = useMemo(() => {
-    const totalTimeMs = appStats.reduce((sum, s) => sum + (s.total_ms || 0), 0);
-    const totalSessions = appStats.reduce((sum, s) => sum + (s.sessions || 0), 0);
+    const filteredApps = timeMode === 'focus'
+      ? appStats.filter(app => tierAssignments?.productive.includes(app.category))
+      : appStats;
+    const totalTimeMs = filteredApps.reduce((sum, s) => sum + (s.total_ms || 0), 0);
+    const totalSessions = filteredApps.reduce((sum, s) => sum + (s.sessions || 0), 0);
     const avgSession = totalSessions > 0 ? totalTimeMs / totalSessions : 0;
-    const uniqueApps = appStats.length;
+    const uniqueApps = filteredApps.length;
     return { totalTime: totalTimeMs, totalSessions, avgSession, uniqueApps };
-  }, [appStats]);
+  }, [appStats, timeMode, tierAssignments]);
 
-  // Category breakdown
+  // Category breakdown - filtered by timeMode
   const categoryBreakdown = useMemo(() => {
+    const filteredApps = timeMode === 'focus'
+      ? appStats.filter(app => tierAssignments?.productive.includes(app.category))
+      : appStats;
     const grouped: Record<string, number> = {};
-    appStats.forEach(stat => {
+    filteredApps.forEach(stat => {
       grouped[stat.category] = (grouped[stat.category] || 0) + stat.total_ms;
     });
+    const filteredTotal = Object.values(grouped).reduce((sum, v) => sum + v, 0);
     return Object.entries(grouped)
-      .map(([category, total_ms]) => ({ category, total_ms, pct: totals.totalTime > 0 ? (total_ms / totals.totalTime) * 100 : 0 }))
+      .map(([category, total_ms]) => ({ category, total_ms, pct: filteredTotal > 0 ? (total_ms / filteredTotal) * 100 : 0 }))
       .sort((a, b) => b.total_ms - a.total_ms);
-  }, [appStats, totals.totalTime]);
+  }, [appStats, timeMode, tierAssignments]);
 
   // Pie chart data for app distribution
   const pieData = useMemo(() => {

@@ -10,6 +10,8 @@ const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const active_win_1 = __importDefault(require("active-win"));
 const http_1 = __importDefault(require("http"));
+const ProblemsServiceModule = require("./services/ProblemsService.cjs");
+const ProblemsService = ProblemsServiceModule.ProblemsService || ProblemsServiceModule;
 
 // --- Global shortcut for DevTools ---
 const { globalShortcut } = require('electron');
@@ -1105,7 +1107,8 @@ let categoryConfig = {
     // Keyword-based productivity rules per domain
     domainKeywordRules: {},
     // Per-domain default categories (when keywords don't match)
-    domainDefaultCategories: {}
+    domainDefaultCategories: {},
+    customCategories: []
 };
 
 // Default keyword rules for YouTube - NEW structure: array of { category, keywords }
@@ -1151,12 +1154,13 @@ function loadCategoryConfig() {
                     detectedDomains: {},
                     detectedApps: {},
                     domainKeywordRules: {},
-                    domainDefaultCategories: {}
+                    domainDefaultCategories: {},
+                    customCategories: []
                 },
                 ...loaded,
-                // Ensure new fields exist even in old configs
                 domainKeywordRules: loaded?.domainKeywordRules || {},
-                domainDefaultCategories: loaded?.domainDefaultCategories || {}
+                domainDefaultCategories: loaded?.domainDefaultCategories || {},
+                customCategories: loaded?.customCategories || []
             };
             console.log('[DeskFlow] ✅ Loaded category config');
         }
@@ -1164,6 +1168,7 @@ function loadCategoryConfig() {
             // Initialize with defaults on first run
             categoryConfig.domainKeywordRules = { ...DEFAULT_KEYWORD_RULES };
             categoryConfig.domainDefaultCategories = {};
+            categoryConfig.customCategories = [];
             saveCategoryConfig();
             console.log('[DeskFlow] ✅ Created default category config');
         }
@@ -1180,7 +1185,8 @@ function loadCategoryConfig() {
             detectedDomains: {},
             detectedApps: {},
             domainKeywordRules: { ...DEFAULT_KEYWORD_RULES },
-            domainDefaultCategories: {}
+            domainDefaultCategories: {},
+            customCategories: []
         };
     }
 }
@@ -1565,6 +1571,7 @@ function initializeStorage() {
         const activityCount = db.prepare('SELECT COUNT(*) as count FROM external_activities').get();
         if (activityCount.count === 0) {
           const defaultActivities = [
+            { name: 'AFK', type: 'stopwatch', color: '#6b7280', icon: 'Coffee', default_duration: 60, sort_order: 0 },
             { name: 'Studying (Paper)', type: 'stopwatch', color: '#8b5cf6', icon: 'BookOpen', sort_order: 1 },
             { name: 'Exercise', type: 'stopwatch', color: '#10b981', icon: 'Dumbbell', sort_order: 2 },
             { name: 'Gym', type: 'stopwatch', color: '#f59e0b', icon: 'Activity', sort_order: 3 },
@@ -2703,6 +2710,23 @@ function updateAllAggregates() {
 }
 electron_1.ipcMain.handle('get-default-categories', () => {
     return DEFAULT_CATEGORIES;
+});
+electron_1.ipcMain.handle('add-category', (event, name) => {
+    categoryConfig.customCategories = categoryConfig.customCategories || [];
+    if (categoryConfig.customCategories.includes(name)) return false;
+    if (DEFAULT_CATEGORIES.includes(name)) return false;
+    categoryConfig.customCategories.push(name);
+    categoryConfig.tierAssignments.neutral.push(name);
+    saveCategoryConfig();
+    return true;
+});
+electron_1.ipcMain.handle('remove-category', (event, name) => {
+    categoryConfig.customCategories = (categoryConfig.customCategories || []).filter(c => c !== name);
+    categoryConfig.tierAssignments.productive = categoryConfig.tierAssignments.productive.filter(c => c !== name);
+    categoryConfig.tierAssignments.neutral = categoryConfig.tierAssignments.neutral.filter(c => c !== name);
+    categoryConfig.tierAssignments.distracting = categoryConfig.tierAssignments.distracting.filter(c => c !== name);
+    saveCategoryConfig();
+    return true;
 });
 electron_1.ipcMain.handle('get-tier-assignments', () => {
     return categoryConfig.tierAssignments;
@@ -5951,6 +5975,15 @@ electron_1.app.whenReady().then(() => {
     loadCategoryConfig();
     loadSleepState(); // Load sleep tracking state
     
+    // Initialize Tracker Mind problems from markdown
+    try {
+      const problemsService = getProblemsService();
+      const problems = problemsService.getProblems();
+      console.log(`[Tracker Mind] ✅ Loaded ${problems.length} problems from PROBLEMS.md`);
+    } catch (e) {
+      console.error('[Tracker Mind] ⚠️ Failed to load problems:', e);
+    }
+    
     // Check if we should show morning prompt
     checkMorningPrompt();
     
@@ -6047,6 +6080,63 @@ electron_1.ipcMain.handle('delete-external-activity', (event, id) => {
 });
 
 // ========== External Sessions IPC Handlers ==========
+
+// Auto-start AFK external session
+electron_1.ipcMain.handle('start-afk-session', async () => {
+    if (useJson) return { success: false, sessionId: null };
+    try {
+        // Find AFK activity
+        const afkActivity = db.prepare("SELECT id FROM external_activities WHERE name = 'AFK' LIMIT 1").get() as any;
+        if (!afkActivity) return { success: false, sessionId: null };
+        
+        // Stop any existing AFK session first
+        const existingAfk = db.prepare("SELECT id FROM external_sessions WHERE activity_id = ? AND ended_at IS NULL").get(afkActivity.id) as any;
+        if (existingAfk) {
+            const now = new Date();
+            db.prepare("UPDATE external_sessions SET ended_at = ?, duration_seconds = ? WHERE id = ?")
+                .run(now.toISOString(), 0, existingAfk.id);
+        }
+        
+        // Start new AFK session
+        const result = db.prepare(`
+            INSERT INTO external_sessions (activity_id, started_at)
+            VALUES (?, ?)
+        `).run(afkActivity.id, new Date().toISOString());
+        
+        return { success: true, sessionId: result.lastInsertRowid.toString(), activityId: afkActivity.id };
+    } catch (err) {
+        console.error('[DeskFlow] Failed to start AFK session:', err);
+        return { success: false, sessionId: null };
+    }
+});
+
+// Stop AFK session when user returns
+electron_1.ipcMain.handle('stop-afk-session', async () => {
+    if (useJson) return { success: false };
+    try {
+        // Find AFK activity
+        const afkActivity = db.prepare("SELECT id FROM external_activities WHERE name = 'AFK' LIMIT 1").get() as any;
+        if (!afkActivity) return { success: false };
+        
+        // Stop any running AFK session
+        const runningAfk = db.prepare("SELECT id, started_at FROM external_sessions WHERE activity_id = ? AND ended_at IS NULL").get(afkActivity.id) as any;
+        if (runningAfk) {
+            const now = new Date();
+            const startedAt = new Date(runningAfk.started_at);
+            const durationSeconds = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
+            
+            db.prepare("UPDATE external_sessions SET ended_at = ?, duration_seconds = ? WHERE id = ?")
+                .run(now.toISOString(), durationSeconds, runningAfk.id);
+            
+            return { success: true, duration: durationSeconds };
+        }
+        
+        return { success: false };
+    } catch (err) {
+        console.error('[DeskFlow] Failed to stop AFK session:', err);
+        return { success: false };
+    }
+});
 
 electron_1.ipcMain.handle('start-external-session', (event, activityId) => {
     if (useJson) return { success: false };
@@ -6589,4 +6679,607 @@ electron_1.app.on('before-quit', () => {
         console.log('[DeskFlow] ✅ SQLite database closed');
     }
     console.log('[DeskFlow] 👋 App quit gracefully');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// TRACKER MIND - TERMINAL BINDING MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+// Problems Service instance (markdown-based)
+let problemsService: any = null;
+
+function getProjectPath(projectId: string | undefined): string {
+  if (!projectId) return userDataPath;
+  
+  try {
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as any;
+    if (project?.path) {
+      console.log('[Tracker Mind] Using project path:', project.path, 'for project:', projectId);
+      return project.path;
+    }
+  } catch (e) {
+    console.error('[Tracker Mind] Failed to get project path:', e);
+  }
+  
+  console.log('[Tracker Mind] Project not found, using userDataPath:', userDataPath);
+  return userDataPath;
+}
+
+function getProblemsService(projectId?: string): any {
+  // Create a new service instance for each project
+  const projectPath = getProjectPath(projectId);
+  return new ProblemsService(projectPath, projectId);
+}
+
+// Problem IPC Handlers (markdown-based)
+electron_1.ipcMain.handle('get-problems', async (_, projectId?: string) => {
+  try {
+    const service = getProblemsService(projectId);
+    const problems = service.getProblems();
+    return { success: true, data: problems, projectPath: service.getProjectPath() };
+  } catch (error: any) {
+    console.error('[Tracker Mind] get-problems error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('create-problem', async (_, data: { title: string; priority?: string; category?: string; description?: string; projectId?: string }) => {
+  try {
+    const service = getProblemsService(data.projectId);
+    const problem = service.createProblem(data);
+    console.log('[Tracker Mind] Created problem:', problem.id, problem.title);
+    return { success: true, data: problem };
+  } catch (error: any) {
+    console.error('[Tracker Mind] create-problem error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('update-problem-status', async (_, { problemId, status, projectId }: { problemId: string; status: string; projectId?: string }) => {
+  try {
+    const service = getProblemsService(projectId);
+    const success = service.updateStatus(problemId, status);
+    if (success) {
+      console.log('[Tracker Mind] Updated problem', problemId, 'status to:', status);
+    }
+    return { success };
+  } catch (error: any) {
+    console.error('[Tracker Mind] update-problem-status error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('assign-problem-to-terminal', async (_, data: { problemId: string; terminalId?: string; skillId?: string; systemPrompt?: string; projectId?: string }) => {
+  try {
+    const service = getProblemsService(data.projectId);
+    const problem = service.getProblem(data.problemId);
+    if (!problem) {
+      return { success: false, error: 'Problem not found' };
+    }
+
+    // Determine terminal to use
+    let terminalId = data.terminalId;
+    let isNewTerminal = false;
+
+    if (!terminalId) {
+      // Create new terminal ID
+      terminalId = `term-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      isNewTerminal = true;
+    }
+
+    // Generate prompt for the problem
+    const prompt = `You have been assigned to fix problem ${problem.id}: ${problem.title}\n\n`;
+    const promptLines = [
+      `**Problem ID:** ${problem.id}`,
+      `**Title:** ${problem.title}`,
+      `**Priority:** ${problem.priority}`,
+      `**Category:** ${problem.category}`,
+    ];
+    if (problem.user_notes) promptLines.push(`\n**User Notes:**\n${problem.user_notes}`);
+    if (data.systemPrompt) promptLines.push(`\n**Additional Instructions:**\n${data.systemPrompt}`);
+    promptLines.push('\n\nPlease analyze and fix this problem.');
+
+    const fullPrompt = prompt + promptLines.join('\n');
+
+    // Update problem with terminal assignment
+    service.updateProblem(data.problemId, {
+      terminal_id: terminalId,
+      skill_used: data.skillId || null
+    });
+
+    return { success: true, data: { terminalId, isNewTerminal, prompt: fullPrompt } };
+  } catch (error: any) {
+    console.error('[Tracker Mind] assign-problem-to-terminal error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('get-terminal-bindings', async () => {
+  try {
+    if (!db) return { success: false, error: 'Database not ready' };
+    const stmt = db.prepare('SELECT * FROM terminal_bindings WHERE status != "closed" ORDER BY last_activity_at DESC');
+    const bindings = stmt.all();
+    return { success: true, data: bindings };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('get-skills', async () => {
+  try {
+    const skillsDir = path_1.default.join(userDataPath, 'agent', 'skills');
+    if (!fs_1.default.existsSync(skillsDir)) {
+      return { success: true, data: [] };
+    }
+    const files = fs_1.default.readdirSync(skillsDir).filter(f => f.endsWith('.md'));
+    const skills = files.map(f => ({
+      id: f.replace('.md', ''),
+      name: f.replace('.md', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      description: 'Skill from ' + f,
+      applicable_to: ['problems']
+    }));
+    return { success: true, data: skills };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('get-requests', async () => {
+  try {
+    const requestsService = new (require('./services/RequestsService.cjs').RequestsService)(userDataPath);
+    const requests = requestsService.getRequests();
+    return { success: true, data: requests };
+  } catch (error: any) {
+    console.error('[Tracker Mind] get-requests error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('create-request', async (_, data: { title: string; description?: string; priority?: string; category?: string }) => {
+  try {
+    const requestsService = new (require('./services/RequestsService.cjs').RequestsService)(userDataPath);
+    const request = requestsService.createRequest(data);
+    console.log('[Tracker Mind] Created request:', request.id, request.title);
+    return { success: true, data: request };
+  } catch (error: any) {
+    console.error('[Tracker Mind] create-request error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('update-request-status', async (_, { requestId, status }: { requestId: string; status: string }) => {
+  try {
+    const requestsService = new (require('./services/RequestsService.cjs').RequestsService)(userDataPath);
+    const success = requestsService.updateStatus(requestId, status);
+    if (success) {
+      console.log('[Tracker Mind] Updated request', requestId, 'status to:', status);
+    }
+    return { success };
+  } catch (error: any) {
+    console.error('[Tracker Mind] update-request-status error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('send-instructions-to-terminal', async (_, data: { terminalId: string; instructions: string }) => {
+  try {
+    // Use terminalManager.write to send instructions to PTY
+    const terminal = terminalManager.terminals.get(data.terminalId);
+    if (terminal) {
+      terminalManager.write(data.terminalId, data.instructions + '\n');
+      return { success: true };
+    }
+    return { success: false, error: 'Terminal not found or not ready' };
+  } catch (error: any) {
+    console.error('[Tracker Mind] send-instructions error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Save terminal binding
+electron_1.ipcMain.handle('save-terminal-binding', async (_, data: { terminalId: string; problemId?: string; sessionContext?: string; status?: string }) => {
+  try {
+    if (!db) return { success: false, error: 'Database not ready' };
+    
+    // Check if binding exists
+    const existing = db.prepare('SELECT id FROM terminal_bindings WHERE terminal_id = ?').get(data.terminalId);
+    
+    if (existing) {
+      db.prepare(`UPDATE terminal_bindings SET 
+        problem_id = COALESCE(?, problem_id),
+        session_context = COALESCE(?, session_context),
+        status = COALESCE(?, status),
+        last_activity_at = ?
+        WHERE terminal_id = ?`).run(
+        data.problemId || null,
+        data.sessionContext || null,
+        data.status || null,
+        new Date().toISOString(),
+        data.terminalId
+      );
+    } else {
+      db.prepare(`INSERT INTO terminal_bindings (terminal_id, problem_id, session_context, status, created_at, last_activity_at)
+        VALUES (?, ?, ?, ?, ?, ?)`).run(
+        data.terminalId,
+        data.problemId || null,
+        data.sessionContext || null,
+        data.status || 'active',
+        new Date().toISOString(),
+        new Date().toISOString()
+      );
+    }
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error('[Tracker Mind] save-terminal-binding error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get binding for a specific terminal
+electron_1.ipcMain.handle('get-terminal-binding', async (_, terminalId: string) => {
+  try {
+    if (!db) return { success: false, error: 'Database not ready' };
+    const binding = db.prepare('SELECT * FROM terminal_bindings WHERE terminal_id = ?').get(terminalId);
+    return { success: true, data: binding || null };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Watch agent files for changes (live parsing)
+electron_1.ipcMain.handle('watch-agent-files', async () => {
+  try {
+    const agentDir = path_1.default.join(userDataPath, 'agent');
+    if (!fs_1.default.existsSync(agentDir)) {
+      return { success: true, watching: false };
+    }
+    
+    // Get last modified times of key files
+    const files = ['PROBLEMS.md', 'REQUESTS.md', 'state.md'];
+    const statuses = files.map(f => {
+      const fp = path_1.default.join(agentDir, f);
+      if (fs_1.default.existsSync(fp)) {
+        const stats = fs_1.default.statSync(fp);
+        return { file: f, mtime: stats.mtime.toISOString() };
+      }
+      return { file: f, mtime: null };
+    });
+    
+    return { success: true, watching: true, files: statuses };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Tracker Mind Setup Handler
+electron_1.ipcMain.handle('tracker-mind-setup', async (_, { step, projectId }: { step: string; projectId?: string }) => {
+  try {
+    // Get project path if projectId provided
+    let baseDir = userDataPath;
+    if (projectId) {
+      try {
+        const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as any;
+        if (project?.path) {
+          baseDir = project.path;
+        }
+      } catch (e) {
+        console.error('[Tracker Mind] Failed to get project path for setup:', e);
+      }
+    }
+    const agentDir = path_1.default.join(baseDir, 'agent');
+    
+    switch (step) {
+      case 'init-agent-dir':
+      case 'init-all':
+        // Create agent directory structure
+        if (!fs_1.default.existsSync(agentDir)) {
+          fs_1.default.mkdirSync(agentDir, { recursive: true });
+          console.log('[Tracker Mind] Created agent directory:', agentDir);
+        }
+        // Create skills subdirectory
+        const skillsDir = path_1.default.join(agentDir, 'skills');
+        if (!fs_1.default.existsSync(skillsDir)) {
+          fs_1.default.mkdirSync(skillsDir, { recursive: true });
+          console.log('[Tracker Mind] Created skills directory:', skillsDir);
+        }
+        
+        // If init-all, continue to create default files
+        if (step === 'init-agent-dir') {
+          return { success: true };
+        }
+      
+      case 'init-problems-md':
+      case 'init-all': {
+        const problemsPath = path_1.default.join(agentDir, 'PROBLEMS.md');
+        if (!fs_1.default.existsSync(problemsPath)) {
+          const initialContent = `# ⚠️ Problems & Issues Tracker
+
+> **DO NOT EDIT MANUALLY** - This file is managed by Tracker Mind AI agents.
+
+> Last sync: ${new Date().toISOString()}
+
+<!-- No problems reported yet -->
+
+---
+`;
+          fs_1.default.writeFileSync(problemsPath, initialContent, 'utf-8');
+          console.log('[Tracker Mind] Created PROBLEMS.md:', problemsPath);
+        }
+        if (step === 'init-problems-md') return { success: true };
+      }
+      
+      case 'init-requests-md':
+      case 'init-all': {
+        const requestsPath = path_1.default.join(agentDir, 'REQUESTS.md');
+        if (!fs_1.default.existsSync(requestsPath)) {
+          const initialContent = `# 📋 User Requests
+
+> **DO NOT EDIT MANUALLY** - This file is managed by Tracker Mind AI agents.
+
+## Request History
+
+<!-- No requests yet -->
+
+---
+`;
+          fs_1.default.writeFileSync(requestsPath, initialContent, 'utf-8');
+          console.log('[Tracker Mind] Created REQUESTS.md:', requestsPath);
+        }
+        if (step === 'init-requests-md') return { success: true };
+      }
+      
+      case 'init-state-md':
+      case 'init-all': {
+        const statePath = path_1.default.join(agentDir, 'state.md');
+        if (!fs_1.default.existsSync(statePath)) {
+          const initialContent = `# 📌 Project State
+
+**Purpose:** Current status, known issues, and recent changes for Tracker Mind.
+
+**Version:** 1.0
+**Last Updated:** ${new Date().toISOString()}
+
+## Recent Changes
+
+### ${new Date().toISOString().split('T')[0]} — Initial Setup
+
+- Initialized Tracker Mind structure
+- Created agent/ directory
+- Created PROBLEMS.md and REQUESTS.md
+
+---
+`;
+          fs_1.default.writeFileSync(statePath, initialContent, 'utf-8');
+          console.log('[Tracker Mind] Created state.md:', statePath);
+        }
+        if (step === 'init-state-md') return { success: true };
+      }
+      
+      case 'init-skills':
+      case 'init-all': {
+        const skillsDir = path_1.default.join(agentDir, 'skills');
+        if (!fs_1.default.existsSync(skillsDir)) {
+          fs_1.default.mkdirSync(skillsDir, { recursive: true });
+        }
+        const defaultSkillPath = path_1.default.join(skillsDir, 'fix-problems.md');
+        if (!fs_1.default.existsSync(defaultSkillPath)) {
+          const skillContent = `# Fix Problems
+
+## Purpose
+Systematically analyze and fix issues in the codebase.
+
+## Workflow
+1. Read PROBLEMS.md to see all issues
+2. Prioritize by P1 > P2 > P3 > P4 > P5
+3. For each issue:
+   - Understand the problem
+   - Identify root cause
+   - Implement fix
+   - Update PROBLEMS.md with status change
+4. Report progress
+
+## Guidelines
+- Make surgical changes
+- Always run build after changes
+- Update state.md after every change
+- Test before marking as fixed
+`;
+          fs_1.default.writeFileSync(defaultSkillPath, skillContent, 'utf-8');
+          console.log('[Tracker Mind] Created fix-problems.md skill:', defaultSkillPath);
+        }
+        if (step === 'init-skills') return { success: true };
+      }
+      
+      case 'init-all':
+        console.log('[Tracker Mind] Full initialization complete for:', baseDir);
+        return { success: true, projectPath: baseDir };
+      
+      default:
+        return { success: false, error: 'Unknown step: ' + step };
+    }
+    
+    return { success: true, projectPath: baseDir };
+  } catch (error: any) {
+    console.error('[Tracker Mind] setup error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('register-terminal', async (event, data: {
+  terminalId: string;
+  projectId?: string;
+  agentType?: string;
+  status?: string;
+  }) => {
+  try {
+    if (!db) return { success: false, error: 'Database not ready' };
+    
+    db.run(
+      `INSERT OR REPLACE INTO terminal_bindings 
+       (terminal_id, project_id, agent_type, status, last_activity_at, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        data.terminalId,
+        data.projectId || null,
+        data.agentType || null,
+        data.status || 'idle',
+        new Date().toISOString(),
+        new Date().toISOString()
+      ]
+    );
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('update-terminal-binding', async (event, data: {
+  terminalId: string;
+  updates: {
+    status?: string;
+    active_problem_id?: string;
+    active_request_id?: string;
+    session_context?: string;
+    agent_type?: string;
+  };
+}) => {
+  try {
+    if (!db) return { success: false, error: 'Database not ready' };
+    const setClause = Object.keys(data.updates)
+      .map((k: string) => `${k} = ?`)
+      .join(', ');
+    const values: any[] = [...Object.values(data.updates), new Date().toISOString(), data.terminalId];
+    
+    await db.run(
+      `UPDATE terminal_bindings SET ${setClause}, last_activity_at = ? WHERE terminal_id = ?`,
+      values
+    );
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Agent Files Reader - Read files from project's agent/ directory
+electron_1.ipcMain.handle('read-agent-files', async (_, projectPath: string) => {
+  try {
+    const agentDir = path_1.default.join(projectPath, 'agent');
+    if (!fs_1.default.existsSync(agentDir)) {
+      return { success: true, data: [] };
+    }
+    
+    const files: { name: string; path: string; isDirectory: boolean }[] = [];
+    
+    const readDir = (dir: string, basePath: string = '') => {
+      const entries = fs_1.default.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue; // Skip hidden files
+        const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
+        files.push({
+          name: entry.name,
+          path: relativePath,
+          isDirectory: entry.isDirectory()
+        });
+        if (entry.isDirectory()) {
+          readDir(path_1.default.join(dir, entry.name), relativePath);
+        }
+      }
+    };
+    
+    readDir(agentDir);
+    return { success: true, data: files };
+  } catch (error: any) {
+    console.error('[DeskFlow] read-agent-files error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('read-agent-file', async (_, filePath: string, projectPath: string) => {
+  try {
+    // filePath is the relative path from agent/ (e.g., "PROBLEMS.md" or "docs/test.md")
+    const fullPath = path_1.default.join(projectPath, 'agent', filePath);
+    if (!fs_1.default.existsSync(fullPath)) {
+      return { success: false, error: 'File not found: ' + fullPath };
+    }
+    
+    const content = fs_1.default.readFileSync(fullPath, 'utf-8');
+    return { success: true, data: content };
+  } catch (error: any) {
+    console.error('[DeskFlow] read-agent-file error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Update state from AI agent output
+electron_1.ipcMain.handle('update-state-from-agent', async (_, data: {
+  projectPath: string;
+  updates: {
+    problemId?: string;
+    newStatus?: string;
+    newRequest?: {
+      title: string;
+      description?: string;
+      priority?: string;
+    };
+    stateEntry?: string;
+  };
+}) => {
+  try {
+    const agentDir = path_1.default.join(data.projectPath, 'agent');
+    
+    // Update problem status in PROBLEMS.md
+    if (data.updates.problemId && data.updates.newStatus) {
+      const problemsPath = path_1.default.join(agentDir, 'PROBLEMS.md');
+      if (fs_1.default.existsSync(problemsPath)) {
+        let content = fs_1.default.readFileSync(problemsPath, 'utf-8');
+        // Find and replace status
+        const statusPattern = new RegExp(`(\\*\\*Issue ${data.updates.problemId}:\\*\\*.*?\\n.*?\\*\\*Status:\\*\\*\\s*).+?(?=\\n)`, 'i');
+        content = content.replace(statusPattern, `$1${data.updates.newStatus}`);
+        fs_1.default.writeFileSync(problemsPath, content, 'utf-8');
+      }
+    }
+    
+    // Add new request to REQUESTS.md
+    if (data.updates.newRequest) {
+      const requestsPath = path_1.default.join(agentDir, 'REQUESTS.md');
+      let content = fs_1.default.existsSync(requestsPath) 
+        ? fs_1.default.readFileSync(requestsPath, 'utf-8')
+        : '# 📋 User Requests Log\n\n> Auto-generated by Tracker Mind\n\n---\n\n';
+      
+      const requestNum = (content.match(/### Request #(\d+)/g) || []).length + 1;
+      const newRequest = `### Request #${requestNum} - ${data.updates.newRequest.title}\n\n`;
+      const newRequestBody = `**Status:** Pending\n`;
+      const newRequestDesc = data.updates.newRequest.description 
+        ? `\n**Request:** \n${data.updates.newRequest.description}\n` 
+        : '\n**Request:** (from AI agent)\n';
+      
+      const requestEntry = newRequest + newRequestBody + newRequestDesc + '---\n\n';
+      content += requestEntry;
+      fs_1.default.writeFileSync(requestsPath, content, 'utf-8');
+    }
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error('[DeskFlow] update-state-from-agent error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('unregister-terminal', async (event, terminalId: string) => {
+  try {
+    if (!db) return { success: false, error: 'Database not ready' };
+    
+    // Clear the binding but don't delete (keep history)
+    await db.run(
+      `UPDATE terminal_bindings SET status = 'closed', last_activity_at = ? WHERE terminal_id = ?`,
+      [new Date().toISOString(), terminalId]
+    );
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
 });

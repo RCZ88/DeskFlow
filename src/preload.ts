@@ -101,6 +101,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   applyCategoryToHistorical: (tierAssignments: any) => ipcRenderer.invoke('apply-category-to-historical', tierAssignments),
   getTierAssignments: () => ipcRenderer.invoke('get-tier-assignments'),
   getDefaultCategories: () => ipcRenderer.invoke('get-default-categories'),
+  addCategory: (name: string) => ipcRenderer.invoke('add-category', name),
+  removeCategory: (name: string) => ipcRenderer.invoke('remove-category', name),
   
   // NEW: Keyword-based productivity categorization
   getDomainKeywordRules: (domain: string) => ipcRenderer.invoke('get-domain-keyword-rules', domain),
@@ -173,10 +175,14 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   resizeTerminal: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke('resize-terminal', terminalId, cols, rows),
   killTerminal: (terminalId: string) => ipcRenderer.invoke('kill-terminal', terminalId),
   onTerminalData: (callback: (data: { terminalId: string; data: string }) => void) => {
-    ipcRenderer.on('terminal:data', (_event, terminalId, data) => callback({ terminalId, data }));
+    const handler = (_event: any, terminalId: string, data: string) => callback({ terminalId, data });
+    ipcRenderer.on('terminal:data', handler);
+    return () => ipcRenderer.removeListener('terminal:data', handler);
   },
   onTerminalExit: (callback: (data: { terminalId: string; exitCode: number; signal: string }) => void) => {
-    ipcRenderer.on('terminal-exit', (_event, terminalId, exitCode, signal) => callback({ terminalId, exitCode, signal }));
+    const handler = (_event: any, terminalId: string, exitCode: number, signal: string) => callback({ terminalId, exitCode, signal });
+    ipcRenderer.on('terminal-exit', handler);
+    return () => ipcRenderer.removeListener('terminal-exit', handler);
   },
 
   // ========== New Terminal API (node-pty based) ==========
@@ -212,6 +218,23 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.invoke('save-terminal-session', session),
   getTerminalSessions: (projectId?: string, limit?: number) => ipcRenderer.invoke('get-terminal-sessions', projectId, limit),
   getTerminalSessionResumeId: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-resume-id', sessionId),
+  getSessionMessages: (sessionId: string, agentType?: string) => ipcRenderer.invoke('get-session-messages', sessionId, agentType),
+
+  // ========== Workspace TODOs ==========
+  getWorkspaceTodos: (projectId?: string) => ipcRenderer.invoke('get-workspace-todos', projectId),
+  addWorkspaceTodo: (data: { projectId?: string; text: string; priority?: string }) => ipcRenderer.invoke('add-workspace-todo', data),
+  toggleWorkspaceTodo: (todoId: string) => ipcRenderer.invoke('toggle-workspace-todo', todoId),
+  deleteWorkspaceTodo: (todoId: string) => ipcRenderer.invoke('delete-workspace-todo', todoId),
+
+  // ========== Prompt Templates ==========
+  getPromptTemplates: (projectId?: string) => ipcRenderer.invoke('get-prompt-templates', projectId),
+  savePromptTemplate: (data: { id?: string; projectId?: string; name: string; content: string; category?: string; isFormattingTemplate?: boolean }) =>
+    ipcRenderer.invoke('save-prompt-template', data),
+  deletePromptTemplate: (templateId: string) => ipcRenderer.invoke('delete-prompt-template', templateId),
+
+  // ========== Project File System ==========
+  readProjectFile: (relativePath: string, projectPath?: string) => ipcRenderer.invoke('read-project-file', relativePath, projectPath),
+  listProjectFiles: (subDir?: string, projectPath?: string) => ipcRenderer.invoke('list-project-files', subDir, projectPath),
 
   // ========== Project Health ==========
   calculateProjectHealth: (projectId: string) => ipcRenderer.invoke('calculate-project-health', projectId),
@@ -221,27 +244,102 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getExternalActivities: () => ipcRenderer.invoke('get-external-activities'),
   addExternalActivity: (activity: { name: string; type: string; color?: string; icon?: string; default_duration?: number }) =>
     ipcRenderer.invoke('add-external-activity', activity),
-  updateExternalActivity: (id: string, updates: { name?: string; color?: string; icon?: string; default_duration?: number; is_visible?: boolean }) =>
+  updateExternalActivity: (id: string, updates: { name?: string; color?: string; icon?: string; default_duration?: number; is_visible?: boolean; is_default?: boolean }) =>
     ipcRenderer.invoke('update-external-activity', id, updates),
   deleteExternalActivity: (id: string) => ipcRenderer.invoke('delete-external-activity', id),
 
   // External Sessions
   startExternalSession: (activityId: string) => ipcRenderer.invoke('start-external-session', activityId),
+  startAfkSession: () => ipcRenderer.invoke('start-afk-session'),
+  stopAfkSession: () => ipcRenderer.invoke('stop-afk-session'),
   stopExternalSession: (sessionId: string, endTime?: string) => ipcRenderer.invoke('stop-external-session', sessionId, endTime),
-  getExternalSessions: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-external-sessions', period),
+  updateExternalSession: (sessionId: string, updates: { duration_seconds?: number; started_at?: string; ended_at?: string }) => ipcRenderer.invoke('update-external-session', sessionId, updates),
+  deleteExternalSession: (sessionId: string) => ipcRenderer.invoke('delete-external-session', sessionId),
+   getExternalSessions: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-external-sessions', period),
+   getActivityStats: (activityId: string) => ipcRenderer.invoke('get-activity-stats', activityId),
   getActiveExternalSession: () => ipcRenderer.invoke('get-active-external-session'),
   getMorningPrompt: () => ipcRenderer.invoke('get-morning-prompt'),
   dismissMorningPrompt: () => ipcRenderer.invoke('dismiss-morning-prompt'),
   addManualSleep: (sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds?: number; wake_up_to_app_seconds?: number }) => ipcRenderer.invoke('add-manual-sleep', sleepData),
-
-  // External Statistics
+  addExternalTime: (activityId: string, durationMinutes: number) => ipcRenderer.invoke('add-external-time', { activityId, durationMinutes }),
   getExternalStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-external-stats', period),
-  getActivityStats: (activityId: string) => ipcRenderer.invoke('get-activity-stats', activityId),
+  updateActivityChartPreference: (activityId: string, chartType: string) => ipcRenderer.invoke('update-activity-chart-preference', activityId, chartType),
   getSleepTrends: (period: 'week' | 'month') => ipcRenderer.invoke('get-sleep-trends', period),
   getConsistencyScore: (period: 'week' | 'month') => ipcRenderer.invoke('get-consistency-score', period),
   getExternalSettings: (key: string) => ipcRenderer.invoke('get-external-settings', key),
   setExternalSettings: (key: string, value: string) => ipcRenderer.invoke('set-external-settings', key, value),
+  getTrackingSettings: () => ipcRenderer.invoke('get-tracking-settings'),
+  setTrackingSetting: (key: string, value: string) => ipcRenderer.invoke('set-tracking-setting', key, value),
   getTypicalDay: (days?: number) => ipcRenderer.invoke('get-typical-day', days),
   getHourlyHeatmap: (days?: number) => ipcRenderer.invoke('get-hourly-heatmap', days),
   getBestDays: () => ipcRenderer.invoke('get-best-days'),
+   getDayDetail: (date: string) => ipcRenderer.invoke('get-day-detail', date),
+   getHourDetail: (date: string, hour: number) => ipcRenderer.invoke('get-hour-detail', date, hour),
+
+   // ========== Workspace Save/Load ==========
+   saveWorkspace: (data: {
+     scope: 'session' | 'project' | 'global';
+     projectId?: string;
+     name?: string;
+     layout?: any;
+     openFiles?: string[];
+     activeTerminalId?: string;
+     todos?: any[];
+     presets?: any[];
+   }) => ipcRenderer.invoke('workspace:save', data),
+    loadWorkspace: (data: {
+      scope: 'session' | 'project' | 'global';
+      projectId?: string;
+      name?: string;
+    }) => ipcRenderer.invoke('workspace:load', data),
+
+  // ========= Tracker Mind - Problem Management =========
+  getProblems: (projectId?: string) => ipcRenderer.invoke('get-problems', projectId),
+  createProblem: (data: any) => ipcRenderer.invoke('create-problem', data),
+  updateProblemStatus: (data: { problemId: string; status: string; projectId?: string }) =>
+    ipcRenderer.invoke('update-problem-status', data),
+  assignProblemToTerminal: (data: {
+    problemId: string;
+    terminalId?: string;
+    skillId?: string;
+    systemPrompt?: string;
+  }) => ipcRenderer.invoke('assign-problem-to-terminal', data),
+  getTerminalBindings: () => ipcRenderer.invoke('get-terminal-bindings'),
+  getSkills: () => ipcRenderer.invoke('get-skills'),
+  syncProblemsMd: () => ipcRenderer.invoke('sync-problems-md'),
+  trackerMindSetup: (step: string, projectId?: string) => ipcRenderer.invoke('tracker-mind-setup', { step, projectId }),
+
+  // ========= Tracker Mind - Requests =========
+  getRequests: () => ipcRenderer.invoke('get-requests'),
+  createRequest: (data: { title: string; description?: string; priority?: string; category?: string }) =>
+    ipcRenderer.invoke('create-request', data),
+  updateRequestStatus: (data: { requestId: string; status: string }) =>
+    ipcRenderer.invoke('update-request-status', data),
+
+  // ========= Tracker Mind - Terminal Binding =========
+  registerTerminal: (data: { terminalId: string; projectId?: string; agentType?: string; status?: string }) =>
+    ipcRenderer.invoke('register-terminal', data),
+  updateTerminalBinding: (data: { terminalId: string; updates: { status?: string; active_problem_id?: string; session_context?: string } }) =>
+    ipcRenderer.invoke('update-terminal-binding', data),
+  saveTerminalBinding: (data: { terminalId: string; problemId?: string; sessionContext?: string; status?: string }) =>
+    ipcRenderer.invoke('save-terminal-binding', data),
+  getTerminalBinding: (terminalId: string) => ipcRenderer.invoke('get-terminal-binding', terminalId),
+  sendInstructionsToTerminal: (data: { terminalId: string; instructions: string }) =>
+    ipcRenderer.invoke('send-instructions-to-terminal', data),
+  terminalWrite: (terminalId: string, text: string) =>
+    ipcRenderer.invoke('write-terminal', { terminalId, text }),
+
+  // ========= Tracker Mind - Live Parsing =========
+  watchAgentFiles: () => ipcRenderer.invoke('watch-agent-files'),
+  onAgentFileChanged: (callback: (data: { file: string; mtime: string }) => void) => {
+    ipcRenderer.on('agent-file-changed', (_event, file, mtime) => callback({ file, mtime }));
+    return () => { ipcRenderer.removeListener('agent-file-changed', () => {}); };
+  },
+
+  // ========= Agent Files (from project) =========
+  readAgentFiles: (projectPath: string) => ipcRenderer.invoke('read-agent-files', projectPath),
+  readAgentFile: (filePath: string, projectPath: string) => ipcRenderer.invoke('read-agent-file', filePath, projectPath),
+  
+  // ========= State Updates from AI =========
+  updateStateFromAgent: (data: any) => ipcRenderer.invoke('update-state-from-agent', data),
 });

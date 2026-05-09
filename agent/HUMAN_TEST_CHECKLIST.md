@@ -1,48 +1,49 @@
 # Human Testing Checklist
 
-**Last Updated:** 2026-04-27
+**Last Updated:** 2026-04-28
 
 ---
 
-## Issues Needing User Testing
+## All Phases Implemented (Run app to test):
 
-| Issue | What Was Changed | Test Steps | Expected | Status |
-|-------|-----------------|------------|----------|--------|
-| #51 App switching | Fixed - now uses exact match, clears browser state when leaving browser | 1. Set Chrome as tracking browser 2. Open YouTube 3. Switch to VS Code | Timer shows VS Code, not YouTube | ⏳ Test |
-| #52 Timer colors | Added tier-based colors: green (productive), red (distracting), purple (external), gray (idle) | 1. Open productive app 2. Open distracting app 3. Start external | Border/timer changes color | ⏳ Test |
-| #53 Elapsed time | Fixed inverted time calculation | 1. View Recent Sessions | Positive durations | ⏳ Test |
-| #54 Fullscreen | Changed to h-screen for fullscreen | 1. Click fullscreen on Solar | Full height | ⏳ Test |
-| #50 Duplicate buttons | Removed duplicate | 1. Go to External | No duplicates | ⏳ Test |
-| #55 Distracting timer | Changed default to 'ignore' | 1. Open distracting app | Timer runs (not paused) | ⏳ Test |
+| Phase | Feature | Status | File |
+|-------|---------|--------|------|
+| 1 | Tracking on startup | ⏳ Test | main.ts line 2147 |
+| 2 | Morning sleep modal | ⏳ Test | App.tsx new modal |
+| 3 | View Stats Only button | ⏳ Test | ExternalPage.tsx |
+| 4 | Dashboard external timer (unchanged) | ✅ | Already correct |
 
 ---
 
-## How to Test
+## Test Instructions:
 
-### Issue #51: App Switching (MOST IMPORTANT)
-1. Go to Settings → set Chrome as Browser with extension
-2. Go to YouTube in Chrome
-3. Switch to VS Code (or any non-Chrome app)
-4. Timer should show VS Code (not YouTube)
-5. Wait 10+ seconds - should stay on VS Code
-6. ✅ Pass if timer stays on VS Code
+### Phase 1: Tracking on App Open
+1. Have VS Code (or any app) open first
+2. Start the DeskFlow app
+3. Timer should show VS Code immediately (not previous app)
+4. ✅ Pass = Shows current app | ❌ Fail = Shows wrong app
 
-### Issue #55: Distracting Timer
-1. Open a distracting app (game, etc)
-2. Timer should continue running (not pause/reset)
-3. ✅ Pass if timer is active
+### Phase 2: Morning Sleep Prompt
+1. Close app at night (after 10pm)
+2. Reopen app next morning (5am-10am)
+3. Should see "Good Morning!" sleep modal
+4. ✅ Pass = Modal shows | ❌ Fail = No modal
+
+### Phase 3: View Stats Only
+1. Go to External page (/external)
+2. Click an activity
+3. See Cancel, Start, AND "View Stats Only" buttons
+4. ✅ Pass = 3 buttons | ❌ Fail = 2 buttons
 
 ---
 
 ## Results
 
-| Issue | ✅ Pass | ❌ Fail | Notes |
+| Phase | ✅ Pass | ❌ Fail | Notes |
 |-------|--------|--------|-------|
-| #51 | | | |
-| #52 | | | |
-| #53 | | | |
-| #54 | | | |
-| #50 | | | |
-| #55 | | | |
+| 1 Tracking | | | |
+| 2 Sleep | | |  
+| 3 Stats | | | |
+| 4 Dashboard | ✅ | | Already work |
 
 ---

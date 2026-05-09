@@ -9,6 +9,14 @@ export default defineConfig(async () => {
     base: './',
     build: {
       sourcemap: true,
+      rollupOptions: {
+        output: {
+          // Disable hashing for Electron app (no cache issues, simplifies paths)
+          entryFileNames: 'assets/[name].js',
+          chunkFileNames: 'assets/[name].js',
+          assetFileNames: 'assets/[name].[ext]',
+        }
+      }
     },
   };
 })

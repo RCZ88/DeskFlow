@@ -250,8 +250,9 @@ export default function ProductivityPage({
   // Calculate combined productivity data
   const productivityData = useMemo(() => {
     // Normalize app durations (ms -> seconds)
-    // Fix: appStats from parent has 'app' property, not 'name'
-    const appItems = (appStats || []).map((a: any) => ({
+    // Fix: appStats from parent can be object with appBreakdown array, not raw array
+    const appArray = Array.isArray(appStats) ? appStats : (appStats?.appBreakdown || []);
+    const appItems = appArray.map((a: any) => ({
       name: a.app || 'Unknown',
       category: a.category || 'Other',
       type: 'app' as const,

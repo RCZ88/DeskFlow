@@ -5,7 +5,8 @@ import {
   Bus, Book, Utensils, Coffee, Plus, X, AlertTriangle,
   TrendingUp, TrendingDown, Minus, Lightbulb, Zap, Heart, Brain,
   Code, Laptop, Wrench, Cog, Music, Gamepad2, Footprints, Droplets,
-  Wind, Flame, Backpack, Dribbble, Palette, Edit3
+  Wind, Flame, Backpack, Dribbble, Palette, Edit3,
+  PieChart as PieChartIcon, BarChart3
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -18,7 +19,7 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { Bar, Line } from 'react-chartjs-2';
+import { Bar } from 'react-chartjs-2';
 import { format, subDays } from 'date-fns';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler);
@@ -189,7 +190,9 @@ export default function ExternalPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('week');
   const [newActivity, setNewActivity] = useState({ name: '', type: 'stopwatch' as const, color: '#6366f1', icon: 'Clock', default_duration: 30 });
-  const [showCharts, setShowCharts] = useState(false);
+  const [viewingActivity, setViewingActivity] = useState<ExternalActivity | null>(null);
+  const [viewingActivityStats, setViewingActivityStats] = useState<any>(null);
+  const [viewingActivitySessions, setViewingActivitySessions] = useState<any[]>([]);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [recoverySession, setRecoverySession] = useState<{ sessionId: string; activityId: string; activity: ExternalActivity; startTime: Date } | null>(null);
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
@@ -523,32 +526,18 @@ export default function ExternalPage() {
     };
   }, [consistency]);
 
-  // Sleep trend chart data
-  const sleepTrendData1 = useMemo(() => {
-    const daily = sleepTrends?.daily || [];
-    return {
-      labels: daily.slice(-14).map((d: any) => d.date),
-      datasets: [
-        { label: 'Sleep Hours', data: daily.slice(-14).map((d: any) => (d.sleep_seconds || 0) / 3600), borderColor: '#3b82f6', backgroundColor: '#3b82f620', fill: true, tension: 0.3, pointRadius: 3 },
-        { label: 'Target (8h)', data: daily.slice(-14).map(() => 8), borderColor: '#ef4444', borderDash: [5, 5], pointRadius: 0, fill: false }
-      ]
-    };
-  }, [sleepTrends]);
-  const sleepTrendOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, labels: { color: '#a1a1aa' } } }, scales: { x: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' }, suggestedMax: 10, min: 0 } } };
 
-  // Breakdown chart data  
-  const breakdownChartData = useMemo(() => ({
-    labels: breakdownData.labels,
-    datasets: [{ label: 'Hours', data: breakdownData.data, backgroundColor: breakdownData.colors, borderRadius: 4 }]
-  }), [breakdownData]);
-  const breakdownChartOptions = { indexAxis: 'y' as const, responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } }, y: { grid: { display: false }, ticks: { color: '#d4d4d8' } } } };
 
-  // Weekly comparison chart data
-  const weeklyChartData = useMemo(() => ({
-    labels: consistencyChartData.labels,
-    datasets: [{ label: 'Hours', data: consistencyChartData.data, borderColor: '#22c55e', backgroundColor: '#22c55e20', fill: true, tension: 0.3 }]
-  }), [consistencyChartData]);
-  const weeklyChartOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } } };
+  // Load viewing activity data
+  const handleLoadViewingActivity = useCallback(async (activity: ExternalActivity) => {
+    setViewingActivity(activity);
+    setViewingActivityStats(null);
+    setViewingActivitySessions([]);
+    if (window.deskflowAPI?.getExternalSessions) {
+      const sessions = await window.deskflowAPI.getExternalSessions(selectedPeriod);
+      setViewingActivitySessions(sessions.filter((s: any) => s.activity_id === activity.id));
+    }
+  }, [selectedPeriod]);
 
   return (
     <div className="flex flex-col h-full">
@@ -558,20 +547,12 @@ export default function ExternalPage() {
           <h1 className="text-xl font-semibold text-zinc-100">External Tracker</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowPastSleepModal(true)}
-            className="px-3 py-1.5 rounded-lg text-sm text-amber-400 hover:text-amber-300 transition"
-          >
-            + Sleep
-          </button>
-          <button
-            onClick={() => setShowCharts(!showCharts)}
-            className={`px-3 py-1.5 rounded-lg text-sm transition ${
-              showCharts ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            Charts
-          </button>
+          <div className="flex bg-zinc-800 rounded-lg p-1">
+            {(['today', 'week', 'month', 'all'] as const).map((p) => (
+              <button key={p} onClick={() => setSelectedPeriod(p)} className={`px-3 py-1 rounded text-xs uppercase font-medium transition ${selectedPeriod === p ? 'bg-emerald-500 text-white' : 'text-zinc-400 hover:text-white'}`}>{p}</button>
+            ))}
+          </div>
+          <button onClick={() => setShowPastSleepModal(true)} className="px-3 py-1.5 rounded-lg text-sm text-amber-400 hover:text-amber-300 transition">+ Sleep</button>
         </div>
       </div>
 
@@ -624,150 +605,239 @@ export default function ExternalPage() {
                     </>
                   )}
                 </div>
-
-                <div className="flex gap-3">
-                  <button
-                    onClick={activeSession.activity.type === 'sleep' ? cancelSleep : stopActivity}
-                    className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl flex items-center gap-2 transition-colors"
-                  >
-                    <Square className="w-5 h-5" />
-                    {activeSession.activity.type === 'sleep' ? 'Cancel' : 'Stop'}
-                  </button>
-                  {activeSession.activity.type === 'sleep' && (
-                    <button
-                      onClick={() => setShowSleepModal(true)}
-                      className="px-6 py-3 bg-amber-600 hover:bg-amber-500 rounded-xl flex items-center gap-2 transition-colors"
-                    >
-                      <Sun className="w-5 h-5" />
-                      Wake Up
-                    </button>
-                  )}
-                </div>
-                {activityStats && (
-                  <div className="mt-6 grid grid-cols-3 gap-4 w-full max-w-md">
-                    <div className="bg-zinc-800/50 rounded-lg p-3 text-center">
-                      <div className="text-xs text-zinc-400">Today</div>
-                      <div className="text-lg font-bold text-zinc-100">{formatHours(activityStats.today_seconds)}</div>
-                    </div>
-                    <div className="bg-zinc-800/50 rounded-lg p-3 text-center">
-                      <div className="text-xs text-zinc-400">This Week</div>
-                      <div className="text-lg font-bold text-zinc-100">{formatHours(activityStats.week_seconds)}</div>
-                    </div>
-<div className="bg-zinc-800/50 rounded-lg p-3 text-center">
-                      <div className="text-xs text-zinc-400">This Month</div>
-                      <div className="text-lg font-bold text-zinc-100">{formatHours(activityStats.month_seconds)}</div>
-                    </div>
-                  </div>
-                )}
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
+          </AnimatePresence>
 
-        {/* Activity Grid */}
-        {!activeSession && (
-          <div className="relative grid grid-cols-4 gap-4 mb-8">
-            {activities.map((activity) => {
-              const Icon = getIcon(activity.icon);
-              const activityStats = stats.byActivity[activity.name];
-              const totalSeconds = activityStats?.total_seconds || 0;
-              return (
-                <div key={activity.id} className="relative group" data-activity-card>
-                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-6 flex flex-col items-center justify-center gap-3 transition-all hover:ring-2 w-full ${selectedActivity?.id === activity.id ? 'ring-2' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
-                    <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ backgroundColor: activity.color }}><Icon className="w-7 h-7 text-white" /></div>
-                    <div className="text-center"><div className="font-medium text-zinc-100">{activity.name}</div>{totalSeconds > 0 && <div className="text-sm text-zinc-400 mt-1">{formatHours(totalSeconds)}</div>}</div>
-                  </motion.button>
-                  <button onClick={(e) => { e.stopPropagation(); setEditingActivity(activity); }} className="absolute top-2 right-2 w-6 h-6 rounded-full bg-zinc-800/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-zinc-700"><Edit3 className="w-3 h-3 text-zinc-300" /></button>
+        {/* Inline Activity Detail View */}
+        {viewingActivity && !activeSession && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-3xl p-8 mb-6">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: viewingActivity.color }}>{(() => { const Icon = getIcon(viewingActivity.icon); return <Icon className="w-6 h-6 text-white" />; })()}</div>
+                <div>
+                  <div className="text-xl font-semibold">{viewingActivity.name}</div>
+                  <div className="text-sm text-zinc-500">Activity details</div>
                 </div>
-              );
-            })}
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setShowAddModal(true)} className="rounded-xl p-6 flex flex-col items-center justify-center gap-3 bg-zinc-800/50 border border-dashed border-zinc-700 hover:border-zinc-500 transition-colors">
-              <div className="w-14 h-14 rounded-full flex items-center justify-center bg-zinc-700"><Plus className="w-7 h-7 text-zinc-400" /></div>
-              <div className="text-center"><div className="font-medium text-zinc-400">Add Custom</div></div>
-            </motion.button>
+              </div>
+              <button onClick={() => setViewingActivity(null)} className="text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              <div className="bg-zinc-800/30 rounded-lg p-3 text-center">
+                <div className="text-xs text-zinc-400">Avg Session</div>
+                <div className="text-lg font-bold text-zinc-100">{viewingActivitySessions.length > 0 ? (() => { const total = viewingActivitySessions.reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0); return formatHours(total / viewingActivitySessions.length); })() : '--'}</div>
+              </div>
+              <div className="bg-zinc-800/30 rounded-lg p-3 text-center">
+                <div className="text-xs text-zinc-400">Sessions</div>
+                <div className="text-lg font-bold text-zinc-100">{viewingActivitySessions.length}</div>
+              </div>
+              <div className="bg-zinc-800/30 rounded-lg p-3 text-center">
+                <div className="text-xs text-zinc-400">Active Days</div>
+                <div className="text-lg font-bold text-zinc-100">{new Set(viewingActivitySessions.map((s: any) => s.started_at?.split('T')[0])).size}</div>
+              </div>
+            </div>
+            {viewingActivitySessions.length > 0 && (
+              <div className="h-40 mb-4">
+                <div className="text-sm font-medium text-zinc-400 mb-2">Daily Activity</div>
+                <div className="flex items-end justify-between gap-1 h-28">
+                  {(() => {
+                    const days = selectedPeriod === 'today' ? 1 : selectedPeriod === 'week' ? 7 : selectedPeriod === 'month' ? 14 : 30;
+                    const now = new Date();
+                    const bars: { label: string; seconds: number }[] = [];
+                    for (let i = days - 1; i >= 0; i--) {
+                      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+                      const dateStr = d.toISOString().split('T')[0];
+                      const daySec = viewingActivitySessions.filter((s: any) => s.started_at?.split('T')[0] === dateStr).reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0);
+                      bars.push({ label: d.toLocaleDateString('en-US', { weekday: 'short' }), seconds: daySec });
+                    }
+                    const maxSec = Math.max(...bars.map(b => b.seconds), 1);
+                    return bars.slice(-14).map((bar, idx) => (
+                      <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+                        <div className="w-full flex flex-col justify-end" style={{ height: '90px' }}>
+                          <div className="w-full rounded-t" style={{ height: `${bar.seconds > 0 ? Math.max(3, (bar.seconds / maxSec) * 90) : 0}px`, backgroundColor: viewingActivity.color }} />
+                        </div>
+                        <div className="text-[9px] text-zinc-500">{bar.label}</div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            )}
+            {viewingActivitySessions.length > 3 && (
+              <div className="h-24 mb-4">
+                <div className="text-sm font-medium text-zinc-400 mb-2">Hourly Pattern</div>
+                <div className="flex items-end justify-between gap-1 h-16">
+                  {(() => {
+                    const hourCounts = new Array(24).fill(0);
+                    viewingActivitySessions.forEach((s: any) => { const h = new Date(s.started_at).getHours(); hourCounts[h] += s.duration_seconds || 0; });
+                    const maxHour = Math.max(...hourCounts, 1);
+                    return hourCounts.map((sec, h) => (
+                      <div key={h} className="flex-1 flex flex-col items-center">
+                        <div className="w-full rounded-t" style={{ height: `${sec > 0 ? Math.max(2, (sec / maxHour) * 50) : 0}px`, backgroundColor: viewingActivity.color, opacity: h >= 6 && h < 22 ? 0.8 : 0.3 }} />
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            )}
+            {viewingActivitySessions.length > 0 && (
+              <div className="max-h-32 overflow-y-auto space-y-1">
+                {viewingActivitySessions.slice(0, 10).map((s: any) => (
+                  <div key={s.id} className="flex items-center justify-between bg-zinc-800/30 rounded px-3 py-1.5 text-sm">
+                    <span className="text-zinc-300">{new Date(s.started_at).toLocaleDateString()} {new Date(s.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="text-zinc-400">{formatHours(s.duration_seconds || 0)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* Activity Grid with inline mini charts */}
+        {!activeSession && (
+          <div className="relative mb-8">
+            <div className="grid grid-cols-4 gap-4">
+              {activities.map((activity) => {
+                const Icon = getIcon(activity.icon);
+                const actStats = stats.byActivity[activity.name];
+                const totalSeconds = actStats?.total_seconds || 0;
+                return (
+                  <div key={activity.id} className="relative group" data-activity-card>
+                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-all hover:ring-2 w-full ${selectedActivity?.id === activity.id ? 'ring-2' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
+                      <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: activity.color }}><Icon className="w-6 h-6 text-white" /></div>
+                      <div className="text-center"><div className="font-medium text-zinc-100 text-sm">{activity.name}</div>{totalSeconds > 0 && <div className="text-xs text-zinc-400 mt-1">{formatHours(totalSeconds)}</div>}</div>
+                      {totalSeconds > 0 && (
+                        <div className="w-full h-8 mt-1 flex items-end gap-[2px] px-1">
+                          {(() => {
+                            const now = new Date();
+                            const dayData: number[] = [];
+                            for (let i = 6; i >= 0; i--) {
+                              const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+                              const dateStr = d.toISOString().split('T')[0];
+                              const daySec = actStats?.daily?.[dateStr] || 0;
+                              dayData.push(daySec);
+                            }
+                            const maxD = Math.max(...dayData, 1);
+                            return dayData.map((sec, idx) => (
+                              <div key={idx} className="flex-1 flex flex-col items-center">
+                                <div style={{ height: `${Math.max(2, (sec / maxD) * 24)}px`, backgroundColor: idx === 6 ? '#FCD34D' : activity.color }} className="w-full rounded-t" />
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      )}
+                    </motion.button>
+                    <button onClick={(e) => { e.stopPropagation(); setEditingActivity(activity); }} className="absolute top-2 right-2 w-6 h-6 rounded-full bg-zinc-800/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-zinc-700"><Edit3 className="w-3 h-3 text-zinc-300" /></button>
+                  </div>
+                );
+              })}
+              <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setShowAddModal(true)} className="rounded-xl p-4 flex flex-col items-center justify-center gap-2 bg-zinc-800/50 border border-dashed border-zinc-700 hover:border-zinc-500 transition-colors h-[140px]">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center bg-zinc-700"><Plus className="w-6 h-6 text-zinc-400" /></div>
+                <div className="text-center"><div className="font-medium text-zinc-400">Add Custom</div></div>
+              </motion.button>
+            </div>
           </div>
         )}
 
-        {/* Selection Overlay */}
+        {/* Selection Overlay with View Data */}
         {selectedActivity && !activeSession && (
           <>
             <div id="activity-selection-overlay" className="fixed inset-0 z-40" onClick={handleOverlayClick} />
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: -10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: -10 }} className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-zinc-800 rounded-2xl p-6 shadow-2xl border border-zinc-700 min-w-64" style={{ borderColor: selectedActivity.color + '60' }}>
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: -10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: -10 }} className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-zinc-800 rounded-2xl p-6 shadow-2xl border border-zinc-700 min-w-72" style={{ borderColor: selectedActivity.color + '60' }}>
               <div className="text-center mb-4">
                 <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: selectedActivity.color }}>{(() => { const Icon = getIcon(selectedActivity.icon); return <Icon className="w-8 h-8 text-white" />; })()}</div>
                 <div className="text-lg font-semibold text-zinc-100">{selectedActivity.name}</div>
                 <div className="text-sm text-zinc-400 mt-1">Ready to start</div>
               </div>
-              <div className="flex gap-3">
-                <button onClick={() => setSelectedActivity(null)} className="flex-1 px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 rounded-xl transition-colors text-zinc-300">Cancel</button>
-                <button onClick={() => { startActivity(selectedActivity); setSelectedActivity(null); }} className="flex-1 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl transition-colors text-white font-medium flex items-center justify-center gap-2"><Play className="w-4 h-4" />Start</button>
+              <div className="flex flex-col gap-2">
+                <button onClick={() => { handleLoadViewingActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-2.5 bg-zinc-600 hover:bg-zinc-500 rounded-xl transition-colors text-white font-medium flex items-center justify-center gap-2"><BarChart3 className="w-4 h-4" />View Data & Charts</button>
+                <button onClick={() => { startActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl transition-colors text-white font-medium flex items-center justify-center gap-2"><Play className="w-4 h-4" />Start</button>
+                <button onClick={() => setSelectedActivity(null)} className="w-full px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 rounded-xl transition-colors text-zinc-300">Cancel</button>
               </div>
               <div className="text-xs text-zinc-500 mt-3 text-center">Press ESC to close</div>
             </motion.div>
           </>
         )}
 
-{/* Charts Section - Below Activity Grid */}
+{/* Charts Section - 3 Glass-Styled Charts */}
         {!activeSession && (
-          <div>
-            {sleepTrends.daily.length > 0 && (
-              <div className="bg-zinc-800/50 rounded-xl p-4 mb-6">
-                <h3 className="text-sm font-medium text-zinc-300 mb-4">Sleep Trends</h3>
-                
-                {/* Sleep Stats Summary */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-                  <div className="bg-zinc-800/50 rounded-lg p-3 text-center">
-                    <div className="text-xs text-zinc-400">Avg Bedtime</div>
-                    <div className="text-lg font-bold text-zinc-100">{sleepTrends?.average_bedtime || '--:--'}</div>
-                  </div>
-                  <div className="bg-zinc-800/50 rounded-lg p-3 text-center">
-                    <div className="text-xs text-zinc-400">Avg Wake</div>
-                    <div className="text-lg font-bold text-zinc-100">{sleepTrends?.average_wake_time || '--:--'}</div>
-                  </div>
-                  <div className="bg-zinc-800/50 rounded-lg p-3 text-center">
-                    <div className="text-xs text-zinc-400">Avg Duration</div>
-                    <div className="text-lg font-bold text-zinc-100">{formatHours(sleepTrends?.average_sleep_duration || 0)}</div>
-                  </div>
-                  <div className="bg-zinc-800/50 rounded-lg p-3 text-center">
-                    <div className="text-xs text-zinc-400">Avg → Sleep</div>
-                    <div className="text-lg font-bold text-zinc-100">{Math.round((sleepTrends?.average_latency || 0) / 60)}m</div>
-                  </div>
-                  <div className="bg-zinc-800/50 rounded-lg p-3 text-center">
-                    <div className="text-xs text-zinc-400">Wake → App</div>
-                    <div className="text-lg font-bold text-zinc-100">{Math.round((sleepTrends?.average_wake_latency || 0) / 60)}m</div>
-                  </div>
-                </div>
-                
-                <div className="h-48">
-                  <Line data={sleepTrendData1} options={sleepTrendOptions} />
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {/* Daily Usage Trend */}
+            <div className="glass rounded-3xl p-6">
+              <h3 className="text-sm font-medium text-zinc-400 mb-4">Daily Usage Trend</h3>
+              <div className="h-48">
+                {breakdownData.labels.length > 0 ? (
+                  <Bar data={{
+                    labels: breakdownData.labels,
+                    datasets: [{ label: 'Hours', data: breakdownData.data, backgroundColor: breakdownData.colors, borderRadius: 4 }]
+                  }} options={{
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
+                  }} />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-zinc-500">No data yet</div>
+                )}
               </div>
-            )}
-            <div className="bg-zinc-800/50 rounded-xl p-4 mb-6">
-              <h3 className="text-sm font-medium text-zinc-300 mb-4">Activity Breakdown</h3>
-              {breakdownData.labels.length > 0 ? (
-                <div className="h-48">
-                  <Bar data={breakdownChartData} options={breakdownChartOptions} />
-                </div>
-              ) : (
-                <div className="h-48 flex items-center justify-center text-zinc-500">No data yet</div>
-              )}
             </div>
-          </div>
-        )}
 
-        {/* Weekly Comparison Chart */}
-        {showCharts && (
-          <div className="grid grid-cols-2 gap-6 mb-8">
-            <div className="bg-zinc-800/50 rounded-xl p-4">
-              <h3 className="text-sm font-medium text-zinc-300 mb-4">Weekly Comparison</h3>
-              {consistencyChartData.labels.length > 0 ? (
-                <div className="h-48">
-                  <Line data={weeklyChartData} options={weeklyChartOptions} />
-                </div>
-) : (
-                <div className="h-48 flex items-center justify-center text-zinc-500">No data yet</div>
-              )}
+            {/* Activity Distribution (Conic Doughnut) */}
+            <div className="glass rounded-3xl p-6">
+              <h3 className="text-sm font-medium text-zinc-400 mb-4 text-center">Activity Distribution</h3>
+              <div className="flex items-center justify-center h-36">
+                {breakdownData.labels.length > 0 ? (() => {
+                  const total = breakdownData.data.reduce((a, b) => a + b, 0);
+                  let conicStr = '';
+                  let currentPct = 0;
+                  breakdownData.labels.forEach((name, i) => {
+                    const pct = total > 0 ? (breakdownData.data[i] / total) * 100 : 0;
+                    const start = currentPct;
+                    const end = currentPct + pct;
+                    conicStr += `${breakdownData.colors[i]} ${start}% ${end}%`;
+                    if (i < breakdownData.labels.length - 1) conicStr += ', ';
+                    currentPct = end;
+                  });
+                  return (
+                    <div className="relative w-32 h-32">
+                      <div className="w-full h-full rounded-full" style={{ background: `conic-gradient(${conicStr})` }}>
+                        <div className="absolute inset-3 rounded-full bg-zinc-900 flex items-center justify-center">
+                          <span className="text-lg font-bold text-zinc-100">{Math.round(total)}h</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })() : (
+                  <div className="text-zinc-500">No data yet</div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-4 justify-center">
+                {breakdownData.labels.slice(0, 6).map((name, i) => (
+                  <div key={name} className="flex items-center gap-1.5 text-xs">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: breakdownData.colors[i] }} />
+                    <span className="text-zinc-400 truncate max-w-24">{name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Weekly Trend */}
+            <div className="glass rounded-3xl p-6">
+              <h3 className="text-sm font-medium text-zinc-400 mb-4">Weekly Trend</h3>
+              <div className="h-48">
+                {consistencyChartData.labels.length > 0 ? (
+                  <Bar data={{
+                    labels: consistencyChartData.labels,
+                    datasets: [{ label: 'Hours', data: consistencyChartData.data, backgroundColor: '#8b5cf6', borderRadius: 4 }]
+                  }} options={{
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { grid: { display: false }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
+                  }} />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-zinc-500">No data yet</div>
+                )}
+              </div>
             </div>
           </div>
         )}

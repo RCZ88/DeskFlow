@@ -3261,7 +3261,7 @@ export default function IDEProjectsPage() {
 
             {/* Terminal Content - embedded via iframe or directly render */}
             <div className="flex-1 flex overflow-hidden">
-              <TerminalPage projectId={workspaceProject.id} />
+              <TerminalPage projectId={workspaceProject.id} projectPath={workspaceProject.path} />
             </div>
           </motion.div>
         )}
