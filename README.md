@@ -1,12 +1,12 @@
 # 🌌 DeskFlow - AI-Powered Productivity Tracker
 
-> Electron desktop app that visualizes your app and browser usage as an interactive 3D galaxy with real-time tracking. Now includes AI agent usage tracking, external activity tracking, and integrated terminal workspace.
+> Electron desktop app that visualizes your app and browser usage as an interactive 3D galaxy with real-time tracking. Now includes AI agent usage tracking, external activity tracking, integrated terminal workspace with Tracker Mind system, insights dashboard, and knowledge graph architecture visualization.
 
 [![Electron](https://img.shields.io/badge/Electron-41.1.1-47848F?style=flat&logo=electron&logoColor=white)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19.2.0-61DAFB?style=flat&logo=react&logoColor=white)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-3178C6?style=flat&logo=typescript&logoColor=white)](https://typescriptlang.org/)
 [![Three.js](https://img.shields.io/badge/Three.js-0.183.2-000000?style=flat&logo=three.js&logoColor=white)](https://threejs.org/)
-[![SQLite](https://img.shields.io/badge/SQLite-12.8.0-003B57?style=flat&logo=sqlite&logoColor=white)](https://sqlite.org/)
+[![SQLite](https://img.shields.io/badge/SQLite-12.9.0-003B57?style=flat&logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.2.1-06B6D4?style=flat&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Complexity: Advanced](https://img.shields.io/badge/Complexity-Advanced-red?style=flat&logo=complexity&logoColor=white)]()
@@ -79,7 +79,8 @@ Or use the auto-created shortcut on your desktop.
 | Feature | Description |
 |---------|-------------|
 | **🌌 Two-Galaxy System** | Apps Galaxy (blue/purple spiral) + Websites Galaxy (cyan/violet nebula) with smooth camera transitions |
-| **📊 Real-time Dashboard** | Focus time, productivity scores, and interactive heatmap with week navigation |
+| **📊 Real-time Dashboard** | Focus time, productivity scores, interactive heatmap with week navigation and solar system view |
+| **📊 Insights Dashboard** | Heatmap grid, stat cards with trends, day/week/activity tabs, sleep & recovery charts |
 | **🌐 Browser Tracking** | Track websites in Chrome/Firefox via browser extension with smart categorization |
 | **🔍 Deep Search** | Query your usage history across all apps and websites |
 | **⚡ Auto-start** | Launch on system boot |
@@ -87,11 +88,14 @@ Or use the auto-created shortcut on your desktop.
 | **🎯 Focus Tracking** | Categorize apps as Productive/Neutral/Distracting |
 | **🎨 Custom Colors** | Per-app, per-website, and per-category color customization |
 | **📱 Category Overrides** | Override automatic categorization for any app/website |
-| **💤 External Activities** | Track non-laptop activities: Sleep, Exercise, Gym, Commute, Reading, Studying |
-| **🖥️ Terminal Workspace** | Integrated terminal with PTY support, presets, and session history |
+| **💤 External Activities** | Track non-laptop activities: Sleep, Exercise, Gym, Commute, Reading, Studying — with glass-styled usage charts |
+| **🖥️ Terminal Workspace** | Integrated terminal with PTY support, presets, session history, resizable sidebar, and problem/file browser |
 | **🤖 AI Agent Tracking** | Track Claude Code, Cursor, OpenCode usage with tokens, cost, and session metrics |
+| **🧠 Tracker Mind** | Integrated problem tracking (PROBLEMS.md), terminal binding, and agent orchestration |
+| **📈 Graphify Knowledge Graph** | Codebase architecture visualization with clustered communities and audit reports |
 | **🧠 AI Color Magic** | Auto-generate brand-appropriate colors using OpenRouter AI |
 | **🏷️ AI Categorization** | Auto-categorize apps/websites using AI |
+| **🏷️ Custom Categories** | Create custom app/website categories in Settings, auto-assigned to Neutral tier |
 
 ---
 
@@ -114,16 +118,16 @@ Or use the auto-created shortcut on your desktop.
 
 | Page | Access | Features |
 |------|--------|----------|
-| **Dashboard** | Sidebar | Focus time, productivity, heatmap with week navigation |
-| **Galaxy** | Sidebar | 3D visualization with two separate galaxies |
+| **Dashboard** | Sidebar | Focus time, productivity, solar system, heatmap with week navigation, stats cards |
+| **Productivity** | Sidebar | Apps vs Websites comparison, productivity scores |
 | **Applications** | Sidebar | Detailed breakdown by app with time totals |
 | **Browser Activity** | Sidebar | Website tracking, hourly charts, category breakdown |
-| **Productivity** | Sidebar | Apps vs Websites comparison, productivity scores |
 | **IDE Projects** | Sidebar | AI agent tracking, project management, Git metrics |
-| **Terminal** | Sidebar | Terminal workspace with presets |
-| **External** | Sidebar | Track non-laptop activities |
-| **Settings** | Sidebar | Categories, colors, preferences |
-| **Database** | Sidebar | Raw data viewer |
+| **External** | Sidebar | Track non-laptop activities with glass-styled charts |
+| **Insights** | Sidebar | Heatmap grid, stat cards, tabs, sleep & activity charts |
+| **Terminal** | IDE Workspace | Terminal workspace with resizable sidebar, presets, sessions, problem/file browser |
+| **Database** | Sidebar | Raw data viewer with JSON fallback |
+| **Settings** | Sidebar | Categories, custom categories, colors, preferences |
 
 ### Galaxy Navigation
 
@@ -200,17 +204,27 @@ App Tracker/
 │   ├── App.tsx              # Main app (routing, state, computation)
 │   ├── components/
 │   │   └── OrbitSystem.tsx  # 3D galaxy visualization
+│   ├── services/
+│   │   ├── ProblemsService.ts      # Markdown-based problem management
+│   │   ├── ProblemsParser.ts       # Parse PROBLEMS.md format
+│   │   ├── ProblemsSyncService.ts  # Bidirectional markdown↔DB sync
+│   │   ├── RequestsService.ts      # Request tracking service
+│   │   ├── SkillsService.ts        # Skill template management
+│   │   └── SessionContextService.ts  # Terminal output parsing
 │   └── pages/
-│       ├── StatsPage.tsx          # Applications breakdown
-│       ├── ProductivityPage.tsx # Productivity scores & trends
-│       ├── BrowserActivityPage.tsx # Website tracking
+│       ├── DashboardPage.tsx        # Main dashboard with 3D orbit + heatmap
+│       ├── StatsPage.tsx           # Applications breakdown
+│       ├── ProductivityPage.tsx    # Productivity scores & trends
+│       ├── BrowserActivityPage.tsx  # Website tracking
+│       ├── InsightsPage.tsx        # Reports and insights
 │       ├── IDEProjectsPage.tsx     # AI agent & project tracking
 │       ├── TerminalPage.tsx        # Terminal workspace
-│       ├── ExternalPage.tsx       # External activities
-│       ├── SettingsPage.tsx      # Category/colors/settings
-│       └── DatabasePage.tsx    # DB viewer
+│       ├── ExternalPage.tsx        # External activities
+│       ├── SettingsPage.tsx        # Category/colors/settings
+│       └── DatabasePage.tsx        # DB viewer
 ├── browser-extension/       # Chrome/Firefox extension
 ├── agent/                 # AI agent resources & docs
+├── graphify-out/          # Knowledge graph output
 ├── public/                 # Static assets
 ├── dist/                   # Built renderer
 ├── dist-electron/          # Built Electron main/preload
@@ -246,17 +260,18 @@ App Tracker/
 ### Data & Storage
 | Component | Technology |
 |-----------|------------|
-| **Database** | better-sqlite3 ^12.8.0 |
+| **Database** | better-sqlite3 ^12.9.0 |
 | **Window Tracking** | active-win ^8.2.1 |
 | **Terminal** | node-pty ^0.11.0 |
 | **Date Handling** | date-fns ^4.1.0 |
+| **DB Fallback** | sql.js ^1.14.1 |
 
 ### UI & Animation
 | Component | Technology |
 |-----------|------------|
 | **Animations** | Framer Motion ^12.35.0 |
 | **Icons** | Lucide React ^0.577.0 |
-| **Charts** | Chart.js ^4.5.1 |
+| **Charts** | Chart.js ^4.5.1 & recharts ^3.8.1 |
 | **React Charts** | react-chartjs-2 ^5.3.1 |
 | **Celebrations** | canvas-confetti ^1.9.4 |
 | **Drag & Drop** | @dnd-kit ^6.3.1 |
@@ -290,12 +305,24 @@ App Tracker/
 - **Presets** - Save and execute command presets
 - **Sessions** - Track terminal sessions with resume capability
 - **Split View** - Multi-pane terminal layout
+- **Resizable Sidebar** - Drag-resizable left sidebar (200-600px) with 7 tool tabs
+- **Send Instructions** - Send prompts directly to active terminal from the UI
 
 ### External Activities
 - **Timed Activities** - Stopwatch mode for Exercise, Gym, Studying
 - **Check-in Mode** - Quick activities (Commute, Eating, Short Break)
 - **Sleep Tracking** - Sleep deficit calculation with 8h target
 - **Wake-up Reminder** - Optional wake-up time picker
+- **Glass-Styled Charts** - Daily usage trend, activity distribution (conic doughnut), weekly trend comparison
+
+### Tracker Mind System
+- **Problem Tracking** - Markdown-based issue tracker using agent/PROBLEMS.md with status workflow
+- **Terminal Binding** - Bind problems to active terminals for AI agent orchestration
+- **File Browser** - Browse agent/ markdown files from terminal sidebar
+- **Workspace Setup** - Initialize agent/ directory structure for any project
+- **Send Instructions** - Send prompts to active terminal from the UI with input bar
+- **Request Tracking** - Track feature requests via agent/REQUESTS.md
+- **Skill Templates** - Reusable skill definitions for AI agents
 
 ### Visual Effects
 - **Bloom/Glow** - HDR bloom for emissive objects
@@ -367,26 +394,31 @@ graph TD
     A[User Desktop] -->|Window Tracking| B[active-win<br/>Polling 2s]
     B --> C[Electron Main<br/>main.ts]
     C --> D[SQLite DB<br/>better-sqlite3]
-    C --> E[JSON Fallback<br/>Auto-failover]
+    C --> E[JSON Fallback<br/>sql.js / Auto-failover]
     C -->|IPC Bridge| F[Preload<br/>preload.ts]
     F -->|contextBridge| G[React App<br/>App.tsx]
+
     G -->|State| H[Pages]
     G -->|3D Render| I[OrbitSystem]
 
-    H -->|Apps| J[StatsPage]
-    H -->|Browser| K[BrowserActivityPage]
-    H -->|Productivity| L[ProductivityPage]
-    H -->|IDE| M[IDEProjectsPage]
-    H -->|Terminal| N[TerminalPage]
-    H -->|External| O[ExternalPage]
+    C -->|Services| S[ProblemsService<br/>RequestsService<br/>SkillsService]
 
-    I -->|Apps Galaxy| P[Apps Galaxy<br/>Blue/Purple]
-    I -->|Websites Galaxy| Q[Websites Galaxy<br/>Cyan/Violet]
+    H -->|Dashboard| J[DashboardPage<br/>+ Heatmap]
+    H -->|Apps| K[StatsPage]
+    H -->|Browser| L[BrowserActivityPage]
+    H -->|Productivity| M[ProductivityPage]
+    H -->|IDE| N[IDEProjectsPage]
+    H -->|Terminal| O[TerminalPage]
+    H -->|External| P[ExternalPage]
+    H -->|Insights| Q[InsightsPage]
 
-    R[Browser Extension] -->|Website Data| C
+    I -->|Apps Galaxy| R[Apps Galaxy<br/>Blue/Purple]
+    I -->|Websites Galaxy| S2[Websites Galaxy<br/>Cyan/Violet]
 
-    style P fill:#6366f1,color:#fff
-    style Q fill:#06b6d4,color:#fff
+    T[Browser Extension] -->|Website Data| C
+
+    style R fill:#6366f1,color:#fff
+    style S2 fill:#06b6d4,color:#fff
     style D fill:#003B57,color:#fff
 ```
 
@@ -414,10 +446,55 @@ graph TD
 | 1.44 | 2026-04-19 | Terminal + AI integration |
 | 1.50 | 2026-04-20 | External activities |
 | 1.55 | 2026-04-21 | Browser extension + IDE fixes |
+| 1.60 | 2026-05-05 | Self-heal SQLite, database hardening, heatmap fixes |
+| 1.70 | 2026-05-06 | Weekly productivity charts, solar system sync, useMemo→useState fix |
+| 1.80 | 2026-05-07 | Tracker Mind Phase 1-3: problem tracking, terminal binding, end-to-end flow |
+| 2.0 | 2026-05-08 | Custom categories, glass-styled charts, terminal resizable sidebar |
+| 2.2 | 2026-05-09 | Insights page redesign, orbit system research, project-aware problems |
+| 2.4 | 2026-05-09 | AGENTS.md restructure, graphify rebuild, build system updates |
 
 ---
 
 ## 🚀 Development Highlights
+
+### v2.4 (2026-05-09)
+- **AGENTS.md Restructure** - Prime state checklist, behavioural guidelines, protection rules
+- **Graphify Rebuild** - Full knowledge graph regeneration with analysis
+- **Build System** - rollupOptions without hashing, new deps (recharts, sql.js)
+- **State.md Restructure** - "Since Last Commit" tracking section added
+
+### v2.2 (2026-05-09)
+- **Insights Page Redesign** - Complete overhaul: heatmap grid, stat cards with trends, day/week/activity tabs, sleep & recovery charts, activity breakdown
+- **Orbit System Research** - Logarithmic planet spacing, visual balance factor (0.65), sun texture enhancements
+- **Project-Aware Problems** - ProblemsService reads from project-specific agent/ directory
+- **Tailwind CSS v4** - Migrated to Tailwind CSS ^4.2.1 with @tailwindcss/vite
+
+### v2.0 (2026-05-08)
+- **Custom Categories** - Create custom app/website categories in Settings with persistent storage
+- **Glass-Styled Charts** - External page: daily usage bar, activity distribution doughnut, weekly trend
+- **Resizable Terminal Sidebar** - Drag-resizable left sidebar (200-600px) with 7 tabs
+- **Always-Visible Timer** - External page shows "00:00:00" with "Click to start tracking"
+
+### v1.80 (2026-05-07)
+- **Tracker Mind Phase 1-3** - Full problem tracking with markdown-based PROBLEMS.md
+- **Terminal Binding** - Bind problems to terminals via IPC with status workflow
+- **End-to-End Flow** - Dashboard → assign problem → terminal receives prompt
+- **TrackerMindSetup Modal** - Initialize agent/ directory structure for any project
+- **SessionContextService** - Parse terminal output for context extraction
+
+### v1.70 (2026-05-06)
+- **Weekly Productivity Charts** - Period navigation with prev/next, stacked device+external bars
+- **Solar System Sync** - Solar system now syncs with heatmap week selector
+- **useMemo→useState Fix** - Fixed React TDZ initialization error with complex object deps
+- **Database Page** - JSON mode support with virtual "logs" table when SQLite fails
+- **Database Hardening** - 5 critical functions now use getDb() self-heal pattern
+
+### v1.60 (2026-05-05)
+- **Self-Heal SQLite** - getDb() function auto-reconnects on each API call
+- **Database Connection Hardening** - 5 critical functions null-safe
+- **Heatmap Redesign** - 7-day heatmap with external/device/combined modes
+- **Startup Fix** - refreshStats error fixed, window always shows on startup
+- **Database Page** - Shows JSON data when SQLite fails
 
 ### v1.55 (2026-04-21)
 - **Open in IDE Fix** - Full path to IDE executable
@@ -486,6 +563,6 @@ If you encounter issues:
 
 </div>
 
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-05-09
 
 **Maintained By:** DeskFlow Team

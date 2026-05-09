@@ -3,41 +3,43 @@
 **Purpose:** Current status, known issues, and recent changes for DeskFlow.
 
 **Version:** 2.4
-**Last Updated:** 2026-05-09 (External Page Charts Refactor)
+**Last Updated:** 2026-05-09 (README update to v2.4)
 **Build Status:** ✅ Build succeeds
 **Session Date:** 2026-05-09
 
 ## 📦 Since Last Commit
 
-**Last Commit:** `5378649` — Reapply "fix: call pollForeground on startup to detect current app immediately"
+**Last Commit:** `e4f1490` — feat: Tracker Mind services, dashboard/insights/external redesign...
 
-**Files changed:** 28 files, +13976 / -5603
-
-| File | Scope |
-|------|-------|
-| `src/main.ts` | +703 — New ProblemsService, RequestsService, SkillsService; IPC handlers for terminal bindings |
-| `src/preload.ts` | +112 — New API methods for terminal, services, settings |
-| `src/App.tsx` | +270 — Routes, period state, sidebar nav |
-| `src/pages/ExternalPage.tsx` | +390 — Fixed JSX, 3 glass-styled charts, timer always visible |
-| `src/pages/InsightsPage.tsx` | +633 — Complete redesign: heatmap, stat cards, tabs, sleep/activity charts |
-| `src/pages/TerminalPage.tsx` | +969 — Resizable sidebar, instructions input, Problems/Files tabs, binding UI |
-| `src/pages/DashboardPage.tsx` | +1604 — Heatmap, weekly charts, solar system, stats cards, period nav |
-| `src/pages/SettingsPage.tsx` | +226 — Custom categories UI |
-| `src/components/OrbitSystem.tsx` | +343 — Logarithmic orbit spacing, visual balance factor |
-| `src/components/TerminalWindow.tsx` | +135 — Terminal features |
-| `package.json` | Updated deps: recharts, sql.js, tailwindcss v4, better-sqlite3 |
-| `vite.config.ts` | Added rollupOptions (no-hash output) |
-| `agent/state.md` | This file — full change history |
-| `agent/PROBLEMS.md` | Updated issue statuses |
-| `agent/AGENTS.md`, `agent/agents.md` | Updated rules |
-| `agent/debugging.md` | New patterns |
-| `graphify-out/` | Full knowledge graph rebuild |
-
-**Next step:** Clear this section after the next commit.
+*No uncommitted changes.*
 
 ---
 
 ## 📝 Recent Changes
+
+### 2026-05-09 — README Updated to v2.4
+
+**What Changed:**
+1. ✅ **Header/Tagline** - Added Tracker Mind, insights dashboard, knowledge graph to tagline
+2. ✅ **Badges** - Updated SQLite badge to ^12.9.0
+3. ✅ **Key Features** - Added 4 new rows (Insights Dashboard, Custom Categories, Tracker Mind, Graphify Knowledge Graph); updated Terminal & External rows
+4. ✅ **Navigation** - Added Insights page, removed standalone Galaxy (merged into Dashboard), updated descriptions
+5. ✅ **Project Structure** - Added `src/services/` directory with 6 files, added `InsightsPage.tsx`, added `graphify-out/`
+6. ✅ **Tech Stack** - Updated better-sqlite3 version, added recharts & sql.js, removed electron-rebuild
+7. ✅ **Advanced Features** - Added "Tracker Mind System" section, updated Terminal (resizable sidebar, send instructions) & External (glass-styled charts)
+8. ✅ **Architecture Diagram** - Updated mermaid with services, sql.js fallback, InsightsPage
+9. ✅ **Version History** - Added v1.60 through v2.4
+10. ✅ **Development Highlights** - Added entries for v1.60 through v2.4
+11. ✅ **Last Updated** - Changed to 2026-05-09
+
+**Files Modified:**
+- `README.md` — Full update to v2.4
+- `agent/state.md` — This entry, reset "Since Last Commit" section
+
+**Result:**
+- ✅ README now reflects all features up to v2.4
+- ✅ "Since Last Commit" section reset to empty after commit e4f1490
+- ✅ Consistent styling maintained throughout
 
 ### 2026-05-09 — External Page Charts Refactor: 3 Glass-Styled Charts
 
