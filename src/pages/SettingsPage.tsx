@@ -323,7 +323,7 @@ export default function SettingsPage({
   trackerAppMode: trackerAppModeProp = 'track',
   setTrackerAppMode: setTrackerAppModeProp = () => {},
 }: Partial<SettingsPageProps> & { onRegisterSave: (fn: () => void) => void; onReloadData?: () => void }) {
-  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general' | 'tracking'>(() => {
+  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general' | 'tracking' | 'prompts'>(() => {
     const saved = localStorage.getItem('settings-activeTab');
     return (saved as any) || 'category';
   });
@@ -529,6 +529,9 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
             // Strip any quotes that might have been saved
             const cleanKey = prefs.openrouterApiKey.trim().replace(/^["']|["']$/g, '');
             setOpenRouterApiKey(cleanKey);
+          }
+          if (prefs?.filterTransientApps !== undefined) {
+            setFilterTransientApps(prefs.filterTransientApps);
           }
         } catch { /* ignore */ }
       }
@@ -821,7 +824,8 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
     { id: 'category', label: 'Category' },
     { id: 'colors', label: 'Colors' },
     { id: 'general', label: 'General' },
-    { id: 'tracking', label: 'Tracking' }
+    { id: 'tracking', label: 'Tracking' },
+    { id: 'prompts', label: 'System Prompts' }
   ];
 
   const [domainStats, setDomainStats] = useState<any[]>([]);
@@ -880,6 +884,14 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
   // Tracking settings state
   const [sleepGapMs, setSleepGapMs] = useState(10000);
   const [maxSessionMs, setMaxSessionMs] = useState(300000);
+  const [filterTransientApps, setFilterTransientApps] = useState(true);
+
+  // System Prompts state
+  const [systemPrompts, setSystemPrompts] = useState<Record<string, string>>({
+    claude: '',
+    opencode: '',
+    custom: ''
+  });
 
   // Load tracking settings on mount
   useEffect(() => {
@@ -892,6 +904,27 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
     };
     loadTrackingSettings();
   }, []);
+
+  // Load system prompts on mount
+  useEffect(() => {
+    const loadPrompts = async () => {
+      if (window.deskflowAPI?.getPreferences) {
+        const prefs = await window.deskflowAPI.getPreferences();
+        if (prefs?.systemPrompts) {
+          setSystemPrompts({ claude: '', opencode: '', custom: '', ...prefs.systemPrompts });
+        }
+      }
+    };
+    loadPrompts();
+  }, []);
+
+  const handleSaveSystemPrompt = async (agent: string, content: string) => {
+    const updated = { ...systemPrompts, [agent]: content };
+    setSystemPrompts(updated);
+    if (window.deskflowAPI?.setPreference) {
+      await window.deskflowAPI.setPreference('systemPrompts', updated);
+    }
+  };
 
   const handleSaveTrackingSetting = async (key: string, value: number) => {
     if (window.deskflowAPI?.setTrackingSetting) {
@@ -2221,6 +2254,27 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
               <p className="text-xs text-zinc-500">Configure how app usage is tracked</p>
             </div>
 
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <label className="text-sm font-medium text-zinc-300">Ignore Transient System Apps</label>
+                <p className="text-xs text-zinc-500">Filter out brief system windows (Explorer, task switcher) from tracking</p>
+              </div>
+              <button
+                onClick={async () => {
+                  const newVal = !filterTransientApps;
+                  setFilterTransientApps(newVal);
+                  if (window.deskflowAPI?.setPreference) {
+                    await window.deskflowAPI.setPreference('filterTransientApps', newVal);
+                  }
+                }}
+                className={`relative w-11 h-6 rounded-full transition-colors ${filterTransientApps ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${filterTransientApps ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+
+            <div className="pt-4 border-t border-zinc-700/50"></div>
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div>
@@ -2289,6 +2343,50 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                 <div className="text-white font-mono">{(maxSessionMs / 60000).toFixed(1)}m</div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'prompts' && (
+        <div className="space-y-4">
+          <div className="glass rounded-3xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold">System Prompts</h2>
+                <p className="text-xs text-zinc-500">Customize the system prompt for each AI agent type</p>
+              </div>
+            </div>
+            <p className="text-xs text-zinc-500 mb-4">These prompts are sent to the AI when a new terminal session starts. Leave blank to use defaults.</p>
+            {['claude', 'opencode', 'custom'].map(agent => (
+              <div key={agent} className="mb-4 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700/30">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-zinc-300 capitalize">{agent === 'custom' ? 'Custom AI' : agent}</label>
+                  <button
+                    onClick={() => handleSaveSystemPrompt(agent, '')}
+                    className="px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-400 rounded transition-colors"
+                  >
+                    Reset to default
+                  </button>
+                </div>
+                <textarea
+                  value={systemPrompts[agent]}
+                  onChange={(e) => setSystemPrompts(prev => ({ ...prev, [agent]: e.target.value }))}
+                  onBlur={() => handleSaveSystemPrompt(agent, systemPrompts[agent])}
+                  placeholder={`Default system prompt for ${agent} will be used...`}
+                  rows={6}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 font-mono placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all"
+                />
+                <div className="flex justify-between mt-1">
+                  <span className="text-[10px] text-zinc-600">Content length: {systemPrompts[agent].length} chars</span>
+                  <button
+                    onClick={() => handleSaveSystemPrompt(agent, systemPrompts[agent])}
+                    className="px-2 py-0.5 text-[10px] bg-cyan-600 hover:bg-cyan-500 text-white rounded transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

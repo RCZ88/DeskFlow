@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronRight, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react';
+import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronRight, ChevronLeft, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon } from 'lucide-react';
 import { format as dateFormat } from 'date-fns';
 import { Pie, Bar, Line } from 'react-chartjs-2';
 import { format } from 'date-fns';
@@ -71,6 +71,49 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
   const [availableBrowsers, setAvailableBrowsers] = useState<string[]>([]);
   const [extensionBrowser, setExtensionBrowser] = useState<string>('');
   const [hourlyChartMode, setHourlyChartMode] = useState<'bar' | 'line'>('bar');
+  const [dateOffset, setDateOffset] = useState(0);
+  const scrollPosRef = useRef(0);
+
+  // Save scroll position continuously
+  useEffect(() => {
+    const handleScroll = () => {
+      scrollPosRef.current = window.scrollY;
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Restore scroll position when selectedPeriod or dateOffset changes
+  useLayoutEffect(() => {
+    if (scrollPosRef.current > 0) {
+      window.scrollTo(0, scrollPosRef.current);
+    }
+  }, [selectedPeriod, dateOffset]);
+
+  const getViewLabel = () => {
+    const now = new Date();
+    if (selectedPeriod === 'today') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - dateOffset);
+      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    } else if (selectedPeriod === 'week') {
+      const weekStart = new Date(now);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (dateOffset * 7));
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      return `Week of ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    } else if (selectedPeriod === 'month') {
+      const m = new Date(now.getFullYear(), now.getMonth() - dateOffset, 1);
+      return m.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    }
+    return 'All Time';
+  };
+
+  // Reset dateOffset when selectedPeriod changes
+  useEffect(() => {
+    setDateOffset(0);
+  }, [selectedPeriod]);
 
   // Detect browsers and load tracking browser preference
   useEffect(() => {
@@ -221,9 +264,9 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
       }
 
       const [domains, categories, logs] = await Promise.all([
-        window.deskflowAPI!.getBrowserDomainStats(selectedPeriod),
-        window.deskflowAPI!.getBrowserCategoryStats(selectedPeriod),
-        window.deskflowAPI!.getBrowserLogs(selectedPeriod)
+        window.deskflowAPI!.getBrowserDomainStats(selectedPeriod, dateOffset),
+        window.deskflowAPI!.getBrowserCategoryStats(selectedPeriod, dateOffset),
+        window.deskflowAPI!.getBrowserLogs(selectedPeriod, dateOffset)
       ]);
 
       if (!isMountedRef.current) return;
@@ -238,9 +281,9 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
       if (!isMountedRef.current) return;
       setLoading(false);
     }
-  }, [selectedPeriod]);
+  }, [selectedPeriod, dateOffset]);
 
-  // Fetch data on mount and when period changes
+  // Fetch data on mount and when period or dateOffset changes
   useEffect(() => {
     isMountedRef.current = true;
     fetchData();
@@ -381,7 +424,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
     }
   };
 
-  // Hourly distribution computed from browserLogs — split duration across hours
+  // Hourly/daily distribution computed from browserLogs based on selectedPeriod
   const hourlyDistribution = useMemo(() => {
     const now = new Date();
     const filteredLogs = (browserLogs as any[]).filter((log: any) => {
@@ -400,46 +443,70 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
       return true;
     });
 
-    const hourBuckets = Array.from({ length: 24 }, () => 0);
-
-    for (const log of filteredLogs) {
-      const sessionStart = new Date(log.timestamp).getTime();
-      const sessionEnd = sessionStart + ((log.duration_ms || 0));
-
-      let currentMs = sessionStart;
-      while (currentMs < sessionEnd) {
-        const currentHour = new Date(currentMs).getHours();
-        const currentDate = new Date(currentMs);
-        const hourStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), currentHour).getTime();
-        const hourEnd = hourStart + 3600000;
-        const segmentStart = Math.max(currentMs, hourStart);
-        const segmentEnd = Math.min(sessionEnd, hourEnd);
-        const segmentMs = Math.max(0, segmentEnd - segmentStart);
-
-        if (segmentMs > 0 && currentHour >= 0 && currentHour < 24) {
-          hourBuckets[currentHour] += segmentMs;
+    if (selectedPeriod === 'today') {
+      const hourBuckets = Array.from({ length: 24 }, () => 0);
+      for (const log of filteredLogs) {
+        const sessionStart = new Date(log.timestamp).getTime();
+        const sessionEnd = sessionStart + (log.duration_ms || 0);
+        let currentMs = sessionStart;
+        while (currentMs < sessionEnd) {
+          const currentHour = new Date(currentMs).getHours();
+          const currentDate = new Date(currentMs);
+          const hourStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), currentHour).getTime();
+          const hourEnd = hourStart + 3600000;
+          const segmentStart = Math.max(currentMs, hourStart);
+          const segmentEnd = Math.min(sessionEnd, hourEnd);
+          const segmentMs = Math.max(0, segmentEnd - segmentStart);
+          if (segmentMs > 0 && currentHour >= 0 && currentHour < 24) {
+            hourBuckets[currentHour] += segmentMs;
+          }
+          currentMs = hourStart + 3600000;
         }
-
-        currentMs = hourStart + 3600000;
       }
+      return hourBuckets.map((ms, hour) => ({
+        label: `${hour.toString().padStart(2, '0')}:00`,
+        ms
+      }));
     }
 
-    return hourBuckets.map((ms, hour) => ({ hour, ms }));
+    const buckets = new Map<string, number>();
+    for (const log of filteredLogs) {
+      const dayStr = new Date(log.timestamp).toISOString().split('T')[0];
+      buckets.set(dayStr, (buckets.get(dayStr) || 0) + (log.duration_ms || 0));
+    }
+
+    const daysBack = selectedPeriod === 'week' ? 7 : selectedPeriod === 'month' ? 30 : 90;
+    const result: { label: string; ms: number }[] = [];
+    for (let i = daysBack - 1; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 86400000);
+      const dayStr = d.toISOString().split('T')[0];
+      result.push({
+        label: d.toLocaleDateString('en-US', selectedPeriod === 'week' ? { weekday: 'short' } : { month: 'short', day: 'numeric' }),
+        ms: buckets.get(dayStr) || 0,
+      });
+    }
+    return result;
   }, [browserLogs, selectedPeriod]);
 
-  // Hourly bar chart data
+  // Bar chart data
   const hourlyChartData = {
-    labels: hourlyDistribution.map(h => `${h.hour.toString().padStart(2, '0')}:00`),
+    labels: hourlyDistribution.map(h => h.label),
     datasets: [{
       label: 'Duration',
       data: hourlyDistribution.map(h => h.ms),
       backgroundColor: hourlyDistribution.map((_, i) => {
-        const currentHour = new Date().getHours();
-        return i === currentHour ? '#10b981' : 'rgba(99, 102, 241, 0.6)';
+        if (selectedPeriod === 'today') {
+          const currentHour = new Date().getHours();
+          return i === currentHour ? '#10b981' : 'rgba(99, 102, 241, 0.6)';
+        }
+        return 'rgba(99, 102, 241, 0.6)';
       }),
       borderColor: hourlyDistribution.map((_, i) => {
-        const currentHour = new Date().getHours();
-        return i === currentHour ? '#059669' : '#6366f1';
+        if (selectedPeriod === 'today') {
+          const currentHour = new Date().getHours();
+          return i === currentHour ? '#059669' : '#6366f1';
+        }
+        return '#6366f1';
       }),
       borderWidth: 1,
       borderRadius: 4,
@@ -466,7 +533,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
     scales: {
       x: {
         grid: { display: false },
-        ticks: { color: '#71717a', maxTicksLimit: 12 }
+        ticks: { color: '#71717a', maxTicksLimit: selectedPeriod === 'today' ? 12 : selectedPeriod === 'week' ? 7 : 15 }
       },
       y: {
         grid: { color: '#27272a' },
@@ -479,9 +546,9 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
     },
   };
 
-  // Line chart version of hourly data
+  // Line chart version
   const hourlyLineChartData = {
-    labels: hourlyDistribution.map(h => `${h.hour.toString().padStart(2, '0')}:00`),
+    labels: hourlyDistribution.map(h => h.label),
     datasets: [{
       label: 'Duration',
       data: hourlyDistribution.map(h => h.ms),
@@ -490,14 +557,20 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
       fill: true,
       tension: 0.3,
       pointBackgroundColor: hourlyDistribution.map((_, i) => {
-        const currentHour = new Date().getHours();
-        return i === currentHour ? '#10b981' : '#6366f1';
+        if (selectedPeriod === 'today') {
+          const currentHour = new Date().getHours();
+          return i === currentHour ? '#10b981' : '#6366f1';
+        }
+        return '#6366f1';
       }),
       pointBorderColor: hourlyDistribution.map((_, i) => {
-        const currentHour = new Date().getHours();
-        return i === currentHour ? '#059669' : '#6366f1';
+        if (selectedPeriod === 'today') {
+          const currentHour = new Date().getHours();
+          return i === currentHour ? '#059669' : '#6366f1';
+        }
+        return '#6366f1';
       }),
-      pointRadius: 4,
+      pointRadius: selectedPeriod === 'today' ? 4 : 2,
       pointHoverRadius: 6,
     }]
   };
@@ -552,54 +625,78 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
           </h1>
           <p className="text-sm text-zinc-500 mt-1">Track your browsing habits by domain and category</p>
         </div>
-
-        {/* Main Browser Config */}
-        <div className="glass rounded-2xl p-4 border border-zinc-800">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Globe className="w-4 h-4 text-zinc-400" />
-              <span className="text-sm text-zinc-300">Tracking Browser</span>
-            </div>
-            <select
-              value={mainBrowser}
-              onChange={async (e) => {
-                const newBrowser = e.target.value;
-                setMainBrowser(newBrowser);
-                // Save this as the browser with extension
-                if (window.deskflowAPI?.setBrowserWithExtension) {
-                  await window.deskflowAPI.setBrowserWithExtension(newBrowser);
-                  setExtensionBrowser(newBrowser);
-                  console.log('[BrowserActivity] Saved extension browser:', newBrowser);
-                }
-              }}
-              className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+        <div className="flex items-center gap-4">
+          {/* Navigation arrows */}
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setDateOffset(prev => prev + 1)}
+              className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
             >
-              {availableBrowsers.length === 0 ? (
-                <option value="">No browsers found</option>
-              ) : (
-                availableBrowsers.map(browser => {
-                  const isExtensionBrowser = browser.toLowerCase() === extensionBrowser.toLowerCase();
-                  console.log('[BrowserActivity] Rendering option:', browser, 'isExtension?', isExtensionBrowser);
-                  return (
-                    <option key={browser} value={browser}>
-                      {browser.charAt(0).toUpperCase() + browser.slice(1)}{isExtensionBrowser ? ' ★ (with extension)' : ''}
-                    </option>
-                  );
-                })
-              )}
-            </select>
-            <span className="text-xs text-zinc-500 ml-2">
-              {mainBrowser ? `Excludes ${mainBrowser.charAt(0).toUpperCase() + mainBrowser.slice(1)} browsing time from stats (tracked via extension instead)` : 'Loading...'}
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-sm font-medium px-2 min-w-[80px] text-center">
+              {getViewLabel()}
             </span>
+            <button
+              onClick={() => setDateOffset(prev => Math.max(0, prev - 1))}
+              disabled={dateOffset === 0}
+              className={`p-2 rounded-lg transition-colors ${
+                dateOffset === 0 
+                  ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
+                  : 'bg-zinc-800 hover:bg-zinc-700'
+              }`}
+            >
+              <ChevronRight size={16} />
+            </button>
           </div>
+
+          {/* Main Browser Config */}
+          <div className="glass rounded-2xl p-4 border border-zinc-800">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-zinc-400" />
+                <span className="text-sm text-zinc-300">Tracking Browser</span>
+              </div>
+              <select
+                value={mainBrowser}
+                onChange={async (e) => {
+                  const newBrowser = e.target.value;
+                  setMainBrowser(newBrowser);
+                  if (window.deskflowAPI?.setBrowserWithExtension) {
+                    await window.deskflowAPI.setBrowserWithExtension(newBrowser);
+                    setExtensionBrowser(newBrowser);
+                    console.log('[BrowserActivity] Saved extension browser:', newBrowser);
+                  }
+                }}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+              >
+                {availableBrowsers.length === 0 ? (
+                  <option value="">No browsers found</option>
+                ) : (
+                  availableBrowsers.map(browser => {
+                    const isExtensionBrowser = browser.toLowerCase() === extensionBrowser.toLowerCase();
+                    console.log('[BrowserActivity] Rendering option:', browser, 'isExtension?', isExtensionBrowser);
+                    return (
+                      <option key={browser} value={browser}>
+                        {browser.charAt(0).toUpperCase() + browser.slice(1)}{isExtensionBrowser ? ' ★ (with extension)' : ''}
+                      </option>
+                    );
+                  })
+                )}
+              </select>
+              <span className="text-xs text-zinc-500 ml-2">
+                {mainBrowser ? `Excludes ${mainBrowser.charAt(0).toUpperCase() + mainBrowser.slice(1)} browsing time from stats (tracked via extension instead)` : 'Loading...'}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={fetchData}
+            className="px-4 py-2 bg-zinc-800 rounded-xl hover:bg-zinc-700 text-sm flex items-center gap-2 transition"
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </button>
         </div>
-        <button
-          onClick={fetchData}
-          className="px-4 py-2 bg-zinc-800 rounded-xl hover:bg-zinc-700 text-sm flex items-center gap-2 transition"
-        >
-          <RefreshCw size={14} />
-          Refresh
-        </button>
       </div>
 
       {/* Summary Cards */}

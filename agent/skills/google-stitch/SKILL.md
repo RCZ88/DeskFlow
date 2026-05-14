@@ -1,4 +1,14 @@
-SKILL: Google Stitch Expert (v3.0)
+---
+id: google-stitch
+name: Google Stitch Expert
+category: design
+applicable_to: [design, ui]
+version: 3.0.0
+created: 2026-04-19
+tags: [design, stitch, google, ui]
+---
+
+# SKILL: Google Stitch Expert (v3.0)
 
 Metadata
 

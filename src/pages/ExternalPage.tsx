@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Clock, Play, Pause, Square, Moon, Sun, BookOpen, Dumbbell, Activity,
-  Bus, Book, Utensils, Coffee, Plus, X, AlertTriangle,
+  Bus, Book, Utensils, Coffee, Plus, X, AlertTriangle, Trash2, Save,
   TrendingUp, TrendingDown, Minus, Lightbulb, Zap, Heart, Brain,
   Code, Laptop, Wrench, Cog, Music, Gamepad2, Footprints, Droplets,
-  Wind, Flame, Backpack, Dribbble, Palette, Edit3,
+  Wind, Flame, Backpack, Dribbble, Palette, Edit3, Pencil,
+  ChevronLeft, ChevronRight,
   PieChart as PieChartIcon, BarChart3
 } from 'lucide-react';
 import {
@@ -21,6 +22,7 @@ import {
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { format, subDays } from 'date-fns';
+import { DurationPicker, LatencyPicker } from '../components/DurationPicker';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler);
 
@@ -177,31 +179,59 @@ function formatBedtime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-export default function ExternalPage() {
+export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeriod?: 'today' | 'week' | 'month' | 'all' }) {
   const [activities, setActivities] = useState<ExternalActivity[]>([]);
   const [stats, setStats] = useState<ExternalStats>({ byActivity: {}, total_seconds: 0, sleep_deficit_seconds: 0, average_sleep_hours: 0 });
   const [consistency, setConsistency] = useState<ConsistencyData>({ score: 0, weekly_comparison: [] });
+  const [allSessions, setAllSessions] = useState<any[]>([]);
   const [sleepTrends, setSleepTrends] = useState<SleepTrend>({ daily: [], average_bedtime: '', average_wake_time: '' });
   const [activeSession, setActiveSession] = useState<{ sessionId: string; activityId: string; activity: ExternalActivity; startTime: Date } | null>(null);
   const [selectedActivity, setSelectedActivity] = useState<ExternalActivity | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [pausedDuration, setPausedDuration] = useState(0);
+  const pausedAtRef = useRef<number | null>(null);
   const [showSleepModal, setShowSleepModal] = useState(false);
   const [wakeTime, setWakeTime] = useState({ hours: 7, minutes: 0 });
   const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('week');
   const [newActivity, setNewActivity] = useState({ name: '', type: 'stopwatch' as const, color: '#6366f1', icon: 'Clock', default_duration: 30 });
   const [viewingActivity, setViewingActivity] = useState<ExternalActivity | null>(null);
   const [viewingActivityStats, setViewingActivityStats] = useState<any>(null);
   const [viewingActivitySessions, setViewingActivitySessions] = useState<any[]>([]);
+  const [periodOffset, setPeriodOffset] = useState(0);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [recoverySession, setRecoverySession] = useState<{ sessionId: string; activityId: string; activity: ExternalActivity; startTime: Date } | null>(null);
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [addActivityError, setAddActivityError] = useState<string | null>(null);
   const [addActivitySuccess, setAddActivitySuccess] = useState(false);
+
+  // Sync timer state to the shared deskflow-timer-state so Dashboard picks it up
+  const syncTimerStateToDashboard = useCallback((running: boolean, activity?: ExternalActivity | null, startTime?: Date | null) => {
+    const state = {
+      productiveMs: 0,
+      startTime: 0,
+      paused: false,
+      lastTier: null,
+      externalRunning: running,
+      externalStart: running && startTime ? startTime.getTime() : null,
+      externalElapsed: 0,
+      selectedExternalActivity: running && activity ? { id: activity.id, name: activity.name } : null
+    };
+    try {
+      localStorage.setItem('deskflow-timer-state', JSON.stringify(state));
+      window.dispatchEvent(new Event('timer-sync'));
+    } catch (e) {
+      console.error('[ExternalPage] Failed to sync timer state:', e);
+    }
+  }, []);
   const [editingActivity, setEditingActivity] = useState<ExternalActivity | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editActivityError, setEditActivityError] = useState<string | null>(null);
+  const [editingSession, setEditingSession] = useState<any | null>(null);
+  const [editingSessionTimes, setEditingSessionTimes] = useState({ started_at: '', ended_at: '' });
   const [showPastSleepModal, setShowPastSleepModal] = useState(false);
-  const [pastSleepTimes, setPastSleepTimes] = useState({ bedtime: '22:00', waketime: '07:00' });
+  const [pastBedtime, setPastBedtime] = useState({ hours: 22, minutes: 0 });
+  const [pastWaketime, setPastWaketime] = useState({ hours: 7, minutes: 0 });
   const [pastSleepLatency, setPastSleepLatency] = useState(0);
   const [pastWakeLatency, setPastWakeLatency] = useState(0);
   const [pastSleepError, setPastSleepError] = useState<string | null>(null);
@@ -307,6 +337,7 @@ export default function ExternalPage() {
         activity: activity,
         startTime: startTime,
       });
+      syncTimerStateToDashboard(true, activity, startTime);
     }
   };
 
@@ -314,6 +345,9 @@ export default function ExternalPage() {
   useEffect(() => {
     if (window.deskflowAPI?.getExternalStats) {
       window.deskflowAPI.getExternalStats(selectedPeriod).then(setStats);
+    }
+    if (window.deskflowAPI?.getExternalSessions) {
+      window.deskflowAPI.getExternalSessions(selectedPeriod).then(setAllSessions);
     }
     if (window.deskflowAPI?.getConsistencyScore) {
       window.deskflowAPI.getConsistencyScore(selectedPeriod === 'week' ? 'week' : 'month').then(setConsistency);
@@ -323,27 +357,73 @@ export default function ExternalPage() {
     }
   }, [selectedPeriod]);
 
+  // Load ALL sessions for the viewing activity (client-side period/offset filtering)
+  useEffect(() => {
+    if (viewingActivity && window.deskflowAPI?.getExternalSessions) {
+      window.deskflowAPI.getExternalSessions('all').then((sessions: any) => {
+        setViewingActivitySessions(sessions.filter((s: any) => s.activity_id === viewingActivity.id));
+      });
+    }
+  }, [viewingActivity]);
+
+  // Filter sessions by selected period + offset
+  const filteredViewSessions = useMemo(() => {
+    const now = new Date();
+    let rangeStart: Date;
+    let rangeEnd: Date;
+
+    if (selectedPeriod === 'today') {
+      rangeStart = new Date(now);
+      rangeStart.setDate(rangeStart.getDate() - periodOffset);
+      rangeStart.setHours(0, 0, 0, 0);
+      rangeEnd = new Date(rangeStart);
+      rangeEnd.setDate(rangeEnd.getDate() + 1);
+    } else if (selectedPeriod === 'week') {
+      rangeStart = new Date(now);
+      rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay() - periodOffset * 7);
+      rangeStart.setHours(0, 0, 0, 0);
+      rangeEnd = new Date(rangeStart);
+      rangeEnd.setDate(rangeEnd.getDate() + 7);
+    } else if (selectedPeriod === 'month') {
+      rangeStart = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
+      rangeEnd = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + 1, 1);
+    } else {
+      rangeStart = new Date(0);
+      rangeEnd = new Date(8640000000000000);
+    }
+
+    return viewingActivitySessions.filter((s: any) => {
+      const sStart = new Date(s.started_at);
+      return sStart >= rangeStart && sStart < rangeEnd;
+    });
+  }, [viewingActivitySessions, selectedPeriod, periodOffset]);
+
   // Timer interval
   useEffect(() => {
     if (!activeSession) {
       setElapsedSeconds(0);
+      setPausedDuration(0);
+      setIsPaused(false);
       return;
     }
 
     const interval = setInterval(() => {
       const now = Date.now();
-      const elapsed = Math.floor((now - activeSession.startTime.getTime()) / 1000);
+      if (isPaused) return;
+      const totalPausedMs = pausedDuration + (pausedAtRef.current !== null ? now - pausedAtRef.current : 0);
+      const elapsed = Math.floor((now - activeSession.startTime.getTime() - totalPausedMs) / 1000);
       setElapsedSeconds(elapsed);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [activeSession]);
+  }, [activeSession, isPaused, pausedDuration]);
 
   // Start activity
   const startActivity = useCallback(async (activity: ExternalActivity) => {
     if (window.deskflowAPI?.getActivityStats) {
       window.deskflowAPI.getActivityStats(activity.id.toString()).then(setActivityStats);
     }
+    const now = new Date();
     if (activity.type === 'sleep') {
       if (window.deskflowAPI?.startExternalSession) {
         const result = await window.deskflowAPI.startExternalSession(activity.id.toString());
@@ -352,8 +432,9 @@ export default function ExternalPage() {
             sessionId: result.sessionId,
             activityId: activity.id.toString(),
             activity,
-            startTime: new Date(),
+            startTime: now,
           });
+          syncTimerStateToDashboard(true, activity, now);
         }
       }
     } else if (activity.type === 'stopwatch') {
@@ -365,8 +446,9 @@ export default function ExternalPage() {
             sessionId: result.sessionId,
             activityId: activity.id.toString(),
             activity,
-            startTime: new Date(),
+            startTime: now,
           });
+          syncTimerStateToDashboard(true, activity, now);
         }
       } else {
         // Fallback for web mode
@@ -374,8 +456,9 @@ export default function ExternalPage() {
           sessionId: 'temp-' + Date.now(),
           activityId: activity.id.toString(),
           activity,
-          startTime: new Date(),
+          startTime: now,
         });
+        syncTimerStateToDashboard(true, activity, now);
       }
     } else if (activity.type === 'checkin') {
       if (window.deskflowAPI?.startExternalSession && window.deskflowAPI?.stopExternalSession) {
@@ -394,6 +477,9 @@ export default function ExternalPage() {
     if (window.deskflowAPI?.getExternalStats) {
       window.deskflowAPI.getExternalStats(selectedPeriod).then(setStats);
     }
+    if (window.deskflowAPI?.getExternalSessions) {
+      window.deskflowAPI.getExternalSessions(selectedPeriod).then(setAllSessions);
+    }
     if (window.deskflowAPI?.getConsistencyScore) {
       window.deskflowAPI.getConsistencyScore(selectedPeriod === 'week' ? 'week' : 'month').then(setConsistency);
     }
@@ -402,6 +488,33 @@ export default function ExternalPage() {
     }
   }, [selectedPeriod]);
 
+  // Listen for sleep-confirmed event from Sleep Detection modal
+  useEffect(() => {
+    const handleSleepConfirmed = () => {
+      refreshStats();
+      if (window.deskflowAPI?.getExternalActivities) {
+        window.deskflowAPI.getExternalActivities().then(setActivities);
+      }
+    };
+    window.addEventListener('sleep-confirmed', handleSleepConfirmed);
+    return () => window.removeEventListener('sleep-confirmed', handleSleepConfirmed);
+  }, [refreshStats]);
+
+  // Pause activity
+  const pauseActivity = useCallback(() => {
+    pausedAtRef.current = Date.now();
+    setIsPaused(true);
+  }, []);
+
+  // Resume activity
+  const resumeActivity = useCallback(() => {
+    if (pausedAtRef.current !== null) {
+      setPausedDuration(prev => prev + (Date.now() - pausedAtRef.current!));
+      pausedAtRef.current = null;
+    }
+    setIsPaused(false);
+  }, []);
+
   // Stop activity
   const stopActivity = useCallback(async () => {
     if (!activeSession) return;
@@ -409,22 +522,24 @@ export default function ExternalPage() {
     if (activeSession.activity.type === 'sleep') {
       setShowSleepModal(true);
     } else {
-      // Save stopwatch session to database
       if (activeSession.activity.type === 'stopwatch') {
         if (activeSession.sessionId.startsWith('temp-')) {
-          // Local-only session (web mode), just reset
           console.log('[ExternalPage] Stopping local session');
         } else if (window.deskflowAPI?.stopExternalSession) {
-          // Real session in DB
+          const adjustedEnd = new Date(activeSession.startTime.getTime() + elapsedSeconds * 1000);
           console.log('[ExternalPage] Stopping DB session:', activeSession.sessionId);
-          await window.deskflowAPI.stopExternalSession(activeSession.sessionId);
+          await window.deskflowAPI.stopExternalSession(activeSession.sessionId, adjustedEnd.toISOString());
         }
       }
       setActiveSession(null);
+      setIsPaused(false);
+      setPausedDuration(0);
+      pausedAtRef.current = null;
       setElapsedSeconds(0);
+      syncTimerStateToDashboard(false);
       refreshStats();
     }
-  }, [activeSession, refreshStats]);
+  }, [activeSession, elapsedSeconds, refreshStats, syncTimerStateToDashboard]);
 
   // Confirm wake up
   const confirmWakeUp = useCallback(async () => {
@@ -443,22 +558,35 @@ export default function ExternalPage() {
     }
 
     if (window.deskflowAPI?.stopExternalSession) {
-      await window.deskflowAPI.stopExternalSession(activeSession.sessionId, wakeDate.toISOString());
+      await window.deskflowAPI.stopExternalSession(
+        activeSession.sessionId,
+        wakeDate.toISOString(),
+        sleepLatencyMinutes * 60,
+        wakeUpMinutes * 60
+      );
     }
 
     setShowSleepModal(false);
     setActiveSession(null);
+    setIsPaused(false);
+    setPausedDuration(0);
+    pausedAtRef.current = null;
     setElapsedSeconds(0);
+    syncTimerStateToDashboard(false);
     refreshStats();
-  }, [activeSession, wakeTime, refreshStats]);
+  }, [activeSession, wakeTime, sleepLatencyMinutes, wakeUpMinutes, refreshStats, syncTimerStateToDashboard]);
 
   // Cancel sleep
   const cancelSleep = useCallback(async () => {
     if (!activeSession) return;
     setActiveSession(null);
+    setIsPaused(false);
+    setPausedDuration(0);
+    pausedAtRef.current = null;
     setElapsedSeconds(0);
     setShowSleepModal(false);
-  }, [activeSession]);
+    syncTimerStateToDashboard(false);
+  }, [activeSession, syncTimerStateToDashboard]);
 
   // Save custom activity
   const saveCustomActivity = useCallback(async () => {
@@ -518,13 +646,73 @@ export default function ExternalPage() {
     return { labels, data, colors };
   }, [stats, activities]);
 
-  // Consistency chart data
-  const consistencyChartData = useMemo(() => {
-    return {
-      labels: consistency.weekly_comparison.map(w => w.week.slice(5)),
-      data: consistency.weekly_comparison.map(w => w.total_seconds / 3600),
-    };
-  }, [consistency]);
+  // Period-responsive trend chart data
+  const trendChartData = useMemo(() => {
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const now = new Date();
+    const bars: { label: string; hours: number }[] = [];
+
+    if (selectedPeriod === 'today') {
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const todaySessions = allSessions.filter((s: any) => {
+        const sStart = new Date(s.started_at);
+        return sStart >= todayStart && sStart < new Date(todayStart.getTime() + 86400000);
+      });
+      for (let h = 0; h < 24; h++) {
+        const hourStart = new Date(todayStart);
+        hourStart.setHours(h);
+        const hourEnd = new Date(hourStart);
+        hourEnd.setHours(h + 1);
+        let sec = 0;
+        todaySessions.forEach((s: any) => {
+          const sStart = new Date(s.started_at);
+          const sEnd = s.ended_at ? new Date(s.ended_at) : new Date(sStart.getTime() + (s.duration_seconds || 0) * 1000);
+          const oStart = sStart > hourStart ? sStart : hourStart;
+          const oEnd = sEnd < hourEnd ? sEnd : hourEnd;
+          if (oStart < oEnd) sec += (oEnd.getTime() - oStart.getTime()) / 1000;
+        });
+        bars.push({ label: `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`, hours: sec / 3600 });
+      }
+    } else if (selectedPeriod === 'week') {
+      const weekStart = new Date(now);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(weekStart);
+        d.setDate(d.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        const daySec = allSessions
+          .filter((s: any) => s.started_at?.split('T')[0] === dateStr)
+          .reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0);
+        bars.push({ label: dayNames[d.getDay()], hours: daySec / 3600 });
+      }
+    } else if (selectedPeriod === 'month') {
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      for (let day = 1; day <= daysInMonth; day++) {
+        const d = new Date(now.getFullYear(), now.getMonth(), day);
+        const dateStr = d.toISOString().split('T')[0];
+        const daySec = allSessions
+          .filter((s: any) => s.started_at?.split('T')[0] === dateStr)
+          .reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0);
+        bars.push({ label: `${day}`, hours: daySec / 3600 });
+      }
+    } else {
+      const monthMap: Record<string, { label: string; seconds: number }> = {};
+      allSessions.forEach((s: any) => {
+        if (!s.started_at) return;
+        const d = new Date(s.started_at);
+        const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+        if (!monthMap[key]) monthMap[key] = { label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }), seconds: 0 };
+        monthMap[key].seconds += s.duration_seconds || 0;
+      });
+      Object.entries(monthMap).sort(([a], [b]) => a.localeCompare(b)).forEach(([, v]) => {
+        bars.push({ label: v.label, hours: v.seconds / 3600 });
+      });
+    }
+
+    return { labels: bars.map(b => b.label), data: bars.map(b => b.hours) };
+  }, [allSessions, selectedPeriod]);
 
 
 
@@ -547,11 +735,6 @@ export default function ExternalPage() {
           <h1 className="text-xl font-semibold text-zinc-100">External Tracker</h1>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex bg-zinc-800 rounded-lg p-1">
-            {(['today', 'week', 'month', 'all'] as const).map((p) => (
-              <button key={p} onClick={() => setSelectedPeriod(p)} className={`px-3 py-1 rounded text-xs uppercase font-medium transition ${selectedPeriod === p ? 'bg-emerald-500 text-white' : 'text-zinc-400 hover:text-white'}`}>{p}</button>
-            ))}
-          </div>
           <button onClick={() => setShowPastSleepModal(true)} className="px-3 py-1.5 rounded-lg text-sm text-amber-400 hover:text-amber-300 transition">+ Sleep</button>
         </div>
       </div>
@@ -597,11 +780,43 @@ export default function ExternalPage() {
                     </>
                   ) : (
                     <>
-                      <div className="text-sm text-zinc-400 mb-1">Tracking</div>
-                      <div className="text-5xl font-mono font-bold text-zinc-100">
+                      <div className="flex items-center justify-center gap-2 mb-2">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isPaused ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                          <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isPaused ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                        </span>
+                        <span className="text-xs font-semibold tracking-[0.15em] uppercase text-zinc-500">{isPaused ? 'Paused' : 'Tracking'}</span>
+                      </div>
+                      <div className="text-6xl font-mono font-bold tracking-widest bg-gradient-to-b from-white via-zinc-100 to-zinc-400 bg-clip-text text-transparent">
                         {formatDuration(elapsedSeconds)}
                       </div>
-                      <div className="text-lg text-zinc-300 mt-2">{activeSession.activity.name}</div>
+                      <div className="text-base text-zinc-500 mt-2 font-medium">{activeSession.activity.name}</div>
+                      <div className="flex items-center justify-center gap-3 mt-6">
+                        {isPaused ? (
+                          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                            onClick={resumeActivity}
+                            className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all border bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20"
+                          >
+                            <Play className="w-4 h-4" />
+                            Resume
+                          </motion.button>
+                        ) : (
+                          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                            onClick={pauseActivity}
+                            className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all border bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20"
+                          >
+                            <Pause className="w-4 h-4" />
+                            Pause
+                          </motion.button>
+                        )}
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                          onClick={stopActivity}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all border bg-red-500/10 text-red-300 border-red-500/30 hover:bg-red-500/20"
+                        >
+                          <Square className="w-4 h-4" />
+                          Stop
+                        </motion.button>
+                      </div>
                     </>
                   )}
                 </div>
@@ -611,7 +826,7 @@ export default function ExternalPage() {
           </AnimatePresence>
 
         {/* Inline Activity Detail View */}
-        {viewingActivity && !activeSession && (
+        {viewingActivity && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-3xl p-8 mb-6">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
@@ -621,81 +836,437 @@ export default function ExternalPage() {
                   <div className="text-sm text-zinc-500">Activity details</div>
                 </div>
               </div>
-              <button onClick={() => setViewingActivity(null)} className="text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <div className="flex items-center gap-2">
+                {/* Period navigation */}
+                <button onClick={() => setPeriodOffset(o => o + 1)} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-white transition" title="Previous period">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-zinc-500 min-w-[80px] text-center select-none">
+                  {selectedPeriod === 'today'
+                    ? periodOffset === 0 ? 'Today' : `${periodOffset}d ago`
+                    : selectedPeriod === 'week'
+                      ? periodOffset === 0 ? 'This Week' : `-${periodOffset}wk`
+                      : selectedPeriod === 'month'
+                        ? (() => {
+                            const d = new Date();
+                            return new Date(d.getFullYear(), d.getMonth() - periodOffset, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                          })()
+                        : periodOffset === 0 ? 'All Time' : `-${periodOffset}`}
+                </span>
+                <button onClick={() => setPeriodOffset(o => Math.max(o - 1, 0))} disabled={periodOffset <= 0} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed" title="Next period">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button onClick={() => setViewingActivity(null)} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition ml-1">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+            {(() => {
+              const filtered = filteredViewSessions;
+              const barChartHeight = 100;
+              const barChartMaxHeight = 140;
+              const hourChartHeight = 60;
+              const hourChartMaxHeight = 80;
+              const getNiceMax = (maxSec: number) => {
+                const maxHours = maxSec / 3600;
+                if (maxHours <= 0.5) return 0.5;
+                if (maxHours <= 1) return 1;
+                if (maxHours <= 2) return 2;
+                if (maxHours <= 4) return 4;
+                if (maxHours <= 6) return 6;
+                if (maxHours <= 8) return 8;
+                return Math.ceil(maxHours / 4) * 4;
+              };
+
+              return (
+                <>
             <div className="grid grid-cols-3 gap-3 mb-6">
               <div className="bg-zinc-800/30 rounded-lg p-3 text-center">
                 <div className="text-xs text-zinc-400">Avg Session</div>
-                <div className="text-lg font-bold text-zinc-100">{viewingActivitySessions.length > 0 ? (() => { const total = viewingActivitySessions.reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0); return formatHours(total / viewingActivitySessions.length); })() : '--'}</div>
+                <div className="text-lg font-bold text-zinc-100">{filtered.length > 0 ? (() => { const total = filtered.reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0); return formatHours(total / filtered.length); })() : '--'}</div>
               </div>
               <div className="bg-zinc-800/30 rounded-lg p-3 text-center">
                 <div className="text-xs text-zinc-400">Sessions</div>
-                <div className="text-lg font-bold text-zinc-100">{viewingActivitySessions.length}</div>
+                <div className="text-lg font-bold text-zinc-100">{filtered.length}</div>
               </div>
               <div className="bg-zinc-800/30 rounded-lg p-3 text-center">
                 <div className="text-xs text-zinc-400">Active Days</div>
-                <div className="text-lg font-bold text-zinc-100">{new Set(viewingActivitySessions.map((s: any) => s.started_at?.split('T')[0])).size}</div>
+                <div className="text-lg font-bold text-zinc-100">{new Set(filtered.map((s: any) => s.started_at?.split('T')[0])).size}</div>
               </div>
             </div>
-            {viewingActivitySessions.length > 0 && (
-              <div className="h-40 mb-4">
-                <div className="text-sm font-medium text-zinc-400 mb-2">Daily Activity</div>
-                <div className="flex items-end justify-between gap-1 h-28">
-                  {(() => {
-                    const days = selectedPeriod === 'today' ? 1 : selectedPeriod === 'week' ? 7 : selectedPeriod === 'month' ? 14 : 30;
-                    const now = new Date();
-                    const bars: { label: string; seconds: number }[] = [];
-                    for (let i = days - 1; i >= 0; i--) {
-                      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-                      const dateStr = d.toISOString().split('T')[0];
-                      const daySec = viewingActivitySessions.filter((s: any) => s.started_at?.split('T')[0] === dateStr).reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0);
-                      bars.push({ label: d.toLocaleDateString('en-US', { weekday: 'short' }), seconds: daySec });
-                    }
-                    const maxSec = Math.max(...bars.map(b => b.seconds), 1);
-                    return bars.slice(-14).map((bar, idx) => (
-                      <div key={idx} className="flex-1 flex flex-col items-center gap-1">
-                        <div className="w-full flex flex-col justify-end" style={{ height: '90px' }}>
-                          <div className="w-full rounded-t" style={{ height: `${bar.seconds > 0 ? Math.max(3, (bar.seconds / maxSec) * 90) : 0}px`, backgroundColor: viewingActivity.color }} />
+            {filtered.length > 0 && (
+              <div className="mb-4">
+                <div className="flex mt-2 mb-3">
+                  {/* Daily Activity */}
+                  <div className="flex-1 min-w-0 pr-2">
+                    <div className="flex items-end justify-between mb-1">
+                      <div className="text-sm font-medium text-zinc-400">
+                        {selectedPeriod === 'today' ? 'Hourly Activity' : selectedPeriod === 'week' ? 'Daily Activity' : selectedPeriod === 'month' ? 'Daily Activity' : 'Monthly Activity'}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {/* Y-Axis */}
+                      <div className="flex flex-col justify-between items-end text-[9px] font-medium text-zinc-600 pr-1 flex-shrink-0 select-none leading-none" style={{ height: `${barChartMaxHeight}px` }}>
+                        {(() => {
+                          const maxSec = Math.max(...(() => {
+                            if (selectedPeriod === 'today') {
+                              const now = new Date();
+                              const todayStart = new Date(now);
+                              todayStart.setDate(todayStart.getDate() - periodOffset);
+                              todayStart.setHours(0, 0, 0, 0);
+                              const bars: number[] = [];
+                              for (let h = 0; h < 24; h++) {
+                                const hourStart = new Date(todayStart);
+                                hourStart.setHours(h);
+                                const hourEnd = new Date(hourStart);
+                                hourEnd.setHours(h + 1);
+                                let sec = 0;
+                                filtered.forEach((s: any) => {
+                                  const sStart = new Date(s.started_at);
+                                  const sEnd = s.ended_at ? new Date(s.ended_at) : new Date(sStart.getTime() + (s.duration_seconds || 0) * 1000);
+                                  const overlapStart = sStart > hourStart ? sStart : hourStart;
+                                  const overlapEnd = sEnd < hourEnd ? sEnd : hourEnd;
+                                  if (overlapStart < overlapEnd) sec += (overlapEnd.getTime() - overlapStart.getTime()) / 1000;
+                                });
+                                bars.push(sec);
+                              }
+                              return bars;
+                            } else if (selectedPeriod === 'week') {
+                              const now = new Date();
+                              const weekStart = new Date(now);
+                              weekStart.setDate(weekStart.getDate() - weekStart.getDay() - periodOffset * 7);
+                              weekStart.setHours(0, 0, 0, 0);
+                              const bars: number[] = [];
+                              for (let i = 0; i < 7; i++) {
+                                const d = new Date(weekStart);
+                                d.setDate(d.getDate() + i);
+                                const dateStr = d.toISOString().split('T')[0];
+                                bars.push(filtered.filter((s: any) => s.started_at?.split('T')[0] === dateStr).reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0));
+                              }
+                              return bars;
+                            } else if (selectedPeriod === 'month') {
+                              const targetMonth = new Date(new Date().getFullYear(), new Date().getMonth() - periodOffset, 1);
+                              const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
+                              const bars: number[] = [];
+                              for (let day = 1; day <= daysInMonth; day++) {
+                                const d = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), day);
+                                const dateStr = d.toISOString().split('T')[0];
+                                bars.push(filtered.filter((s: any) => s.started_at?.split('T')[0] === dateStr).reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0));
+                              }
+                              return bars;
+                            } else {
+                              const monthMap: Record<string, number> = {};
+                              filtered.forEach((s: any) => {
+                                const d = new Date(s.started_at);
+                                const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+                                if (!monthMap[key]) monthMap[key] = 0;
+                                monthMap[key] += s.duration_seconds || 0;
+                              });
+                              return Object.values(monthMap);
+                            }
+                          })(), 1);
+                          const niceMax = getNiceMax(maxSec);
+                          const step = niceMax / 4;
+                          const ticks: number[] = [];
+                          for (let i = 0; i <= 4; i++) ticks.push(Math.round(step * i * 10) / 10);
+                          return ticks.slice().reverse().map((tick, i) => (
+                            <span key={i} className="-translate-y-1/2">{tick}{tick > 0 ? 'h' : ''}</span>
+                          ));
+                        })()}
+                      </div>
+                      {/* Chart */}
+                      <div className="flex-1 relative min-w-0">
+                        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none" style={{ paddingBottom: '14px' }}>
+                          {[0, 1, 2, 3, 4].map(i => <div key={i} className="border-t border-zinc-800/30 w-full" />)}
                         </div>
-                        <div className="text-[9px] text-zinc-500">{bar.label}</div>
+                        <div className="flex items-end justify-between gap-1 relative z-10" style={{ height: `${barChartMaxHeight}px` }}>
+                          {(() => {
+                            const bars: { label: string; seconds: number }[] = [];
+                            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+                            if (selectedPeriod === 'today') {
+                              const now = new Date();
+                              const todayStart = new Date(now);
+                              todayStart.setDate(todayStart.getDate() - periodOffset);
+                              todayStart.setHours(0, 0, 0, 0);
+                              for (let h = 0; h < 24; h++) {
+                                const hourStart = new Date(todayStart);
+                                hourStart.setHours(h);
+                                const hourEnd = new Date(hourStart);
+                                hourEnd.setHours(h + 1);
+                                let sec = 0;
+                                filtered.forEach((s: any) => {
+                                  const sStart = new Date(s.started_at);
+                                  const sEnd = s.ended_at ? new Date(s.ended_at) : new Date(sStart.getTime() + (s.duration_seconds || 0) * 1000);
+                                  const overlapStart = sStart > hourStart ? sStart : hourStart;
+                                  const overlapEnd = sEnd < hourEnd ? sEnd : hourEnd;
+                                  if (overlapStart < overlapEnd) sec += (overlapEnd.getTime() - overlapStart.getTime()) / 1000;
+                                });
+                                bars.push({ label: `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`, seconds: sec });
+                              }
+                            } else if (selectedPeriod === 'week') {
+                              const now = new Date();
+                              const weekStart = new Date(now);
+                              weekStart.setDate(weekStart.getDate() - weekStart.getDay() - periodOffset * 7);
+                              weekStart.setHours(0, 0, 0, 0);
+                              for (let i = 0; i < 7; i++) {
+                                const d = new Date(weekStart);
+                                d.setDate(d.getDate() + i);
+                                const dateStr = d.toISOString().split('T')[0];
+                                bars.push({ label: dayNames[d.getDay()], seconds: filtered.filter((s: any) => s.started_at?.split('T')[0] === dateStr).reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0) });
+                              }
+                            } else if (selectedPeriod === 'month') {
+                              const targetMonth = new Date(new Date().getFullYear(), new Date().getMonth() - periodOffset, 1);
+                              const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
+                              for (let day = 1; day <= daysInMonth; day++) {
+                                const d = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), day);
+                                bars.push({ label: `${day}`, seconds: filtered.filter((s: any) => s.started_at?.split('T')[0] === d.toISOString().split('T')[0]).reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0) });
+                              }
+                            } else {
+                              const monthMap: Record<string, number> = {};
+                              filtered.forEach((s: any) => {
+                                const d = new Date(s.started_at);
+                                const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+                                if (!monthMap[key]) monthMap[key] = 0;
+                                monthMap[key] += s.duration_seconds || 0;
+                              });
+                              Object.entries(monthMap).sort(([a], [b]) => a.localeCompare(b)).forEach(([key, sec]) => {
+                                const [yr, mo] = key.split('-');
+                                bars.push({ label: new Date(parseInt(yr), parseInt(mo) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }), seconds: sec });
+                              });
+                            }
+
+                            const maxSec = Math.max(...bars.map(b => b.seconds), 1);
+                            const niceMax = getNiceMax(maxSec);
+                            return bars.map((bar, idx) => {
+                              const h = (bar.seconds / (niceMax * 3600)) * barChartMaxHeight;
+                              return (
+                                <div key={idx} className="flex-1 flex flex-col items-center gap-0.5 group relative" style={{ minWidth: selectedPeriod === 'month' ? '16px' : selectedPeriod === 'week' ? '28px' : '20px' }}>
+                                  {/* Tooltip */}
+                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-zinc-900/95 border border-zinc-700 rounded-lg px-2 py-1 text-[10px] text-zinc-300 whitespace-nowrap z-20 shadow-xl backdrop-blur-sm pointer-events-none">
+                                    {bar.label}: {formatHours(bar.seconds)}
+                                  </div>
+                                  {/* Bar */}
+                                  {bar.seconds > 0 ? (
+                                    <div className="w-full flex flex-col justify-end" style={{ height: `${barChartMaxHeight}px` }}>
+                                      <div
+                                        className="w-full rounded-t transition-all duration-300 ease-out"
+                                        style={{
+                                          height: `${Math.max(2, h)}px`,
+                                          background: h > 16
+                                            ? `linear-gradient(to top, ${viewingActivity.color}dd, ${viewingActivity.color})`
+                                            : viewingActivity.color,
+                                          boxShadow: `0 0 6px ${viewingActivity.color}66`,
+                                        }}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="w-full" style={{ height: `${barChartMaxHeight}px` }} />
+                                  )}
+                                  <div className="text-[9px] text-zinc-500">{bar.label}</div>
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
                       </div>
-                    ));
-                  })()}
-                </div>
-              </div>
-            )}
-            {viewingActivitySessions.length > 3 && (
-              <div className="h-24 mb-4">
-                <div className="text-sm font-medium text-zinc-400 mb-2">Hourly Pattern</div>
-                <div className="flex items-end justify-between gap-1 h-16">
-                  {(() => {
-                    const hourCounts = new Array(24).fill(0);
-                    viewingActivitySessions.forEach((s: any) => { const h = new Date(s.started_at).getHours(); hourCounts[h] += s.duration_seconds || 0; });
-                    const maxHour = Math.max(...hourCounts, 1);
-                    return hourCounts.map((sec, h) => (
-                      <div key={h} className="flex-1 flex flex-col items-center">
-                        <div className="w-full rounded-t" style={{ height: `${sec > 0 ? Math.max(2, (sec / maxHour) * 50) : 0}px`, backgroundColor: viewingActivity.color, opacity: h >= 6 && h < 22 ? 0.8 : 0.3 }} />
-                      </div>
-                    ));
-                  })()}
-                </div>
-              </div>
-            )}
-            {viewingActivitySessions.length > 0 && (
-              <div className="max-h-32 overflow-y-auto space-y-1">
-                {viewingActivitySessions.slice(0, 10).map((s: any) => (
-                  <div key={s.id} className="flex items-center justify-between bg-zinc-800/30 rounded px-3 py-1.5 text-sm">
-                    <span className="text-zinc-300">{new Date(s.started_at).toLocaleDateString()} {new Date(s.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    <span className="text-zinc-400">{formatHours(s.duration_seconds || 0)}</span>
+                    </div>
                   </div>
-                ))}
+                </div>
+
+                {/* Hourly Pattern */}
+                <div className="mt-3">
+                  <div className="flex gap-2">
+                    {/* Y-Axis */}
+                    <div className="flex flex-col justify-between items-end text-[9px] font-medium text-zinc-600 pr-1 flex-shrink-0 select-none leading-none" style={{ height: `${hourChartMaxHeight}px` }}>
+                      {(() => {
+                        const hourCounts = new Array(24).fill(0);
+                        filtered.forEach((s: any) => { const h = new Date(s.started_at).getHours(); hourCounts[h] += s.duration_seconds || 0; });
+                        const maxHour = Math.max(...hourCounts, 1);
+                        const niceMax = getNiceMax(maxHour);
+                        const step = niceMax / 4;
+                        const ticks: number[] = [];
+                        for (let i = 0; i <= 4; i++) ticks.push(Math.round(step * i * 10) / 10);
+                        return ticks.slice().reverse().map((tick, i) => (
+                          <span key={i} className="-translate-y-1/2">{tick}{tick > 0 ? 'h' : ''}</span>
+                        ));
+                      })()}
+                    </div>
+                    {/* Chart */}
+                    <div className="flex-1 relative min-w-0">
+                      <div className="text-[10px] font-medium text-zinc-500 mb-0.5">Hourly Pattern</div>
+                      <div className="absolute inset-0 flex flex-col justify-between pointer-events-none" style={{ paddingBottom: '0px' }}>
+                        {[0, 1, 2, 3, 4].map(i => <div key={i} className="border-t border-zinc-800/25 w-full" />)}
+                      </div>
+                      <div className="flex items-end justify-between gap-px relative z-10" style={{ height: `${hourChartMaxHeight}px` }}>
+                        {(() => {
+                          const hourCounts = new Array(24).fill(0);
+                          filtered.forEach((s: any) => { const h = new Date(s.started_at).getHours(); hourCounts[h] += s.duration_seconds || 0; });
+                          const maxHour = Math.max(...hourCounts, 1);
+                          const niceMax = getNiceMax(maxHour);
+                          return hourCounts.map((sec, h) => {
+                            const height = (sec / (niceMax * 3600)) * hourChartMaxHeight;
+                            return (
+                              <div key={h} className="flex-1 flex flex-col items-center group relative">
+                                {/* Tooltip */}
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-zinc-900/95 border border-zinc-700 rounded px-1.5 py-0.5 text-[9px] text-zinc-300 whitespace-nowrap z-20 shadow-lg pointer-events-none">
+                                  {h % 12 || 12}{h < 12 ? 'a' : 'p'}: {formatHours(sec)}
+                                </div>
+                                {sec > 0 ? (
+                                  <div className="w-full flex flex-col justify-end" style={{ height: `${hourChartMaxHeight}px` }}>
+                                    <div
+                                      className="w-full rounded-t transition-all duration-300 ease-out"
+                                      style={{
+                                        height: `${Math.max(1, height)}px`,
+                                        background: height > 12 ? `linear-gradient(to top, ${viewingActivity.color}bb, ${viewingActivity.color})` : viewingActivity.color,
+                                        opacity: h >= 6 && h < 22 ? 0.85 : 0.35,
+                                        boxShadow: `0 0 4px ${viewingActivity.color}44`,
+                                      }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-full" style={{ height: `${hourChartMaxHeight}px` }} />
+                                )}
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
+            {filtered.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-zinc-400">Sessions</span>
+                  <span className="text-xs text-zinc-600">{filtered.length} total</span>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1">
+                  {filtered.slice(0, 20).map((s: any) => {
+                    const isEditing = editingSession?.id === s.id;
+                    const startDate = new Date(s.started_at);
+                    const endDate = s.ended_at ? new Date(s.ended_at) : null;
+                    return (
+                      <div key={s.id} className="bg-zinc-800/30 rounded-lg px-3 py-2 text-sm group hover:bg-zinc-800/50 transition-colors">
+                        {isEditing ? (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[10px] text-zinc-500">Start</label>
+                                <input
+                                  type="datetime-local"
+                                  value={editingSessionTimes.started_at}
+                                  onChange={(e) => setEditingSessionTimes(prev => ({ ...prev, started_at: e.target.value }))}
+                                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-zinc-500">End</label>
+                                <input
+                                  type="datetime-local"
+                                  value={editingSessionTimes.ended_at}
+                                  onChange={(e) => setEditingSessionTimes(prev => ({ ...prev, ended_at: e.target.value }))}
+                                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex gap-1 justify-end">
+                              <button
+                                onClick={async () => {
+                                  if (window.deskflowAPI?.updateExternalSession) {
+                                    const newStart = new Date(editingSessionTimes.started_at);
+                                    const newEnd = new Date(editingSessionTimes.ended_at);
+                                    const durSec = Math.floor((newEnd.getTime() - newStart.getTime()) / 1000);
+                                    await window.deskflowAPI.updateExternalSession(s.id, {
+                                      started_at: newStart.toISOString(),
+                                      ended_at: newEnd.toISOString(),
+                                      duration_seconds: Math.max(0, durSec),
+                                    });
+                                    setEditingSession(null);
+                                    if (window.deskflowAPI?.getExternalSessions && viewingActivity) {
+                                      const updated = await window.deskflowAPI.getExternalSessions('all');
+                                      setViewingActivitySessions(updated.filter((x: any) => x.activity_id === viewingActivity.id));
+                                    }
+                                  }
+                                }}
+                                className="px-2 py-1 bg-emerald-600/50 hover:bg-emerald-600 rounded text-xs text-white"
+                              >
+                                <Save className="w-3 h-3 inline mr-1" />Save
+                              </button>
+                              <button
+                                onClick={() => setEditingSession(null)}
+                                className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-xs text-zinc-300"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs text-zinc-400 flex-shrink-0">
+                                {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                              <span className="text-xs text-zinc-300 font-medium">
+                                {startDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              <span className="text-zinc-600">→</span>
+                              <span className="text-xs text-zinc-400">
+                                {endDate ? endDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'now'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-xs text-zinc-400 font-medium">{formatHours(s.duration_seconds || 0)}</span>
+                              <button
+                                onClick={() => {
+                                  const toLocal = (iso: string) => {
+                                    const d = new Date(iso);
+                                    const pad = (n: number) => String(n).padStart(2, '0');
+                                    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                                  };
+                                  setEditingSession(s);
+                                  setEditingSessionTimes({
+                                    started_at: toLocal(s.started_at),
+                                    ended_at: s.ended_at ? toLocal(s.ended_at) : toLocal(new Date().toISOString()),
+                                  });
+                                }}
+                                className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-zinc-700 transition-all"
+                              >
+                                <Pencil className="w-3 h-3 text-zinc-500" />
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (window.deskflowAPI?.deleteExternalSession) {
+                                    await window.deskflowAPI.deleteExternalSession(s.id);
+                                    if (window.deskflowAPI?.getExternalSessions && viewingActivity) {
+                                      const updated = await window.deskflowAPI.getExternalSessions('all');
+                                      setViewingActivitySessions(updated.filter((x: any) => x.activity_id === viewingActivity.id));
+                                    }
+                                  }
+                                }}
+                                className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-900/50 transition-all"
+                              >
+                                <Trash2 className="w-3 h-3 text-red-400" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+                </>
+              );
+            })()}
           </motion.div>
         )}
 
         {/* Activity Grid with inline mini charts */}
-        {!activeSession && (
+        
           <div className="relative mb-8">
             <div className="grid grid-cols-4 gap-4">
               {activities.map((activity) => {
@@ -704,29 +1275,27 @@ export default function ExternalPage() {
                 const totalSeconds = actStats?.total_seconds || 0;
                 return (
                   <div key={activity.id} className="relative group" data-activity-card>
-                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-all hover:ring-2 w-full ${selectedActivity?.id === activity.id ? 'ring-2' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
-                      <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: activity.color }}><Icon className="w-6 h-6 text-white" /></div>
-                      <div className="text-center"><div className="font-medium text-zinc-100 text-sm">{activity.name}</div>{totalSeconds > 0 && <div className="text-xs text-zinc-400 mt-1">{formatHours(totalSeconds)}</div>}</div>
-                      {totalSeconds > 0 && (
-                        <div className="w-full h-8 mt-1 flex items-end gap-[2px] px-1">
-                          {(() => {
-                            const now = new Date();
-                            const dayData: number[] = [];
-                            for (let i = 6; i >= 0; i--) {
-                              const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-                              const dateStr = d.toISOString().split('T')[0];
-                              const daySec = actStats?.daily?.[dateStr] || 0;
-                              dayData.push(daySec);
-                            }
-                            const maxD = Math.max(...dayData, 1);
-                            return dayData.map((sec, idx) => (
-                              <div key={idx} className="flex-1 flex flex-col items-center">
-                                <div style={{ height: `${Math.max(2, (sec / maxD) * 24)}px`, backgroundColor: idx === 6 ? '#FCD34D' : activity.color }} className="w-full rounded-t" />
-                              </div>
-                            ));
-                          })()}
-                        </div>
-                      )}
+                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-all hover:ring-2 w-full h-[140px] ${selectedActivity?.id === activity.id ? 'ring-2' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
+                      <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: activity.color }}><Icon className="w-6 h-6 text-white" /></div>
+                      <div className="text-center min-w-0"><div className="font-medium text-zinc-100 text-sm leading-tight truncate">{activity.name}</div><div className="text-xs text-zinc-400 mt-0.5">{formatHours(totalSeconds)}</div></div>
+                      <div className="w-full h-8 flex items-end gap-[2px] px-1">
+                        {(() => {
+                          const now = new Date();
+                          const dayData: number[] = [];
+                          for (let i = 6; i >= 0; i--) {
+                            const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+                            const dateStr = d.toISOString().split('T')[0];
+                            const daySec = actStats?.daily?.[dateStr] || 0;
+                            dayData.push(daySec);
+                          }
+                          const maxD = Math.max(...dayData, 1);
+                          return dayData.map((sec, idx) => (
+                            <div key={idx} className="flex-1 flex flex-col items-center">
+                              <div style={{ height: `${Math.max(2, (sec / maxD) * 24)}px`, backgroundColor: idx === 6 ? '#FCD34D' : activity.color }} className="w-full rounded-t" />
+                            </div>
+                          ));
+                        })()}
+                      </div>
                     </motion.button>
                     <button onClick={(e) => { e.stopPropagation(); setEditingActivity(activity); }} className="absolute top-2 right-2 w-6 h-6 rounded-full bg-zinc-800/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-zinc-700"><Edit3 className="w-3 h-3 text-zinc-300" /></button>
                   </div>
@@ -738,7 +1307,6 @@ export default function ExternalPage() {
               </motion.button>
             </div>
           </div>
-        )}
 
         {/* Selection Overlay with View Data */}
         {selectedActivity && !activeSession && (
@@ -761,7 +1329,6 @@ export default function ExternalPage() {
         )}
 
 {/* Charts Section - 3 Glass-Styled Charts */}
-        {!activeSession && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {/* Daily Usage Trend */}
             <div className="glass rounded-3xl p-6">
@@ -821,14 +1388,16 @@ export default function ExternalPage() {
               </div>
             </div>
 
-            {/* Weekly Trend */}
+            {/* Usage Trend */}
             <div className="glass rounded-3xl p-6">
-              <h3 className="text-sm font-medium text-zinc-400 mb-4">Weekly Trend</h3>
+              <h3 className="text-sm font-medium text-zinc-400 mb-4">
+                {selectedPeriod === 'today' ? 'Hourly Trend' : selectedPeriod === 'week' ? 'Weekly Trend' : selectedPeriod === 'month' ? 'Monthly Trend' : 'All Time Trend'}
+              </h3>
               <div className="h-48">
-                {consistencyChartData.labels.length > 0 ? (
+                {trendChartData.labels.length > 0 ? (
                   <Bar data={{
-                    labels: consistencyChartData.labels,
-                    datasets: [{ label: 'Hours', data: consistencyChartData.data, backgroundColor: '#8b5cf6', borderRadius: 4 }]
+                    labels: trendChartData.labels,
+                    datasets: [{ label: 'Hours', data: trendChartData.data, backgroundColor: '#8b5cf6', borderRadius: 4 }]
                   }} options={{
                     responsive: true, maintainAspectRatio: false,
                     plugins: { legend: { display: false } },
@@ -840,7 +1409,6 @@ export default function ExternalPage() {
               </div>
             </div>
           </div>
-        )}
       </div>
 
       {/* Recovery Modal */}
@@ -882,6 +1450,7 @@ export default function ExternalPage() {
                     }
                     setShowRecoveryModal(false);
                     setRecoverySession(null);
+                    syncTimerStateToDashboard(false);
                   }}
                   className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors"
                 >
@@ -891,6 +1460,7 @@ export default function ExternalPage() {
                   onClick={() => {
                     setActiveSession(recoverySession);
                     setShowRecoveryModal(false);
+                    syncTimerStateToDashboard(true, recoverySession.activity, recoverySession.startTime);
                   }}
                   className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl transition-colors"
                 >
@@ -925,36 +1495,30 @@ export default function ExternalPage() {
                 <p className="text-zinc-400 mt-2">When did you wake up?</p>
               </div>
 
-              <div className="flex items-center justify-center gap-4 mb-6">
-                <div className="flex flex-col items-center">
-                  <label className="text-sm text-zinc-400 mb-2">Hour</label>
-                  <select
-                    value={wakeTime.hours}
-                    onChange={(e) => setWakeTime({ ...wakeTime, hours: parseInt(e.target.value) })}
-                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-2xl text-zinc-100"
-                  >
-                    {Array.from({ length: 24 }, (_, i) => (
-                      <option key={i} value={i}>
-                        {i.toString().padStart(2, '0')}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <span className="text-2xl text-zinc-400 pt-6">:</span>
-                <div className="flex flex-col items-center">
-                  <label className="text-sm text-zinc-400 mb-2">Minute</label>
-                  <select
-                    value={wakeTime.minutes}
-                    onChange={(e) => setWakeTime({ ...wakeTime, minutes: parseInt(e.target.value) })}
-                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-2xl text-zinc-100"
-                  >
-                    {[0, 15, 30, 45].map((m) => (
-                      <option key={m} value={m}>
-                        {m.toString().padStart(2, '0')}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="flex items-center justify-center gap-2 mb-6">
+                <DurationPicker
+                  hours={wakeTime.hours}
+                  minutes={wakeTime.minutes}
+                  onHoursChange={(h) => setWakeTime({ ...wakeTime, hours: h })}
+                  onMinutesChange={(m) => setWakeTime({ ...wakeTime, minutes: m })}
+                  maxHours={23}
+                  hourLabel="Hour"
+                  minuteLabel="Min"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                <LatencyPicker
+                  totalMinutes={sleepLatencyMinutes}
+                  onChange={setSleepLatencyMinutes}
+                  label="Fell asleep after device off"
+                  maxHours={4}
+                />
+                <LatencyPicker
+                  totalMinutes={wakeUpMinutes}
+                  onChange={setWakeUpMinutes}
+                  label="Woke up before opening app"
+                  maxHours={4}
+                />
               </div>
 
               <div className="flex gap-3">
@@ -1211,18 +1775,7 @@ export default function ExternalPage() {
 
               <div className="flex gap-3">
                 <button
-                  onClick={async () => {
-                    if (window.deskflowAPI?.deleteExternalActivity) {
-                      try {
-                        await window.deskflowAPI.deleteExternalActivity(editingActivity.id);
-                        const updated = await window.deskflowAPI.getExternalActivities();
-                        setActivities(updated);
-                        setEditingActivity(null);
-                      } catch (err) {
-                        setEditActivityError('Failed to delete activity');
-                      }
-                    }
-                  }}
+                  onClick={() => setShowDeleteConfirm(true)}
                   className="flex-1 px-4 py-3 bg-red-600/50 hover:bg-red-600 text-white rounded-xl transition-colors"
                 >
                   Delete
@@ -1256,6 +1809,64 @@ export default function ExternalPage() {
         )}
       </AnimatePresence>
 
+      {/* Delete Activity Confirmation */}
+      <AnimatePresence>
+        {showDeleteConfirm && editingActivity && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]"
+            onClick={() => setShowDeleteConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="bg-zinc-900 rounded-2xl p-6 max-w-sm w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-5">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-500/15 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-red-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-zinc-100">Delete Activity?</h3>
+                <p className="text-sm text-zinc-400 mt-1">
+                  Are you sure you want to delete <span className="text-zinc-200 font-medium">{editingActivity.name}</span>? All its sessions will be permanently removed.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (window.deskflowAPI?.deleteExternalActivity) {
+                      try {
+                        await window.deskflowAPI.deleteExternalActivity(editingActivity.id);
+                        const updated = await window.deskflowAPI.getExternalActivities();
+                        setActivities(updated);
+                        setEditingActivity(null);
+                        setShowDeleteConfirm(false);
+                      } catch (err) {
+                        setEditActivityError('Failed to delete activity');
+                        setShowDeleteConfirm(false);
+                      }
+                    }
+                  }}
+                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 rounded-xl text-sm text-white font-medium transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Morning Sleep Prompt Modal */}
       <AnimatePresence>
         {showMorningPrompt && morningPromptData && (
@@ -1277,41 +1888,19 @@ export default function ExternalPage() {
                 <p className="text-zinc-400 mt-2">It looks like you slept last night. Want to track your sleep?</p>
               </div>
 
-              <div className="mb-4">
-                <label className="block text-sm text-zinc-400 mb-2">
-                  How long after closing the app did you fall asleep? (optional)
-                </label>
-                <select
-                  value={sleepLatencyMinutes}
-                  onChange={(e) => setSleepLatencyMinutes(parseInt(e.target.value))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
-                >
-                  <option value={0}>Immediately (0 min)</option>
-                  <option value={5}>5 minutes</option>
-                  <option value={10}>10 minutes</option>
-                  <option value={15}>15 minutes</option>
-                  <option value={30}>30 minutes</option>
-                  <option value={45}>45 minutes</option>
-                  <option value={60}>1 hour</option>
-                </select>
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-sm text-zinc-400 mb-2">
-                  How long after waking up did you open this app?
-                </label>
-                <select
-                  value={wakeUpMinutes}
-                  onChange={(e) => setWakeUpMinutes(parseInt(e.target.value))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
-                >
-                  <option value={0}>Immediately (0 min)</option>
-                  <option value={5}>5 minutes</option>
-                  <option value={10}>10 minutes</option>
-                  <option value={15}>15 minutes</option>
-                  <option value={30}>30 minutes</option>
-                  <option value={60}>1 hour</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                <LatencyPicker
+                  totalMinutes={sleepLatencyMinutes}
+                  onChange={setSleepLatencyMinutes}
+                  label="Fell asleep after closing app"
+                  maxHours={4}
+                />
+                <LatencyPicker
+                  totalMinutes={wakeUpMinutes}
+                  onChange={setWakeUpMinutes}
+                  label="Woke up before opening app"
+                  maxHours={4}
+                />
               </div>
 
               <div className="flex gap-3">
@@ -1331,14 +1920,11 @@ export default function ExternalPage() {
                     if (!morningPromptData) return;
                     
                     const lastClose = new Date(morningPromptData.lastCloseTime);
-                    const hoursSinceClose = (Date.now() - morningPromptData.lastCloseTime) / (1000 * 60 * 60);
                     const suggestedBedtime = new Date(lastClose.getTime() - sleepLatencyMinutes * 60 * 1000);
                     const suggestedWakeTime = new Date(Date.now() - wakeUpMinutes * 60 * 1000);
                     
-                    const bedtimeStr = `${suggestedBedtime.getHours().toString().padStart(2, '0')}:${suggestedBedtime.getMinutes().toString().padStart(2, '0')}`;
-                    const waketimeStr = `${suggestedWakeTime.getHours().toString().padStart(2, '0')}:${suggestedWakeTime.getMinutes().toString().padStart(2, '0')}`;
-                    
-                    setPastSleepTimes({ bedtime: bedtimeStr, waketime: waketimeStr });
+                    setPastBedtime({ hours: suggestedBedtime.getHours(), minutes: suggestedBedtime.getMinutes() });
+                    setPastWaketime({ hours: suggestedWakeTime.getHours(), minutes: suggestedWakeTime.getMinutes() });
                     setPastSleepLatency(sleepLatencyMinutes);
                     setPastWakeLatency(wakeUpMinutes);
                     setShowMorningPrompt(false);
@@ -1398,60 +1984,44 @@ export default function ExternalPage() {
               )}
 
               <div className="mb-4">
-                <label className="block text-sm text-zinc-400 mb-2">Bedtime (last night)</label>
-                <input
-                  type="time"
-                  value={pastSleepTimes.bedtime}
-                  onChange={(e) => setPastSleepTimes({ ...pastSleepTimes, bedtime: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
+                <label className="block text-sm text-zinc-400 mb-2 text-center">Bedtime (last night)</label>
+                <DurationPicker
+                  hours={pastBedtime.hours}
+                  minutes={pastBedtime.minutes}
+                  onHoursChange={(h) => setPastBedtime({ ...pastBedtime, hours: h })}
+                  onMinutesChange={(m) => setPastBedtime({ ...pastBedtime, minutes: m })}
+                  maxHours={23}
+                  hourLabel="Hour"
+                  minuteLabel="Min"
                 />
               </div>
 
               <div className="mb-4">
-                <label className="block text-sm text-zinc-400 mb-2">Wake time (this morning)</label>
-                <input
-                  type="time"
-                  value={pastSleepTimes.waketime}
-                  onChange={(e) => setPastSleepTimes({ ...pastSleepTimes, waketime: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
+                <label className="block text-sm text-zinc-400 mb-2 text-center">Wake time (this morning)</label>
+                <DurationPicker
+                  hours={pastWaketime.hours}
+                  minutes={pastWaketime.minutes}
+                  onHoursChange={(h) => setPastWaketime({ ...pastWaketime, hours: h })}
+                  onMinutesChange={(m) => setPastWaketime({ ...pastWaketime, minutes: m })}
+                  maxHours={23}
+                  hourLabel="Hour"
+                  minuteLabel="Min"
                 />
               </div>
 
-              <div className="mb-4">
-                <label className="block text-sm text-zinc-400 mb-2">
-                  How long after device off did you fall asleep?
-                </label>
-                <select
-                  value={pastSleepLatency}
-                  onChange={(e) => setPastSleepLatency(parseInt(e.target.value))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
-                >
-                  <option value={0}>Immediately (0 min)</option>
-                  <option value={5}>5 minutes</option>
-                  <option value={10}>10 minutes</option>
-                  <option value={15}>15 minutes</option>
-                  <option value={30}>30 minutes</option>
-                  <option value={45}>45 minutes</option>
-                  <option value={60}>1 hour</option>
-                </select>
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-sm text-zinc-400 mb-2">
-                  How long after waking up did you open this app?
-                </label>
-                <select
-                  value={pastWakeLatency}
-                  onChange={(e) => setPastWakeLatency(parseInt(e.target.value))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
-                >
-                  <option value={0}>Immediately (0 min)</option>
-                  <option value={5}>5 minutes</option>
-                  <option value={10}>10 minutes</option>
-                  <option value={15}>15 minutes</option>
-                  <option value={30}>30 minutes</option>
-                  <option value={60}>1 hour</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                <LatencyPicker
+                  totalMinutes={pastSleepLatency}
+                  onChange={setPastSleepLatency}
+                  label="Fell asleep after device off"
+                  maxHours={4}
+                />
+                <LatencyPicker
+                  totalMinutes={pastWakeLatency}
+                  onChange={setPastWakeLatency}
+                  label="Woke up before opening app"
+                  maxHours={4}
+                />
               </div>
 
               <div className="flex gap-3">
@@ -1469,18 +2039,10 @@ export default function ExternalPage() {
 
                       const now = new Date();
                       const bedtimeDate = new Date(now);
-                      bedtimeDate.setHours(
-                        parseInt(pastSleepTimes.bedtime.split(':')[0]),
-                        parseInt(pastSleepTimes.bedtime.split(':')[1]),
-                        0, 0
-                      );
+                      bedtimeDate.setHours(pastBedtime.hours, pastBedtime.minutes, 0, 0);
 
                       const waketimeDate = new Date(now);
-                      waketimeDate.setHours(
-                        parseInt(pastSleepTimes.waketime.split(':')[0]),
-                        parseInt(pastSleepTimes.waketime.split(':')[1]),
-                        0, 0
-                      );
+                      waketimeDate.setHours(pastWaketime.hours, pastWaketime.minutes, 0, 0);
 
                       // For sleep: if wake time is earlier in the day than bedtime, it's the next day
                       if (waketimeDate <= bedtimeDate) {
@@ -1497,7 +2059,8 @@ export default function ExternalPage() {
 
                         if (result.success) {
                           setPastSleepSuccess(true);
-                          setPastSleepTimes({ bedtime: '22:00', waketime: '07:00' });
+                          setPastBedtime({ hours: 22, minutes: 0 });
+                          setPastWaketime({ hours: 7, minutes: 0 });
                           refreshStats();
                           setTimeout(() => setShowPastSleepModal(false), 1500);
                         } else {

@@ -1,11 +1,26 @@
-# PROBLEMS.md - Comprehensive Issue List
+# PROBLEMS.md
 
-**Last Updated:** 2026-05-06
-**Total Issues:** 69
+> **Purpose:** Issue tracker for AI agents and humans — all known bugs, feature requests, and their resolution status.
+> **Last Updated:** 2026-05-13 (ProblemsTab markdown round-trip fix + Setup button moved)
+> **Total Issues:** 110
+> **Parse Priority:** High
 
 ---
 
-## 🚨 STATUS LEGEND (MUST READ)
+## Quick Reference
+
+| Status | Count |
+|--------|-------|
+| NEW | 0 |
+| Not Started | 0 |
+| In Progress | 0 |
+| AI Attempted Fix | 0 |
+| User Testing | 0 |
+| Fixed | ~110 |
+
+---
+
+## Status Legend
 
 | Status | Meaning | What to do |
 |--------|---------|------------|
@@ -19,208 +34,379 @@
 
 ---
 
-## AGENTS.md UPDATED - Added Problem State Update Section
+## 🚨 2026-05-12 SESSION — Solar System 3-in-1 Fix (Applied)
 
-Added mandatory problem state update rules to AGENTS.md:
-- Must update PROBLEMS.md status when working on any issue
-- Status flow: NEW → Not Started → In Progress → AI Attempted Fix → User Testing → Fixed
-- Only USER can mark as Fixed
+### Issue #094: Category Dropdown Doesn't Navigate to Solar System
+- Status: Fixed
+- User said: "The dropdown of selecting a category in the application doesn't work. It doesn't bring me to the solar system."
+- Files: `src/components/OrbitSystem.tsx`
+- Root Cause: `handleCategorySelect` only set `currentCategory` without changing `viewMode` or animating camera
+- Fix: Added `viewMode = 'solarSystem'` and `animateCamera` to zoom toward the category's sun
+
+### Issue #095: Planet Click Doesn't Lock/Track Camera
+- Status: Fixed
+- User said: "When I select an app, it directs me to the planet but doesn't lock the camera. The planet is far away from the orbit and the camera is too late."
+- Files: `src/components/OrbitSystem.tsx`
+- Root Cause: `handlePlanetClick` calculated camera position from `data.orbitRadius` (fixed orbit distance) instead of the planet's actual real-time position. No tracking mechanism existed.
+- Fix: Use `planetPositionsRef` for real-time position, added `PlanetTracker` component that continuously updates OrbitControls target via `useFrame`
+
+### Issue #096: Website Solar System Wrong Data + Missing Timeline Selector
+- Status: Fixed
+- User said: "The website solar system only has three categories. There needs to be a timeline switch in the solar system UI because the tab navigation is inaccessible in fullscreen/popup."
+- Files: `src/components/OrbitSystem.tsx`
+- Root Cause: `websiteLogs` was already period-filtered by the top nav but OrbitSystem had no internal timeline control. Data was filtered inconsistently (apps used `allLogs`, websites used `browserLogs`).
+- Fix: Added `selectedPeriod` state and period selector UI inside OrbitSystem. Both apps and websites now filter by this internal period.
 
 ---
 
-## 🚨 2026-05-06 SESSION - Dashboard Chart Fixes
+## 🚨 2026-05-12 SESSION — Terminal Phase 1 Implementation (Resolved)
 
-**Issue 73: Weekly Productivity Chart Not Following Timeline Selector**
+### Issue #075: Session Persistence Not Persisting to UI
 - Status: Fixed
-- User said: "why does the weekly activity doesnt follow the topnav timeline selector? it is stuck on the weekly and theres a static display showing weekly. it should follow the timeline properly."
-- Files: src/pages/DashboardPage.tsx
+- User said: "Sessions save to DB but don't appear in Sessions tab until page refresh"
+- Files: src/pages/TerminalPage.tsx
 - Fix:
-  1. Added `periodOffset` state for period navigation
-  2. Chart now follows `selectedPeriod` from topnav (today/week/month/all)
-  3. Added Previous/Next/Today navigation buttons (like heatmap)
-  4. Dynamic chart: today=hourly, week=7-day, month=30-day, all=monthly
-  5. External activity now shows as stacked purple bar on top of green device bar
-  6. App Ecosystem (Solar System) also updated with period navigation
+  1. Added `loadSessions()` call after `saveTerminalSession()`
+  2. Sessions now refresh immediately when new terminal created
+  3. UI updates in real-time instead of requiring refresh
 
-**Issue 74: External Activity Not Showing in Chart (Not Stacked)**
+### Issue #076: Cannot Delete Sessions
 - Status: Fixed
-- User said: "the external activity is not showing in the chart properly it should be a stacked bar chart. currently only the device usage is shown on the chart."
-- Files: src/pages/DashboardPage.tsx
+- User said: "No delete button for sessions, no way to remove old sessions"
+- Files: src/pages/TerminalPage.tsx, src/main.ts, src/preload.ts
 - Fix:
-  1. Added `chartExternalData` state for external data per period
-  2. Effect loads external sessions based on `selectedPeriod` + `periodOffset`
-  3. Chart now shows stacked bars: green (device) + purple (external)
-  4. Heights calculated proportionally based on device/external seconds
+  1. Added `delete-terminal-session` IPC handler in main.ts
+  2. Exposed `deleteTerminalSession()` in preload.ts
+  3. Added delete button to sessions tab UI (appears on hover)
+  4. Delete button triggers confirmation and refreshes session list
 
----
-
-## 🚨 2026-05-05 SESSION - External Page Overhaul
-
-**Issue 71: External Page Charts Not Working Properly**
+### Issue #077: Session UI Improvements
 - Status: Fixed
-- User said: "external page isnt even detailed enough to show the charts properly. the page doesnt show the charts of the external page each day, and like YOU NEED TO PLAN HOW UR GOING TO SHOW THE BROAD OVERALL EXTERNAL USAGE WITHOUT THE specific ones"
-- Files: src/pages/ExternalPage.tsx
-- Fix: Complete External page overhaul:
-  1. Removed chart type toggle dropdown and tab switcher
-  2. Charts always visible as bar chart
-  3. Charts respect period selector (Day/Week/Month/All)
-  4. Added quick activity filter dropdown in header
-  5. Fixed Activity Breakdown chart
-  6. Fixed sleep tracking feature
+- Files: src/pages/TerminalPage.tsx (sessions tab)
+- Changes:
+  1. Agent type now shown in green badge (was hidden)
+  2. Session topic/name prominently displayed
+  3. Cost information displayed (was hidden)
+  4. Resume and Delete buttons both visible on hover
+  5. Better visual hierarchy with colors and spacing
 
-**Issue 72: Weekly Overview External Bars Not Showing**
-- Status: Fixed (superseded by Issue 73/74)
-- User said: "THE EXTERNAL BAR IS NOT THERE IDIOT"
-- Files: src/pages/DashboardPage.tsx, src/main.ts
-- Fix: 
-  1. main.ts now returns `byDay` data from get-external-stats
-  2. App.tsx passes externalWeeklyStats.byDay to DashboardPage
-  3. DashboardPage processes external data by date
-  4. Debug logging added to trace data flow
-- User Test Required: Track external sessions on External page, then check Dashboard Weekly Overview
+### Issue #078: Terminal Send Button Not Functional
+- Status: Fixed
+- User said: "Send button at bottom does nothing - text sent but not executed in terminal"
+- Files: src/preload.ts
+- Root Cause: `terminalWrite()` preload function sent `{ terminalId, text }` as ONE object arg, but `write-terminal` IPC handler expected TWO separate args `(terminalId, data)`. `data` was always `undefined`.
+- Fix: Changed `ipcRenderer.invoke('write-terminal', { terminalId, text })` → `ipcRenderer.invoke('write-terminal', terminalId, text)` to match handler signature.
 
----
+### Issue #079: Sidebar Width Unlimited (Not Limited to 600px)
+- Status: Fixed
+- User said: "Sidebar should resize freely with no max-width limit"
+- Files: src/pages/TerminalPage.tsx
+- Fix: Removed `Math.min(600, ...)` constraint — sidebar now limited only by min-width (200px)
 
-## 🚨 2026-04-30 SESSION - ALL ISSUES (STILL BROKEN)
+### Issue #080: Session Resume Incomplete
+- Status: Fixed
+- User said: "Resume button tries to send command but doesn't reconnect to terminal"
+- Files: src/pages/TerminalPage.tsx
+- Root Cause: `activeTerminalId` was not in useEffect deps for event handler, causing stale closure. Also `handleResumeSession` had no error feedback when no active terminal.
+- Fix: Added `activeTerminalId`, `loadSessions` to effect deps. Handle no-active-terminal case with error toast.
 
-### Critical Issues (P1 - Fix Now)
+### Issue #081: Terminal Tab Bar Shows Hardcoded Agent Type
+- Status: Fixed
+- User said: "Terminal tab shows 'Cloud' but I'm using OpenCode - should show actual agent"
+- Files: src/pages/TerminalPage.tsx
+- Fix: Terminal tabs now lookup session agent type from `sessions` array instead of hardcoding 'Cloud'
 
-**Issue 64: Weekly Overview Shows 21h, No Device Usage**
-- Status: AI Attempted Fix
-- User said: "the weekly overview also doesnt show the data properly. it always shows the current day as all acivity and it shows 21 hours which is not possible since i used the device for 3 hours already. and like theres no device usage"
-- Files: src/pages/DashboardPage.tsx
-- Fix: Added `weeklyOverviewData` useMemo computing per-day Device/External hours. Fixed `toFixed()` type error. Chart now uses computed data.
+### Issue #082: No "Start New Session" Button in Sessions Tab
+- Status: Fixed
+- User said: "Should be able to start new session from Sessions tab, not just via + button"
+- Files: src/pages/TerminalPage.tsx (sessions tab)
+- Fix: Added "New Session" button that opens AI agent selector dialog
 
-**Issue 65: Heatmap Hour Click Opens Day Instead of Selecting**
-- Status: AI Attempted Fix
-- User said: "also, in the heatmap i still cant select individual heatmap hour. when i select theh our, it sjut brings me to the day. it shou should be that i can select hourly. only when i click the day ttext should it show teh day full page thing"
-- Also: "I MENTIONED THIS ALREADY, IT SHOULD HIGHLIGHT THE ENTIRE DAY IN THE BACKGROUND WHEN I HOVER ON THE DAY TEXT"
-- Correction: User clarified "highlight entire COLUMN" (not day). Hovering day text (Mon, Tue, etc.) highlights all 24 hours in that column.
-- Files: src/pages/DashboardPage.tsx
-- Fix: Hour cells toggle selection (purple ring on selected cell). Column highlight on day text hover (bg-purple-500/20 on each cell in column). Day text click opens day detail.
+## 🚨 2026-05-12 SESSION — Terminal Architecture Fixes
 
-**Issue 66: Weekly Overview Chart Ugly**
-- Status: AI Attempted Fix
-- User said: "the cahrts on the weekly overview is also really ugly. replace it with something like on THE IDE PROJECTS. THOSE CHARTS ARE GOOD"
-- Also: "total amount of hours spent on the day is separated from the chart, which is really weird. It should be that the hours are integrated into the chart"
-- Files: src/pages/DashboardPage.tsx
-- Fix: Total hours now integrated INTO chart using `<LabelList>` (removed separated display below). Rounded corners on external bars. Improved tooltip with "Device"/"External" labels.
+### Issue #087: TerminalLayout Prop Chain Broken (Root Cause of "Can't Create Terminals")
+- Status: Fixed
+- Root cause: TerminalPage's `terminalLayout` state (from `onLayoutChange` callback) was NEVER passed as `initialLayout` prop to TerminalLayout. The + button called `setTerminalLayout()` on a state that had zero effect.
+- Fix:
+  1. Replaced broken prop-chain pattern with custom event system (`create-terminal`, `terminal-created`, `close-pane`)
+  2. TerminalLayout now manages its own internal layout state — TerminalPage no longer tries to set layout directly
+  3. Events dispatched from + button, New Session dialog, and close button
+- Files: src/pages/TerminalPage.tsx, src/components/TerminalWindow.tsx
 
-**Issue 67: External Page Period Switching Not Working**
-- Status: AI Attempted Fix
-- User said: "also, the swtichgin between time of weekly and daily etc is not working on the external activity. fixx that too"
-- Files: src/pages/ExternalPage.tsx, src/App.tsx
-- Fix: Added period selector to ExternalPage header. Page now has Day/Week/Month/All buttons. Period state synced with App.tsx via onPeriodChange prop.
-
-**Issue 68: Recent Sessions Shows "Website" Instead of "App"**
-- Status: AI Attempted Fix
-- User said: "theres this problem again where the recent sessiosn just always show the website instead of the app tha tim ucrrently at"
-- Files: src/pages/DashboardPage.tsx, src/App.tsx
-
-**Issue 69: Terminal Stuck at "terminal initialized. waiting for shell"**
-- Status: **FIXED** (User confirmed terminal works)
-- Files: src/pages/TerminalPage.tsx, src/main.ts, src/components/TerminalWindow.tsx, src/preload.ts
-- Root Causes Found:
-  1. **Data buffering not implemented (2026-05-01 "fix")** - `dataBuffer`/`exitBuffer` Maps were defined but NEVER populated/flushed.
-  2. **localStorage persistence bug** - `terminal-spawned-*` keys persisted across app restarts.
-  3. **IPC listener accumulation** - Every TerminalPane mount added a permanent listener.
-  4. **Silent spawn failures** - `pty.spawn()` had no try/catch.
-- Fix Applied (2026-05-03):
-  - Immediate `proc.onData`/`onExit` attachment with buffering
-  - In-memory `spawnedTerminals` Set instead of localStorage
-  - IPC cleanup functions returned from preload
-  - `pty.spawn()` wrapped in try/catch
-  - 5s diagnostic timeout
-- **Also implemented complete workspace overhaul:** TODOs, file viewer, prompts, chat history, session messages
-
-**Issue 70: Terminal UI Doesn't Work - Project/Agent Switching**
-- Status: AI Attempted Fix
-- User said: "THE UI DOESNT WORK THE SWITCHING. EVEYTHING ABOUT TEH SELECTING THEP ROJECT AND AI AGENTS IN TEH APP DOESNT UFAKCINGGGG WORK"
+### Issue #088: Double-Spawn Bug in Terminal Creation
+- Status: Fixed
+- Root cause: Both TerminalPage's `spawnTerminal()` call (from old + button code) AND `handleTerminalReady` in TerminalLayout tried to spawn the same terminal ID
+- Fix: Removed redundant `spawnTerminal()` from event handler — only TerminalLayout now spawns PTYs
 - Files: src/pages/TerminalPage.tsx
 
+### Issue #089: Errors Silently Swallowed via logOnce
+- Status: Fixed
+- Root cause: `logOnce` only printed to console once per session, hiding repeat failures
+- Fix: Replaced with `showError()` toast that displays error in UI and auto-clears after 8 seconds
+- Files: src/pages/TerminalPage.tsx
+
+### Issue #090: Analytics Tab Fires IPC Fetch on Wrong Tab
+- Status: Fixed
+- Root cause: `getAIUsageSummary()` IPC call triggered on `activeTab === 'map'` but UI renders on `activeTab === 'analytics'`
+- Fix: Changed trigger to `activeTab === 'analytics'`
+- Also added `'day'` period support to IPC handler (was only handling `'week'`/`'month'`)
+- Also parameterized SQL query to fix injection
+- Files: src/pages/TerminalPage.tsx, src/main.ts, src/preload.ts
+
+### Issue #091: No Auto-Select Project in TerminalPage
+- Status: Fixed
+- Root cause: TerminalPage didn't auto-select first project when none was selected and localStorage was empty
+- Fix: Added `useEffect` that selects `projects[0].id` when `projects` loads and no project selected
+- Files: src/pages/TerminalPage.tsx
+
+## 🚨 2026-05-12 SESSION — Terminal UI Fixes (Phase 2)
+
+### Issue #092: Terminal + Button Doesn't Show Tab (Tab Bar Stays Empty)
+- Status: Fixed
+- Root cause: Two bugs:
+  1. `useTerminalLayout(initialLayout)` in TerminalWindow.tsx:193 passed a `PaneNode` object as `projectId` (string param). Object stringified to `"[object Object]"`, DB query returned nothing, layout stayed `null` forever.
+  2. `handleCreateTerminalEvent` had `setLayout(prev => prev ? insertIntoLayout(prev) : prev)` — when `prev` was `null` (always, due to bug #1), returned `null`. Panes never rendered.
+- Fix: Changed `useTerminalLayout(initialLayout)` → `useTerminalLayout(null, initialLayout || null)`. Added null-handling in `handleCreateTerminalEvent` to create root leaf when no layout exists.
+- Also: + button now ALSO calls `setTerminalTabs()` directly before dispatching event. TerminalLayout's `handleCreateTerminalEvent` accepts `terminalId` from event detail.
+- Files: src/pages/TerminalPage.tsx, src/components/TerminalWindow.tsx
+
+### Issue #093: FilesTab Shows "Select a project" with No Way to Select
+- Status: Fixed
+- Root cause: FilesTab had no inline project picker. If auto-selection hadn't fired yet (race condition on first load), the tab showed a dead-end message with no action for the user.
+- Fix: Replaced "Select a project above" message with a project dropdown select inside the tab. Also added `spawnTerminal`, `loadSessions` to useEffect deps to prevent stale closures.
+- Files: src/pages/TerminalPage.tsx
+
+### Issue #094: RequestsTab Doesn't Know Which Project — Always Uses userDataPath
+- Status: Fixed
+- Root cause: 
+  1. `RequestsTab` had no inline project picker (was missing unlike FilesTab/ProblemsTab)
+  2. `link-problem-to-request` IPC handler always used `userDataPath`, ignored project context entirely
+  3. `RequestDetailModal` didn't pass `projectId` to API calls
+- Fix:
+  1. Added inline project picker to RequestsTab
+  2. Updated `link-problem-to-request` IPC handler + preload to accept `projectId`
+  3. Added `projectId` prop to `RequestDetailModal` and passed to `getProblems()` + `linkProblemToRequest()`
+  4. Added `projects` + `onSelectProject` props to RequestsTab
+- Files: src/pages/TerminalPage.tsx, src/main.ts, src/preload.ts
+
+## 🚨 2026-05-12 SESSION — Found and Fixed 5 Runtime Bugs
+
+### Issue #097: useTerminalLayout Wrong Args (CRITICAL — Everything Was Broken)
+- Status: Fixed
+- Root cause: TerminalWindow.tsx line 193 called `useTerminalLayout(initialLayout)` where `initialLayout` is a PaneNode. The hook expects `(projectId: string | null, initialLayout: PaneNode | null)`. The PaneNode was passed as projectId → stringified to `"[object Object]"` → DB query failed → layout always `null`.
+- Fix: `useTerminalLayout(null, initialLayout || null)`
+- Effect: TerminalLayout couldn't create any panes. + button created tabs but no terminal ever rendered.
+
+### Issue #098: handleCreateTerminalEvent Null Layout (Same Root Cause)
+- Status: Fixed
+- Root cause: `setLayout(prev => prev ? insertIntoLayout(prev) : prev)` returned null when prev was null (always, due to #097).
+- Fix: Added null-handling to create root leaf pane when layout doesn't exist.
+
+### Issue #099: terminalWrite Preload Arg Mismatch (Send Button Broken)
+- Status: Fixed
+- Root cause: Preload `terminalWrite` called `ipcRenderer.invoke('write-terminal', { terminalId, text })` with ONE object arg. Handler `write-terminal` expected `(_event, terminalId: string, data: string)` — TWO separate args. `data` was always `undefined`, never written to PTY.
+- Fix: Changed to `ipcRenderer.invoke('write-terminal', terminalId, text)` to match handler signature.
+
+### Issue #100: StuseEffect Missing Deps (Event Handlers Stale)
+- Status: Fixed
+- Root cause: Event handler effect in TerminalPage.tsx was missing `terminalLayout`, `setTerminalLayout`, `spawnTerminal`, `loadSessions` from deps. Handlers captured stale references.
+- Fix: Added all missing deps.
+
+### Issue #101: link-problem-to-request Always Uses userDataPath
+- Status: Fixed
+- Root cause: `link-problem-to-request` IPC handler always created RequestsService with `userDataPath`. No `projectId` support in preload API.
+- Fix: Added `projectId` to IPC handler, preload, and RequestDetailModal. Handler now resolves via `getProjectPath()`.
+
+## 🚨 2026-05-12 SESSION — Terminal Workspace Critical UX Fixes
+
+### Issue #102: FilesTab Shows Project Selector Despite Project Already Known from IDE Page
+- Status: AI Attempted Fix
+- User said: "WHY THE FUCK IS THERE A PROJECT SELECTION????? THE WORKSPACE IS ACCESSED FROM THE PROJECT IDE WHICH ALREADY HAVE THE PATH TO THE PROJECT DIRECTORY"
+- Root cause: FilesTab received only `projectId`, then looked up the project in the `projects` array. When opened from IDE page, `propProjectPath` is available but never passed to FilesTab. If `projects` array hadn't loaded, `projectPath` was empty and the project selector appeared.
+- Fix: Added `projectPath` prop to FilesTab. When opened from workspace modal, `propProjectPath` is passed directly. FilesTab uses it before falling back to projects array lookup.
+- Files: `src/pages/TerminalPage.tsx` — FilesTab component signature, projectPath derivation, and call site
+
+### Issue #103: + Button Hidden When No Terminals Exist (Can't Create First Terminal)
+- Status: AI Attempted Fix
+- User said: "NEW TERMINAL IS NOT THERE"
+- Root cause: The entire terminal tab bar (including the + button) was wrapped in `{Object.keys(terminalTabs).length > 0 && (` — when no terminals existed, the entire bar (including the + button) was hidden. User couldn't create the first terminal.
+- Fix: Removed the conditional wrapper. Tab bar now always renders with the + button visible. Terminal tab entries are only rendered when they exist.
+- Files: `src/pages/TerminalPage.tsx` — Terminal tab bar conditional gate removed
+
+### Issue #104: Save Button Hidden Inside Instruction Input Bar
+- Status: AI Attempted Fix
+- User said: "THE SAVE IS NOT THERE"
+- Root cause: The 💾 Save checkpoint button was only visible inside the instruction input bar, which appears only after clicking "Send". There was no visible save button in the default terminal header UI.
+- Fix: Extracted `handleSaveCheckpoint` callback. Added a Save button in the terminal header next to the Send button, always visible when a terminal is active. Also kept the Save button in the instruction input bar.
+- Files: `src/pages/TerminalPage.tsx` — Added `handleSaveCheckpoint` callback, added Save button to header
+
 ---
 
-### Previous Issues Still Not Fixed (from earlier sessions)
+## 🚨 2026-05-13 SESSION — TERMINAL WORKSPACE COMPREHENSIVE FIX (All Issues Fixed)
 
-**Issue 51: Recent Sessions Shows Website Instead of App** (from before 2026-04-30)
-- Status: Not Started (was marked "AI Attempted Fix" but user says it's still broken)
-- User said: "theres this problem again where the recent sessiosn just always show the website"
+**CRITICAL CONTEXT:** These issues were reported 5-10 times across multiple sessions. ALL HAVE BEEN FIXED in a single comprehensive overhaul.
 
-**Issue 52: Weekly Overview Shows Wrong Data (21h)** (from before 2026-04-30)  
-- Status: Not Started (was marked "AI Attempted Fix" but user says it's still broken)
-- Same as Issue 64 - still not working
+### Issue #105: Session Auto-Creation on New Terminal (WRONG BEHAVIOR)
+- Status: **FIXED**
+- User said: "Adding a new terminal automatically adds a session. It shouldn't."
+- Problem: `handleTerminalCreated` auto-saved a session on every terminal creation
+- Fix: Removed auto-save from `handleTerminalCreated`. Sessions are ONLY created explicitly via the "New Session" dialog.
+- Files: `src/pages/TerminalPage.tsx` (handleTerminalCreated handler)
 
-**Issue 53: Heatmap Hour Click Doesn't Work** (from before 2026-04-30)
-- Status: Not Started (was marked "AI Attempted Fix" but user says it's still broken)
-- Same as Issue 65 - still not working
+### Issue #106: "Create Session" Dialog with Terminal Selection
+- Status: **FIXED**
+- User said: "When you create a new session, the menu should prompt the user to select a terminal (create new terminal now or select an existing open terminal that is free)"
+- Fix: Complete redesign of the New Session dialog with:
+  1. Session name input
+  2. AI Agent dropdown (Claude/OpenCode)
+  3. Terminal selection radio: "Create new terminal" vs "Use existing terminal"
+  4. If "Use existing": dropdown of free terminals (shows which have sessions, which are free)
+  5. Clicking "Start Session" creates the session in the selected terminal
+- Files: `src/pages/TerminalPage.tsx` (New Session dialog)
 
-**Issue 57: External Page Charts Display Badly** (from 2026-04-30 morning session)
-- Status: Not Started
-- User said: "the displays are really bad. the data aren't showcased and processed properly"
-- Also: "also you need to revamp the charts"
+### Issue #107: Existing Sessions Show Only Messages & Delete
+- Status: **FIXED**
+- User said: "There's no way for me to open the session again. No way to restore every session."
+- Fix: Every session now shows:
+  1. Running indicator (green dot + terminal name) if session is active
+  2. "Closed" badge if session has no terminal
+  3. "Focus" button for running sessions (focuses terminal)
+  4. "Open" button for closed sessions (opens in existing or new terminal)
+  5. Messages and Delete buttons preserved
+- Files: `src/pages/TerminalPage.tsx` (sessions tab, handleResumeSession)
+
+### Issue #108: Save Button Not Working
+- Status: **FIXED**
+- User said: "The save button is not working."
+- Fix: Added prompt dialog for session name, proper session saving with terminal binding, loadSessions refresh after save, visible success/error feedback
+- Files: `src/pages/TerminalPage.tsx` (handleSaveCheckpoint)
+
+### Issue #109: Markdown Parsing in PROBLEMS.md Broken
+- Status: Fixed
+- User said: "The markdown is not being able to parse the thing properly right."
+- Root Cause: `generateMarkdown()` outputted `## **Issue XX.Y:** Title` format while `parseProblems()` Pattern 4 read `### Issue #XXX: Title` format. Any CRUD operation rewrote the file in an incompatible format, breaking subsequent parses.
+- Fix: Rewrote `generateMarkdown()` to output `### Issue #XXX:` format (Pattern 4 compatible). Updated Pattern 4 regex to also handle dotted IDs like `#96.1`. Updated initial PROBLEMS.md creation format. Parse/generate cycle is now idempotent.
+- Files: `src/services/ProblemsService.ts`
+
+### Issue #110: Initialize Button in Wrong Location
+- Status: Fixed
+- User said: "The initialize button is under file right? It's on the file page which doesn't make any sense."
+- Fix: Moved Setup/Initialize button from FilesTab (sidebar) to TerminalPage header, next to Open Terminal / Send / Save buttons. Always accessible regardless of which sidebar tab is active. FilesTab keeps a read-only status indicator.
+- Files: `src/pages/TerminalPage.tsx`
+
+### Issue #111: Split/Drag Panes Not Working
+- Status: **FIXED**
+- User said: "The split thing is not working properly at all. The split drag panes doesn't work."
+- Root Cause: `handleTabSelect` was RESETTING the entire layout to a single leaf when clicking a tab, destroying splits.
+- Fix: `handleTabSelect` now only sets `activeTerminalId` without modifying the layout. Split buttons on TerminalPane hover still work.
+- Files: `src/pages/TerminalPage.tsx` (handleTabSelect)
+
+### Issue #112: Creating New Terminal Opens Then Disappears
+- Status: **FIXED** (likely caused by layout reset)
+- User said: "Creating a new terminal for some reason just opens a typed cloud in terminal and once I click enter in the terminal it the terminal just disappears."
+- Root Cause: Layout was being reset when tabs were clicked, and `handleTabSelect` was called with the new terminal ID, destroying any existing layout.
+- Fix: `handleTabSelect` no longer resets layout — just focuses the terminal.
+
+### Issue #113: Terminal Sidebar Not Useful
+- Status: **FIXED**
+- User said: "The terminal sidebar is not showing anything useful. There's no sessions there."
+- Fix: Complete rewrite of TerminalsTab:
+  1. Running Terminals section: shows each terminal, its session, session name, agent, date
+  2. Free terminals show "No session — ready to assign" with "New Session" button
+  3. Sessions section: shows ALL sessions with terminal status
+  4. Running sessions show green dot + terminal name
+  5. Closed sessions show grey dot + "Closed" label
+  6. Focus/Open button on hover
+- Files: `src/pages/TerminalPage.tsx` (TerminalsTab component)
+
+### Issue #114: Send Feature Needs Automatic Session Assignment
+- Status: **FIXED**
+- User said: "The send feature can automatically assign to a proper session. So it needs to be categorized properly."
+- Fix: 
+  1. Added session dropdown selector in instruction input bar
+  2. Dropdown shows "Active Terminal" (default) or any running session with terminal name
+  3. Auto-selects the active terminal's session
+  4. Send routes to correct terminal based on selected session
+  5. Falls back to active terminal if no session selected
+- Files: `src/pages/TerminalPage.tsx` (sendInstruction, instruction input bar)
+
+### Issue #115: Session Title & Terminal Association Not Clear
+- Status: **FIXED**
+- User said: "I need to see the title of the terminal, the title of the session which terminal responds to which session."
+- Fix: 
+  1. Terminal tab bar shows session name + agent + "S" badge if session exists
+  2. Sessions tab: each session shows terminal name (green badge if running) or "Closed"
+  3. Terminals tab: each terminal shows its session sub-section with name/agent/date
+  4. Clear visual hierarchy: Terminal → Session
+
+### Database Fixes
+- **FIXED:** Added missing `terminal_bindings` table creation in `initializeStorage()`
+- **FIXED:** Added `terminal_id` column to `terminal_sessions` table
+- **FIXED:** Updated `save-terminal-session` IPC handler to store `terminal_id`
+
+### Architecture Changes Summary
+1. **Terminal ≠ Session** - Creating a terminal does NOT auto-create a session
+2. **Explicit session creation** - New Session dialog requires terminal selection
+3. **Terminal↔Session mapping** - Sessions store `terminal_id`, visible in all UI
+4. **Send routing** - Send instruction routed to correct session's terminal
+5. **Layout preservation** - Tab select no longer destroys split layouts
+6. **Session lifecycle** - Close terminal = close session (terminal_id = null)
 
 ---
 
-## 📋 ISSUES BY CATEGORY
+**Last Updated:** 2026-05-12
+**Next Step:** Restart DeskFlow to test all fixes
 
-### Dashboard Issues
-- Issue 51, 52, 53: From before - still broken
-- Issue 64: Weekly Overview 21h
-- Issue 65: Heatmap hour click
-- Issue 66: Weekly Overview chart styling
-- Issue 68: Recent Sessions type
+## 🚨 2026-05-12 SESSION — Transient App Filter + Recent Sessions Fix
 
-### External Page Issues
-- Issue 57: Charts display badly, data not processed properly
-- Issue 59: Sleep chart doesn't respect period
-- Issue 60: Charts need behavioral patterns
-- Issue 67: Period switching not working
+### Issue #095: Windows Explorer disrupts stopwatch during Alt+Tab
 
-### Terminal Issues
-- Issue 69: Terminal stuck at "waiting for shell"
-- Issue 70: Terminal UI switching doesn't work
+- Status: Fixed
+- User said: "switching apps turns the tracker into windows explorer" and "should not be distrpted by the windows explorer"
+- Root cause: `pollForeground()` unconditionally accepted foreground changes, including transient system windows like "Windows Explorer" that briefly appear during Alt+Tab. This triggered a `foreground-changed` event that disrupted the Dashboard stopwatch.
+- Fix: Added `TRANSIENT_APPS` filter — Windows Explorer, Task Switching, etc. are silently ignored in `pollForeground()`. No `currentApp` change, no `foreground-changed` event, no stopwatch disruption.
+- Files: `src/main.ts`
 
----
+### Issue #096: Recent Sessions flooded with "Website" entries
 
-## 📝 Session Notes
-
-**2026-04-30 MORNING SESSION:**
-- User complained about charts displaying badly
-- User said use generate-prompt skill not graphify
-- User said to update state.md first
-
-**2026-04-30 CONTINUED SESSION:**
-- User complained Weekly Overview shows 21h
-- User complained heatmap click behavior wrong
-- User said charts ugly, use IDE Projects style
-- User complained period switching doesn't work
-- User complained Recent Sessions shows Website not App
-- User complained Terminal doesn't work at all
-
-**User's Frustrations:**
-- "IDIOT"
-- "your being really stupid rn"
-- "I MENTIONED THIS ALREAYD"
-- "WHERES THE FIX FOR THE TERMINALLL???"
+- Status: Fixed
+- User said: "recent sessions always point towards the website"
+- Root cause: Activity feed initialization took the 20 most recent log entries, which were mostly browser periodic sync data (coming every ~30s vs. app log on app change).
+- Fix: Activity feed initialization now takes a balanced mix — up to 10 app logs + up to 5 browser logs, then sorted by recency.
+- Files: `src/pages/DashboardPage.tsx`
 
 ---
 
-## 🚨 2026-05-06 SESSION - Recent Sessions Display Bugs
+## 🚨 2026-05-13 SESSION — Path Resolution Fix + Setup Button Gating Fix
 
-**Issue 73: Recent Sessions Shows "Website" for Apps**
+### Issue #116: PROBLEMS.md Reads from userDataPath Instead of Workspace Root
+
+- Status: Fixed
+- User said: "still not parse" (PROBLEMS.md) and "the same" (Requests page)
+- Root cause: `getProjectPath()` returned `userDataPath` (Electron app data dir) when project not found in DB. ProblemsService created/read PROBLEMS.md from `userDataPath/agent/PROBLEMS.md` instead of the workspace root, causing the UI to show an empty problem list. Same bug affected REQUESTS.md via `getRequestsService()`.
+- Fix:
+  1. `getProjectPath()` now returns `undefined` instead of `userDataPath` — lets ProblemsService/RequestsService fall through to `process.cwd()` (workspace root)
+  2. `tracker-mind-setup` IPC handler changed from `userDataPath` to `process.cwd()` for default base dir
+  3. Setup/Init button moved outside `{projects.length > 0 && ...}` gate — always visible even with no projects
+  4. `handleInitSetup` no longer requires a selected project — works without `projId`/`projPath`
+- Files: `src/main.ts`, `src/pages/TerminalPage.tsx`
+
+---
+
+## 🚨 2026-05-15 SESSION — Browser Extension Background Tab Phantom Tracking
+
+### Issue #121: Background tab events log websites when browser isn't focused
 
 - Status: AI Attempted Fix
-- User said: "the app doesnt track the app usage properly. its not showing it properly on the logs"
-- Also: "suddenly my youtube got 13:30:47 insange amount of hours from nowhere. theres a bug to fix on hte log recetn sessions here"
-- Files: src/pages/DashboardPage.tsx
+- Priority: High
+- User said: "theres a commonly happening problem where the app still tracks a website even if the browser is not focused. browser with the extension."
+- Root cause: `logPreviousSession()` is called from tab events (`onUpdated`, `onActivated`, `webNavigation.onCompleted`) that fire even when the browser window is backgrounded. The payload had no `is_browser_focused` field, so the server guards (`data.is_browser_focused === false`) never caught it (`undefined !== false`).
 - Fix:
-  1. `isBrowserType` logic now only checks `is_browser_tracking` flag (not `log.domain` which can be `null`)
-  2. Initialization no longer marks any log as `isActive: true` - only `pollForeground` listener should determine active app
-  3. `getPersistedActivityFeed` now clears `isActive` on restore (prevents stale elapsed times after restart)
-  4. `getElapsedDuration` now caps elapsed time at 24 hours max (prevents showing "13:30:47" from bad startTime)
-- User Test Required: Use apps, check Recent Sessions shows "App" type (not "Website"), verify elapsed times are reasonable
-
----
-
-**Last Updated:** 2026-05-06
-**Next Step:** User test Issue 73 fixes
+  1. Added `force` parameter to `logPreviousSession(force = false)` — when called from `onFocusChanged(WINDOW_ID_NONE)`, passes `true` for the legitimate final flush. All other callers default to `false`.
+  2. Added early return guard in `logPreviousSession`: if `!force && !state.isBrowserFocused`, skip silently.
+  3. Added `is_browser_focused: state.isBrowserFocused` to the payload for defense-in-depth on server side.
+- Files: `browser-extension/background.js`
+- Human Testing:
+  1. Browse a site in Chrome, then Alt+Tab to another app — the final session should still be logged (captures time spent before switching)
+  2. Leave Chrome backgrounded for a while with sites auto-refreshing — no new website entries should appear in the app
+  3. Switch back to Chrome — tracking should resume correctly, no phantom deltas

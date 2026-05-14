@@ -1,8 +1,8 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Clock, TrendingUp, Zap, Calendar, BarChart3, X, Monitor,
-  ChevronRight, Award, Activity, TrendingUp as TrendingUpIcon
+  ChevronRight, ChevronLeft, Award, Activity, TrendingUp as TrendingUpIcon
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -55,21 +55,65 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 // Format duration in seconds to human-readable string
 function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  const s = Math.round(seconds * 100) / 100;
+  if (s < 60) return `${s}s`;
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    const secs = Math.round(s % 60);
+    return secs > 0 ? `${m}m ${secs}s` : `${m}m`;
   }
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
 export default function StatsPage({ appStats, logs, selectedPeriod = 'week', timeMode = 'total', tierAssignments }: StatsPageProps) {
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   const [hourlyChartMode, setHourlyChartMode] = useState<'bar' | 'line'>('bar');
+  const [dateOffset, setDateOffset] = useState(0); // 0 = current, 1 = previous, etc.
+  const scrollPosRef = useRef(0);
+
+  // Save scroll position continuously
+  useEffect(() => {
+    const handleScroll = () => {
+      scrollPosRef.current = window.scrollY;
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Restore scroll position when selectedPeriod or dateOffset changes
+  useLayoutEffect(() => {
+    if (scrollPosRef.current > 0) {
+      window.scrollTo(0, scrollPosRef.current);
+    }
+  }, [selectedPeriod, dateOffset]);
   const chartRefs = useRef<Record<string, ChartJS | null>>({});
+
+  // Get readable label for current view
+  const getViewLabel = () => {
+    const now = new Date();
+    if (selectedPeriod === 'today') {
+      const targetDate = new Date(now);
+      targetDate.setDate(now.getDate() - dateOffset);
+      return targetDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    } else if (selectedPeriod === 'week') {
+      const weekStart = new Date(now);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (dateOffset * 7));
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      return `Week of ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    } else if (selectedPeriod === 'month') {
+      const targetMonth = new Date(now.getFullYear(), now.getMonth() - dateOffset, 1);
+      return targetMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    }
+    return 'All Time';
+  };
+
+  useEffect(() => {
+    // Reset dateOffset when selectedPeriod changes
+    setDateOffset(0);
+  }, [selectedPeriod]);
 
   useEffect(() => {
     return () => {
@@ -82,42 +126,97 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
     };
   }, []);
 
-  // Filter and sort apps based on timeMode
-  const sortedApps = useMemo(() => {
-    const filtered = timeMode === 'focus' 
-      ? appStats.filter(app => tierAssignments?.productive.includes(app.category))
-      : appStats;
-    return [...filtered].sort((a, b) => b.total_ms - a.total_ms);
-  }, [appStats, timeMode, tierAssignments]);
+  // Filter logs based on period + dateOffset
+  const filteredLogs = useMemo(() => {
+    const now = new Date();
+    let startDate: Date;
+    let endDate: Date;
 
-  // Aggregate stats - filtered by timeMode
+    if (selectedPeriod === 'today') {
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - dateOffset);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(startDate);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (selectedPeriod === 'week') {
+      const currentWeekStart = new Date(now);
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      currentWeekStart.setHours(0, 0, 0, 0);
+      startDate = new Date(currentWeekStart);
+      startDate.setDate(startDate.getDate() - (dateOffset * 7));
+      endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (selectedPeriod === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth() - dateOffset, 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() - dateOffset + 1, 0, 23, 59, 59, 999);
+    } else {
+      // 'all'
+      return logs;
+    }
+
+    return (logs as any[]).filter(log => {
+      const logDate = new Date(log.timestamp);
+      return logDate >= startDate && logDate <= endDate;
+    });
+  }, [logs, selectedPeriod, dateOffset]);
+
+  // Filter and sort apps based on timeMode and filteredLogs
+  const sortedApps = useMemo(() => {
+    // Recompute app usage from filtered logs
+    const appUsageMap: Record<string, { total_ms: number; sessions: number }> = {};
+    (filteredLogs as any[]).forEach(log => {
+      if (log.is_browser_tracking) return;
+      const appName = log.app;
+      if (!appUsageMap[appName]) {
+        appUsageMap[appName] = { total_ms: 0, sessions: 0 };
+      }
+      appUsageMap[appName].total_ms += log.duration_ms || ((log.duration || 0) * 1000);
+      appUsageMap[appName].sessions += 1;
+    });
+
+    // Transform into AppStat array format for compatibility
+    const computedAppStats: AppStat[] = Object.entries(appUsageMap).map(([app, data]) => ({
+      app,
+      category: appStats.find(s => s.app === app)?.category || 'Other',
+      total_ms: data.total_ms,
+      sessions: data.sessions,
+      avg_session_ms: data.sessions > 0 ? data.total_ms / data.sessions : 0,
+      first_seen: '', // Not critical for sorting
+      last_seen: ''   // Not critical for sorting
+    }));
+
+    const filtered = timeMode === 'focus' 
+      ? computedAppStats.filter(app => tierAssignments?.productive.includes(app.category))
+      : computedAppStats;
+    return [...filtered].sort((a, b) => b.total_ms - a.total_ms);
+  }, [filteredLogs, timeMode, tierAssignments, appStats]);
+
+  // Aggregate stats - filtered by timeMode and filteredLogs
   const totals = useMemo(() => {
     const filteredApps = timeMode === 'focus'
-      ? appStats.filter(app => tierAssignments?.productive.includes(app.category))
-      : appStats;
+      ? sortedApps.filter(app => tierAssignments?.productive.includes(app.category))
+      : sortedApps;
     const totalTimeMs = filteredApps.reduce((sum, s) => sum + (s.total_ms || 0), 0);
     const totalSessions = filteredApps.reduce((sum, s) => sum + (s.sessions || 0), 0);
     const avgSession = totalSessions > 0 ? totalTimeMs / totalSessions : 0;
     const uniqueApps = filteredApps.length;
     return { totalTime: totalTimeMs, totalSessions, avgSession, uniqueApps };
-  }, [appStats, timeMode, tierAssignments]);
+  }, [sortedApps, timeMode, tierAssignments]);
 
-  // Category breakdown - filtered by timeMode
+  // Category breakdown - filtered by timeMode and filteredLogs
   const categoryBreakdown = useMemo(() => {
-    const filteredApps = timeMode === 'focus'
-      ? appStats.filter(app => tierAssignments?.productive.includes(app.category))
-      : appStats;
     const grouped: Record<string, number> = {};
-    filteredApps.forEach(stat => {
+    sortedApps.forEach(stat => {
       grouped[stat.category] = (grouped[stat.category] || 0) + stat.total_ms;
     });
     const filteredTotal = Object.values(grouped).reduce((sum, v) => sum + v, 0);
     return Object.entries(grouped)
       .map(([category, total_ms]) => ({ category, total_ms, pct: filteredTotal > 0 ? (total_ms / filteredTotal) * 100 : 0 }))
       .sort((a, b) => b.total_ms - a.total_ms);
-  }, [appStats, timeMode, tierAssignments]);
+  }, [sortedApps]);
 
-  // Pie chart data for app distribution
+  // Pie chart data for app distribution (from sortedApps)
   const pieData = useMemo(() => {
     return {
       labels: sortedApps.map(s => s.app),
@@ -133,87 +232,95 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
     };
   }, [sortedApps]);
 
-  // Daily/hourly usage data based on selected period
+  // Daily/hourly usage data based on selected period + dateOffset
   const dailyUsage = useMemo(() => {
     const now = new Date();
 
-    // If 'today', show hourly breakdown with proper duration splitting across hours
     if (selectedPeriod === 'today') {
-      // Initialize hour buckets
       const hourBuckets = Array.from({ length: 24 }, () => 0);
 
-      // Split each log's duration across the hours it spans
-      for (const log of (logs as any[])) {
+      for (const log of (filteredLogs as any[])) {
         const sessionStart = new Date(log.timestamp).getTime();
         const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
         const logDate = new Date(sessionStart);
 
-        // Only count if today
-        if (logDate.getDate() === now.getDate() &&
-            logDate.getMonth() === now.getMonth() &&
-            logDate.getFullYear() === now.getFullYear()) {
+        let currentMs = sessionStart;
+        while (currentMs < sessionEnd) {
+          const currentHour = new Date(currentMs).getHours();
+          const hourStart = new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate(), currentHour).getTime();
+          const hourEnd = hourStart + 3600000;
+          const segmentStart = Math.max(currentMs, hourStart);
+          const segmentEnd = Math.min(sessionEnd, hourEnd);
+          const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
 
-          let currentMs = sessionStart;
-          while (currentMs < sessionEnd) {
-            const currentHour = new Date(currentMs).getHours();
-            const hourStart = new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate(), currentHour).getTime();
-            const hourEnd = hourStart + 3600000;
-            const segmentStart = Math.max(currentMs, hourStart);
-            const segmentEnd = Math.min(sessionEnd, hourEnd);
-            const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
-
-            if (segmentSeconds > 0 && currentHour >= 0 && currentHour < 24) {
-              hourBuckets[currentHour] += segmentSeconds;
-            }
-
-            currentMs = hourStart + 3600000;
+          if (segmentSeconds > 0 && currentHour >= 0 && currentHour < 24) {
+            hourBuckets[currentHour] += segmentSeconds;
           }
+
+          currentMs = hourStart + 3600000;
         }
       }
 
       return hourBuckets.map((minutes, i) => ({
         hour: i,
         label: `${i.toString().padStart(2, '0')}:00`,
-        minutes // value is in seconds (but variable name kept for compatibility with charts)
+        minutes
       }));
     }
 
-    // For week/month/all, show daily breakdown
-    const days = selectedPeriod === 'week' ? 7 : selectedPeriod === 'month' ? 30 : 90;
-    const startDate = subDays(now, days - 1);
-    const daysInRange = eachDayOfInterval({ start: startDate, end: now });
+    if (selectedPeriod === 'week') {
+      const now = new Date();
+      const currentWeekStart = new Date(now);
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      currentWeekStart.setHours(0, 0, 0, 0);
+      const targetWeekStart = new Date(currentWeekStart);
+      targetWeekStart.setDate(targetWeekStart.getDate() - (dateOffset * 7));
+      const daysInRange = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(targetWeekStart);
+        d.setDate(d.getDate() + i);
+        return d;
+      });
 
-    return daysInRange.map(day => {
-      const dayStr = format(day, 'yyyy-MM-dd');
-      const dayLogs = (logs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
-      const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
-      return { date: dayStr, label: format(day, 'MMM dd'), minutes: totalMin };
+      return daysInRange.map(day => {
+        const dayStr = format(day, 'yyyy-MM-dd');
+        const dayLogs = (filteredLogs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
+        const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
+        return { date: dayStr, label: format(day, 'EEE'), minutes: totalMin };
+      });
+    }
+
+    if (selectedPeriod === 'month') {
+      const targetMonth = new Date(now.getFullYear(), now.getMonth() - dateOffset, 1);
+      const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
+      return Array.from({ length: daysInMonth }, (_, i) => {
+        const d = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), i + 1);
+        const dayStr = format(d, 'yyyy-MM-dd');
+        const dayLogs = (filteredLogs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
+        const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
+        return { date: dayStr, label: `${i + 1}`, minutes: totalMin };
+      });
+    }
+
+    // 'all'
+    const monthMap: Record<string, { total: number }> = {};
+    (filteredLogs as any[]).forEach(log => {
+      const key = format(new Date(log.timestamp), 'yyyy-MM');
+      if (!monthMap[key]) monthMap[key] = { total: 0 };
+      monthMap[key].total += log.duration || 0;
     });
-  }, [logs, selectedPeriod]);
+    return Object.entries(monthMap).map(([key, val]) => ({
+      date: key,
+      label: format(new Date(key + '-01'), 'MMM yy'),
+      minutes: val.total
+    }));
+  }, [filteredLogs, selectedPeriod, dateOffset]);
 
-  // Hourly distribution (computed from logs) — split duration across hours
+  // Hourly distribution (computed from filteredLogs)
   const hourlyDistribution = useMemo(() => {
-    // Filter logs by selected period
-    const now = new Date();
-    const filteredLogs = (logs as any[]).filter(log => {
-      if (selectedPeriod === 'today') {
-        return log.timestamp.getDate() === now.getDate() &&
-               log.timestamp.getMonth() === now.getMonth() &&
-               log.timestamp.getFullYear() === now.getFullYear();
-      } else if (selectedPeriod === 'week') {
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        return log.timestamp >= weekAgo;
-      } else if (selectedPeriod === 'month') {
-        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        return log.timestamp >= monthAgo;
-      }
-      // 'all' - return all logs
-      return true;
-    });
-
     const hourBuckets = Array.from({ length: 24 }, () => 0);
 
-    for (const log of filteredLogs) {
+    for (const log of (filteredLogs as any[])) {
+      if (log.is_browser_tracking) continue;
       const sessionStart = new Date(log.timestamp).getTime();
       const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
 
@@ -236,16 +343,16 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
     }
 
     return hourBuckets.map((minutes, hour) => ({ hour, minutes }));
-  }, [logs, selectedPeriod]); // <-- NOW depends on both logs AND selectedPeriod
+  }, [filteredLogs]);
 
-  // Selected app detailed data - ALWAYS shows 7 days regardless of selectedPeriod
+  // Selected app detailed data
   const selectedAppData = useMemo(() => {
     if (!selectedApp) return null;
     const stat = appStats.find(s => s.app === selectedApp);
     if (!stat) return null;
 
-    // Session timeline - filter logs for this app
-    const appLogs = logs.filter(log => log.app === selectedApp).sort((a, b) =>
+    // Session timeline - filter filteredLogs for this app
+    const appLogs = (filteredLogs as any[]).filter(log => log.app === selectedApp).sort((a, b) =>
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
@@ -313,7 +420,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
       productivityScore,
       totalSessions: appLogs.length,
     };
-  }, [selectedApp, appStats, logs]);
+  }, [selectedApp, appStats, filteredLogs]);
 
   // Chart data for daily usage (values in seconds)
   const dailyChartData = {
@@ -476,11 +583,33 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
       animate={{ opacity: 1, y: 0 }}
       className="space-y-8"
     >
-      {/* Header */}
+    {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Applications</h1>
-          <p className="text-sm text-zinc-500 mt-1">Track your application usage • Showing: {selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === 'month' ? 'This Month' : 'All Time'}</p>
+          <p className="text-sm text-zinc-500 mt-1">Track your application usage</p>
+        </div>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setDateOffset(prev => prev + 1)}
+            className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <span className="text-sm font-medium px-2">
+            {getViewLabel()}
+          </span>
+          <button
+            onClick={() => setDateOffset(prev => Math.max(0, prev - 1))}
+            disabled={dateOffset === 0}
+            className={`p-2 rounded-lg transition-colors ${
+              dateOffset === 0 
+                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
+                : 'bg-zinc-800 hover:bg-zinc-700'
+            }`}
+          >
+            <ChevronRight size={16} />
+          </button>
         </div>
       </div>
 
@@ -490,7 +619,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
           <div className="flex justify-between items-center mb-8">
             <div>
               <div className="text-xl font-semibold">App Time Distribution</div>
-              <div className="text-sm text-zinc-500">This {selectedPeriod}</div>
+              <div className="text-sm text-zinc-500">{getViewLabel()}</div>
             </div>
             <div className="text-right">
               <div className="text-2xl font-semibold tabular-nums">
@@ -505,7 +634,23 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                  legend: { position: 'bottom', labels: { color: '#a1a1aa', padding: 18, usePointStyle: true } }
+                  legend: { position: 'bottom', labels: { color: '#a1a1aa', padding: 18, usePointStyle: true } },
+                  tooltip: {
+                    backgroundColor: 'rgba(24, 24, 27, 0.95)',
+                    titleColor: '#fff',
+                    bodyColor: '#a1a1aa',
+                    borderColor: '#3f3f46',
+                    borderWidth: 1,
+                    padding: 12,
+                    callbacks: {
+                      label: (ctx: any) => {
+                        const total = (ctx.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0);
+                        const val = ctx.parsed as number;
+                        const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0';
+                        return ` ${ctx.label}: ${formatDuration(val)} (${pct}%)`;
+                      }
+                    }
+                  }
                 }
               }} />
             </div>

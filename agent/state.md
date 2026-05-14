@@ -1,21 +1,927 @@
 # 📌 Project State
 
-**Purpose:** Current status, known issues, and recent changes for DeskFlow.
-
-**Version:** 2.4
-**Last Updated:** 2026-05-09 (README update to v2.4)
-**Build Status:** ✅ Build succeeds
-**Session Date:** 2026-05-09
-
-## 📦 Since Last Commit
-
-**Last Commit:** `e4f1490` — feat: Tracker Mind services, dashboard/insights/external redesign...
-
-*No uncommitted changes.*
+> **Purpose:** Current project state for AI context — tracks version, recent changes, known issues, and feature inventory.
+> **Version:** 3.9
+> **Last Updated:** 2026-05-15 (Browser extension background tab phantom tracking fix)
+> **Build Status:** ✅ Build succeeds (verified 2026-05-15)
+> **Session Date:** 2026-05-15
+> **Token Estimate:** ~8500 tokens
 
 ---
 
-## 📝 Recent Changes
+**Fix: Browser Extension Background Tab Phantom Tracking**
+- ✅ **FIXED:** `logPreviousSession()` now guards against background tab events — skips sending data when browser isn't focused
+- ✅ `logPreviousSession(force = false)` — `force=true` only used by `onFocusChanged` for legitimate final flush on focus loss
+- ✅ Added `is_browser_focused` to `logPreviousSession()` payload for server-side defense-in-depth
+- ✅ `periodicSync()` was already correctly guarded (no changes needed there)
+- Files: `browser-extension/background.js`
+- Build: ✅ No build needed (JS only, no TypeScript)
+
+**Initialize System Implementation**
+- ✅ **FIXED:** `initializeTerminal` no longer has 2-second arbitrary delay — waits for `terminal:ready` event first, then writes prompts
+- ✅ **FIXED:** All tab creation now uses `insertIntoLayout()` instead of overwriting layout with a single leaf node (preserves existing terminal panes)
+- ✅ **FIXED:** Header "Open Terminal" button now sets layout via `insertIntoLayout` (previously set no layout)
+- ✅ **FIXED:** `create-terminal-for-problem` handler uses `insertIntoLayout` instead of overwrite
+- ✅ **FIXED:** `NewSessionDialog` onCreate uses `insertIntoLayout` instead of overwrite
+- ✅ **FIXED:** `handleResumeSession` now sets layout via `insertIntoLayout` (previously set no layout)
+- ✅ **FIXED:** `handleSplit` in `TerminalWindow.tsx` removed 2-second setTimeout before dispatching `terminal-created`
+- ✅ **ADDED:** "Initialize" button in terminal header bar — opens `NewSessionDialog` in initialize mode
+- ✅ **ADDED:** `NewSessionDialog` now has `mode` prop ('create' | 'initialize') — in initialize mode reads `agents.md`, lists agent files, shows base system prompt
+- ✅ **ADDED:** Agent file picker in `InstructionPanel` — lists `agent/` dir files via `listAgentDirFiles`, includes selected file content in composed prompt
+- ✅ **FIXED:** Session resume now loads saved session config (`loadSessionConfig`) and passes init content/system prompt to `initializeTerminal`
+- ✅ **FIXED:** TypeScript errors in `main.ts` `save-base-system-prompt` and `get-base-system-prompt` handlers (used `loadPreferences()` which returns void)
+- Files: `src/pages/TerminalPage.tsx`, `src/components/TerminalWindow.tsx`, `src/components/NewSessionDialog.tsx`, `src/components/InstructionPanel.tsx`, `src/main.ts`
+- Build: ✅ Passes
+- ✅ **FIXED:** Added `initializingTerminals` ref to prevent duplicate `initializeTerminal` calls
+- ✅ **FIXED:** Wrapped `initializeTerminal` in try-catch with console logging for visibility
+- ✅ **FIXED:** New Session dialog now directly calls `await initializeTerminal()` after dispatching `create-terminal` + 2s wait (bypasses fragile event chain)
+- ✅ **FIXED:** "Open Terminal" button now also calls `initializeTerminal()` directly
+- ✅ **FIXED:** `handleTerminalCreated` now properly `await`s `initializeTerminal()` instead of fire-and-forget
+- ✅ `initializeTerminal` is now idempotent — guarded by `initializingTerminals` ref
+- Files: `src/pages/TerminalPage.tsx`
+- Build: ✅ Passes
+
+**Initialize.md Restructured as Checklist**
+- ✅ **REWRITTEN:** `agent/Initialize.md` changed from static template to dynamic initialization checklist
+- ✅ Each item now follows: check existence → check content → skip/update/create
+- ✅ Mapping table expanded to include all agent directory files
+- ✅ Added agent-reflect log: `2026-05-13_idiot_trigger.md` (wrong file confusion)
+- ✅ Added file search pattern to `agent/debugging.md`
+- Files: `agent/Initialize.md`, `agent/debugging.md`
+- Build: ✅ Passes
+
+## Recent Changes Summary
+
+**InstructionPanel + TerminalMiniMap + ProblemsService description/root_cause fields**
+- ✅ **ADDED:** `InstructionPanel` component (`src/components/InstructionPanel.tsx`) — full instruction composer with problem/request checkboxes, skill dropdown, prompt preview, and send
+- ✅ **ADDED:** `TerminalMiniMap` component (`src/components/TerminalMiniMap.tsx`) — draggable mini-map for terminal layout in sidebar
+- ✅ **ADDED:** `description` and `root_cause` fields to `Problem` interface in `ProblemsService.ts`
+- ✅ **ADDED:** Request loading at TerminalPage level for InstructionPanel consumption
+- ✅ **MODIFIED:** TerminalPage "Send" button split into "Compose" (full panel) and "Quick" (compact input)
+- ✅ Build: ✅ Passes
+- Files: `src/components/InstructionPanel.tsx`, `src/components/TerminalMiniMap.tsx`, `src/services/ProblemsService.ts`, `src/pages/TerminalPage.tsx`
+
+**Data Layer Consolidation — Problems/Requests JSON-only (Prompt 4)**
+- ✅ **FIXED:** `delete-problem` now deletes from `problems.json`/`PROBLEMS.md` via ProblemsService (was DB-only, problems reappeared on reload)
+- ✅ **FIXED:** `link-problem-to-request` now uses RequestsService — updates `requests.json` (was DB-only, links lost on reload)
+- ✅ **FIXED:** `assign-problem-to-terminal` now reads from ProblemsService JSON (was reading from DB, could miss problems)
+- ✅ **REMOVED:** All secondary DB writes from problem/request IPC handlers (create/update/delete — JSON is sole source of truth)
+- ✅ **FIXED:** `tracker-mind-setup init-json-export` no longer overwrites JSON from empty DB — uses ProblemsService/RequestsService which migrates from MD
+- ✅ **FIXED:** `tracker-mind-setup init-problems-md` / `init-requests-md` use Services instead of DB for initial content
+- ✅ **IMPLEMENTED:** `sync-problems-md` IPC handler — regenerates PROBLEMS.md from JSON via ProblemsService (was exposed in preload but had no handler)
+- ✅ **CLEANED:** Preload signatures for `deleteProblem`, `deleteRequest`, `getRequests` updated to pass object params
+- ✅ Build: ✅ Passes
+- Files: `src/main.ts`, `src/preload.ts`
+
+**Recursive Split Pane Rendering + Problems/Requests MD→JSON Migration Fix**
+- ✅ **FIXED:** TerminalLayout now recursively interprets PaneNode tree — split nodes render as flex side-by-side/top-bottom with draggable SplitHandle (was z-index stacking, only active terminal visible)
+- ✅ **FIXED:** `getProblems()` triggers MD→JSON migration when `problems.json` is empty array `[]` but `PROBLEMS.md` has content (was returning `[]` silently, never parsing markdown)
+- ✅ **FIXED:** `getRequests()` same fix — empty JSON now checks MD for content before returning empty
+- ✅ **FIXED:** Legacy markdown parsers now normalize `\r\n` → `\n` before regex matching (Windows CRLF was breaking regex, 0 matches)
+- ✅ **FIXED:** TDZ error in `TerminalPage.tsx` — moved `loadSessions` above `handleInstructionPanelSend` (referenced in deps array before declaration)
+- ✅ **FIXED:** Favicon in `index.html` — changed from Vite default (`vite.svg`) to app icon (`deskflow-icon.png`)
+- ✅ **CLEANED:** Removed unused `terminalIds` prop from `TerminalLayoutProps` and `TerminalLayout` component
+- ✅ Build: ✅ Passes
+- Files: `src/components/TerminalWindow.tsx`, `src/services/ProblemsService.ts`, `src/services/RequestsService.ts`, `src/pages/TerminalPage.tsx`, `index.html`
+
+**Save Button Dialog + Error Toast + Terminal Split + PROBLEMS.md/REQUESTS.md DB + Init**
+- ✅ **FIXED:** Save button now opens a modal dialog asking for workspace name (replaces broken `window.prompt()`)
+- ✅ **FIXED:** `terminalError` toast bar now renders above terminal layout (was invisible)
+- ✅ **FIXED:** `closeTerminal` preserves split layout — uses `removePane` for ALL terminals (not just non-active ones)
+- ✅ **FIXED:** MapEditor changes now persist to DB via `handleLayoutChange` (was using raw `setTerminalLayout`)
+- ✅ **FIXED:** MapEditor drag-to-split now works — quadrant detection (top/bottom 25% = horizontal split, left/right 25% = vertical split, center = swap)
+- ✅ **ADDED:** `workspace_problems` and `workspace_requests` DB tables with auto-increment IDs
+- ✅ **ADDED:** DB-backed IPC handlers `get-problems`, `create-problem`, `update-problem-status`, `delete-problem`, `get-requests`, `create-request`, `update-request-status`, `delete-request`, `link-problem-to-request`
+- ✅ **ADDED:** `tracker-mind-setup` now creates:
+  - `AGENTS.md` — auto-generated with file list from agent/ directory (created/updated each init)
+  - `INITIALIZE.md` — agent-specific init guide (opencode vs claude)
+  - `problems.json`, `requests.json`, `terminal-sessions.json` — machine-parseable JSON exports
+  - Updated `PROBLEMS.md`/`REQUESTS.md` with DB data
+  - `state.md` with agent name
+- ✅ **ADDED:** Agent name passed through init flow — uses `terminal-defaultAgent` from localStorage
+- Files: `src/main.ts`, `src/preload.ts`, `src/pages/TerminalPage.tsx`, `src/components/TerminalWindow.tsx`, `src/components/MapEditor.tsx`
+- Build: ✅ Passes
+
+**Terminal Session Fixes (Resume, Save, Display, Column Mismatch)**
+- ✅ **FIXED:** `save-terminal-session` no longer resets `created_at` — uses UPDATE for existing rows instead of INSERT OR REPLACE (main.ts)
+- ✅ **FIXED:** `handleSaveCheckpoint` now updates the existing session (uses `session.id`) instead of creating a new `checkpoint-*` entry (TerminalPage.tsx)
+- ✅ **FIXED:** Session display column mismatch: `started_at` → `created_at`, `total_cost_usd` → `total_cost` (DB returns snake_case)
+- ✅ **FIXED:** `session.resume_id` and `session.id` now displayed in session list
+- ✅ **FIXED:** `handleResumeSession` now passes `resumeId` to `initializeTerminal` so the resume command is sent as part of agent launch (`--resume` flag), not as a separate delayed write that arrives before the agent starts
+- ✅ **FIXED:** "Open" button for closed sessions always creates a new terminal instead of reusing existing ones (eliminates phantom "S" badge on wrong tabs)
+- Build: ✅ Passes
+
+**ProblemsTab Markdown Round-Trip Fix + Setup Button Moved to Header**
+- ✅ **FIXED:** `generateMarkdown()` now outputs `### Issue #XXX:` format (Pattern 4) instead of `## **Issue XX.Y:**` format — parse/generate cycle is now idempotent
+  - Updated Pattern 4 regex to handle dotted IDs like `#96.1`
+  - Updated initial PROBLEMS.md creation format to match
+  - Build: ✅ Passes
+- ✅ **MOVED:** Setup/Initialize button from FilesTab to TerminalPage header (next to Open Terminal / Send / Save)
+  - Now always accessible regardless of which sidebar tab is active
+  - Uses its own `initStatus` state + `handleInitSetup` callback at TerminalPage level
+  - FilesTab keeps read-only status indicator; auto-refreshes after setup via 10s poll
+  - Build: ✅ Passes
+
+**Terminal Startup CRITICAL FIX: Terminal Data Not Displaying**
+- ✅ **FIXED:** Terminal IPC callback signature mismatch in preload.ts
+  - `onTerminalData` was wrapping callback args into object: `{ terminalId, data }`
+  - But TerminalPane.tsx expected two separate args: `(terminalId, data)`
+  - Result: Terminal data was never displayed (stuck on "Starting shell...")
+  - Fix: Changed preload to pass two args instead of object (lines 183-192)
+  - Build: ✅ Passes
+
+**Terminal Workspace Phases 1-6 COMPLETE & VERIFIED**
+- ✅ Phase 3: Fixed ProblemsTab parser for `### Issue #XXX:` format
+- ✅ Phase 4: Fixed preset execution (now writes command to active terminal)
+- ✅ Phase 5: Sessions working (create, resume, delete, agent selection)
+- ✅ Phase 6: Built interactive map tab with drag-to-rearrange and drag-to-split
+- ✅ **VERIFICATION COMPLETE (2026-05-12):** Build passes, all ~20 terminal features implemented
+
+---
+
+## Current State Summary
+
+Working Electron/React/TypeScript desktop app for productivity tracking. v2.4 includes Tracker Mind system, insights dashboard, external page glass-styled charts, custom categories, graphify knowledge graph, and complete dashboard redesign. Builds and runs successfully.
+
+---
+
+### 2026-05-12 — CRITICAL FIX: Terminal Data Not Displaying (Stuck on "Starting shell...")
+
+**What Changed:**
+1. ✅ **Fixed terminal IPC callback signature mismatch** in preload.ts
+   - Issue: `onTerminalData` callback was wrapping args into object: `{ terminalId, data }`
+   - But TerminalPane.tsx expected two separate args: `(terminalId, data)`
+   - Result: PTY data was never written to terminal (stuck on "Starting shell...")
+   - Fix: Changed `onTerminalData` and `onTerminalExit` to pass separate args instead of objects
+
+**Files Modified:**
+- `src/preload.ts` (lines 183-192) — Changed callback signatures to match TerminalWindow expectations
+
+**Why:** When main.ts sent `terminal:data` IPC with `(terminalId, data)` args, the preload wrapper was converting them to an object for the callback. But TerminalPane's callback expected `(terminalId, data)` separately. Mismatch caused terminal to display only the "Starting shell..." message, never the actual PTY output.
+
+**Result:** Terminal now displays PTY output correctly. Terminals should start properly and show shell prompt/output.
+
+**Build:** ✅ Passes
+
+---
+
+### 2026-05-13 — BrowserActivityPage Chart Now Follows Period Selection
+
+**What Changed:**
+1. ✅ Fixed `hourlyDistribution` to produce period-appropriate data instead of always 24 hours
+   - **today**: Shows 24 hourly bars (same as before)
+   - **week**: Shows 7 daily bars aggregated by date (was always 24 hourly buckets)
+   - **month**: Shows 30 daily bars aggregated by date (was always 24 hourly buckets)
+   - **all**: Shows 90 daily bars aggregated by date (was always 24 hourly buckets)
+   - Uses `Map<string, number>` to aggregate durations by day for week/month/all
+
+2. ✅ Updated all chart data (bar + line) to use period-aware labels and data
+   - Labels now show hour (`00:00`) for today, weekday short names for week, month+day for month/all
+   - Current-hour highlight only applies to 'today' view
+
+3. ✅ Updated chart options
+   - `maxTicksLimit` adjusts per period (12 for today, 7 for week, 15 for month/all)
+   - Smaller pointRadius for daily views (less visual clutter)
+
+**Files Modified:**
+- `src/pages/BrowserActivityPage.tsx` - Fixed hourlyDistribution, chart data, chart options
+- `src/pages/ExternalPage.tsx` - Also fixed viewing activity chart period awareness
+
+**Why:** The hourly distribution chart always created 24 hour buckets regardless of selected period, so switching to weekly/monthly still showed 24-hour format.
+
+**Result:** BrowserActivityPage chart now shows proper time-based bars matching the selected period — 24 hourly bars for today, 7 daily bars for week, 30 daily bars for month, 90 daily bars for all time.
+
+**Build:** ✅ OK
+
+### 2026-05-13 — Timeline Navigation + Browser Stats Fixes
+
+**What Changed:**
+1. ✅ Fixed "browser" app entry showing in Applications stats (StatsPage)
+   - Added validation in `addLog` to skip browser entries without valid domains
+   - Enhanced SQL WHERE clause in `getStats` to exclude generic browser names
+   - Added client-side filter in JSON fallback path
+
+2. ✅ Added forward/backward timeline navigation to StatsPage (/stats)
+   - Added `dateOffset` state with left/right arrow buttons in header
+   - Added `getViewLabel()` for dynamic period display (e.g., "Wed, May 13", "Week of May 10")
+   - Added `filteredLogs` computed from `logs` + `selectedPeriod` + `dateOffset`
+   - Updated all stats computations (`sortedApps`, `totals`, `categoryBreakdown`, `dailyUsage`, `hourlyDistribution`, `selectedAppData`) to use `filteredLogs`
+   - Navigation resets when `selectedPeriod` changes
+
+3. ✅ Added forward/backward timeline navigation to BrowserActivityPage (/browser)
+   - Added `dateOffset` state and arrow buttons in header
+   - Modified 3 backend functions (`getBrowserLogs`, `getBrowserDomainStats`, `getBrowserCategoryStats`) to accept `dateOffset` parameter and compute start/end dates
+   - Updated IPC handlers and preload signatures to pass `dateOffset`
+   - `fetchData` now re-fetches when `dateOffset` changes
+
+**Files Modified:**
+- `src/main.ts` — `addLog` skip browser w/o domain; `getStats` SQL filter; browser functions accept `dateOffset`; IPC handlers pass `dateOffset`
+- `src/preload.ts` — Browser IPC signatures include `dateOffset`
+- `src/pages/StatsPage.tsx` — Navigation arrows, `dateOffset`, `filteredLogs`, all memos use filtered data
+- `src/pages/BrowserActivityPage.tsx` — Navigation arrows, `dateOffset`, `fetchData` passes offset
+
+**Result:** Users can navigate backward/forward through days/weeks/months on both Apps and Browser pages. "browser" no longer shows as an app in stats.
+
+### 2026-05-12 — Phase 6: Built Interactive Map Tab Layout Editor with Drag-to-Split
+
+**What Changed:**
+1. ✅ Created new `MapEditor.tsx` component with `@dnd-kit` drag-and-drop integration
+2. ✅ Map tab now supports drag-to-rearrange panes (swaps terminalIds in layout tree)
+3. ✅ Map tab now supports drag-to-split (creates split nodes when dropping on target)
+4. ✅ Visual feedback: highlighted drop targets, drag overlay, hover tooltips
+5. ✅ Layout updates persist to database via `onLayoutChange` callback
+
+**Files Modified:**
+- `src/components/MapEditor.tsx` (NEW) — Interactive map component with DnD
+- `src/pages/TerminalPage.tsx` — Integrated MapEditor into map tab (line 1185+)
+
+**How It Works:**
+- Map tab flattens PaneNode tree into draggable panes
+- `@dnd-kit` handles drag start/over/end events
+- On drop: `swapLeavesInTree()` swaps terminalIds OR `createSplitFromDrag()` creates splits
+- New layout passed to parent via `onLayoutChange()` → saved to DB
+
+**Result:** Map tab is now an interactive layout editor. Drag panes to rearrange or split them.
+
+---
+
+### 2026-05-12 — Phase 4: Fixed Preset Execution + Phases 3-5 Complete
+
+**What Changed (Phase 4):**
+1. ✅ Fixed `handleExecutePreset()` to capture returned `command` and write to terminal
+2. ✅ Presets now actually execute (write command to active terminal via `terminalWrite`)
+3. ✅ Verified send instructions and save checkpoint already working
+
+**What Changed (Phase 3):**
+1. ✅ Added Pattern 4 to `ProblemsService.parseProblems()` for `### Issue #XXX:` format
+2. ✅ ProblemsTab now loads all issues correctly
+
+**What Changed (Phase 5):**
+1. ✅ Verified sessions fully working (all IPC/preload/UI wired end-to-end)
+2. ✅ Minor non-blocking issues found (missing type declarations, redundant IPC call)
+
+**Files Modified:**
+- `src/services/ProblemsService.ts` — Added Pattern 4 parser (line 206-251)
+- `src/pages/TerminalPage.tsx` — Fixed `handleExecutePreset()` to write command (line 545-552)
+
+---
+
+- [Problems](PROBLEMS.md) — Active issues
+- [Requests](REQUESTS.md) — Feature requests
+- [Debugging](debugging.md) — Error patterns
+- [Data](data.md) — Schemas and IPC
+- [Feature Tracker](FEATURE_TRACKER.md) — Complete page/feature inventory
+- [README](../README.md) — Project documentation
+
+---
+
+### 2026-05-12 — Fixed ProblemsTab Parser for `### Issue #XXX:` Format
+
+**What Changed:**
+1. ✅ Added Pattern 4 to `ProblemsService.parseProblems()` to match `### Issue #094: Title` format
+2. ✅ Now correctly extracts Status, Files, User said (notes), and Fix fields from SESSION sections
+
+**Files Modified:**
+- `src/services/ProblemsService.ts` — Added Pattern 4 parser regex
+
+**Why:** Existing parsers only matched `## **Issue XX.Y:**` and `**Issue XX:**` formats, but actual PROBLEMS.md uses `### Issue #XXX: Title` under `## 🚨 SESSION` headings. ProblemsTab was returning empty because no parser matched the real file format.
+
+**Result:** ProblemsTab now loads all issues from PROBLEMS.md correctly.
+
+---
+
+### 2026-05-12 — Terminal Workspace Bug Fixes (6 Critical Bugs Fixed)
+
+**What Changed:**
+1. ✅ **Bug 1 - Double Spawn Fixed** (`TerminalWindow.tsx`) — `create-terminal` event handler now adds terminalId to `spawnedTerminalsRef.current` BEFORE calling `await spawnTerminal()`. Prevents `handleTerminalReady` from spawning a duplicate PTY when TerminalPane mounts.
+2. ✅ **Bug 2 - Single Layout Source of Truth** (`TerminalPage.tsx`, `TerminalWindow.tsx`) — Removed `useTerminalLayout` from TerminalPage. TerminalLayout is now a controlled component receiving `layout` and `activeTerminalId` as props. Layout persistence via direct `getTerminalLayouts`/`saveTerminalLayout` calls. PaneNode type simplified (removed legacy `id`/`size` fields, added `splitRatio`).
+3. ✅ **Bug 3 - AI Agent Auto-Start** (`TerminalPage.tsx`) — Added `initializeTerminal(terminalId, agent, resumeId?)` function that: (1) sends system prompt from preferences, (2) sends INITIALIZE.md from project root, (3) launches AI agent (`claude\n` or `opencode\n`). Called from `handleTerminalCreated` event handler.
+4. ✅ **Bug 4 - Open Terminal Button Fixed** (`TerminalPage.tsx`) — Replaced direct layout manipulation with `dispatchEvent(new CustomEvent('create-terminal', ...))`. Now properly triggers full initialization flow (spawn → terminal-created → system prompt → INITIALIZE.md → agent launch).
+5. ✅ **Bug 5 - Layout Persistence Re-Spawn** (`TerminalPage.tsx`, `main.ts`) — Layout loads from DB on mount. `terminal:ready` IPC event added to both `terminal:create` and `spawn-terminal` handlers. Renderer listens for ready event to flush input buffer.
+6. ✅ **Bug 6 - Keyboard Input Buffer** (`TerminalWindow.tsx`) — `TerminalPane` uses module-level `inputBuffers` Map and `terminalReadyStates` Map. Keystrokes before PTY ready are buffered and flushed when `terminal:ready` event fires. Also listens via `window.deskflowAPI.onTerminalReady`.
+7. ✅ **TerminalManager sends terminal:ready** (`main.ts`) — Both `terminal:create` and `spawn-terminal` handlers now send `terminal:ready` IPC event after successful spawn.
+8. ✅ **Consolidated preload API** (`preload.ts`) — Added `terminalWrite`, `terminalResize`, `terminalDestroy`, `onTerminalReady` alongside existing APIs.
+9. ✅ **Split handle drag resize** — `SplitHandle` component now implements actual mouse drag to adjust `splitRatio` between adjacent panes.
+10. ✅ **TerminalPane hover controls** — Split/Close buttons appear on hover, same as original but using the new simplified layout structure.
+
+**Files Modified:**
+- `src/components/TerminalWindow.tsx` — Complete rewrite: controlled component, input buffering, drag resize, hover controls, helper functions
+- `src/pages/TerminalPage.tsx` — Removed `useTerminalLayout`, added layout state + persistence + `initializeTerminal`, fixed Open Terminal button, updated event handlers
+- `src/main.ts` — Added `terminal:ready` to both spawn handlers, consolidated API handlers (`terminal:write-old-format`, `terminal:resize-old-format`, `terminal:destroy-old-format`)
+- `src/preload.ts` — Added `terminalWrite`, `terminalResize`, `terminalDestroy`, `onTerminalReady` APIs
+
+**Build:** ✅ (Vite + electron tsc clean)
+
+**Remaining:** `useTerminalLayout.ts` hook is now unused but preserved for reference. Can be cleaned up in a future pass.
+
+### 2026-05-12 — Tracking Reliability Phase 6: Fix Browser Log `id` Mismatch
+
+**What Changed:**
+1. ✅ **Fixed `id` mismatch in `handleBrowserData()`** — New browser entries created with `entry.id = Date.now()`, but SQLite INSERT omits `id` (uses AUTOINCREMENT). Subsequent UPDATEs used `WHERE id = Date.now()` which never matched the actual row. Fix: capture `result.lastInsertRowid` after INSERT and assign to `entry.id`.
+
+**Files Modified:**
+- `src/main.ts` — Line 6356: capture `result` from `stmt.run()`, assign `entry.id = result.lastInsertRowid`
+
+**Why:** `id` mismatch caused browser log entries in SQLite to never have their `duration_ms` updated after the initial INSERT. Logs table showed ~5s per domain regardless of actual browsing time (~1.5h).
+
+**Result:** Browser logs table now correctly accumulates duration across periodic syncs.
+
+**Build:** ✅
+
+### 2026-05-12 — Terminal Workspace Critical UX Fixes (FilesTab, + button, Save button)
+
+**What Changed:**
+1. ✅ **FilesTab projectPath prop added** — FilesTab now receives `projectPath` directly from TerminalPage's `propProjectPath`. When opened from IDE page workspace modal, the project path is already known and passed directly. FilesTab uses it before falling back to projects array lookup. No more "No project selected" dropdown when coming from IDE page.
+2. ✅ **+ button always visible** — Removed `{Object.keys(terminalTabs).length > 0 && (` gate that was hiding the entire tab bar (including + button) when no terminals existed. User can now create the first terminal.
+3. ✅ **Save button always visible in header** — Extracted `handleSaveCheckpoint` callback. Added 💾 Save button in terminal header next to Send, always visible when a terminal is active instead of hidden inside the instruction input bar.
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — FilesTab `projectPath` prop, tab bar always renders, `handleSaveCheckpoint` callback, Save button in header
+
+**Build:** ✅
+
+### 2026-05-12 — Final Terminal Feature Implementation (Phase 2-8 Complete)
+
+**What Changed:**
+1. ✅ **Terminal messages persistence** (main.ts) — PTY output and user input now save to `terminal_messages` DB table. Data handlers in both `terminal:create` and `spawn-terminal` persist output; `write-terminal` persists user input.
+2. ✅ **System Prompt customization page** (SettingsPage.tsx) — New "System Prompts" tab in Settings with textareas for claude, opencode, custom agents. Saved via preferences API. Auto-sends on terminal creation.
+3. ✅ **INITIALIZE.md auto-load** (TerminalPage.tsx) — On terminal creation, reads INITIALIZE.md from project root and sends to terminal via `readProjectFile` IPC.
+4. ✅ **Session resume creates terminal if needed** (TerminalPage.tsx) — `handleResumeSession` now creates a new terminal before sending resume command if no active terminal exists.
+5. ✅ **+ button uses default agent** (TerminalPage.tsx) — Reads `terminal-defaultAgent` from localStorage instead of hardcoded 'claude'.
+6. ✅ **Open Terminal button uses default agent** (TerminalPage.tsx) — Same fix applied.
+7. ✅ **New Session dialog persists default agent** (TerminalPage.tsx) — Selected agent saved to `terminal-defaultAgent` in localStorage.
+8. ✅ **Sidebar width persists across restarts** (TerminalPage.tsx) — Loads from `terminal-sidebarWidth` localStorage on init, saves on every change.
+9. ✅ **Problem-created terminals get system prompts** (TerminalPage.tsx) — `create-terminal-for-problem` handler now dispatches `terminal-created` so shared initialization runs.
+10. ✅ **Missing IPC handlers added** (main.ts) — `read-project-file` and `list-project-files` handlers for reading project files (used by INITIALIZE.md loading).
+
+**Files Modified:**
+- `src/main.ts` — Terminal messages persistence, read-project-file + list-project-files IPC handlers
+- `src/pages/SettingsPage.tsx` — New System Prompts tab with per-agent prompt editors
+- `src/pages/TerminalPage.tsx` — Resume fix, default agent persistence, INITIALIZE.md loading, system prompt sending, sidebar width persistence, problem-created terminal init
+
+**Result:**
+- ✅ Build passes (Vite + electron tsc)
+- ✅ All terminal features now fully implemented and integrated
+- ✅ Terminal messages persisted to DB
+- ✅ System prompts customizable and auto-sent
+- ✅ Session resume works without active terminal
+- ✅ Sidebar width survives restarts
+- ✅ INITIALIZE.md loaded on terminal spawn
+
+### 2026-05-12 — Terminal Runtime Bug Fixes (Critical Layout Bug)
+
+**What Changed:**
+1. ✅ **Fixed `useTerminalLayout` wrong argument order** (`TerminalWindow.tsx:193`) — Was passing a `PaneNode` object as `projectId` (string param). Object stringified to `"[object Object]"`, DB query returned nothing, layout stayed `null` forever. Terminal panes never rendered. Changed to `useTerminalLayout(null, initialLayout || null)`.
+2. ✅ **Fixed null layout in `handleCreateTerminalEvent`** (`TerminalWindow.tsx:329-364`) — When `prev` layout was `null`, `setLayout(prev => prev ? insertIntoLayout(prev) : prev)` returned `null`. Added logic to create root leaf pane when no layout exists.
+3. ✅ **Fixed stale closure in event handler effect** (`TerminalPage.tsx:530`) — Missing `terminalLayout`, `setTerminalLayout`, `spawnTerminal`, `loadSessions` from dependency array caused stale references when events fired.
+4. ✅ **Added project picker to RequestsTab** — Was missing inline project dropdown when no project selected (like ProblemsTab and FilesTab have). Falls back to `userDataPath` silently without picker.
+5. ✅ **Fixed `link-problem-to-request` project path** — IPC handler always used `userDataPath` instead of request's project path. Added `projectId` parameter through preload API.
+
+**Files Modified:**
+- `src/components/TerminalWindow.tsx` — Fixed `useTerminalLayout` args, null layout handling
+- `src/pages/TerminalPage.tsx` — Added effect deps, RequestsTab project picker + projectId passthrough
+- `src/main.ts` — `link-problem-to-request` uses `getProjectPath()`
+- `src/preload.ts` — `linkProblemToRequest` accepts `projectId`
+
+**Result:**
+- ✅ Build passes (Vite + electron tsc)
+- ✅ Terminal + button now actually creates visible terminal panes (layout no longer stuck at null)
+- ✅ ProblemsTab, FilesTab, RequestsTab all have inline project pickers when no project selected
+- ✅ `link-problem-to-request` writes to correct project's REQUESTS.md
+
+### 2026-05-12 — Tracking Reliability Overhaul (Phases 1-5)
+
+**Root Causes Identified:**
+1. **MAX_SESSION_MS = 5 min hard cap** — Any single-app session >5 min was truncated. A 3-hour game → 5 min tracked. Remaining 2h55m silently discarded.
+2. **Sleep gap reset (10s threshold) destroyed accumulated time** — Any polling gap >10s reset `sessionStart` to `now` WITHOUT logging the accumulated duration. Time up to the last poll was permanently lost.
+3. **Consecutive null polls (3 = 6s) too aggressive** — `active-win` returns null for fullscreen games. After 3 null polls (6s), session abandoned + time lost.
+4. **Renderer idle detection used DOM events only** — After 5 min of DeskFlow being backgrounded (no DOM events), renderer paused tracking + started AFK session — even though main process correctly tracked the user's activity.
+5. **Browser extension phantom delta** — `lastPeriodicSync` not updated when browser unfocused, causing capped phantom time on refocus.
+
+**What Changed:**
+1. ✅ **MAX_SESSION_MS raised** — 5 min → 30 min (`src/main.ts:1974`)
+2. ✅ **Periodic checkpointing added** — Every 5 min, long-running sessions are checkpointed (log + reset `sessionStart`) to prevent data loss (`src/main.ts:2210-2221`)
+3. ✅ **Sleep gap reset preserves time** — Before clearing session on gap, logs accumulated duration up to last known good poll (`src/main.ts:2155-2171`)
+4. ✅ **SLEEP_GAP_MS raised** — 10s → 30s (`src/main.ts:1976`)
+5. ✅ **Null poll threshold raised** — 3 → 30, with data preservation before reset (`src/main.ts:2134-2151`)
+6. ✅ **BROWSER_MAX_DELTA_MS added** — 10 min separate cap for browser data (`src/main.ts:1977`)
+7. ✅ **Renderer idle uses OS-level idle** — `powerMonitor.getSystemIdleTime()` via heartbeat instead of DOM events. Correctly detects idle as "no keyboard/mouse input at OS level" (`src/App.tsx:1336`)
+8. ✅ **Auto-resume from idle** — Heartbeat handler auto-resumes tracking when system idle drops below threshold (`src/App.tsx:528-546`)
+9. ✅ **Browser extension phantom delta fixed** — `lastPeriodicSync` updated even when browser not focused (`browser-extension/background.js:320-327`)
+10. ✅ **Heartbeat includes systemIdleSeconds** — Main process sends OS-level idle time every 5s (`src/main.ts:2354-2365`)
+
+**Files Modified:**
+- `src/main.ts` — 8 changes: constants, gap logic, checkpointing, heartbeat, browser caps
+- `src/App.tsx` — 3 changes: systemIdleSecondsRef, heartbeat handler with auto-resume, OS-level idle detection
+- `browser-extension/background.js` — 1 change: periodicSync updates lastPeriodicSync when unfocused
+
+**Result:**
+- ✅ Build passes (electron tsc + vite)
+- ✅ Long app sessions (3h gaming) now tracked properly via checkpointing every 5 min
+- ✅ No data loss on polling gaps (time preserved before reset)
+- ✅ Idle detection = actual user inactivity (OS-level), not DeskFlow window focus
+- ✅ Browser extension no longer accumulates phantom deltas on focus regain
+- ✅ Tracking auto-recovers when user resumes activity
+
+## 📦 Since Last Commit
+
+**Last Commit:** `e4f1490` — feat: Tracker Mind services, dashboard/insights/external redesign... (pending tracking fixes)
+
+**Changes pending (24 files, +400/-90):**
+
+| File | Change |
+|------|--------|
+| `agent/*.md` | LLM Wiki format for PROBLEMS, state, REQUESTS |
+| `agent/agents.md` | Added Knowledge Systems reference section |
+| `agent/skills/*/SKILL.md` (13 files) | Obsidian frontmatter added/converted |
+| `agent/skills/maintain-context/graphify_maintain.py` | Added `sync_to_para()`, updated `full` command |
+| `agent/templates/session.qmd` | NEW QMD session template |
+| `agent/templates/problem.qmd` | NEW QMD problem template |
+| `CZVault/` | PARA structure created (01_Areas, 02_Resources, 03_Archives, index files) |
+| `src/pages/TerminalPage.tsx` | Event system, error toast, session dialog, auto-select project, agent lookup |
+| `src/components/TerminalWindow.tsx` | Event listeners for `create-terminal`/`close-pane` |
+| `src/main.ts` | `get-ai-usage-summary`: add 'day' period, parameterized query |
+| `src/preload.ts` | Type signature: accept `'day'` period |
+| `agent/PROBLEMS.md` | Issues #075-#082 statuses, new issues #087-#091 |
+| `src/pages/SettingsPage.tsx` | Transient app filter toggle in Tracking tab + preference save/load |
+| `src/main.ts` | `pollForeground` transient filter gated behind `userPreferences.filterTransientApps`, unconditional DeskFlow/Electron skip |
+| `src/pages/TerminalPage.tsx` | FilesTab projectPath prop, + button always visible, handleSaveCheckpoint callback, Save button in header |
+
+---
+
+## Details
+
+### 📝 Recent Changes
+
+### 2026-05-13 — Path Resolution Fix + Setup Button Gating Fix
+
+**What Changed:**
+1. ✅ **Fixed `getProjectPath` falling back to `userDataPath`** — Changed default return from `userDataPath` to `undefined`. This lets `ProblemsService`/`RequestsService` use `process.cwd()` (workspace root) when no project is found in DB. Previously, the services silently read/wrote to Electron's app data directory instead of the project directory, causing PROBLEMS.md/REQUESTS.md to appear empty.
+2. ✅ **Fixed `tracker-mind-setup` default path** — Changed from `userDataPath` to `process.cwd()` so Setup button creates files in the workspace root, not the Electron app data directory.
+3. ✅ **Fixed Setup button gating** — Moved the Setup/Init button outside the `{projects.length > 0 && ...}` wrapper. The button is now always visible regardless of whether projects exist in the DB.
+4. ✅ **Fixed `handleInitSetup` early return** — Removed the `!projId || !projPath` guard that prevented init without a selected project. Now works even when no project is selected.
+
+**Files Modified:**
+- `src/main.ts` — `getProjectPath()` returns `undefined` instead of `userDataPath`; `tracker-mind-setup` uses `process.cwd()` as default
+- `src/pages/TerminalPage.tsx` — Setup button extracted from `projects.length > 0` gate; `handleInitSetup` no longer requires selected project
+
+**Why:** When the DB had no projects (or the project wasn't found), getProjectPath silently fell back to `userDataPath`, causing ProblemsService to create/read PROBLEMS.md in the wrong directory. The user saw empty problems/requests lists even though the files existed in the workspace.
+
+**Result:** PROBLEMS.md and REQUESTS.md now read from the correct workspace directory. Setup button is always visible.
+
+**Build:** ✅ Passes
+
+### 2026-05-13 — [COMPLETED] Session Categorization + @mention Routing System
+
+**What Changed:**
+
+Followed `agent/skills/generate-prompt/SKILL.md` step-by-step:
+1. STEP 0: Updated state.md with the problem (marked IN PROGRESS)
+2. Gathered context: state.md, context.md, UI patterns (TerminalWindow, TerminalPage, MapEditor)
+3. Generated the prompt at `agent/docs/session-categorization/prompt.md`
+4. Executed prompt → produced RESULT.md at `agent/docs/session-categorization/RESULT.md`
+5. Implemented the full system following RESULT.md's architecture
+
+**Phase 1 — Database Schema + Backend:**
+- ✅ Added 6 new columns to `terminal_sessions`: `category`, `status`, `product_area`, `description`, `auto_tags`, `category_confirmed` (safe ALTER TABLE)
+- ✅ Added `session_id` column to `workspace_problems`
+- ✅ Created `session_parsed_items` table for decisions/actions/references
+- ✅ Added `parseSessionMetadata()` — parses AI metadata blocks from terminal messages
+- ✅ Added `parseMessageContent()` — extracts decisions, action items, status changes from AI output
+- ✅ Updated `save-terminal-message` IPC to auto-parse metadata + content on message insert
+- ✅ Updated `save-terminal-session` IPC to persist new category/status/area/tags fields
+- ✅ Added 5 new IPC handlers: `update-session-category`, `get-parsed-session-items`, `analyze-session-category`, `resolve-at-mention`, `send-to-mention` (consolidated)
+- ✅ Updated preload.ts with all new API bridges
+- ✅ Updated App.tsx type declarations for `Window.deskflowAPI`
+
+**Phase 2 — Frontend Components:**
+- ✅ Created `CategoryBadge` component (bug-fix=red, feature=blue, refactor=purple, research=teal, review=amber, other=gray)
+- ✅ Created `StatusDot` component (active=green+pulse, paused=yellow, completed=gray, archived=darker)
+- ✅ Added category filter pills (pill-shaped buttons, active/inactive states, color-matched)
+- ✅ Redesigned session list cards: badge + status dot + agent + topic + description + area + tags + cost
+- ✅ Enhanced terminal tabs: status dot + category badge + session topic in tab bar
+- ✅ Enhanced Terminals sidebar: category badges + status dots + product area in session info
+
+**Phase 3 — @mention Routing:**
+- ✅ `sendInstruction` now checks for @mention via `resolve-at-mention` IPC before falling back to active terminal
+- ✅ @mention dropdown appears when user types `@` in Send bar
+- ✅ Dropdown filters by typed query, supports arrow key navigation + Enter/Escape
+- ✅ Sends to correct terminal, shows "Sent to Terminal X" toast
+
+**Phase 4 — AI Metadata Contract:**
+- ✅ AGENTS.md template in `tracker-mind-setup` now includes "Session Metadata Requirements" section
+- ✅ Instructs AI to output: Title, Description, Status, Product Area, Category
+- ✅ Metadata auto-parsed on each assistant message insert
+- ✅ Auto-category analysis falls back to keyword scoring when no metadata provided
+
+**Files Modified:**
+- `src/main.ts` — Schema migrations, new IPC handlers, message parsing, AGENTS.md template
+- `src/preload.ts` — New API bridges for categorization + @mention
+- `src/App.tsx` — Type declarations for new deskflowAPI methods
+- `src/pages/TerminalPage.tsx` — CategoryBadge, StatusDot, filter pills, @mention dropdown, enhanced session cards/tabs/sidebar, updated sendInstruction
+- `agent/state.md` — This entry
+- `agent/docs/session-categorization/prompt.md` — Generated prompt
+- `agent/docs/session-categorization/RESULT.md` — Design specification
+
+**Build:** ✅ Passes
+
+**Result:** Sessions now have visual badges + status dots. Terminal tabs show category at a glance. @mention dropdown lets users route input to any terminal by name/number. AI agents are prompted to provide structured metadata, which is auto-parsed. Sessions can be filtered by category in the sidebar.
+
+### 2026-05-12 — Solar System 3-in-1 Fix: Category Nav, Planet Tracking, Timeline Selector
+
+**What Changed:**
+1. ✅ **Category dropdown animates to solar system** — Selecting a category from the dropdown now switches `viewMode` to `'solarSystem'` and animates the camera to the sun position (`src/components/OrbitSystem.tsx:2960-2973`)
+2. ✅ **Planet click locks camera via real-time tracking** — `handlePlanetClick` now reads actual planet position from `planetPositionsRef` and sets `trackedPlanetRef`. New `PlanetTracker` component uses `useFrame` to continuously lerp OrbitControls target to follow the orbiting planet (`src/components/OrbitSystem.tsx:1888-1908`, `src/components/OrbitSystem.tsx:2912-2925`)
+3. ✅ **Timeline/period selector inside OrbitSystem UI** — Added pill buttons (Today/Week/Month/All) in the left control panel, always accessible in both fullscreen and popup modes (`src/components/OrbitSystem.tsx:3135-3155`)
+4. ✅ **Data filtered by selected period** — Both app and website data is now filtered by the internal `selectedPeriod` state, fixing the "3 categories only" website issue (`src/components/OrbitSystem.tsx:2820-2835`)
+5. ✅ **Tracking cleared on zoom out, reset, galaxy switch** — `trackedPlanetRef` is cleared in `handleZoomOut`, `handleRefreshTextures`, `handleCloseSystem`, `switchToGalaxy`, and the top-right Reset button
+
+**Files Modified:**
+- `agent/state.md` — Added version 3.0 entry, updated recent changes
+- `agent/PROBLEMS.md` — Added issues #94, #95, #96
+- `agent/AGENTS.md` — Updated testing checklist, active issues table
+
+**Why:**
+- Category dropdown was just selecting category without any visual feedback or navigation
+- Planet click used orbit radius calculation instead of actual orbiting position — camera often missed the moving planet
+- Website galaxy showed only 3 categories because `browserLogs` was period-filtered by the top nav, but no period controls existed inside the OrbitSystem
+- Fullscreen and popup modes had no access to the top navigation bar's period selector
+
+**Result:**
+- ✅ Build passes (Vite + electron tsc)
+- ✅ Category dropdown → animates to solar system view
+- ✅ Planet click → locks camera and continuously follows orbiting planet
+- ✅ Period selector always accessible inside solar system UI
+- ✅ Both apps and websites respect the selected timeline
+
+**What Changed:**
+1. ✅ **Transient app filter** — Added `TRANSIENT_APPS` list in `main.ts` filtering out system windows (Windows Explorer, Task Switching, etc.) from `pollForeground`. These are silently ignored — `currentApp` stays unchanged, no `foreground-changed` event sent, stopwatch unaffected.
+2. ✅ **Recent Sessions balanced feed** — Activity feed initialization in `DashboardPage.tsx` now takes up to 10 app logs + up to 5 browser logs (was: 20 of any type). Prevents periodic browser sync data from flooding the display with "Website" entries while still showing recent websites.
+
+**Files Modified:**
+- `src/main.ts` — Transient apps list + filter in `pollForeground`
+- `src/pages/DashboardPage.tsx` — Balanced app/browser log initialization
+
+**Why:**
+- Windows Explorer briefly appears during Alt+Tab, which reset `currentApp` and disrupted the stopwatch
+- Browser periodic sync (every ~30s) created more entries than app logs, causing "Recent Sessions" to show mostly "Website" type
+
+**Result:**
+- ✅ Build passes (Vite + electron tsc)
+- ✅ Windows Explorer and similar transient apps are silently ignored
+- ✅ Stopwatch no longer disrupted by Alt+Tab
+- ✅ Recent Sessions shows a balanced mix of app and website entries
+
+### 2026-05-12 — Transient App Filter Toggle (Settings UI + Preference Gate)
+
+**What Changed:**
+1. ✅ **Added toggle UI in Settings > Tracking tab** — New "Ignore Transient System Apps" toggle switch with explanatory text, using the same toggle style as other settings
+2. ✅ **Wired toggle to user preferences** — `setPreference('filterTransientApps', bool)` saves the flag, `getPreferences().filterTransientApps` loads it on mount (default: enabled)
+3. ✅ **Gated TRANSIENT_APPS filter in pollForeground** — Transient check now reads `userPreferences.filterTransientApps` (defaults to `true` if not set), so users can disable it if desired
+
+**Files Modified:**
+- `src/pages/SettingsPage.tsx` — Added `filterTransientApps` state, toggle UI in Tracking tab, preference load/save
+- `src/main.ts` — Poll foreground transient filter gated on `userPreferences.filterTransientApps !== false`
+
+**Why:**
+- User wanted a visible toggle so they can control whether transient system apps (Explorer, task switcher) are filtered from tracking
+- Previous implementation was silent (always-on filter), which could be surprising
+
+**Result:**
+- ✅ Build passes (Vite + electron tsc)
+- ✅ Toggle appears in Settings > Tracking, defaults to on
+- ✅ Preference persists across restarts via `deskflow-prefs.json`
+- ✅ Users can disable filtering if they want to track system app transitions
+
+### 2026-05-12 — Terminal Architecture Fixes + Analytics Tab Fixes
+
+**What Changed:**
+1. ✅ **Fixed core terminal architecture bug** — TerminalPage's `terminalLayout` state was NEVER passed as `initialLayout` prop to TerminalLayout. Replaced broken prop chain with custom event system (`create-terminal`, `terminal-created`, `close-pane`). TerminalLayout now manages its own internal layout state.
+2. ✅ **Fixed double-spawn bug** — Both TerminalPage and TerminalLayout tried to spawn the same terminal ID. Removed redundant spawn from event handler — only TerminalLayout spawns PTYs now.
+3. ✅ **Added visible error toast system** — Replaced silent `logOnce()` with `showError()` that auto-clears after 8s in UI. Terminal failures now visible.
+4. ✅ **New Session dialog** — AI agent type selector (Claude/OpenCode dropdown + session name input) when creating sessions.
+5. ✅ **Fixed close terminal** — Now calls `killTerminal()` + `terminalAPI.destroy()` + dispatches `close-pane` event.
+6. ✅ **Removed 600px sidebar limit** — `Math.min(600, ...)` → `Math.max(200, ...)`.
+7. ✅ **Terminal tabs dynamic agent type** — Lookup from sessions array instead of hardcoded 'Cloud'.
+8. ✅ **Resume handler fix** — Changed hardcoded `'active'` to `activeTerminalId`.
+9. ✅ **Terminal creation without project** — Defaults to `os.homedir()`.
+10. ✅ **Analytics tab IPC fetch on correct tab** — Changed from `activeTab === 'map'` to `activeTab === 'analytics'`.
+11. ✅ **Analytics 'day' period** — Added `'day'` support to `get-ai-usage-summary` handler (was only `'week'`/`'month'`).
+12. ✅ **SQL injection fix** — Parameterized `get-ai-usage-summary` query.
+13. ✅ **Auto-select project** — TerminalPage now selects first project when projects loaded and none selected.
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — Event system, error toast, session dialog, auto-select, agent lookup
+- `src/components/TerminalWindow.tsx` — Event listeners for `create-terminal`/`close-pane`
+- `src/main.ts` — `get-ai-usage-summary`: add 'day' period, parameterized query
+- `src/preload.ts` — Type signature updated to accept `'day'`
+- `agent/PROBLEMS.md` — Issues #075-#082 statuses updated, new issues #087-#091 documented
+- `agent/state.md` — This entry
+
+**Result:**
+- ✅ Build passes (Vite renderer + electron tsc)
+- ✅ Terminal + button now creates visible terminal panes in TerminalLayout
+- ✅ Close button kills PTY AND removes pane
+- ✅ New Session dialog works with event system
+- ✅ Errors visible in UI instead of console-only
+- ✅ Analytics tab shows correct data for 'day'/'week'/'month' periods
+- ✅ Project auto-selected when none in localStorage
+
+**Files Modified:**
+- `src/components/DurationPicker.tsx` — Hold-to-increment with acceleration, click-to-edit manual input
+- `src/pages/ExternalPage.tsx` — Added useEffect to auto-calculate wakeUpMinutes from wakeTime; replaced LatencyPicker with read-only display
+
+**Build:** ✅
+
+### 2026-05-10 — Tracker Mind Frontend UI Enhancements
+
+**What Changed:**
+1. ✅ **"Open in Terminal" button** — ProblemDetailModal now has an "Assign to Terminal" (no terminal) or "Open in Terminal" (has terminal) button. Creates terminal pane + sends prompt automatically.
+2. ✅ **Problem binding dropdown** — Terminal header shows a Link button to bind any problem to the active terminal via `saveTerminalBinding`.
+3. ✅ **Skill card grid** — NewProblemDialog replaced the skill `<select>` dropdown with a 2-column card grid showing skill name + description.
+4. ✅ **Loading state + char counter** — Send instruction buttons show a spinner during sending. Input bar shows `{n}/500` char counter and disables at 500.
+5. ✅ **Request detail + problem linking** — Created `RequestDetailModal` (was missing, caused runtime error) with status buttons, linked problems display, and a dropdown to link problems via new `link-problem-to-request` IPC. Created `NewRequestDialog` (was also missing) with title, description, priority fields.
+6. ✅ **File watcher pulse notification** — FilesTab listens for `onAgentFileChanged` and shows a green pulsing notification bar. File tab button gets a `animate-ping` green dot when files change externally.
+7. ✅ **Custom event handlers** — `TerminalPage` listens for `create-terminal-for-problem` and `focus-terminal` custom events dispatched from modals.
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — All 6 features implemented across components
+- `src/main.ts` — Added `link-problem-to-request` IPC handler
+- `src/preload.ts` — Added `linkProblemToRequest` API
+
+**Result:** Tracker Mind Terminal page frontend now has full feature parity with the backend IPC handlers. No more undefined component errors.
+
+**Build:** ✅
+
+### 2026-05-10 — External Activity Type Fix + Session Editing
+
+**What Changed:**
+1. ✅ **Fixed external activity type not saving** — `update-external-activity` IPC handler was missing the `type` field. Frontend sent `type` but backend silently ignored it. Added `type` to both the IPC handler and preload.ts type definition.
+2. ✅ **Session editing** — Replaced the simple read-only session list with an editable version. Each session shows start→end time, duration, and hover-revealed Pencil/Trash buttons. Pencil opens inline datetime-local inputs with Save/Cancel.
+3. ✅ **Created `update-external-session` IPC handler** in main.ts (was missing but preload exposed it)
+4. ✅ **Created `delete-external-session` IPC handler** in main.ts (was also missing)
+
+**Files Modified:**
+- `src/main.ts` — Added `type` to update handler, added update/delete session handlers
+- `src/preload.ts` — Added `type` to updateExternalActivity type
+- `src/pages/ExternalPage.tsx` — Replaced session list with editable version
+
+### 2026-05-10 — Sleep Detection Redesign (Focus/Blur Tracking)
+
+**What Changed:**
+1. ✅ **Window focus/blur tracking** — `mainWindow.on('focus')` and `on('blur')` in main.ts. On focus, detects gaps > 45min during sleep hours (9PM-10AM). Sends IPC event + writes detection file.
+2. ✅ **Sleep pattern recognition** — Stores last 14 sleep sessions in `deskflow-sleep-pattern.json`. Checks if gap time matches past sleep patterns.
+3. ✅ **New IPC handlers** — `check-sleep-detection`, `confirm-sleep`, `dismiss-sleep-detection`
+4. ✅ **New modal** — Shows gap duration, proposed bedtime/wake, editable time inputs, fall-asleep/wake-up latency selectors
+
+**Files Modified:**
+- `src/main.ts` — Focus/blur listeners, sleep pattern persistence, 3 new IPC handlers
+- `src/preload.ts` — 3 new APIs + onSleepDetection listener
+- `src/App.tsx` — New sleep detection modal replacing old morning prompt
+
+### 2026-05-10 — Typical Day Heatmap Fix
+
+**Root Cause:**
+1. **Missing IPC handler** — `getDayDetail` was registered in preload.ts but no handler existed in main.ts, causing `Error: No handler registered for 'get-day-detail'`
+2. **Missing state** — `setHeatmapDayDetail` was called but never declared as a state variable
+3. **Dead code** — The `handleDayClick` function called a nonexistent handler and setter
+
+**What Changed:**
+1. ✅ **Added IPC handler** in `main.ts` — queries `logs` and `external_sessions` for the given date, returns `{ logs, externalSessions }`
+2. ✅ **Added DayDetailPopup** — imported and rendered as a modal when a day header is clicked
+3. ✅ **Data transformation** — IPC response is transformed into `TimelineItem[]` (app entries = blue, browser = green, external = purple)
+
+**Files Modified:**
+- `src/main.ts` — Added `get-day-detail` IPC handler
+- `src/pages/DashboardPage.tsx` — Added TimelineItem interface, dayDetailDate/dayDetailItems state, fixed handleDayClick, renders DayDetailPopup
+
+**Result:**
+- ✅ Build passes
+- ✅ Clicking day headers no longer throws an error
+- ✅ Day detail popup shows all logs and external sessions for the clicked day in a timeline view
+
+### 2026-05-10 — Heatmap: Fixed Detail Panel Wrong Day + Hour-Splitting Algorithm
+
+**Root Cause:**
+1. **Detail panel always showed Sunday's data** — `selectedHeatmapHour` stored only the hour number; `.find(c => c.hour === hour)` returned the first match (always day 0 = Sunday) regardless of which day the user clicked
+2. **Hour-splitting used wrong boundaries** — Both device and external activity splitters used `currentDate.getTime()` (session start time) as the hour boundary instead of the actual calendar hour start (e.g., 14:00), causing data to be misattributed across hours
+
+**What Changed:**
+1. ✅ **Fixed detail panel day lookup** — Changed `selectedHeatmapHour: number` to `selectedCell: { day; hour }` so the panel shows data for the correct day
+2. ✅ **Fixed hour-splitting in device activity** — `addSession()` now computes `hourStartMs` by zeroing minutes/seconds on the current date, then uses `hourStartMs`/`hourEndMs` for proper calendar-hour-based splitting
+3. ✅ **Fixed hour-splitting in external activity** — Same fix applied to the external hourly data computation
+4. ✅ **Added per-app device breakdown** — `HeatmapCell` now includes `deviceBreakdown` tracking which apps were used and for how long in each hour cell
+5. ✅ **Changed default heatmap mode** from `'external'` to `'combined'`
+6. ✅ **Detail panel shows app list** — Clicking a cell now shows the list of apps used during that hour with durations and colored dots
+
+**Files Modified:**
+- `src/pages/DashboardPage.tsx` — State type, click handler, detail panel lookup, hour boundary calculation (both splitters), cellMap type (added apps tracking), addSession signature (added app param), detail panel device section (added app list)
+
+**Result:**
+- ✅ Build passes
+- ✅ Clicking any heatmap cell shows the correct day's data in the detail panel
+- ✅ Activity data is properly attributed to the right calendar hours (no more cross-hour leakage)
+- ✅ Detail panel now shows a list of apps used during the hour with durations
+- ✅ Heatmap defaults to combined device+external mode
+
+### 2026-05-11 — IDE Health: Fix "unknown" crash + vcs_branch + sessions query
+
+**What Changed:**
+1. ✅ **Added `created_at` migration** for `terminal_sessions` — existing DBs were missing this column, causing `getProjectDetails` to throw SQL error → returns `{ health: null }` → frontend shows "unknown"
+2. ✅ **Fixed sessions/presets queries** — removed `OR project_id IS NULL` which was returning ALL unassigned sessions/presets for every project
+3. ✅ **Fixed "Git Branch main" display** — `vcs_branch` column doesn't exist in `projects` table; changed to show `vcs_type` properly
+
+**Files Modified:**
+- `src/main.ts` — Added `ALTER TABLE terminal_sessions ADD COLUMN created_at` migration; fixed sessions/presets queries
+- `src/pages/IDEProjectsPage.tsx` — Replaced `project.vcs_branch || 'main'` with `project.vcs_type || 'None detected'`
+
+**Result:** Health shows "inactive" instead of "unknown"; sessions/presets show only this project's data; Version Control shows actual VCS type
+
+**Build:** ✅
+
+### 2026-05-11 — Terminal Workspace Revamp Complete (All P0-P5 Tasks)
+
+**What Changed:**
+
+**P0-1 Fixed:** Removed duplicate "New" button in sidebar that called undefined `setShowNewDialog`. The sub-components (ProblemsTab, RequestsTab) already have their own working "New" buttons.
+
+**P0-2 Verified:** Selected project name already displays in TerminalPage header with green dot and path.
+
+**P1 Chrome-style Terminal Tab Bar:**
+- Tab bar already existed with active/inactive styling, close buttons, "+" button
+- Added auto-sync: layout panes now auto-populate `terminalTabs` when new terminals are detected in the layout tree
+- Stale tabs are cleaned up when panes are removed
+
+**P2 Sidebar 'Terminals' Tab:**
+- Added 8th sidebar tab (`'terminals'`) with terminal icon, between Files and the end
+- Shows running terminals (green dot, name, agent, click to focus)
+- Shows recent/closed sessions (topic, date, resume button on hover)
+
+**P3 Workspace Persistence:**
+- Created `workspace_state` table in SQLite (project_id, sidebar_width, active_tab, terminal_tabs)
+- Added `workspace:save` IPC handler — saves sidebarWidth, activeTab, terminalTabs per project
+- Added `workspace:load` IPC handler — restores workspace state on mount
+- Frontend auto-saves workspace state on changes (debounced 2s)
+- Frontend loads workspace state on mount in workspace mode
+
+**P4 Terminal Chat Persistence:**
+- Created `terminal_messages` table in SQLite (session_id, role, content, created_at)
+- Added `save-terminal-message` IPC handler — stores chat messages
+- Added `get-session-messages` IPC handler — retrieves all messages for a session
+- Exposed `saveTerminalMessage` API in preload.ts
+
+**P5 UX Polish:**
+- Selected project now persists to localStorage (`terminal-project`) when changed
+- Workspace state auto-restored when opening a project workspace
+
+**Files Modified:**
+- `src/main.ts` — Added `terminal_messages` + `workspace_state` tables; 4 new IPC handlers (workspace:save, workspace:load, save-terminal-message, get-session-messages)
+- `src/preload.ts` — Added `saveTerminalMessage` API
+- `src/pages/TerminalPage.tsx` — Removed duplicate "New" button; added `'terminals'` tab type + button + TerminalsTab component; added tab-layout sync; added workspace persistence effects; added selectedProject localStorage persistence; fixed loadWorkspace call
+
+**Result:**
+- ✅ Build passes (3060 modules, electron tsc)
+- ✅ No more "setShowNewDialog is not defined" runtime error
+- ✅ Terminal tabs auto-populate when terminals open
+- ✅ Terminals sidebar tab shows running + recent terminals with focus/resume
+- ✅ Workspace state saves/loads from DB (sidebar width, active tab, open terminals)
+- ✅ Terminal messages stored and retrievable per session
+- ✅ Project selection persists across page refreshes
+
+### 2026-05-10 — AI Sync Efficiency + Last Sync Display on AI Tools Page
+
+**What Changed:**
+1. ✅ **File mtime tracking** — `syncAllAIAgents` now tracks per-path mtime + file count in preferences (`aiSyncState`). Unchanged paths are skipped entirely, avoiding re-parsing JSONL files that haven't been modified.
+2. ✅ **Last sync tracking** — `lastRunAt` and `agentLastRun` timestamps stored in prefs after every sync.
+3. ✅ **`get-ai-sync-status` IPC handler** — Returns `{ lastRunAt, agentLastRun, paths }` for the UI.
+4. ✅ **Last sync display** — Sync AI button now shows "Last: Xm ago" next to it (hidden on small screens, updates after sync completes, shows "just now" / "Xm ago" / "Xh ago" / relative date).
+
+**Files Modified:**
+- `src/main.ts` — Added mtime checking in `syncAllAIAgents`, `loadAISyncState`/`saveAISyncState` helpers, `get-ai-sync-status` handler
+- `src/preload.ts` — Exposed `getAISyncStatus`
+- `src/App.tsx` — Type declaration for `getAISyncStatus`
+- `src/pages/IDEProjectsPage.tsx` — Added `aiLastSyncAt` state, loads on mount + after sync, displays next to Sync AI button
+
+**Result:**
+- ✅ Build passes
+- ✅ Repeated sync of unchanged agent data is near-instant (skips parsing)
+- ✅ Last sync time visible next to Sync AI button
+- ✅ Efficiency improvement scales with number of files (only changed files re-parsed)
+
+### 2026-05-10 — IDE Project Page: Fixed Stats (Health Score, AI Usage) via Path-Based Matching
+
+**Root Cause:**
+- `ai_usage` table stores `project_path` from JSONL file data (cwd from AI sessions) but NOT `project_id`
+- `calculate-project-health` queried `ai_usage` by `project_id` which was always NULL → returned 0 for everything
+- Commits query used wrong column name `committed_at` instead of `date` → returned 0 commits
+- Frontend made 4 separate IPC calls per project expand (tools, sessions, health, presets) — now consolidated into 1
+
+**What Changed:**
+1. ✅ **Path-based matching** — `calculate-project-health` now looks up the project's path and matches `ai_usage` by `project_path = ? OR project_path LIKE ?` (covers subdirectories)
+2. ✅ **New consolidated handler** — `get-project-details` returns tools, sessions, health, presets, AND detailed `aiUsage` (totalTokens, totalCost, totalMessages, modelBreakdown) in a single IPC call
+3. ✅ **Fixed commits column** — Changed `committed_at` → `date` to match the actual schema
+4. ✅ **Sync-time project_id resolution** — After AI usage sync, runs a batch update to resolve `project_id` from `project_path` for future `project_id`-based queries
+5. ✅ **Frontend consolidated** — `toggleProjectExpand` now uses single `getProjectDetails()` call instead of 4 parallel calls
+
+**Files Modified:**
+- `src/main.ts` — Fixed health handler (path matching + column name), added `get-project-details` handler, added post-sync project_id resolution
+- `src/preload.ts` — Exposed `getProjectDetails`
+- `src/App.tsx` — Added type declaration for `getProjectDetails`
+- `src/pages/IDEProjectsPage.tsx` — Uses consolidated `getProjectDetails()` call
+
+**Why This Works:**
+- JSONL files record the working directory (cwd) as `project_path` — this matches the project's `path` in the DB
+- Path-based matching is efficient (indexed `project_path` column) and correct (no re-parsing of JSONL files needed)
+- Future syncs will also populate `project_id` directly, making both query paths work
+
+**Result:**
+- ✅ Build passes
+- ✅ Health Score now reflects actual AI usage, terminal sessions, and commits
+- ✅ AI Usage breakdown properly shown per project
+- ✅ Terminal Sessions count shows real data
+- ✅ Single IPC call reduces UI latency when expanding project cards
+
+### 2026-05-10 — External Page: Uniform Buttons, Pause/Stop, Enhanced Stopwatch
+
+**What Changed:**
+1. ✅ **Uniform activity button height** — All activity cards fixed at `h-[140px]` with always-visible duration text and sparkline bars (even at 0)
+2. ✅ **Pause/Stop controls** — Added pause/resume and stop buttons to stopwatch timer during active tracking. Pause uses `pausedAtRef` + `pausedDuration` accumulators for accurate elapsed time. Stop passes adjusted end time to DB accounting for paused duration.
+3. ✅ **Enhanced stopwatch visuals** — Redesigned using frontend-design skill: pulsing status dot, 6xl monospace gradient timer text, ghost text depth, pill-shaped action buttons with colored borders/hover states
+
+**Files Modified:**
+- `src/pages/ExternalPage.tsx` — Added `useRef` import, pause state (3 lines), pause/resume callbacks, updated timer effect, enhanced stopwatch UI, uniform card height
+
+**Result:**
+- ✅ Build passes
+- ✅ Activity buttons have uniform height regardless of data
+- ✅ Pause and Stop buttons available during active tracking
+- ✅ Timer stops counting on pause, resumes correctly
+- ✅ Adjusted end time sent to DB on stop (excludes paused time)
+
+### 2026-05-10 — Auto-Start Registry Fix (Development Mode)
+
+**Root Cause:**
+- Registry entry was: `"electron.exe" --minimized` (no app path)
+- `setLoginItemSettings()` in dev mode was passing only `--minimized` without the app directory path
+- When electron.exe runs without an app path, it shows the default Electron welcome screen
+
+**What Changed:**
+- Fixed `set-auto-start` IPC handler in `src/main.ts`
+- In development mode (`!app.isPackaged`), now passes `app.getAppPath()` as the FIRST argument before `--minimized`
+- New args format: `[projectDir, '--minimized']` instead of just `['--minimized']`
+
+**Files Modified:**
+- `src/main.ts` (line ~2220) - `set-auto-start` handler now includes app path in args for dev mode
+
+**Result:**
+- ✅ Build passes
+- ✅ After toggling auto-start OFF then ON, registry will show:
+  - `"electron.exe" "C:\Users\cleme\...\App Tracker" --minimized`
+- ✅ Windows startup will now launch DeskFlow properly instead of Electron default screen
+
+**User Action Required:**
+1. Open DeskFlow
+2. Go to Settings > General tab
+3. Toggle "Launch on system startup" to OFF
+4. Toggle it back to ON
+5. This updates the Windows registry with the correct command
+
+---
+
+### 2026-05-10 — Enhanced Knowledge Infrastructure Setup
+
+**What Changed:**
+1. ✅ **Phase 1** — Assessed existing agent/, skills/, graphify-out/, CZVault/ infrastructure
+2. ✅ **Phase 2 — LLM Wiki Format** — Updated PROBLEMS.md, state.md, REQUESTS.md with frontmatter, quick reference, token estimates
+3. ✅ **Phase 3 — Obsidian Skills** — Added YAML frontmatter (id, name, category, tags) to all 13 skill SKILL.md files
+4. ✅ **Phase 4 — PARA Method** — Created vault structure: 01_Areas/AI-Agents (Skills, Patterns), 02_Resources (Prompts, Templates), 03_Archives, with README index files
+5. ✅ **Phase 5 — QMD Templates** — Created `agent/templates/session.qmd` and `agent/templates/problem.qmd`
+6. ✅ **Phase 6 — AGENTS.md** — Added "Knowledge Systems" section with references to Graphify, PARA, LLM Wiki, QMD
+7. ✅ **Phase 7 — graphify_maintain.py** — Added `sync_to_para()`, `ensure_para_structure()`, updated `full` command, added `para` command
+8. ✅ **Phase 8** — All files verified, Python syntax OK, PARA directories confirmed
+
+**Files Modified:**
+- `agent/PROBLEMS.md` — LLM Wiki format
+- `agent/state.md` — LLM Wiki format with Current State Summary, Quick Links
+- `agent/REQUESTS.md` — LLM Wiki format with Quick Reference
+- `agent/agents.md` — Added Knowledge Systems section
+- `agent/skills/*/SKILL.md` (13 files) — Obsidian frontmatter
+- `agent/skills/maintain-context/graphify_maintain.py` — PARA sync functions
+- `agent/templates/session.qmd` — NEW
+- `agent/templates/problem.qmd` — NEW
+- `CZVault/README.md` — NEW
+- `CZVault/00_Projects/README.md` — NEW
+- `CZVault/01_Areas/README.md` — NEW
+- `CZVault/02_Resources/README.md` — NEW
+- `CZVault/03_Archives/README.md` — NEW
+
+**Result:**
+- ✅ All 8 phases complete
+- ✅ 17 project files modified/created (+288/-63)
+- ✅ 6 PARA directories created in CZVault
+- ✅ 2 QMD templates created
+- ✅ Python syntax valid
+- ✅ All existing Tracker Mind functionality preserved
 
 ### 2026-05-09 — README Updated to v2.4
 
@@ -1046,6 +1952,26 @@
 - `src/main.ts` - Fixed startup window show logic (lines ~2357-2381, ~6630-6645)
 
 **Why:** 
+
+### 2026-05-13 — Weekly Trend Chart Now Responsive to Timeline Selector
+
+**What Changed:**
+1. ✅ Added `allSessions` state to fetch period-responsive session data
+2. ✅ Replaced static `consistencyChartData` with dynamic `trendChartData` computed from sessions per period
+   - `today` → 24 hourly bars with AM/PM labels
+   - `week` → 7 daily bars with day names
+   - `month` → daily bars for each day of the month
+   - `all` → monthly bars with month/year labels
+3. ✅ Chart title now changes dynamically: Hourly Trend / Weekly Trend / Monthly Trend / All Time Trend
+4. ✅ Added session fetch to `refreshStats` callback so chart updates after data changes
+
+**Files Modified:**
+- `src/pages/ExternalPage.tsx` — Added `allSessions` state + fetch, replaced `consistencyChartData` with `trendChartData` useMemo, dynamic title, updated `refreshStats`
+
+**Result:** The Usage Trend chart (third in the 3-chart grid) now shows period-appropriate data when the user clicks Today/Week/Month/All in the top navigation, matching behavior of other charts on the page.
+
+**Build:** ✅ Passes
+
 - `refreshStats` was called but never defined, causing ExternalPage to crash on load
 - Startup condition was hiding window when `--minimized` flag was passed
 
@@ -1289,7 +2215,7 @@ The global `spawnedTerminals` Set was the single cause of:
 - `prompt_templates` - **NEW** Reusable prompts
 
 ## 🎯 Next Steps / TODO
-- [ ] User test terminal splitting (create/close panes)
+- [ ] User test terminal splitting (create/close panes in both leaf and split layouts)
 - [ ] User test TODO CRUD operations
 - [ ] User test agent file browsing
 - [ ] User test prompt copy/insert
@@ -1303,6 +2229,34 @@ The global `spawnedTerminals` Set was the single cause of:
 - Session messages load once on click (not real-time)
 - Prompt storage is SQLite only (not file-based yet)
 - Agent file viewer is read-only (no edit capability)
+
+## Bugs Fixed (2026-05-14, Prompt 6)
+
+### 1. closeTerminal broken for split pane layouts
+**File:** `src/pages/TerminalPage.tsx:731`
+**Problem:** When closing a terminal pane in a split layout, the layout tree was never updated — `closeTerminal` only handled `terminalLayout.type === 'leaf'`. After closing, the stale layout still referenced the closed terminalId, causing dead panes to render.
+**Fix:** Added `else if (terminalLayout.type === 'split')` branch that calls `removePane()` to surgically remove the closed terminal from the split tree and save the updated layout.
+**Imported:** `removePane` from `TerminalWindow.tsx`.
+
+### 2. get-skills IPC handler didn't read file content
+**File:** `src/main.ts:8141`
+**Problem:** The `get-skills` handler only listed skill filenames and generated a name/description — it never read the actual `.md` file content. The `content` field was always `undefined`.
+**Fix:** Added `fs.readFileSync` to read each skill file and include its full content in the response.
+
+### 3. InstructionPanel generatePrompt missing skill.content
+**File:** `src/components/InstructionPanel.tsx:70`
+**Problem:** Even if skill content were available, `generatePrompt()` only included `skill.name` and `skill.description` — never `skill.content`.
+**Fix:** Appended `skill.content` to the skill section of the generated prompt when present.
+
+### 4. initializeTerminal completely ignored session config
+**File:** `src/pages/TerminalPage.tsx:216`
+**Problem:** The NewSessionDialog collected init file selection, custom system prompt, and problem/request IDs, but `initializeTerminal` always read the default `INITIALIZE.md` from the project path and never used any of the user's selections from the dialog. Session config was saved to JSON but never read back.
+**Fix:** Added `initContent` and `systemPrompt` parameters to `initializeTerminal`. If provided, they override the defaults. The `onCreate` handler now resolves init file content (`includeDefaultInit` + `initializeFile`), reads custom system prompt, appends problem/request context, and passes everything to `initializeTerminal`. Existing terminal path also sends context.
+
+### 5. No IPC endpoint to read custom init file content
+**File:** `src/main.ts:5469`, `src/preload.ts:249`
+**Problem:** `list-init-files` only searched `projectPath/agent/` for files starting with `init`, missing the default `Initialize.md` and other markdown files. There was no way to read a specific init file's content from the renderer.
+**Fix:** Added `read-init-file` IPC handler that searches both `userDataPath/agent/` and `projectPath/agent/`. Added `readInitFile` to preload.ts. Updated `list-init-files` to merge markdown files from both directories.
 
 ---
 
@@ -1450,29 +2404,99 @@ The global `spawnedTerminals` Set was the single cause of:
 
 ---
 
-### 2026-05-07 — Insights Page Redesign (IN PROGRESS)
+### 2026-05-10 — Typical Day Full Redesign: 24x7 Heatmap + Multi-Activity Algorithm
 
 **What Changed:**
-1. 🔄 **IN PROGRESS** Redesign Insights page "Typical Day Hourly" chart and overall data presentation
-   - User reports: "typical day hourly is very ugly"
-   - User reports: "insights page isn't showing any cool or good interesting data in an interesting chart"
-   - Using generate-prompt skill to create high-fidelity design prompt
+1. ✅ **REPLACED** `get-typical-day` IPC handler (`src/main.ts:6556-6583`) with new algorithm:
+   - **Merges both data sources**: external_sessions (JOIN external_activities for name) + device logs (`logs` table)
+   - **Splits external sessions across hours** they span (like Dashboard heatmap)
+   - **Builds a 7×24 grid** (7 days × 24 hours) instead of a single 24-item array
+   - **Normalizes by week count** (`days / 7`) — per-day averages, not raw totals
+   - **Multi-activity per cell** — all activities above 10% or 60s threshold are kept
+   - **Returns** `{ grid, legend, stats, generatedAt, daysCovered }` with per-activity percentages and colors
+   - **Activity color mapping** via `ACTIVITY_COLORS` constant (Sleep=purple, Study=blue, etc.)
+   - **Error/empty returns** use `emptyTypicalDayGrid()` helper for consistent structure
+
+2. ✅ **REPLACED** Typical Day UI section (`src/pages/InsightsPage.tsx:258-348`):
+   - **24×7 heatmap grid** — 7 rows (Sun-Sat) × 24 columns (hours) with 14×14px cells
+   - **Multi-activity cells** — single activity = emerald intensity gradient; multiple = stacked color gradient
+   - **Small indicator dots** on multi-activity cells showing first 3 activity colors
+   - **Hover tooltip** — per-activity breakdown with seconds, percentages, and data source badges (External/Device)
+   - **Quick Stats panel** — 3 cards: total hours avg/day, most active day, peak hour
+   - **Activity color legend** — top 8 activities by total time
+   - **Intensity scale** — Less → More gradient strip
+   - **Loading state** — animated pulse skeleton
+   - **Page removed**: old legend (High/Med/Low/None), quick-jump buttons, old hover detail panel, single-row 24-cell layout
+
+3. ✅ **REMOVED** Dead code from InsightsPage.tsx:
+   - `TypicalSlot` interface → replaced by `ActivityBucket`, `HourCell`, `TypicalDayData`
+   - `getHeatColor()` function (no longer needed)
+   - `getActivityColor()` function (no longer needed)
+   - `getActivityHex()` function (no longer needed)
+   - `ACTIVITY_GRADIENTS` constant (no longer needed)
+   - `dayLabels` constant (no longer needed)
+   - `hoveredHour` state (replaced by inline tooltip state)
+   - `typicalMaxSeconds` useMemo (no longer needed)
+   - `selectedHourData` computed value (no longer needed)
+   - `eachDayOfInterval` import (unused)
+   - `useRef` import (unused)
 
 **Files Modified:**
-- `agent/state.md` - This entry (IN PROGRESS)
+- `src/main.ts` — Replaced `get-typical-day` handler with new 7×24 multi-activity algorithm
+- `src/pages/InsightsPage.tsx` — Replaced Typical Day section with heatmap grid + quick stats + tooltip + legend; removed dead code
 
 **Why:**
-- Insights page data visualization is poor and not engaging
-- "Typical day hourly" chart specifically called out as ugly
-- Page needs interesting charts that showcase data well
+- User reported: "typical hour in the insights page is not clear and not showing proper data"
+- Used generate-prompt skill → PROMPT.md → RESULT.md design → gap analysis → adapted implementation
+- RESULT.md specified SVG; adapted to div-based for codebase consistency
+- RESULT.md specified `await db.all()` (async); adapted to `better-sqlite3` synchronous calls
+- RESULT.md assumed `activity_logs` table; adapted to actual `logs` table columns
 
 **Result:**
-- Pending design prompt generation
+- ✅ Build passes (3060 modules, 7.72s renderer + electron tsc)
+- ✅ 7×24 heatmap grid shows daily patterns (not just 24 horizontal cells)
+- ✅ Both device + external activity data visible
+- ✅ Per-day normalized (hours comparable across cells)
+- ✅ Multi-activity cells show stacked colors
+- ✅ Hover shows full per-activity breakdown
+- ✅ Quick stats panel gives at-a-glance insights
 
 ---
 
-**Last Updated:** 2026-05-07 (Stopwatch Fix Complete)
-**Maintained By:** AI Development Team
+### 2026-05-10 — generate-prompt Skill Updated with RESULT.md Rules
+
+**What Changed:**
+1. ✅ **UPDATED** `agent/skills/generate-prompt/SKILL.md` — Added "CRITICAL: RESULT.md Usage Rules" section with 3 new rules:
+   - **Rule 1 — RESULT.md is RAW and UNTOUCHABLE**: Must be consumed exactly as-is, no edits or interpretation
+   - **Rule 2 — Implement After Analysis (Not During)**: Read RESULT.md first, trace codebase, identify gaps, plan modifications, THEN implement
+   - **Rule 3 — Removal MUST Be Confirmed**: Any removal of existing code/UI/features requires explicit user confirmation before proceeding
+2. ✅ **UPDATED** Version from 1.0.0 → 1.1.0
+
+**Files Modified:**
+- `agent/skills/generate-prompt/SKILL.md` — Added new rules section, bumped version
+
+**Why:**
+- User requested strict rules around RESULT.md consumption: no editing/thinking about code fit before saving, AI must adapt solution to codebase after analysis, and removals require confirmation
+
+**Result:**
+- Skill now enforces raw output consumption, analysis-then-implement workflow, and mandatory user confirmation for removals
+
+---
+
+### 2026-05-10 — Created Typical Day Redesign PROMPT.md
+
+**What Changed:**
+1. ✅ **CREATED** `agent/docs/typical-hour-redesign/PROMPT.md` — New prompt for Typical Day algorithm redesign
+
+**Files Modified:**
+- `agent/docs/typical-hour-redesign/PROMPT.md` — New prompt document for algorithm redesign
+
+**Why:**
+- New prompt to guide AI in redesigning the Typical Day algorithm for better data representation
+
+---
+
+**Last Updated:** 2026-05-11 (Terminal Workspace Revamp Complete)
 
 ---
 ### 2026-05-06 (Part 9) — Fix computedWebsiteData + Chart Width Fix
@@ -1527,3 +2551,136 @@ The global `spawnedTerminals` Set was the single cause of:
 - Chart bars now uniform width, fill entire container
 - Weekly/Monthly charts display properly
 
+---
+### 2026-05-13 — JSON storage for Problems & Requests
+
+**What Changed:**
+1. **REWRITTEN** ProblemsService — now uses `problems.json` as source of truth (not markdown parsing)
+2. **REWRITTEN** RequestsService — now uses `requests.json` as source of truth (not markdown parsing)
+3. Markdown files (PROBLEMS.md, REQUESTS.md) are now **generated from JSON** — always in sync
+4. Legacy markdown parsing kept as `parseProblemsLegacy()` / `parseRequestsLegacy()` for one-time migration
+5. Created design prompt at `agent/docs/json-storage-design/prompt.md`
+
+**Files Modified:**
+- `src/services/ProblemsService.ts` — JSON read/write, MD generation, auto-migration
+- `src/services/RequestsService.ts` — JSON read/write, MD generation, auto-migration
+
+**Why:**
+- Markdown regex parsing was fragile and broken (trailing space, field name variants, multi-line issues)
+- JSON is machine-parseable — no regex, no silent failures
+- Description field on REQUESTS.md was never populated correctly
+- Existing `problems.json` / `requests.json` exports from tracker-mind-setup were unused
+
+**Result:**
+- `getProblems()` reads JSON, falls back to markdown migration, then creates empty
+- `getRequests()` reads JSON, falls back to markdown migration, then creates empty
+- All mutations write JSON first, regenerate markdown second
+- Build: ✅ passes
+
+### 2026-05-14 — Dashboard Weekly Productivity Chart Revamp
+
+**What Changed:**
+1. **Added Y-axis** with hour markers (h) on left side — computes nice round max values (1h, 2h, 4h, 6h, etc.) for clear reference
+2. **Added horizontal grid lines** at each Y-axis tick across the full chart area
+3. **Removed empty/dark bars** — bars with zero activity now render as invisible (no dark zinc placeholder bars)
+4. **Added hover tooltips** showing Device and External hour breakdown per bar
+5. **Added gradient backgrounds** on bars (green gradient for device, purple gradient for external) instead of flat colors
+6. **External-only bars** now have reduced opacity (0.7) and proper all-rounded corners to visually distinguish from combined activity
+7. **Smooth transitions** — added `transition-all duration-300 ease-out` on bar segments
+
+**Files Modified:**
+- `src/pages/DashboardPage.tsx` — Y-axis ticks computation (`yAxisTicks` useMemo), `maxBarHeight` useMemo, full bar chart JSX rewrite
+
+**Why:**
+- No Y-axis made the chart illegible — users couldn't tell what bar heights represented
+- External activity bars filled the "empty" gap, making the chart look flat and misleading
+- No interactivity (tooltips, hover states) — chart felt stiff and uninformative
+
+**Result:**
+- Y-axis shows hour markers with grid lines for reference
+- Empty hours are truly empty (no visual noise)
+- Hovering any bar shows exact device/external breakdown
+- Gradients and transitions make the chart feel dynamic and modern
+- Works across all timelines: today (24h), week (7d), month (~30d), all (monthly)
+
+**Build:** ✅ Passes
+
+### 2026-05-14 — Recursive Split Panes + Problems/Requests Parsing Fix
+
+**What Changed:**
+1. **Rewrote TerminalLayout** — recursive `PaneRenderer` interprets PaneNode tree: split nodes render as flex containers with draggable `SplitHandle`, respecting `splitRatio` (was z-index stacking, only active terminal visible)
+2. **Fixed MD→JSON migration** — `getProblems()`/`getRequests()` now trigger legacy markdown parsing when JSON is empty `[]` but MD has content (was returning `[]` silently)
+3. **Fixed CRLF regex break** — legacy parsers normalize `\r\n` → `\n` before matching (Windows line endings caused 0 matches)
+4. **Fixed TDZ** — moved `loadSessions` above `handleInstructionPanelSend` in TerminalPage.tsx
+5. **Fixed favicon** — changed from `vite.svg` to `deskflow-icon.png` in index.html
+6. **Cleaned** — removed unused `terminalIds` prop from TerminalLayout
+
+**Files Modified:**
+- `src/components/TerminalWindow.tsx` — recursive split pane rendering
+- `src/services/ProblemsService.ts` — empty JSON → MD migration, CRLF normalization
+- `src/services/RequestsService.ts` — empty JSON → MD migration, CRLF normalization
+- `src/pages/TerminalPage.tsx` — TDZ fix, removed unused prop
+- `index.html` — favicon update
+- `agent/state.md` — version 3.4
+
+**Why:**
+- Terminal split panes were stacked with z-index, only one visible — the entire split tree structure was built but never interpreted visually
+- `problems.json` and `requests.json` were `[]` (valid JSON) so migration from MD never triggered, despite 41 problems and 54 requests in markdown
+- CRLF line endings from Windows broke all legacy regex parsers
+
+**Result:**
+- Split terminals now render side-by-side/top-bottom with draggable divider (flex layout from PaneNode tree)
+- Problems/requests data from markdown files is now correctly migrated to JSON and accessible in the UI
+- Build: ✅ passes
+
+**Tracking Accuracy + Dashboard Feed Bug Fixes**
+- ✅ **FIXED:** `handleBrowserData` now uses `data.domain` as `app` name (was hardcoded `'Browser'`) — `src/main.ts:6738`
+- ✅ **FIXED:** Dashboard initial activity feed now balances 10 app entries + 5 browser entries (was 20 of any type, flood of "Website") — `src/pages/DashboardPage.tsx:314`
+- ✅ **FIXED:** `appStats` and `allTimeAppStats` now exclude browser apps + rename browser-tracked entries to domain name — `src/App.tsx:866,910`
+- ✅ **FIXED:** StatsPage `sortedApps` recomputation now filters browser apps the same way — `src/pages/StatsPage.tsx:164`
+- ✅ **FIXED:** Pie chart tooltip now shows formatted duration + percentage — `src/pages/StatsPage.tsx:629`
+- ✅ **FIXED:** `formatDuration` now rounds values under 60s to 2 decimals (was floating point drift like 9.547000000073s) — `src/pages/StatsPage.tsx:57`
+- Files: `src/main.ts`, `src/App.tsx`, `src/pages/StatsPage.tsx`, `src/pages/DashboardPage.tsx`
+- Build: ✅ Passes
+
+**Research prompt created:** `agent/docs/tracking-accuracy-research-14052026/prompt.md`
+- Covers tracking accuracy, RAM/CPU optimization, and complete data validation.
+
+### 2026-05-15 — Initialize System Bug Fixes (JSON.stringify + file content not included)
+
+**What Changed:**
+1. **FIXED:** `SettingsPage.tsx:925` — `handleSaveSystemPrompt` was using `JSON.stringify(updated)` which stored `systemPrompts` as a string instead of an object. Subsequent loads via `{ ...prefs.systemPrompts }` would spread the string into indexed properties instead of `claude`/`opencode`/`custom` keys, silently dropping saved prompts. Changed to pass object directly.
+2. **FIXED:** `NewSessionDialog.tsx:127-169` — `handleCreate` in initialize mode had two bugs:
+   - `Initialize.md` content was never included in the init content sent to the AI agent (only `agents.md` + manually selected files were included). Now `Initialize.md` is read and prepended as the first item.
+   - Selected agent files only emitted `<!-- File: ${file} -->` comment markers instead of reading and including the actual file content. Now reads each file via `readAgentFileContent` and wraps in code fence.
+3. Made `handleCreate` async to support file reads.
+
+**Files Modified:**
+- `src/pages/SettingsPage.tsx` — Removed `JSON.stringify()` from system prompt save
+- `src/components/NewSessionDialog.tsx` — Rewrote initialize mode content builder to include Initialize.md + actual file contents
+
+**Why:** System prompts were not persisting correctly; Initialize.md was never sent to the agent; selected files only emitted comments not content.
+
+**Result:** System prompts now save/load correctly; Initialize.md is sent to the agent; selected agent files include their actual content.
+
+**Build:** ✅ Passes
+
+---
+
+### 2026-05-15 — Removed websites from app list, fixed backend BROWSER_APPS filters
+
+**What Changed:**
+1. **Frontend app stats (App.tsx, StatsPage.tsx):** Replaced the old domain rename (`is_browser_tracking && domain ? domain : app`) with a direct `is_browser_tracking` skip — website domains (e.g. "github.com") no longer appear as apps
+2. **Backend BROWSER_APPS removed (main.ts):** Removed the BROWSER_APPS blocklist from `addLog` path, `getStats()`, `get-daily-stats`, `get-app-stats`, `get-daily-productivity`, and `get-productivity-range` — browser apps like Chrome, Comet, Edge, Firefox are now included in all queries; only `is_browser_tracking` entries (websites) are excluded from app-only queries
+3. **Dead code removed (App.tsx):** Removed unused `BROWSER_APPS` and `isBrowserApp` function
+
+**Files Modified:**
+- `src/App.tsx` — `appStats` and `allTimeAppStats` now filter `is_browser_tracking` instead of domain rename; removed dead `BROWSER_APPS`/`isBrowserApp`
+- `src/pages/StatsPage.tsx` — `sortedApps` same fix
+- `src/main.ts` — `getStats()`, `get-daily-stats`, `get-app-stats`, `get-daily-productivity`, `get-productivity-range`: removed BROWSER_APPS `NOT IN` filters from SQL/JSON paths
+
+**Why:** Websites (domain names from the browser extension) were polluting the app list due to the domain rename logic; real desktop browser apps (Chrome, Comet) were blocked by backend BROWSER_APPS filters
+
+**Result:** App list shows real desktop apps only (Chrome, Comet, VS Code, etc.); websites stay in their own section; browser apps are now saved and returned by all backend queries
+
+**Build:** ✅ Passes

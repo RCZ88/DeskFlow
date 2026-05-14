@@ -1,16 +1,13 @@
 
-
-```yaml
 ---
-name: generate-prompt
-description: Generates context-rich prompts that task the receiving AI with providing a definitive, high-fidelity engineering and design solution. 
-allowed-tools: Read, Write, Glob, Grep, question
-prerequisites: Read agent/state.md and relevant planning docs
-notes: |
-  - MUST update state.md BEFORE creating any prompt.
-  - The prompt must demand a single, optimal solution—NOT a list of choices (A/B/C).
-  - The receiving AI should provide high-fidelity specifications (logic, math, visuals).
-```
+id: generate-prompt
+name: Generate Prompt
+category: design
+applicable_to: [prompts, design-specs]
+version: 1.1.0
+created: 2026-04-19
+tags: [prompts, design, engineering]
+---
 
 # 📝 Generate Prompt for High-Fidelity Solutions
 
@@ -62,7 +59,41 @@ Prompt should feel like a high-level technical brief:
 3. **You:** [Read codebase and planning docs]
 4. **You:** [Write prompt demanding a high-fidelity design → save to `agent/docs/.../prompt.md`]
 5. **You:** "I have created a prompt that tasks the AI with designing a complete data-processing and visual overhaul for the charts. Send it to the AI to get the full design."
-```
+
+---
+
+## CRITICAL: RESULT.md Usage Rules
+
+When the design prompt generates a `RESULT.md` (or equivalent output), follow these rules strictly:
+
+### Rule 1 — RESULT.md is RAW and UNTOUCHABLE
+
+The RESULT.md from the prompt's target AI must be consumed **exactly as-is**. Do NOT:
+- Edit, rewrite, or summarize it
+- Add your own interpretation or commentary
+- Pre-process it to "fit" the codebase
+- Remove or reorder sections
+
+Save it to `agent/docs/.../RESULT.md` verbatim.
+
+### Rule 2 — Implement After Analysis (Not During)
+
+After saving RESULT.md raw:
+1. **Read RESULT.md fully**
+2. **Trace the codebase** to understand how the proposed solution maps to existing code
+3. **Identify gaps** between the solution and the actual code structure
+4. **Plan modifications** — what needs to change, what can stay, what must be adapted
+5. **Only then** implement, making pragmatic adaptations to fit the codebase while preserving the solution's design intent
+
+The solution from RESULT.md is the **design target**. Code adaptations are the **implementation path**. Do not judge the design; adapt the implementation.
+
+### Rule 3 — Removal MUST Be Confirmed
+
+If RESULT.md (or your implementation analysis) involves **removing any existing code, UI elements, features, buttons, or functionality**, you MUST pause and ask the user for explicit confirmation before removing anything. State exactly:
+
+> "RESULT.md proposes removing [X]. Can I proceed?"
+
+Do not skip this. Do not assume. The user decides what gets removed.
 
 ---
 

@@ -1,50 +1,95 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useTerminalLayout } from '../hooks/useTerminalLayout';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 
-
-
 declare global {
   interface Window {
     deskflowAPI?: {
-      writeTerminal: (terminalId: string, data: string) => Promise<{ success: boolean }>;
-      resizeTerminal: (terminalId: string, cols: number, rows: number) => Promise<{ success: boolean }>;
-      spawnTerminal: (terminalId: string, cwd: string) => Promise<{ success: boolean; error?: string }>;
-      killTerminal: (terminalId: string) => Promise<{ success: boolean }>;
-      onTerminalData?: (callback: (data: { terminalId: string; data: string }) => void) => (() => void);
+      terminalWrite: (terminalId: string, data: string) => Promise<{ success: boolean }>;
+      terminalResize: (terminalId: string, cols: number, rows: number) => Promise<{ success: boolean }>;
+      terminalDestroy: (terminalId: string) => Promise<{ success: boolean }>;
+      onTerminalData: (callback: (id: string, data: string) => void) => (() => void);
+      onTerminalExit: (callback: (id: string, exitCode: number, signal: string) => void) => (() => void);
+      onTerminalReady: (callback: (id: string) => void) => (() => void);
     };
   }
 }
 
-interface TerminalPaneProps {
-  terminalId: string;
-  onTerminalReady?: (terminalId: string, terminal: Terminal) => void;
-  onFocus?: (terminalId: string) => void;
+export interface PaneNode {
+  type: 'leaf' | 'split';
+  terminalId?: string;
+  direction?: 'horizontal' | 'vertical';
+  splitRatio?: number;
+  children?: [PaneNode, PaneNode];
 }
 
-export function TerminalPane({ terminalId, onTerminalReady, onFocus }: TerminalPaneProps) {
+interface TerminalPaneProps {
+  terminalId: string;
+  isActive: boolean;
+  onTerminalReady: (id: string) => void;
+  onSplit: (id: string, direction: 'horizontal' | 'vertical') => void;
+  onClose: (id: string) => void;
+  onFocus: (id: string) => void;
+}
+
+interface TerminalLayoutProps {
+  layout: PaneNode | null;
+  activeTerminalId: string | null;
+  spawnTerminal: (id: string, cwd?: string) => Promise<boolean>;
+  onLayoutChange: (layout: PaneNode) => void;
+  onActiveTerminalChange: (id: string) => void;
+  onCloseTerminal: (id: string) => void;
+  projectPath?: string;
+}
+
+const inputBuffers = new Map<string, string[]>();
+const terminalReadyStates = new Map<string, boolean>();
+
+export function replaceLeafTerminalId(node: PaneNode, targetId: string, newId: string): PaneNode {
+  if (node.type === 'leaf') {
+    return node.terminalId === targetId ? { ...node, terminalId: newId } : node;
+  }
+  return {
+    ...node,
+    children: [
+      replaceLeafTerminalId(node.children![0], targetId, newId),
+      replaceLeafTerminalId(node.children![1], targetId, newId),
+    ],
+  };
+}
+
+export function findLeafById(node: PaneNode | null, id: string | null): PaneNode | null {
+  if (!node || !id) return null;
+  if (node.type === 'leaf') {
+    return node.terminalId === id ? node : null;
+  }
+  const [left, right] = node.children!;
+  return findLeafById(left, id) || findLeafById(right, id);
+}
+
+function findFirstLeaf(node: PaneNode): PaneNode | null {
+  if (node.type === 'leaf') return node;
+  return findFirstLeaf(node.children![0]) || findFirstLeaf(node.children![1]);
+}
+
+function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose, onFocus }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const hasReceivedData = useRef(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-
-    console.log('[TerminalPane] Mounting for terminalId:', terminalId);
+    if (!containerRef.current || terminalRef.current) return;
 
     const terminal = new Terminal({
-      cursorBlink: true,
-      fontSize: 14,
-      fontFamily: 'Consolas, "Courier New", monospace',
       theme: {
         background: '#0d0d0d',
         foreground: '#e0e0e0',
         cursor: '#00ff00',
-        selection: 'rgba(0, 255, 0, 0.3)',
+        cursorAccent: '#0d0d0d',
+        selectionBackground: '#3b82f680',
         black: '#000000',
         red: '#cd3131',
         green: '#0dbc79',
@@ -62,414 +107,390 @@ export function TerminalPane({ terminalId, onTerminalReady, onFocus }: TerminalP
         brightCyan: '#29b8db',
         brightWhite: '#e5e5e5',
       },
+      fontFamily: 'Consolas, "Courier New", monospace',
+      fontSize: 14,
+      cursorBlink: true,
     });
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
-
     terminal.open(containerRef.current);
-    fitAddon.fit();
+    requestAnimationFrame(() => fitAddon.fit());
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    terminal.onData((data) => {
-      if (window.deskflowAPI) {
-        window.deskflowAPI.terminalAPI?.write(terminalId, data);
-      }
-    });
+    inputBuffers.set(terminalId, []);
+    terminalReadyStates.set(terminalId, false);
 
-    if (terminal.onFocus) {
-      terminal.onFocus(() => {
-        onFocus?.(terminalId);
-      });
-    }
+    terminal.write('\x1b[33mStarting shell...\x1b[0m\r\n');
 
-    // Write placeholder text BEFORE calling onTerminalReady so it appears immediately
-    terminal.write('Terminal initialized. Waiting for shell...\r\n');
-    
-    onTerminalReady?.(terminalId, terminal);
-    
-    // Diagnostic: if no data received after 5 seconds, show diagnostic message
-    const diagTimeout = setTimeout(() => {
-      if (!hasReceivedData.current && terminalRef.current) {
-        terminalRef.current.write('\r\n\x1b[33m[Diagnostic] No shell data received after 5s. Shell may have failed to spawn.\x1b[0m\r\n');
-      }
-    }, 5000);
-    
-    // Check container dimensions
-    setTimeout(() => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        console.log('[TerminalPane] Container dimensions:', rect.width, 'x', rect.height);
-      }
-    }, 100);
-
-    const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
-      if (window.deskflowAPI) {
-        window.deskflowAPI.terminalAPI?.resize(terminalId, terminal.cols, terminal.rows);
-      }
-    });
-    resizeObserver.observe(containerRef.current);
+    setTimeout(() => onTerminalReady(terminalId), 100);
 
     return () => {
-      clearTimeout(diagTimeout);
-      resizeObserver.disconnect();
       terminal.dispose();
-      window.deskflowAPI.terminalAPI?.destroy(terminalId);
+      terminalRef.current = null;
+      inputBuffers.delete(terminalId);
+      terminalReadyStates.delete(terminalId);
     };
+  }, [terminalId, onTerminalReady]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+
+    const disposable = terminal.onData((data) => {
+      const isReady = terminalReadyStates.get(terminalId);
+      if (isReady) {
+        window.deskflowAPI?.terminalWrite?.(terminalId, data);
+      } else {
+        const buffer = inputBuffers.get(terminalId) || [];
+        buffer.push(data);
+        inputBuffers.set(terminalId, buffer);
+      }
+    });
+
+    return () => disposable.dispose();
   }, [terminalId]);
 
-  // Listen for data from the PTY
   useEffect(() => {
-    if (!window.deskflowAPI || !window.deskflowAPI.onTerminalData) return;
+    if (!window.deskflowAPI) return;
 
-    const handleData = (data: { terminalId: string; data: string }) => {
-      if (data.terminalId === terminalId && terminalRef.current) {
-        // Clear placeholder text on first real data from shell
-        if (!hasReceivedData.current) {
-          hasReceivedData.current = true;
-          terminalRef.current.clear();
-        }
-        terminalRef.current.write(data.data);
+    const cleanupData = window.deskflowAPI.onTerminalData?.((id, data) => {
+      if (id === terminalId && terminalRef.current) {
+        terminalRef.current.write(data);
       }
-    };
+    });
 
-    // Register listener and get cleanup function
-    const cleanup = window.deskflowAPI.onTerminalData((data) => {
-      console.log('[TerminalPane] Data received:', data.terminalId, 'data length:', data.data.length, 'expected:', terminalId);
-      if (data.terminalId === terminalId) {
-        console.log('[TerminalPane] Writing data to xterm for', terminalId);
+    const cleanupExit = window.deskflowAPI.onTerminalExit?.((id, exitCode) => {
+      if (id === terminalId && terminalRef.current) {
+        terminalRef.current.write(`\r\n\x1b[31mProcess exited with code ${exitCode}\x1b[0m\r\n`);
+        terminalReadyStates.set(terminalId, false);
       }
-      handleData(data);
+    });
+
+    const cleanupReady = window.deskflowAPI.onTerminalReady?.((id) => {
+      if (id === terminalId) {
+        terminalReadyStates.set(terminalId, true);
+        const buffer = inputBuffers.get(terminalId) || [];
+        buffer.forEach((bufferedData) => {
+          window.deskflowAPI?.terminalWrite?.(terminalId, bufferedData);
+        });
+        inputBuffers.set(terminalId, []);
+      }
     });
 
     return () => {
-      if (cleanup) cleanup();
+      cleanupData?.();
+      cleanupExit?.();
+      cleanupReady?.();
     };
   }, [terminalId]);
 
-  return (
-    <div 
-      ref={containerRef} 
-      className="w-full h-full bg-[#0d0d0d] overflow-hidden relative"
-      style={{ minHeight: '300px', minWidth: '300px' }}
-      onClick={() => onFocus && onFocus(terminalId)}
-    />
-  );
-}
-
-interface SplitDirection {
-  type: 'horizontal' | 'vertical';
-  direction: 'left' | 'right' | 'top' | 'bottom';
-}
-
-export interface PaneNode {
-  id: string;
-  type: 'leaf' | 'split';
-  terminalId?: string;
-  splitType?: SplitDirection['type'];
-  direction?: SplitDirection['direction'];
-  children?: [PaneNode, PaneNode];
-  size: number;
-}
-
-interface TerminalLayoutProps {
-  initialLayout?: PaneNode;
-  onPaneClick?: (paneId: string) => void;
-  onLayoutChange?: (layout: PaneNode) => void;
-  onActiveTerminalChange?: (terminalId: string) => void;
-  spawnTerminal: (terminalId: string, cwd?: string) => Promise<boolean>;
-  defaultCwd?: string;
-}
-
-function createPaneNode(id: string): PaneNode {
-  return { id, type: 'leaf', terminalId: id, size: 50 };
-}
-
-export function TerminalLayout({ initialLayout, onPaneClick, onLayoutChange, onActiveTerminalChange, spawnTerminal, defaultCwd }: TerminalLayoutProps) {
-  const { layout, setLayout, isLoading } = useTerminalLayout(initialLayout);
-  const [activeTerminal, setActiveTerminal] = useState<string>('root');
-  // Use a ref for spawn tracking so it resets when this layout instance unmounts
-  const spawnedTerminalsRef = useRef(new Set<string>());
-
-  // CRITICAL: Clear spawn tracking when project/CWD changes
-  // This ensures terminals respawn when switching projects
   useEffect(() => {
-    console.log('[TerminalLayout] CWD changed to:', defaultCwd, '- clearing spawn tracking');
-    spawnedTerminalsRef.current.clear();
-  }, [defaultCwd]);
-
-  useEffect(() => {
-    if (layout && onLayoutChange) {
-      onLayoutChange(layout);
-    }
-  }, [layout, onLayoutChange]);
-
-  // Initialize active terminal to the first leaf in the layout
-  useEffect(() => {
-    if (layout) {
-      const findFirstLeaf = (node: PaneNode): string | null => {
-        if (node.type === 'leaf') return node.terminalId || node.id;
-        if (node.children) {
-          for (const child of node.children) {
-            const found = findFirstLeaf(child);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-      const firstTerminal = findFirstLeaf(layout);
-      if (firstTerminal && firstTerminal !== activeTerminal) {
-        console.log('[TerminalLayout] Setting initial active terminal:', firstTerminal);
-        setActiveTerminal(firstTerminal);
-      }
-    }
-  }, [layout]);
-
-  useEffect(() => {
-    onActiveTerminalChange?.(activeTerminal);
-  }, [activeTerminal, onActiveTerminalChange]);
-
-  const splitPane = useCallback((parentId: string, direction: SplitDirection) => {
-    if (!layout) return;
-    const newTerminalId = `term-${Date.now()}`;
-    const newPane: PaneNode = {
-      id: newTerminalId,
-      type: 'leaf',
-      terminalId: newTerminalId,
-      size: 50,
-    };
-
-    const updateLayout = (node: PaneNode): PaneNode => {
-      if (node.id === parentId && node.type === 'leaf') {
-        return {
-          id: node.id + '-split',
-          type: 'split',
-          splitType: direction.type === 'horizontal' ? 'horizontal' : 'vertical',
-          direction: direction.direction,
-          size: 100,
-          children: [node, newPane]
-        };
-      }
-      if (node.children) {
-        return { ...node, children: node.children.map(updateLayout) as [PaneNode, PaneNode] };
-      }
-      return node;
-    };
-
-    setLayout(updateLayout(layout));
-    setActiveTerminal(newTerminalId);
-    spawnTerminal(newTerminalId, defaultCwd);
-  }, [layout, setLayout, spawnTerminal, defaultCwd]);
-
-  const closePane = useCallback((paneId: string) => {
-    if (!layout) return;
-    // Find the terminalId for this pane so we can kill the process
-    const findTerminalId = (node: PaneNode): string | null => {
-      if (node.id === paneId) return node.terminalId || node.id;
-      if (node.children) {
-        for (const child of node.children) {
-          const found = findTerminalId(child);
-          if (found) return found;
+    const handleResize = () => {
+      if (fitAddonRef.current) {
+        fitAddonRef.current.fit();
+        const terminal = terminalRef.current;
+        if (terminal) {
+          window.deskflowAPI?.terminalResize?.(terminalId, terminal.cols, terminal.rows);
         }
       }
-      return null;
     };
-    const termId = findTerminalId(layout);
-    if (termId) {
-      spawnedTerminalsRef.current.delete(termId);
-      // Actually kill the terminal process via IPC
-      if (window.deskflowAPI?.terminalAPI?.destroy) {
-        window.deskflowAPI.terminalAPI.destroy(termId);
-      }
-    }
-    const removeAndReparent = (node: PaneNode): PaneNode | null => {
-      if (node.id === paneId) return null;
-      if (node.children) {
-        const newChildren = node.children.map(c => removeAndReparent(c)).filter(Boolean) as [PaneNode, PaneNode];
-        if (newChildren.length === 1) return newChildren[0];
-        return { ...node, children: newChildren };
-      }
-      return node;
-    };
-    const closed = removeAndReparent(layout);
-    setLayout(closed || createPaneNode('root'));
-  }, [layout, setLayout]);
 
-  const handleTerminalReady = useCallback(async (terminalId: string, terminal: Terminal) => {
-    console.log('[TerminalLayout] Terminal ready:', terminalId);
-    // Only spawn if not already spawned in THIS layout instance
-    if (spawnedTerminalsRef.current.has(terminalId)) {
-      console.log('[TerminalLayout] Terminal already spawned in this layout:', terminalId);
-      return;
-    }
-    spawnedTerminalsRef.current.add(terminalId);
-    console.log('[TerminalLayout] Spawning terminal:', terminalId, 'cwd:', defaultCwd);
-    try {
-      const result = await spawnTerminal(terminalId, defaultCwd);
-      console.log('[TerminalLayout] Spawn result:', result);
-      if (!result) {
-        spawnedTerminalsRef.current.delete(terminalId); // Allow retry
-        terminal.write('\r\n\x1b[31m[ERROR] Failed to spawn terminal shell.\x1b[0m\r\n');
-      }
-    } catch (e: any) {
-      spawnedTerminalsRef.current.delete(terminalId); // Allow retry
-      console.error('[TerminalLayout] Spawn error:', e);
-      terminal.write(`\r\n\x1b[31m[ERROR] Terminal spawn failed: ${e.message}\x1b[0m\r\n`);
-    }
-  }, [spawnTerminal, defaultCwd]);
+    const resizeObserver = new ResizeObserver(handleResize);
+    if (containerRef.current) resizeObserver.observe(containerRef.current);
+
+    return () => resizeObserver.disconnect();
+  }, [terminalId]);
 
   useEffect(() => {
-    const handleClosePaneEvent = (e: CustomEvent) => {
-      closePane(e.detail.paneId);
-    };
-    window.addEventListener('close-pane', handleClosePaneEvent as EventListener);
-    return () => {
-      window.removeEventListener('close-pane', handleClosePaneEvent as EventListener);
-    };
-  }, [closePane]);
-
-  const renderPane = (node: PaneNode, direction?: SplitDirection): JSX.Element => {
-    if (node.type === 'leaf') {
-      return (
-        <div 
-          key={node.id}
-          className={`relative flex flex-1 ${node.terminalId === activeTerminal ? 'ring-2 ring-green-500' : ''}`}
-          style={{ flexBasis: `${node.size}%`, minWidth: '100px', minHeight: '200px' }}
-        >
-          <div className="absolute inset-0 flex flex-col">
-            <div className="flex-1 relative">
-              <TerminalPane
-                terminalId={node.terminalId || node.id}
-                onTerminalReady={handleTerminalReady}
-                onFocus={setActiveTerminal}
-              />
-            </div>
-            <SplitControls paneId={node.id} onSplit={(dir) => splitPane(node.id, dir)} />
-          </div>
-        </div>
-      );
+    if (isActive && terminalRef.current) {
+      terminalRef.current.focus();
     }
-
-    if (node.type === 'split' && node.children) {
-      const direction: SplitDirection = {
-        type: node.splitType || 'horizontal',
-        direction: node.direction || 'right',
-      };
-      return (
-        <div 
-          key={node.id}
-          className={`flex flex-1 ${node.splitType === 'horizontal' ? 'flex-row' : 'flex-col'}`}
-          style={{ width: '100%', height: '100%' }}
-        >
-          {node.children.map((child, idx) => (
-            <div key={idx} className="flex-1" style={{ minWidth: '100px', minHeight: '100px' }}>
-              {renderPane(child, { type: node.splitType || 'horizontal', direction: idx === 0 ? 'left' : 'right' })}
-            </div>
-          ))}
-          <SplitHandle splitType={node.splitType} />
-        </div>
-      );
-    }
-
-    return <div key={node.id} />;
-  };
-
-  if (isLoading) {
-    return (
-      <div className="w-full h-full bg-[#0d0d0d] flex items-center justify-center">
-        <div className="text-zinc-500">Loading layout...</div>
-      </div>
-    );
-  }
+  }, [isActive]);
 
   return (
-    <div className="w-full h-full bg-[#0d0d0d] flex flex-col" style={{ height: '100%', minHeight: '400px' }}>
-      {layout && renderPane(layout)}
-    </div>
-  );
-}
-
-interface SplitControlsProps {
-  paneId: string;
-  onSplit: (direction: SplitDirection) => void;
-}
-
-function SplitControls({ paneId, onSplit }: SplitControlsProps) {
-  const [showControls, setShowControls] = useState(false);
-
-  const handleClose = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('close-pane', { detail: { paneId } }));
-  }, [paneId]);
-
-  return (
-    <div 
-      className="absolute inset-0 pointer-events-none z-10"
-      onMouseEnter={() => setShowControls(true)}
-      onMouseLeave={() => setShowControls(false)}
+    <div
+      ref={containerRef}
+      className={`relative w-full h-full ${isActive ? 'ring-2 ring-green-500' : ''}`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={() => onFocus(terminalId)}
     >
-      {showControls && (
-        <>
+      {isHovered && (
+        <div className="absolute top-2 right-2 flex gap-1 z-10">
           <button
-            className="absolute top-1 left-1 w-6 h-6 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded pointer-events-auto opacity-50 hover:opacity-100"
-            onClick={() => onSplit({ type: 'vertical', direction: 'left' })}
-            title="Split Left"
+            onClick={(e) => { e.stopPropagation(); onSplit(terminalId, 'vertical'); }}
+            className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs text-zinc-400"
+            title="Split Vertical"
           >
-            ⊣
+            ⋮
           </button>
           <button
-            className="absolute top-1 right-8 w-6 h-6 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded pointer-events-auto opacity-50 hover:opacity-100"
-            onClick={() => onSplit({ type: 'vertical', direction: 'right' })}
-            title="Split Right"
+            onClick={(e) => { e.stopPropagation(); onSplit(terminalId, 'horizontal'); }}
+            className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs text-zinc-400"
+            title="Split Horizontal"
           >
-            ⊢
+            ⋯
           </button>
           <button
-            className="absolute top-1 right-1 w-6 h-6 bg-zinc-800 hover:bg-red-900 text-red-400 rounded pointer-events-auto opacity-50 hover:opacity-100"
-            onClick={handleClose}
-            title="Close Pane"
+            onClick={(e) => { e.stopPropagation(); onClose(terminalId); }}
+            className="p-1 bg-red-900/50 hover:bg-red-800 rounded text-xs text-red-400"
+            title="Close"
           >
             ✕
           </button>
-          <button
-            className="absolute top-8 left-1 w-6 h-6 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded pointer-events-auto opacity-50 hover:opacity-100"
-            onClick={() => onSplit({ type: 'horizontal', direction: 'top' })}
-            title="Split Top"
-          >
-            ⊤
-          </button>
-          <button
-            className="absolute bottom-1 right-1 w-6 h-6 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded pointer-events-auto opacity-50 hover:opacity-100"
-            onClick={() => onSplit({ type: 'horizontal', direction: 'bottom' })}
-            title="Split Bottom"
-          >
-            ⊥
-          </button>
-        </>
+        </div>
       )}
     </div>
   );
 }
 
-interface SplitHandleProps {
-  splitType?: 'horizontal' | 'vertical';
-}
+function SplitHandle({ direction, onDrag }: { direction: 'horizontal' | 'vertical'; onDrag: (delta: number) => void }) {
+  const isDragging = useRef(false);
+  const lastPos = useRef(0);
 
-function SplitHandle({ splitType }: SplitHandleProps) {
-  const [isDragging, setIsDragging] = useState(false);
+  const handleMouseDown = (e: React.MouseEvent) => {
+    isDragging.current = true;
+    lastPos.current = direction === 'horizontal' ? e.clientX : e.clientY;
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      const currentPos = direction === 'horizontal' ? e.clientX : e.clientY;
+      const delta = currentPos - lastPos.current;
+      lastPos.current = currentPos;
+      onDrag(delta);
+    };
+    const handleMouseUp = () => { isDragging.current = false; };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [direction, onDrag]);
 
   return (
     <div
-      className={`flex-shrink-0 ${
-        splitType === 'horizontal' ? 'w-1 cursor-col-resize hover:bg-green-600' : 'h-1 cursor-row-resize hover:bg-green-600'
-      } ${isDragging ? 'bg-green-500' : 'bg-zinc-800'}`}
-      onMouseDown={() => setIsDragging(true)}
-      onMouseUp={() => setIsDragging(false)}
+      onMouseDown={handleMouseDown}
+      className={`flex-shrink-0 bg-zinc-800 hover:bg-green-600 transition-colors ${
+        direction === 'horizontal' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'
+      }`}
     />
   );
+}
+
+function getLeafIds(node: PaneNode): string[] {
+  if (node.type === 'leaf') return node.terminalId ? [node.terminalId] : [];
+  return [...getLeafIds(node.children![0]), ...getLeafIds(node.children![1])];
+}
+
+function PaneRenderer({
+  node,
+  activeTerminalId,
+  onTerminalReady,
+  onSplit,
+  onClose,
+  onFocus,
+  onDragHandle,
+  path,
+}: {
+  node: PaneNode;
+  activeTerminalId: string | null;
+  onTerminalReady: (id: string) => void;
+  onSplit: (id: string, direction: 'horizontal' | 'vertical') => void;
+  onClose: (id: string) => void;
+  onFocus: (id: string) => void;
+  onDragHandle: (path: number[], delta: number) => void;
+  path: number[];
+}) {
+  if (node.type === 'leaf') {
+    return (
+      <TerminalPane
+        terminalId={node.terminalId!}
+        isActive={node.terminalId === activeTerminalId}
+        onTerminalReady={onTerminalReady}
+        onSplit={onSplit}
+        onClose={onClose}
+        onFocus={onFocus}
+      />
+    );
+  }
+
+  const dir = node.direction || 'vertical';
+  const ratio = node.splitRatio || 0.5;
+  const flexDir = dir === 'horizontal' ? 'flex-row' : 'flex-col';
+
+  return (
+    <div className={`flex ${flexDir} w-full h-full`}>
+      <div style={{ flex: ratio }}>
+        <PaneRenderer
+          node={node.children![0]}
+          activeTerminalId={activeTerminalId}
+          onTerminalReady={onTerminalReady}
+          onSplit={onSplit}
+          onClose={onClose}
+          onFocus={onFocus}
+          onDragHandle={onDragHandle}
+          path={[...path, 0]}
+        />
+      </div>
+      <SplitHandle direction={dir} onDrag={(delta) => onDragHandle(path, delta)} />
+      <div style={{ flex: 1 - ratio }}>
+        <PaneRenderer
+          node={node.children![1]}
+          activeTerminalId={activeTerminalId}
+          onTerminalReady={onTerminalReady}
+          onSplit={onSplit}
+          onClose={onClose}
+          onFocus={onFocus}
+          onDragHandle={onDragHandle}
+          path={[...path, 1]}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function TerminalLayout({
+  layout,
+  activeTerminalId,
+  spawnTerminal,
+  onLayoutChange,
+  onActiveTerminalChange,
+  onCloseTerminal,
+  projectPath,
+}: TerminalLayoutProps) {
+  const spawnedTerminalsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    const handleCleanup = (e: CustomEvent) => {
+      const { terminalId } = e.detail as { terminalId: string };
+      spawnedTerminalsRef.current.delete(terminalId);
+    };
+
+    window.addEventListener('terminal-cleanup', handleCleanup as EventListener);
+    return () => window.removeEventListener('terminal-cleanup', handleCleanup as EventListener);
+  }, []);
+
+  const handleSplit = useCallback((terminalId: string, direction: 'horizontal' | 'vertical') => {
+    if (!layout) return;
+    const newTerminalId = `term-${Date.now()}`;
+    spawnedTerminalsRef.current.add(newTerminalId);
+    onLayoutChange(splitPane(layout, terminalId, newTerminalId, direction));
+    spawnTerminal(newTerminalId, projectPath).then(() => {
+      window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: newTerminalId } }));
+    });
+  }, [layout, spawnTerminal, onLayoutChange, projectPath]);
+
+  const handleClose = useCallback((terminalId: string) => {
+    window.dispatchEvent(new CustomEvent('close-pane', { detail: { terminalId } }));
+  }, []);
+
+  const handleSplitDrag = useCallback((parentPath: number[], delta: number) => {
+    if (!layout) return;
+    onLayoutChange(adjustSplitRatio(layout, parentPath, delta));
+  }, [layout, onLayoutChange]);
+
+  const handleTerminalReady = useCallback(async (terminalId: string) => {
+    if (spawnedTerminalsRef.current.has(terminalId)) {
+      window.dispatchEvent(new CustomEvent('terminal:ready-custom', { detail: { id: terminalId } }));
+      return;
+    }
+    spawnedTerminalsRef.current.add(terminalId);
+    await spawnTerminal(terminalId, projectPath);
+    window.dispatchEvent(new CustomEvent('terminal:ready-custom', { detail: { id: terminalId } }));
+  }, [spawnTerminal, projectPath]);
+
+  if (!layout || getLeafIds(layout).length === 0) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-zinc-500 bg-[#0d0d0d]">
+        <button
+          onClick={() => {
+            const newId = `term-${Date.now()}`;
+            onLayoutChange({ type: 'leaf', terminalId: newId });
+            spawnTerminal(newId, projectPath).then(() => {
+              window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: newId } }));
+            });
+          }}
+          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm"
+        >
+          + Open Terminal
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full bg-[#0d0d0d] overflow-hidden">
+      <PaneRenderer
+        node={layout}
+        activeTerminalId={activeTerminalId}
+        onTerminalReady={handleTerminalReady}
+        onSplit={handleSplit}
+        onClose={handleClose}
+        onFocus={onActiveTerminalChange}
+        onDragHandle={handleSplitDrag}
+        path={[]}
+      />
+    </div>
+  );
+}
+
+export function removePane(layout: PaneNode, terminalId: string): PaneNode {
+  if (layout.type === 'leaf') {
+    return layout.terminalId === terminalId ? null! : layout;
+  }
+  const [left, right] = layout.children!;
+  const newLeft = removePane(left, terminalId);
+  const newRight = removePane(right, terminalId);
+  if (!newLeft) return newRight;
+  if (!newRight) return newLeft;
+  return { ...layout, children: [newLeft, newRight] };
+}
+
+export function splitPane(layout: PaneNode, targetId: string, newTerminalId: string, direction: 'horizontal' | 'vertical'): PaneNode {
+  if (layout.type === 'leaf') {
+    if (layout.terminalId === targetId) {
+      return { type: 'split', direction, splitRatio: 0.5, children: [layout, { type: 'leaf', terminalId: newTerminalId }] };
+    }
+    return layout;
+  }
+  const [left, right] = layout.children!;
+  return { ...layout, children: [splitPane(left, targetId, newTerminalId, direction), splitPane(right, targetId, newTerminalId, direction)] };
+}
+
+export function insertIntoLayout(layout: PaneNode | null, newTerminalId: string, targetId?: string): PaneNode {
+  if (!layout) {
+    return { type: 'leaf', terminalId: newTerminalId };
+  }
+  const target = targetId || findFirstLeaf(layout)?.terminalId;
+  if (target) {
+    return splitPane(layout, target, newTerminalId, 'vertical');
+  }
+  return { type: 'leaf', terminalId: newTerminalId };
+}
+
+function adjustSplitRatio(layout: PaneNode, path: number[], delta: number): PaneNode {
+  if (layout.type !== 'split') return layout;
+  if (path.length === 0) {
+    const currentRatio = layout.splitRatio || 0.5;
+    const adjustment = delta * 0.001;
+    return { ...layout, splitRatio: Math.max(0.1, Math.min(0.9, currentRatio + adjustment)) };
+  }
+  const [left, right] = layout.children!;
+  const nextIndex = path[0];
+  return {
+    ...layout,
+    children: [
+      nextIndex === 0 ? adjustSplitRatio(left, path.slice(1), delta) : left,
+      nextIndex === 1 ? adjustSplitRatio(right, path.slice(1), delta) : right,
+    ],
+  };
 }
 
 export default TerminalLayout;

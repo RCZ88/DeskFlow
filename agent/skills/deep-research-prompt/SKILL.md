@@ -1,10 +1,12 @@
-```yaml
 ---
-name: deep-research-prompt
-description: Comprehensive prompt template for deep research tasks using Qwen CLI.
-allowed-tools: Read, Write, Grep, Glob, Bash, WebFetch, WebSearch
+id: deep-research-prompt
+name: Deep Research Prompt
+category: research
+applicable_to: [research, prompt-generation]
+version: 1.0.0
+created: 2026-04-19
+tags: [research, prompts, qwen]
 ---
-```
 
 # 📝 Deep Research Prompt
 

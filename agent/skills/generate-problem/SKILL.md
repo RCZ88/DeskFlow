@@ -1,15 +1,11 @@
-```yaml
 ---
-name: generate-problem
-description: Generates prompts for external AI (Claude Code, Qwen, GPT) with option to remember context check. Creates prompts that fit the project structure without redesign.
-allowed-tools: Read, Write, Glob, Grep
-prerequisites: Read agent/state.md first
-notes: |
-  - Generates prompts for external AI tools (Claude Code, Qwen, Cursor, etc.)
-  - Always asks user if this is a new chat or existing chat
-  - Reminds user to attach project context (state.md) for existing chats
-  - Option to not remind again (stores preference)
-  - Code line counter shows estimated changes
+id: generate-problem
+name: Generate Problem
+category: debugging
+applicable_to: [problems, external-ai]
+version: 1.0.0
+created: 2026-04-19
+tags: [problems, prompts, external-ai]
 ---
 
 # 📝 Generate Problem for External AI

@@ -3,7 +3,7 @@
 **Purpose:** Document data storage, schemas, and recent changes to database/information.
 
 **Created:** 2026-04-13
-**Last Updated:** 2026-04-13
+**Last Updated:** 2026-05-10
 
 ---
 
@@ -54,6 +54,8 @@
 | `get-browser-category-stats` | Get browser stats by category |
 | `get-daily-aggregates` | Get data from daily_aggregates table |
 | `get-browser-sessions` | Get data from browser_sessions table |
+| `get-typical-day` | **REPLACED** — Returns `{ grid, legend, stats, generatedAt, daysCovered }` (7×24 multi-activity grid). Merges external_sessions + device logs, normalizes per-day, supports multi-activity cells with percentages and colors. |
+| `link-problem-to-request` | Links a problem ID to a request in REQUESTS.md. Calls RequestsService.linkProblem(). Accepts `{ requestId, problemId }`. |
 
 ---
 
@@ -66,4 +68,4 @@
 
 ---
 
-**Last Updated:** 2026-04-13
+**Last Updated:** 2026-05-10

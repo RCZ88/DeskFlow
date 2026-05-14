@@ -18,6 +18,7 @@ import IDEProjectsPage from './pages/IDEProjectsPage';
 import IDEHelpPage from './pages/IDEHelpPage';
 import TerminalPage from './pages/TerminalPage';
 import ExternalPage from './pages/ExternalPage';
+import { DurationPicker, LatencyPicker } from './components/DurationPicker';
 import InsightsPage from './pages/InsightsPage';
 import DashboardPage from './pages/DashboardPage';
 // Agent dashboard is disabled - file incomplete
@@ -177,11 +178,25 @@ declare global {
       deleteTerminalLayout: (layoutId: string) => Promise<{ success: boolean; message?: string }>;
       setActiveTerminalLayout: (layoutId: string) => Promise<{ success: boolean; message?: string }>;
       // Terminal Sessions
-      saveTerminalSession: (session: { projectId?: string; agent: string; resumeId?: string; topic?: string; workingDirectory?: string; totalTokens?: number; totalCost?: number }) => Promise<{ success: boolean; id?: string }>;
+      saveTerminalSession: (session: { projectId?: string; agent: string; resumeId?: string; topic?: string; workingDirectory?: string; totalTokens?: number; totalCost?: number; category?: string; status?: string; productArea?: string; description?: string; autoTags?: string[]; categoryConfirmed?: boolean }) => Promise<{ success: boolean; id?: string }>;
       getTerminalSessions: (projectId?: string, limit?: number) => Promise<any[]>;
       getTerminalSessionResumeId: (sessionId: string) => Promise<string | null>;
+      deleteTerminalSession: (sessionId: string) => Promise<{ success: boolean }>;
+      getSessionMessages: (sessionId: string, agentType?: string) => Promise<{ success: boolean; data: any[] }>;
+      saveTerminalMessage: (data: { sessionId: string; role: string; content: string }) => Promise<{ success: boolean; id?: any }>;
+      // Session Categorization
+      updateSessionCategory: (data: { sessionId: string; category?: string; productArea?: string; description?: string; status?: string; tags?: string[]; categoryConfirmed?: boolean }) => Promise<{ success: boolean }>;
+      getParsedSessionItems: (sessionId: string) => Promise<{ success: boolean; data: any[] }>;
+      analyzeSessionCategory: (sessionId: string) => Promise<{ success: boolean; category: string; confidence: number; tags: string[]; productArea: string }>;
+      saveSessionConfig: (sessionId: string, config: any, projectPath?: string) => Promise<{ success: boolean; error?: string }>;
+      loadSessionConfig: (sessionId: string, projectPath?: string) => Promise<{ success: boolean; data: any; error?: string }>;
+      listInitFiles: (projectPath?: string) => Promise<{ success: boolean; data: string[] }>;
+      // @mention Routing
+      resolveAtMention: (data: { input: string; terminalTabs: Array<{ id: string; name: string }> }) => Promise<{ terminalId: string | null; message: string; resolved: boolean }>;
+      getAISyncStatus: () => Promise<{ lastRunAt: string | null; agentLastRun: Record<string, string>; paths: Record<string, any> }>;
       // Project Health
       calculateProjectHealth: (projectId: string) => Promise<{ healthScore: number; activityLevel: string; aiSessions: number; commits: number }>;
+      getProjectDetails: (projectId: string) => Promise<{ project: any; tools: any[]; sessions: any[]; health: any; presets: any[]; aiUsage: any }>;
     };
   }
 }
@@ -526,6 +541,20 @@ function App() {
       window.deskflowAPI.onTrackingHeartbeat((data) => {
         // Don't update isTracking from heartbeat - let user control it
         if (data.currentApp) setCurrentApp(data.currentApp);
+        // Store OS-level idle seconds for idle detection
+        if (typeof data.systemIdleSeconds === 'number') {
+          systemIdleSecondsRef.current = data.systemIdleSeconds;
+          // Auto-resume from idle if system idle drops below threshold (user resumed activity)
+          if (idleRef.current && data.systemIdleSeconds * 1000 < idleThreshold * 60 * 1000) {
+            console.log('[DeskFlow] System idle dropped - resuming tracking');
+            if (window.deskflowAPI?.stopAfkSession) {
+              window.deskflowAPI.stopAfkSession().catch(console.error);
+            }
+            setIsIdle(false);
+            setIsTracking(true);
+            setSessionStart(new Date());
+          }
+        }
       });
     }
 
@@ -629,33 +658,113 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Sleep prompt on app open - check morning condition
-  const [showMorningSleepPrompt, setShowMorningSleepPrompt] = useState(false);
+  // Sleep detection - tracks gaps in window focus
+  const [showSleepDetection, setShowSleepDetection] = useState(false);
+  const [sleepDetectionData, setSleepDetectionData] = useState<{
+    gapMinutes: number;
+    suggestedBedtime: string;
+    suggestedWakeTime: string;
+  } | null>(null);
   const [sleepLatencyMinutes, setSleepLatencyMinutes] = useState(15);
-  
+  const [wakeLatencyMinutes, setWakeLatencyMinutes] = useState(5);
+  const [sleepDetectCustomBedtime, setSleepDetectCustomBedtime] = useState({ hours: 22, minutes: 0 });
+  const [sleepDetectCustomWaketime, setSleepDetectCustomWaketime] = useState({ hours: 7, minutes: 0 });
+
+  // Auto-calculate wakeLatencyMinutes from wake time vs current time
   useEffect(() => {
-    const checkMorningSleep = async () => {
+    const now = new Date();
+    const wakeDate = new Date();
+    wakeDate.setHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes, 0, 0);
+    if (wakeDate > now) {
+      wakeDate.setDate(wakeDate.getDate() - 1);
+    }
+    const diff = Math.max(0, Math.round((now.getTime() - wakeDate.getTime()) / 60000));
+    setWakeLatencyMinutes(diff);
+  }, [sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes]);
+
+  // On mount, check if there's a pending sleep detection
+  useEffect(() => {
+    const checkSleepDetect = async () => {
       try {
-        if (window.deskflowAPI?.getMorningPrompt) {
-          const data = await window.deskflowAPI.getMorningPrompt();
-          if (data?.show) {
-            console.log('[App] Morning sleep prompt available:', data);
-            setShowMorningSleepPrompt(true);
+        if (window.deskflowAPI?.checkSleepDetection) {
+          const data = await window.deskflowAPI.checkSleepDetection();
+          if (data?.detected) {
+            setSleepDetectionData(data);
+            // Pre-fill custom times
+            const bed = new Date(data.suggestedBedtime);
+            const wake = new Date(data.suggestedWakeTime);
+            setSleepDetectCustomBedtime({ hours: bed.getHours(), minutes: bed.getMinutes() });
+            setSleepDetectCustomWaketime({ hours: wake.getHours(), minutes: wake.getMinutes() });
+            setShowSleepDetection(true);
           }
         }
       } catch { /* ignore */ }
     };
-    checkMorningSleep();
+    checkSleepDetect();
   }, []);
 
-  const dismissSleepPrompt = async () => {
-    setShowMorningSleepPrompt(false);
+  // Listen for real-time sleep detection from main process
+  useEffect(() => {
+    if (window.deskflowAPI?.onSleepDetection) {
+      window.deskflowAPI.onSleepDetection(async (data: any) => {
+        if (data?.gapMinutes >= 45) {
+          const detResult = await window.deskflowAPI?.checkSleepDetection?.();
+          if (detResult?.detected) {
+            setSleepDetectionData(detResult);
+            const bed = new Date(detResult.suggestedBedtime);
+            const wake = new Date(detResult.suggestedWakeTime);
+            setSleepDetectCustomBedtime({ hours: bed.getHours(), minutes: bed.getMinutes() });
+            setSleepDetectCustomWaketime({ hours: wake.getHours(), minutes: wake.getMinutes() });
+            setShowSleepDetection(true);
+          }
+        }
+      });
+    }
+  }, []);
+
+  const dismissSleepDetection = async () => {
+    setShowSleepDetection(false);
+    setSleepDetectionData(null);
     try {
-      if (window.deskflowAPI?.dismissMorningPrompt) {
-        await window.deskflowAPI.dismissMorningPrompt();
+      if (window.deskflowAPI?.dismissSleepDetection) {
+        await window.deskflowAPI.dismissSleepDetection();
       }
     } catch { /* ignore */ }
   };
+
+  const confirmSleepDetection = async () => {
+    if (!sleepDetectionData) return;
+    try {
+      const now = new Date();
+      // Parse custom times or use suggested
+      let bedtime: Date, wakeTime: Date;
+      bedtime = new Date(sleepDetectionData.suggestedBedtime);
+      bedtime.setHours(sleepDetectCustomBedtime.hours, sleepDetectCustomBedtime.minutes, 0, 0);
+      wakeTime = new Date(sleepDetectionData.suggestedWakeTime);
+      wakeTime.setHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes, 0, 0);
+      if (wakeTime <= bedtime) wakeTime.setDate(wakeTime.getDate() + 1);
+
+      if (window.deskflowAPI?.confirmSleep) {
+        const result = await window.deskflowAPI.confirmSleep({
+          started_at: bedtime.toISOString(),
+          ended_at: wakeTime.toISOString(),
+          device_off_to_sleep_seconds: sleepLatencyMinutes * 60,
+          wake_up_to_app_seconds: wakeLatencyMinutes * 60,
+        });
+        if (result?.success) {
+          window.dispatchEvent(new CustomEvent('sleep-confirmed'));
+        }
+      }
+    } catch (err) {
+      console.error('[App] Failed to confirm sleep:', err);
+    }
+    dismissSleepDetection();
+  };
+
+  function formatDisplayTime(iso: string): string {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  }
 
   useEffect(() => {
     const loadOverrides = async () => {
@@ -756,7 +865,7 @@ function App() {
   // Compute period-filtered app stats (for StatsPage)
   const appStats = useMemo(() => {
     const now = new Date();
-    let filteredLogs = allLogs.filter(log => !log.is_browser_tracking);
+    let filteredLogs = [...allLogs];
 
     // Filter by selectedPeriod
     if (selectedPeriod === 'today') {
@@ -778,14 +887,16 @@ function App() {
 
     const grouped: Record<string, { total_ms: number; sessions: number; first_seen: string; last_seen: string; category: string }> = {};
     for (const log of filteredLogs) {
-      const category = getCategory(log.app, log.category || 'Other');
-      if (!grouped[log.app]) {
-        grouped[log.app] = { total_ms: 0, sessions: 0, first_seen: log.timestamp.toISOString(), last_seen: log.timestamp.toISOString(), category };
+      if (log.is_browser_tracking) continue;
+      const app = log.app;
+      const category = getCategory(app, log.category || 'Other');
+      if (!grouped[app]) {
+        grouped[app] = { total_ms: 0, sessions: 0, first_seen: log.timestamp.toISOString(), last_seen: log.timestamp.toISOString(), category };
       }
-      grouped[log.app].total_ms += log.duration * 1000;
-      grouped[log.app].sessions += 1;
-      if (log.timestamp.toISOString() < grouped[log.app].first_seen) grouped[log.app].first_seen = log.timestamp.toISOString();
-      if (log.timestamp.toISOString() > grouped[log.app].last_seen) grouped[log.app].last_seen = log.timestamp.toISOString();
+      grouped[app].total_ms += log.duration * 1000;
+      grouped[app].sessions += 1;
+      if (log.timestamp.toISOString() < grouped[app].first_seen) grouped[app].first_seen = log.timestamp.toISOString();
+      if (log.timestamp.toISOString() > grouped[app].last_seen) grouped[app].last_seen = log.timestamp.toISOString();
     }
 
     const stats = Object.entries(grouped).map(([app, data]) => ({
@@ -800,7 +911,7 @@ function App() {
   // Compute ALL TIME app stats - no filtering by period (for Settings page)
   const allTimeAppStats = useMemo(() => {
     // Include ALL logs regardless of selectedPeriod
-    const appLogs = allLogs.filter(log => !log.is_browser_tracking);
+    const appLogs = [...allLogs];
 
     // Apply category overrides
     const getCategory = (app: string, defaultCategory: string) => {
@@ -811,14 +922,16 @@ function App() {
     // Group by app
     const grouped: Record<string, { total_ms: number; sessions: number; first_seen: string; last_seen: string; category: string }> = {};
     for (const log of appLogs) {
-      const category = getCategory(log.app, log.category || 'Other');
-      if (!grouped[log.app]) {
-        grouped[log.app] = { total_ms: 0, sessions: 0, first_seen: log.timestamp.toISOString(), last_seen: log.timestamp.toISOString(), category };
+      if (log.is_browser_tracking) continue;
+      const app = log.app;
+      const category = getCategory(app, log.category || 'Other');
+      if (!grouped[app]) {
+        grouped[app] = { total_ms: 0, sessions: 0, first_seen: log.timestamp.toISOString(), last_seen: log.timestamp.toISOString(), category };
       }
-      grouped[log.app].total_ms += log.duration * 1000;
-      grouped[log.app].sessions += 1;
-      if (log.timestamp.toISOString() < grouped[log.app].first_seen) grouped[log.app].first_seen = log.timestamp.toISOString();
-      if (log.timestamp.toISOString() > grouped[log.app].last_seen) grouped[log.app].last_seen = log.timestamp.toISOString();
+      grouped[app].total_ms += log.duration * 1000;
+      grouped[app].sessions += 1;
+      if (log.timestamp.toISOString() < grouped[app].first_seen) grouped[app].first_seen = log.timestamp.toISOString();
+      if (log.timestamp.toISOString() > grouped[app].last_seen) grouped[app].last_seen = log.timestamp.toISOString();
     }
 
     // Convert to array
@@ -1167,6 +1280,7 @@ function App() {
   // Use refs to track latest state values for the activity handler
   const idleRef = useRef(isIdle);
   const trackingRef = useRef(isTracking);
+  const systemIdleSecondsRef = useRef(0); // OS-level idle seconds (from main process)
   
   // Update refs when state changes
   useEffect(() => {
@@ -1245,7 +1359,9 @@ function App() {
     };
   }, []); // Empty deps - this runs once on mount and cleans up on unmount
 
-  // Live tracking timer with idle detection - separate from activity listeners
+  // Live tracking timer with OS-level idle detection
+  // Uses powerMonitor.getSystemIdleTime() from main process (via heartbeat)
+  // which detects actual user input idle (keyboard/mouse) regardless of window focus
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
 
@@ -1255,9 +1371,10 @@ function App() {
         
         const now = Date.now();
 
-        // Idle check: If no activity for (idleThreshold) minutes, pause
+        // Idle check: Use OS-level system idle time (from main process heartbeat)
+        // This correctly detects idle even when DeskFlow is in the background
         const idleMs = idleThreshold * 60 * 1000; // Convert minutes to ms
-        if (now - lastActivity > idleMs) {
+        if (systemIdleSecondsRef.current * 1000 > idleMs) {
           setIsIdle(true);
           // Auto-pause after idle
           if (elapsedTime > 60) { // Only log if tracked >1 min
@@ -1288,7 +1405,7 @@ function App() {
     return () => {
       clearInterval(interval);
     };
-  }, [isTracking, lastActivity, elapsedTime, currentApp, sessionStart, idleThreshold]);
+  }, [isTracking, elapsedTime, currentApp, sessionStart, idleThreshold]);
 
   // Switch app simulation
   const switchApp = (newApp: string) => {
@@ -1527,22 +1644,21 @@ function App() {
 
   // Compute focus time vs total time
   // Total = apps only (no websites)
-  // Focus = apps productive + productive websites
+  // Focus = apps productive only (no websites)
   const focusAndTotalTime = useMemo(() => {
     // Total time = apps only
     const totalTime = Object.values(appsTimeByCategory).reduce((sum, d) => sum + d, 0);
     
-    // Focus time = apps productive + productive websites
+    // Focus time = apps productive only
     let productiveAppsTime = 0;
     Object.entries(appsTimeByCategory).forEach(([category, duration]) => {
       if (tierAssignments?.productive.includes(category)) {
         productiveAppsTime += duration;
       }
     });
-    const focusTime = productiveAppsTime + productiveWebsitesTime;
 
-    return { focus: focusTime, total: totalTime };
-  }, [appsTimeByCategory, productiveWebsitesTime, tierAssignments]);
+    return { focus: productiveAppsTime, total: totalTime };
+  }, [appsTimeByCategory, tierAssignments]);
   
   // Compute breakdown for display (apps vs websites)
   // Excludes browser tracking (is_browser_tracking) from apps
@@ -2188,7 +2304,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 />
               } />
               {/* Stats Page */}
-              <Route path="/stats" element={<StatsPage logs={logs} appStats={appStats} selectedPeriod={selectedPeriod} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
+              <Route path="/stats" element={<StatsPage key={selectedPeriod} logs={allLogs} appStats={appStats} selectedPeriod={selectedPeriod} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
               {/* Productivity Page */}
               <Route path="/productivity" element={<ProductivityPage logs={logs} browserLogs={browserLogs} appStats={appStats} selectedPeriod={selectedPeriod} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} domainKeywordRules={domainKeywordRules} timeMode={timeMode} />} />
               {/* Browser Page */}
@@ -2265,69 +2381,107 @@ Trend: +14% vs. yesterday. Keep it up!`;
             )}
           </AnimatePresence>
 
-          {/* ── Morning Sleep Prompt Modal ── */}
+          {/* ── Sleep Detection Modal ── */}
           <AnimatePresence>
-            {showMorningSleepPrompt && (
+            {showSleepDetection && sleepDetectionData && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-                onClick={dismissSleepPrompt}
+                className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[70]"
+                onClick={dismissSleepDetection}
               >
                 <motion.div
-                  initial={{ scale: 0.95 }}
-                  animate={{ scale: 1 }}
-                  exit={{ scale: 0.95 }}
-                  className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4"
+                  initial={{ scale: 0.92, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.92, opacity: 0 }}
+                  className="bg-zinc-900 border border-zinc-700/50 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl"
                   onClick={e => e.stopPropagation()}
                 >
                   <div className="text-center mb-6">
-                    <div className="text-6xl mb-4">🌤️</div>
-                    <h2 className="text-xl font-semibold text-zinc-100">Good Morning!</h2>
-                    <p className="text-zinc-400 mt-2">It looks like you slept last night. Want to track your sleep?</p>
+                    <div className="text-5xl mb-3">😴</div>
+                    <h2 className="text-xl font-semibold text-zinc-100">Were you sleeping?</h2>
+                    <p className="text-zinc-400 mt-2">
+                      App was inactive for <span className="text-zinc-200 font-medium">{sleepDetectionData.gapMinutes} minutes</span>
+                    </p>
                   </div>
 
-                  <div className="mb-4">
-                    <label className="block text-sm text-zinc-400 mb-2">
-                      How long after closing the app did you fall asleep?
-                    </label>
-                    <select
-                      value={sleepLatencyMinutes}
-                      onChange={(e) => setSleepLatencyMinutes(parseInt(e.target.value))}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
-                    >
-                      <option value={0}>Immediately</option>
-                      <option value={5}>5 min</option>
-                      <option value={15}>15 min</option>
-                      <option value={30}>30 min</option>
-                      <option value={60}>1 hour</option>
-                    </select>
+                  <div className="bg-zinc-800/50 rounded-xl p-4 mb-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-zinc-400">From</span>
+                      <span className="text-sm font-medium text-zinc-200">
+                        {formatDisplayTime(sleepDetectionData.suggestedBedtime)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-zinc-400">To</span>
+                      <span className="text-sm font-medium text-zinc-200">
+                        {formatDisplayTime(sleepDetectionData.suggestedWakeTime)}
+                      </span>
+                    </div>
+                    <div className="border-t border-zinc-700/50 pt-2 flex items-center justify-between">
+                      <span className="text-sm text-zinc-400">Duration</span>
+                      <span className="text-sm font-semibold text-emerald-400">
+                        {Math.floor(sleepDetectionData.gapMinutes / 60)}h {sleepDetectionData.gapMinutes % 60}m
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Bedtime</label>
+                      <DurationPicker
+                        hours={sleepDetectCustomBedtime.hours}
+                        minutes={sleepDetectCustomBedtime.minutes}
+                        onHoursChange={(h) => setSleepDetectCustomBedtime({ ...sleepDetectCustomBedtime, hours: h })}
+                        onMinutesChange={(m) => setSleepDetectCustomBedtime({ ...sleepDetectCustomBedtime, minutes: m })}
+                        maxHours={23}
+                        hourLabel="Hr"
+                        minuteLabel="Min"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Wake time</label>
+                      <DurationPicker
+                        hours={sleepDetectCustomWaketime.hours}
+                        minutes={sleepDetectCustomWaketime.minutes}
+                        onHoursChange={(h) => setSleepDetectCustomWaketime({ ...sleepDetectCustomWaketime, hours: h })}
+                        onMinutesChange={(m) => setSleepDetectCustomWaketime({ ...sleepDetectCustomWaketime, minutes: m })}
+                        maxHours={23}
+                        hourLabel="Hr"
+                        minuteLabel="Min"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    <LatencyPicker
+                      totalMinutes={sleepLatencyMinutes}
+                      onChange={setSleepLatencyMinutes}
+                      label="Fell asleep after"
+                      maxHours={4}
+                    />
+                    <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
+                      <span className="block text-xs text-zinc-500 mb-1">Woke up before app</span>
+                      <span className="text-base font-mono text-zinc-100">
+                        {String(Math.floor(wakeLatencyMinutes / 60)).padStart(2, '0')}h{' '}
+                        {String(wakeLatencyMinutes % 60).padStart(2, '0')}m
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex gap-3">
                     <button
-                      onClick={dismissSleepPrompt}
-                      className="flex-1 px-4 py-3 bg-zinc-800 rounded-xl"
+                      onClick={dismissSleepDetection}
+                      className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors"
                     >
                       Skip
                     </button>
                     <button
-                      onClick={async () => {
-                        if (window?.deskflowAPI?.addSleep) {
-                          const bedtime = new Date(Date.now() - sleepLatencyMinutes * 60 * 1000);
-                          await window.deskflowAPI.addSleep({
-                            started_at: bedtime.toISOString(),
-                            ended_at: new Date().toISOString(),
-                            device_off_to_sleep_seconds: sleepLatencyMinutes * 60,
-                            wake_up_to_app_seconds: 0
-                          });
-                        }
-                        dismissSleepPrompt();
-                      }}
-                      className="flex-1 px-4 py-3 bg-violet-500 rounded-xl text-white font-medium"
+                      onClick={confirmSleepDetection}
+                      className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-xl text-sm text-white font-medium hover:from-emerald-400 hover:to-emerald-500 transition-all"
                     >
-                      Track Sleep
+                      Confirm Sleep
                     </button>
                   </div>
                 </motion.div>

@@ -1,3 +1,13 @@
+---
+id: maintain-context
+name: Maintain Context
+category: maintenance
+applicable_to: [graphify, markdown, obsidian]
+version: 2.0.0
+created: 2026-04-19
+tags: [maintenance, sync, graphify, obsidian]
+---
+
 # Maintain-Context - Post-Task Knowledge Sync Skill
 
 Keep graphify, agent markdown, and Obsidian vault in sync after every code change. This skill is **dynamic** — it assesses the scale of changes and only runs the updates that are warranted. A one-line bug fix does not need the same treatment as a new feature.

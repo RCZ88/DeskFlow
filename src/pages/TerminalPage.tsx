@@ -1,14 +1,50 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Terminal as XTerminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
-import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon } from 'lucide-react';
-import { TerminalLayout, PaneNode } from '../components/TerminalWindow';
-import { useTerminalLayout } from '../hooks/useTerminalLayout';
+import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw } from 'lucide-react';
+import type { PaneNode } from '../components/TerminalWindow';
+import { TerminalLayout, insertIntoLayout } from '../components/TerminalWindow';
+import { MapEditor, swapLeavesInTree } from '../components/MapEditor';
+import { TerminalMiniMap } from '../components/TerminalMiniMap';
+import { InstructionPanel } from '../components/InstructionPanel';
+import { NewSessionDialog, type SessionConfig } from '../components/NewSessionDialog';
+import { splitPane, removePane } from '../components/TerminalWindow';
 import '@xterm/xterm/css/xterm.css';
 
 function generateTerminalId(): string {
   return `term-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// ── Session Categorization Config ──
+
+const SESSION_CATEGORIES: Record<string, { label: string; icon: any; bg: string; text: string; border: string }> = {
+  'bug-fix': { label: 'Bug Fix', icon: Bug, bg: 'bg-red-500/15', text: 'text-red-300', border: 'border-red-500/30' },
+  'feature': { label: 'Feature', icon: Sparkles, bg: 'bg-blue-500/15', text: 'text-blue-300', border: 'border-blue-500/30' },
+  'refactor': { label: 'Refactor', icon: RefreshCw, bg: 'bg-purple-500/15', text: 'text-purple-300', border: 'border-purple-500/30' },
+  'research': { label: 'Research', icon: Search, bg: 'bg-teal-500/15', text: 'text-teal-300', border: 'border-teal-500/30' },
+  'review': { label: 'Review', icon: Eye, bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-amber-500/30' },
+  'other': { label: 'Other', icon: MoreHorizontal, bg: 'bg-zinc-500/15', text: 'text-zinc-400', border: 'border-zinc-500/30' },
+};
+
+const SESSION_STATUS_STYLES: Record<string, { dot: string; label: string }> = {
+  active: { dot: 'bg-green-500 animate-pulse', label: 'Active' },
+  paused: { dot: 'bg-yellow-500', label: 'Paused' },
+  completed: { dot: 'bg-gray-500', label: 'Completed' },
+  archived: { dot: 'bg-zinc-600', label: 'Archived' },
+};
+
+function CategoryBadge({ category }: { category?: string }) {
+  const cat = SESSION_CATEGORIES[category || 'other'] || SESSION_CATEGORIES.other;
+  const Icon = cat.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium leading-none ${cat.bg} ${cat.text} ${cat.border} border`}>
+      <Icon className="w-2.5 h-2.5" />
+      {cat.label}
+    </span>
+  );
+}
+
+function StatusDot({ status }: { status?: string }) {
+  const style = SESSION_STATUS_STYLES[status || 'active'] || SESSION_STATUS_STYLES.active;
+  return <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${style.dot}`} title={style.label} />;
 }
 
 interface Preset {
@@ -23,8 +59,17 @@ interface Session {
   agent: string;
   topic: string;
   resume_id?: string;
-  started_at: string;
-  total_cost_usd?: number;
+  created_at: string;
+  total_cost?: number;
+  total_tokens?: number;
+  terminal_id?: string;
+  // Categorization fields
+  category?: string;
+  status?: string;
+  product_area?: string;
+  description?: string;
+  auto_tags?: string;
+  category_confirmed?: number;
 }
 
 const loggedErrors = new Set<string>();
@@ -36,11 +81,14 @@ function logOnce(key: string, message: string, ...args: any[]) {
   }
 }
 
-export default function TerminalPage({ projectId: propProjectId }: { projectId?: string }) {
+export default function TerminalPage({ projectId: propProjectId, projectPath: propProjectPath }: { projectId?: string; projectPath?: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(288); // 72 * 4 = 288px
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('terminal-sidebarWidth');
+    return saved ? parseInt(saved) : 400;
+  });
   const [isResizing, setIsResizing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'presets' | 'sessions' | 'map' | 'analytics' | 'problems' | 'requests' | 'files'>(() => {
+  const [activeTab, setActiveTab] = useState<'presets' | 'sessions' | 'map' | 'analytics' | 'problems' | 'requests' | 'files' | 'terminals'>(() => {
     const saved = localStorage.getItem('terminal-activeTab');
     return (saved as any) || 'presets';
   });
@@ -48,7 +96,17 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showAddPreset, setShowAddPreset] = useState(false);
   const [newPreset, setNewPreset] = useState({ name: '', command: '', category: '' });
+  const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
+  const [newSessionAgent, setNewSessionAgent] = useState('claude');
+  const [newSessionName, setNewSessionName] = useState('');
+  const [newSessionMode, setNewSessionMode] = useState<'create' | 'initialize'>('create');
+  const [newSessionTerminalMode, setNewSessionTerminalMode] = useState<'create' | 'select'>('create');
+  const [newSessionSelectedTerminal, setNewSessionSelectedTerminal] = useState('');
+  const [sendTargetSession, setSendTargetSession] = useState<string>('');
   const [showNewRequestDialog, setShowNewRequestDialog] = useState(false);
+  const [showMessagesViewer, setShowMessagesViewer] = useState<string | null>(null);
+  const [sessionMessages, setSessionMessages] = useState<any[]>([]);
+  const [messagesSearchQuery, setMessagesSearchQuery] = useState('');
   const [projects, setProjects] = useState<{ id: string; name: string; path: string }[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>(propProjectId || '');
   const [hoveredPane, setHoveredPane] = useState<string | null>(null);
@@ -64,14 +122,205 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
   }>>({});
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [showInstructionInput, setShowInstructionInput] = useState(false);
+  const [showInstructionPanel, setShowInstructionPanel] = useState(false);
   const [instructionText, setInstructionText] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
+  const [terminalErrorType, setTerminalErrorType] = useState<'error' | 'warning' | 'info'>('error');
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveDialogName, setSaveDialogName] = useState('');
 
-  // Persistent layout for this project
+  // Confirm dialog (replaces window.confirm)
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; message: string; onConfirm: () => void }>({ isOpen: false, message: '', onConfirm: () => {} });
+
+  const showError = useCallback((msg: string, type: 'error' | 'warning' | 'info' = 'error') => {
+    setTerminalError(msg);
+    setTerminalErrorType(type);
+    setTimeout(() => setTerminalError(null), 8000);
+  }, []);
+
+  // Terminal tab bar state
+  const [terminalTabs, setTerminalTabs] = useState<Record<string, { name: string; agent: string }>>({});
+
+  // Problems and Requests for binding/instruction panel
+  const [allProblems, setAllProblems] = useState<Problem[]>([]);
+  const [allRequests, setAllRequests] = useState<Request[]>([]);
+  const [showBindDropdown, setShowBindDropdown] = useState(false);
+
+  // Session categorization state
+  const [sessionCategoryFilter, setSessionCategoryFilter] = useState<string>('all');
+  const [mentionDropdown, setMentionDropdown] = useState<{
+    visible: boolean; query: string; results: Array<{ id: string; name: string; agent: string; sessionTopic: string }>; cursor: number;
+  }>({ visible: false, query: '', results: [], cursor: 0 });
+  
+  // Initialize agent state
+  const [initStatus, setInitStatus] = useState<'idle' | 'checking' | 'ready' | 'init-ok' | 'error'>('idle');
+
+  const handleInitSetup = useCallback(async () => {
+    const projId = selectedProject || propProjectId;
+    const proj = projects.find(p => p.id === projId);
+    const projPath = propProjectPath || proj?.path;
+    if (!window.deskflowAPI) return;
+    setInitStatus('checking');
+    try {
+      const agent = localStorage.getItem('terminal-defaultAgent') || 'claude';
+      const result = await window.deskflowAPI.trackerMindSetup?.('init-all', projId || undefined, agent);
+      if (result?.success) {
+        setInitStatus('init-ok');
+        showError(`Initialized workspace for ${agent}: agent files created`, 'info');
+      } else {
+        showError('Failed to initialize workspace', 'error');
+        setInitStatus('error');
+      }
+    } catch (e) {
+      console.error('[TerminalPage] Init setup failed:', e);
+      showError('Failed to initialize workspace', 'error');
+      setInitStatus('error');
+    }
+  }, [selectedProject, propProjectId, projects, showError]);
+
+  // File change pulse notification
+  const [fileChangedPulse, setFileChangedPulse] = useState(false);
+  const [terminalLayout, setTerminalLayout] = useState<PaneNode | null>(null);
+  const [layoutLoading, setLayoutLoading] = useState(true);
+  const userCreatedTerminalRef = useRef(false);
+
   const effectiveProjectId = propProjectId || selectedProject;
-  const { layout: terminalLayout, setLayout: setTerminalLayout, isLoading: layoutLoading, resetLayout } = useTerminalLayout(
-    effectiveProjectId || null,
-    { id: 'root', type: 'leaf', terminalId: 'term-initial', size: 50 }
-  );
+
+  // Load saved layout from DB — but don't overwrite if user already created a terminal
+  useEffect(() => {
+    if (!window.deskflowAPI) { setLayoutLoading(false); return; }
+    (async () => {
+      try {
+        const layouts = await window.deskflowAPI.getTerminalLayouts(effectiveProjectId || undefined);
+        const active = layouts?.find((l: any) => l.is_active);
+        if (!userCreatedTerminalRef.current) {
+          if (active?.layout_data) {
+            setTerminalLayout(JSON.parse(active.layout_data));
+          } else {
+            setTerminalLayout(null);
+          }
+        }
+      } catch { if (!userCreatedTerminalRef.current) setTerminalLayout(null); }
+      setLayoutLoading(false);
+    })();
+  }, [effectiveProjectId]);
+
+  const saveLayout = useCallback((layout: PaneNode | null) => {
+    if (!window.deskflowAPI) return;
+    try {
+      window.deskflowAPI.saveTerminalLayout({
+        name: 'Default Layout',
+        layoutData: layout ? JSON.stringify(layout) : '',
+        isActive: true,
+        projectId: effectiveProjectId || undefined,
+      });
+    } catch {}
+  }, [effectiveProjectId]);
+
+  const initializeTerminal = useCallback(async (terminalId: string, agent: string, resumeId?: string, initContent?: string, systemPrompt?: string) => {
+    if (initializingTerminals.current.has(terminalId)) {
+      console.log('[TerminalPage] Already initializing terminal:', terminalId);
+      return;
+    }
+    initializingTerminals.current.add(terminalId);
+    try {
+      // Wait for terminal ready signal first (with timeout)
+      try {
+        await new Promise<void>((resolve) => {
+          let done = false;
+          const remover = window.deskflowAPI?.onTerminalReady?.((id: string) => {
+            if (id === terminalId && !done) {
+              done = true;
+              remover?.();
+              resolve();
+            }
+          });
+          setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 8000);
+        });
+      } catch {}
+
+      // small pause to let shell render
+      await new Promise(r => setTimeout(r, 200));
+
+      // Write system prompt
+      if (systemPrompt) {
+        await window.deskflowAPI?.terminalWrite?.(terminalId, systemPrompt + '\n');
+      } else {
+        const prefs = await window.deskflowAPI?.getPreferences?.();
+        const prompts = prefs?.systemPrompts || {};
+        const prompt = prompts[agent] || prompts['claude'] || '';
+        if (prompt && window.deskflowAPI?.terminalWrite) {
+          await window.deskflowAPI.terminalWrite(terminalId, prompt + '\n');
+        }
+      }
+
+      // Write init content
+      if (initContent) {
+        await window.deskflowAPI?.terminalWrite?.(terminalId, initContent + '\n');
+      } else {
+        const proj = projects.find(p => p.id === selectedProject);
+        if (proj?.path) {
+          try {
+            const initResult = await window.deskflowAPI?.readProjectFile?.('INITIALIZE.md', proj.path);
+            if (initResult?.success && initResult.data && window.deskflowAPI?.terminalWrite) {
+              await window.deskflowAPI.terminalWrite(terminalId, initResult.data + '\n');
+            }
+          } catch {}
+        }
+      }
+
+      // Use CRLF for the final launch command to ensure shells on Windows receive an Enter
+      const NL = '\r\n';
+      const launchCommand = resumeId ? `${agent} --resume ${resumeId}${NL}` : `${agent}${NL}`;
+
+      const r2 = await window.deskflowAPI?.terminalWrite?.(terminalId, launchCommand);
+      console.log('[TerminalPage] Wrote launch command (raw):', JSON.stringify(launchCommand), 'result:', r2);
+    } catch (e) {
+      console.error('[TerminalPage] initializeTerminal failed:', e);
+    } finally {
+      initializingTerminals.current.delete(terminalId);
+    }
+  }, [selectedProject, projects]);
+
+  // Load all problems for binding dropdown
+  const loadAllProblems = useCallback(async () => {
+    if (!window.deskflowAPI || !selectedProject) return;
+    try {
+      const result = await window.deskflowAPI.getProblems(selectedProject);
+      if (result?.success) setAllProblems(result.data || []);
+    } catch (e) {
+      console.error('[TerminalPage] Failed to load problems:', e);
+    }
+  }, [selectedProject]);
+
+  // Load all requests for instruction panel
+  const loadAllRequests = useCallback(async () => {
+    if (!window.deskflowAPI || !selectedProject) return;
+    try {
+      const result = await window.deskflowAPI.getRequests?.(selectedProject);
+      if (result?.success) setAllRequests(result.data || []);
+    } catch (e) {
+      console.error('[TerminalPage] Failed to load requests:', e);
+    }
+  }, [selectedProject]);
+
+  useEffect(() => {
+    if (selectedProject) {
+      loadAllProblems();
+      loadAllRequests();
+    }
+  }, [selectedProject, loadAllProblems, loadAllRequests]);
+
+  // Listen for agent file changes (pulse notification)
+  useEffect(() => {
+    if (!window.deskflowAPI?.onAgentFileChanged) return;
+    const cleanup = window.deskflowAPI.onAgentFileChanged(() => {
+      setFileChangedPulse(true);
+      setTimeout(() => setFileChangedPulse(false), 3000);
+    });
+    return () => cleanup?.();
+  }, []);
 
   // Load terminal bindings
   const loadTerminalBindings = useCallback(async () => {
@@ -96,6 +345,16 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
     }
   }, []);
 
+  const loadSessions = useCallback(async () => {
+    if (!window.deskflowAPI) return;
+    try {
+      const data = await window.deskflowAPI.getTerminalSessions(selectedProject || undefined, 20);
+      setSessions(data || []);
+    } catch (e) {
+      logOnce('terminal-sessions', '[TerminalPage] Failed to load sessions:', e);
+    }
+  }, [selectedProject]);
+
   // Register terminal with binding
   const registerTerminal = useCallback(async (terminalId: string) => {
     if (!window.deskflowAPI) return;
@@ -113,30 +372,176 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
     }
   }, [selectedProject, loadTerminalBindings]);
 
-  // Send instruction to terminal
-  const sendInstruction = useCallback(async () => {
-    if (!window.deskflowAPI || !activeTerminalId || !instructionText.trim()) return;
+  // Send instruction from InstructionPanel (with problem/request/skill data)
+  const handleInstructionPanelSend = useCallback(async (config: { problems: string[]; requests: string[]; skill?: string; instruction: string; prompt: string }) => {
+    if (!window.deskflowAPI || !config.prompt.trim() || isSending) return;
+    setIsSending(true);
+    setShowInstructionPanel(false);
     try {
-      await window.deskflowAPI.terminalWrite(activeTerminalId, instructionText + '\n');
-      setInstructionText('');
-      setShowInstructionInput(false);
+      let resolvedTargetId = activeTerminalId;
+      if (!resolvedTargetId && sendTargetSession) {
+        const targetSession = sessions.find(s => s.id === sendTargetSession);
+        if (targetSession?.terminal_id) {
+          resolvedTargetId = targetSession.terminal_id;
+        }
+      }
+      if (!resolvedTargetId) {
+        showError('No terminal available for this session.', 'error');
+        return;
+      }
+      const result = await window.deskflowAPI.terminalWrite(resolvedTargetId, config.prompt + '\n');
+      if (result && !result.success) {
+        showError(`Terminal not responding: ${result.error || 'Unknown error'}`, 'error');
+        return;
+      }
+      // Save session with problem/request/skill bindings
+      const proj = projects.find(p => p.id === selectedProject);
+      const session = sessions.find(s => s.terminal_id === resolvedTargetId || s.id === resolvedTargetId);
+      await window.deskflowAPI.saveTerminalSession?.({
+        id: session?.id || `session-${Date.now()}`,
+        projectId: selectedProject,
+        agent: session?.agent || 'claude',
+        terminalId: resolvedTargetId,
+        topic: `Instruction: ${config.problems.length}p ${config.requests.length}r${config.skill ? ` + ${config.skill}` : ''}`,
+        workingDirectory: proj?.path || '',
+      });
+      // Update terminal binding with problem/request context
+      await window.deskflowAPI.updateTerminalBinding?.({
+        terminalId: resolvedTargetId,
+        updates: {
+          active_problem_id: config.problems[0] || null,
+          session_context: JSON.stringify({ problems: config.problems, requests: config.requests, skill: config.skill }),
+        },
+      });
+      loadTerminalBindings();
+      loadSessions();
+      showError(`Sent to terminal (${config.problems.length} problems, ${config.requests.length} requests)`, 'info');
     } catch (e) {
       console.error('[TerminalPage] Failed to send instruction:', e);
+      showError(`Failed to send: ${(e as any).message}`, 'error');
+    } finally {
+      setIsSending(false);
     }
-  }, [activeTerminalId, instructionText]);
+  }, [activeTerminalId, sendTargetSession, sessions, showError, isSending, selectedProject, projects, loadSessions, loadTerminalBindings]);
 
-  // Resize sidebar
-  const startResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-    const startX = e.clientX;
-    const startWidth = sidebarWidth;
-    
-    const handleMouseMove = (e: MouseEvent) => {
-      const delta = startX - e.clientX;
-      const newWidth = Math.max(200, Math.min(600, startWidth + delta));
-      setSidebarWidth(newWidth);
-    };
+  // Send instruction to terminal
+  const sendInstruction = useCallback(async () => {
+    if (!window.deskflowAPI || !instructionText.trim() || isSending) return;
+    setIsSending(true);
+    try {
+      // Check for @mention first
+      let resolvedTargetId = activeTerminalId;
+      let resolvedMessage = instructionText;
+      if (instructionText.includes('@')) {
+        const tabs = Object.entries(terminalTabs).map(([id, t]) => ({ id, name: t.name }));
+        const mentionResult = await window.deskflowAPI.resolveAtMention({ input: instructionText, terminalTabs: tabs });
+        if (mentionResult.resolved && mentionResult.terminalId) {
+          resolvedTargetId = mentionResult.terminalId;
+          resolvedMessage = mentionResult.message;
+        }
+      }
+      // Fallback: from sendTargetSession, or activeTerminalId
+      if (!resolvedTargetId && sendTargetSession) {
+        const targetSession = sessions.find(s => s.id === sendTargetSession);
+        if (targetSession?.terminal_id) {
+          resolvedTargetId = targetSession.terminal_id;
+        }
+      }
+      if (!resolvedTargetId) {
+        showError('No terminal available for this session. Open a session first.', 'error');
+        return;
+      }
+      const result = await window.deskflowAPI.terminalWrite(resolvedTargetId, resolvedMessage + '\n');
+      if (result && !result.success) {
+        showError(`Terminal not responding: ${result.error || 'Unknown error'}`, 'error');
+        return;
+      }
+      setInstructionText('');
+      setMentionDropdown(prev => ({ ...prev, visible: false }));
+      setShowInstructionInput(false);
+      if (resolvedTargetId !== activeTerminalId) {
+        showError(`Sent to ${Object.entries(terminalTabs).find(([id]) => id === resolvedTargetId)?.[1]?.name || 'terminal'}`, 'info');
+      }
+    } catch (e) {
+      console.error('[TerminalPage] Failed to send instruction:', e);
+      showError(`Failed to send: ${(e as any).message}`, 'error');
+    } finally {
+      setIsSending(false);
+    }
+  }, [activeTerminalId, instructionText, isSending, showError, sendTargetSession, sessions, terminalTabs]);
+
+  const loadPresets = useCallback(async () => {
+    if (!window.deskflowAPI) return;
+    try {
+      const data = await window.deskflowAPI.getTerminalPresets(selectedProject || undefined);
+      setPresets(data || []);
+    } catch (e) {
+      logOnce('terminal-presets', '[TerminalPage] Failed to load presets:', e);
+    }
+  }, [selectedProject]);
+
+  const loadProjects = useCallback(async () => {
+    if (!window.deskflowAPI) return;
+    try {
+      const data = await window.deskflowAPI.getProjects();
+      setProjects(data || []);
+      if (data && data.length > 0 && !localStorage.getItem('terminal-project')) {
+        setSelectedProject(data[0].id);
+      }
+    } catch (e) {
+      logOnce('terminal-projects', '[TerminalPage] Failed to load projects:', e);
+    }
+  }, []);
+
+  // Save session checkpoint - opens dialog for naming
+  const handleSaveCheckpoint = useCallback(() => {
+    if (!activeTerminalId || !window.deskflowAPI) return;
+    const session = sessions.find(s => s.terminal_id === activeTerminalId || s.id === activeTerminalId);
+    setSaveDialogName(session?.topic || `Checkpoint ${new Date().toLocaleString()}`);
+    setShowSaveDialog(true);
+  }, [activeTerminalId, sessions]);
+
+  const handleSaveCheckpointSubmit = useCallback(async () => {
+    if (!activeTerminalId || !window.deskflowAPI || !saveDialogName.trim()) return;
+    setShowSaveDialog(false);
+    try {
+      const proj = projects.find(p => p.id === selectedProject);
+      const session = sessions.find(s => s.terminal_id === activeTerminalId || s.id === activeTerminalId);
+      const result = await window.deskflowAPI.saveTerminalSession?.({
+        id: session?.id || `checkpoint-${Date.now()}`,
+        projectId: selectedProject,
+        agent: session?.agent || 'claude',
+        resumeId: session?.resume_id || activeTerminalId,
+        terminalId: activeTerminalId,
+        topic: saveDialogName.trim(),
+        workingDirectory: proj?.path || '',
+        totalTokens: session?.total_tokens || 0,
+        totalCost: session?.total_cost || 0,
+      });
+      if (result?.success) {
+        loadSessions();
+        showError(`Checkpoint saved: "${saveDialogName.trim()}"`, 'info');
+      } else {
+        showError('Failed to save checkpoint', 'error');
+      }
+    } catch (e) {
+      console.error('[TerminalPage] Failed to save session checkpoint:', e);
+      showError('Failed to save session', 'error');
+    }
+  }, [activeTerminalId, selectedProject, projects, sessions, saveDialogName, showError, loadSessions]);
+
+   // Resize sidebar
+   const startResize = useCallback((e: React.MouseEvent) => {
+     e.preventDefault();
+     setIsResizing(true);
+     const startX = e.clientX;
+     const startWidth = sidebarWidth;
+     
+     const handleMouseMove = (e: MouseEvent) => {
+       const delta = startX - e.clientX;
+       const newWidth = Math.max(200, startWidth + delta);
+       setSidebarWidth(newWidth);
+     };
     
     const handleMouseUp = () => {
       setIsResizing(false);
@@ -157,42 +562,14 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
     return () => clearInterval(interval);
   }, [loadTerminalBindings]);
 
-  const loadPresets = useCallback(async () => {
-    if (!window.deskflowAPI) return;
-    try {
-      const data = await window.deskflowAPI.getTerminalPresets(selectedProject || undefined);
-      setPresets(data || []);
-    } catch (e) {
-      logOnce('terminal-presets', '[TerminalPage] Failed to load presets:', e);
-    }
-  }, [selectedProject]);
-
-  const loadSessions = useCallback(async () => {
-    if (!window.deskflowAPI) return;
-    try {
-      const data = await window.deskflowAPI.getTerminalSessions(selectedProject || undefined, 20);
-      setSessions(data || []);
-    } catch (e) {
-      logOnce('terminal-sessions', '[TerminalPage] Failed to load sessions:', e);
-    }
-  }, [selectedProject]);
-
-  const loadProjects = useCallback(async () => {
-    if (!window.deskflowAPI) return;
-    try {
-      const data = await window.deskflowAPI.getProjects();
-      setProjects(data || []);
-    } catch (e) {
-      logOnce('terminal-projects', '[TerminalPage] Failed to load projects:', e);
-    }
-  }, []);
-
   useEffect(() => {
     loadProjects();
     // Load project from localStorage if no propProjectId
     if (!propProjectId) {
       const stored = localStorage.getItem('terminal-project');
-      if (stored) setSelectedProject(stored);
+      if (stored) {
+        setSelectedProject(stored);
+      }
     }
   }, [loadProjects]);
 
@@ -201,7 +578,7 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
       loadPresets();
     } else if (activeTab === 'sessions') {
       loadSessions();
-    } else if (activeTab === 'map' && window.deskflowAPI) {
+    } else if (activeTab === 'analytics' && window.deskflowAPI) {
       window.deskflowAPI.getAIUsageSummary('day').then(setAiSummary).catch(() => {});
     }
   }, [activeTab, selectedProject, loadPresets, loadSessions]);
@@ -211,40 +588,195 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
     localStorage.setItem('terminal-activeTab', activeTab);
   }, [activeTab]);
 
+  // Persist sidebar width to localStorage
+  useEffect(() => {
+    localStorage.setItem('terminal-sidebarWidth', sidebarWidth.toString());
+  }, [sidebarWidth]);
+
+  // Persist selected project to localStorage
+  useEffect(() => {
+    if (selectedProject) {
+      localStorage.setItem('terminal-project', selectedProject);
+    }
+  }, [selectedProject]);
+
+  // Auto-select send target session when active terminal changes
+  useEffect(() => {
+    if (activeTerminalId) {
+      const sessionForTerminal = sessions.find(s => s.terminal_id === activeTerminalId);
+      if (sessionForTerminal) {
+        setSendTargetSession(sessionForTerminal.id);
+      }
+    }
+  }, [activeTerminalId, sessions]);
+
+
+
+  // Load workspace state on mount (for propProjectPath mode)
+  useEffect(() => {
+    if (!propProjectId || !window.deskflowAPI?.loadWorkspace) return;
+    window.deskflowAPI.loadWorkspace({ scope: 'project', projectId: propProjectId }).then((result: any) => {
+      if (result?.success && result.data) {
+        if (result.data.sidebarWidth) setSidebarWidth(result.data.sidebarWidth);
+        if (result.data.activeTab) setActiveTab(result.data.activeTab);
+      }
+    }).catch(() => {});
+  }, [propProjectId]);
+
+  // Track terminals currently being initialized (prevent duplicate init calls)
+  const initializingTerminals = useRef(new Set<string>());
+  const sessionTerminalsRef = useRef(new Set<string>());
+
+  // Save workspace state on relevant changes (debounced)
+  const saveWorkspaceDebounce = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!propProjectId || !window.deskflowAPI?.saveWorkspace) return;
+    if (saveWorkspaceDebounce.current) clearTimeout(saveWorkspaceDebounce.current);
+    saveWorkspaceDebounce.current = setTimeout(() => {
+      window.deskflowAPI.saveWorkspace({
+        projectId: propProjectId,
+        scope: 'project',
+        sidebarWidth,
+        activeTab,
+        terminalTabs: Object.keys(terminalTabs),
+      }).catch(() => {});
+    }, 2000);
+    return () => {
+      if (saveWorkspaceDebounce.current) clearTimeout(saveWorkspaceDebounce.current);
+    };
+  }, [propProjectId, sidebarWidth, activeTab, terminalTabs]);
+
   const spawnTerminal = useCallback(async (terminalId: string, cwd?: string) => {
     console.log('[TerminalPage] spawnTerminal called:', terminalId, cwd);
     if (!window.deskflowAPI) {
-      console.log('[TerminalPage] No deskflowAPI!');
+      showError('Terminal API not available - cannot create terminal', 'error');
       return false;
     }
     try {
       const result = await window.deskflowAPI.spawnTerminal(terminalId, cwd || '');
-      console.log('[TerminalPage] spawnTerminal result:', result);
       if (!result.success) {
-        logOnce('terminal-spawn', '[TerminalPage] Failed to spawn shell:', result.error);
+        showError(`Failed to spawn shell: ${result.error || 'Unknown error'}`, 'error');
         return false;
       }
       return true;
     } catch (e) {
       console.error('[TerminalPage] spawnTerminal error:', e);
-      logOnce('terminal-spawn', '[TerminalPage] Failed to spawn terminal:', e);
+      showError(`Terminal creation failed: ${(e as any).message}`, 'error');
       return false;
     }
-  }, []);
+  }, [showError]);
+
+  // Handle create-terminal events: spawn the PTY and notify the system
+  // Placed after spawnTerminal to avoid TDZ reference error
+  useEffect(() => {
+    const handleCreateTerminal = async (e: CustomEvent) => {
+      const d = e.detail as { terminalId: string; cwd?: string; agent?: string; sessionName?: string };
+      userCreatedTerminalRef.current = true;
+      await spawnTerminal(d.terminalId, d.cwd || propProjectPath);
+      window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: d.terminalId, agent: d.agent } }));
+    };
+    window.addEventListener('create-terminal', handleCreateTerminal as EventListener);
+    return () => window.removeEventListener('create-terminal', handleCreateTerminal as EventListener);
+  }, [spawnTerminal, propProjectPath]);
 
   const handleLayoutChange = useCallback((layout: PaneNode) => {
     setTerminalLayout(layout);
+    saveLayout(layout);
+  }, [saveLayout]);
+
+  const handleMiniMapTerminalMove = useCallback((fromId: string, toId: string) => {
+    if (!terminalLayout) return;
+    const newLayout = swapLeavesInTree(terminalLayout, fromId, toId);
+    setTerminalLayout(newLayout);
+    saveLayout(newLayout);
+  }, [terminalLayout, saveLayout]);
+
+  const handleMiniMapSplit = useCallback((terminalId: string, direction: 'horizontal' | 'vertical') => {
+    if (!terminalLayout) return;
+    const newTerminalId = `term-${Date.now()}`;
+    const newLayout = splitPane(terminalLayout, terminalId, newTerminalId, direction);
+    setTerminalLayout(newLayout);
+    saveLayout(newLayout);
+    window.dispatchEvent(new CustomEvent('create-terminal', {
+      detail: { terminalId: newTerminalId, cwd: propProjectPath }
+    }));
+  }, [terminalLayout, saveLayout, propProjectPath]);
+
+  const handleTabSelect = useCallback((terminalId: string) => {
+    setActiveTerminalId(terminalId);
+    if (terminalLayout && terminalLayout.type === 'leaf') {
+      if (terminalLayout.terminalId !== terminalId) {
+        const updated = { ...terminalLayout, terminalId };
+        setTerminalLayout(updated);
+        saveLayout(updated);
+      }
+    }
+  }, [terminalLayout, saveLayout]);
+
+  const handleMiniMapTerminalSelect = useCallback((terminalId: string) => {
+    setActiveTerminalId(terminalId);
+    if (terminalTabs[terminalId]) {
+      handleTabSelect(terminalId);
+    }
+  }, [handleTabSelect, terminalTabs]);
+
+  const handleActiveTerminalChange = useCallback((terminalId: string) => {
+    setActiveTerminalId(terminalId);
   }, []);
 
-  const flattenPanes = useCallback((node: PaneNode): PaneNode[] => {
-    if (node.type === 'leaf') {
-      return [node];
+  const closeTerminal = useCallback(async (terminalId: string) => {
+    if (!window.deskflowAPI) return;
+    try {
+      const tab = terminalTabs[terminalId];
+      const sessionInTerminal = sessions.find(s => s.terminal_id === terminalId);
+      if (sessionInTerminal) {
+        await window.deskflowAPI.saveTerminalSession?.({
+          id: sessionInTerminal.id,
+          projectId: selectedProject || undefined,
+          agent: sessionInTerminal.agent,
+          topic: sessionInTerminal.topic,
+          workingDirectory: projects.find(p => p.id === selectedProject)?.path,
+        });
+      }
+      loadSessions();
+
+      await window.deskflowAPI.killTerminal(terminalId);
+      window.deskflowAPI.terminalAPI?.destroy(terminalId);
+
+      const remainingTabs = Object.keys(terminalTabs).filter(id => id !== terminalId);
+
+      setTerminalTabs(prev => {
+        const next = { ...prev };
+        delete next[terminalId];
+        return next;
+      });
+
+      // Update active terminal
+      if (activeTerminalId === terminalId) {
+        setActiveTerminalId(remainingTabs.length > 0 ? remainingTabs[0] : null);
+      }
+
+      // Update layout to remove the closed terminal
+      if (terminalLayout && terminalLayout.type === 'leaf' && terminalLayout.terminalId === terminalId) {
+        if (remainingTabs.length > 0) {
+          const updated = { ...terminalLayout, terminalId: remainingTabs[0] };
+          setTerminalLayout(updated);
+          saveLayout(updated);
+        } else {
+          setTerminalLayout(null);
+          saveLayout(null);
+        }
+      } else if (terminalLayout && terminalLayout.type === 'split') {
+        const updated = removePane(terminalLayout, terminalId);
+        setTerminalLayout(updated);
+        saveLayout(updated);
+      }
+
+      window.dispatchEvent(new CustomEvent('terminal-cleanup', { detail: { terminalId } }));
+    } catch (e) {
+      console.error('[TerminalPage] Failed to close terminal:', e);
     }
-    if (node.children) {
-      return node.children.flatMap(flattenPanes);
-    }
-    return [];
-  }, []);
+  }, [activeTerminalId, terminalTabs, selectedProject, projects, loadSessions, terminalLayout, saveLayout, sessions]);
 
   const handleAddPreset = useCallback(async () => {
     if (!window.deskflowAPI || !newPreset.name || !newPreset.command) return;
@@ -278,42 +810,183 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
   }, [loadPresets]);
 
   const handleExecutePreset = useCallback(async (preset: Preset) => {
-    if (!window.deskflowAPI) return;
+    if (!window.deskflowAPI || !activeTerminalId) return;
     try {
-      await window.deskflowAPI.executeTerminalPreset(preset.id);
+      const result = await window.deskflowAPI.executeTerminalPreset(preset.id);
+      if (result?.command) {
+        await window.deskflowAPI.terminalWrite(activeTerminalId, result.command + '\n');
+      }
     } catch (e) {
       console.warn('[TerminalPage] Failed to execute preset:', e);
     }
-  }, []);
+  }, [activeTerminalId]);
 
-  const handleResumeSession = useCallback(async (session: Session) => {
-    if (!window.deskflowAPI || !session.resume_id) return;
+  const handleResumeSession = useCallback(async (session: Session, targetTerminalId?: string) => {
+    if (!window.deskflowAPI) return;
     try {
-      const resumeId = await window.deskflowAPI.getTerminalSessionResumeId(session.id);
-      if (resumeId) {
-        const command = session.agent === 'claude' || session.agent === 'Claude Code'
-          ? `claude resume ${resumeId}`
-          : `opencode resume ${resumeId}`;
-        window.deskflowAPI.writeTerminal('active', command + '\n');
+      const resumeId = session.resume_id || (await window.deskflowAPI.getTerminalSessionResumeId(session.id));
+      const proj = projects.find(p => p.id === selectedProject);
+      const cwd = proj?.path || '';
+      let resolvedTerminalId = targetTerminalId;
+
+      // Load saved session config for init content
+      let savedInitContent: string | undefined;
+      let savedSystemPrompt: string | undefined;
+      try {
+        const configResult = await window.deskflowAPI.loadSessionConfig?.(session.id, cwd);
+        if (configResult?.success && configResult.data) {
+          const cfg = configResult.data;
+          if (cfg.initContent) savedInitContent = cfg.initContent;
+          if (cfg.customSystemPrompt) savedSystemPrompt = cfg.customSystemPrompt;
+        }
+      } catch {}
+
+      if (!resolvedTerminalId) {
+        resolvedTerminalId = `term-${Date.now()}-resume`;
+        setTerminalTabs(prev => ({ ...prev, [resolvedTerminalId!]: { name: proj?.name || 'Resumed', agent: session.agent || 'claude' } }));
+        setActiveTerminalId(resolvedTerminalId);
+        const updatedLayout = insertIntoLayout(terminalLayout, resolvedTerminalId);
+        setTerminalLayout(updatedLayout);
+        saveLayout(updatedLayout);
+        const spawned = await spawnTerminal(resolvedTerminalId, cwd);
+        if (!spawned) {
+          showError('Failed to create terminal', 'error');
+          return;
+        }
+        await registerTerminal(resolvedTerminalId);
+        await initializeTerminal(resolvedTerminalId, session.agent || 'claude', resumeId || undefined, savedInitContent, savedSystemPrompt);
+      } else {
+        setActiveTerminalId(resolvedTerminalId);
       }
+
+      // Update session with terminal binding
+      if (resolvedTerminalId && session.terminal_id !== resolvedTerminalId) {
+        await window.deskflowAPI.saveTerminalSession?.({
+          id: session.id,
+          projectId: selectedProject,
+          agent: session.agent,
+          resumeId: resumeId || undefined,
+          terminalId: resolvedTerminalId,
+          topic: session.topic,
+          workingDirectory: proj?.path || '',
+        });
+      }
+
+      loadSessions();
+      showError(`Opened session "${session.topic}" in terminal`, 'info');
     } catch (e) {
       console.warn('[TerminalPage] Failed to resume session:', e);
+      showError('Failed to resume session', 'error');
     }
-  }, []);
+  }, [selectedProject, projects, terminalTabs, sessions, showError, loadSessions, spawnTerminal, initializeTerminal]);
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+  // Delete session from database
+  const handleDeleteSession = useCallback(async (sessionId: string) => {
+    if (!window.deskflowAPI) return;
+    try {
+      await window.deskflowAPI.deleteTerminalSession(sessionId);
+      // Refresh sessions list
+      loadSessions();
+    } catch (e) {
+      console.warn('[TerminalPage] Failed to delete session:', e);
+    }
+  }, [loadSessions]);
+
+  useEffect(() => {
+    const handleCreateTerminalForProblem = async (e: CustomEvent<{ terminalId: string; prompt: string; projectPath?: string }>) => {
+      const { terminalId, prompt, projectPath } = e.detail;
+      const proj = projects.find(p => p.id === selectedProject);
+      const agent = localStorage.getItem('terminal-defaultAgent') || 'claude';
+      setTerminalTabs(prev => {
+        if (prev[terminalId]) return prev;
+        return { ...prev, [terminalId]: { name: proj?.name || 'Terminal', agent } };
+      });
+      setActiveTerminalId(terminalId);
+      const updatedLayout = insertIntoLayout(terminalLayout, terminalId);
+      setTerminalLayout(updatedLayout);
+      saveLayout(updatedLayout);
+      window.dispatchEvent(new CustomEvent('create-terminal', {
+        detail: { terminalId, cwd: projectPath, agent },
+      }));
+      if (prompt) {
+        setTimeout(async () => {
+          await window.deskflowAPI?.terminalWrite?.(terminalId, prompt + '\n');
+        }, 3000);
+      }
+      // Auto-create session when problem is assigned to terminal
+      const sessionName = `Problem: ${prompt?.substring(0, 60) || 'Assigned'}`;
+      await window.deskflowAPI?.saveTerminalSession?.({
+        id: `session-${Date.now()}`,
+        projectId: selectedProject,
+        agent,
+        terminalId,
+        topic: sessionName,
+        workingDirectory: projectPath || proj?.path || '',
+      });
+      loadSessions();
+    };
+
+    const handleFocusTerminal = (e: CustomEvent<{ terminalId: string }>) => {
+      handleTabSelect(e.detail.terminalId);
+    };
+
+    const handleTerminalCreated = async (e: CustomEvent<{ terminalId: string; agent?: string }>) => {
+      const { terminalId } = e.detail;
+      const proj = projects.find(p => p.id === selectedProject);
+      setTerminalTabs(prev => {
+        if (prev[terminalId]) return prev;
+        return { ...prev, [terminalId]: { name: proj?.name || 'Terminal', agent: 'shell' } };
+      });
+      await registerTerminal(terminalId);
+    };
+
+    const handleClosePane = (e: CustomEvent<{ terminalId: string }>) => {
+      closeTerminal(e.detail.terminalId);
+    };
+
+    const handleOpenNewSessionForTerminal = (e: CustomEvent<{ terminalId: string }>) => {
+      const { terminalId } = e.detail;
+      setNewSessionTerminalMode('select');
+      setNewSessionSelectedTerminal(terminalId);
+      setNewSessionAgent('claude');
+      setNewSessionName('');
+      setShowNewSessionDialog(true);
+    };
+
+    window.addEventListener('create-terminal-for-problem', handleCreateTerminalForProblem as EventListener);
+    window.addEventListener('focus-terminal', handleFocusTerminal as EventListener);
+    window.addEventListener('terminal-created', handleTerminalCreated as EventListener);
+    window.addEventListener('close-pane', handleClosePane as EventListener);
+    window.addEventListener('open-new-session-for-terminal', handleOpenNewSessionForTerminal as EventListener);
+    return () => {
+      window.removeEventListener('create-terminal-for-problem', handleCreateTerminalForProblem as EventListener);
+      window.removeEventListener('focus-terminal', handleFocusTerminal as EventListener);
+      window.removeEventListener('terminal-created', handleTerminalCreated as EventListener);
+      window.removeEventListener('close-pane', handleClosePane as EventListener);
+      window.removeEventListener('open-new-session-for-terminal', handleOpenNewSessionForTerminal as EventListener);
+    };
+  }, [projects, selectedProject, registerTerminal, spawnTerminal, loadSessions, initializeTerminal, handleTabSelect, closeTerminal]);
 
   return (
     <div className="flex-1 flex bg-black text-white">
       {/* Main Terminal Area */}
-      <div className="flex-1 flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2 bg-zinc-900 border-b border-zinc-800">
+      <div className="flex-1 flex flex-col bg-gradient-to-b from-black via-zinc-950 to-black">
+        <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-zinc-900 via-zinc-900/95 to-zinc-950 border-b border-zinc-800/60">
           <div className="flex items-center gap-3">
             <Monitor className="w-4 h-4 text-green-500" />
-            <span className="text-sm font-medium">DeskFlow Terminal</span>
+            <span className="text-sm font-semibold tracking-wider text-white">Terminal</span>
+            {(() => {
+              const currentProject = projects.find(p => p.id === selectedProject);
+              return selectedProject && currentProject ? (
+                <div className="flex items-center gap-2 ml-2 pl-3 border-l border-zinc-700">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="text-xs font-medium text-emerald-300">{currentProject.name}</span>
+                  {propProjectPath && (
+                    <span className="text-[10px] text-zinc-500 font-mono truncate max-w-[200px]">{propProjectPath}</span>
+                  )}
+                </div>
+              ) : null;
+            })()}
             {projects.length > 0 && (
               <div className="flex items-center gap-2">
                 <div className="flex flex-col">
@@ -334,78 +1007,59 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={async () => {
-                    console.log('[TerminalPage] Open Terminal clicked, selectedProject:', selectedProject);
-                    if (!selectedProject) {
-                      alert('Please select a project first');
-                      return;
-                    }
-                    const proj = projects.find(p => p.id === selectedProject);
-                    console.log('[TerminalPage] Found project:', proj);
-                    if (proj) {
-                      // Add terminal to layout first
-                      const termId = `term-${Date.now()}`;
-                      const newPane = {
-                        id: termId,
-                        type: 'leaf' as const,
-                        terminalId: termId,
-                        size: 50
-                      };
-                      
-                      // If layout is a single leaf, convert to split
-                      if (terminalLayout && terminalLayout.type === 'leaf') {
-                        const newLayout = {
-                          id: 'root',
-                          type: 'split' as const,
-                          splitType: 'horizontal' as const,
-                          direction: 'right' as const,
-                          size: 100,
-                          children: [terminalLayout, newPane]
-                        };
-                        setTerminalLayout(newLayout);
-                      } else {
-                        // Add to existing split layout
-                        // For simplicity, just create a new split layout
-                        const newLayout = {
-                          id: 'root',
-                          type: 'split' as const,
-                          splitType: 'horizontal' as const,
-                          direction: 'right' as const,
-                          size: 100,
-                          children: [terminalLayout || { id: 'root', type: 'leaf' as const, terminalId: 'term-initial', size: 50 }, newPane]
-                        };
-                        setTerminalLayout(newLayout);
-                      }
-                      
-                      // Then spawn the terminal
-                      console.log('[TerminalPage] Calling spawnTerminal with:', termId, proj.path);
-                      await spawnTerminal(termId, proj.path);
-                      
-                      // Register terminal binding
-                      await registerTerminal(termId);
-                      
-                      // Save terminal session for health tracking
-                      await window.deskflowAPI?.saveTerminalSession?.({
-                        id: termId,
-                        projectId: selectedProject,
-                        agent: 'claude',
-                        topic: `Terminal session for ${proj.name}`,
-                        workingDirectory: proj.path
-                      });
-                    }
-                  }}
-                  className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded flex items-center gap-1"
-                >
-                  <Plus className="w-3 h-3" />
-                  Open Terminal
-                </button>
-              </div>
-            )}
+          <button
+            onClick={async () => {
+              if (!selectedProject) {
+                alert('Please select a project first');
+                return;
+              }
+              const proj = projects.find(p => p.id === selectedProject);
+              if (proj) {
+                const agent = localStorage.getItem('terminal-defaultAgent') || 'claude';
+                const termId = `term-${Date.now()}`;
+                setTerminalTabs(prev => ({ ...prev, [termId]: { name: proj.name, agent } }));
+                setActiveTerminalId(termId);
+                const updatedLayout = insertIntoLayout(terminalLayout, termId);
+                setTerminalLayout(updatedLayout);
+                saveLayout(updatedLayout);
+                window.dispatchEvent(new CustomEvent('create-terminal', {
+                  detail: { terminalId: termId, cwd: proj.path, agent },
+                }));
+              }
+            }}
+          className="px-2 py-1 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 active:scale-95"
+          >
+            <Plus className="w-3 h-3" />
+            Open Terminal
+          </button>
+                </div>
+              )}
+          <button
+            onClick={handleInitSetup}
+            disabled={initStatus === 'checking'}
+            className="px-2 py-1 bg-green-700 hover:bg-green-600 disabled:bg-zinc-700 text-white text-xs rounded flex items-center gap-1 transition-all duration-200"
+            title="Initialize agent directory structure"
+          >
+            <Zap className="w-3 h-3" />
+            {initStatus === 'init-ok' ? 'Re-init' : initStatus === 'checking' ? '...' : 'Setup'}
+          </button>
+          <button
+            onClick={() => {
+              if (!selectedProject) { showError('Please select a project first', 'warning'); return; }
+              setNewSessionMode('initialize');
+              setNewSessionAgent(localStorage.getItem('terminal-defaultAgent') || 'claude');
+              setShowNewSessionDialog(true);
+            }}
+            className="px-2 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200"
+            title="Initialize agent workspace (read agents.md + init files)"
+          >
+            <FileText className="w-3 h-3" />
+            Initialize
+          </button>
             
             {/* Terminal Status Indicator */}
             {activeTerminalId && terminalBindings[activeTerminalId] && (
-              <div className="flex items-center gap-2 ml-4 px-2 py-1 bg-zinc-800/50 rounded text-xs">
+              <div className="flex items-center gap-2 ml-4 px-2 py-1 bg-zinc-800/50 rounded text-xs relative border border-zinc-700/30">
                 <TerminalIcon className="w-3 h-3 text-green-400" />
                 <span className="text-zinc-400">
                   {terminalBindings[activeTerminalId].agentType || 'claude'}
@@ -415,79 +1069,339 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
                     #{terminalBindings[activeTerminalId].activeProblemId}
                   </span>
                 )}
-                <span className="text-green-400">●</span>
+                <span className="text-green-400 animate-pulse">●</span>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowBindDropdown(!showBindDropdown)}
+                    className="px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-400 hover:text-zinc-200 transition-colors duration-150"
+                    title="Bind problem"
+                  >
+                    <Link className="w-3 h-3" />
+                  </button>
+                  {showBindDropdown && (
+                    <div className="absolute top-full right-0 mt-1 w-52 bg-zinc-800 border border-zinc-700 rounded shadow-lg z-50 max-h-48 overflow-y-auto">
+                      <div className="p-1.5 text-[10px] text-zinc-500 border-b border-zinc-700">Bind problem to terminal</div>
+                      {allProblems.length === 0 ? (
+                        <div className="p-2 text-xs text-zinc-500">No problems</div>
+                      ) : allProblems.map(p => (
+                        <button
+                          key={p.id}
+                          onClick={async () => {
+                            await window.deskflowAPI?.saveTerminalBinding?.({
+                              terminalId: activeTerminalId,
+                              problemId: p.id,
+                              status: 'active'
+                            });
+                            await window.deskflowAPI?.updateTerminalBinding?.({
+                              terminalId: activeTerminalId,
+                              updates: { active_problem_id: p.id }
+                            });
+                            setShowBindDropdown(false);
+                            loadTerminalBindings();
+                          }}
+                          className={`w-full text-left px-2 py-1.5 text-xs hover:bg-zinc-700 flex items-center gap-2 ${
+                            terminalBindings[activeTerminalId]?.activeProblemId === p.id
+                              ? 'text-purple-300 bg-purple-600/20' : 'text-zinc-300'
+                          }`}
+                        >
+                          <span className="text-zinc-500">#{p.id}</span>
+                          <span className="truncate">{p.title}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
             
-            {/* Quick Instruction Input */}
+            {/* Instruction Input */}
             {activeTerminalId && (
-              <button
-                onClick={() => setShowInstructionInput(!showInstructionInput)}
-                className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-white text-xs rounded flex items-center gap-1"
-              >
-                <Send className="w-3 h-3" />
-                Send
-              </button>
+              <>
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      if (showInstructionPanel) {
+                        setShowInstructionPanel(false);
+                      } else {
+                        setShowInstructionInput(false);
+                        setShowInstructionPanel(true);
+                      }
+                    }}
+                    className="px-2 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200"
+                    title="Open instruction panel with problem/request/skill selectors"
+                  >
+                    <Send className="w-3 h-3" />
+                    Compose
+                  </button>
+                </div>
+                <button
+                  onClick={() => {
+                    if (showInstructionInput) {
+                      setShowInstructionInput(false);
+                    } else {
+                      setShowInstructionPanel(false);
+                      setShowInstructionInput(true);
+                    }
+                  }}
+                  className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-white text-xs rounded flex items-center gap-1 transition-colors duration-150"
+                  title="Quick send (text only)"
+                >
+                  Quick
+                </button>
+                <button
+                  onClick={handleSaveCheckpoint}
+                  className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded flex items-center gap-1 transition-colors duration-150"
+                  title="Save session checkpoint"
+                >
+                  💾 Save
+                </button>
+              </>
             )}
           </div>
         </div>
         
-        {/* Instruction Input Bar */}
+        {/* Instruction Panel (full mode) */}
+        {showInstructionPanel && activeTerminalId && (
+          <InstructionPanel
+            problems={allProblems}
+            requests={allRequests}
+            onSend={handleInstructionPanelSend}
+            onClose={() => setShowInstructionPanel(false)}
+            isSending={isSending}
+            projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path}
+          />
+        )}
+
+        {/* Quick Instruction Input Bar */}
         {showInstructionInput && activeTerminalId && (
-          <div className="px-4 py-2 bg-zinc-800 border-b border-zinc-700">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={instructionText}
-                onChange={(e) => setInstructionText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && sendInstruction()}
-                placeholder="Type instruction to send to terminal..."
-                className="flex-1 px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-white placeholder-zinc-500"
-              />
-              <button
-                onClick={sendInstruction}
-                disabled={!instructionText.trim()}
-                className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-xs rounded flex items-center gap-1"
+          <div className="px-4 py-2 bg-gradient-to-r from-zinc-800/90 to-zinc-900/80 border-b border-zinc-700/60 backdrop-blur-sm">
+            <div className="flex gap-2 items-center">
+              {/* Session selector dropdown */}
+              <select
+                value={sendTargetSession}
+                onChange={(e) => setSendTargetSession(e.target.value)}
+                className="px-2 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-300 min-w-[120px]"
+                title="Select session to route commands to"
               >
-                <Send className="w-3 h-3" />
-                Send
-              </button>
-              <button
-                onClick={() => { setShowInstructionInput(false); setInstructionText(''); }}
-                className="px-2 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded"
-              >
-                ✕
-              </button>
+                <option value="">Active Terminal</option>
+                {sessions.filter(s => s.terminal_id && terminalTabs[s.terminal_id]).map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.topic || 'Unnamed'} ({terminalTabs[s.terminal_id!]?.name || '?'})
+                  </option>
+                ))}
+              </select>
+              <div className="flex-1 relative">
+                <textarea
+                  value={instructionText}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setInstructionText(val);
+                    // Detect @mention — populate dropdown
+                    if (val.includes('@')) {
+                      const atIdx = val.lastIndexOf('@');
+                      const afterAt = val.slice(atIdx + 1);
+                      const tabs = Object.entries(terminalTabs).map(([id, t]) => ({
+                        id,
+                        name: t.name,
+                        agent: t.agent,
+                        sessionTopic: sessions.find(s => s.terminal_id === id)?.topic || '',
+                      }));
+                      const query = afterAt.split(/\s/)[0].toLowerCase();
+                      const results = query
+                        ? tabs.filter(t => t.name.toLowerCase().includes(query) || t.id.toLowerCase().includes(query))
+                        : tabs;
+                      setMentionDropdown({ visible: results.length > 0, query, results: results.slice(0, 8), cursor: 0 });
+                    } else {
+                      setMentionDropdown(prev => ({ ...prev, visible: false }));
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (mentionDropdown.visible) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setMentionDropdown(prev => ({ ...prev, cursor: Math.min(prev.cursor + 1, prev.results.length - 1) }));
+                        return;
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setMentionDropdown(prev => ({ ...prev, cursor: Math.max(prev.cursor - 1, 0) }));
+                        return;
+                      }
+                      if (e.key === 'Enter' && mentionDropdown.results[mentionDropdown.cursor]) {
+                        e.preventDefault();
+                        const selected = mentionDropdown.results[mentionDropdown.cursor];
+                        const beforeAt = instructionText.slice(0, instructionText.lastIndexOf('@'));
+                        setInstructionText(`@${selected.name} >> ${instructionText.slice(instructionText.lastIndexOf('@')).replace(/@\S+\s*/, '')}`);
+                        setMentionDropdown(prev => ({ ...prev, visible: false }));
+                        return;
+                      }
+                      if (e.key === 'Escape') {
+                        setMentionDropdown(prev => ({ ...prev, visible: false }));
+                        return;
+                      }
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      sendInstruction();
+                    }
+                  }}
+                  rows={1}
+                  placeholder="Type @term to route, or type instruction... (Enter to send, Shift+Enter for newline)"
+                  className="w-full px-3 py-1.5 bg-zinc-900/80 border border-zinc-700 rounded text-xs text-white placeholder-zinc-500 pr-16 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all duration-200 resize-none overflow-hidden"
+                />
+                {/* @mention dropdown */}
+                {mentionDropdown.visible && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl z-50 max-h-[200px] overflow-y-auto">
+                    {mentionDropdown.results.map((r, i) => (
+                      <div
+                        key={r.id}
+                        onClick={() => {
+                          const beforeAt = instructionText.slice(0, instructionText.lastIndexOf('@'));
+                          setInstructionText(`@${r.name} >> `);
+                          setMentionDropdown(prev => ({ ...prev, visible: false }));
+                        }}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 cursor-pointer text-xs transition-colors ${
+                          i === mentionDropdown.cursor ? 'bg-zinc-700 border-l-2 border-blue-500' : 'hover:bg-zinc-800'
+                        }`}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                        <span className="font-medium text-zinc-200">{r.name}</span>
+                        <span className="text-zinc-500">{r.agent}</span>
+                        {r.sessionTopic && (
+                          <span className="text-zinc-600 truncate ml-auto max-w-[120px]">{r.sessionTopic}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-zinc-600">
+                  {instructionText.length}/500
+                </span>
+              </div>
+               <button
+                 onClick={sendInstruction}
+                 disabled={!instructionText.trim() || isSending || instructionText.length > 500}
+                 className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white text-xs rounded flex items-center gap-1 min-w-[60px] justify-center transition-all duration-200 active:scale-95"
+               >
+                 {isSending ? (
+                   <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
+                 ) : (
+                   <Send className="w-3 h-3" />
+                 )}
+                 {isSending ? '' : 'Send'}
+               </button>
+                <button
+                  onClick={handleSaveCheckpoint}
+                  className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded flex items-center gap-1 transition-colors duration-150"
+                  title="Save checkpoint"
+                >
+                  💾 Save
+                </button>
+               <button
+                 onClick={() => { setShowInstructionInput(false); setInstructionText(''); }}
+                 className="px-2 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded transition-colors duration-150"
+               >
+                 ✕
+               </button>
             </div>
           </div>
         )}
         
+        {/* Terminal Tab Bar */}
+        <div className="flex items-center bg-zinc-900 border-b border-zinc-800 overflow-x-auto min-h-[36px]">
+          {Object.entries(terminalTabs).map(([id, tab]) => {
+            const sessionInTab = sessions.find(s => s.terminal_id === id);
+            return (
+              <div
+                key={id}
+                onClick={() => handleTabSelect(id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-r border-zinc-800 select-none transition-all duration-150 ${
+                  activeTerminalId === id
+                    ? 'bg-zinc-800 text-white border-t border-t-green-500 shadow-[0_-2px_6px_rgba(34,197,94,0.15)]'
+                    : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+                }`}
+              >
+                <Monitor className="w-3 h-3 text-green-500" />
+                {sessionInTab && <StatusDot status={sessionInTab.status} />}
+                <span>{tab.name}</span>
+                {sessionInTab && <CategoryBadge category={sessionInTab.category} />}
+                <span className="text-[10px] text-zinc-600 max-w-[80px] truncate">{sessionInTab?.topic || tab.agent}</span>
+                {sessionInTab && (
+                  <span className="text-[8px] text-cyan-500 bg-cyan-500/10 px-1 rounded">S</span>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); closeTerminal(id); }}
+                  className="ml-1 p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            );
+          })}
+          <button
+            onClick={async () => {
+              const cwd = selectedProject ? (projects.find(p => p.id === selectedProject)?.path || '') : '';
+              const newId = `term-${Date.now()}`;
+              const count = Object.keys(terminalTabs).length;
+              const defaultAgent = localStorage.getItem('terminal-defaultAgent') || 'claude';
+              setTerminalTabs(prev => ({ ...prev, [newId]: { name: `Terminal ${count + 1}`, agent: defaultAgent } }));
+              setActiveTerminalId(newId);
+              const updatedLayout = insertIntoLayout(terminalLayout, newId);
+              setTerminalLayout(updatedLayout);
+              saveLayout(updatedLayout);
+              window.dispatchEvent(new CustomEvent('create-terminal', { detail: { cwd, terminalId: newId } }));
+            }}
+            className="px-2 py-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 text-xs transition-colors duration-150"
+            title="New Terminal"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
         <div className="flex-1 relative">
-          <TerminalLayout spawnTerminal={spawnTerminal} onLayoutChange={handleLayoutChange} />
-          <div className="absolute top-2 right-2 bg-black/50 text-white text-xs p-2 rounded">
-            Terminal Layout: {terminalLayout ? `${terminalLayout.type} (${terminalLayout.terminalId || 'split'})` : 'null'}
-          </div>
+          {terminalError && (
+            <div className={`px-4 py-2 text-xs border-b ${
+              terminalErrorType === 'error' ? 'bg-red-900/40 border-red-700 text-red-200' :
+              terminalErrorType === 'warning' ? 'bg-yellow-900/40 border-yellow-700 text-yellow-200' :
+              'bg-green-900/40 border-green-700 text-green-200'
+            }`}>
+              {terminalError}
+            </div>
+          )}
+          {layoutLoading ? (
+            <div className="w-full h-full flex items-center justify-center text-zinc-500 bg-[#0d0d0d]">Loading layout...</div>
+          ) : (
+            <TerminalLayout
+              layout={terminalLayout}
+              activeTerminalId={activeTerminalId}
+              spawnTerminal={spawnTerminal}
+              onLayoutChange={handleLayoutChange}
+              onActiveTerminalChange={handleActiveTerminalChange}
+              onCloseTerminal={closeTerminal}
+              projectPath={propProjectPath}
+            />
+          )}
         </div>
       </div>
 
       {/* Sidebar */}
       {sidebarOpen && (
         <div 
-          className="bg-zinc-900 border-l border-zinc-800 flex flex-col relative"
+          className="bg-gradient-to-b from-zinc-900 to-black border-l border-zinc-800/70 flex flex-col relative"
           style={{ width: sidebarWidth }}
         >
           {/* Resize Handle */}
           <div 
-            className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-green-500/50 transition-colors ${isResizing ? 'bg-green-500' : ''}`}
+            className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-cyan-500/50 transition-colors ${isResizing ? 'bg-cyan-500 shadow-[0_0_6px_rgba(6,182,212,0.5)]' : ''}`}
             onMouseDown={startResize}
           />
           
           {/* Sidebar Header with Collapse Button */}
-          <div className="flex items-center justify-between px-2 py-2 border-b border-zinc-800">
+          <div className="flex items-center justify-between px-2 py-2 border-b border-zinc-800/70">
             <span className="text-xs text-zinc-500 font-medium">Terminal</span>
             <button
               onClick={() => setSidebarOpen(false)}
-              className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-zinc-300"
+              className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
             >
               <PanelLeftClose className="w-3.5 h-3.5" />
             </button>
@@ -496,40 +1410,40 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
           <div className="flex border-b border-zinc-800 flex-wrap">
             <button
               onClick={() => setActiveTab('presets')}
-              className={`px-2 py-2 text-xs font-medium ${
-                activeTab === 'presets' ? 'text-green-400 border-b-2 border-green-500' : 'text-zinc-400'
+              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
+                activeTab === 'presets' ? 'text-green-400 border-b-2 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
               }`}
             >
               <Zap className="w-3 h-3" />
             </button>
             <button
               onClick={() => setActiveTab('sessions')}
-              className={`px-2 py-2 text-xs font-medium ${
-                activeTab === 'sessions' ? 'text-green-400 border-b-2 border-green-500' : 'text-zinc-400'
+              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
+                activeTab === 'sessions' ? 'text-green-400 border-b-2 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
               }`}
             >
               <Clock className="w-3 h-3" />
             </button>
             <button
               onClick={() => setActiveTab('map')}
-              className={`px-2 py-2 text-xs font-medium ${
-                activeTab === 'map' ? 'text-green-400 border-b-2 border-green-500' : 'text-zinc-400'
+              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
+                activeTab === 'map' ? 'text-green-400 border-b-2 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
               }`}
             >
               <Monitor className="w-3 h-3" />
             </button>
             <button
               onClick={() => setActiveTab('analytics')}
-              className={`px-2 py-2 text-xs font-medium ${
-                activeTab === 'analytics' ? 'text-green-400 border-b-2 border-green-500' : 'text-zinc-400'
+              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
+                activeTab === 'analytics' ? 'text-green-400 border-b-2 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
               }`}
             >
               <PieChart className="w-3 h-3" />
             </button>
             <button
               onClick={() => setActiveTab('problems')}
-              className={`px-2 py-2 text-xs font-medium ${
-                activeTab === 'problems' ? 'text-purple-400 border-b-2 border-purple-500' : 'text-zinc-400 hover:text-purple-300'
+              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
+                activeTab === 'problems' ? 'text-purple-400 border-b-2 border-purple-500 shadow-[0_0_6px_rgba(168,85,247,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
               }`}
               title="Problems"
             >
@@ -537,45 +1451,29 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
             </button>
             <button
               onClick={() => setActiveTab('requests')}
-              className={`px-2 py-2 text-xs font-medium ${
-                activeTab === 'requests' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-zinc-400 hover:text-blue-300'
+              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
+                activeTab === 'requests' ? 'text-blue-400 border-b-2 border-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
               }`}
               title="Requests"
             >
               <FileText className="w-3 h-3" />
             </button>
             <button
-              onClick={() => setActiveTab('files')}
-              className={`px-2 py-2 text-xs font-medium ${
-                activeTab === 'files' ? 'text-yellow-400 border-b-2 border-yellow-500' : 'text-zinc-400 hover:text-yellow-300'
+              onClick={() => { setActiveTab('files'); setFileChangedPulse(false); }}
+              className={`px-2 py-2 text-xs font-medium transition-all duration-150 relative ${
+                activeTab === 'files' ? 'text-yellow-400 border-b-2 border-yellow-500 shadow-[0_0_6px_rgba(234,179,8,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
               }`}
               title="Agent Files"
             >
               <Folder className="w-3 h-3" />
+              {fileChangedPulse && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full animate-ping" />
+              )}
             </button>
           </div>
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-2">
-            {/* New Problem/Request buttons - always visible in problems/requests tabs */}
-            {(activeTab === 'problems' || activeTab === 'requests') && (
-              <div className="mb-2 flex gap-2">
-                <button
-                  onClick={() => {
-                    if (activeTab === 'problems') setShowNewDialog(true);
-                    else setShowNewRequestDialog(true);
-                  }}
-                  className={`px-2 py-1.5 text-xs rounded flex items-center gap-1 ${
-                    activeTab === 'problems' 
-                      ? 'bg-purple-600 hover:bg-purple-700 text-white' 
-                      : 'bg-blue-600 hover:bg-blue-700 text-white'
-                  }`}
-                >
-                  <Plus className="w-3 h-3" />
-                  New
-                </button>
-              </div>
-            )}
             {/* Project Stats */}
             {selectedProject && projects.find(p => p.id === selectedProject) && (
               <div className="mb-4 p-2 bg-zinc-800/50 rounded-lg">
@@ -679,68 +1577,289 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
 
             {activeTab === 'sessions' && (
               <div>
+                <div className="mb-4 flex gap-2">
+                  <button
+                    onClick={() => {
+                      setNewSessionTerminalMode('create');
+                      setNewSessionSelectedTerminal('');
+                      setNewSessionAgent('claude');
+                      setNewSessionName('');
+                      setShowNewSessionDialog(true);
+                    }}
+                    className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 active:scale-95"
+                  >
+                    <Plus className="w-3 h-3" />
+                    New Session
+                  </button>
+                </div>
+                {/* Category filter pills */}
+                {sessions.length > 0 && (
+                  <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
+                    {[{ key: 'all', label: 'All' }, ...Object.entries(SESSION_CATEGORIES).map(([k, v]) => ({ key: k, label: v.label }))].map(f => {
+                      const cat = SESSION_CATEGORIES[f.key];
+                      const isActive = sessionCategoryFilter === f.key;
+                      return (
+                        <button
+                          key={f.key}
+                          onClick={() => setSessionCategoryFilter(f.key)}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-all ${
+                            isActive
+                              ? cat ? `${cat.bg} ${cat.text} border ${cat.border}` : 'bg-zinc-700 text-white'
+                              : 'bg-transparent text-zinc-400 border border-zinc-700 hover:bg-zinc-800'
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {sessions.length === 0 ? (
-                  <p className="text-xs text-zinc-500">No sessions yet.</p>
+                  <p className="text-xs text-zinc-500">No sessions yet. Create one using the button above.</p>
                 ) : (
-                  sessions.map((session) => (
-                    <div key={session.id} className="mb-2 p-2 bg-zinc-800 rounded group">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-zinc-200">{session.agent}</span>
-                        {session.resume_id && (
-                          <button
-                            onClick={() => handleResumeSession(session)}
-                            className="px-2 py-0.5 bg-green-600 hover:bg-green-700 text-green-200 text-xs rounded opacity-0 group-hover:opacity-100"
-                          >
-                            Resume
-                          </button>
-                        )}
-                      </div>
-                      <div className="text-xs text-zinc-500">{session.topic || 'No topic'}</div>
-                      <div className="text-xs text-zinc-600 mt-1">
-                        {formatDate(session.started_at)}
-                        {session.total_cost_usd !== undefined && (
-                          <span className="ml-2">${session.total_cost_usd.toFixed(2)}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))
+                  <div className="space-y-2">
+                    {sessions
+                      .filter(s => sessionCategoryFilter === 'all' || s.category === sessionCategoryFilter)
+                      .map((session) => {
+                      const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
+                        ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
+                        : null;
+                      const tags = (() => { try { return JSON.parse(session.auto_tags || '[]'); } catch { return []; } })();
+                      return (
+                        <div key={session.id} className={`mb-2 p-2 bg-zinc-800 rounded group hover:bg-zinc-750 transition-colors border-l-2 ${
+                          terminalInfo ? 'border-l-green-700/40' : 'border-l-zinc-700/20'
+                        }`}>
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <StatusDot status={session.status} />
+                                <CategoryBadge category={session.category} />
+                                <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-1.5 py-0.5 rounded">{session.agent}</span>
+                                <span className="text-xs font-medium text-zinc-200 truncate">{session.topic || 'Unnamed Session'}</span>
+                                {terminalInfo ? (
+                                  <span className="text-[10px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                    {terminalInfo.name}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-zinc-500 bg-zinc-700/30 px-1.5 py-0.5 rounded">Closed</span>
+                                )}
+                              </div>
+                              {session.description && (
+                                <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1">{session.description}</div>
+                              )}
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-zinc-500">{formatDate(session.created_at)}</span>
+                                {session.product_area && (
+                                  <span className="text-[10px] text-cyan-600/80">{session.product_area}</span>
+                                )}
+                                {session.resume_id && (
+                                  <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(0, 12)}…</span>
+                                )}
+                              </div>
+                              {tags.length > 0 && (
+                                <div className="flex gap-1 mt-1 flex-wrap">
+                                  {tags.slice(0, 5).map((t: string, i: number) => (
+                                    <span key={i} className="text-[9px] px-1.5 py-0.5 bg-zinc-700/50 text-zinc-400 rounded">{t}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {session.total_cost !== undefined && (
+                                <div className="text-[10px] text-zinc-600 mt-0.5">Cost: ${session.total_cost.toFixed(2)}</div>
+                              )}
+                            </div>
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0">
+                              <button
+                                onClick={async () => {
+                                  if (terminalInfo) {
+                                    setActiveTerminalId(session.terminal_id!);
+                                    window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } }));
+                                  } else {
+                                    handleResumeSession(session);
+                                  }
+                                }}
+                                title={terminalInfo ? 'Focus terminal' : 'Open in terminal'}
+                                className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-blue-200 text-xs rounded whitespace-nowrap"
+                              >
+                                {terminalInfo ? 'Focus' : 'Open'}
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
+                                    if (result?.success) {
+                                      setSessionMessages(result.data || []);
+                                      setShowMessagesViewer(session.id);
+                                    }
+                                  } catch {}
+                                }}
+                                title="View session messages"
+                                className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-xs rounded"
+                              >
+                                Messages
+                              </button>
+                              <button
+                                onClick={() => setConfirmDialog({
+                                  isOpen: true,
+                                  message: `Delete session "${session.topic}" permanently?`,
+                                  onConfirm: () => handleDeleteSession(session.id),
+                                })}
+                                title="Delete session"
+                                className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-red-200 text-xs rounded"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             )}
 
             {activeTab === 'map' && (
-              <div>
-                <p className="text-xs text-zinc-500 mb-2">Visual map of terminal panes</p>
-                {!terminalLayout ? (
-                  <p className="text-xs text-zinc-600">No terminals open</p>
+              <div className="flex flex-col h-full">
+                <p className="text-xs text-zinc-500 mb-2">Drag panes to rearrange or split • Click to focus</p>
+                {terminalLayout ? (
+                  <TerminalMiniMap
+                    layout={terminalLayout}
+                    activeTerminalId={activeTerminalId}
+                    onTerminalSelect={handleMiniMapTerminalSelect}
+                    onTerminalMove={handleMiniMapTerminalMove}
+                    onSplit={handleMiniMapSplit}
+                  />
                 ) : (
-                  <div className="relative w-full aspect-square bg-zinc-900 rounded border border-zinc-700">
-                    <div className="absolute inset-2 grid grid-cols-2 gap-1">
-                      {flattenPanes(terminalLayout).map((pane, idx) => (
-                        <button
-                          key={pane.id}
-                          className={`relative bg-zinc-800 rounded border ${
-                            hoveredPane === pane.id ? 'border-green-500' : 'border-zinc-700'
-                          } hover:border-green-500 cursor-pointer transition-colors`}
-                          onMouseEnter={() => setHoveredPane(pane.id)}
-                          onMouseLeave={() => setHoveredPane(null)}
-                          onClick={() => {
-                            window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: pane.terminalId || pane.id } }));
-                          }}
-                        >
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-[10px] text-zinc-500">T{idx + 1}</span>
-                          </div>
-                          {hoveredPane === pane.id && (
-                            <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-zinc-700 text-zinc-200 text-xs px-2 py-1 rounded whitespace-nowrap z-10">
-                              <div className="font-medium">{pane.terminalId || pane.id}</div>
-                            </div>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <p className="text-xs text-zinc-600 mb-4">No terminals open</p>
                 )}
+
+                <div className="mt-4 border-t border-zinc-800 pt-3">
+                  <div className="text-xs font-medium text-zinc-400 mb-2 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500" />
+                    Running Terminals ({Object.keys(terminalTabs).length})
+                  </div>
+                  {Object.keys(terminalTabs).length === 0 ? (
+                    <p className="text-xs text-zinc-600 px-2 mb-3">No running terminals</p>
+                  ) : (
+                    <div className="space-y-2 mb-4">
+                      {Object.entries(terminalTabs).map(([id, tab]) => {
+                        const sessionInTerminal = sessions.find(s => s.terminal_id === id);
+                        return (
+                          <div
+                            key={id}
+                            className={`p-2 rounded border transition-all duration-150 ${
+                              activeTerminalId === id
+                                ? 'bg-zinc-700/80 border-zinc-600/50 shadow-[0_0_10px_rgba(0,0,0,0.2)]'
+                                : 'bg-zinc-800/50 border-zinc-700/30 hover:bg-zinc-700/50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-medium text-zinc-200 truncate">{tab.name}</div>
+                                <div className="text-[10px] text-zinc-500">{tab.agent}</div>
+                              </div>
+                              {activeTerminalId === id && (
+                                <span className="text-[10px] text-green-400">active</span>
+                              )}
+                            </div>
+                            {sessionInTerminal ? (
+                              <div className="mt-1.5 ml-4 pl-2 border-l-2 border-cyan-500/30">
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <span className="text-[10px] text-cyan-400">Session:</span>
+                                  <CategoryBadge category={sessionInTerminal.category} />
+                                  <StatusDot status={sessionInTerminal.status} />
+                                  <span className="text-[10px] text-zinc-300 truncate">{sessionInTerminal.topic || 'Unnamed'}</span>
+                                </div>
+                                <div className="text-[9px] text-zinc-600 mt-0.5">{sessionInTerminal.agent} • {formatDate(sessionInTerminal.created_at)}</div>
+                              </div>
+                            ) : (
+                              <div className="mt-1.5 ml-4 pl-2 border-l-2 border-zinc-700/30">
+                                <div className="text-[9px] text-zinc-500">No session — ready to assign</div>
+                              </div>
+                            )}
+                            <div className="flex gap-1 mt-1.5">
+                              <button
+                                onClick={() => { setActiveTerminalId(id); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: id } })); }}
+                                className="flex-1 px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[9px] rounded"
+                              >
+                                Focus
+                              </button>
+                              {!sessionInTerminal && (
+                                <button
+                                  onClick={() => {
+                                    const event = new CustomEvent('open-new-session-for-terminal', { detail: { terminalId: id } });
+                                    window.dispatchEvent(event);
+                                  }}
+                                  className="flex-1 px-1.5 py-0.5 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 text-[9px] rounded"
+                                >
+                                  New Session
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="text-xs font-medium text-zinc-400 mb-2 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-zinc-500" />
+                    Sessions ({sessions.length})
+                  </div>
+                  {sessions.length === 0 ? (
+                    <p className="text-xs text-zinc-600 px-2">No sessions</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {sessions.slice(0, 20).map((session) => {
+                        const isRunning = session.terminal_id && terminalTabs[session.terminal_id];
+                        return (
+                          <div key={session.id} className={`px-2 py-2 rounded group transition-colors duration-150 ${
+                            isRunning ? 'bg-zinc-800/30 border-l-2 border-green-700/30' : 'bg-zinc-800/10 border-l-2 border-zinc-700/20'
+                          }`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <StatusDot status={session.status} />
+                                  <CategoryBadge category={session.category} />
+                                  <span className={`text-[10px] font-medium px-1 rounded ${
+                                    isRunning ? 'text-green-400 bg-green-500/20' : 'text-zinc-500 bg-zinc-700/30'
+                                  }`}>{session.agent}</span>
+                                  <span className="text-xs text-zinc-300 truncate">{session.topic || 'No topic'}</span>
+                                </div>
+                                <div className="text-[10px] text-zinc-600 flex items-center gap-1 mt-0.5">
+                                  {isRunning ? (
+                                    <><span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {terminalTabs[session.terminal_id!]?.name || 'Terminal'}</>
+                                  ) : (
+                                    <><span className="w-1.5 h-1.5 rounded-full bg-zinc-500" /> Closed • {formatDate(session.created_at)}</>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                                {isRunning ? (
+                                  <button
+                                    onClick={() => { setActiveTerminalId(session.terminal_id!); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } })); }}
+                                    className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-blue-200 text-[10px] rounded"
+                                  >
+                                    Focus
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleResumeSession(session)}
+                                    className="px-2 py-0.5 bg-cyan-600 hover:bg-cyan-700 text-cyan-200 text-[10px] rounded"
+                                  >
+                                    Open
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -789,23 +1908,235 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
             )}
 
             {activeTab === 'problems' && (
-              <ProblemsTab projectId={selectedProject} />
+              <ProblemsTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
             )}
 
-            {activeTab === 'requests' && (
-              <RequestsTab onNewRequest={() => setShowNewRequestDialog(true)} />
-            )}
+{activeTab === 'requests' && (
+  <RequestsTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} onNewRequest={() => setShowNewRequestDialog(true)} />
+)}
 
             {activeTab === 'files' && (
-              <FilesTab projectId={selectedProject} projects={projects} />
+              <FilesTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
             )}
 
             {showNewRequestDialog && (
               <NewRequestDialog
+                projectId={selectedProject}
                 onClose={() => setShowNewRequestDialog(false)}
-                onCreate={() => { setShowNewRequestDialog(false); }}
+                onCreate={() => setShowNewRequestDialog(false)}
               />
             )}
+
+            <NewSessionDialog
+              open={showNewSessionDialog}
+              mode={newSessionMode}
+              onClose={() => { setShowNewSessionDialog(false); setNewSessionSelectedTerminal(''); }}
+              onCreate={async (config: SessionConfig) => {
+                const proj = projects.find(p => p.id === selectedProject);
+                const cwd = proj?.path || '';
+                const agent = config.agentType;
+                const sessionName = config.name.trim() || `Session ${sessions.length + 1}`;
+                localStorage.setItem('terminal-defaultAgent', agent);
+                setShowNewSessionDialog(false);
+
+                // Resolve init content from config
+                let initContent = config.initContent || '';
+                if (!config.initContent) {
+                  if (config.includeDefaultInit) {
+                    const dflt = await window.deskflowAPI?.readProjectFile?.('INITIALIZE.md', cwd);
+                    if (dflt?.success && dflt.data) initContent = dflt.data;
+                  }
+                  if (config.initializeFile) {
+                    const cust = await window.deskflowAPI?.readInitFile?.(config.initializeFile, cwd);
+                    if (cust?.success && cust.data) {
+                      initContent = initContent ? `${initContent}\n\n${cust.data}` : cust.data;
+                    }
+                  }
+                  // Append problem/request context to init content
+                  if (config.problemIds.length > 0) {
+                    const ctx = config.problemIds.map(id => `- ${allProblems.find(p => p.id === id)?.title || id}`).join('\n');
+                    initContent += `\n## Context: Problems\n${ctx}\n`;
+                  }
+                  if (config.requestIds.length > 0) {
+                    const ctx = config.requestIds.map(id => `- ${allRequests.find(r => r.id === id)?.title || id}`).join('\n');
+                    initContent += `\n## Context: Requests\n${ctx}\n`;
+                  }
+                }
+                const systemPrompt = config.customSystemPrompt || undefined;
+
+                let targetTerminalId = '';
+                if (config.terminalMode === 'select' && config.selectedTerminal) {
+                  targetTerminalId = config.selectedTerminal;
+                  setActiveTerminalId(targetTerminalId);
+                  if (initContent) {
+                    await window.deskflowAPI?.terminalWrite?.(targetTerminalId, initContent + '\n');
+                    await new Promise(r => setTimeout(r, 500));
+                  }
+                  if (systemPrompt) {
+                    await window.deskflowAPI?.terminalWrite?.(targetTerminalId, systemPrompt + '\n');
+                    await new Promise(r => setTimeout(r, 500));
+                  }
+                } else {
+                  targetTerminalId = `term-${Date.now()}`;
+                  const count = Object.keys(terminalTabs).length;
+                  setTerminalTabs(prev => ({ ...prev, [targetTerminalId]: { name: proj?.name || sessionName, agent } }));
+                  setActiveTerminalId(targetTerminalId);
+                  const updatedLayout = insertIntoLayout(terminalLayout, targetTerminalId);
+                  setTerminalLayout(updatedLayout);
+                  saveLayout(updatedLayout);
+                  sessionTerminalsRef.current.add(targetTerminalId);
+                  window.dispatchEvent(new CustomEvent('create-terminal', { detail: { cwd, agent, sessionName, terminalId: targetTerminalId } }));
+                  await initializeTerminal(targetTerminalId, agent, undefined, initContent, systemPrompt);
+                }
+
+                const sessionResult = await window.deskflowAPI?.saveTerminalSession?.({
+                  id: config.id,
+                  projectId: selectedProject,
+                  agent,
+                  terminalId: targetTerminalId,
+                  topic: sessionName,
+                  workingDirectory: proj?.path || '',
+                });
+                if (sessionResult?.success) {
+                  await window.deskflowAPI?.saveSessionConfig?.(config.id, config, proj?.path);
+                  loadSessions();
+                  showError(`Session "${sessionName}" started in terminal`, 'info');
+                  setNewSessionSelectedTerminal('');
+                }
+              }}
+              problems={allProblems}
+              requests={allRequests}
+              projectPath={propProjectPath || ''}
+              terminalTabs={terminalTabs}
+              defaultAgent={localStorage.getItem('terminal-defaultAgent') || 'claude'}
+            />
+
+            {showMessagesViewer && (
+              <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+                <div className="bg-zinc-800 rounded-xl w-full max-w-2xl border border-zinc-700 shadow-2xl flex flex-col" style={{ maxHeight: '80vh' }}>
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-700">
+                    <h2 className="text-lg font-bold text-white">Session Messages</h2>
+                    <button onClick={() => setShowMessagesViewer(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
+                  </div>
+                  <div className="px-4 py-2 border-b border-zinc-700">
+                    <input
+                      type="text"
+                      value={messagesSearchQuery}
+                      onChange={(e) => setMessagesSearchQuery(e.target.value)}
+                      placeholder="Search messages..."
+                      className="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
+                    />
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                    {sessionMessages.length === 0 ? (
+                      <p className="text-xs text-zinc-500 text-center py-8">No messages recorded for this session.</p>
+                    ) : (() => {
+                      const filtered = messagesSearchQuery
+                        ? sessionMessages.filter(m => m.content && m.content.toLowerCase().includes(messagesSearchQuery.toLowerCase()))
+                        : sessionMessages;
+                      if (filtered.length === 0) {
+                        return <p className="text-xs text-zinc-500 text-center py-4">No messages match your search.</p>;
+                      }
+                      return filtered.slice(0, 500).map((msg, i) => (
+                        <div key={i} className={`p-2 rounded-lg ${msg.role === 'user' ? 'bg-cyan-900/20 border border-cyan-800/30 ml-8' : msg.role === 'system' ? 'bg-amber-900/20 border border-amber-800/30' : 'bg-zinc-800/80 mr-8'}`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                              msg.role === 'user' ? 'text-cyan-300 bg-cyan-500/20' :
+                              msg.role === 'system' ? 'text-amber-300 bg-amber-500/20' :
+                              'text-green-300 bg-green-500/20'
+                            }`}>{msg.role}</span>
+                            {msg.created_at && <span className="text-[10px] text-zinc-600">{new Date(msg.created_at).toLocaleTimeString()}</span>}
+                          </div>
+                          <pre className="text-xs text-zinc-300 whitespace-pre-wrap font-mono break-words max-h-32 overflow-y-auto">{msg.content.replace(/[\x1b\x9b][[\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\x07)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')}</pre>
+                        </div>
+                      ));
+                    })()}
+                    {!messagesSearchQuery && sessionMessages.length > 500 && (
+                      <p className="text-xs text-zinc-500 text-center py-2">... and {sessionMessages.length - 500} more messages</p>
+                    )}
+                    {messagesSearchQuery && (
+                      <p className="text-xs text-zinc-500 text-center py-1">{sessionMessages.filter(m => m.content && m.content.toLowerCase().includes(messagesSearchQuery.toLowerCase())).length} of {sessionMessages.length} messages</p>
+                    )}
+                  </div>
+                  <div className="px-6 py-3 border-t border-zinc-700 flex justify-between items-center">
+                    <span className="text-xs text-zinc-600">{sessionMessages.length} messages total</span>
+                    <button onClick={() => setShowMessagesViewer(null)} className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm">Close</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Save Checkpoint Dialog */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowSaveDialog(false)}>
+          <div className="bg-zinc-800 rounded-xl p-6 w-full max-w-md border border-zinc-700 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-white">Save Checkpoint</h2>
+              <button onClick={() => setShowSaveDialog(false)} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Workspace Name</label>
+                <input
+                  type="text"
+                  value={saveDialogName}
+                  onChange={(e) => setSaveDialogName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveCheckpointSubmit()}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-white text-sm"
+                  placeholder="e.g. Fix login bug"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => setShowSaveDialog(false)}
+                className="flex-1 px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCheckpointSubmit}
+                disabled={!saveDialogName.trim()}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white rounded text-sm font-medium"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}>
+          <div className="bg-zinc-800 rounded-xl p-6 w-full max-w-sm border border-zinc-700 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-white mb-3">Confirm</h2>
+            <p className="text-sm text-zinc-300 mb-6">{confirmDialog.message}</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  confirmDialog.onConfirm();
+                  setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                }}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded text-sm font-medium"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -814,7 +2145,7 @@ export default function TerminalPage({ projectId: propProjectId }: { projectId?:
       {!sidebarOpen && (
         <button
           onClick={() => setSidebarOpen(true)}
-          className="absolute left-0 top-1/2 -translate-y-1/2 p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-200 z-50 border-l border-zinc-700"
+          className="absolute left-0 top-1/2 -translate-y-1/2 p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-200 z-50 border-l border-zinc-700 transition-colors duration-150"
           style={{ transform: 'translateY(-50%)' }}
         >
           <PanelLeft className="w-4 h-4" />
@@ -853,27 +2184,33 @@ const STATUS_CONFIG: Record<string, { color: string; icon: string; label: string
   'Irrelevant': { color: 'bg-gray-400', icon: '⚫', label: 'Irrelevant' }
 };
 
-const ProblemsTab: React.FC<{ projectId?: string }> = ({ projectId }) => {
+const formatDate = (dateStr: string) => {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const ProblemsTab: React.FC<{ projectId?: string; projectPath?: string; projects?: { id: string; name: string; path: string }[]; onSelectProject?: (id: string) => void }> = ({ projectId, projectPath: propProjectPath, projects, onSelectProject }) => {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('all');
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null);
-  const [projectPath, setProjectPath] = useState<string>('');
+
+  const resolvedProject = projects?.find(p => p.id === projectId);
+  const computedProjectPath = resolvedProject?.path || propProjectPath || '';
 
   const loadProblems = useCallback(async () => {
     try {
-      const result = await window.deskflowAPI?.getProblems?.(projectId);
+      const result = await window.deskflowAPI?.getProblems?.(projectId, computedProjectPath);
       if (result?.success) {
         setProblems(result.data || []);
-        if (result.projectPath) setProjectPath(result.projectPath);
       }
     } catch (e) {
       console.error('[ProblemsTab] Failed to load:', e);
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, computedProjectPath]);
 
   useEffect(() => {
     loadProblems();
@@ -896,6 +2233,11 @@ const ProblemsTab: React.FC<{ projectId?: string }> = ({ projectId }) => {
 
   const handleStatusChange = async (problemId: string, status: string) => {
     await window.deskflowAPI?.updateProblemStatus?.({ problemId, status, projectId });
+    loadProblems();
+  };
+
+  const handleCreateProblem = async (title: string, priority?: string) => {
+    const result = await window.deskflowAPI?.createProblem?.({ title, priority, projectId });
     loadProblems();
   };
 
@@ -925,17 +2267,28 @@ const ProblemsTab: React.FC<{ projectId?: string }> = ({ projectId }) => {
 
       {/* Project Path + File Info */}
       <div className="mb-2 px-2 py-1 bg-zinc-800/50 rounded">
-        <div className="text-[10px] text-zinc-500 truncate" title={projectPath}>
-          📁 {projectPath || 'No project selected'}
-        </div>
-        {projectPath && (
-          <div className="text-[10px] text-zinc-600 truncate mt-0.5">
-            agent/PROBLEMS.md • {problems.length} issues parsed
-          </div>
-        )}
-        {!projectPath && (
-          <div className="text-[10px] text-yellow-500 mt-0.5">
-            ⚠️ Select a project to view problems
+        {computedProjectPath ? (
+          <>
+            <div className="text-[10px] text-zinc-500 truncate" title={computedProjectPath}>
+              📁 {resolvedProject?.name || 'Project'} — {computedProjectPath}
+            </div>
+            <div className="text-[10px] text-zinc-600 truncate mt-0.5">
+              agent/PROBLEMS.md • {problems.length} issues parsed
+            </div>
+          </>
+        ) : (
+          <div className="space-y-2">
+            <div className="text-[10px] text-yellow-500">⚠️ No project selected</div>
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) onSelectProject?.(e.target.value); }}
+              className="w-full px-2 py-1.5 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-200"
+            >
+              <option value="">-- Choose project --</option>
+              {projects?.filter(p => p.id).map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
           </div>
         )}
       </div>
@@ -996,6 +2349,8 @@ const ProblemsTab: React.FC<{ projectId?: string }> = ({ projectId }) => {
         <NewProblemDialog
           onClose={() => setShowNewDialog(false)}
           onCreate={() => { setShowNewDialog(false); loadProblems(); }}
+          projectId={projectId}
+          projectPath={computedProjectPath}
         />
       )}
     </div>
@@ -1009,10 +2364,17 @@ const ProblemDetailModal: React.FC<{
 }> = ({ problem, onClose, onStatusChange }) => {
   const [additionalInstructions, setAdditionalInstructions] = useState('');
 
+  const [isSending, setIsSending] = useState(false);
+
   const handleSendInstructions = async () => {
-    if (!additionalInstructions.trim() || !problem.terminal_id) return;
-    await window.deskflowAPI?.terminalWrite?.(problem.terminal_id, additionalInstructions + '\n');
-    setAdditionalInstructions('');
+    if (!additionalInstructions.trim() || !problem.terminal_id || isSending) return;
+    setIsSending(true);
+    try {
+      await window.deskflowAPI?.terminalWrite?.(problem.terminal_id, additionalInstructions + '\n');
+      setAdditionalInstructions('');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -1041,6 +2403,31 @@ const ProblemDetailModal: React.FC<{
           </div>
         </div>
 
+        {/* Open in Terminal Button */}
+        <div className="mb-4">
+          <button
+            onClick={async () => {
+              if (problem.terminal_id) {
+                window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: problem.terminal_id } }));
+                onClose();
+              } else {
+                const result = await window.deskflowAPI?.assignProblemToTerminal?.({ problemId: problem.id });
+                if (result?.success) {
+                  window.dispatchEvent(new CustomEvent('create-terminal-for-problem', {
+                    detail: { terminalId: result.data.terminalId, prompt: result.data.prompt }
+                  }));
+                  onClose();
+                }
+              }
+            }}
+            className={`w-full px-3 py-2 rounded text-sm text-white flex items-center justify-center gap-2 ${
+              problem.terminal_id ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'
+            }`}
+          >
+            {problem.terminal_id ? 'Open in Terminal' : 'Assign to Terminal'}
+          </button>
+        </div>
+
         {/* Send Instructions (if terminal assigned) */}
         {problem.terminal_id && (
           <div className="mb-4">
@@ -1056,9 +2443,14 @@ const ProblemDetailModal: React.FC<{
               />
               <button
                 onClick={handleSendInstructions}
-                className="px-3 py-2 bg-green-600 hover:bg-green-700 rounded text-sm text-white"
+                disabled={isSending}
+                className="px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded text-sm text-white flex items-center gap-1 min-w-[60px] justify-center"
               >
-                Send
+                {isSending ? (
+                  <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  'Send'
+                )}
               </button>
             </div>
           </div>
@@ -1086,7 +2478,9 @@ const ProblemDetailModal: React.FC<{
 const NewProblemDialog: React.FC<{
   onClose: () => void;
   onCreate: () => void;
-}> = ({ onClose, onCreate }) => {
+  projectId?: string;
+  projectPath?: string;
+}> = ({ onClose, onCreate, projectId, projectPath }) => {
   const [title, setTitle] = useState('');
   const [priority, setPriority] = useState('medium');
   const [category, setCategory] = useState('');
@@ -1105,7 +2499,9 @@ const NewProblemDialog: React.FC<{
       title, 
       priority, 
       category,
-      skill_id: selectedSkill || undefined
+      skill_id: selectedSkill || undefined,
+      projectId,
+      projectPath
     });
     if (result?.success) onCreate();
   };
@@ -1156,17 +2552,35 @@ const NewProblemDialog: React.FC<{
           </div>
           {skills.length > 0 && (
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Skill (optional)</label>
-              <select
-                value={selectedSkill}
-                onChange={(e) => setSelectedSkill(e.target.value)}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
-              >
-                <option value="">No skill</option>
+              <label className="block text-xs text-gray-400 mb-2">Skill (optional)</label>
+              <div className="grid grid-cols-2 gap-1.5 max-h-28 overflow-y-auto">
+                <button
+                  onClick={() => setSelectedSkill('')}
+                  className={`p-2 rounded text-xs text-left border transition-colors ${
+                    selectedSkill === ''
+                      ? 'bg-gray-600 border-gray-500 text-white'
+                      : 'bg-gray-700 border-gray-600 text-gray-400 hover:bg-gray-600'
+                  }`}
+                >
+                  <div className="font-medium">No skill</div>
+                </button>
                 {skills.map(skill => (
-                  <option key={skill.id} value={skill.id}>{skill.name}</option>
+                  <button
+                    key={skill.id}
+                    onClick={() => setSelectedSkill(skill.id)}
+                    className={`p-2 rounded text-xs text-left border transition-colors ${
+                      selectedSkill === skill.id
+                        ? 'bg-purple-600/30 border-purple-500 text-white'
+                        : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    <div className="font-medium truncate">{skill.name}</div>
+                    {skill.description && (
+                      <div className="text-[10px] text-gray-500 truncate mt-0.5">{skill.description}</div>
+                    )}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
           )}
         </div>
@@ -1202,7 +2616,7 @@ const REQUEST_STATUS_CONFIG: Record<string, { color: string; label: string }> = 
   'Cancelled': { color: 'bg-gray-500', label: 'Cancelled' }
 };
 
-const RequestsTab: React.FC<{ onNewRequest: () => void }> = ({ onNewRequest }) => {
+const RequestsTab: React.FC<{ projectId?: string; projectPath?: string; onNewRequest: () => void; projects?: { id: string; name: string; path: string }[]; onSelectProject?: (id: string) => void }> = ({ projectId, projectPath: propProjectPath, onNewRequest, projects, onSelectProject }) => {
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('all');
@@ -1210,7 +2624,7 @@ const RequestsTab: React.FC<{ onNewRequest: () => void }> = ({ onNewRequest }) =
 
   const loadRequests = useCallback(async () => {
     try {
-      const result = await window.deskflowAPI?.getRequests?.();
+      const result = await window.deskflowAPI?.getRequests?.(projectId);
       if (result?.success) {
         setRequests(result.data || []);
       }
@@ -1219,7 +2633,7 @@ const RequestsTab: React.FC<{ onNewRequest: () => void }> = ({ onNewRequest }) =
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     loadRequests();
@@ -1267,9 +2681,46 @@ const RequestsTab: React.FC<{ onNewRequest: () => void }> = ({ onNewRequest }) =
         </button>
       </div>
 
+      {/* Project path display */}
+      <div className="mb-2 px-2 py-1 bg-zinc-800/50 rounded">
+        {(() => {
+          const resolvedProject = projects?.find(p => p.id === projectId);
+          const displayPath = propProjectPath || resolvedProject?.path || '';
+          if (displayPath || resolvedProject) {
+            return (
+              <>
+                <div className="text-[10px] text-zinc-500 truncate" title={displayPath}>
+                  📁 {resolvedProject?.name || 'Project'}
+                </div>
+                <div className="text-[10px] text-zinc-600 truncate mt-0.5">
+                  agent/REQUESTS.md
+                </div>
+              </>
+            );
+          }
+          return (
+            <div className="space-y-2">
+              <div className="text-[10px] text-yellow-500">⚠️ No project selected</div>
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) onSelectProject?.(e.target.value); }}
+                className="w-full px-2 py-1.5 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-200"
+              >
+                <option value="">-- Choose project --</option>
+                {projects?.filter(p => p.id).map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          );
+        })()}
+      </div>
+
       {/* Requests List */}
       {loading ? (
         <div className="text-xs text-zinc-500 py-4 text-center">Loading...</div>
+      ) : !projectId ? (
+        <div className="text-xs text-zinc-500 py-4 text-center">Select a project to view requests</div>
       ) : filteredRequests.length === 0 ? (
         <div className="text-xs text-zinc-500 py-4 text-center">No requests found</div>
       ) : (
@@ -1309,13 +2760,14 @@ const RequestsTab: React.FC<{ onNewRequest: () => void }> = ({ onNewRequest }) =
       )}
 
 {/* Request Detail Modal */}
-      {selectedRequest && (
-        <RequestDetailModal
-          request={selectedRequest}
-          onClose={() => setSelectedRequest(null)}
-          onStatusChange={handleStatusChange}
-        />
-      )}
+{selectedRequest && (
+  <RequestDetailModal
+    request={selectedRequest}
+    onClose={() => setSelectedRequest(null)}
+    onStatusChange={handleStatusChange}
+    projectId={projectId}
+  />
+)}
     </div>
   );
 };
@@ -1331,16 +2783,28 @@ interface AgentFile {
   content?: string;
 }
 
-const FilesTab: React.FC<{ projectId?: string; projects?: { id: string; name: string; path: string }[] }> = ({ projectId, projects }) => {
+const FilesTab: React.FC<{ projectId?: string; projectPath?: string; projects?: { id: string; name: string; path: string }[]; onSelectProject?: (id: string) => void }> = ({ projectId, projectPath: propProjectPath, projects, onSelectProject }) => {
   const [files, setFiles] = useState<AgentFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [initStatus, setInitStatus] = useState<'idle' | 'checking' | 'ready' | 'init-ok' | 'error'>('idle');
+  const [fileChangedNotify, setFileChangedNotify] = useState<string | null>(null);
+
+  // Listen for live file change notifications
+  useEffect(() => {
+    if (!window.deskflowAPI?.onAgentFileChanged) return;
+    const cleanup = window.deskflowAPI.onAgentFileChanged((data: { file: string; mtime: string }) => {
+      setFileChangedNotify(`${data.file} updated`);
+      setTimeout(() => setFileChangedNotify(null), 4000);
+      loadFiles();
+    });
+    return () => cleanup?.();
+  }, []);
 
   const project = projects?.find(p => p.id === projectId);
-  const projectPath = project?.path || '';
+  const projectPath = propProjectPath || project?.path || '';
 
   const loadFiles = useCallback(async () => {
     if (!window.deskflowAPI || !projectPath) {
@@ -1428,22 +2892,11 @@ const FilesTab: React.FC<{ projectId?: string; projects?: { id: string; name: st
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header with Setup button */}
+      {/* Status indicator (Setup button is in terminal header) */}
       <div className="flex items-center justify-between mb-2">
         <span className={`text-xs ${statusColors[initStatus]}`}>
           {statusLabels[initStatus]}
         </span>
-        {projectPath && (
-          <button
-            onClick={handleSetup}
-            disabled={initStatus === 'checking'}
-            className="px-2 py-1 bg-green-600 hover:bg-green-700 disabled:bg-zinc-600 text-white text-xs rounded flex items-center gap-1"
-            title="Initialize agent directory structure"
-          >
-            <Zap className="w-3 h-3" />
-            {initStatus === 'ready' || initStatus === 'init-ok' ? 'Re-init' : 'Setup'}
-          </button>
-        )}
       </div>
 
       {/* Project path display */}
@@ -1457,9 +2910,27 @@ const FilesTab: React.FC<{ projectId?: string; projects?: { id: string; name: st
           </div>
         </div>
       ) : (
-        <div className="mb-2 px-2 py-1.5 bg-zinc-800/50 rounded">
+        <div className="mb-2 px-2 py-3 bg-zinc-800/50 rounded space-y-2">
           <div className="text-xs text-yellow-400">⚠️ No project selected</div>
-          <div className="text-[10px] text-zinc-600 mt-0.5">Select a project above to view agent files</div>
+          <div className="text-[10px] text-zinc-500">Select a project:</div>
+          <select
+            value=""
+            onChange={(e) => { if (e.target.value) onSelectProject?.(e.target.value); }}
+            className="w-full px-2 py-1.5 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-200"
+          >
+            <option value="">-- Choose project --</option>
+            {projects?.filter(p => p.id).map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* File Change Notification */}
+      {fileChangedNotify && (
+        <div className="mb-2 px-2 py-1.5 bg-green-600/20 border border-green-500/30 rounded text-xs text-green-300 animate-pulse flex items-center gap-1">
+          <span className="w-1.5 h-1.5 bg-green-400 rounded-full" />
+          {fileChangedNotify}
         </div>
       )}
 
@@ -1475,7 +2946,7 @@ const FilesTab: React.FC<{ projectId?: string; projects?: { id: string; name: st
       ) : files.length === 0 ? (
         <div className="text-xs text-zinc-500 py-4 text-center">
           No agent/ files found.<br />
-          Click <strong>Setup</strong> to initialize.
+          Use the <strong>Setup</strong> button in the header to initialize.
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
@@ -1519,4 +2990,331 @@ const FilesTab: React.FC<{ projectId?: string; projects?: { id: string; name: st
   );
 };
 
-// NewRequestDialog rendered inline within TerminalPage via showNewRequestDialog
+// ─────────────────────────────────────────────
+// TERMINALS TAB
+// ─────────────────────────────────────────────
+
+const TerminalsTab: React.FC<{
+  terminalTabs: Record<string, { name: string; agent: string }>;
+  terminalBindings: Record<string, any>;
+  activeTerminalId: string | null;
+  sessions: Session[];
+  onFocusTerminal: (id: string) => void;
+  onResumeSession: (session: Session, terminalId?: string) => void;
+}> = ({ terminalTabs, terminalBindings, activeTerminalId, sessions, onFocusTerminal, onResumeSession }) => {
+  const runningTerminals = Object.entries(terminalTabs);
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Running Terminals */}
+      <div className="mb-4">
+        <div className="text-xs font-medium text-zinc-400 mb-2 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-green-500" />
+          Running Terminals ({runningTerminals.length})
+        </div>
+        {runningTerminals.length === 0 ? (
+          <p className="text-xs text-zinc-600 px-2">No running terminals</p>
+        ) : (
+          <div className="space-y-2">
+            {runningTerminals.map(([id, tab]) => {
+              const sessionInTerminal = sessions.find(s => s.terminal_id === id);
+              return (
+                <div
+                  key={id}
+                  className={`p-2 rounded border transition-all duration-150 ${
+                    activeTerminalId === id
+                      ? 'bg-zinc-700/80 border-zinc-600/50 shadow-[0_0_10px_rgba(0,0,0,0.2)]'
+                      : 'bg-zinc-800/50 border-zinc-700/30 hover:bg-zinc-700/50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-zinc-200 truncate">{tab.name}</div>
+                      <div className="text-[10px] text-zinc-500">{tab.agent}</div>
+                    </div>
+                    {activeTerminalId === id && (
+                      <span className="text-[10px] text-green-400">active</span>
+                    )}
+                  </div>
+                  {/* Session info for this terminal */}
+                  {sessionInTerminal ? (
+                    <div className="mt-1.5 ml-4 pl-2 border-l-2 border-cyan-500/30">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span className="text-[10px] text-cyan-400">Session:</span>
+                        <CategoryBadge category={sessionInTerminal.category} />
+                        <StatusDot status={sessionInTerminal.status} />
+                        <span className="text-[10px] text-zinc-300 truncate">{sessionInTerminal.topic || 'Unnamed'}</span>
+                      </div>
+                      <div className="text-[9px] text-zinc-600 mt-0.5">{sessionInTerminal.agent} • {formatDate(sessionInTerminal.created_at)}</div>
+                      {sessionInTerminal.product_area && (
+                        <div className="text-[9px] text-cyan-600/70">{sessionInTerminal.product_area}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 ml-4 pl-2 border-l-2 border-zinc-700/30">
+                      <div className="text-[9px] text-zinc-500">No session — ready to assign</div>
+                    </div>
+                  )}
+                  <div className="flex gap-1 mt-1.5">
+                    <button
+                      onClick={() => onFocusTerminal(id)}
+                      className="flex-1 px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[9px] rounded"
+                    >
+                      Focus
+                    </button>
+                    {!sessionInTerminal && (
+                      <button
+                        onClick={() => {
+                          // Pre-fill new session dialog for this terminal
+                          const event = new CustomEvent('open-new-session-for-terminal', { detail: { terminalId: id } });
+                          window.dispatchEvent(event);
+                        }}
+                        className="flex-1 px-1.5 py-0.5 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 text-[9px] rounded"
+                      >
+                        New Session
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Sessions (with and without terminals) */}
+      <div>
+        <div className="text-xs font-medium text-zinc-400 mb-2 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-zinc-500" />
+          Sessions ({sessions.length})
+        </div>
+        {sessions.length === 0 ? (
+          <p className="text-xs text-zinc-600 px-2">No sessions</p>
+        ) : (
+          <div className="space-y-1">
+            {sessions.slice(0, 20).map((session) => {
+              const isRunning = session.terminal_id && terminalTabs[session.terminal_id];
+              return (
+                <div key={session.id} className={`px-2 py-2 rounded group transition-colors duration-150 ${
+                  isRunning ? 'bg-zinc-800/30 border-l-2 border-green-700/30' : 'bg-zinc-800/10 border-l-2 border-zinc-700/20'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <StatusDot status={session.status} />
+                        <CategoryBadge category={session.category} />
+                        <span className={`text-[10px] font-medium px-1 rounded ${
+                          isRunning ? 'text-green-400 bg-green-500/20' : 'text-zinc-500 bg-zinc-700/30'
+                        }`}>{session.agent}</span>
+                        <span className="text-xs text-zinc-300 truncate">{session.topic || 'No topic'}</span>
+                      </div>
+                      <div className="text-[10px] text-zinc-600 flex items-center gap-1 mt-0.5">
+                        {isRunning ? (
+                          <><span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {terminalTabs[session.terminal_id!]?.name || 'Terminal'}</>
+                        ) : (
+                          <><span className="w-1.5 h-1.5 rounded-full bg-zinc-500" /> Closed • {formatDate(session.created_at)}</>
+                        )}
+                        {session.product_area && (
+                          <span className="text-[9px] text-cyan-600/70 ml-1">{session.product_area}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                      {isRunning ? (
+                        <button
+                          onClick={() => onFocusTerminal(session.terminal_id!)}
+                          className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-blue-200 text-[10px] rounded"
+                        >
+                          Focus
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => onResumeSession(session)}
+                          className="px-2 py-0.5 bg-cyan-600 hover:bg-cyan-700 text-cyan-200 text-[10px] rounded"
+                        >
+                          Open
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
+// REQUEST DETAIL MODAL
+// ─────────────────────────────────────────────
+
+const RequestDetailModal: React.FC<{
+  request: Request;
+  onClose: () => void;
+  onStatusChange: (id: string, status: string) => void;
+  projectId?: string;
+}> = ({ request, onClose, onStatusChange, projectId }) => {
+  const [linkProblemId, setLinkProblemId] = useState('');
+  const [allProblems, setAllProblems] = useState<Problem[]>([]);
+
+  useEffect(() => {
+    window.deskflowAPI?.getProblems?.(projectId).then((result: any) => {
+      if (result?.success) setAllProblems(result.data || []);
+    });
+  }, [projectId]);
+
+  const handleLinkProblem = async () => {
+    if (!linkProblemId) return;
+    await window.deskflowAPI?.linkProblemToRequest?.({ requestId: request.id, problemId: linkProblemId, projectId });
+    setLinkProblemId('');
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-gray-800 rounded-xl p-6 w-full max-w-md border border-gray-700 max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-white">Request #{request.id}</h2>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">×</button>
+        </div>
+
+        <p className="text-white mb-4">{request.title}</p>
+
+        {request.description && (
+          <div className="mb-4">
+            <div className="text-xs text-gray-400 mb-1">Description</div>
+            <div className="text-sm text-gray-300 bg-gray-900 p-2 rounded">{request.description}</div>
+          </div>
+        )}
+
+        {/* Status Buttons */}
+        <div className="mb-4">
+          <div className="text-xs text-gray-400 mb-2">Status</div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(REQUEST_STATUS_CONFIG).map(([status, config]) => (
+              <button
+                key={status}
+                onClick={() => onStatusChange(request.id, status)}
+                className={`px-2 py-1 rounded text-xs ${request.status === status ? `${config.color} text-white` : 'bg-gray-700 hover:bg-gray-600'}`}
+              >
+                {config.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Linked Problems */}
+        <div className="mb-4">
+          <div className="text-xs text-gray-400 mb-2">Linked Problems</div>
+          <div className="flex flex-wrap gap-1 mb-2">
+            {request.linked_problems.length === 0 ? (
+              <span className="text-xs text-gray-500">No linked problems</span>
+            ) : request.linked_problems.map(pid => (
+              <span key={pid} className="px-1.5 py-0.5 bg-blue-600/30 text-blue-300 text-[10px] rounded">
+                #{pid}
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={linkProblemId}
+              onChange={(e) => setLinkProblemId(e.target.value)}
+              className="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white"
+            >
+              <option value="">Link a problem...</option>
+              {allProblems
+                .filter(p => !request.linked_problems.includes(p.id))
+                .map(p => (
+                  <option key={p.id} value={p.id}>#{p.id} - {p.title}</option>
+                ))}
+            </select>
+            <button
+              onClick={handleLinkProblem}
+              disabled={!linkProblemId}
+              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white text-xs rounded"
+            >
+              Link
+            </button>
+          </div>
+        </div>
+
+        {/* Meta */}
+        <div className="text-xs text-gray-500 border-t border-gray-700 pt-3 mt-4">
+          <div>Priority: {request.priority}</div>
+          <div>Category: {request.category}</div>
+          <div>Created: {new Date(request.created_at).toLocaleDateString()}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
+// NEW REQUEST DIALOG
+// ─────────────────────────────────────────────
+
+const NewRequestDialog: React.FC<{
+  projectId?: string;
+  onClose: () => void;
+  onCreate: () => void;
+}> = ({ projectId, onClose, onCreate }) => {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [priority, setPriority] = useState('medium');
+
+  const handleSubmit = async () => {
+    if (!title.trim()) return;
+    const result = await window.deskflowAPI?.createRequest?.({ title, description, priority, category: 'Feature', projectId });
+    if (result?.success) onCreate();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-gray-800 rounded-xl p-6 w-full max-w-md border border-gray-700">
+        <h2 className="text-lg font-bold text-white mb-4">New Request</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Title *</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
+              placeholder="Brief description"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm"
+              rows={3}
+              placeholder="What was requested?"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Priority</label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
+            >
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
+        <div className="flex gap-2 mt-6">
+          <button onClick={onClose} className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded">Cancel</button>
+          <button onClick={handleSubmit} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded">Create</button>
+        </div>
+      </div>
+    </div>
+  );
+};

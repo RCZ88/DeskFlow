@@ -1870,6 +1870,26 @@ function CameraTracker({ cameraPosRef }: { cameraPosRef: React.MutableRefObject<
   return null;
 }
 
+function PlanetTracker({
+  controlsRef,
+  planetPositionsRef,
+  trackedPlanetRef,
+}: {
+  controlsRef: React.MutableRefObject<any>;
+  planetPositionsRef: React.MutableRefObject<Map<string, THREE.Vector3>>;
+  trackedPlanetRef: React.MutableRefObject<string | null>;
+}) {
+  useFrame(() => {
+    const name = trackedPlanetRef.current;
+    if (!name || !controlsRef.current) return;
+    const pos = planetPositionsRef.current.get(name);
+    if (pos) {
+      controlsRef.current.target.lerp(pos, 0.05);
+    }
+  });
+  return null;
+}
+
 // Main Scene Component
 function SolarSystemScene({ planets, isPaused, speed, onPlanetClick, controlsRef, onPlanetPositionUpdate, category = 'Other', sunSize }: { planets: PlanetData[]; isPaused: boolean; speed: number; onPlanetClick: (data: PlanetData) => void; controlsRef: any; onPlanetPositionUpdate?: (name: string, position: THREE.Vector3) => void; category?: string; sunSize?: number }) {
   
@@ -1910,6 +1930,27 @@ function getCategoryListFromSettings(): string[] {
 
 // Category list constant - uses settings categories if available
 const CATEGORY_LIST = getCategoryListFromSettings();
+
+// Filter logs by time period helper
+function filterLogsByPeriod(logs: ActivityLog[], period: 'today' | 'week' | 'month' | 'all'): ActivityLog[] {
+  if (period === 'all' || !logs || logs.length === 0) return logs;
+  const now = Date.now();
+  if (period === 'today') {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return logs.filter(log => {
+      const logDate = log.timestamp instanceof Date 
+        ? log.timestamp.toISOString().split('T')[0]
+        : typeof log.timestamp === 'string' 
+          ? log.timestamp.split('T')[0] 
+          : '';
+      return logDate === todayStr;
+    });
+  }
+  const cutoff = period === 'week' 
+    ? now - 7 * 24 * 60 * 60 * 1000 
+    : now - 30 * 24 * 60 * 60 * 1000;
+  return logs.filter(log => new Date(log.timestamp).getTime() >= cutoff);
+}
 
 // Format duration in seconds to human-readable string
 function formatDurationSeconds(seconds: number): string {
@@ -2718,6 +2759,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   const cameraPosRef = useRef<[number, number, number]>([0, 100, 200]);
   const fpsDisplayRef = useRef<HTMLDivElement | null>(null);
   const [currentCategory, setCurrentCategory] = useState<string>('Other');
+  const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('all');
   
   // Load saved category on mount after galaxyType is determined
   useEffect(() => {
@@ -2741,18 +2783,23 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   });
   const controlsRef = useRef<any>(null);
   const galaxyTypeRef = useRef(galaxyType);
+  const trackedPlanetRef = useRef<string | null>(null);
   
-  // App galaxy solar systems
+  // Filter logs by selected period
+  const filteredLogs = useMemo(() => filterLogsByPeriod(logs, selectedPeriod), [logs, selectedPeriod]);
+  const filteredWebsiteLogs = useMemo(() => filterLogsByPeriod(websiteLogs || [], selectedPeriod), [websiteLogs, selectedPeriod]);
+  
+  // App galaxy solar systems (period-filtered)
   const appSolarSystems = useMemo(() => {
-    const result = computeSolarSystems(logs, appColors, categoryOverrides);
+    const result = computeSolarSystems(filteredLogs, appColors, categoryOverrides);
     return result;
-  }, [logs, appColors, categoryOverrides]);
+  }, [filteredLogs, appColors, categoryOverrides]);
   
-  // Website galaxy solar systems
+  // Website galaxy solar systems (period-filtered)
   const websiteSolarSystems = useMemo(() => {
-    const result = computeWebsiteSolarSystems(websiteLogs || [], websiteColors, websiteCategoryOverrides);
+    const result = computeWebsiteSolarSystems(filteredWebsiteLogs, websiteColors, websiteCategoryOverrides);
     return result;
-  }, [websiteLogs, websiteColors, websiteCategoryOverrides]);
+  }, [filteredWebsiteLogs, websiteColors, websiteCategoryOverrides]);
   
   // Refs to track interaction state - prevent glitches during user interaction
   const isInteractingRef = useRef(false);
@@ -2787,6 +2834,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
     if (type === galaxyType) return;
     
     setGalaxyType(type);
+    trackedPlanetRef.current = null;
     if (viewMode === 'galaxy' && controlsRef.current && animationSpeed !== 'instant') {
       const duration = ANIMATION_DURATIONS[animationSpeed];
       const targetX = type === 'websites' ? 3250 : 0;
@@ -2842,11 +2890,25 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
     setCurrentCategory(data.category);
     setViewMode('solarSystem');
     setSelectedSystem(null);
-    // Animate camera to planet with smooth travel
-    const planetPos = new THREE.Vector3(0, 0, 0); // Planet positions are relative to sun at origin
-    const camPos = new THREE.Vector3(data.orbitRadius * 0.8, data.radius * 2, data.orbitRadius * 1.2);
-    const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
-    animateCamera(camPos, planetPos, duration);
+    // Get real-time planet position and start tracking
+    const trackedPos = planetPositionsRef.current.get(data.name);
+    if (trackedPos) {
+      trackedPlanetRef.current = data.name;
+      const camOffset = Math.max(data.radius * 6, 12);
+      const camPos = new THREE.Vector3(
+        trackedPos.x + camOffset,
+        trackedPos.y + camOffset * 0.6,
+        trackedPos.z + camOffset
+      );
+      const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
+      animateCamera(camPos, trackedPos, duration);
+    } else {
+      // Fallback: use orbital position
+      const planetPos = new THREE.Vector3(0, 0, 0);
+      const camPos = new THREE.Vector3(data.orbitRadius * 0.8, data.radius * 2, data.orbitRadius * 1.2);
+      const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
+      animateCamera(camPos, planetPos, duration);
+    }
   };
   
   const handleSelectSystem = (category: string) => {
@@ -2873,12 +2935,14 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
 
   const handleCloseSystem = () => {
     setSelectedSystem(null);
+    trackedPlanetRef.current = null;
   };
 
   const handleZoomOut = () => {
     if (controlsRef.current) {
       setSelectedPlanet(null);
       setSelectedSystem(null);
+      trackedPlanetRef.current = null;
       setViewMode('galaxy');
       
       // Animate back to galaxy view
@@ -2893,13 +2957,24 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   const handleRefreshTextures = () => {
     setTextureRefreshKey(k => k + 1);
     setSelectedPlanet(null);
+    trackedPlanetRef.current = null;
     if (controlsRef.current) controlsRef.current.reset();
   };
   
-// Handle category selection from dropdown
+// Handle category selection from dropdown — animate to solar system view
   const handleCategorySelect = (cat: string) => {
     setCurrentCategory(cat);
     setStoredCategory(cat, galaxyType);
+    setSelectedPlanet(null);
+    trackedPlanetRef.current = null;
+    if (controlsRef.current) {
+      setViewMode('solarSystem');
+      const targetX = galaxyType === 'websites' ? 3250 : 0;
+      const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
+      const targetPos = new THREE.Vector3(targetX, 30, 60);
+      const lookAtPos = new THREE.Vector3(targetX, 0, 0);
+      animateCamera(targetPos, lookAtPos, duration);
+    }
   };
 
   // Track current planet positions for camera navigation
@@ -2929,12 +3004,13 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
     planetPositionsRef.current.set(name, position.clone());
   };
 
-  // Called when user clicks a legend item — fly camera to that planet
+  // Called when user clicks a legend item — fly camera to that planet + start tracking
   const focusOnPlanet = (planet: PlanetData) => {
     setCurrentCategory(planet.category);
     setStoredCategory(planet.category, galaxyType);
     setViewMode('solarSystem');
     setSelectedPlanet(planet);
+    trackedPlanetRef.current = planet.name;
     
     // Then animate to planet position
     if (controlsRef.current) {
@@ -3058,6 +3134,23 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
             onToggle={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
             additionalCategories={planetCategories}
           />
+        </div>
+
+        {/* Timeline / Period Selector */}
+        <div className="flex items-center gap-1 self-start">
+          {(['today', 'week', 'month', 'all'] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => setSelectedPeriod(p)}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-medium transition ${
+                selectedPeriod === p 
+                  ? 'bg-indigo-500/30 text-indigo-300' 
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+              }`}
+            >
+              {p === 'today' ? 'Today' : p === 'week' ? 'Week' : p === 'month' ? 'Month' : 'All'}
+            </button>
+          ))}
         </div>
         
         {/* Perf toggle button */}
@@ -3269,16 +3362,23 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                     />
                   </>
                 ) : (
-                  <SolarSystemScene
-                    planets={planets}
-                    isPaused={isPaused}
-                    speed={speed}
-                    onPlanetClick={handlePlanetClick}
-                    controlsRef={controlsRef}
-                    onPlanetPositionUpdate={handlePlanetPositionUpdate}
-                    category={currentCategory}
-                    sunSize={currentSunSize}
-                  />
+                  <>
+                    <SolarSystemScene
+                      planets={planets}
+                      isPaused={isPaused}
+                      speed={speed}
+                      onPlanetClick={handlePlanetClick}
+                      controlsRef={controlsRef}
+                      onPlanetPositionUpdate={handlePlanetPositionUpdate}
+                      category={currentCategory}
+                      sunSize={currentSunSize}
+                    />
+                    <PlanetTracker
+                      controlsRef={controlsRef}
+                      planetPositionsRef={planetPositionsRef}
+                      trackedPlanetRef={trackedPlanetRef}
+                    />
+                  </>
                 )}
                 </PerformanceMonitor>
               </Canvas>
@@ -3307,7 +3407,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
         />
       )}
       
-      <PlanetDetailPanel planet={selectedPlanet} onClose={() => setSelectedPlanet(null)} />
+      <PlanetDetailPanel planet={selectedPlanet} onClose={() => { setSelectedPlanet(null); trackedPlanetRef.current = null; }} />
 
       {/* Controls overlay — top-right */}
       <div className="absolute top-4 right-4 z-10">
@@ -3321,7 +3421,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
           </button>
           <div className="w-px h-4 bg-zinc-700" />
           <button 
-            onClick={() => { setSelectedPlanet(null); if (controlsRef.current) controlsRef.current.reset(); }} 
+            onClick={() => { setSelectedPlanet(null); trackedPlanetRef.current = null; if (controlsRef.current) controlsRef.current.reset(); }} 
             className="flex items-center gap-1.5 text-xs font-medium hover:text-white transition"
           >
             <RotateCcw className="w-3.5 h-3.5" />

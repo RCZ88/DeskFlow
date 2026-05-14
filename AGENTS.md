@@ -300,6 +300,24 @@ If state.md says "See GRAPH_REPORT.md" - use graphify for architecture context.
 
 ---
 
+---
+
+## Knowledge Systems
+
+This project uses integrated knowledge management (detailed in `agent/agents.md` → Knowledge Systems section):
+
+| System | Location | Purpose |
+|--------|----------|---------|
+| **Graphify** | `graphify-out/` + Obsidian vault | Code architecture visualization |
+| **LLM Wiki** | `agent/*.md` | AI-optimized markdown format |
+| **Obsidian Skills** | `agent/skills/*/SKILL.md` | Frontmatter-tagged skill definitions |
+| **PARA Vault** | `CZVault/` | 00_Projects / 01_Areas / 02_Resources / 03_Archives |
+| **QMD Templates** | `agent/templates/` | Executable Quarto documentation |
+
+**Full pipeline:** `python agent/skills/maintain-context/graphify_maintain.py full`
+
+---
+
 @agent/agents.md
 
-**Last Updated:** 2026-04-28
+**Last Updated:** 2026-05-10

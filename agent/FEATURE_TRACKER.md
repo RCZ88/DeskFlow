@@ -510,6 +510,9 @@
 - **Timer Behavior:** Start/stop/pause behavior
 - **Tracker App Mode:** (setting details in Settings page)
 - **Auto-start:** Start tracking on app launch
+- **App Switch Debounce:** Configurable delay (Off/1s/2s/3s/5s) before confirming app switches
+- **Sleep Gap Detection:** Time before app is considered "sleep" (presets: 5s/10s/15s/30s)
+- **Max Session Duration:** Maximum app session length (presets: 1m/3m/5m/10m)
 
 #### 10.4 Browser Rules
 - **Domain Rules:** Auto-categorize websites

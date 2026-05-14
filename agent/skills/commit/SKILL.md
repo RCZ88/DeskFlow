@@ -1,3 +1,13 @@
+---
+id: commit
+name: Commit
+category: git
+applicable_to: [commits, git]
+version: 1.0.0
+created: 2026-04-19
+tags: [git, commit, version-control]
+---
+
 # Commit Skill
 
 ## Purpose

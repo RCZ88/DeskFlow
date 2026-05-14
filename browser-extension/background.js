@@ -284,8 +284,15 @@ async function updateActiveTab(tabId) {
 }
 
 // --- Log previous session if it was long enough ---
-async function logPreviousSession() {
+async function logPreviousSession(force = false) {
   if (!state.activeTabId || !state.activeTabUrl) return;
+
+  // Skip if browser lost focus UNLESS this is the final flush on focus loss
+  // Prevents background tab navigations/activations from creating phantom entries
+  if (!force && !state.isBrowserFocused) {
+    console.debug('[DeskFlow] 🔇 Browser not focused, skipping background tab log');
+    return;
+  }
 
   const duration = Date.now() - state.sessionStart;
 
@@ -304,7 +311,8 @@ async function logPreviousSession() {
     active_duration_ms: duration,
     sanitized_url: sanitizeUrl(state.activeTabUrl),
     is_periodic: false, // Important: this is a tab switch, NOT a periodic sync
-    delta_ms: 0
+    delta_ms: 0,
+    is_browser_focused: state.isBrowserFocused // Tell desktop app if browser was focused
   };
 
   await sendToDeskFlow(data);
@@ -316,8 +324,16 @@ async function logPreviousSession() {
 
 // --- Periodic sync: send delta (new time since last sync) ---
 async function periodicSync() {
-  // Don't track if browser is not focused or tracking is disabled
-  if (!state.activeTabId || !state.isTrackingEnabled || !state.isBrowserFocused) return;
+  // Don't track if no active tab or tracking is disabled
+  if (!state.activeTabId || !state.isTrackingEnabled) return;
+
+  // If browser is not focused, just update sync timestamp and return
+  // Prevents phantom delta accumulation when focus returns
+  if (!state.isBrowserFocused) {
+    state.lastPeriodicSync = Date.now();
+    await saveState();
+    return;
+  }
 
   // Calculate DELTA (new time since last sync), not total duration
   const deltaMs = Date.now() - state.lastPeriodicSync;
@@ -429,7 +445,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
     console.log('[DeskFlow] 🪟 Browser lost focus - pausing tracking');
     state.isBrowserFocused = false;
     await saveState();
-    await logPreviousSession();
+    await logPreviousSession(true); // Force flush: capture time spent up to focus loss
   } else {
     // Regained focus — refresh active tab for the SPECIFIC window that gained focus
     // FIX: Use windowId from the event, NOT currentWindow:true (which queries extension's popup window)

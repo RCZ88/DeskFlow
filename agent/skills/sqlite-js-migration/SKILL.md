@@ -1,3 +1,13 @@
+---
+id: sqlite-js-migration
+name: SQLite JS Migration
+category: database
+applicable_to: [database, migration]
+version: 1.0.0
+created: 2026-05-06
+tags: [sqlite, database, migration, javascript]
+---
+
 # SQLite JS Migration Skill
 Use sql.js for SQLite migration when native modules fail.
 

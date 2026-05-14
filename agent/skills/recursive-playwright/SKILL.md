@@ -1,10 +1,13 @@
 
 
-```yaml
 ---
-name: recursive-playwright
-description: Super Mode + Recursion – Continuously codes, tests with Playwright MCP, and self-corrects until a feature works. Use for any frontend or full-stack task that requires browser automation validation.
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, WebFetch
+id: recursive-playwright
+name: Recursive Playwright
+category: testing
+applicable_to: [testing, frontend, e2e]
+version: 1.0.0
+created: 2026-04-19
+tags: [testing, playwright, e2e, automation]
 ---
 
 # 🚀 Recursive Playwright: Super Mode + Recursion

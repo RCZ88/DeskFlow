@@ -1,0 +1,58 @@
+---
+title: "[ISSUE_ID]: [TITLE]"
+format:
+  html:
+    toc: true
+---
+
+## Problem Description
+
+**Status:** [STATUS]
+**Priority:** [PRIORITY]
+**Category:** [CATEGORY]
+
+### User Report
+
+> "[USER_NOTES]"
+
+## Investigation
+
+### Files Involved
+
+```{python}
+#| echo: false
+files = ["file1.ts", "file2.ts"]
+for f in files:
+    print(f"- {f}")
+```
+
+### Root Cause Analysis
+
+[Analysis content]
+
+## Solution
+
+### Changes Made
+
+[Description of fix]
+
+### Code
+
+```{typescript}
+// Fixed code
+```
+
+## Verification
+
+```{bash}
+npm test -- [test-file]
+```
+
+## Status History
+
+| Date | Status | Actor |
+|------|--------|-------|
+| [DATE] | NEW | User |
+| [DATE] | In Progress | AI |
+| [DATE] | AI Attempted Fix | AI |
+| [DATE] | Fixed | User |

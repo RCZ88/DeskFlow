@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { subDays, format, eachDayOfInterval } from 'date-fns';
+import { subDays, format } from 'date-fns';
 import { BarChart3, Clock, Target, Moon, TrendingUp, TrendingDown, Activity, Zap, Sun } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Line, Bar } from 'react-chartjs-2';
@@ -36,10 +36,32 @@ interface SleepTrend {
   average_wake_time: string;
 }
 
-interface TypicalSlot {
-  hour: number;
-  primaryActivity: string;
+interface ActivityBucket {
+  activity: string;
+  seconds: number;
+  percentage: number;
+  color: string;
+}
+
+interface HourCell {
+  activities: ActivityBucket[];
   totalSeconds: number;
+  dominantActivity: string;
+  hasExternal: boolean;
+  hasDevice: boolean;
+}
+
+interface TypicalDayData {
+  grid: HourCell[][];
+  legend: Array<{ activity: string; color: string; totalSeconds: number }>;
+  stats: {
+    totalHours: number;
+    mostActiveHour: { hour: number; day: number };
+    mostActiveDay: number;
+    activityBreakdown: Record<string, number>;
+  };
+  generatedAt: string;
+  daysCovered: number;
 }
 
 function formatHours(seconds: number): string {
@@ -49,47 +71,30 @@ function formatHours(seconds: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-const ACTIVITY_GRADIENTS: Record<string, string> = {
-  'code': 'from-emerald-500 to-emerald-600',
-  'coding': 'from-emerald-500 to-emerald-600',
-  'browser': 'from-sky-500 to-sky-600',
-  'chrome': 'from-sky-500 to-sky-600',
-  'terminal': 'from-violet-500 to-violet-600',
-  'discord': 'from-indigo-500 to-indigo-600',
-  'slack': 'from-purple-500 to-purple-600',
-  'figma': 'from-pink-500 to-pink-600',
-  'design': 'from-pink-500 to-pink-600',
-  'meeting': 'from-amber-500 to-amber-600',
-  'zoom': 'from-amber-500 to-amber-600',
-  'music': 'from-rose-500 to-rose-600',
-  'spotify': 'from-rose-500 to-rose-600',
-  'idle': 'from-zinc-500 to-zinc-600',
-  'none': 'from-zinc-600 to-zinc-700',
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  'IDE': '#6366f1',
+  'AI Tools': '#8b5cf6',
+  'Browser': '#3b82f6',
+  'Entertainment': '#ec4899',
+  'Communication': '#14b8a6',
+  'Design': '#a855f7',
+  'Productivity': '#10b981',
+  'Tools': '#f59e0b',
+  'Developer Tools': '#10b981',
+  'Social Media': '#f97316',
+  'News': '#eab308',
+  'Shopping': '#ec4899',
+  'Education': '#06b6d4',
+  'Uncategorized': '#78716c',
+  'Other': '#64748b',
 };
 
-function getActivityColor(activity: string): string {
-  const key = Object.keys(ACTIVITY_GRADIENTS).find(k => activity.toLowerCase().includes(k));
-  return key ? ACTIVITY_GRADIENTS[key] : 'from-teal-500 to-teal-600';
-}
-
-function getActivityHex(activity: string): string {
-  const map: Record<string, string> = {
-    code: '#22c55e', coding: '#22c55e', browser: '#0ea5e9', chrome: '#0ea5e9',
-    terminal: '#8b5cf6', discord: '#6366f1', slack: '#a855f7', figma: '#ec4899',
-    design: '#ec4899', meeting: '#f59e0b', zoom: '#f59e0b', music: '#f43f5e',
-    spotify: '#f43f5e', idle: '#71717a', none: '#52525b',
-  };
-  const key = Object.keys(map).find(k => activity.toLowerCase().includes(k));
-  return key ? map[key] : '#14b8a6';
-}
-
-function getHeatColor(seconds: number, max: number): string {
-  if (seconds === 0) return 'bg-zinc-800/30';
-  const ratio = seconds / max;
-  if (ratio > 0.75) return 'bg-emerald-500/90';
-  if (ratio > 0.5) return 'bg-emerald-500/65';
-  if (ratio > 0.25) return 'bg-emerald-500/40';
-  return 'bg-emerald-500/20';
+function resolveActivityColor(name: string): string {
+  const saved = localStorage.getItem(`deskflow-category-color-${name}`);
+  if (saved) return saved;
+  return CATEGORY_COLORS[name] || '#6b7280';
 }
 
 const hourLabels = Array.from({ length: 24 }, (_, i) => {
@@ -99,16 +104,14 @@ const hourLabels = Array.from({ length: 24 }, (_, i) => {
   return `${i - 12}p`;
 });
 
-const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
 export default function InsightsPage() {
   const [stats, setStats] = useState<ExternalStats>({ byActivity: {}, total_seconds: 0, sleep_deficit_seconds: 0, average_sleep_hours: 0 });
   const [consistency, setConsistency] = useState<ConsistencyData & { this_week: number; last_week: number; trend: string; streak: number }>({ score: 0, weekly_comparison: [], this_week: 0, last_week: 0, trend: 'stable', streak: 0 });
   const [sleepTrends, setSleepTrends] = useState<SleepTrend>({ daily: [], average_bedtime: '', average_wake_time: '' });
   const [bestDays, setBestDays] = useState<{ bestDay: string; worstDay: string; averages: Record<string, number> }>({ bestDay: 'Mon', worstDay: 'Sun', averages: {} });
-  const [typicalDay, setTypicalDay] = useState<TypicalSlot[]>([]);
+  const [typicalDayData, setTypicalDayData] = useState<TypicalDayData | null>(null);
+  const [tooltip, setTooltip] = useState<{ day: number; hour: number; x: number; y: number } | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month'>('week');
-  const [hoveredHour, setHoveredHour] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'typical' | 'weekly' | 'activities'>('typical');
 
   useEffect(() => {
@@ -117,7 +120,9 @@ export default function InsightsPage() {
     window.deskflowAPI?.getConsistencyScore(selectedPeriod).then(setConsistency);
     window.deskflowAPI?.getSleepTrends(selectedPeriod).then(setSleepTrends);
     window.deskflowAPI?.getBestDays().then(setBestDays);
-    window.deskflowAPI?.getTypicalDay(30).then(setTypicalDay);
+    window.deskflowAPI?.getTypicalDay(30).then((result: any) => {
+      if (result?.grid) setTypicalDayData(result as TypicalDayData);
+    });
   }, [selectedPeriod]);
 
   const sleepTrendData = useMemo(() => {
@@ -149,10 +154,6 @@ export default function InsightsPage() {
     return { labels: days, data, max };
   }, [bestDays]);
 
-  const typicalMaxSeconds = useMemo(() => Math.max(...typicalDay.map(s => s.totalSeconds), 1), [typicalDay]);
-
-  const selectedHourData = hoveredHour !== null ? typicalDay.find(s => s.hour === hoveredHour) : null;
-
   const breakdownColors = useMemo(() => {
     const labels = Object.keys(stats.byActivity);
     return labels.map((_, i) => {
@@ -167,6 +168,24 @@ export default function InsightsPage() {
     if (consistency.trend === 'down') return { icon: TrendingDown, color: 'text-red-400', text: 'Declining' };
     return { icon: Activity, color: 'text-zinc-400', text: 'Stable' };
   }, [consistency]);
+
+  const patchedTypicalDay = useMemo(() => {
+    if (!typicalDayData) return null;
+    const grid = typicalDayData.grid.map(dayRow =>
+      dayRow.map(cell => ({
+        ...cell,
+        activities: cell.activities.map(a => ({
+          ...a,
+          color: a.color || resolveActivityColor(a.activity)
+        }))
+      }))
+    );
+    const legend = typicalDayData.legend.map(item => ({
+      ...item,
+      color: item.color || resolveActivityColor(item.activity)
+    }));
+    return { ...typicalDayData, grid, legend };
+  }, [typicalDayData]);
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0f]">
@@ -253,100 +272,167 @@ export default function InsightsPage() {
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h3 className="text-sm font-semibold text-zinc-200">Typical Day</h3>
-                <p className="text-xs text-zinc-500 mt-0.5">30-day average hourly breakdown</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  {typicalDayData ? `Activity patterns across ${typicalDayData.daysCovered} days` : 'Loading...'}
+                </p>
               </div>
-              <div className="flex items-center gap-2 text-xs text-zinc-500">
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-emerald-500/90" /> High
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-emerald-500/40" /> Med
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-emerald-500/20" /> Low
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-zinc-800/30" /> None
-                </span>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <div className="flex flex-col gap-[3px] pt-1">
-                {dayLabels.map(d => (
-                  <div key={d} className="text-[10px] text-zinc-600 w-6 h-[22px] flex items-center justify-end pr-1">{d}</div>
-                ))}
-              </div>
-              <div className="flex-1 overflow-x-auto">
-                <div className="flex gap-[3px]" style={{ minWidth: 24 * 28 }}>
-                  {hourLabels.map((h, i) => (
-                    <div key={i} className="text-[10px] text-zinc-600 w-[22px] text-center flex-shrink-0">{h}</div>
-                  ))}
+              {typicalDayData && (
+                <div className="text-xs text-zinc-600">
+                  Updated {new Date(typicalDayData.generatedAt).toLocaleTimeString()}
                 </div>
-                <div className="flex gap-[3px] mt-1" style={{ minWidth: 24 * 28 }}>
-                  {Array.from({ length: 7 }).map((_, dayIdx) => (
-                    <div key={dayIdx} className="flex gap-[3px] flex-col" style={{ width: 7 * 22 + 6 * 3 }}>
-                      {Array.from({ length: 24 }).map((_, hour) => {
-                        const slot = typicalDay.find(s => s.hour === hour);
-                        const secs = slot?.totalSeconds || 0;
-                        return (
-                          <div
-                            key={hour}
-                            onMouseEnter={() => setHoveredHour(hour)}
-                            onMouseLeave={() => setHoveredHour(null)}
-                            className={`w-[22px] h-[22px] rounded-sm cursor-pointer transition-all duration-150 ${
-                              getHeatColor(secs, typicalMaxSeconds)
-                            } ${
-                              hoveredHour === hour ? 'ring-2 ring-emerald-400/60 scale-110 z-10 relative' : ''
-                            }`}
-                            title={`${hour}:00 - ${secs > 0 ? formatHours(secs) : 'No activity'}${slot?.primaryActivity && slot.primaryActivity !== 'none' ? ` - ${slot.primaryActivity}` : ''}`}
-                          />
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-6 mt-5 pt-4 border-t border-zinc-800/50">
-              <div className="flex-1">
-                <div className="flex flex-wrap gap-2">
-                  {typicalDay.filter(s => s.primaryActivity !== 'none').slice(0, 12).map((slot, i) => (
-                    <div
-                      key={i}
-                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all ${
-                        hoveredHour === slot.hour
-                          ? 'bg-zinc-700/60 ring-1 ring-emerald-400/30'
-                          : 'bg-zinc-800/40'
-                      }`}
-                      onMouseEnter={() => setHoveredHour(slot.hour)}
-                      onMouseLeave={() => setHoveredHour(null)}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${getActivityColor(slot.primaryActivity)}`} />
-                      <span className="text-zinc-300 font-medium">{slot.hour}:00</span>
-                      <span className="text-zinc-500">-</span>
-                      <span className="text-zinc-400">{slot.primaryActivity.slice(0, 10)}</span>
-                      <span className="text-zinc-600 ml-auto">{formatHours(slot.totalSeconds)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {selectedHourData && (
-                <motion.div
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="w-48 flex-shrink-0 bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/40"
-                >
-                  <div className="text-xs text-zinc-400 mb-1">{selectedHourData.hour}:00 — {(selectedHourData.hour + 1) % 24 || 24}:00</div>
-                  <div className="text-lg font-bold text-zinc-200">{formatHours(selectedHourData.totalSeconds)}</div>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <span className={`w-2 h-2 rounded-full bg-gradient-to-r ${getActivityColor(selectedHourData.primaryActivity)}`} />
-                    <span className="text-xs text-zinc-400">{selectedHourData.primaryActivity === 'none' ? 'No activity' : selectedHourData.primaryActivity}</span>
-                  </div>
-                </motion.div>
               )}
             </div>
+
+            {patchedTypicalDay ? (() => {
+              const data = patchedTypicalDay;
+
+              const fmt = (s: number) => {
+                if (s < 60) return `${s}s`;
+                if (s < 3600) return `${Math.round(s / 60)}m`;
+                return `${(s / 3600).toFixed(1)}h`;
+              };
+
+              const cellBg = (cell: HourCell) => {
+                if (cell.activities.length === 0) return 'rgba(39, 39, 42, 0.5)';
+                if (cell.activities.length === 1) {
+                  const secs = cell.totalSeconds;
+                  if (secs >= 2700) return 'rgba(16, 185, 129, 0.9)';
+                  if (secs >= 1200) return 'rgba(16, 185, 129, 0.6)';
+                  if (secs >= 300) return 'rgba(16, 185, 129, 0.35)';
+                  return 'rgba(16, 185, 129, 0.15)';
+                }
+                const segments = cell.activities.map((a, i) => {
+                  const start = cell.activities.slice(0, i).reduce((s, x) => s + x.percentage, 0);
+                  return `${a.color} ${start}% ${start + a.percentage}%`;
+                });
+                return `linear-gradient(90deg, ${segments.join(', ')})`;
+              };
+
+              return (
+                <>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-zinc-900/50 rounded-lg p-3">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Total Hours</div>
+                      <div className="text-xl font-bold text-zinc-100 mt-0.5">{data.stats.totalHours}h</div>
+                      <div className="text-[10px] text-zinc-600">avg per day</div>
+                    </div>
+                    <div className="bg-zinc-900/50 rounded-lg p-3">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Most Active</div>
+                      <div className="text-xl font-bold text-zinc-100 mt-0.5">{DAY_LABELS[data.stats.mostActiveDay]}</div>
+                      <div className="text-[10px] text-zinc-600">day of week</div>
+                    </div>
+                    <div className="bg-zinc-900/50 rounded-lg p-3">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Peak Hour</div>
+                      <div className="text-xl font-bold text-zinc-100 mt-0.5">{hourLabels[data.stats.mostActiveHour.hour]}</div>
+                      <div className="text-[10px] text-zinc-600">{DAY_LABELS[data.stats.mostActiveHour.day]}</div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <div className="flex ml-[34px] mb-1 gap-[2px]">
+                      {hourLabels.map((l, i) => (
+                        <div key={i} className="flex-1 text-[9px] text-zinc-600 text-center leading-none" style={{ visibility: i % 3 === 0 ? 'visible' : 'hidden' }}>
+                          {l}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="space-y-[3px]">
+                      {data.grid.map((dayData, dayIdx) => (
+                        <div key={dayIdx} className="flex items-center">
+                          <div className="w-[30px] text-[10px] text-zinc-500 text-right pr-2 flex-shrink-0">{DAY_LABELS[dayIdx]}</div>
+                          <div className="flex flex-1 gap-[2px]">
+                            {dayData.map((cell, hourIdx) => (
+                              <div
+                                key={hourIdx}
+                                onMouseEnter={(e) => setTooltip({ day: dayIdx, hour: hourIdx, x: e.clientX, y: e.clientY })}
+                                onMouseMove={(e) => setTooltip((prev) => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
+                                onMouseLeave={() => setTooltip(null)}
+                                onClick={() => console.log('Clicked:', DAY_LABELS[dayIdx], hourLabels[hourIdx])}
+                                className="flex-1 aspect-square cursor-pointer transition-transform hover:scale-110 hover:z-10 relative rounded-sm"
+                                style={{
+                                  background: cellBg(cell),
+                                  border: tooltip?.day === dayIdx && tooltip?.hour === hourIdx ? '1px solid rgba(255,255,255,0.3)' : '1px solid transparent'
+                                }}
+                              >
+                                {cell.activities.length > 1 && (
+                                  <div className="absolute bottom-[1px] left-[1px] flex gap-[1px]">
+                                    {cell.activities.slice(0, 3).map((_, i) => (
+                                      <div key={i} className="w-[3px] h-[3px] rounded-full" style={{ backgroundColor: cell.activities[i].color }} />
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {tooltip && data.grid[tooltip.day]?.[tooltip.hour] && (
+                    <div
+                      className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl min-w-[160px]"
+                      style={{ left: tooltip.x + 12, top: tooltip.y + 12 }}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-zinc-200">{DAY_LABELS[tooltip.day]} {hourLabels[tooltip.hour]}</span>
+                        <span className="text-[10px] text-zinc-500">avg/day</span>
+                      </div>
+                      <div className="space-y-1">
+                        {data.grid[tooltip.day][tooltip.hour].activities.map((a, i) => (
+                          <div key={i} className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: a.color }} />
+                              <span className="text-[11px] text-zinc-300">{a.activity}</span>
+                            </div>
+                            <span className="text-[11px] text-zinc-400">{fmt(a.seconds)} ({a.percentage}%)</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-1.5 pt-1.5 border-t border-zinc-800 flex justify-between">
+                        <span className="text-[10px] text-zinc-500">Total</span>
+                        <span className="text-[10px] text-zinc-400">{fmt(data.grid[tooltip.day][tooltip.hour].totalSeconds)}</span>
+                      </div>
+                      <div className="mt-1.5 flex gap-1.5">
+                        {data.grid[tooltip.day][tooltip.hour].hasExternal && (
+                          <span className="text-[9px] px-1 py-0.5 bg-purple-500/20 text-purple-300 rounded">External</span>
+                        )}
+                        {data.grid[tooltip.day][tooltip.hour].hasDevice && (
+                          <span className="text-[9px] px-1 py-0.5 bg-cyan-500/20 text-cyan-300 rounded">Device</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {data.legend.length > 0 && (
+                    <div className="flex flex-wrap gap-3 mt-4">
+                      {data.legend.map((item, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: item.color }} />
+                          <span className="text-[11px] text-zinc-400">{item.activity}</span>
+                          <span className="text-[10px] text-zinc-600">{fmt(item.totalSeconds)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-[10px] text-zinc-600">Less</span>
+                    {['rgba(16,185,129,0.15)', 'rgba(16,185,129,0.35)', 'rgba(16,185,129,0.6)', 'rgba(16,185,129,0.9)'].map((c, i) => (
+                      <div key={i} className="w-3.5 h-3.5 rounded-sm" style={{ backgroundColor: c }} />
+                    ))}
+                    <span className="text-[10px] text-zinc-600">More</span>
+                  </div>
+                </>
+              );
+            })() : (
+              <div className="h-32 flex items-center justify-center">
+                <div className="animate-pulse">
+                  <div className="h-4 bg-zinc-800 rounded w-40 mb-3" />
+                  <div className="h-24 bg-zinc-800 rounded" />
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 

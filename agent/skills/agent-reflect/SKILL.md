@@ -1,3 +1,13 @@
+---
+id: reflect
+name: Agent Reflect
+category: meta
+applicable_to: [self-improvement, reflection]
+version: 3.0.0
+created: 2026-04-19
+tags: [reflection, self-improvement, learning]
+---
+
 # Reflect - Universal Agent Self-Improvement Skill
 
 Transform any AI assistant into a continuously improving partner. Every correction becomes a permanent improvement that persists across all future sessions.

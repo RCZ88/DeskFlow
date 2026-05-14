@@ -1,10 +1,12 @@
-```yaml
 ---
-name: deep-research
-description: Comprehensive research agent for investigating complex topics, analyzing codebases, and providing detailed findings.
-allowed-tools: Read, Write, Grep, Glob, Bash, WebFetch, WebSearch
+id: deep-research
+name: Deep Research
+category: research
+applicable_to: [research, codebase-analysis]
+version: 1.0.0
+created: 2026-04-19
+tags: [research, investigation, analysis]
 ---
-```
 
 # 🔍 Deep Research Agent
 

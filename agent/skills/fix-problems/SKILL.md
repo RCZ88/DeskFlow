@@ -1,13 +1,11 @@
-```yaml
 ---
-name: fix-problems-recursive
-description: Recursively fixes problems from PROBLEMS.md with Playwright testing. If PROBLEMS.md doesn't exist, creates one with proper template. Each fix is tested, marked as "AI Attempted Fix", and waits for user to confirm it's actually fixed.
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, WebFetch, playwright_browser_navigate, playwright_browser_snapshot, playwright_browser_click, playwright_browser_type, playwright_browser_evaluate, playwright_browser_take_screenshot
-prerequisites: none (creates PROBLEMS.md if missing)
-notes: |
-  - Works with ANY project (not just DeskFlow)
-  - Creates PROBLEMS.md with template if not found
-  - Uses complete.py for notifications if available
+id: fix-problems-recursive
+name: Fix Problems Recursively
+category: debugging
+applicable_to: [problems, bugs]
+version: 1.0.0
+created: 2026-04-19
+tags: [debug, fix, problems, testing]
 ---
 
 # 🔧 Fix Problems Recursively

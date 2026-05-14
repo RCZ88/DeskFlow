@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 
 const OrbitSystem = lazy(() => import('../components/OrbitSystem').then(module => ({ default: module.default })));
+const DayDetailPopup = lazy(() => import('../components/DayDetailPopup').then(module => ({ default: module.DayDetailPopup })));
 
 interface HeatmapCell {
   hour: number;
@@ -18,6 +19,7 @@ interface HeatmapCell {
   productivity: number;
   deviceSeconds?: number;
   externalSeconds?: number;
+  deviceBreakdown?: Record<string, { seconds: number; category: string }>;
   externalBreakdown?: Record<string, { seconds: number; color: string; icon: string }>;
 }
 
@@ -41,6 +43,17 @@ interface SolarSystemData {
   category: string;
 }
 
+interface TimelineItem {
+  id: string;
+  startHour: number;
+  endHour: number;
+  label: string;
+  category: 'external' | 'app' | 'browser' | 'log';
+  color: string;
+  duration: number;
+  details?: string;
+}
+
 interface ForegroundData {
   app?: string;
   title?: string;
@@ -59,6 +72,23 @@ const DEFAULT_TIER_ASSIGNMENTS = {
   productive: ['IDE', 'AI Tools', 'Developer Tools', 'Education', 'Productivity', 'Tools'],
   neutral: ['Communication', 'Design', 'Search Engine', 'News', 'Uncategorized', 'Other', 'Browser'],
   distracting: ['Entertainment', 'Social Media', 'Shopping']
+};
+
+// Website category to app category mapping — must match ProductivityPage
+const WEBSITE_CATEGORY_MAP: Record<string, string> = {
+  'Developer Tools': 'Tools',
+  'AI Tools': 'AI Tools',
+  'Social Media': 'Social Media',
+  'Entertainment': 'Entertainment',
+  'News': 'News',
+  'Shopping': 'Shopping',
+  'Productivity': 'Productivity',
+  'Design': 'Design',
+  'Search Engine': 'Productivity',
+  'Communication': 'Communication',
+  'Education': 'Education',
+  'Uncategorized': 'Uncategorized',
+  'Other': 'Other'
 };
 
 function formatDuration(ms: number): string {
@@ -242,6 +272,8 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   const [pinnedActivities, setPinnedActivities] = useState<ExternalActivity[]>([]);
   const [pinnedActivitiesExpanded, setPinnedActivitiesExpanded] = useState(true);
   const [addPinnedPicker, setAddPinnedPicker] = useState<ExternalActivity[]>([]);
+  const [showAddActivityModal, setShowAddActivityModal] = useState(false);
+  const [selectedAddActivities, setSelectedAddActivities] = useState<Set<number>>(new Set());
   const [pausedByTrackerApp, setPausedByTrackerApp] = useState(false);
   // Load persisted activity feed from localStorage
   const getPersistedActivityFeed = (): ActivityFeedItem[] => {
@@ -281,13 +313,21 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   // Initialize activity feed from allLogs if localStorage is empty
   useEffect(() => {
     if (activityFeed.length === 0 && allLogs && allLogs.length > 0) {
-      // Convert recent logs to activity feed items (most recent first, limit to 20)
-      // Include both app logs and browser logs for complete history
-      const recentLogs = [...allLogs]
-        .slice(0, 20)
-        .reverse();
+      // Balanced feed: up to 10 app entries + up to 5 browser entries
+      const appEntries: any[] = [];
+      const browserEntries: any[] = [];
+      for (const log of allLogs) {
+        const isBrowserType = log.is_browser_tracking === true || log.is_browser_tracking === 1;
+        if (isBrowserType && browserEntries.length < 5) {
+          browserEntries.push(log);
+        } else if (!isBrowserType && appEntries.length < 10) {
+          appEntries.push(log);
+        }
+        if (appEntries.length >= 10 && browserEntries.length >= 5) break;
+      }
+      const balancedLogs = [...appEntries, ...browserEntries].reverse();
       
-      const feedItems: ActivityFeedItem[] = recentLogs.map((log: any, idx) => {
+      const feedItems: ActivityFeedItem[] = balancedLogs.map((log: any, idx) => {
         const timestamp = log.timestamp instanceof Date ? log.timestamp : new Date(log.timestamp);
         const tsMs = timestamp.getTime();
         // FIX: Only check is_browser_tracking flag, NOT domain (domain can be null)
@@ -355,14 +395,41 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     if (typeof window === 'undefined') return;
     localStorage.setItem('deskflow-timer-state', JSON.stringify(newState));
   }, [currentProductiveMs, stopwatchStartRef.current, isPaused, lastTier, externalSessionRunning, externalSessionStart, externalElapsedMs, selectedExternalActivity, onTimerStateChange]);
-  
+
+  // Sync timer state from parent prop (e.g., when ExternalPage starts/stops a stopwatch)
+  const prevTimerStateRef = useRef(timerState);
+  useEffect(() => {
+    if (!timerState) return;
+    if (timerState === prevTimerStateRef.current) return;
+    prevTimerStateRef.current = timerState;
+
+    const extRunning = !!(timerState as any).externalRunning;
+    const extActivity = (timerState as any).selectedExternalActivity;
+    const extStart = (timerState as any).externalStart;
+
+    if (extRunning !== externalSessionRunning) {
+      setExternalSessionRunning(extRunning);
+      if (extRunning && extActivity) {
+        setSelectedExternalActivity({ id: extActivity.id, name: extActivity.name, category: 'External' });
+        if (extStart) {
+          setExternalSessionStart(new Date(extStart));
+          setExternalElapsedMs(Date.now() - new Date(extStart).getTime());
+        }
+      } else if (!extRunning) {
+        setSelectedExternalActivity(null);
+        setExternalSessionStart(null);
+        setExternalElapsedMs(0);
+      }
+    }
+  }, [timerState, externalSessionRunning]);
+
   const [resetCount, setResetCount] = useState(0);
   const [currentApp, setCurrentApp] = useState<ForegroundData | null>(null);
   const [isInBrowser, setIsInBrowser] = useState(false); // Track if currently in tracking browser
   const [lastNonBrowserApp, setLastNonBrowserApp] = useState<ForegroundData | null>(null);
   const [hoveredCell, setHoveredCell] = useState<{ day: number; hour: number; value: number; productivity: number; deviceSeconds?: number; externalSeconds?: number } | null>(null);
-  const [selectedHeatmapHour, setSelectedHeatmapHour] = useState<number | null>(null);
-  const [heatmapMode, setHeatmapMode] = useState<'device' | 'external' | 'combined'>('external');
+  const [selectedCell, setSelectedCell] = useState<{ day: number; hour: number } | null>(null);
+  const [heatmapMode, setHeatmapMode] = useState<'device' | 'external' | 'combined'>('combined');
   const [externalHourlyData, setExternalHourlyData] = useState<Map<string, { externalSeconds: number; breakdown: Record<string, { seconds: number; color: string; icon: string }> }>>(new Map());
   const [weekOffset, setWeekOffset] = useState(0);
   const [periodOffset, setPeriodOffset] = useState(0);
@@ -370,6 +437,8 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   const [expandedModal, setExpandedModal] = useState<'heatmap' | 'solar' | null>(null);
   const [solarFullscreen, setSolarFullscreen] = useState(false);
   const [currentWebsite, setCurrentWebsite] = useState<{ title?: string; url?: string; category?: string } | null>(null);
+  const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
+  const [dayDetailItems, setDayDetailItems] = useState<TimelineItem[]>([]);
 
   const DEFAULT_ACTIVITIES: ExternalActivity[] = [
     { id: 1, name: 'Study', type: 'stopwatch', color: '#10b981', icon: 'BookOpen', is_productive: true },
@@ -658,12 +727,14 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
             const currentDate = new Date(currentMs);
             const currentDay = currentDate.getDay();
             const currentHour = currentDate.getHours();
-            const hourStart = currentDate.getTime();
-            const hourEnd = hourStart + 3600000;
+            const calendarHourStart = new Date(currentDate);
+            calendarHourStart.setMinutes(0, 0, 0);
+            const hourStartMs = calendarHourStart.getTime();
+            const hourEndMs = hourStartMs + 3600000;
             
             if (currentDate >= targetWeekStart && currentDate < targetWeekEnd) {
-              const segmentStart = Math.max(currentMs, hourStart);
-              const segmentEnd = Math.min(endMs, hourEnd);
+              const segmentStart = Math.max(currentMs, hourStartMs);
+              const segmentEnd = Math.min(endMs, hourEndMs);
               const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
               
               if (segmentSeconds > 0) {
@@ -680,7 +751,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                 newExternalHourlyData.set(key, existing);
               }
             }
-            currentMs = hourEnd;
+            currentMs = hourEndMs;
           }
         });
         
@@ -867,6 +938,22 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     const max = Math.max(1, ...bars.map(b => b.deviceSeconds + b.externalSeconds));
     setChartBarsResult({ chartBars: bars, maxBarSeconds: max });
   }, [selectedPeriod, periodOffset, chartExternalData, allLogs]);
+
+  // Y-axis tick computation for productivity chart
+  const yAxisTicks = useMemo(() => {
+    const maxHours = chartBarsResult.maxBarSeconds / 3600;
+    const niceSteps = [1, 2, 4, 6, 8, 10, 12, 16, 20, 24];
+    const niceMax = niceSteps.find(s => s >= maxHours) || Math.ceil(maxHours / 4) * 4;
+    const tickCount = 4;
+    const ticks: number[] = [];
+    const step = niceMax / tickCount;
+    for (let i = 0; i <= tickCount; i++) {
+      ticks.push(Math.round(step * i * 10) / 10);
+    }
+    return { ticks, niceMax, step };
+  }, [chartBarsResult.maxBarSeconds]);
+
+  const maxBarHeight = useMemo(() => selectedPeriod === 'month' || selectedPeriod === 'all' ? 200 : 160, [selectedPeriod]);
 
   // External activity stopwatch - adaptive: shows external activity if running
   const stopwatchIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1159,50 +1246,65 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     const targetWeekStart = new Date(currentWeekStart.getTime() + (weekOffset * 7 * 24 * 60 * 60 * 1000));
     const targetWeekEnd = new Date(targetWeekStart.getTime() + (7 * 24 * 60 * 60 * 1000));
     
-    const cellMap = new Map<string, { totalSeconds: number; productiveSeconds: number }>();
+    interface CellData {
+      totalSeconds: number;
+      productiveSeconds: number;
+      apps: Record<string, { seconds: number; category: string }>;
+    }
+    const cellMap = new Map<string, CellData>();
     for (let dayOffset = 6; dayOffset >= 0; dayOffset--) {
       const date = new Date(targetWeekStart);
       date.setDate(date.getDate() + dayOffset);
       const day = date.getDay();
       for (let hour = 0; hour < 24; hour++) {
-        cellMap.set(`${day}-${hour}`, { totalSeconds: 0, productiveSeconds: 0 });
+        cellMap.set(`${day}-${hour}`, { totalSeconds: 0, productiveSeconds: 0, apps: {} });
       }
     }
     
-    const addSession = (startMs: number, durationSec: number, category: string) => {
+    const addSession = (startMs: number, durationSec: number, app: string, category: string) => {
       const endMs = startMs + durationSec * 1000;
       let currentMs = startMs;
       while (currentMs < endMs) {
         const currentDate = new Date(currentMs);
         const currentDay = currentDate.getDay();
         const currentHour = currentDate.getHours();
-        const hourStart = currentDate.getTime();
-        const hourEnd = hourStart + 3600000;
+        const calendarHourStart = new Date(currentDate);
+        calendarHourStart.setMinutes(0, 0, 0);
+        const hourStartMs = calendarHourStart.getTime();
+        const hourEndMs = hourStartMs + 3600000;
         
         // Only process if this hour is within our target week
         if (currentDate >= targetWeekStart && currentDate < targetWeekEnd) {
-          const segmentStart = Math.max(currentMs, hourStart);
-          const segmentEnd = Math.min(endMs, hourEnd);
+          const segmentStart = Math.max(currentMs, hourStartMs);
+          const segmentEnd = Math.min(endMs, hourEndMs);
           const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
           
           if (segmentSeconds > 0) {
             const key = `${currentDay}-${currentHour}`;
-            const current = cellMap.get(key) || { totalSeconds: 0, productiveSeconds: 0 };
+            const current = cellMap.get(key) || { totalSeconds: 0, productiveSeconds: 0, apps: {} };
             const isProductive = tierAssignments?.productive?.includes(category);
+            const existingApp = current.apps[app] || { seconds: 0, category };
             cellMap.set(key, {
               totalSeconds: Math.min(current.totalSeconds + segmentSeconds, 3600),
-              productiveSeconds: isProductive ? Math.min(current.productiveSeconds + segmentSeconds, 3600) : current.productiveSeconds
+              productiveSeconds: isProductive ? Math.min(current.productiveSeconds + segmentSeconds, 3600) : current.productiveSeconds,
+              apps: {
+                ...current.apps,
+                [app]: {
+                  seconds: Math.min(existingApp.seconds + segmentSeconds, 3600),
+                  category
+                }
+              }
             });
           }
         }
-        currentMs = hourEnd;
+        currentMs = hourEndMs;
       }
     };
     
     for (const log of allLogs) {
       const sessionStartMs = new Date(log.timestamp).getTime();
       const durationSec = log.duration_ms ? log.duration_ms / 1000 : (log.duration || 0);
-      addSession(sessionStartMs, durationSec, log.category);
+      addSession(sessionStartMs, durationSec, log.app, log.category);
     }
     
     const result: HeatmapCell[] = [];
@@ -1211,7 +1313,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       date.setDate(date.getDate() + dayOffset);
       const day = date.getDay();
       for (let hour = 0; hour < 24; hour++) {
-        const cell = cellMap.get(`${day}-${hour}`) || { totalSeconds: 0, productiveSeconds: 0 };
+        const cell = cellMap.get(`${day}-${hour}`) || { totalSeconds: 0, productiveSeconds: 0, apps: {} };
         const productivity = cell.totalSeconds > 0 ? cell.productiveSeconds / cell.totalSeconds : 0;
         
         // Get external data for this cell
@@ -1226,6 +1328,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
           productivity,
           deviceSeconds,
           externalSeconds,
+          deviceBreakdown: cell.apps,
           externalBreakdown: extData?.breakdown || {}
         });
       }
@@ -1347,16 +1450,57 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       currentWeekStart.setHours(0, 0, 0, 0);
       const targetWeekStart = new Date(currentWeekStart.getTime() + (weekOffset * 7 * 24 * 60 * 60 * 1000));
       const targetDate = new Date(targetWeekStart);
-      targetDate.setDate(targetDate.getDate() + dayIdx); // dayIdx 0=Sun, 1=Mon, etc.
+      targetDate.setDate(targetDate.getDate() + dayIdx);
       const dateStr = targetDate.toISOString().split('T')[0];
       console.log('[Dashboard] Day click date:', dateStr);
-      setSelectedHeatmapHour(null);
-      // Day detail popup removed - using inline detail panel
+      setSelectedCell(null);
       
       if (window.deskflowAPI?.getDayDetail) {
         window.deskflowAPI.getDayDetail(dateStr).then(detail => {
-          console.log('[Dashboard] Day detail:', detail);
-          setHeatmapDayDetail(detail || { externalSessions: [], appSessions: [], browserSessions: [], logs: [] });
+          if (!detail) return;
+          const items: TimelineItem[] = [];
+          
+          // Transform logs into timeline items
+          (detail.logs || []).forEach((log: any) => {
+            const logDate = new Date(log.timestamp);
+            const startHour = logDate.getHours() + logDate.getMinutes() / 60;
+            const durationSec = (log.duration_ms || 0) / 1000;
+            const endHour = startHour + durationSec / 3600;
+            const isBrowser = log.is_browser_tracking;
+            const label = isBrowser ? (log.domain || log.app) : log.app;
+            items.push({
+              id: `log-${log.id}`,
+              startHour,
+              endHour: Math.min(endHour, 24),
+              label,
+              category: isBrowser ? 'browser' : 'app',
+              color: isBrowser ? '#10b981' : '#3b82f6',
+              duration: Math.round(durationSec),
+              details: log.title
+            });
+          });
+          
+          // Transform external sessions into timeline items
+          (detail.externalSessions || []).forEach((session: any) => {
+            const startDate = new Date(session.started_at);
+            const endDate = session.ended_at ? new Date(session.ended_at) : new Date();
+            const startHour = startDate.getHours() + startDate.getMinutes() / 60;
+            const durationSec = (endDate.getTime() - startDate.getTime()) / 1000;
+            const endHour = startHour + durationSec / 3600;
+            items.push({
+              id: `ext-${session.id}`,
+              startHour,
+              endHour: Math.min(endHour, 24),
+              label: session.activity_name || 'External',
+              category: 'external',
+              color: session.color || '#8b5cf6',
+              duration: Math.round(durationSec)
+            });
+          });
+          
+          items.sort((a, b) => a.startHour - b.startHour);
+          setDayDetailDate(dateStr);
+          setDayDetailItems(items);
         });
       }
     };
@@ -1424,7 +1568,8 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                             boxShadow: (cell.deviceSeconds || cell.externalSeconds || 0) > 70 ? `0 0 12px rgba(${glowRgb}, 0.5)` : 'inset 0 0 2px rgba(255,255,255,0.08)'
                           }}
                           onClick={() => {
-                            setSelectedHeatmapHour(selectedHeatmapHour === actualHour ? null : actualHour);
+                            const sameCell = selectedCell?.day === dayIdx && selectedCell?.hour === actualHour;
+                            setSelectedCell(sameCell ? null : { day: dayIdx, hour: actualHour });
                             setHoveredCell({ 
                               day: dayIdx, 
                               hour: actualHour, 
@@ -1460,7 +1605,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         
         {/* Hover Tooltip */}
         <AnimatePresence>
-          {hoveredCell && !selectedHeatmapHour && (
+          {hoveredCell && !selectedCell && (
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1496,8 +1641,8 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         
         {/* Click Detail Panel */}
         <AnimatePresence>
-          {selectedHeatmapHour !== null && (() => {
-            const clickedCell = hourlyHeatmapData.find(c => c.hour === selectedHeatmapHour);
+          {selectedCell !== null && (() => {
+            const clickedCell = hourlyHeatmapData.find(c => c.day === selectedCell.day && c.hour === selectedCell.hour);
             if (!clickedCell) return null;
             return (
               <motion.div
@@ -1508,10 +1653,10 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
               >
                 <div className="flex items-center justify-between">
                   <div className="font-semibold text-white">
-                    {DAYS[clickedCell.day]} • {selectedHeatmapHour.toString().padStart(2, '0')}:00 – {(selectedHeatmapHour + 1).toString().padStart(2, '0')}:00
+                    {DAYS[clickedCell.day]} • {selectedCell.hour.toString().padStart(2, '0')}:00 – {(selectedCell.hour + 1).toString().padStart(2, '0')}:00
                   </div>
                   <button
-                    onClick={() => setSelectedHeatmapHour(null)}
+                    onClick={() => setSelectedCell(null)}
                     className="text-zinc-400 hover:text-zinc-300 transition-colors"
                   >
                     <X className="w-4 h-4" />
@@ -1533,9 +1678,23 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                           <span className="text-zinc-400">Total Time:</span>
                           <span className="font-mono text-emerald-400">{formatDuration((clickedCell.deviceSeconds || 0) * 1000)}</span>
                         </div>
-                        <div className="text-xs text-zinc-600 border-t border-zinc-700 pt-2 mt-2">
-                          Apps and browser usage from this hour
-                        </div>
+                        {(() => {
+                          const breakdown = clickedCell.deviceBreakdown || {};
+                          const apps = Object.entries(breakdown).sort((a, b) => b[1].seconds - a[1].seconds);
+                          return apps.length > 0 ? (
+                            <div className="space-y-1 border-t border-zinc-700 pt-2 mt-2">
+                              {apps.map(([app, data]) => (
+                                <div key={app} className="flex items-baseline justify-between text-xs">
+                                  <span className="text-zinc-400 truncate flex items-center gap-1">
+                                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: appColors[app] || '#6b7280' }} />
+                                    {app}:
+                                  </span>
+                                  <span className="font-mono text-emerald-400 ml-2 flex-shrink-0">{formatDuration(data.seconds * 1000)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                     )}
                   </div>
@@ -1717,6 +1876,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
   // Compute stats based on selected period
   const stats = useMemo(() => {
     const now = new Date();
+    const tiers = tierAssignments || DEFAULT_TIER_ASSIGNMENTS;
     let filteredLogs = allLogs;
 
     if (selectedPeriod === 'today') {
@@ -1733,7 +1893,16 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       filteredLogs = allLogs.filter(log => log.timestamp >= monthAgo);
     }
 
-    // Total time - handle both duration (seconds) and duration_ms (milliseconds)
+    // Resolve category for tier lookup — apply website mapping to browser logs
+    const getTierCategory = (log: ActivityLog): string => {
+      const cat = log.category || 'Other';
+      if (log.is_browser_tracking) {
+        return WEBSITE_CATEGORY_MAP[cat] || cat;
+      }
+      return cat;
+    };
+
+    // Total time
     const totalTimeMs = filteredLogs.reduce((acc, log) => {
       const durationMs = log.duration_ms || ((log.duration || 0) * 1000);
       return acc + durationMs;
@@ -1741,7 +1910,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
 
     // Productive time
     const productiveTimeMs = filteredLogs
-      .filter(log => DEFAULT_TIER_ASSIGNMENTS.productive.includes(log.category))
+      .filter(log => tiers.productive.includes(getTierCategory(log)))
       .reduce((acc, log) => {
         const durationMs = log.duration_ms || ((log.duration || 0) * 1000);
         return acc + durationMs;
@@ -1757,7 +1926,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     const sortedLogs = [...filteredLogs].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     for (const log of sortedLogs) {
       const durationMs = log.duration_ms || ((log.duration || 0) * 1000);
-      if (DEFAULT_TIER_ASSIGNMENTS.productive.includes(log.category)) {
+      if (tiers.productive.includes(getTierCategory(log))) {
         currentFocusMs += durationMs;
         inProductive = true;
       } else {
@@ -1782,7 +1951,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       productivePercent,
       longestFocus: formatHours(longestFocusMs)
     };
-  }, [allLogs, selectedPeriod]);
+  }, [allLogs, selectedPeriod, tierAssignments]);
 
   // Need state for live tick
   const [tick, setTick] = useState(0);
@@ -2158,62 +2327,29 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                 
                 {/* Add activity button in edit mode */}
                 {pinnedActivitiesEditMode && pinnedActivities.length < 6 && (
-                  <motion.div className="relative">
-                    <motion.button
-                      onClick={() => {
-                        const available = activities.filter(a => !pinnedActivities.find(p => p.id === a.id));
-                        if (available.length === 0) {
-                          // No more activities to add
-                        } else if (available.length === 1) {
-                          setPinnedActivities(prev => [...prev, available[0]]);
-                        } else {
-                          setAddPinnedPicker(available);
-                        }
-                      }}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="w-full p-4 rounded-lg border border-dashed transition-all text-center"
-                      style={{
-                        backgroundColor: 'rgba(107, 114, 128, 0.05)',
-                        borderColor: 'rgba(107, 114, 128, 0.3)'
-                      }}
-                    >
-                      <Plus className="w-6 h-6 mx-auto mb-2 text-zinc-500" />
-                      <div className="text-xs font-semibold text-zinc-500">Add</div>
-                    </motion.button>
-                    
-                    {/* Activity picker dropdown */}
-                    {addPinnedPicker && addPinnedPicker.length > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="absolute top-full left-0 right-0 mt-2 z-50 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl max-h-48 overflow-y-auto"
-                      >
-                        {addPinnedPicker.map(activity => (
-                          <button
-                            key={activity.id}
-                            onClick={() => {
-                              setPinnedActivities(prev => [...prev, activity]);
-                              setAddPinnedPicker([]);
-                            }}
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-800 flex items-center gap-2"
-                          >
-                            <div
-                              className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: activity.color }}
-                            />
-                            {activity.name}
-                          </button>
-                        ))}
-                        <button
-                          onClick={() => setAddPinnedPicker([])}
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-800 text-zinc-500 border-t border-zinc-700"
-                        >
-                          Cancel
-                        </button>
-                      </motion.div>
-                    )}
-                  </motion.div>
+                  <motion.button
+                    onClick={() => {
+                      const available = activities.filter(a => !pinnedActivities.find(p => p.id === a.id));
+                      if (available.length === 0) return;
+                      if (available.length === 1) {
+                        setPinnedActivities(prev => [...prev, available[0]]);
+                      } else {
+                        setAddPinnedPicker(available);
+                        setSelectedAddActivities(new Set());
+                        setShowAddActivityModal(true);
+                      }
+                    }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="w-full p-4 rounded-lg border border-dashed transition-all text-center"
+                    style={{
+                      backgroundColor: 'rgba(107, 114, 128, 0.05)',
+                      borderColor: 'rgba(107, 114, 128, 0.3)'
+                    }}
+                  >
+                    <Plus className="w-6 h-6 mx-auto mb-2 text-zinc-500" />
+                    <div className="text-xs font-semibold text-zinc-500">Add</div>
+                  </motion.button>
                 )}
                 
                 {/* External Activity Controls */}
@@ -2270,6 +2406,115 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
             )}
             </div>
           </motion.div>
+
+            {/* Add Activity Modal */}
+           <AnimatePresence>
+             {showAddActivityModal && (
+               <motion.div
+                 initial={{ opacity: 0 }}
+                 animate={{ opacity: 1 }}
+                 exit={{ opacity: 0 }}
+                 className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                 onClick={() => { setShowAddActivityModal(false); setAddPinnedPicker([]); setSelectedAddActivities(new Set()); }}
+               >
+                 <motion.div
+                   initial={{ scale: 0.92, opacity: 0, y: 10 }}
+                   animate={{ scale: 1, opacity: 1, y: 0 }}
+                   exit={{ scale: 0.92, opacity: 0, y: 10 }}
+                   className="rounded-2xl border overflow-hidden w-full max-w-sm"
+                   style={{
+                     backgroundColor: 'rgba(18, 18, 18, 0.98)',
+                     borderColor: 'rgba(107, 114, 128, 0.15)',
+                     boxShadow: '0 25px 60px rgba(0,0,0,0.5)'
+                   }}
+                   onClick={(e) => e.stopPropagation()}
+                 >
+                   <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b" style={{ borderColor: 'rgba(107, 114, 128, 0.1)' }}>
+                     <div>
+                       <h3 className="text-base font-semibold text-zinc-100">Pin Activities</h3>
+                       <p className="text-xs text-zinc-500 mt-0.5">Select activities to add to dashboard</p>
+                     </div>
+                     <button
+                       onClick={() => { setShowAddActivityModal(false); setAddPinnedPicker([]); setSelectedAddActivities(new Set()); }}
+                       className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors"
+                     >
+                       <X className="w-4 h-4 text-zinc-500" />
+                     </button>
+                   </div>
+
+                   <div className="px-2 py-2 max-h-72 overflow-y-auto">
+                     {addPinnedPicker.map(activity => {
+                       const isSelected = selectedAddActivities.has(activity.id);
+                       return (
+                         <button
+                           key={activity.id}
+                           onClick={() => {
+                             const next = new Set(selectedAddActivities);
+                             if (isSelected) {
+                               next.delete(activity.id);
+                             } else {
+                               next.add(activity.id);
+                             }
+                             setSelectedAddActivities(next);
+                           }}
+                           className={`w-full px-3 py-3 text-left text-sm rounded-xl flex items-center gap-3 transition-all ${
+                             isSelected
+                               ? 'bg-emerald-500/10'
+                               : 'hover:bg-zinc-800/50'
+                           }`}
+                         >
+                           <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                             isSelected
+                               ? 'border-emerald-500 bg-emerald-500'
+                               : 'border-zinc-600 bg-transparent'
+                           }`}>
+                             {isSelected && (
+                               <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                               </svg>
+                             )}
+                           </div>
+                           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: activity.color }} />
+                           <span className={`font-medium ${isSelected ? 'text-emerald-300' : 'text-zinc-300'}`}>
+                             {activity.name}
+                           </span>
+                         </button>
+                       );
+                     })}
+                   </div>
+
+                   <div className="flex items-center justify-end gap-2 px-5 py-4 border-t" style={{ borderColor: 'rgba(107, 114, 128, 0.1)' }}>
+                     <button
+                       onClick={() => { setShowAddActivityModal(false); setAddPinnedPicker([]); setSelectedAddActivities(new Set()); }}
+                       className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-xl transition-all"
+                     >
+                       Cancel
+                     </button>
+                     <button
+                       onClick={() => {
+                         const selected = addPinnedPicker.filter(a => selectedAddActivities.has(a.id));
+                         setPinnedActivities(prev => [...prev, ...selected]);
+                         setShowAddActivityModal(false);
+                         setAddPinnedPicker([]);
+                         setSelectedAddActivities(new Set());
+                       }}
+                       disabled={selectedAddActivities.size === 0}
+                       className="px-5 py-2 text-sm font-semibold rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                       style={{
+                         backgroundColor: selectedAddActivities.size > 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(107, 114, 128, 0.1)',
+                         color: selectedAddActivities.size > 0 ? '#34d399' : '#6b7280',
+                         border: `1px solid ${selectedAddActivities.size > 0 ? 'rgba(16, 185, 129, 0.4)' : 'rgba(107, 114, 128, 0.2)'}`
+                       }}
+                     >
+                       {selectedAddActivities.size > 0
+                         ? `Add (${selectedAddActivities.size})`
+                         : 'Select activities'}
+                     </button>
+                   </div>
+                 </motion.div>
+               </motion.div>
+             )}
+           </AnimatePresence>
 
            {/* Two-Column Stats Section */}
            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
@@ -2336,52 +2581,116 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                          </div>
                        </div>
                      </div>
-                   </div>
+                    </div>
 
-{/* BAR CHART - Fixed width to fill container */}
-                    <div className="flex items-end justify-between gap-1 px-1 w-full overflow-x-auto" style={{ minHeight: '240px', maxHeight: selectedPeriod === 'month' || selectedPeriod === 'all' ? '320px' : '240px' }}>
-                      {chartBarsResult.chartBars.map((bar, idx) => {
-                        const totalSec = bar.deviceSeconds + bar.externalSeconds;
-                        const totalHours = totalSec / 3600;
-                        const maxHeight = selectedPeriod === 'month' || selectedPeriod === 'all' ? 200 : 160;
-                        const barHeight = totalSec > 0 ? Math.max(4, (totalSec / Math.max(chartBarsResult.maxBarSeconds, 1)) * maxHeight) : 0;
-                        const deviceH = totalSec > 0 ? (bar.deviceSeconds / totalSec) * barHeight : 0;
-                        const extH = barHeight - deviceH;
+{/* BAR CHART - Redesigned with Y-axis, grid, tooltips */}
+                    <div className="flex gap-3 w-full overflow-x-auto" style={{ minHeight: selectedPeriod === 'month' || selectedPeriod === 'all' ? '340px' : '260px' }}>
+                      {/* Y-Axis */}
+                      <div
+                        className="flex flex-col justify-between items-end text-[10px] font-medium text-zinc-500 pr-1 flex-shrink-0 select-none leading-none"
+                        style={{ height: `${maxBarHeight}px` }}
+                      >
+                        {yAxisTicks.ticks.slice().reverse().map((tick, i) => (
+                          <span key={i} className="-translate-y-1/2">{tick}{tick > 0 ? 'h' : ''}</span>
+                        ))}
+                      </div>
 
-                        return (
-                          <div
-                            key={idx}
-                            className="flex flex-col items-center gap-0.5 flex-shrink-0"
-                            style={{ minWidth: selectedPeriod === 'month' ? '24px' : selectedPeriod === 'week' ? '40px' : '28px' }}
-                          >
-                            <div className="w-full flex flex-col justify-end" style={{ height: `${maxHeight}px` }}>
-                              {extH > 0 && (
-                                <div
-                                  className="w-full rounded-t"
-                                  style={{
-                                    height: `${extH}px`,
-                                    backgroundColor: '#8b5cf6',
-                                    boxShadow: '0 0 8px rgba(139, 92, 246, 0.6)',
-                                  }}
-                                />
-                              )}
+                      {/* Chart area */}
+                      <div className="flex-1 relative min-w-0">
+                        {/* Grid lines */}
+                        <div
+                          className="absolute inset-0 flex flex-col justify-between pointer-events-none"
+                        >
+                          {yAxisTicks.ticks.map((_, i) => (
+                            <div key={i} className="border-t border-zinc-800/30 w-full" />
+                          ))}
+                        </div>
+
+                        {/* Bars */}
+                        <div className="flex items-end justify-between gap-1 relative z-10" style={{ height: `${maxBarHeight}px` }}>
+                          {chartBarsResult.chartBars.map((bar, idx) => {
+                            const totalSec = bar.deviceSeconds + bar.externalSeconds;
+                            const totalHours = totalSec / 3600;
+                            const maxSec = yAxisTicks.niceMax * 3600;
+                            const barHeight = totalSec > 0 ? Math.max(2, (totalSec / maxSec) * maxBarHeight) : 0;
+                            const deviceH = totalSec > 0 ? (bar.deviceSeconds / totalSec) * barHeight : 0;
+                            const extH = barHeight - deviceH;
+                            const hasActivity = totalSec > 0;
+                            const isExtOnly = bar.deviceSeconds === 0 && bar.externalSeconds > 0;
+
+                            return (
                               <div
-                                className="w-full rounded-b"
-                                style={{
-                                  height: `${deviceH}px`,
-                                  backgroundColor: totalHours < 0.1 ? '#27272a' : totalHours >= 4 ? '#22c55e' : totalHours >= 2 ? '#16a34a' : '#15803d',
-                                  boxShadow: totalHours < 0.1 ? 'none' : '0 0 8px rgba(34, 197, 94, 0.6)',
-                                  borderTopLeftRadius: extH === 0 ? '0.375rem' : '0',
-                                  borderTopRightRadius: extH === 0 ? '0.375rem' : '0',
-                                }}
-                              />
-                            </div>
-                            <div className={`text-[10px] font-medium ${bar.isToday ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                              {bar.label}
-                            </div>
-                          </div>
-                        );
-                      })}
+                                key={idx}
+                                className="flex flex-col items-center gap-0.5 flex-shrink-0 group relative"
+                                style={{ minWidth: selectedPeriod === 'month' ? '24px' : selectedPeriod === 'week' ? '36px' : '28px' }}
+                              >
+                                {/* Hover tooltip */}
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-zinc-900/95 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-[10px] text-zinc-300 whitespace-nowrap z-20 shadow-xl backdrop-blur-sm pointer-events-none">
+                                  <div className="font-medium text-white mb-0.5 text-center">{bar.label}</div>
+                                  {hasActivity && (
+                                    <>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-sm bg-emerald-500 flex-shrink-0" />
+                                        <span>Device: {(bar.deviceSeconds / 3600).toFixed(1)}h</span>
+                                      </div>
+                                      {bar.externalSeconds > 0 && (
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="w-1.5 h-1.5 rounded-sm bg-purple-500 flex-shrink-0" />
+                                          <span>External: {(bar.externalSeconds / 3600).toFixed(1)}h</span>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+
+                                {/* Bar */}
+                                {hasActivity ? (
+                                  <div className="w-full flex flex-col justify-end" style={{ height: `${maxBarHeight}px` }}>
+                                    {extH > 0 && (
+                                      <div
+                                        className="w-full transition-all duration-300 ease-out"
+                                        style={{
+                                          height: `${extH}px`,
+                                          background: extH > 16
+                                            ? 'linear-gradient(to top, #7c3aed, #8b5cf6)'
+                                            : '#8b5cf6',
+                                          borderTopLeftRadius: '0.25rem',
+                                          borderTopRightRadius: '0.25rem',
+                                          borderBottomLeftRadius: isExtOnly ? '0.25rem' : '0',
+                                          borderBottomRightRadius: isExtOnly ? '0.25rem' : '0',
+                                          opacity: isExtOnly ? 0.7 : 1,
+                                          boxShadow: isExtOnly ? '0 0 4px rgba(139, 92, 246, 0.2)' : '0 0 6px rgba(139, 92, 246, 0.3)',
+                                        }}
+                                      />
+                                    )}
+                                    <div
+                                      className="w-full transition-all duration-300 ease-out"
+                                      style={{
+                                        height: `${deviceH}px`,
+                                        background: deviceH > 16
+                                          ? `linear-gradient(to top, #059669, ${totalHours >= 4 ? '#10b981' : totalHours >= 2 ? '#34d399' : '#6ee7b7'})`
+                                          : totalHours >= 4 ? '#10b981' : totalHours >= 2 ? '#34d399' : '#6ee7b7',
+                                        borderBottomLeftRadius: '0.25rem',
+                                        borderBottomRightRadius: '0.25rem',
+                                        borderTopLeftRadius: extH === 0 ? '0.25rem' : '0',
+                                        borderTopRightRadius: extH === 0 ? '0.25rem' : '0',
+                                        boxShadow: deviceH > 0 ? '0 0 6px rgba(52, 211, 153, 0.3)' : 'none',
+                                      }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-full" style={{ height: `${maxBarHeight}px` }} />
+                                )}
+
+                                {/* Label */}
+                                <div className={`text-[10px] font-medium ${bar.isToday ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                                  {bar.label}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
 
                   {/* Legend */}
@@ -2560,7 +2869,18 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                   </motion.div>
                </motion.div>
              )}
-           </AnimatePresence>
+            </AnimatePresence>
+
+{/* Day Detail Popup */}
+            <Suspense fallback={null}>
+              {dayDetailDate && (
+                <DayDetailPopup
+                  date={dayDetailDate}
+                  items={dayDetailItems}
+                  onClose={() => { setDayDetailDate(null); setDayDetailItems([]); }}
+                />
+              )}
+            </Suspense>
 
 {/* Expanded Solar System Modal */}
             <AnimatePresence>

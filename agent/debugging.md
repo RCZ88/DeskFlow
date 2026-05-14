@@ -467,6 +467,23 @@ npx tsc src/main.ts src/preload.ts \
 - Don't use `await` with optional chaining: `await window.api?.method()` can fail silently
 - Check if result exists before using: `if (result) { ... }`
 
+### File Search Confusion: Filesystem vs Codebase Search
+**Problem:** User references a file (e.g., `Initialize.md`) and AI searches for it via grep/code search instead of checking the actual filesystem.
+
+**What NOT to do:**
+- ❌ Grep for filename patterns and assume the FIRST match in code is the user's file
+- ❌ Search `main.ts` for dynamically generated filenames when user means a static file on disk
+
+**What TO do:**
+- ✅ Use glob/read on the actual path first: does `agent/Initialize.md` exist?
+- ✅ Consider case sensitivity: `Initialize.md` ≠ `INITIALIZE.md`
+- ✅ The filesystem is the source of truth — code references to a filename are NOT the file itself
+
+**Why it fails:**
+- A file can be referenced in code (e.g., `main.ts` generates `INITIALIZE.md`) but a different file with a similar name exists on disk (`agent/Initialize.md`)
+- grep finds every occurrence in code, not just the file the user is talking about
+- Case-insensitive search on Windows makes `Initialize.md` and `INITIALIZE.md` look the same
+
 ---
 
 ## 📷 3D Camera/Clipping Debugging Pattern

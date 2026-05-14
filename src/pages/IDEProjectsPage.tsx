@@ -129,6 +129,7 @@ export default function IDEProjectsPage() {
   const [syncingAI, setSyncingAI] = useState(false);
   const [syncProgress, setSyncProgress] = useState<string | null>(null);
   const [aiSyncResult, setAiSyncResult] = useState<{ success: boolean; agents: Record<string, number> } | null>(null);
+  const [aiLastSyncAt, setAiLastSyncAt] = useState<string | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showAddProject, setShowAddProject] = useState(false);
   const [newProject, setNewProject] = useState({ name: '', path: '', repositoryUrl: '', defaultIde: '' });
@@ -187,6 +188,9 @@ export default function IDEProjectsPage() {
       setShowOnboarding(true);
     }
     loadOverview();
+    window.deskflowAPI!.getAISyncStatus().then(status => {
+      if (status?.lastRunAt) setAiLastSyncAt(status.lastRunAt);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -302,6 +306,8 @@ export default function IDEProjectsPage() {
         setAiSyncResult({ success: true, agents });
         setSyncProgress('Refreshing data...');
         await loadOverview();
+        const status = await window.deskflowAPI!.getAISyncStatus();
+        if (status?.lastRunAt) setAiLastSyncAt(status.lastRunAt);
       }
     } catch (err) {
       console.error('AI sync failed:', err);
@@ -484,15 +490,17 @@ export default function IDEProjectsPage() {
       if (!projectDetailsCache[projectId] && !loadingProjectDetails.has(projectId)) {
         setLoadingProjectDetails(new Set(loadingProjectDetails).add(projectId));
         try {
-          const [tools, sessions, health, presets] = await Promise.all([
-            window.deskflowAPI!.getProjectTools(projectId),
-            window.deskflowAPI!.getTerminalSessions(projectId, 5),
-            window.deskflowAPI!.calculateProjectHealth(projectId),
-            window.deskflowAPI!.getTerminalPresets(projectId)
-          ]);
+          const details = await window.deskflowAPI!.getProjectDetails(projectId);
           setProjectDetailsCache(prev => ({
             ...prev,
-            [projectId]: { project, tools, sessions, health, presets }
+            [projectId]: {
+              project: details.project,
+              tools: details.tools,
+              sessions: details.sessions,
+              health: details.health,
+              presets: details.presets,
+              aiUsage: details.aiUsage
+            }
           }));
         } catch (err) {
           console.error('Failed to load project details:', err);
@@ -701,15 +709,30 @@ export default function IDEProjectsPage() {
           <p className="text-zinc-500 mt-1">Track your development environment, AI tools, and project metrics</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={handleSyncAI}
-            disabled={syncingAI}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-all disabled:opacity-50"
-            title="Import AI usage data"
-          >
-            <Sparkles className={`w-4 h-4 ${syncingAI ? 'animate-spin' : ''}`} />
-            {syncingAI ? 'Syncing...' : 'Sync AI'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSyncAI}
+              disabled={syncingAI}
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-all disabled:opacity-50"
+              title="Import AI usage data"
+            >
+              <Sparkles className={`w-4 h-4 ${syncingAI ? 'animate-spin' : ''}`} />
+              {syncingAI ? 'Syncing...' : 'Sync AI'}
+            </button>
+            {aiLastSyncAt && !syncingAI && (
+              <span className="text-xs text-zinc-500 hidden sm:inline">
+                Last: {(() => {
+                  const diff = Date.now() - new Date(aiLastSyncAt).getTime();
+                  const mins = Math.floor(diff / 60000);
+                  if (mins < 1) return 'just now';
+                  if (mins < 60) return `${mins}m ago`;
+                  const hours = Math.floor(mins / 60);
+                  if (hours < 24) return `${hours}h ago`;
+                  return formatDistanceToNow(new Date(aiLastSyncAt), { addSuffix: true });
+                })()}
+              </span>
+            )}
+          </div>
           <button
             onClick={() => setShowSetupModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-all"
@@ -1308,9 +1331,9 @@ export default function IDEProjectsPage() {
                                   <div className="text-xs text-zinc-500 mt-1">total</div>
                                 </div>
                                 <div className="p-3 bg-zinc-800/50 rounded-xl">
-                                  <div className="text-xs text-zinc-500 mb-1">Git Branch</div>
-                                  <div className="text-sm font-medium text-white truncate">{project.vcs_branch || 'main'}</div>
-                                  <div className="text-xs text-zinc-500 mt-1">{project.vcs_type || 'Git'}</div>
+                                  <div className="text-xs text-zinc-500 mb-1">Version Control</div>
+                                  <div className="text-sm font-medium text-white truncate">{project.vcs_type || 'None detected'}</div>
+                                  <div className="text-xs text-zinc-500 mt-1">{project.repository_url ? 'Connected' : 'No remote'}</div>
                                 </div>
                                 <div className="p-3 bg-zinc-800/50 rounded-xl">
                                   <div className="text-xs text-zinc-500 mb-1">Repository</div>
@@ -2130,10 +2153,10 @@ export default function IDEProjectsPage() {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { label: 'Deploy Frequency', value: doraMetrics.deploymentFrequency, sub: `${doraMetrics.deploymentsPerDay || 0}/day` },
-                  { label: 'Lead Time', value: doraMetrics.leadTime, sub: doraMetrics.avgLeadTimeHours || 'N/A' },
-                  { label: 'MTTR', value: doraMetrics.mttr, sub: '~1 day est.' },
-                  { label: 'Change Failure', value: doraMetrics.changeFailureRate, sub: `${doraMetrics.failureRate || 0}%` },
+                  { label: 'Deploy Frequency', value: doraMetrics.deploymentFrequency, sub: `${doraMetrics.deploymentFrequency || 0}/day` },
+                  { label: 'Lead Time', value: doraMetrics.leadTimeHours, sub: doraMetrics.leadTimeHours ? `${doraMetrics.leadTimeHours}h` : 'N/A' },
+                  { label: 'MTTR', value: doraMetrics.meanTimeToRecoveryHours, sub: '~1 day est.' },
+                  { label: 'Change Failure', value: doraMetrics.changeFailureRate, sub: `${doraMetrics.changeFailureRate || 0}%` },
                 ].map((metric, idx) => (
                   <div key={idx} className="bg-zinc-900/50 rounded-2xl p-4 text-center">
                     <div className={`text-2xl font-bold mb-1 ${

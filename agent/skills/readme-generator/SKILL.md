@@ -1,8 +1,12 @@
 
 ---
-name: readme-generator
-description: Generates a professional, visually appealing README.md for any project. Detects tech stack, creates badges, builds mermaid architecture diagrams, and structures documentation with features, quick start, API reference, and project insights. Use when the user asks to create or improve a README.
-allowed-tools: Read, Write, Bash, Glob, Grep
+id: readme-generator
+name: README Generator
+category: documentation
+applicable_to: [readme, documentation]
+version: 1.0.0
+created: 2026-04-19
+tags: [documentation, readme, markdown]
 ---
 
 # README Generator Skill
