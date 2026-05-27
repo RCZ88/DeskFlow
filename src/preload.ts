@@ -349,6 +349,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getMorningPrompt: () => ipcRenderer.invoke('get-morning-prompt'),
   dismissMorningPrompt: () => ipcRenderer.invoke('dismiss-morning-prompt'),
   addManualSleep: (sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds?: number; wake_up_to_app_seconds?: number }) => ipcRenderer.invoke('add-manual-sleep', sleepData),
+  getSleepForDate: (dateStr: string) => ipcRenderer.invoke('get-sleep-for-date', dateStr),
+  updateManualSleep: (sessionId: string, sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds?: number; wake_up_to_app_seconds?: number }) => ipcRenderer.invoke('update-manual-sleep', sessionId, sleepData),
   checkSleepDetection: () => ipcRenderer.invoke('check-sleep-detection'),
   confirmSleep: (sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds: number; wake_up_to_app_seconds: number }) => ipcRenderer.invoke('confirm-sleep', sleepData),
   dismissSleepDetection: () => ipcRenderer.invoke('dismiss-sleep-detection'),

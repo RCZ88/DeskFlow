@@ -6,6 +6,7 @@ import {
   TrendingUp, TrendingDown, Minus, Lightbulb, Zap, Heart, Brain,
   Code, Laptop, Wrench, Cog, Music, Gamepad2, Footprints, Droplets,
   Wind, Flame, Backpack, Dribbble, Palette, Edit3, Pencil,
+  ChevronLeft, ChevronRight,
   PieChart as PieChartIcon, BarChart3
 } from 'lucide-react';
 import {
@@ -236,10 +237,41 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   const [pastFellAsleepAt, setPastFellAsleepAt] = useState({ hours: 22, minutes: 30 });
   const [pastSleepError, setPastSleepError] = useState<string | null>(null);
   const [pastSleepSuccess, setPastSleepSuccess] = useState(false);
+  const [pastSleepDate, setPastSleepDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [pastSleepSessionId, setPastSleepSessionId] = useState<string | null>(null);
   const [showMorningPrompt, setShowMorningPrompt] = useState(false);
   const [morningPromptData, setMorningPromptData] = useState<{ lastCloseTime: number; lastCloseType: string } | null>(null);
   const [sleepLatencyMinutes, setSleepLatencyMinutes] = useState(15);
   const [wakeUpMinutes, setWakeUpMinutes] = useState(5);
+
+  // Load existing sleep data when date changes in the modal
+  useEffect(() => {
+    if (!showPastSleepModal || !pastSleepDate || !window.deskflowAPI?.getSleepForDate) return;
+    (async () => {
+      try {
+        const existing = await window.deskflowAPI.getSleepForDate!(pastSleepDate);
+        if (existing) {
+          setPastSleepSessionId(existing.id);
+          const startD = new Date(existing.started_at);
+          const endD = new Date(existing.ended_at);
+          setPastDeviceOff({ hours: startD.getHours(), minutes: startD.getMinutes() });
+          // fell asleep = device off + pre-sleep latency
+          const fellAt = new Date(startD.getTime() + (existing.device_off_to_sleep_seconds || 0) * 1000);
+          setPastFellAsleepAt({ hours: fellAt.getHours(), minutes: fellAt.getMinutes() });
+          setPastWakeupTime({ hours: endD.getHours(), minutes: endD.getMinutes() });
+          // device on = wake up + post-wake latency
+          const onAt = new Date(endD.getTime() + (existing.wake_up_to_app_seconds || 0) * 1000);
+          setPastDeviceOn({ hours: onAt.getHours(), minutes: onAt.getMinutes() });
+        } else {
+          setPastSleepSessionId(null);
+          setPastDeviceOff({ hours: 22, minutes: 0 });
+          setPastFellAsleepAt({ hours: 22, minutes: 30 });
+          setPastWakeupTime({ hours: 7, minutes: 0 });
+          setPastDeviceOn({ hours: 7, minutes: 30 });
+        }
+      } catch {}
+    })();
+  }, [pastSleepDate, showPastSleepModal]);
 
   // Load activities and check for active session on mount
   useEffect(() => {
@@ -370,6 +402,15 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
       });
     }
   }, [viewingActivity]);
+
+  // Reload viewing activity sessions after data changes (sleep add/edit)
+  useEffect(() => {
+    if (viewingActivity && window.deskflowAPI?.getExternalSessions) {
+      window.deskflowAPI.getExternalSessions('all').then((sessions: any) => {
+        setViewingActivitySessions(sessions.filter((s: any) => s.activity_id === viewingActivity.id));
+      });
+    }
+  }, [viewingActivity, allSessions]);
 
   // Filter sessions by selected period + offset + range mode
   const filteredViewSessions = useMemo(() => {
@@ -1394,7 +1435,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                     };
                     
                     return (
-                      <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px]">
+                      <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px] cursor-pointer" onClick={() => { setPastSleepDate(day.date); setShowPastSleepModal(true); }}>
                         {/* Tooltip */}
                         <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 text-[10px] text-zinc-300 whitespace-nowrap z-20 shadow-xl pointer-events-none">
                           <div className="font-medium text-white text-center mb-1">{dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
@@ -2098,7 +2139,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-            onClick={() => setShowPastSleepModal(false)}
+            onClick={() => { setShowPastSleepModal(false); setPastSleepError(null); setPastSleepSuccess(false); }}
           >
             <motion.div
               initial={{ scale: 0.95 }}
@@ -2107,14 +2148,19 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
               className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-zinc-100">Add Past Sleep</h2>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-xl font-semibold text-zinc-100">Past Sleep</h2>
                 <button
-                  onClick={() => setShowPastSleepModal(false)}
+                  onClick={() => { setShowPastSleepModal(false); setPastSleepError(null); setPastSleepSuccess(false); }}
                   className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
                 >
                   <X className="w-5 h-5 text-zinc-400" />
                 </button>
+              </div>
+
+              {/* Mode badge */}
+              <div className={`mb-4 px-3 py-2 rounded-lg text-center text-sm font-bold uppercase tracking-wider ${pastSleepSessionId ? 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}`}>
+                {pastSleepSessionId ? '✎ Editing Existing Sleep' : '＋ Adding New Sleep'}
               </div>
 
               {pastSleepError && (
@@ -2125,93 +2171,101 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
 
               {pastSleepSuccess && (
                 <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
-                  <p className="text-sm text-emerald-400">Sleep added successfully!</p>
+                  <p className="text-sm text-emerald-400">{pastSleepSessionId ? 'Sleep updated successfully!' : 'Sleep added successfully!'}</p>
                 </div>
               )}
 
-              {/* Timeline summary */}
-              <div className="bg-zinc-800/50 rounded-xl p-4 mb-5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-zinc-400">Device Off</span>
-                  <span className="text-sm font-medium text-zinc-200">
-                    {(() => {
-                      const h = pastDeviceOff.hours, m = pastDeviceOff.minutes;
-                      const ampm = h >= 12 ? 'PM' : 'AM';
-                      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-                      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-                    })()}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-amber-400/80">
-                  <span className="text-sm">Fell asleep at</span>
-                  <span className="text-sm font-medium">
-                    {(() => {
-                      const h = pastFellAsleepAt.hours, m = pastFellAsleepAt.minutes;
-                      const ampm = h >= 12 ? 'PM' : 'AM';
-                      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-                      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-                    })()}
-                  </span>
-                </div>
-                <div className="text-[11px] text-amber-500/60 pl-2">
-                  {(() => {
-                    const off = pastDeviceOff.hours * 60 + pastDeviceOff.minutes;
-                    const asleep = pastFellAsleepAt.hours * 60 + pastFellAsleepAt.minutes;
-                    let pre = asleep - off;
-                    if (pre < 0) pre += 24 * 60;
-                    return `+${pre}m pre-sleep`;
-                  })()}
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-zinc-400">Woke Up</span>
-                  <span className="text-sm font-medium text-zinc-200">
-                    {(() => {
-                      const h = pastWakeupTime.hours, m = pastWakeupTime.minutes;
-                      const ampm = h >= 12 ? 'PM' : 'AM';
-                      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-                      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-                    })()}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-zinc-400">Device On</span>
-                  <span className="text-sm font-medium text-zinc-200">
-                    {(() => {
-                      const h = pastDeviceOn.hours, m = pastDeviceOn.minutes;
-                      const ampm = h >= 12 ? 'PM' : 'AM';
-                      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-                      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-                    })()}
-                  </span>
-                </div>
-                <div className="border-t border-zinc-700/50 pt-2 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">Actual Sleep</span>
-                    <span className="text-sm font-semibold text-indigo-400">
-                      {(() => {
-                        const asleep = pastFellAsleepAt.hours * 60 + pastFellAsleepAt.minutes;
-                        const wakeMin = pastWakeupTime.hours * 60 + pastWakeupTime.minutes;
-                        let s = asleep, w = wakeMin;
-                        if (w < s) s -= 24 * 60;
-                        const dur = Math.max(0, w - s);
-                        return `${Math.floor(dur / 60)}h ${dur % 60}m`;
-                      })()}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-emerald-400">
-                    <span className="text-sm">Total (Off → On)</span>
-                    <span className="text-sm font-semibold">
-                      {(() => {
-                        let off = pastDeviceOff.hours * 60 + pastDeviceOff.minutes;
-                        let on = pastDeviceOn.hours * 60 + pastDeviceOn.minutes;
-                        let dur = on - off;
-                        if (dur < 0) dur += 24 * 60;
-                        return `${Math.floor(dur / 60)}h ${dur % 60}m`;
-                      })()}
-                    </span>
-                  </div>
+              {/* Date selector with day navigation */}
+              <div className="mb-4">
+                <label className="block text-sm text-zinc-400 mb-2 text-center">Date</label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const d = new Date(pastSleepDate + 'T00:00:00');
+                      d.setDate(d.getDate() - 1);
+                      setPastSleepDate(d.toISOString().split('T')[0]);
+                    }}
+                    className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <input
+                    type="date"
+                    value={pastSleepDate}
+                    onChange={(e) => setPastSleepDate(e.target.value)}
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-zinc-200 text-center"
+                  />
+                  <button
+                    onClick={() => {
+                      const d = new Date(pastSleepDate + 'T00:00:00');
+                      d.setDate(d.getDate() + 1);
+                      setPastSleepDate(d.toISOString().split('T')[0]);
+                    }}
+                    disabled={pastSleepDate === new Date().toISOString().split('T')[0]}
+                    className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
+
+              {/* Mini sleep bar visualization */}
+              {(() => {
+                const off = pastDeviceOff.hours * 60 + pastDeviceOff.minutes;
+                const asleep = pastFellAsleepAt.hours * 60 + pastFellAsleepAt.minutes;
+                const wake = pastWakeupTime.hours * 60 + pastWakeupTime.minutes;
+                const on = pastDeviceOn.hours * 60 + pastDeviceOn.minutes;
+                let preSleep = asleep - off;
+                if (preSleep < 0) preSleep += 24 * 60;
+                let postWake = on - wake;
+                if (postWake < 0) postWake += 24 * 60;
+                const sleepStart = (off + preSleep) % 1440;
+                const appOpen = (wake + postWake) % 1440;
+                const mapTime = (mins: number) => {
+                  const normalized = ((mins - 1080) % 1440 + 1440) % 1440;
+                  return (normalized / 1440) * 100;
+                };
+                const hasPre = preSleep > 0;
+                const hasPost = postWake > 0;
+                const Seg = ({ start, end, color, topRound, bottomRound }: { start: number; end: number; color: string; topRound: boolean; bottomRound: boolean }) => {
+                  const t = mapTime(start);
+                  const b = mapTime(end);
+                  if (t > b) return (
+                    <>
+                      <div className={`absolute left-0 right-0 ${topRound ? 'rounded-t-sm' : ''}`} style={{ top: `${t}%`, bottom: 0, backgroundColor: color, opacity: 0.8 }} />
+                      <div className={`absolute left-0 right-0 ${bottomRound ? 'rounded-b-sm' : ''}`} style={{ top: 0, bottom: `${100 - b}%`, backgroundColor: color, opacity: 0.8 }} />
+                    </>
+                  );
+                  const rounding = topRound && bottomRound ? 'rounded-sm' : topRound ? 'rounded-t-sm' : bottomRound ? 'rounded-b-sm' : '';
+                  return <div className={`absolute left-0 right-0 ${rounding}`} style={{ top: `${t}%`, bottom: `${100 - b}%`, backgroundColor: color, opacity: 0.8 }} />;
+                };
+                return (
+                  <div className="bg-zinc-800/50 rounded-xl p-4 mb-5">
+                    <div className="flex items-start gap-5">
+                      <div className="flex-shrink-0 w-12 flex flex-col items-center">
+                        <span className="text-[9px] text-zinc-500 mb-1">6PM</span>
+                        <div className="relative w-7 h-40">
+                          <Seg start={off} end={sleepStart} color="#f59e0b" topRound={true} bottomRound={!hasPost && sleepStart >= wake} />
+                          <Seg start={sleepStart} end={wake} color="#6366f1" topRound={!hasPre} bottomRound={!hasPost} />
+                          {hasPost && <Seg start={wake} end={appOpen} color="#e11d48" topRound={false} bottomRound={true} />}
+                        </div>
+                        <span className="text-[9px] text-zinc-500 mt-1">6PM</span>
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-1.5 text-xs">
+                        <div className="flex justify-between"><span className="text-zinc-400">Device Off</span><span className="text-zinc-200 font-medium">{((h) => { const ampm = h.hours >= 12 ? 'PM' : 'AM'; const h12 = h.hours === 0 ? 12 : h.hours > 12 ? h.hours - 12 : h.hours; return `${h12}:${String(h.minutes).padStart(2, '0')} ${ampm}`; })(pastDeviceOff)}</span></div>
+                        <div className="flex justify-between"><span className="text-amber-400/80">Fell asleep</span><span className="text-zinc-200 font-medium">{((h) => { const ampm = h.hours >= 12 ? 'PM' : 'AM'; const h12 = h.hours === 0 ? 12 : h.hours > 12 ? h.hours - 12 : h.hours; return `${h12}:${String(h.minutes).padStart(2, '0')} ${ampm}`; })(pastFellAsleepAt)}</span></div>
+                        <div className="text-[10px] text-amber-500/60 pl-2">+{preSleep}m pre-sleep</div>
+                        <div className="flex justify-between"><span className="text-zinc-400">Woke up</span><span className="text-zinc-200 font-medium">{((h) => { const ampm = h.hours >= 12 ? 'PM' : 'AM'; const h12 = h.hours === 0 ? 12 : h.hours > 12 ? h.hours - 12 : h.hours; return `${h12}:${String(h.minutes).padStart(2, '0')} ${ampm}`; })(pastWakeupTime)}</span></div>
+                        <div className="flex justify-between"><span className="text-zinc-400">Device On</span><span className="text-zinc-200 font-medium">{((h) => { const ampm = h.hours >= 12 ? 'PM' : 'AM'; const h12 = h.hours === 0 ? 12 : h.hours > 12 ? h.hours - 12 : h.hours; return `${h12}:${String(h.minutes).padStart(2, '0')} ${ampm}`; })(pastDeviceOn)}</span></div>
+                        <div className="flex justify-between border-t border-zinc-700/50 pt-1.5"><span className="text-indigo-400 font-medium">Sleep</span><span className="text-indigo-400 font-semibold">{((s, w) => { let d = w - s; if (d < 0) d += 24 * 60; return `${Math.floor(d / 60)}h ${d % 60}m`; })(sleepStart, wake)}</span></div>
+                        <div className="flex justify-between"><span className="text-emerald-400">Total (Off→On)</span><span className="text-emerald-400 font-semibold">{((o, n) => { let d = n - o; if (d < 0) d += 24 * 60; return `${Math.floor(d / 60)}h ${d % 60}m`; })(off, on)}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+
 
               <div className="grid grid-cols-2 gap-3 mb-5">
                 <div>
@@ -2270,7 +2324,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
 
               <div className="flex gap-3">
                 <button
-                  onClick={() => setShowPastSleepModal(false)}
+                  onClick={() => { setShowPastSleepModal(false); setPastSleepError(null); setPastSleepSuccess(false); }}
                   className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors"
                 >
                   Cancel
@@ -2281,17 +2335,17 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                       setPastSleepError(null);
                       setPastSleepSuccess(false);
 
-                      const now = new Date();
-                      const deviceOffDate = new Date(now);
+                      const baseDate = new Date(pastSleepDate + 'T00:00:00');
+                      const deviceOffDate = new Date(baseDate);
                       deviceOffDate.setHours(pastDeviceOff.hours, pastDeviceOff.minutes, 0, 0);
 
-                      const fellAsleepDate = new Date(now);
+                      const fellAsleepDate = new Date(baseDate);
                       fellAsleepDate.setHours(pastFellAsleepAt.hours, pastFellAsleepAt.minutes, 0, 0);
 
-                      const wakeupDate = new Date(now);
+                      const wakeupDate = new Date(baseDate);
                       wakeupDate.setHours(pastWakeupTime.hours, pastWakeupTime.minutes, 0, 0);
 
-                      const deviceOnDate = new Date(now);
+                      const deviceOnDate = new Date(baseDate);
                       deviceOnDate.setHours(pastDeviceOn.hours, pastDeviceOn.minutes, 0, 0);
 
                       // If wakeup is before device off, it's next day
@@ -2311,21 +2365,32 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
 
                       const wakeUpToAppSec = Math.max(0, Math.round((deviceOnDate.getTime() - wakeupDate.getTime()) / 1000));
                       const deviceOffToSleepSec = Math.max(0, Math.round((fellAsleepDate.getTime() - deviceOffDate.getTime()) / 1000));
+                      const sleepPayload = {
+                        started_at: deviceOffDate.toISOString(),
+                        ended_at: wakeupDate.toISOString(),
+                        device_off_to_sleep_seconds: deviceOffToSleepSec,
+                        wake_up_to_app_seconds: wakeUpToAppSec
+                      };
 
-                      if (window.deskflowAPI?.addManualSleep) {
-                        const result = await window.deskflowAPI.addManualSleep({
-                          started_at: deviceOffDate.toISOString(),
-                          ended_at: wakeupDate.toISOString(),
-                          device_off_to_sleep_seconds: deviceOffToSleepSec,
-                          wake_up_to_app_seconds: wakeUpToAppSec
-                        });
-
+                      if (pastSleepSessionId && window.deskflowAPI?.updateManualSleep) {
+                        const result = await window.deskflowAPI.updateManualSleep(pastSleepSessionId, sleepPayload);
                         if (result.success) {
                           setPastSleepSuccess(true);
+                          refreshStats();
+                          setTimeout(() => setShowPastSleepModal(false), 1500);
+                        } else {
+                          setPastSleepError(result.error || 'Failed to update sleep');
+                        }
+                      } else if (window.deskflowAPI?.addManualSleep) {
+                        const result = await window.deskflowAPI.addManualSleep(sleepPayload);
+                        if (result.success) {
+                          setPastSleepSuccess(true);
+                          setPastSleepSessionId(null);
                           setPastDeviceOff({ hours: 22, minutes: 0 });
                           setPastFellAsleepAt({ hours: 22, minutes: 30 });
                           setPastWakeupTime({ hours: 7, minutes: 0 });
                           setPastDeviceOn({ hours: 7, minutes: 30 });
+                          setPastSleepDate(new Date().toISOString().split('T')[0]);
                           refreshStats();
                           setTimeout(() => setShowPastSleepModal(false), 1500);
                         } else {
@@ -2335,12 +2400,12 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                         setPastSleepError('API not available');
                       }
                     } catch (err) {
-                      setPastSleepError('Failed to add sleep');
+                      setPastSleepError('Failed to save sleep');
                     }
                   }}
                   className="flex-1 px-4 py-3 bg-amber-600 hover:bg-amber-500 rounded-xl transition-colors"
                 >
-                  Add Sleep
+                  {pastSleepSessionId ? 'Update Sleep' : 'Add Sleep'}
                 </button>
               </div>
             </motion.div>

@@ -3,9 +3,12 @@
 > **Purpose:** Current project state for AI context — tracks version, recent changes, known issues, and feature inventory.
 
 ## Metadata
-- version: 3.65
-- last_updated: 2026-05-27
+- version: 3.66
+- last_updated: 2026-05-28
 - agent: opencode
+
+## Recent Changes
+- 2026-05-28: Sleep modal now has date picker + edit mode + chart bar click to open
 
 ## Active Work
 - active_problem_id: null
@@ -21,32 +24,23 @@
 ## Progress
 - problems_solved_this_sprint: []
 - files_modified:
-  - src/components/ContextSidebar.tsx (NEW)
-  - src/pages/TutorialPage.tsx (NEW)
-  - src/components/TutorialOverlay.tsx (NEW)
-  - src/pages/IDEProjectsPage.tsx (modified)
-  - src/pages/TerminalPage.tsx (modified)
-  - src/App.tsx (modified)
-  - src/components/NewSessionDialog.tsx (modified)
-  - src/components/ContextSidebar.tsx (export WorkspaceConfig type)
-  - agent/skills/generate-prompt/SKILL.md (Rule 4)
+  - src/main.ts (get-sleep-for-date, update-manual-sleep IPC handlers)
+  - src/preload.ts (getSleepForDate, updateManualSleep exposed)
+  - src/pages/ExternalPage.tsx (date picker, edit mode, chart bar click)
   - agent/state.md (updated)
-  - agent/REQUESTS.md (added #048, #049)
 
 ---
-> **Version:** 3.65
-> **Last Updated:** 2026-05-27
-> **2026-05-27 (v3.65) — CONTEXT SIDEBAR + TUTORIAL PAGE (Completed):
->   1. **Context tools inventory**: Completed comprehensive audit of all 12+ context management systems (LLM Wiki, Skills, Design Skills, Graphify, PARA, QMD, Automations, Deep Memory, Session Summaries, RAG, Project Context Manifest, Terminal Bindings).
->   2. **RESULT.md implementation plan**: Used generate-prompt skill to produce 1982-line RESULT.md covering ContextSidebar, TutorialPage, and NewSessionDialog simplification.
->   3. **ContextSidebar.tsx (new)**: 832-line sidebar panel replacing WorkspaceSettingsDialog. 6 sections (Systems, Design, Model, Paths, Terminal, Defaults). Auto-save with 600ms debounce. All 5 preference keys (workspace-context-config, model-improvisation-config, workspace-file-paths, terminal-communication-config, workspace-defaults).
->   4. **TutorialPage.tsx (new)** + **TutorialOverlay.tsx (new)**: Feature inventory page with 12 features, category filtering, progress persistence. Spotlight overlay with step navigation, "Try it" button, completion state.
->   5. **IDEProjectsPage.tsx (modified)**: Removed WorkspaceSettingsDialog import/state/JSX. Setup button dispatches `switch-sidebar-tab` event with `detail: 'context'`.
->   6. **TerminalPage.tsx (modified)**: Added 'context' tab to sidebar tabs. Added `switch-sidebar-tab` event listener. Removed WorkspaceSettingsDialog import/state/JSX. Renders ContextSidebar in tab content.
->   7. **App.tsx (modified)**: Added `/tutorial` route with TutorialPage. Added HelpCircle/Tutorial icon in sidebar navigation.
->   8. **NewSessionDialog.tsx (modified)**: Imports `WORKSPACE_CONFIG_PREF_KEY` from ContextSidebar instead of deleted WorkspaceSettingsDialog. Removed inline design taste knobs (variance/intensity/density sliders). Simplified design skills panel with note directing to Context Sidebar.
->   9. **Backup created**: WorkspaceSettingsDialog.tsx → `.bak.20260527-224500`
-> **Build Status:** ✅ Build succeeds (verified 2026-05-27)
+> **Version:** 3.66
+> **Last Updated:** 2026-05-28
+> **2026-05-28 (v3.66) — SLEEP MODAL DATE PICKER + EDIT MODE + CHART CLICK + DAY ARROWS:
+>   1. **get-sleep-for-date IPC handler (main.ts)**: Queries `external_sessions` for existing sleep on a given date, returns session data or null.
+>   2. **update-manual-sleep IPC handler (main.ts)**: UPDATE by session ID instead of always INSERT.
+>   3. **preload.ts**: Exposed `getSleepForDate` and `updateManualSleep` to renderer.
+>   4. **Date picker (ExternalPage.tsx)**: Native `<input type="date">` in the sleep modal, defaults to today.
+>   5. **Edit mode**: Auto-loads existing sleep data when date changes — populates 4 time fields, shows "EDITING Existing Sleep" badge (indigo) vs "ADDING New Sleep" badge (amber). Header says "Past Sleep", button says "Update Sleep" or "Add Sleep".
+>   6. **Chart bar click**: Each day bar in the sleep chart is now clickable — opens the modal with that date pre-selected.
+>   7. **Day arrows**: ChevronLeft/ChevronRight buttons flank the date input in the modal, enabling quick day-by-day navigation.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-28)
 
 ---
 

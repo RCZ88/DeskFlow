@@ -96,6 +96,18 @@ Or use the auto-created shortcut on your desktop.
 | **🧠 AI Color Magic** | Auto-generate brand-appropriate colors using OpenRouter AI |
 | **🏷️ AI Categorization** | Auto-categorize apps/websites using AI |
 | **🏷️ Custom Categories** | Create custom app/website categories in Settings, auto-assigned to Neutral tier |
+| **💤 Sleep Detection** | Auto-detects sleep gaps (45+ min), duration/latency pickers, sleep deficit tracking |
+| **📈 DORA Metrics** | CFR (change failure rate) and MTTR (mean time to recovery) from real deploy + error analysis |
+| **🧠 LLM Summarization** | Session compaction via OpenRouter API with extractive fallback |
+| **🔍 RAG Semantic Search** | Cosine similarity vector search over session data |
+| **📋 Context Sidebar** | 6-section workspace config panel with auto-save debounce |
+| **🎓 Tutorial Page** | Feature inventory with 12 items, category filtering, spotlight overlay walkthrough |
+| **🧩 Checklist Service** | Full CRUD IPC for task checklists linked to problems/requests |
+| **🗂️ Prompt History** | Full prompt CRUD with history tab for reusing compose prompts |
+| **🧠 Context Assembly** | Pipeline assembling 12+ context sources for AI agent awareness |
+| **⚡ Init System** | 16-step animated workspace init with "Initialize" vs "Setup" split |
+| **💬 Design Workspace** | Compose design context from SKILL.md/DESIGN.md, send to active terminal |
+| **📊 Database Analytics** | 5 stat cards, 8 charts (token/cost/session distributions), period selector |
 
 ---
 
@@ -128,6 +140,7 @@ Or use the auto-created shortcut on your desktop.
 | **Terminal** | IDE Workspace | Terminal workspace with resizable sidebar, presets, sessions, problem/file browser |
 | **Database** | Sidebar | Raw data viewer with JSON fallback |
 | **Settings** | Sidebar | Categories, custom categories, colors, preferences |
+| **Tutorial** | Sidebar | Feature walkthrough with spotlight overlay, progress tracking, 12 features |
 
 ### Galaxy Navigation
 
@@ -203,14 +216,33 @@ App Tracker/
 │   ├── main.tsx             # React entry point
 │   ├── App.tsx              # Main app (routing, state, computation)
 │   ├── components/
-│   │   └── OrbitSystem.tsx  # 3D galaxy visualization
+│   │   ├── OrbitSystem.tsx         # 3D galaxy visualization
+│   │   ├── ContextSidebar.tsx      # 6-section workspace config sidebar
+│   │   ├── ContextMaintenanceTab.tsx   # 6-tab context manager
+│   │   ├── InitializeProgressModal.tsx # 16-step animated init
+│   │   ├── TutorialOverlay.tsx     # Spotlight walkthrough
+│   │   ├── TerminalWindow.tsx      # xterm.js terminal
+│   │   ├── TerminalMiniMap.tsx     # Terminal layout viz
+│   │   ├── PromptDesignDialog.tsx  # Prompt composition
+│   │   ├── PromptHistoryTab.tsx    # Prompt CRUD history
+│   │   ├── ChecklistPanel.tsx      # Task checklists
+│   │   ├── DayDetailPopup.tsx      # Click-day detail view
+│   │   ├── context-ui/             # Context maintenance subcomponents
+│   │   └── workspace/              # Design workspace subcomponents
 │   ├── services/
 │   │   ├── ProblemsService.ts      # Markdown-based problem management
 │   │   ├── ProblemsParser.ts       # Parse PROBLEMS.md format
 │   │   ├── ProblemsSyncService.ts  # Bidirectional markdown↔DB sync
 │   │   ├── RequestsService.ts      # Request tracking service
 │   │   ├── SkillsService.ts        # Skill template management
-│   │   └── SessionContextService.ts  # Terminal output parsing
+│   │   ├── SessionContextService.ts  # Terminal output parsing
+│   │   ├── ChecklistService.ts     # Task checklist CRUD
+│   │   ├── ContextAssemblyService.ts  # assembleContext() pipeline
+│   │   ├── ContextService.ts       # Context retrieval & caching
+│   │   ├── ProjectContextService.ts  # File tree scanning
+│   │   ├── CompactionService.ts    # LLM summarization (OpenRouter)
+│   │   ├── RAGService.ts           # Cosine similarity search
+│   │   └── WorkspaceRegistry.ts    # Workspace + terminal bindings
 │   └── pages/
 │       ├── DashboardPage.tsx        # Main dashboard with 3D orbit + heatmap
 │       ├── StatsPage.tsx           # Applications breakdown
@@ -218,10 +250,12 @@ App Tracker/
 │       ├── BrowserActivityPage.tsx  # Website tracking
 │       ├── InsightsPage.tsx        # Reports and insights
 │       ├── IDEProjectsPage.tsx     # AI agent & project tracking
-│       ├── TerminalPage.tsx        # Terminal workspace
+│       ├── TerminalPage.tsx        # Terminal workspace (12-tab sidebar)
 │       ├── ExternalPage.tsx        # External activities
 │       ├── SettingsPage.tsx        # Category/colors/settings
-│       └── DatabasePage.tsx        # DB viewer
+│       ├── DatabasePage.tsx        # DB viewer + analytics dashboard
+│       ├── TutorialPage.tsx        # Feature inventory + overlay
+│       └── DesignWorkspacePage.tsx # AI design context
 ├── browser-extension/       # Chrome/Firefox extension
 ├── agent/                 # AI agent resources & docs
 ├── graphify-out/          # Knowledge graph output
@@ -324,6 +358,38 @@ App Tracker/
 - **Request Tracking** - Track feature requests via agent/REQUESTS.md
 - **Skill Templates** - Reusable skill definitions for AI agents
 
+### Context Sidebar
+- **6 Sections** - Systems (LLM Wiki, Skills, Graphify, PARA, QMD, Automations, Design Skills), Design Taste (variance, intensity, density), Model Settings, File Paths, Terminal Comms, Workspace Defaults
+- **Auto-Save** - 600ms debounce per field, localStorage-backed
+- **Backward Compatible** - Uses same `workspace-context-config` key as NewSessionDialog pre-population
+
+### Tutorial & Onboarding
+- **Feature Inventory** - 12 documented features with category filtering
+- **Spotlight Overlay** - Step-by-step walkthrough with "Try it" button
+- **Progress Persistence** - Completion state saved per feature in localStorage
+
+### Backend Services
+- **DORA Metrics** - Real CFR (deploy commits matched to error sessions within 24h) and MTTR (error session → next success session)
+- **LLM Summarization** - OpenRouter API compaction via `summarize-with-llm` IPC, extractive fallback (message extraction + stats)
+- **RAG Semantic Search** - Proper Float32Array cosine similarity with dimension mismatch handling and minScore filtering
+- **CompactionService** - DefaultLLMProvider calls IPC with fallback to extractive summarization
+
+### Init System
+- **16-Step Animated Progress** - Real `trackerMindSetup('init-all')` IPC running in parallel
+- **Live Checkmarks** - Per-step green checkmark/done/error states with retry capability
+- **"Workspace Ready" Summary** - Completion card with timestamp and next steps
+- **Split Workflow** - "Initialize" (16-step infra setup) vs "Setup" (toggle systems/adjust sliders)
+
+### Database Analytics
+- **5 Stat Cards** - Total tokens, total cost, session count, problems, requests
+- **8 Charts** - Token/cost/session distributions, category breakdown, problem/request progress, response timing, daily trends
+- **Period Selector** - 7 Days / 30 Days / All Time with Promise.allSettled for fault tolerance
+- **CSV Export** - Table data export with pagination
+
+### Context Assembly Pipeline
+- **12+ Context Sources** - LLM Wiki, Skills, Design Skills, Graphify, PARA, QMD, Automations, Deep Memory, Session Summaries, RAG, Project Context Manifest, Terminal Bindings
+- **Modular Architecture** - Each source has dedicated service with typed interfaces
+
 ### Visual Effects
 - **Bloom/Glow** - HDR bloom for emissive objects
 - **ACES Filmic Tone Mapping** - Cinematic color grading
@@ -422,6 +488,30 @@ graph TD
     style D fill:#003B57,color:#fff
 ```
 
+### Context Assembly Pipeline
+
+```mermaid
+graph LR
+    UI[React UI] -->|IPC invoke| BE[Electron Main]
+    BE -->|readContext| CAS[ContextAssemblyService]
+    CAS --> C1[LLM Wiki]
+    CAS --> C2[SkillsContext]
+    CAS --> C3[Graphify]
+    CAS --> C4[PARA Vault]
+    CAS --> C5[QMD Templates]
+    CAS --> C6[Automations]
+    CAS --> C7[Deep Memory]
+    CAS --> C8[Session Summaries]
+    CAS --> C9[RAG Service]
+    CAS --> C10[Project Context]
+    CAS --> C11[Terminal Bindings]
+    CAS -->|assembleContext| BE
+    BE -->|IPC response| UI
+
+    style CAS fill:#7c3aed,color:#fff
+    style BE fill:#47848F,color:#fff
+```
+
 ---
 
 ## 📚 Documentation
@@ -452,10 +542,54 @@ graph TD
 | 2.0 | 2026-05-08 | Custom categories, glass-styled charts, terminal resizable sidebar |
 | 2.2 | 2026-05-09 | Insights page redesign, orbit system research, project-aware problems |
 | 2.4 | 2026-05-09 | AGENTS.md restructure, graphify rebuild, build system updates |
+| 3.50 | 2026-05-22 | Context assembly pipeline, ChecklistService, ProjectContextService, WorkspaceRegistry |
+| 3.55 | 2026-05-25 | Terminal Context system, SkillsTab, Analytics tab, session detail panel |
+| 3.58 | 2026-05-27 | Context maintenance tab wired, 4 new IPC endpoints |
+| 3.61 | 2026-05-27 | Design workspace tab, IPC wiring, build verification |
+| 3.62 | 2026-05-27 | Database analytics dashboard (5 stat cards, 8 charts) |
+| 3.63 | 2026-05-27 | Init system redesign (16-step modal), Setup vs Initialize split |
+| 3.65 | 2026-05-27 | ContextSidebar, TutorialPage, backend gaps fixed (DORA/LLM/RAG/IPC) |
 
 ---
 
 ## 🚀 Development Highlights
+
+### v3.65 (2026-05-27) — Recent
+- **ContextSidebar** - 832-line sidebar replacing WorkspaceSettingsDialog, 6 sections, auto-save debounce
+- **TutorialPage** - Feature inventory with 12 items, spotlight overlay walkthrough, progress persistence
+- **Backend Gaps Fixed** - Real DORA CFR/MTTR calculation, LLM summarization via OpenRouter, RAG cosine similarity search, dead IPC handlers resolved, 5 missing preload bridges added
+- **New Services** - RAGService (proper cosine similarity), CompactionService (OpenRouter + extractive fallback)
+
+### v3.63 (2026-05-27)
+- **Init System Redesign** - 16-step animated InitializeProgressModal with real trackerMind IPC
+- **Setup vs Initialize Split** - Green "Initialize" opens progress modal, amber "Setup" opens settings dialog
+- **WorkspaceSettingsDialog** - Persistent config panel with 7 system toggles, taste knobs, context assembly map
+
+### v3.62 (2026-05-27)
+- **Database Analytics** - Full analytics view with 5 stat cards, 8 charts, period selector (7D/30D/All)
+- **View Toggle** - Analytics/Tables header tabs, preserves existing table browser with CSV export
+
+### v3.61 (2026-05-27)
+- **Design Workspace Tab** - Moved from standalone page → terminal sidebar tab, reads SKILL.md + DESIGN.md
+- **Send to Terminal** - Design context (taste/skills/references) sent to active terminal via IPC
+
+### v3.58 (2026-05-27)
+- **Context Maintenance Tab** - 6 sub-components wired (MemoryStatusCard, ActiveContextsList, etc.)
+- **4 New IPC Endpoints** - get-context-systems, get-session-summaries, get-deep-memory, get-rag-stats
+
+### v3.55 (2026-05-25)
+- **SkillsTab** - Full inline CRUD (~400 lines): list, create, edit, delete skills
+- **Analytics Tab** - Period selector, agent breakdown bars, top sessions by cost
+- **Session Detail Panel** - Click-to-detail with metadata grid, message viewer, focus/open buttons
+- **Map Tab** - Group-based terminal layout display merged into MiniMap
+
+### v3.50 (2026-05-22)
+- **Context Assembly Pipeline** - 12+ context sources with modular typed services
+- **ChecklistService** - Full CRUD IPC for task checklists with progress tracking
+- **ProjectContextService** - File tree scanning, git-aware context
+- **WorkspaceRegistry** - Workspace registration, terminal binding persistence
+- **Prompt Design Dialog** - Rich prompt composition with skills context
+- **Prompt History Tab** - Full CRUD with search and reuse
 
 ### v2.4 (2026-05-09)
 - **AGENTS.md Restructure** - Prime state checklist, behavioural guidelines, protection rules
@@ -563,6 +697,6 @@ If you encounter issues:
 
 </div>
 
-**Last Updated:** 2026-05-09
+**Last Updated:** 2026-05-28
 
 **Maintained By:** DeskFlow Team

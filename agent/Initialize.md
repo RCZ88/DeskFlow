@@ -1,7 +1,7 @@
 # 🚀 Workspace Initialization Guide
 
 > **Generated for:** opencode
-> **Date:** 2026-05-27T17:29:22.717Z
+> **Date:** 2026-05-27T19:25:17.498Z
 
 ## Overview
 

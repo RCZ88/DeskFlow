@@ -8771,6 +8771,64 @@ electron_1.ipcMain.handle('add-manual-sleep', (event, sleepData: { started_at: s
     }
 });
 
+electron_1.ipcMain.handle('get-sleep-for-date', (event, dateStr: string) => {
+    if (useJson) return null;
+    try {
+        const sleepActivity = db.prepare(`SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1`).get() as any;
+        if (!sleepActivity) return null;
+
+        const session = db.prepare(`
+            SELECT * FROM external_sessions
+            WHERE activity_id = ? AND date(started_at) = ? AND ended_at IS NOT NULL
+            ORDER BY started_at DESC LIMIT 1
+        `).get(sleepActivity.id, dateStr) as any;
+
+        if (!session) return null;
+
+        return {
+            id: session.id,
+            started_at: session.started_at,
+            ended_at: session.ended_at,
+            device_off_to_sleep_seconds: session.device_off_to_sleep_seconds || 0,
+            wake_up_to_app_seconds: session.wake_up_to_app_seconds || 0,
+        };
+    } catch (err) {
+        console.error('[DeskFlow] Failed to get sleep for date:', err);
+        return null;
+    }
+});
+
+electron_1.ipcMain.handle('update-manual-sleep', (event, sessionId: string, sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds?: number; wake_up_to_app_seconds?: number }) => {
+    if (useJson) return { success: false };
+    try {
+        const startTime = new Date(sleepData.started_at);
+        const endTime = new Date(sleepData.ended_at);
+        const durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+
+        if (durationSeconds <= 0) {
+            return { success: false, error: 'End time must be after start time' };
+        }
+
+        db.prepare(`
+            UPDATE external_sessions
+            SET started_at = ?, ended_at = ?, duration_seconds = ?, device_off_to_sleep_seconds = ?, wake_up_to_app_seconds = ?
+            WHERE id = ?
+        `).run(
+            startTime.toISOString(),
+            endTime.toISOString(),
+            durationSeconds,
+            sleepData.device_off_to_sleep_seconds || 0,
+            sleepData.wake_up_to_app_seconds || 0,
+            sessionId
+        );
+
+        return { success: true };
+    } catch (err) {
+        console.error('[DeskFlow] Failed to update manual sleep:', err);
+        return { success: false };
+    }
+});
+
 electron_1.ipcMain.handle('get-active-external-session', (event) => {
     if (useJson) return null;
     try {

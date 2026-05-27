@@ -12,6 +12,7 @@ import DesignWorkspacePage from './DesignWorkspacePage';
 import IssuesWorkspace from '../components/IssuesWorkspace';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import ContextSidebar from '../components/ContextSidebar';
+import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import '@xterm/xterm/css/xterm.css';
 
 function generateTerminalId(): string {
@@ -177,7 +178,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [selectedProject, setSelectedProject] = useState<string>(propProjectId || '');
   const [hoveredPane, setHoveredPane] = useState<string | null>(null);
   const [aiSummary, setAiSummary] = useState<{ totalTokens: number; totalCost: number; byTool: Record<string, any> | null } | null>(null);
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<'day' | 'week' | 'month'>('day');
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'7d' | '30d' | 'all'>('30d');
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsProblems, setAnalyticsProblems] = useState<any[]>([]);
+  const [analyticsRequests, setAnalyticsRequests] = useState<any[]>([]);
+  const [analyticsDailyStats, setAnalyticsDailyStats] = useState<any[]>([]);
+  const [analyticsAppStats, setAnalyticsAppStats] = useState<any[]>([]);
+  const [analyticsPromptHistory, setAnalyticsPromptHistory] = useState<any[]>([]);
   
   // Terminal binding state
   const [terminalBindings, setTerminalBindings] = useState<Record<string, {
@@ -541,6 +548,38 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     }
   }, [selectedProject]);
 
+  const fetchAnalyticsData = useCallback(async () => {
+    if (!window.deskflowAPI) return;
+    setAnalyticsLoading(true);
+    try {
+      const periodMap: Record<string, string> = { '7d': 'week', '30d': 'month', 'all': 'all' };
+      const p = periodMap[analyticsPeriod] || 'month';
+      const results = await Promise.allSettled([
+        window.deskflowAPI.getAIUsageSummary(p === 'all' ? 'month' : p),
+        window.deskflowAPI.getTerminalSessions?.(selectedProject || undefined, 500),
+        window.deskflowAPI.getProblems(),
+        window.deskflowAPI.getRequests(),
+        window.deskflowAPI.getDailyStats?.(p),
+        window.deskflowAPI.getAppStats?.(p),
+        window.deskflowAPI.getPromptHistory?.({ limit: 2000 }),
+      ]);
+      if (results[0].status === 'fulfilled' && results[0].value) setAiSummary(results[0].value);
+      if (results[1].status === 'fulfilled' && results[1].value?.data) setSessions(results[1].value.data);
+      else if (results[1].status === 'fulfilled' && Array.isArray(results[1].value)) setSessions(results[1].value);
+      if (results[2].status === 'fulfilled' && results[2].value?.data) setAnalyticsProblems(results[2].value.data);
+      else if (results[2].status === 'fulfilled' && Array.isArray(results[2].value)) setAnalyticsProblems(results[2].value);
+      if (results[3].status === 'fulfilled' && results[3].value?.data) setAnalyticsRequests(results[3].value.data);
+      else if (results[3].status === 'fulfilled' && Array.isArray(results[3].value)) setAnalyticsRequests(results[3].value);
+      if (results[4].status === 'fulfilled' && Array.isArray(results[4].value)) setAnalyticsDailyStats(results[4].value);
+      if (results[5].status === 'fulfilled' && Array.isArray(results[5].value)) setAnalyticsAppStats(results[5].value);
+      if (results[6].status === 'fulfilled' && Array.isArray(results[6].value)) setAnalyticsPromptHistory(results[6].value);
+    } catch (err) {
+      console.error('[TerminalPage] Analytics fetch error:', err);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [analyticsPeriod, selectedProject]);
+
   const loadProjects = useCallback(async () => {
     if (!window.deskflowAPI) return;
     try {
@@ -640,7 +679,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     } else if (activeTab === 'sessions') {
       loadSessions();
     } else if (activeTab === 'analytics' && window.deskflowAPI) {
-      window.deskflowAPI.getAIUsageSummary(analyticsPeriod).then(setAiSummary).catch(() => {});
+      fetchAnalyticsData();
     }
   }, [activeTab, selectedProject, loadPresets, loadSessions, analyticsPeriod]);
 
@@ -2050,89 +2089,30 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             )}
 
              {activeTab === 'analytics' && (
-               <div>
-                 {/* Period Selector */}
-                 <div className="flex gap-1 mb-3 bg-zinc-800/50 rounded-lg p-0.5 border border-zinc-700/50">
-                   {(['day', 'week', 'month'] as const).map(p => (
-                     <button
-                       key={p}
-                       onClick={() => setAnalyticsPeriod(p)}
-                       className={`flex-1 px-2 py-1 text-[10px] font-medium rounded transition-all ${
-                         analyticsPeriod === p
-                           ? 'bg-zinc-700 text-zinc-200 shadow-sm'
-                           : 'text-zinc-500 hover:text-zinc-300'
-                       }`}
-                     >
-                       {p.charAt(0).toUpperCase() + p.slice(1)}
-                     </button>
-                   ))}
-                 </div>
-
-                 {/* Overview Cards */}
-                 <div className="grid grid-cols-3 gap-2 mb-3">
-                   <div className="p-2.5 bg-zinc-800 rounded-lg">
-                     <div className="text-lg font-bold text-white">{aiSummary?.totalTokens?.toLocaleString() || 0}</div>
-                     <div className="text-[10px] text-zinc-500">Tokens</div>
-                   </div>
-                   <div className="p-2.5 bg-zinc-800 rounded-lg">
-                     <div className="text-lg font-bold text-emerald-400">${aiSummary?.totalCost?.toFixed(2) || '0.00'}</div>
-                     <div className="text-[10px] text-zinc-500">Cost</div>
-                   </div>
-                   <div className="p-2.5 bg-zinc-800 rounded-lg">
-                     <div className="text-lg font-bold text-cyan-400">{sessions.length}</div>
-                     <div className="text-[10px] text-zinc-500">Sessions</div>
-                   </div>
-                 </div>
-
-                 {/* By Agent Breakdown */}
-                 <div className="p-2.5 bg-zinc-800 rounded-lg mb-3">
-                   <div className="text-[10px] text-zinc-500 mb-2">By Agent</div>
-                   {!aiSummary?.byTool || Object.keys(aiSummary.byTool).length === 0 ? (
-                     <p className="text-[10px] text-zinc-600">No data</p>
-                   ) : (
-                     <div className="space-y-1.5">
-                       {Object.entries(aiSummary.byTool).map(([agent, data]: [string, any]) => {
-                         const maxTokens = Math.max(...Object.values(aiSummary.byTool).map((d: any) => d.tokens || 0));
-                         const pct = maxTokens > 0 ? ((data.tokens || 0) / maxTokens) * 100 : 0;
-                         return (
-                           <div key={agent}>
-                             <div className="flex items-center justify-between mb-0.5">
-                               <span className="text-[11px] text-zinc-300 truncate">{agent}</span>
-                               <span className="text-[10px] text-zinc-500">{data.tokens?.toLocaleString() || 0} tokens</span>
-                             </div>
-                             <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                               <div className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
-                             </div>
-                           </div>
-                         );
-                       })}
-                     </div>
-                   )}
-                 </div>
-
-                 {/* Top Sessions by Cost */}
-                 {sessions.filter(s => s.total_cost && s.total_cost > 0).length > 0 && (
-                   <div className="p-2.5 bg-zinc-800 rounded-lg">
-                     <div className="text-[10px] text-zinc-500 mb-2">Top Sessions by Cost</div>
-                     <div className="space-y-1.5">
-                       {sessions
-                         .filter(s => s.total_cost && s.total_cost > 0)
-                         .sort((a, b) => (b.total_cost || 0) - (a.total_cost || 0))
-                         .slice(0, 5)
-                         .map(s => (
-                           <div key={s.id} className="flex items-center justify-between">
-                             <div className="flex-1 min-w-0">
-                               <span className="text-[11px] text-zinc-300 truncate block">{s.topic || 'Unnamed'}</span>
-                               <span className="text-[9px] text-zinc-600">{s.agent} • {formatDate(s.created_at)}</span>
-                             </div>
-                             <span className="text-[10px] text-emerald-400 flex-shrink-0 ml-2">${s.total_cost?.toFixed(2)}</span>
-                           </div>
-                         ))}
-                     </div>
-                   </div>
-                 )}
-               </div>
-             )}
+                <div className="space-y-4">
+                  <div className="flex gap-1 bg-zinc-800/50 rounded-lg p-0.5 border border-zinc-700/50 w-fit">
+                    {(['7d', '30d', 'all'] as const).map(p => (
+                      <button key={p} onClick={() => setAnalyticsPeriod(p)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                          analyticsPeriod === p ? 'bg-purple-500/20 text-purple-300' : 'text-zinc-500 hover:text-zinc-300'
+                        }`}>
+                        {p === '7d' ? '7 Days' : p === '30d' ? '30 Days' : 'All Time'}
+                      </button>
+                    ))}
+                  </div>
+                  <AnalyticsDashboard
+                    aiUsage={aiSummary}
+                    sessions={sessions}
+                    problems={analyticsProblems}
+                    requests={analyticsRequests}
+                    dailyStats={analyticsDailyStats}
+                    appStats={analyticsAppStats}
+                    promptHistory={analyticsPromptHistory}
+                    loading={analyticsLoading}
+                    period={analyticsPeriod}
+                  />
+                </div>
+              )}
 
             {activeTab === 'issues' && (
               <IssuesWorkspace projectId={selectedProject} projectPath={propProjectPath} />

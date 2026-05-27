@@ -54,6 +54,8 @@
 | `get-browser-category-stats` | Get browser stats by category |
 | `get-daily-aggregates` | Get data from daily_aggregates table |
 | `get-browser-sessions` | Get data from browser_sessions table |
+| `get-sleep-for-date` | Get existing sleep session for a specific date (YYYY-MM-DD). Returns `{ id, started_at, ended_at, device_off_to_sleep_seconds, wake_up_to_app_seconds }` or null. |
+| `update-manual-sleep` | Update an existing sleep session by ID. Accepts `(sessionId, { started_at, ended_at, device_off_to_sleep_seconds?, wake_up_to_app_seconds? })`. Returns `{ success }`. |
 | `get-typical-day` | **REPLACED** — Returns `{ grid, legend, stats, generatedAt, daysCovered }` (7×24 multi-activity grid). Merges external_sessions + device logs, normalizes per-day, supports multi-activity cells with percentages and colors. |
 | `link-problem-to-request` | Links a problem ID to a request in REQUESTS.md. Calls RequestsService.linkProblem(). Accepts `{ requestId, problemId }`. |
 | `unlink-problem-from-request` | Removes a problem ID from a request's linked_problems array. Calls RequestsService.unlinkProblem(). Accepts `{ requestId, problemId }`. |
