@@ -25,6 +25,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
 
 interface SettingsPageProps {
   logs: any[];
@@ -533,6 +534,9 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
           if (prefs?.filterTransientApps !== undefined) {
             setFilterTransientApps(prefs.filterTransientApps);
           }
+          if (prefs?.promptHistoryLimit !== undefined) {
+            setPromptHistoryLimit(prefs.promptHistoryLimit);
+          }
         } catch { /* ignore */ }
       }
       
@@ -885,6 +889,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
   const [sleepGapMs, setSleepGapMs] = useState(10000);
   const [maxSessionMs, setMaxSessionMs] = useState(300000);
   const [filterTransientApps, setFilterTransientApps] = useState(true);
+  const [promptHistoryLimit, setPromptHistoryLimit] = useState(5);
 
   // System Prompts state
   const [systemPrompts, setSystemPrompts] = useState<Record<string, string>>({
@@ -2068,6 +2073,34 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
 
                 <div className="flex items-center justify-between py-2">
                   <div>
+                    <div className="text-sm font-medium">Min Session Duration</div>
+                    <div className="text-xs text-zinc-500">Only count sessions longer than this</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {([60, 180, 300, 600, 900, 1800] as const).map(m => (
+                      <button
+                        key={m}
+                        onClick={() => {
+                          if (window.deskflowAPI?.setPreference) {
+                            window.deskflowAPI.setPreference('productivityMinDuration', m);
+                            setHasChanges(true);
+                            onHasChangesChange(true);
+                          }
+                        }}
+                        className={`px-2 py-1 rounded text-xs font-medium transition ${
+                          m === 300
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                            : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {m < 60 ? `${m}s` : m < 3600 ? `${m / 60}m` : `${m / 3600}h`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between py-2">
+                  <div>
                     <div className="text-sm font-medium">Auto-Export</div>
                     <div className="text-xs text-zinc-500">Export data periodically</div>
                   </div>
@@ -2344,6 +2377,50 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
               </div>
             </div>
           </div>
+
+          {/* Prompt History Settings */}
+          <div className="glass rounded-3xl p-5">
+            <h2 className="text-lg font-semibold mb-3">Prompt History</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium text-zinc-400 mb-2 block">Visible Prompts</label>
+                <p className="text-xs text-zinc-500 mb-2">Number of recent prompts shown in the terminal sidebar history tab. Older prompts are hidden but can be expanded.</p>
+                <div className="flex gap-2 flex-wrap">
+                  {[3, 5, 10, 20, 50, 100].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => {
+                        setPromptHistoryLimit(n);
+                        window.deskflowAPI?.setPreference?.('promptHistoryLimit', n);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                        promptHistoryLimit === n
+                          ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                          : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-zinc-500">Custom:</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={999}
+                  value={promptHistoryLimit}
+                  onChange={(e) => {
+                    const v = Math.max(1, parseInt(e.target.value) || 5);
+                    setPromptHistoryLimit(v);
+                    window.deskflowAPI?.setPreference?.('promptHistoryLimit', v);
+                  }}
+                  className="w-20 px-2 py-1 text-sm bg-zinc-800 border border-zinc-700 rounded text-white text-right font-mono"
+                />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2353,40 +2430,64 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-lg font-semibold">System Prompts</h2>
-                <p className="text-xs text-zinc-500">Customize the system prompt for each AI agent type</p>
+                <p className="text-xs text-zinc-500">General prompts apply to all projects. Project-specific prompts can be set in each workspace.</p>
               </div>
             </div>
-            <p className="text-xs text-zinc-500 mb-4">These prompts are sent to the AI when a new terminal session starts. Leave blank to use defaults.</p>
-            {['claude', 'opencode', 'custom'].map(agent => (
-              <div key={agent} className="mb-4 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700/30">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-zinc-300 capitalize">{agent === 'custom' ? 'Custom AI' : agent}</label>
-                  <button
-                    onClick={() => handleSaveSystemPrompt(agent, '')}
-                    className="px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-400 rounded transition-colors"
-                  >
-                    Reset to default
-                  </button>
-                </div>
-                <textarea
-                  value={systemPrompts[agent]}
-                  onChange={(e) => setSystemPrompts(prev => ({ ...prev, [agent]: e.target.value }))}
-                  onBlur={() => handleSaveSystemPrompt(agent, systemPrompts[agent])}
-                  placeholder={`Default system prompt for ${agent} will be used...`}
-                  rows={6}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 font-mono placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all"
-                />
-                <div className="flex justify-between mt-1">
-                  <span className="text-[10px] text-zinc-600">Content length: {systemPrompts[agent].length} chars</span>
-                  <button
-                    onClick={() => handleSaveSystemPrompt(agent, systemPrompts[agent])}
-                    className="px-2 py-0.5 text-[10px] bg-cyan-600 hover:bg-cyan-500 text-white rounded transition-colors"
-                  >
-                    Save
-                  </button>
-                </div>
+
+            {/* Default prompt preview */}
+            <details className="mb-4 group">
+              <summary className="text-sm font-medium text-zinc-400 hover:text-zinc-300 cursor-pointer select-none list-none flex items-center gap-2">
+                <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
+                Default Prompt (always prepended)
+              </summary>
+              <div className="mt-2 bg-zinc-900/80 rounded-lg border border-zinc-700/50 p-3 max-h-48 overflow-y-auto">
+                <pre className="text-[11px] text-zinc-400 font-mono whitespace-pre-wrap">{DEFAULT_SYSTEM_PROMPT}</pre>
               </div>
-            ))}
+            </details>
+
+            {['claude', 'opencode', 'custom'].map(agent => {
+              const additions = systemPrompts[agent] || '';
+              const merged = additions ? `${DEFAULT_SYSTEM_PROMPT}\n\n## Additional Instructions\n${additions}` : DEFAULT_SYSTEM_PROMPT;
+              return (
+                <div key={agent} className="mb-4 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700/30">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-zinc-300 capitalize">{agent === 'custom' ? 'Custom AI' : agent}</label>
+                    <button
+                      onClick={() => handleSaveSystemPrompt(agent, '')}
+                      className="px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-400 rounded transition-colors"
+                    >
+                      Clear additions
+                    </button>
+                  </div>
+                  <textarea
+                    value={additions}
+                    onChange={(e) => setSystemPrompts(prev => ({ ...prev, [agent]: e.target.value }))}
+                    onBlur={() => handleSaveSystemPrompt(agent, systemPrompts[agent])}
+                    placeholder="Add instructions that will be appended to the default prompt..."
+                    rows={4}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 font-mono placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all"
+                  />
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[10px] text-zinc-600">Additions: {additions.length} chars | Merged: {merged.length} chars</span>
+                    <button
+                      onClick={() => handleSaveSystemPrompt(agent, systemPrompts[agent])}
+                      className="px-2 py-0.5 text-[10px] bg-cyan-600 hover:bg-cyan-500 text-white rounded transition-colors"
+                    >
+                      Save
+                    </button>
+                  </div>
+                  <details className="mt-2 group">
+                    <summary className="text-[11px] text-zinc-600 hover:text-zinc-500 cursor-pointer select-none list-none flex items-center gap-1">
+                      <ChevronRight className="w-3 h-3 transition-transform group-open:rotate-90" />
+                      Preview merged prompt
+                    </summary>
+                    <div className="mt-1 bg-zinc-900/80 rounded-lg border border-zinc-700/50 p-2 max-h-32 overflow-y-auto">
+                      <pre className="text-[10px] text-zinc-500 font-mono whitespace-pre-wrap">{merged}</pre>
+                    </div>
+                  </details>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

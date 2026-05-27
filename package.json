@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build:renderer": "vite build",
-    "build:electron": "tsc src/main.ts src/preload.ts src/services/ProblemsService.ts src/services/RequestsService.ts src/services/SkillsService.ts --module commonjs --target ES2020 --esModuleInterop --outDir dist-electron --skipLibCheck && copy dist-electron\\main.js dist-electron\\main.cjs && copy dist-electron\\preload.js dist-electron\\preload.cjs && mkdir dist-electron\\services 2>nul & copy dist-electron\\services\\ProblemsService.js dist-electron\\services\\ProblemsService.cjs && copy dist-electron\\services\\RequestsService.js dist-electron\\services\\RequestsService.cjs && copy dist-electron\\services\\SkillsService.js dist-electron\\services\\SkillsService.cjs",
+    "build:electron": "tsc src/main.ts src/preload.ts src/services/ProblemsService.ts src/services/RequestsService.ts src/services/SkillsService.ts src/services/ChecklistService.ts --module commonjs --target ES2020 --esModuleInterop --outDir dist-electron --skipLibCheck && copy dist-electron\\main.js dist-electron\\main.cjs && copy dist-electron\\preload.js dist-electron\\preload.cjs && mkdir dist-electron\\services 2>nul & copy dist-electron\\services\\ProblemsService.js dist-electron\\services\\ProblemsService.cjs && copy dist-electron\\services\\RequestsService.js dist-electron\\services\\RequestsService.cjs && copy dist-electron\\services\\SkillsService.js dist-electron\\services\\SkillsService.cjs && copy dist-electron\\services\\ChecklistService.js dist-electron\\services\\ChecklistService.cjs",
     "build": "npm run build:renderer && npm run build:electron",
     "start": "electron .",
     "lint": "eslint .",

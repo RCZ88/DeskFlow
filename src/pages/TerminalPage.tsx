@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw } from 'lucide-react';
+import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, Database, Palette, ListChecks } from 'lucide-react';
 import type { PaneNode } from '../components/TerminalWindow';
 import { TerminalLayout, insertIntoLayout } from '../components/TerminalWindow';
 import { MapEditor, swapLeavesInTree } from '../components/MapEditor';
@@ -7,10 +7,74 @@ import { TerminalMiniMap } from '../components/TerminalMiniMap';
 import { InstructionPanel } from '../components/InstructionPanel';
 import { NewSessionDialog, type SessionConfig } from '../components/NewSessionDialog';
 import { splitPane, removePane } from '../components/TerminalWindow';
+import { ContextMaintenanceTab } from '../components/ContextMaintenanceTab';
+import DesignWorkspacePage from './DesignWorkspacePage';
+import IssuesWorkspace from '../components/IssuesWorkspace';
+import InitializeProgressModal from '../components/InitializeProgressModal';
+import ContextSidebar from '../components/ContextSidebar';
 import '@xterm/xterm/css/xterm.css';
 
 function generateTerminalId(): string {
   return `term-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+interface TerminalGroup { terminals: string[]; direction?: 'horizontal' | 'vertical'; }
+
+function collectLeafIds(node: PaneNode): string[] {
+  if (node.type === 'leaf') return node.terminalId ? [node.terminalId] : [];
+  if (node.children) return [...collectLeafIds(node.children[0]), ...collectLeafIds(node.children[1])];
+  return [];
+}
+
+function extractGroups(layout: PaneNode | null): TerminalGroup[] {
+  if (!layout) return [];
+  if (layout.type === 'leaf') return [{ terminals: layout.terminalId ? [layout.terminalId] : [], direction: undefined }];
+  if (layout.children) return layout.children.map(c => ({ terminals: collectLeafIds(c), direction: layout.direction }));
+  return [];
+}
+
+function togglePaneDirection(node: PaneNode, path: number[]): PaneNode {
+  if (path.length === 0) {
+    return { ...node, direction: node.direction === 'horizontal' ? 'vertical' : 'horizontal' };
+  }
+  const [index, ...rest] = path;
+  if (!node.children || !node.children[index]) return node;
+  const newChildren = [...node.children] as [PaneNode, PaneNode];
+  newChildren[index] = togglePaneDirection(newChildren[index], rest);
+  return { ...node, children: newChildren };
+}
+
+function findLeafInTree(node: PaneNode, terminalId: string): PaneNode | null {
+  if (node.type === 'leaf') return node.terminalId === terminalId ? node : null;
+  if (node.children) {
+    for (const child of node.children) {
+      const found = findLeafInTree(child, terminalId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function removeLeafFromTree(node: PaneNode, terminalId: string): PaneNode | null {
+  if (node.type === 'leaf') return node.terminalId === terminalId ? null : node;
+  if (!node.children) return node;
+  const [a, b] = node.children;
+  const newA = removeLeafFromTree(a, terminalId);
+  const newB = removeLeafFromTree(b, terminalId);
+  if (!newA && !newB) return null;
+  if (!newA) return newB;
+  if (!newB) return newA;
+  return { ...node, children: [newA, newB] };
+}
+
+function addLeafToGroup(tree: PaneNode, targetId: string, leaf: PaneNode, direction: 'horizontal' | 'vertical'): PaneNode {
+  if (tree.type === 'leaf' && tree.terminalId === targetId) {
+    return { type: 'split', direction, children: [tree, leaf] };
+  }
+  if (tree.children) {
+    return { ...tree, children: [addLeafToGroup(tree.children[0], targetId, leaf, direction), addLeafToGroup(tree.children[1], targetId, leaf, direction)] };
+  }
+  return tree;
 }
 
 // ── Session Categorization Config ──
@@ -42,9 +106,10 @@ function CategoryBadge({ category }: { category?: string }) {
   );
 }
 
-function StatusDot({ status }: { status?: string }) {
+function StatusDot({ status, size }: { status?: string; size?: 'sm' | 'md' }) {
   const style = SESSION_STATUS_STYLES[status || 'active'] || SESSION_STATUS_STYLES.active;
-  return <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${style.dot}`} title={style.label} />;
+  const dims = size === 'md' ? 'w-2.5 h-2.5' : 'w-1.5 h-1.5';
+  return <span className={`${dims} rounded-full flex-shrink-0 ${style.dot}`} title={style.label} />;
 }
 
 interface Preset {
@@ -52,6 +117,7 @@ interface Preset {
   name: string;
   command: string;
   category?: string;
+  isBuiltIn?: boolean;
 }
 
 interface Session {
@@ -81,14 +147,14 @@ function logOnce(key: string, message: string, ...args: any[]) {
   }
 }
 
-export default function TerminalPage({ projectId: propProjectId, projectPath: propProjectPath }: { projectId?: string; projectPath?: string }) {
+export default function TerminalPage({ projectId: propProjectId, projectPath: propProjectPath, onCloseWorkspace }: { projectId?: string; projectPath?: string; onCloseWorkspace?: () => void }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('terminal-sidebarWidth');
     return saved ? parseInt(saved) : 400;
   });
   const [isResizing, setIsResizing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'presets' | 'sessions' | 'map' | 'analytics' | 'problems' | 'requests' | 'files' | 'terminals'>(() => {
+  const [activeTab, setActiveTab] = useState<'presets' | 'sessions' | 'map' | 'analytics' | 'issues' | 'skills' | 'configs' | 'history' | 'context-maintenance' | 'design' | 'context'>(() => {
     const saved = localStorage.getItem('terminal-activeTab');
     return (saved as any) || 'presets';
   });
@@ -103,14 +169,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [newSessionTerminalMode, setNewSessionTerminalMode] = useState<'create' | 'select'>('create');
   const [newSessionSelectedTerminal, setNewSessionSelectedTerminal] = useState('');
   const [sendTargetSession, setSendTargetSession] = useState<string>('');
-  const [showNewRequestDialog, setShowNewRequestDialog] = useState(false);
   const [showMessagesViewer, setShowMessagesViewer] = useState<string | null>(null);
+  const [selectedSessionDetail, setSelectedSessionDetail] = useState<string | null>(null);
   const [sessionMessages, setSessionMessages] = useState<any[]>([]);
   const [messagesSearchQuery, setMessagesSearchQuery] = useState('');
   const [projects, setProjects] = useState<{ id: string; name: string; path: string }[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>(propProjectId || '');
   const [hoveredPane, setHoveredPane] = useState<string | null>(null);
   const [aiSummary, setAiSummary] = useState<{ totalTokens: number; totalCost: number; byTool: Record<string, any> | null } | null>(null);
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'day' | 'week' | 'month'>('day');
   
   // Terminal binding state
   const [terminalBindings, setTerminalBindings] = useState<Record<string, {
@@ -129,6 +196,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [terminalErrorType, setTerminalErrorType] = useState<'error' | 'warning' | 'info'>('error');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveDialogName, setSaveDialogName] = useState('');
+  const [showCloseWorkspaceDialog, setShowCloseWorkspaceDialog] = useState(false);
 
   // Confirm dialog (replaces window.confirm)
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; message: string; onConfirm: () => void }>({ isOpen: false, message: '', onConfirm: () => {} });
@@ -140,7 +208,12 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   }, []);
 
   // Terminal tab bar state
-  const [terminalTabs, setTerminalTabs] = useState<Record<string, { name: string; agent: string }>>({});
+  type TerminalTabInfo = { name: string; agent: string; modelTier?: string };
+  const [terminalTabs, setTerminalTabs] = useState<Record<string, TerminalTabInfo>>({});
+  const terminalTabsRef = useRef(terminalTabs);
+  terminalTabsRef.current = terminalTabs;
+  const onCloseWorkspaceRef = useRef(onCloseWorkspace);
+  onCloseWorkspaceRef.current = onCloseWorkspace;
 
   // Problems and Requests for binding/instruction panel
   const [allProblems, setAllProblems] = useState<Problem[]>([]);
@@ -155,29 +228,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   
   // Initialize agent state
   const [initStatus, setInitStatus] = useState<'idle' | 'checking' | 'ready' | 'init-ok' | 'error'>('idle');
+  const [showInitModal, setShowInitModal] = useState(false);
 
   const handleInitSetup = useCallback(async () => {
-    const projId = selectedProject || propProjectId;
-    const proj = projects.find(p => p.id === projId);
-    const projPath = propProjectPath || proj?.path;
-    if (!window.deskflowAPI) return;
-    setInitStatus('checking');
-    try {
-      const agent = localStorage.getItem('terminal-defaultAgent') || 'claude';
-      const result = await window.deskflowAPI.trackerMindSetup?.('init-all', projId || undefined, agent);
-      if (result?.success) {
-        setInitStatus('init-ok');
-        showError(`Initialized workspace for ${agent}: agent files created`, 'info');
-      } else {
-        showError('Failed to initialize workspace', 'error');
-        setInitStatus('error');
-      }
-    } catch (e) {
-      console.error('[TerminalPage] Init setup failed:', e);
-      showError('Failed to initialize workspace', 'error');
-      setInitStatus('error');
+    if (initStatus === 'init-ok') {
+      if (!window.confirm('This project is already initialized. Re-initialize workspace files?')) return;
     }
-  }, [selectedProject, propProjectId, projects, showError]);
+    setShowInitModal(true);
+  }, [initStatus]);
 
   // File change pulse notification
   const [fileChangedPulse, setFileChangedPulse] = useState(false);
@@ -204,7 +262,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       } catch { if (!userCreatedTerminalRef.current) setTerminalLayout(null); }
       setLayoutLoading(false);
     })();
-  }, [effectiveProjectId]);
+  }, [effectiveProjectId, propProjectId]);
 
   const saveLayout = useCallback((layout: PaneNode | null) => {
     if (!window.deskflowAPI) return;
@@ -474,7 +532,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     if (!window.deskflowAPI) return;
     try {
       const data = await window.deskflowAPI.getTerminalPresets(selectedProject || undefined);
-      setPresets(data || []);
+      const builtIn: Preset[] = [
+        { id: 'builtin-remind', name: 'Remind', command: '', category: 'system', isBuiltIn: true },
+      ];
+      setPresets([...builtIn, ...(data || [])]);
     } catch (e) {
       logOnce('terminal-presets', '[TerminalPage] Failed to load presets:', e);
     }
@@ -579,9 +640,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     } else if (activeTab === 'sessions') {
       loadSessions();
     } else if (activeTab === 'analytics' && window.deskflowAPI) {
-      window.deskflowAPI.getAIUsageSummary('day').then(setAiSummary).catch(() => {});
+      window.deskflowAPI.getAIUsageSummary(analyticsPeriod).then(setAiSummary).catch(() => {});
     }
-  }, [activeTab, selectedProject, loadPresets, loadSessions]);
+  }, [activeTab, selectedProject, loadPresets, loadSessions, analyticsPeriod]);
 
   // Persist active tab to localStorage
   useEffect(() => {
@@ -629,22 +690,39 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
   // Save workspace state on relevant changes (debounced)
   const saveWorkspaceDebounce = useRef<NodeJS.Timeout | null>(null);
-  useEffect(() => {
+
+  const handleSaveWorkspace = useCallback(async () => {
     if (!propProjectId || !window.deskflowAPI?.saveWorkspace) return;
-    if (saveWorkspaceDebounce.current) clearTimeout(saveWorkspaceDebounce.current);
-    saveWorkspaceDebounce.current = setTimeout(() => {
-      window.deskflowAPI.saveWorkspace({
+    try {
+      await window.deskflowAPI.saveWorkspace({
         projectId: propProjectId,
         scope: 'project',
         sidebarWidth,
         activeTab,
         terminalTabs: Object.keys(terminalTabs),
-      }).catch(() => {});
-    }, 2000);
+      });
+    } catch {}
+  }, [propProjectId, sidebarWidth, activeTab, terminalTabs]);
+
+  const handleLoadWorkspace = useCallback(async () => {
+    if (!propProjectId || !window.deskflowAPI?.loadWorkspace) return;
+    try {
+      const result = await window.deskflowAPI.loadWorkspace({ scope: 'project', projectId: propProjectId });
+      if (result?.success && result.data) {
+        if (result.data.sidebarWidth) setSidebarWidth(result.data.sidebarWidth);
+        if (result.data.activeTab) setActiveTab(result.data.activeTab);
+      }
+    } catch {}
+  }, [propProjectId]);
+
+  useEffect(() => {
+    if (!propProjectId || !window.deskflowAPI?.saveWorkspace) return;
+    if (saveWorkspaceDebounce.current) clearTimeout(saveWorkspaceDebounce.current);
+    saveWorkspaceDebounce.current = setTimeout(handleSaveWorkspace, 2000);
     return () => {
       if (saveWorkspaceDebounce.current) clearTimeout(saveWorkspaceDebounce.current);
     };
-  }, [propProjectId, sidebarWidth, activeTab, terminalTabs]);
+  }, [propProjectId, sidebarWidth, activeTab, terminalTabs, handleSaveWorkspace]);
 
   const spawnTerminal = useCallback(async (terminalId: string, cwd?: string) => {
     console.log('[TerminalPage] spawnTerminal called:', terminalId, cwd);
@@ -719,6 +797,39 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       handleTabSelect(terminalId);
     }
   }, [handleTabSelect, terminalTabs]);
+
+  const handleMiniMapToggleDirection = useCallback((_groupIndex: number, path: number[]) => {
+    if (!terminalLayout) return;
+    const newLayout = togglePaneDirection(terminalLayout, path);
+    setTerminalLayout(newLayout);
+    saveLayout(newLayout);
+  }, [terminalLayout, saveLayout]);
+
+  const handleTerminalMoveToGroup = useCallback((terminalId: string, targetGroupIndex: number) => {
+    if (!terminalLayout) return;
+    const groups = extractGroups(terminalLayout);
+    if (targetGroupIndex < 0 || targetGroupIndex >= groups.length) return;
+    const sourceGroup = groups.find(g => g.terminals.includes(terminalId));
+    if (!sourceGroup) return;
+    if (groups.indexOf(sourceGroup) === targetGroupIndex) return;
+    const newLeaf: PaneNode = { type: 'leaf', terminalId };
+    const targetLeaf = findLeafInTree(terminalLayout, groups[targetGroupIndex].terminals[0]);
+    if (!targetLeaf) return;
+    const newLayout = removeLeafFromTree(terminalLayout, terminalId);
+    const finalLayout = addLeafToGroup(newLayout, targetLeaf.terminalId!, newLeaf, 'vertical');
+    setTerminalLayout(finalLayout);
+    saveLayout(finalLayout);
+  }, [terminalLayout, saveLayout]);
+
+  const loadSavedConfigs = useCallback(async () => {
+    if (!window.deskflowAPI) return;
+    try {
+      const presetData = await window.deskflowAPI.getTerminalPresets(selectedProject || undefined);
+      return presetData || [];
+    } catch {
+      return [];
+    }
+  }, [selectedProject]);
 
   const handleActiveTerminalChange = useCallback((terminalId: string) => {
     setActiveTerminalId(terminalId);
@@ -812,6 +923,25 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const handleExecutePreset = useCallback(async (preset: Preset) => {
     if (!window.deskflowAPI || !activeTerminalId) return;
     try {
+      if (preset.isBuiltIn) {
+        if (preset.id === 'builtin-remind') {
+          const projectDir = propProjectPath || (projects.find(p => p.id === selectedProject)?.path);
+          if (projectDir) {
+            const rulesResult = await window.deskflowAPI.readProjectFile?.('agent/RULES_COMPACT.md', projectDir);
+            const stateResult = await window.deskflowAPI.readProjectFile?.('agent/state.md', projectDir);
+            const rulesContent = rulesResult?.success ? rulesResult.data : '';
+            const stateContent = stateResult?.success ? stateResult.data : '';
+            let remindContent = '## [SYSTEM] Remind — Current Session Context\n';
+            if (rulesContent) remindContent += rulesContent + '\n';
+            if (stateContent) {
+              const truncated = stateContent.length > 1500 ? stateContent.slice(0, 1500) + '...' : stateContent;
+              remindContent += '## Current State (from state.md)\n' + truncated + '\n';
+            }
+            await window.deskflowAPI.terminalWrite(activeTerminalId, remindContent + '\n');
+          }
+        }
+        return;
+      }
       const result = await window.deskflowAPI.executeTerminalPreset(preset.id);
       if (result?.command) {
         await window.deskflowAPI.terminalWrite(activeTerminalId, result.command + '\n');
@@ -819,7 +949,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     } catch (e) {
       console.warn('[TerminalPage] Failed to execute preset:', e);
     }
-  }, [activeTerminalId]);
+  }, [activeTerminalId, propProjectPath, projects, selectedProject]);
 
   const handleResumeSession = useCallback(async (session: Session, targetTerminalId?: string) => {
     if (!window.deskflowAPI) return;
@@ -843,7 +973,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
       if (!resolvedTerminalId) {
         resolvedTerminalId = `term-${Date.now()}-resume`;
-        setTerminalTabs(prev => ({ ...prev, [resolvedTerminalId!]: { name: proj?.name || 'Resumed', agent: session.agent || 'claude' } }));
+        setTerminalTabs(prev => ({ ...prev, [resolvedTerminalId!]: { name: proj?.name || 'Resumed', agent: session.agent || 'claude', modelTier: session.modelTier || 'mid' } }));
         setActiveTerminalId(resolvedTerminalId);
         const updatedLayout = insertIntoLayout(terminalLayout, resolvedTerminalId);
         setTerminalLayout(updatedLayout);
@@ -953,19 +1083,53 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       setShowNewSessionDialog(true);
     };
 
+    const handleTriggerProvision = () => {
+      if (initStatus === 'init-ok') {
+        if (!window.confirm('This project is already initialized. Re-initialize workspace files?')) return;
+      }
+      setShowInitModal(true);
+    };
+
+    const handleOpenNewAgent = () => {
+      if (!selectedProject) { showError('Please select a project first', 'warning'); return; }
+      setNewSessionMode('initialize');
+      setNewSessionAgent(localStorage.getItem('terminal-defaultAgent') || 'claude');
+      setShowNewSessionDialog(true);
+    };
+
     window.addEventListener('create-terminal-for-problem', handleCreateTerminalForProblem as EventListener);
     window.addEventListener('focus-terminal', handleFocusTerminal as EventListener);
     window.addEventListener('terminal-created', handleTerminalCreated as EventListener);
     window.addEventListener('close-pane', handleClosePane as EventListener);
     window.addEventListener('open-new-session-for-terminal', handleOpenNewSessionForTerminal as EventListener);
+    window.addEventListener('trigger-provision', handleTriggerProvision);
+    window.addEventListener('open-new-agent', handleOpenNewAgent);
+    const handleSwitchSidebarTab = (e: CustomEvent) => {
+      const tab = e.detail;
+      if (tab === 'context') setActiveTab('context');
+    };
+    window.addEventListener('switch-sidebar-tab', handleSwitchSidebarTab as EventListener);
+    const handleCloseWorkspaceDialog = () => {
+      const hasTerminals = Object.keys(terminalTabsRef.current).length > 0;
+      if (!hasTerminals) {
+        onCloseWorkspaceRef.current?.();
+        return;
+      }
+      setShowCloseWorkspaceDialog(true);
+    };
+    window.addEventListener('open-close-workspace-dialog', handleCloseWorkspaceDialog);
     return () => {
       window.removeEventListener('create-terminal-for-problem', handleCreateTerminalForProblem as EventListener);
       window.removeEventListener('focus-terminal', handleFocusTerminal as EventListener);
       window.removeEventListener('terminal-created', handleTerminalCreated as EventListener);
       window.removeEventListener('close-pane', handleClosePane as EventListener);
       window.removeEventListener('open-new-session-for-terminal', handleOpenNewSessionForTerminal as EventListener);
+      window.removeEventListener('trigger-provision', handleTriggerProvision);
+      window.removeEventListener('switch-sidebar-tab', handleSwitchSidebarTab as EventListener);
+      window.removeEventListener('open-new-agent', handleOpenNewAgent);
+      window.removeEventListener('open-close-workspace-dialog', handleCloseWorkspaceDialog);
     };
-  }, [projects, selectedProject, registerTerminal, spawnTerminal, loadSessions, initializeTerminal, handleTabSelect, closeTerminal]);
+  }, [projects, selectedProject, propProjectId, propProjectPath, registerTerminal, spawnTerminal, loadSessions, initializeTerminal, handleTabSelect, closeTerminal, showError, setInitStatus, setNewSessionMode, setNewSessionAgent, setShowNewSessionDialog]);
 
   return (
     <div className="flex-1 flex bg-black text-white">
@@ -1007,57 +1171,32 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     </div>
                   )}
                 </div>
-          <button
-            onClick={async () => {
-              if (!selectedProject) {
-                alert('Please select a project first');
-                return;
-              }
-              const proj = projects.find(p => p.id === selectedProject);
-              if (proj) {
-                const agent = localStorage.getItem('terminal-defaultAgent') || 'claude';
-                const termId = `term-${Date.now()}`;
-                setTerminalTabs(prev => ({ ...prev, [termId]: { name: proj.name, agent } }));
-                setActiveTerminalId(termId);
-                const updatedLayout = insertIntoLayout(terminalLayout, termId);
-                setTerminalLayout(updatedLayout);
-                saveLayout(updatedLayout);
-                window.dispatchEvent(new CustomEvent('create-terminal', {
-                  detail: { terminalId: termId, cwd: proj.path, agent },
-                }));
-              }
-            }}
-          className="px-2 py-1 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 active:scale-95"
-          >
-            <Plus className="w-3 h-3" />
-            Open Terminal
-          </button>
-                </div>
-              )}
-          <button
-            onClick={handleInitSetup}
-            disabled={initStatus === 'checking'}
-            className="px-2 py-1 bg-green-700 hover:bg-green-600 disabled:bg-zinc-700 text-white text-xs rounded flex items-center gap-1 transition-all duration-200"
-            title="Initialize agent directory structure"
-          >
-            <Zap className="w-3 h-3" />
-            {initStatus === 'init-ok' ? 'Re-init' : initStatus === 'checking' ? '...' : 'Setup'}
-          </button>
-          <button
-            onClick={() => {
-              if (!selectedProject) { showError('Please select a project first', 'warning'); return; }
-              setNewSessionMode('initialize');
-              setNewSessionAgent(localStorage.getItem('terminal-defaultAgent') || 'claude');
-              setShowNewSessionDialog(true);
-            }}
-            className="px-2 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200"
-            title="Initialize agent workspace (read agents.md + init files)"
-          >
-            <FileText className="w-3 h-3" />
-            Initialize
-          </button>
-            
-            {/* Terminal Status Indicator */}
+                <button
+                  onClick={async () => {
+                    if (!selectedProject) { alert('Please select a project first'); return; }
+                    const proj = projects.find(p => p.id === selectedProject);
+                    if (proj) {
+                      const agent = localStorage.getItem('terminal-defaultAgent') || 'claude';
+                      const termId = `term-${Date.now()}`;
+                      setTerminalTabs(prev => ({ ...prev, [termId]: { name: proj.name, agent, modelTier: 'mid' } }));
+                      setActiveTerminalId(termId);
+                      const updatedLayout = insertIntoLayout(terminalLayout, termId);
+                      setTerminalLayout(updatedLayout);
+                      saveLayout(updatedLayout);
+                      window.dispatchEvent(new CustomEvent('create-terminal', {
+                        detail: { terminalId: termId, cwd: proj.path, agent },
+                      }));
+                    }
+                  }}
+                  className="px-2 py-1 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 active:scale-95"
+                >
+                  <Plus className="w-3 h-3" />
+                  Open Terminal
+                </button>
+              </div>
+            )}
+
+          {/* Terminal Status Indicator */}
             {activeTerminalId && terminalBindings[activeTerminalId] && (
               <div className="flex items-center gap-2 ml-4 px-2 py-1 bg-zinc-800/50 rounded text-xs relative border border-zinc-700/30">
                 <TerminalIcon className="w-3 h-3 text-green-400" />
@@ -1324,6 +1463,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 <Monitor className="w-3 h-3 text-green-500" />
                 {sessionInTab && <StatusDot status={sessionInTab.status} />}
                 <span>{tab.name}</span>
+                {tab.modelTier && (
+                  <span className={`text-[9px] px-1 rounded font-medium ${
+                    tab.modelTier === 'top' ? 'bg-green-500/20 text-green-400' :
+                    tab.modelTier === 'low' ? 'bg-yellow-500/20 text-yellow-400' :
+                    'bg-blue-500/20 text-blue-400'
+                  }`}>
+                    {tab.modelTier}
+                  </span>
+                )}
                 {sessionInTab && <CategoryBadge category={sessionInTab.category} />}
                 <span className="text-[10px] text-zinc-600 max-w-[80px] truncate">{sessionInTab?.topic || tab.agent}</span>
                 {sessionInTab && (
@@ -1344,7 +1492,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               const newId = `term-${Date.now()}`;
               const count = Object.keys(terminalTabs).length;
               const defaultAgent = localStorage.getItem('terminal-defaultAgent') || 'claude';
-              setTerminalTabs(prev => ({ ...prev, [newId]: { name: `Terminal ${count + 1}`, agent: defaultAgent } }));
+              setTerminalTabs(prev => ({ ...prev, [newId]: { name: `Terminal ${count + 1}`, agent: defaultAgent, modelTier: 'mid' } }));
               setActiveTerminalId(newId);
               const updatedLayout = insertIntoLayout(terminalLayout, newId);
               setTerminalLayout(updatedLayout);
@@ -1408,68 +1556,53 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           </div>
           {/* Tab Headers */}
           <div className="flex border-b border-zinc-800 flex-wrap">
-            <button
-              onClick={() => setActiveTab('presets')}
-              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
-                activeTab === 'presets' ? 'text-green-400 border-b-2 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-              }`}
-            >
-              <Zap className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() => setActiveTab('sessions')}
-              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
-                activeTab === 'sessions' ? 'text-green-400 border-b-2 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-              }`}
-            >
-              <Clock className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() => setActiveTab('map')}
-              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
-                activeTab === 'map' ? 'text-green-400 border-b-2 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-              }`}
-            >
-              <Monitor className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() => setActiveTab('analytics')}
-              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
-                activeTab === 'analytics' ? 'text-green-400 border-b-2 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-              }`}
-            >
-              <PieChart className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() => setActiveTab('problems')}
-              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
-                activeTab === 'problems' ? 'text-purple-400 border-b-2 border-purple-500 shadow-[0_0_6px_rgba(168,85,247,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-              }`}
-              title="Problems"
-            >
-              <AlertCircle className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() => setActiveTab('requests')}
-              className={`px-2 py-2 text-xs font-medium transition-all duration-150 ${
-                activeTab === 'requests' ? 'text-blue-400 border-b-2 border-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-              }`}
-              title="Requests"
-            >
-              <FileText className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() => { setActiveTab('files'); setFileChangedPulse(false); }}
-              className={`px-2 py-2 text-xs font-medium transition-all duration-150 relative ${
-                activeTab === 'files' ? 'text-yellow-400 border-b-2 border-yellow-500 shadow-[0_0_6px_rgba(234,179,8,0.25)]' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-              }`}
-              title="Agent Files"
-            >
-              <Folder className="w-3 h-3" />
-              {fileChangedPulse && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full animate-ping" />
-              )}
-            </button>
+            {([
+              { key: 'presets', icon: Zap, label: 'Presets', color: 'green' },
+              { key: 'sessions', icon: Clock, label: 'Sessions', color: 'green' },
+              { key: 'map', icon: Monitor, label: 'Map', color: 'green' },
+              { key: 'analytics', icon: PieChart, label: 'Analytics', color: 'green' },
+              { key: 'issues', icon: ListChecks, label: 'Issues', color: 'emerald' },
+              { key: 'files', icon: Folder, label: 'Files', color: 'yellow' },
+              { key: 'skills', icon: Sparkles, label: 'Skills', color: 'indigo' },
+              { key: 'design', icon: Palette, label: 'Design', color: 'pink' },
+              { key: 'configs', icon: Settings, label: 'Configs', color: 'orange' },
+              { key: 'history', icon: RefreshCw, label: 'History', color: 'rose' },
+              { key: 'context', icon: Settings2, label: 'Context', color: 'amber' },
+              { key: 'context-maintenance', icon: Database, label: 'Maintenance', color: 'violet' },
+            ] as const).map((tab) => {
+              const colorMap: Record<string, string> = {
+                green: 'text-green-400 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]',
+                emerald: 'text-emerald-400 border-emerald-500 shadow-[0_0_6px_rgba(52,211,153,0.25)]',
+                yellow: 'text-yellow-400 border-yellow-500 shadow-[0_0_6px_rgba(234,179,8,0.25)]',
+                indigo: 'text-indigo-400 border-indigo-500 shadow-[0_0_6px_rgba(102,51,153,0.25)]',
+                pink: 'text-pink-400 border-pink-500 shadow-[0_0_6px_rgba(236,72,153,0.25)]',
+                orange: 'text-orange-400 border-orange-500 shadow-[0_0_6px_rgba(251,146,60,0.25)]',
+                rose: 'text-rose-400 border-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.25)]',
+                violet: 'text-violet-400 border-violet-500 shadow-[0_0_6px_rgba(168,85,247,0.25)]',
+                amber: 'text-amber-400 border-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.25)]',
+              };
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => {
+                    if (tab.key === 'files') setFileChangedPulse(false);
+                    setActiveTab(tab.key);
+                  }}
+                  className={`flex items-center gap-1.5 px-2 py-2 text-xs font-medium transition-all duration-150 relative ${
+                    isActive
+                      ? `${colorMap[tab.color]} border-b-2`
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                  }`}
+                >
+                  <tab.icon className="w-3 h-3 shrink-0" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  {tab.key === 'files' && fileChangedPulse && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full animate-ping" />
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Content */}
@@ -1550,7 +1683,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   presets.map((preset) => (
                     <div key={preset.id} className="mb-2 p-2 bg-zinc-800 rounded group">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-zinc-200">{preset.name}</span>
+                        <span className="text-xs font-medium text-zinc-200">
+                          {preset.isBuiltIn && <span className="text-[10px] text-blue-400 mr-1">[SYSTEM]</span>}
+                          {preset.name}
+                        </span>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100">
                           <button
                             onClick={() => handleExecutePreset(preset)}
@@ -1559,176 +1695,264 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                           >
                             <Play className="w-3 h-3 text-green-400" />
                           </button>
-                          <button
-                            onClick={() => handleRemovePreset(preset.id)}
-                            className="p-1 hover:bg-zinc-700 rounded"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-3 h-3 text-red-400" />
-                          </button>
+                          {!preset.isBuiltIn && (
+                            <button
+                              onClick={() => handleRemovePreset(preset.id)}
+                              className="p-1 hover:bg-zinc-700 rounded"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3 h-3 text-red-400" />
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <div className="text-xs text-zinc-500 font-mono truncate">{preset.command}</div>
+                      <div className="text-xs text-zinc-500 font-mono truncate">{preset.command || 'Re-inject context snapshot into active terminal'}</div>
                     </div>
                   ))
                 )}
               </div>
             )}
 
-            {activeTab === 'sessions' && (
-              <div>
-                <div className="mb-4 flex gap-2">
-                  <button
-                    onClick={() => {
-                      setNewSessionTerminalMode('create');
-                      setNewSessionSelectedTerminal('');
-                      setNewSessionAgent('claude');
-                      setNewSessionName('');
-                      setShowNewSessionDialog(true);
-                    }}
-                    className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 active:scale-95"
-                  >
-                    <Plus className="w-3 h-3" />
-                    New Session
-                  </button>
-                </div>
-                {/* Category filter pills */}
-                {sessions.length > 0 && (
-                  <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
-                    {[{ key: 'all', label: 'All' }, ...Object.entries(SESSION_CATEGORIES).map(([k, v]) => ({ key: k, label: v.label }))].map(f => {
-                      const cat = SESSION_CATEGORIES[f.key];
-                      const isActive = sessionCategoryFilter === f.key;
-                      return (
-                        <button
-                          key={f.key}
-                          onClick={() => setSessionCategoryFilter(f.key)}
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-all ${
-                            isActive
-                              ? cat ? `${cat.bg} ${cat.text} border ${cat.border}` : 'bg-zinc-700 text-white'
-                              : 'bg-transparent text-zinc-400 border border-zinc-700 hover:bg-zinc-800'
-                          }`}
-                        >
-                          {f.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {sessions.length === 0 ? (
-                  <p className="text-xs text-zinc-500">No sessions yet. Create one using the button above.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {sessions
-                      .filter(s => sessionCategoryFilter === 'all' || s.category === sessionCategoryFilter)
-                      .map((session) => {
-                      const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
-                        ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
-                        : null;
-                      const tags = (() => { try { return JSON.parse(session.auto_tags || '[]'); } catch { return []; } })();
-                      return (
-                        <div key={session.id} className={`mb-2 p-2 bg-zinc-800 rounded group hover:bg-zinc-750 transition-colors border-l-2 ${
-                          terminalInfo ? 'border-l-green-700/40' : 'border-l-zinc-700/20'
-                        }`}>
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <StatusDot status={session.status} />
-                                <CategoryBadge category={session.category} />
-                                <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-1.5 py-0.5 rounded">{session.agent}</span>
-                                <span className="text-xs font-medium text-zinc-200 truncate">{session.topic || 'Unnamed Session'}</span>
-                                {terminalInfo ? (
-                                  <span className="text-[10px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                    {terminalInfo.name}
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] text-zinc-500 bg-zinc-700/30 px-1.5 py-0.5 rounded">Closed</span>
-                                )}
-                              </div>
-                              {session.description && (
-                                <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1">{session.description}</div>
-                              )}
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[10px] text-zinc-500">{formatDate(session.created_at)}</span>
-                                {session.product_area && (
-                                  <span className="text-[10px] text-cyan-600/80">{session.product_area}</span>
-                                )}
-                                {session.resume_id && (
-                                  <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(0, 12)}…</span>
-                                )}
-                              </div>
-                              {tags.length > 0 && (
-                                <div className="flex gap-1 mt-1 flex-wrap">
-                                  {tags.slice(0, 5).map((t: string, i: number) => (
-                                    <span key={i} className="text-[9px] px-1.5 py-0.5 bg-zinc-700/50 text-zinc-400 rounded">{t}</span>
-                                  ))}
-                                </div>
-                              )}
-                              {session.total_cost !== undefined && (
-                                <div className="text-[10px] text-zinc-600 mt-0.5">Cost: ${session.total_cost.toFixed(2)}</div>
-                              )}
-                            </div>
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0">
-                              <button
-                                onClick={async () => {
-                                  if (terminalInfo) {
-                                    setActiveTerminalId(session.terminal_id!);
-                                    window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } }));
-                                  } else {
-                                    handleResumeSession(session);
-                                  }
-                                }}
-                                title={terminalInfo ? 'Focus terminal' : 'Open in terminal'}
-                                className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-blue-200 text-xs rounded whitespace-nowrap"
-                              >
-                                {terminalInfo ? 'Focus' : 'Open'}
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
-                                    if (result?.success) {
-                                      setSessionMessages(result.data || []);
-                                      setShowMessagesViewer(session.id);
-                                    }
-                                  } catch {}
-                                }}
-                                title="View session messages"
-                                className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-xs rounded"
-                              >
-                                Messages
-                              </button>
-                              <button
-                                onClick={() => setConfirmDialog({
-                                  isOpen: true,
-                                  message: `Delete session "${session.topic}" permanently?`,
-                                  onConfirm: () => handleDeleteSession(session.id),
-                                })}
-                                title="Delete session"
-                                className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-red-200 text-xs rounded"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+             {activeTab === 'sessions' && (
+               <div>
+                 {selectedSessionDetail ? (
+                   /* ── Session Detail View ── */
+                   <div>
+                     <button
+                       onClick={() => { setSelectedSessionDetail(null); setSessionMessages([]); }}
+                       className="mb-3 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded flex items-center gap-1"
+                     >
+                       ← Back to sessions
+                     </button>
+                     {(() => {
+                       const session = sessions.find(s => s.id === selectedSessionDetail);
+                       if (!session) return <p className="text-xs text-zinc-500">Session not found.</p>;
+                       const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
+                         ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
+                         : null;
+                       return (
+                         <div>
+                           {/* Session Header */}
+                           <div className="p-3 bg-zinc-800 rounded-lg mb-3">
+                             <div className="flex items-center justify-between mb-2">
+                               <div className="flex items-center gap-2">
+                                 <StatusDot status={session.status} size="md" />
+                                 <span className="text-sm font-bold text-white">{session.topic || 'Unnamed Session'}</span>
+                               </div>
+                               <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-2 py-1 rounded">{session.agent}</span>
+                             </div>
+                             <div className="grid grid-cols-2 gap-2 text-[10px]">
+                               <div><span className="text-zinc-500">Status:</span> <span className="text-zinc-300">{session.status || 'Unknown'}</span></div>
+                               <div><span className="text-zinc-500">Category:</span> <span className="text-zinc-300">{session.category || 'Uncategorized'}</span></div>
+                               <div><span className="text-zinc-500">Date:</span> <span className="text-zinc-300">{formatDate(session.created_at)}</span></div>
+                               <div><span className="text-zinc-500">Terminal:</span> <span className="text-zinc-300">{terminalInfo ? `${terminalInfo.name} (active)` : 'Closed'}</span></div>
+                               <div><span className="text-zinc-500">Cost:</span> <span className="text-emerald-400">${session.total_cost?.toFixed(2) || '0.00'}</span></div>
+                               <div><span className="text-zinc-500">Tokens:</span> <span className="text-zinc-300">{session.total_tokens?.toLocaleString() || 0}</span></div>
+                               {session.resume_id && <div className="col-span-2"><span className="text-zinc-500">Resume ID:</span> <span className="text-zinc-300 font-mono">{session.resume_id}</span></div>}
+                               {session.description && <div className="col-span-2"><span className="text-zinc-500">Description:</span> <span className="text-zinc-300">{session.description}</span></div>}
+                               {session.product_area && <div className="col-span-2"><span className="text-zinc-500">Area:</span> <span className="text-cyan-600">{session.product_area}</span></div>}
+                             </div>
+                             <div className="flex gap-2 mt-3">
+                               {terminalInfo ? (
+                                 <button onClick={() => { setActiveTerminalId(session.terminal_id!); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } })); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-blue-100 text-xs rounded">Focus Terminal</button>
+                               ) : (
+                                 <button onClick={() => handleResumeSession(session)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-cyan-100 text-xs rounded">Open in Terminal</button>
+                               )}
+                             </div>
+                           </div>
+                           {/* Session Messages */}
+                           <div className="p-3 bg-zinc-800 rounded-lg">
+                             <div className="flex items-center justify-between mb-2">
+                               <span className="text-[10px] text-zinc-500">Messages</span>
+                               <button
+                                 onClick={async () => {
+                                   try {
+                                     const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
+                                     if (result?.success) setSessionMessages(result.data || []);
+                                   } catch {}
+                                 }}
+                                 className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded"
+                               >
+                                 Refresh
+                               </button>
+                             </div>
+                             {sessionMessages.length === 0 ? (
+                               <p className="text-[10px] text-zinc-600">No messages loaded. Click Refresh to load.</p>
+                             ) : (
+                               <div className="space-y-1 max-h-48 overflow-y-auto">
+                                 {sessionMessages.map((msg: any, i: number) => (
+                                   <div key={i} className={`px-2 py-1 rounded text-[10px] ${msg.role === 'assistant' ? 'bg-cyan-900/20 border-l-2 border-cyan-500/30' : msg.role === 'user' ? 'bg-blue-900/20 border-l-2 border-blue-500/30' : 'bg-zinc-900/50 border-l-2 border-zinc-500/30'}`}>
+                                     <span className="text-[9px] font-medium text-zinc-500 uppercase mr-1">{msg.role}</span>
+                                     <span className="text-zinc-300">{msg.content?.slice(0, 200)}{msg.content?.length > 200 ? '...' : ''}</span>
+                                   </div>
+                                 ))}
+                               </div>
+                             )}
+                           </div>
+                         </div>
+                       );
+                     })()}
+                   </div>
+                 ) : (
+                   /* ── Session List ── */
+                   <div>
+                     <div className="mb-4 flex gap-2">
+                       <button
+                         onClick={() => {
+                           setNewSessionTerminalMode('create');
+                           setNewSessionSelectedTerminal('');
+                           setNewSessionAgent('claude');
+                           setNewSessionName('');
+                           setShowNewSessionDialog(true);
+                         }}
+                         className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 active:scale-95"
+                       >
+                         <Plus className="w-3 h-3" />
+                         New Session
+                       </button>
+                     </div>
+                     {/* Category filter pills */}
+                     {sessions.length > 0 && (
+                       <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
+                         {[{ key: 'all', label: 'All' }, ...Object.entries(SESSION_CATEGORIES).map(([k, v]) => ({ key: k, label: v.label }))].map(f => {
+                           const cat = SESSION_CATEGORIES[f.key];
+                           const isActive = sessionCategoryFilter === f.key;
+                           return (
+                             <button
+                               key={f.key}
+                               onClick={() => setSessionCategoryFilter(f.key)}
+                               className={`px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-all ${
+                                 isActive
+                                   ? cat ? `${cat.bg} ${cat.text} border ${cat.border}` : 'bg-zinc-700 text-white'
+                                   : 'bg-transparent text-zinc-400 border border-zinc-700 hover:bg-zinc-800'
+                               }`}
+                             >
+                               {f.label}
+                             </button>
+                           );
+                         })}
+                       </div>
+                     )}
+                     {sessions.length === 0 ? (
+                       <p className="text-xs text-zinc-500">No sessions yet. Create one using the button above.</p>
+                     ) : (
+                       <div className="space-y-2">
+                         {sessions
+                           .filter(s => sessionCategoryFilter === 'all' || s.category === sessionCategoryFilter)
+                           .map((session) => {
+                           const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
+                             ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
+                             : null;
+                           const tags = (() => { try { return JSON.parse(session.auto_tags || '[]'); } catch { return []; } })();
+                           return (
+                             <div key={session.id} className={`mb-2 p-2 bg-zinc-800 rounded group hover:bg-zinc-750 transition-colors border-l-2 ${
+                               terminalInfo ? 'border-l-green-700/40' : 'border-l-zinc-700/20'
+                             } cursor-pointer`}
+                               onClick={() => { setSelectedSessionDetail(session.id); setSessionMessages([]); }}
+                             >
+                               <div className="flex items-start justify-between">
+                                 <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                                   <div className="flex items-center gap-1.5 flex-wrap">
+                                     <StatusDot status={session.status} />
+                                     <CategoryBadge category={session.category} />
+                                     <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-1.5 py-0.5 rounded">{session.agent}</span>
+                                     <span className="text-xs font-medium text-zinc-200 truncate">{session.topic || 'Unnamed Session'}</span>
+                                     {terminalInfo ? (
+                                       <span className="text-[10px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                         {terminalInfo.name}
+                                       </span>
+                                     ) : (
+                                       <span className="text-[10px] text-zinc-500 bg-zinc-700/30 px-1.5 py-0.5 rounded">Closed</span>
+                                     )}
+                                   </div>
+                                   {session.description && (
+                                     <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1">{session.description}</div>
+                                   )}
+                                   <div className="flex items-center gap-2 mt-0.5">
+                                     <span className="text-[10px] text-zinc-500">{formatDate(session.created_at)}</span>
+                                     {session.product_area && (
+                                       <span className="text-[10px] text-cyan-600/80">{session.product_area}</span>
+                                     )}
+                                     {session.resume_id && (
+                                       <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(0, 12)}…</span>
+                                     )}
+                                   </div>
+                                   {tags.length > 0 && (
+                                     <div className="flex gap-1 mt-1 flex-wrap">
+                                       {tags.slice(0, 5).map((t: string, i: number) => (
+                                         <span key={i} className="text-[9px] px-1.5 py-0.5 bg-zinc-700/50 text-zinc-400 rounded">{t}</span>
+                                       ))}
+                                     </div>
+                                   )}
+                                   {session.total_cost !== undefined && (
+                                     <div className="text-[10px] text-zinc-600 mt-0.5">Cost: ${session.total_cost.toFixed(2)}</div>
+                                   )}
+                                 </div>
+                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                   <button
+                                     onClick={async () => {
+                                       if (terminalInfo) {
+                                         setActiveTerminalId(session.terminal_id!);
+                                         window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } }));
+                                       } else {
+                                         handleResumeSession(session);
+                                       }
+                                     }}
+                                     title={terminalInfo ? 'Focus terminal' : 'Open in terminal'}
+                                     className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-blue-200 text-xs rounded whitespace-nowrap"
+                                   >
+                                     {terminalInfo ? 'Focus' : 'Open'}
+                                   </button>
+                                   <button
+                                     onClick={async () => {
+                                       try {
+                                         const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
+                                         if (result?.success) {
+                                           setSessionMessages(result.data || []);
+                                           setShowMessagesViewer(session.id);
+                                         }
+                                       } catch {}
+                                     }}
+                                     title="View session messages"
+                                     className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-xs rounded"
+                                   >
+                                     Messages
+                                   </button>
+                                   <button
+                                     onClick={() => setConfirmDialog({
+                                       isOpen: true,
+                                       message: `Delete session "${session.topic}" permanently?`,
+                                       onConfirm: () => handleDeleteSession(session.id),
+                                     })}
+                                     title="Delete session"
+                                     className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-red-200 text-xs rounded"
+                                   >
+                                     Delete
+                                   </button>
+                                 </div>
+                               </div>
+                             </div>
+                           );
+                         })}
+                       </div>
+                     )}
+                   </div>
+                 )}
+               </div>
+             )}
 
             {activeTab === 'map' && (
               <div className="flex flex-col h-full">
                 <p className="text-xs text-zinc-500 mb-2">Drag panes to rearrange or split • Click to focus</p>
                 {terminalLayout ? (
                   <TerminalMiniMap
-                    layout={terminalLayout}
+                    layouts={[terminalLayout]}
                     activeTerminalId={activeTerminalId}
                     onTerminalSelect={handleMiniMapTerminalSelect}
                     onTerminalMove={handleMiniMapTerminalMove}
                     onSplit={handleMiniMapSplit}
+                    onToggleDirection={handleMiniMapToggleDirection}
                   />
                 ) : (
                   <p className="text-xs text-zinc-600 mb-4">No terminals open</p>
@@ -1743,188 +1967,241 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     <p className="text-xs text-zinc-600 px-2 mb-3">No running terminals</p>
                   ) : (
                     <div className="space-y-2 mb-4">
-                      {Object.entries(terminalTabs).map(([id, tab]) => {
-                        const sessionInTerminal = sessions.find(s => s.terminal_id === id);
-                        return (
-                          <div
-                            key={id}
-                            className={`p-2 rounded border transition-all duration-150 ${
-                              activeTerminalId === id
-                                ? 'bg-zinc-700/80 border-zinc-600/50 shadow-[0_0_10px_rgba(0,0,0,0.2)]'
-                                : 'bg-zinc-800/50 border-zinc-700/30 hover:bg-zinc-700/50'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs font-medium text-zinc-200 truncate">{tab.name}</div>
-                                <div className="text-[10px] text-zinc-500">{tab.agent}</div>
+                      {(() => {
+                        const groups = extractGroups(terminalLayout);
+                        return groups.length > 0 ? groups.map((group, gi) => (
+                          <div key={gi} className="bg-zinc-800/20 border border-zinc-700/30 rounded-lg overflow-hidden">
+                            <div className="px-2 py-1 bg-zinc-800/40 border-b border-zinc-700/20 flex items-center justify-between">
+                              <span className="text-[10px] font-medium text-zinc-500">Group {gi + 1}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] text-zinc-600">{group.direction === 'vertical' ? '↕ Stack' : group.direction === 'horizontal' ? '↔ Side-by-side' : '—'}</span>
+                                <span className="text-[9px] text-zinc-600">{group.terminals.length} terminal{group.terminals.length !== 1 ? 's' : ''}</span>
                               </div>
-                              {activeTerminalId === id && (
-                                <span className="text-[10px] text-green-400">active</span>
-                              )}
                             </div>
-                            {sessionInTerminal ? (
-                              <div className="mt-1.5 ml-4 pl-2 border-l-2 border-cyan-500/30">
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <span className="text-[10px] text-cyan-400">Session:</span>
-                                  <CategoryBadge category={sessionInTerminal.category} />
-                                  <StatusDot status={sessionInTerminal.status} />
-                                  <span className="text-[10px] text-zinc-300 truncate">{sessionInTerminal.topic || 'Unnamed'}</span>
-                                </div>
-                                <div className="text-[9px] text-zinc-600 mt-0.5">{sessionInTerminal.agent} • {formatDate(sessionInTerminal.created_at)}</div>
-                              </div>
-                            ) : (
-                              <div className="mt-1.5 ml-4 pl-2 border-l-2 border-zinc-700/30">
-                                <div className="text-[9px] text-zinc-500">No session — ready to assign</div>
-                              </div>
-                            )}
-                            <div className="flex gap-1 mt-1.5">
-                              <button
-                                onClick={() => { setActiveTerminalId(id); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: id } })); }}
-                                className="flex-1 px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[9px] rounded"
-                              >
-                                Focus
-                              </button>
-                              {!sessionInTerminal && (
-                                <button
-                                  onClick={() => {
-                                    const event = new CustomEvent('open-new-session-for-terminal', { detail: { terminalId: id } });
-                                    window.dispatchEvent(event);
-                                  }}
-                                  className="flex-1 px-1.5 py-0.5 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 text-[9px] rounded"
-                                >
-                                  New Session
-                                </button>
-                              )}
+                            <div className="p-1.5 space-y-1">
+                              {group.terminals.map(tid => {
+                                const tab = terminalTabs[tid];
+                                if (!tab) return null;
+                                const sessionInTerminal = sessions.find(s => s.terminal_id === tid);
+                                return (
+                                  <div key={tid} className={`p-2 rounded border transition-all duration-150 ${
+                                    activeTerminalId === tid
+                                      ? 'bg-zinc-700/80 border-zinc-600/50 shadow-[0_0_10px_rgba(0,0,0,0.2)]'
+                                      : 'bg-zinc-800/50 border-zinc-700/30 hover:bg-zinc-700/50'
+                                  }`}>
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-xs font-medium text-zinc-200 truncate">{tab.name}</div>
+                                        <div className="text-[10px] text-zinc-500">{tab.agent}</div>
+                                      </div>
+                                      {activeTerminalId === tid && (
+                                        <span className="text-[10px] text-green-400">active</span>
+                                      )}
+                                    </div>
+                                    {sessionInTerminal ? (
+                                      <div className="mt-1.5 ml-4 pl-2 border-l-2 border-cyan-500/30">
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                          <span className="text-[10px] text-cyan-400">Session:</span>
+                                          <CategoryBadge category={sessionInTerminal.category} />
+                                          <StatusDot status={sessionInTerminal.status} />
+                                          <span className="text-[10px] text-zinc-300 truncate">{sessionInTerminal.topic || 'Unnamed'}</span>
+                                        </div>
+                                        <div className="text-[9px] text-zinc-600 mt-0.5">{sessionInTerminal.agent} • {formatDate(sessionInTerminal.created_at)}</div>
+                                      </div>
+                                    ) : (
+                                      <div className="mt-1.5 ml-4 pl-2 border-l-2 border-zinc-700/30">
+                                        <div className="text-[9px] text-zinc-500">No session — ready to assign</div>
+                                      </div>
+                                    )}
+                                    <div className="flex gap-1 mt-1.5">
+                                      <button
+                                        onClick={() => { setActiveTerminalId(tid); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: tid } })); }}
+                                        className="flex-1 px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[9px] rounded"
+                                      >
+                                        Focus
+                                      </button>
+                                      {!sessionInTerminal && (
+                                        <button
+                                          onClick={() => {
+                                            const event = new CustomEvent('open-new-session-for-terminal', { detail: { terminalId: tid } });
+                                            window.dispatchEvent(event);
+                                          }}
+                                          className="flex-1 px-1.5 py-0.5 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 text-[9px] rounded"
+                                        >
+                                          New Session
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
+                        )) : (
+                          <p className="text-[10px] text-zinc-500">No layout groups defined.</p>
                         );
-                      })}
+                      })()}
                     </div>
                   )}
 
-                  <div className="text-xs font-medium text-zinc-400 mb-2 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-zinc-500" />
-                    Sessions ({sessions.length})
-                  </div>
-                  {sessions.length === 0 ? (
-                    <p className="text-xs text-zinc-600 px-2">No sessions</p>
-                  ) : (
-                    <div className="space-y-1">
-                      {sessions.slice(0, 20).map((session) => {
-                        const isRunning = session.terminal_id && terminalTabs[session.terminal_id];
-                        return (
-                          <div key={session.id} className={`px-2 py-2 rounded group transition-colors duration-150 ${
-                            isRunning ? 'bg-zinc-800/30 border-l-2 border-green-700/30' : 'bg-zinc-800/10 border-l-2 border-zinc-700/20'
-                          }`}>
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <StatusDot status={session.status} />
-                                  <CategoryBadge category={session.category} />
-                                  <span className={`text-[10px] font-medium px-1 rounded ${
-                                    isRunning ? 'text-green-400 bg-green-500/20' : 'text-zinc-500 bg-zinc-700/30'
-                                  }`}>{session.agent}</span>
-                                  <span className="text-xs text-zinc-300 truncate">{session.topic || 'No topic'}</span>
-                                </div>
-                                <div className="text-[10px] text-zinc-600 flex items-center gap-1 mt-0.5">
-                                  {isRunning ? (
-                                    <><span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {terminalTabs[session.terminal_id!]?.name || 'Terminal'}</>
-                                  ) : (
-                                    <><span className="w-1.5 h-1.5 rounded-full bg-zinc-500" /> Closed • {formatDate(session.created_at)}</>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 flex-shrink-0">
-                                {isRunning ? (
-                                  <button
-                                    onClick={() => { setActiveTerminalId(session.terminal_id!); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } })); }}
-                                    className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-blue-200 text-[10px] rounded"
-                                  >
-                                    Focus
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => handleResumeSession(session)}
-                                    className="px-2 py-0.5 bg-cyan-600 hover:bg-cyan-700 text-cyan-200 text-[10px] rounded"
-                                  >
-                                    Open
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               </div>
             )}
 
-            {activeTab === 'analytics' && (
-              <div>
-                <p className="text-xs text-zinc-500 mb-3">AI Usage Summary</p>
-                
-                {/* Today's Overview */}
-                <div className="mb-4 p-3 bg-zinc-800 rounded-lg">
-                  <div className="text-xs text-zinc-500 mb-2">Today</div>
-                  <div className="flex gap-4">
-                    <div>
-                      <div className="text-lg font-bold text-white">
-                        {aiSummary?.totalTokens?.toLocaleString() || 0}
-                      </div>
-                      <div className="text-xs text-zinc-500">Tokens</div>
-                    </div>
-                    <div>
-                      <div className="text-lg font-bold text-emerald-400">
-                        ${aiSummary?.totalCost?.toFixed(2) || '0.00'}
-                      </div>
-                      <div className="text-xs text-zinc-500">Cost</div>
-                    </div>
-                  </div>
-                </div>
+             {activeTab === 'analytics' && (
+               <div>
+                 {/* Period Selector */}
+                 <div className="flex gap-1 mb-3 bg-zinc-800/50 rounded-lg p-0.5 border border-zinc-700/50">
+                   {(['day', 'week', 'month'] as const).map(p => (
+                     <button
+                       key={p}
+                       onClick={() => setAnalyticsPeriod(p)}
+                       className={`flex-1 px-2 py-1 text-[10px] font-medium rounded transition-all ${
+                         analyticsPeriod === p
+                           ? 'bg-zinc-700 text-zinc-200 shadow-sm'
+                           : 'text-zinc-500 hover:text-zinc-300'
+                       }`}
+                     >
+                       {p.charAt(0).toUpperCase() + p.slice(1)}
+                     </button>
+                   ))}
+                 </div>
 
-                {/* By Agent Breakdown */}
-                <div className="p-3 bg-zinc-800 rounded-lg">
-                  <div className="text-xs text-zinc-500 mb-2">By Agent</div>
-                  {!aiSummary?.byTool || Object.keys(aiSummary.byTool).length === 0 ? (
-                    <p className="text-xs text-zinc-600">No data</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {Object.entries(aiSummary.byTool).map(([agent, data]: [string, any]) => (
-                        <div key={agent} className="flex items-center justify-between">
-                          <span className="text-xs text-zinc-300 truncate">{agent}</span>
-                          <span className="text-xs text-zinc-500">
-                            {data.tokens?.toLocaleString() || 0} tokens
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                 {/* Overview Cards */}
+                 <div className="grid grid-cols-3 gap-2 mb-3">
+                   <div className="p-2.5 bg-zinc-800 rounded-lg">
+                     <div className="text-lg font-bold text-white">{aiSummary?.totalTokens?.toLocaleString() || 0}</div>
+                     <div className="text-[10px] text-zinc-500">Tokens</div>
+                   </div>
+                   <div className="p-2.5 bg-zinc-800 rounded-lg">
+                     <div className="text-lg font-bold text-emerald-400">${aiSummary?.totalCost?.toFixed(2) || '0.00'}</div>
+                     <div className="text-[10px] text-zinc-500">Cost</div>
+                   </div>
+                   <div className="p-2.5 bg-zinc-800 rounded-lg">
+                     <div className="text-lg font-bold text-cyan-400">{sessions.length}</div>
+                     <div className="text-[10px] text-zinc-500">Sessions</div>
+                   </div>
+                 </div>
+
+                 {/* By Agent Breakdown */}
+                 <div className="p-2.5 bg-zinc-800 rounded-lg mb-3">
+                   <div className="text-[10px] text-zinc-500 mb-2">By Agent</div>
+                   {!aiSummary?.byTool || Object.keys(aiSummary.byTool).length === 0 ? (
+                     <p className="text-[10px] text-zinc-600">No data</p>
+                   ) : (
+                     <div className="space-y-1.5">
+                       {Object.entries(aiSummary.byTool).map(([agent, data]: [string, any]) => {
+                         const maxTokens = Math.max(...Object.values(aiSummary.byTool).map((d: any) => d.tokens || 0));
+                         const pct = maxTokens > 0 ? ((data.tokens || 0) / maxTokens) * 100 : 0;
+                         return (
+                           <div key={agent}>
+                             <div className="flex items-center justify-between mb-0.5">
+                               <span className="text-[11px] text-zinc-300 truncate">{agent}</span>
+                               <span className="text-[10px] text-zinc-500">{data.tokens?.toLocaleString() || 0} tokens</span>
+                             </div>
+                             <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                               <div className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                             </div>
+                           </div>
+                         );
+                       })}
+                     </div>
+                   )}
+                 </div>
+
+                 {/* Top Sessions by Cost */}
+                 {sessions.filter(s => s.total_cost && s.total_cost > 0).length > 0 && (
+                   <div className="p-2.5 bg-zinc-800 rounded-lg">
+                     <div className="text-[10px] text-zinc-500 mb-2">Top Sessions by Cost</div>
+                     <div className="space-y-1.5">
+                       {sessions
+                         .filter(s => s.total_cost && s.total_cost > 0)
+                         .sort((a, b) => (b.total_cost || 0) - (a.total_cost || 0))
+                         .slice(0, 5)
+                         .map(s => (
+                           <div key={s.id} className="flex items-center justify-between">
+                             <div className="flex-1 min-w-0">
+                               <span className="text-[11px] text-zinc-300 truncate block">{s.topic || 'Unnamed'}</span>
+                               <span className="text-[9px] text-zinc-600">{s.agent} • {formatDate(s.created_at)}</span>
+                             </div>
+                             <span className="text-[10px] text-emerald-400 flex-shrink-0 ml-2">${s.total_cost?.toFixed(2)}</span>
+                           </div>
+                         ))}
+                     </div>
+                   </div>
+                 )}
+               </div>
+             )}
+
+            {activeTab === 'issues' && (
+              <IssuesWorkspace projectId={selectedProject} projectPath={propProjectPath} />
+            )}
+
+              {activeTab === 'files' && (
+                <FilesTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
+               )}
+
+               {activeTab === 'context-maintenance' && (
+                <ContextMaintenanceTab
+                  projectId={selectedProject || ''}
+                  projectPath={propProjectPath || ''}
+                  sessionId={selectedSessionDetail || undefined}
+                />
+               )}
+
+             {activeTab === 'skills' && (
+               <SkillsTab
+                 projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
+                 terminalTabs={terminalTabs}
+                 activeTerminalId={activeTerminalId}
+               />
+             )}
+
+             {activeTab === 'design' && (
+                <DesignWorkspacePage
+                  projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
+                  activeTerminalId={activeTerminalId}
+                />
+              )}
+
+             {activeTab === 'context' && (
+               <ContextSidebar
+                 projectId={selectedProject || propProjectId || undefined}
+                 projectPath={propProjectPath}
+               />
+             )}
+
+             {activeTab === 'configs' && (
+              <div className="space-y-2">
+                <div className="px-2 py-3 bg-orange-500/5 border border-orange-500/20 rounded">
+                  <div className="text-xs text-orange-400 font-medium mb-2">Workspace Configurations</div>
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      onClick={handleSaveWorkspace}
+                      className="flex-1 px-2 py-1 bg-orange-600 hover:bg-orange-500 text-white text-xs rounded"
+                    >
+                      Save Workspace
+                    </button>
+                    <button
+                      onClick={handleLoadWorkspace}
+                      className="flex-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded"
+                    >
+                      Load Workspace
+                    </button>
+                  </div>
+                  <p className="text-xs text-zinc-500">Save/load sidebar layout, width, and active tab.</p>
                 </div>
               </div>
             )}
 
-            {activeTab === 'problems' && (
-              <ProblemsTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
-            )}
-
-{activeTab === 'requests' && (
-  <RequestsTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} onNewRequest={() => setShowNewRequestDialog(true)} />
-)}
-
-            {activeTab === 'files' && (
-              <FilesTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
-            )}
-
-            {showNewRequestDialog && (
-              <NewRequestDialog
-                projectId={selectedProject}
-                onClose={() => setShowNewRequestDialog(false)}
-                onCreate={() => setShowNewRequestDialog(false)}
-              />
+            {activeTab === 'history' && (
+              <div className="space-y-2">
+                <div className="px-2 py-3 bg-rose-500/5 border border-rose-500/20 rounded">
+                  <div className="text-xs text-rose-400 font-medium mb-2">History</div>
+                  <p className="text-xs text-zinc-500">No history records yet. Activity will appear here.</p>
+                </div>
+              </div>
             )}
 
             <NewSessionDialog
@@ -1979,7 +2256,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 } else {
                   targetTerminalId = `term-${Date.now()}`;
                   const count = Object.keys(terminalTabs).length;
-                  setTerminalTabs(prev => ({ ...prev, [targetTerminalId]: { name: proj?.name || sessionName, agent } }));
+                  setTerminalTabs(prev => ({ ...prev, [targetTerminalId]: { name: proj?.name || sessionName, agent, modelTier: config.modelTier || config.contextConfig?.model_tier || 'mid' } }));
                   setActiveTerminalId(targetTerminalId);
                   const updatedLayout = insertIntoLayout(terminalLayout, targetTerminalId);
                   setTerminalLayout(updatedLayout);
@@ -2009,6 +2286,18 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               projectPath={propProjectPath || ''}
               terminalTabs={terminalTabs}
               defaultAgent={localStorage.getItem('terminal-defaultAgent') || 'claude'}
+            />
+
+            {/* Initialize Progress Modal */}
+            <InitializeProgressModal
+              isOpen={showInitModal}
+              onClose={() => {
+                setShowInitModal(false);
+                if (initStatus !== 'init-ok') setInitStatus('init-ok');
+              }}
+              onComplete={() => setInitStatus('init-ok')}
+              projectId={selectedProject || propProjectId || undefined}
+              isReinit={initStatus === 'init-ok'}
             />
 
             {showMessagesViewer && (
@@ -2108,6 +2397,42 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 className="flex-1 px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white rounded text-sm font-medium"
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close Workspace Dialog */}
+      {showCloseWorkspaceDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]" onClick={() => setShowCloseWorkspaceDialog(false)}>
+          <div className="bg-zinc-800 rounded-xl p-6 w-full max-w-sm border border-zinc-700 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-white mb-2">Close Workspace</h2>
+            <p className="text-sm text-zinc-400 mb-6">Save a checkpoint before closing, or discard changes?</p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  setShowCloseWorkspaceDialog(false);
+                  handleSaveCheckpoint();
+                }}
+                className="w-full px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded text-sm font-medium"
+              >
+                Save & Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowCloseWorkspaceDialog(false);
+                  onCloseWorkspace?.();
+                }}
+                className="w-full px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm"
+              >
+                Discard & Close
+              </button>
+              <button
+                onClick={() => setShowCloseWorkspaceDialog(false)}
+                className="w-full px-4 py-2 text-zinc-500 hover:text-zinc-300 text-sm"
+              >
+                Cancel
               </button>
             </div>
           </div>
@@ -2594,6 +2919,375 @@ const NewProblemDialog: React.FC<{
 };
 
 // ─────────────────────────────────────────────
+// SKILLS TAB COMPONENT
+// ─────────────────────────────────────────────
+
+interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  content: string;
+  filePath: string;
+}
+
+const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, TerminalTabInfo>; activeTerminalId?: string | null; }> = ({ projectPath, terminalTabs = {}, activeTerminalId }) => {
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [runningSkill, setRunningSkill] = useState<Skill | null>(null);
+  const [skillPrompt, setSkillPrompt] = useState('');
+  const [targetTerminal, setTargetTerminal] = useState('');
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newCategory, setNewCategory] = useState('general');
+  const [newDescription, setNewDescription] = useState('');
+  const [newContent, setNewContent] = useState('');
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const loadSkills = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await window.deskflowAPI?.getSkills?.(projectPath);
+      if (result?.success) setSkills(result.data || []);
+    } catch (e) {
+      console.error('[SkillsTab] Failed to load skills:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectPath]);
+
+  useEffect(() => {
+    loadSkills();
+    const interval = setInterval(loadSkills, 10000);
+    return () => clearInterval(interval);
+  }, [loadSkills]);
+
+  const categories = ['all', ...new Set(skills.map(s => s.category || 'general'))];
+
+  const filteredSkills = skills.filter(s => {
+    if (categoryFilter !== 'all' && s.category !== categoryFilter) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.content.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const showNotify = (message: string, type: 'success' | 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    try {
+      const result = await window.deskflowAPI?.createSkill?.({
+        name: newName.trim(),
+        category: newCategory,
+        description: newDescription.trim(),
+        content: newContent,
+        projectPath,
+      });
+      if (result?.success) {
+        showNotify('Skill created successfully', 'success');
+        setShowNewForm(false);
+        setNewName(''); setNewCategory('general'); setNewDescription(''); setNewContent('');
+        loadSkills();
+      } else {
+        showNotify(result?.error || 'Failed to create skill', 'error');
+      }
+    } catch (e) {
+      showNotify('Failed to create skill', 'error');
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!editingSkill || !editName.trim()) return;
+    try {
+      const result = await window.deskflowAPI?.updateSkill?.({
+        id: editingSkill.id,
+        name: editName.trim(),
+        category: editCategory,
+        description: editDescription.trim(),
+        content: editContent,
+        projectPath,
+      });
+      if (result?.success) {
+        showNotify('Skill updated successfully', 'success');
+        setEditingSkill(null);
+        loadSkills();
+      } else {
+        showNotify(result?.error || 'Failed to update skill', 'error');
+      }
+    } catch (e) {
+      showNotify('Failed to update skill', 'error');
+    }
+  };
+
+  const handleDelete = async (skill: Skill) => {
+    // Use IPC to delete (by writing empty file or removing) — rely on main process
+    try {
+      const result = await window.deskflowAPI?.updateSkill?.({
+        id: skill.id,
+        name: skill.name,
+        category: skill.category,
+        description: skill.description,
+        content: '',
+        projectPath,
+      });
+      if (result?.success) {
+        showNotify('Skill deleted', 'success');
+        loadSkills();
+      }
+    } catch (e) {
+      showNotify('Failed to delete skill', 'error');
+    }
+  };
+
+  const handleUse = async () => {
+    if (!runningSkill || !skillPrompt.trim()) return;
+    const terminalId = targetTerminal || activeTerminalId || Object.keys(terminalTabs)[0];
+    if (!terminalId) {
+      showNotify('No terminal available. Create a session first.', 'error');
+      return;
+    }
+    try {
+      const fullPrompt = `[Skill: ${runningSkill.name}]\n${runningSkill.content}\n\n${skillPrompt}`;
+      await window.deskflowAPI?.terminalWrite?.(terminalId, fullPrompt);
+      showNotify(`Sent "${runningSkill.name}" to terminal`, 'success');
+      setRunningSkill(null);
+      setSkillPrompt('');
+    } catch (e) {
+      showNotify('Failed to send to terminal', 'error');
+    }
+  };
+
+  const openEditor = (skill: Skill) => {
+    setEditingSkill(skill);
+    setEditName(skill.name);
+    setEditCategory(skill.category);
+    setEditDescription(skill.description);
+    setEditContent(skill.content);
+  };
+
+  return (
+    <div>
+      {/* Notification Toast */}
+      {notification && (
+        <div className={`fixed top-4 right-4 z-[100] px-4 py-2 rounded text-xs shadow-lg transition-opacity ${
+          notification.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          {notification.message}
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs text-zinc-400">{skills.length} skill{skills.length !== 1 ? 's' : ''}</span>
+        <button
+          onClick={() => setShowNewForm(true)}
+          className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded flex items-center gap-1 transition-all active:scale-95"
+        >
+          <Plus className="w-3 h-3" />
+          Create Skill
+        </button>
+      </div>
+
+      {/* Search */}
+      <input
+        type="text"
+        value={searchQuery}
+        onChange={e => setSearchQuery(e.target.value)}
+        placeholder="Search skills..."
+        className="w-full mb-2 px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+      />
+
+      {/* Category Filter */}
+      {categories.length > 1 && (
+        <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
+          {categories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setCategoryFilter(cat)}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-all ${
+                categoryFilter === cat
+                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50'
+                  : 'bg-transparent text-zinc-400 border border-zinc-700 hover:bg-zinc-800'
+              }`}
+            >
+              {cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading && <p className="text-xs text-zinc-500">Loading skills...</p>}
+
+      {/* Empty State */}
+      {!loading && filteredSkills.length === 0 && (
+        <div className="px-2 py-6 bg-indigo-500/5 border border-indigo-500/20 rounded text-center">
+          <Sparkles className="w-6 h-6 text-indigo-400/50 mx-auto mb-2" />
+          <p className="text-xs text-zinc-500 mb-3">
+            {skills.length === 0 ? 'No skills found. Create one to get started.' : 'No skills match your search.'}
+          </p>
+          {skills.length === 0 && (
+            <button
+              onClick={() => setShowNewForm(true)}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded"
+            >
+              Create First Skill
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Skill List */}
+      {filteredSkills.length > 0 && (
+        <div className="space-y-2">
+          {filteredSkills.map(skill => (
+            <div key={skill.id} className="bg-zinc-800/50 border border-zinc-700/50 rounded overflow-hidden">
+              <div className="px-2 py-2 flex items-start justify-between cursor-pointer hover:bg-zinc-800/80" onClick={() => setExpandedId(expandedId === skill.id ? null : skill.id)}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-medium text-zinc-200">{skill.name}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 bg-indigo-500/20 text-indigo-300 rounded">{skill.category || 'general'}</span>
+                  </div>
+                  {skill.description && (
+                    <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-1">{skill.description}</p>
+                  )}
+                </div>
+                <div className="flex gap-1 ml-2 flex-shrink-0">
+                  <button
+                    onClick={e => { e.stopPropagation(); setRunningSkill(skill); setTargetTerminal(''); setSkillPrompt(''); }}
+                    className="px-2 py-0.5 bg-cyan-600 hover:bg-cyan-500 text-cyan-100 text-[10px] rounded"
+                    title="Use skill"
+                  >
+                    Use
+                  </button>
+                  <button
+                    onClick={e => { e.stopPropagation(); openEditor(skill); }}
+                    className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded"
+                    title="Edit skill"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+              {expandedId === skill.id && (
+                <div className="px-2 pb-2 border-t border-zinc-700/30">
+                  <pre className="mt-2 p-2 bg-zinc-900 rounded text-[10px] text-zinc-400 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap font-mono">
+                    {skill.content}
+                  </pre>
+                  <div className="flex gap-2 mt-2">
+                    <span className="text-[10px] text-zinc-600">Path: {skill.filePath}</span>
+                    <button
+                      onClick={() => handleDelete(skill)}
+                      className="ml-auto px-2 py-0.5 bg-red-600/30 hover:bg-red-600/50 text-red-300 text-[10px] rounded"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Run Skill Modal ── */}
+      {runningSkill && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setRunningSkill(null)}>
+          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700 shadow-2xl mx-4" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-zinc-700 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white">Use Skill: {runningSkill.name}</h3>
+              <button onClick={() => setRunningSkill(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
+            </div>
+            <div className="px-4 py-3">
+              <div className="mb-3 p-2 bg-zinc-900 rounded max-h-28 overflow-y-auto">
+                <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap font-mono">{runningSkill.content.slice(0, 500)}{runningSkill.content.length > 500 ? '...' : ''}</pre>
+              </div>
+              <select
+                value={targetTerminal}
+                onChange={e => setTargetTerminal(e.target.value)}
+                className="w-full mb-2 px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
+              >
+                <option value="">Active terminal ({activeTerminalId ? terminalTabs[activeTerminalId]?.name || 'unnamed' : 'none'})</option>
+                {Object.entries(terminalTabs).map(([id, tab]) => (
+                  <option key={id} value={id}>{tab.name} ({tab.agent})</option>
+                ))}
+              </select>
+              <textarea
+                value={skillPrompt}
+                onChange={e => setSkillPrompt(e.target.value)}
+                placeholder="Enter your prompt or instructions for this skill..."
+                className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 min-h-[80px] resize-y"
+              />
+            </div>
+            <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end">
+              <button onClick={() => setRunningSkill(null)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>
+              <button onClick={handleUse} disabled={!skillPrompt.trim()} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded disabled:opacity-50">Send to Terminal</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Skill Modal ── */}
+      {editingSkill && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setEditingSkill(null)}>
+          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700 shadow-2xl mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-zinc-700 flex items-center justify-between flex-shrink-0">
+              <h3 className="text-sm font-bold text-white">Edit Skill: {editingSkill.name}</h3>
+              <button onClick={() => setEditingSkill(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
+            </div>
+            <div className="px-4 py-3 overflow-y-auto flex-1 space-y-2">
+              <input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder="Skill name" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
+              <input type="text" value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="Category" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
+              <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)} placeholder="Description" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
+              <textarea value={editContent} onChange={e => setEditContent(e.target.value)} placeholder="Skill content (markdown)" className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 font-mono min-h-[200px] resize-y" />
+            </div>
+            <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end flex-shrink-0">
+              <button onClick={() => setEditingSkill(null)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>
+              <button onClick={handleUpdate} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Skill Modal ── */}
+      {showNewForm && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowNewForm(false)}>
+          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700 shadow-2xl mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-zinc-700 flex items-center justify-between flex-shrink-0">
+              <h3 className="text-sm font-bold text-white">Create Skill</h3>
+              <button onClick={() => setShowNewForm(false)} className="text-zinc-400 hover:text-zinc-200">✕</button>
+            </div>
+            <div className="px-4 py-3 overflow-y-auto flex-1 space-y-2">
+              <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Skill name *" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
+              <input type="text" value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="Category (e.g., coding, testing, review)" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
+              <input type="text" value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Short description" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
+              <textarea value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="Skill content (markdown) — include instructions, examples, and rules..." className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 font-mono min-h-[200px] resize-y" />
+            </div>
+            <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end flex-shrink-0">
+              <button onClick={() => setShowNewForm(false)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>
+              <button onClick={handleCreate} disabled={!newName.trim()} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded disabled:opacity-50">Create Skill</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
 // REQUESTS TAB COMPONENT
 // ─────────────────────────────────────────────
 
@@ -2995,7 +3689,7 @@ const FilesTab: React.FC<{ projectId?: string; projectPath?: string; projects?: 
 // ─────────────────────────────────────────────
 
 const TerminalsTab: React.FC<{
-  terminalTabs: Record<string, { name: string; agent: string }>;
+  terminalTabs: Record<string, TerminalTabInfo>;
   terminalBindings: Record<string, any>;
   activeTerminalId: string | null;
   sessions: Session[];

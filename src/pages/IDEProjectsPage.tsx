@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import TerminalPage from './TerminalPage';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -40,7 +40,13 @@ import {
   Pencil,
   RotateCcw,
   AlertTriangle,
+  Search,
+  Minus,
+  FolderTree,
+  Bot,
+  Settings2,
 } from 'lucide-react';
+import InitializeProgressModal from '../components/InitializeProgressModal';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -112,6 +118,16 @@ const CATEGORY_LABELS: Record<string, string> = {
   bundler: 'Bundlers',
 };
 
+const COMMON_LANGUAGES = [
+  'Assembly', 'Astro', 'C', 'C#', 'C++', 'Clojure', 'CoffeeScript', 'CSS', 'Crystal',
+  'D', 'Dart', 'Dockerfile', 'Elixir', 'Elm', 'Erlang', 'F#', 'Fortran', 'Go', 'GraphQL',
+  'Groovy', 'HTML', 'Haskell', 'Java', 'JavaScript', 'Julia', 'JSON', 'Kotlin',
+  'Less', 'Lua', 'MATLAB', 'Markdown', 'Nim', 'OCaml', 'Objective-C', 'PHP', 'Perl',
+  'PowerShell', 'Prolog', 'Python', 'R', 'Ruby', 'Rust', 'SQL', 'Sass/SCSS', 'Scala',
+  'Shell', 'Solidity', 'Svelte', 'Swift', 'TOML', 'TypeScript', 'V', 'Vue', 'WGSL',
+  'XML', 'YAML', 'Zig',
+];
+
 const AGENT_CONFIG: Record<string, { name: string; icon: string; color: string }> = {
   'claude-code': { name: 'Claude Code', icon: 'claude', color: '#f97316' },
   'cursor': { name: 'Cursor AI', icon: 'cursor', color: '#a855f7' },
@@ -168,6 +184,14 @@ export default function IDEProjectsPage() {
   const [loadingProjectDetails, setLoadingProjectDetails] = useState<Set<string>>(new Set());
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [workspaceProject, setWorkspaceProject] = useState<any>(null);
+  const [provisionStatus, setProvisionStatus] = useState<'idle' | 'provisioning' | 'provisioned'>('idle');
+  const [showInitModal, setShowInitModal] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ status: 'idle' | 'provisioning' | 'provisioned' }>) => setProvisionStatus(e.detail.status);
+    window.addEventListener('provision-status-changed', handler as EventListener);
+    return () => window.removeEventListener('provision-status-changed', handler as EventListener);
+  }, []);
 
   // Edit/Delete project states
   const [showEditProject, setShowEditProject] = useState(false);
@@ -176,6 +200,10 @@ export default function IDEProjectsPage() {
     name: '', path: '', repositoryUrl: '', vcsType: '', primaryLanguage: '', defaultIde: ''
   });
   const [updatingProject, setUpdatingProject] = useState(false);
+  const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
+  const [languageSearch, setLanguageSearch] = useState('');
+  const [detectingLanguage, setDetectingLanguage] = useState(false);
+  const languageDropdownRef = useRef<HTMLDivElement>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [deletingProjectName, setDeletingProjectName] = useState<string>('');
@@ -183,10 +211,7 @@ export default function IDEProjectsPage() {
   const [trashProjects, setTrashProjects] = useState<any[]>([]);
 
   useEffect(() => {
-    const hasSeenOnboarding = localStorage.getItem('ide-projects-onboarding-seen');
-    if (!hasSeenOnboarding) {
-      setShowOnboarding(true);
-    }
+    localStorage.setItem('ide-projects-onboarding-seen', 'true');
     loadOverview();
     window.deskflowAPI!.getAISyncStatus().then(status => {
       if (status?.lastRunAt) setAiLastSyncAt(status.lastRunAt);
@@ -382,7 +407,40 @@ export default function IDEProjectsPage() {
       defaultIde: project.default_ide || ''
     });
     setShowEditProject(true);
+    setLanguageSearch('');
+    setShowLanguageDropdown(false);
   };
+
+  const handleLanguageSelect = (lang: string) => {
+    setEditProjectForm({ ...editProjectForm, primaryLanguage: lang });
+    setShowLanguageDropdown(false);
+  };
+
+  const handleDetectLanguage = async () => {
+    if (!editProjectForm.path) return;
+    setDetectingLanguage(true);
+    try {
+      const result = await window.deskflowAPI!.detectProjectLanguage(editProjectForm.path);
+      if (result.success && result.language) {
+        setEditProjectForm({ ...editProjectForm, primaryLanguage: result.language });
+        setShowLanguageDropdown(false);
+      }
+    } catch (err) {
+      console.error('Failed to detect language:', err);
+    } finally {
+      setDetectingLanguage(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (languageDropdownRef.current && !languageDropdownRef.current.contains(e.target as Node)) {
+        setShowLanguageDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleUpdateProject = async () => {
     if (!editingProject) return;
@@ -475,6 +533,11 @@ export default function IDEProjectsPage() {
       console.error('Failed to remove project:', err);
     }
   };
+
+  const handleCloseWorkspace = useCallback(() => {
+    setIsWorkspaceOpen(false);
+    setWorkspaceProject(null);
+  }, []);
 
   const toggleProjectExpand = async (project: any) => {
     const projectId = project.id;
@@ -682,6 +745,14 @@ export default function IDEProjectsPage() {
       }]
     };
   }, [aiAgents, aiChartMode]);
+
+  const filteredLanguages = useMemo(() => {
+    const search = editProjectForm.primaryLanguage.toLowerCase();
+    if (!search) return COMMON_LANGUAGES;
+    return COMMON_LANGUAGES.filter(lang =>
+      lang.toLowerCase().includes(search)
+    );
+  }, [editProjectForm.primaryLanguage]);
 
   if (loading) {
     return (
@@ -3137,15 +3208,59 @@ export default function IDEProjectsPage() {
                     className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-violet-500 focus:outline-none"
                   />
                 </div>
-                <div>
+                <div ref={languageDropdownRef}>
                   <label className="block text-sm text-zinc-400 mb-2">Primary Language (optional)</label>
-                  <input
-                    type="text"
-                    value={editProjectForm.primaryLanguage}
-                    onChange={(e) => setEditProjectForm({ ...editProjectForm, primaryLanguage: e.target.value })}
-                    placeholder="TypeScript, Python, Go, etc."
-                    className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-violet-500 focus:outline-none"
-                  />
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={editProjectForm.primaryLanguage}
+                        onChange={(e) => {
+                          setEditProjectForm({ ...editProjectForm, primaryLanguage: e.target.value });
+                          setShowLanguageDropdown(true);
+                        }}
+                        onFocus={() => setShowLanguageDropdown(true)}
+                        placeholder="Search or type a language..."
+                        className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-violet-500 focus:outline-none pr-10"
+                      />
+                      <ChevronDown
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none"
+                      />
+                      {showLanguageDropdown && (
+                        <div className="absolute z-10 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg max-h-48 overflow-y-auto shadow-xl">
+                          {filteredLanguages.length > 0 ? (
+                            filteredLanguages.map(lang => (
+                              <button
+                                key={lang}
+                                onClick={() => handleLanguageSelect(lang)}
+                                className={`w-full text-left px-4 py-2 text-white hover:bg-zinc-700 transition ${
+                                  editProjectForm.primaryLanguage === lang ? 'bg-violet-500/20 text-violet-300' : ''
+                                }`}
+                              >
+                                {lang}
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-4 py-2 text-zinc-500 text-sm">
+                              No match — using &ldquo;{editProjectForm.primaryLanguage}&rdquo;
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleDetectLanguage}
+                      disabled={detectingLanguage || !editProjectForm.path}
+                      className="px-3 py-3 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg border border-zinc-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Auto-detect language from project files"
+                    >
+                      {detectingLanguage ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Search className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm text-zinc-400 mb-2">VCS Type (optional)</label>
@@ -3247,19 +3362,21 @@ export default function IDEProjectsPage() {
       </AnimatePresence>
 
       {/* Terminal Workspace Modal */}
-      <AnimatePresence>
-        {isWorkspaceOpen && workspaceProject && (
+        {workspaceProject && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={false}
+            animate={{
+              opacity: isWorkspaceOpen ? 1 : 0,
+              pointerEvents: isWorkspaceOpen ? 'auto' : 'none' as any,
+              transition: { duration: 0.2 },
+            }}
             className="fixed inset-0 bg-black z-50 flex flex-col"
           >
             {/* Workspace Header */}
             <div className="flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-800">
               <div className="flex items-center gap-4">
                 <button
-                  onClick={() => { setIsWorkspaceOpen(false); setWorkspaceProject(null); }}
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-close-workspace-dialog'))}
                   className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -3274,21 +3391,57 @@ export default function IDEProjectsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => { setIsWorkspaceOpen(false); setWorkspaceProject(null); }}
-                  className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+                  onClick={() => setIsWorkspaceOpen(false)}
+                  className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+                  title="Back to projects"
                 >
-                  Exit Workspace
+                  <Minus className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => {
+                    if (provisionStatus === 'provisioned') {
+                      if (!window.confirm('This project is already initialized. Re-initialize workspace files?')) return;
+                    }
+                    setShowInitModal(true);
+                  }}
+                  disabled={provisionStatus === 'provisioning' || !selectedProject}
+                  className="px-2.5 py-1.5 bg-green-700 hover:bg-green-600 text-white text-xs rounded-lg flex items-center gap-1.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Initialize workspace infrastructure (creates agent files, directories)"
+                >
+                  <FolderTree className="w-3.5 h-3.5" />
+                  Initialize
+                </button>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-new-agent'))}
+                  disabled={!selectedProject}
+                  className="px-2 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 border border-zinc-600/50 text-zinc-300 text-xs rounded-lg flex items-center gap-1.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Start a new AI agent session"
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  New Agent
                 </button>
               </div>
             </div>
 
-            {/* Terminal Content - embedded via iframe or directly render */}
+            {/* Terminal Content */}
             <div className="flex-1 flex overflow-hidden">
-              <TerminalPage projectId={workspaceProject.id} projectPath={workspaceProject.path} />
+              <TerminalPage projectId={workspaceProject.id} projectPath={workspaceProject.path} onCloseWorkspace={handleCloseWorkspace} />
             </div>
+
+            {/* Initialize Progress Modal */}
+            <InitializeProgressModal
+              isOpen={showInitModal}
+              onClose={() => {
+                setShowInitModal(false);
+                if (provisionStatus !== 'provisioned') setProvisionStatus('provisioned');
+              }}
+              onComplete={() => setProvisionStatus('provisioned')}
+              projectId={selectedProject || undefined}
+              isReinit={provisionStatus === 'provisioned'}
+            />
+
           </motion.div>
         )}
-      </AnimatePresence>
     </motion.div>
   );
 }

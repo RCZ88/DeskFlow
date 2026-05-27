@@ -1,11 +1,488 @@
 # 📌 Project State
 
 > **Purpose:** Current project state for AI context — tracks version, recent changes, known issues, and feature inventory.
-> **Version:** 3.9
-> **Last Updated:** 2026-05-15 (Browser extension background tab phantom tracking fix)
-> **Build Status:** ✅ Build succeeds (verified 2026-05-15)
-> **Session Date:** 2026-05-15
-> **Token Estimate:** ~8500 tokens
+
+## Metadata
+- version: 3.65
+- last_updated: 2026-05-27
+- agent: opencode
+
+## Active Work
+- active_problem_id: null
+- active_problem_title: null
+- current_phase: "implementation"
+- blocked: false
+- blocked_reason: null
+
+## Session Continuity
+- last_session_summary: "v3.65 — Replaced WorkspaceSettingsDialog with ContextSidebar sidebar panel. Created tutorial page with overlay walkthrough. Modified TerminalPage, App.tsx, NewSessionDialog. 3 new files, 4 modified files. All changes verified with passing build."
+- open_questions: []
+
+## Progress
+- problems_solved_this_sprint: []
+- files_modified:
+  - src/components/ContextSidebar.tsx (NEW)
+  - src/pages/TutorialPage.tsx (NEW)
+  - src/components/TutorialOverlay.tsx (NEW)
+  - src/pages/IDEProjectsPage.tsx (modified)
+  - src/pages/TerminalPage.tsx (modified)
+  - src/App.tsx (modified)
+  - src/components/NewSessionDialog.tsx (modified)
+  - src/components/ContextSidebar.tsx (export WorkspaceConfig type)
+  - agent/skills/generate-prompt/SKILL.md (Rule 4)
+  - agent/state.md (updated)
+  - agent/REQUESTS.md (added #048, #049)
+
+---
+> **Version:** 3.65
+> **Last Updated:** 2026-05-27
+> **2026-05-27 (v3.65) — CONTEXT SIDEBAR + TUTORIAL PAGE (Completed):
+>   1. **Context tools inventory**: Completed comprehensive audit of all 12+ context management systems (LLM Wiki, Skills, Design Skills, Graphify, PARA, QMD, Automations, Deep Memory, Session Summaries, RAG, Project Context Manifest, Terminal Bindings).
+>   2. **RESULT.md implementation plan**: Used generate-prompt skill to produce 1982-line RESULT.md covering ContextSidebar, TutorialPage, and NewSessionDialog simplification.
+>   3. **ContextSidebar.tsx (new)**: 832-line sidebar panel replacing WorkspaceSettingsDialog. 6 sections (Systems, Design, Model, Paths, Terminal, Defaults). Auto-save with 600ms debounce. All 5 preference keys (workspace-context-config, model-improvisation-config, workspace-file-paths, terminal-communication-config, workspace-defaults).
+>   4. **TutorialPage.tsx (new)** + **TutorialOverlay.tsx (new)**: Feature inventory page with 12 features, category filtering, progress persistence. Spotlight overlay with step navigation, "Try it" button, completion state.
+>   5. **IDEProjectsPage.tsx (modified)**: Removed WorkspaceSettingsDialog import/state/JSX. Setup button dispatches `switch-sidebar-tab` event with `detail: 'context'`.
+>   6. **TerminalPage.tsx (modified)**: Added 'context' tab to sidebar tabs. Added `switch-sidebar-tab` event listener. Removed WorkspaceSettingsDialog import/state/JSX. Renders ContextSidebar in tab content.
+>   7. **App.tsx (modified)**: Added `/tutorial` route with TutorialPage. Added HelpCircle/Tutorial icon in sidebar navigation.
+>   8. **NewSessionDialog.tsx (modified)**: Imports `WORKSPACE_CONFIG_PREF_KEY` from ContextSidebar instead of deleted WorkspaceSettingsDialog. Removed inline design taste knobs (variance/intensity/density sliders). Simplified design skills panel with note directing to Context Sidebar.
+>   9. **Backup created**: WorkspaceSettingsDialog.tsx → `.bak.20260527-224500`
+> **Build Status:** ✅ Build succeeds (verified 2026-05-27)
+
+---
+
+> **Version:** 3.63
+> **Last Updated:** 2026-05-27
+> **2026-05-27 (v3.63) — SETUP VS INITIALIZE REDESIGN (Completed):
+>   1. **InitializeProgressModal.tsx (new)**: 16-step animated progress modal for infrastructure initialization. Runs real `trackerMindSetup('init-all')` IPC in parallel with per-step simulation (220ms + random jitter). Shows live checkmark/done/error per step with retry. Auto-starts on open.
+>   2. **WorkspaceSettingsDialog.tsx (new)**: Persistent settings panel for workspace context configuration. 7 system toggles (LLM Wiki, Skills, Graphify, PARA, QMD, Automations, Design Skills) with per-system token budget sliders, taste knobs (Design Variance/Motion Intensity/Visual Density 1-10), behavior toggles (summarization, deep memory), context assembly map SVG. Saves to `workspace-context-config` preference key via `setPreference`.
+>   3. **IDEProjectsPage.tsx buttons swapped**: Green FolderTree = "Initialize" (opens progress modal), Amber Settings2 = "Setup" (opens settings dialog), new "New Agent" (Bot, dispatches open-new-agent). Old one-click Setup (trigger-provision) replaced.
+>   4. **TerminalPage.tsx modals wired**: Both InitializeProgressModal + WorkspaceSettingsDialog rendered alongside NewSessionDialog. `handleInitSetup` + `handleTriggerProvision` now open modal instead of direct IPC. Added `open-workspace-settings` event listener.
+>   5. **NewSessionDialog.tsx loads workspace defaults**: On open, reads `workspace-context-config` from preferences and pre-populates all context toggles (ctxLLMWiki, ctxSkills, ctxGraphify, etc.) with saved settings as overridable defaults.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-27)
+> **2026-05-27 (v3.62) — DATABASE PAGE ANALYTICS DASHBOARD (Workspace Analytics):
+>   1. **DatabasePage.tsx rewritten**: Added Analytics view (default) with 5 stat cards, 8 charts (token/cost/session/category/problem/request distributions + response timing + daily trend), AI usage summary table, problems/requests progress bars. Uses chart.js + react-chartjs-2 (already in deps).
+>   2. **View toggle**: Analytics/Tables tabs in header bar. Tables view preserved with sidebar layout (filterable table list → table content with schema + paginated data + CSV export).
+>   3. **Period selector**: 7 Days / 30 Days / All Time filters all analytics data sources via existing IPC endpoints.
+>   4. **Promise.allSettled**: Each data source fetches independently; one failure doesn't break the rest.
+>   5. **Response timing**: Computed by pairing sequential user↔assistant messages per session from getPromptHistory, filtering unreasonable gaps.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-27)
+> **2026-05-27 (v3.61) — PHASE 2: Design Workspace TAB in TerminalPage, FIXED IPC WIRING:
+>   1. **Moved Design Workspace from standalone page → tab inside TerminalPage**: Removed sidebar entry + route from App.tsx, added 'design' to activeTab union, added pink Palette tab button in tab bar alongside Skills/Configs/History.
+>   2. **DesignWorkspacePage accepts projectPath + activeTerminalId**: Refactored to take props from TerminalPage, uses IPC `readProjectFile` to read SKILL.md + DESIGN.md content, builds rich <design_taste>/<design_skills>/<design_references> context.
+>   3. **Send wired to active terminal**: "Send Design Context to Terminal" now calls `terminalWrite(activeTerminalId, context)` + `saveTerminalBinding({terminalId, sessionContext, status})` — sends full design context to the active terminal's stdin and persists binding in DB.
+>   4. **Fix: Edit2 ReferenceError** in ActiveContextsList.tsx — changed `Edit2` → `Pencil` (lucide-react 0.577 removed Edit2).
+>   5. **Build**: ✅ Verified (vite + tsc both pass, 0 runtime errors in browser).
+> **Build Status:** ✅ Build succeeds (verified 2026-05-27)
+> **2026-05-27 (v3.59) — FIXED APP PAGE 7D/30D CHARTS, AFK PROMPT EXTERNAL REFRESH:
+>   1. **StatsPage 7day/30day chart data** (StatsPage.tsx): Added missing `'7day'` and `'30day'` handlers in `dailyUsage` useMemo. These periods were falling through to the `'all'` grouping (by month), showing monthly aggregation instead of daily bars. Also fixed hardcoded subtitle text.
+>   2. **AFK prompt → External page refresh** (App.tsx, ExternalPage.tsx): After user selects an activity in the AFK prompt, `handleAfkConfirm`/`handleAfkDismiss` now dispatch `'external-data-changed'` custom event. ExternalPage listens for this event and calls `refreshStats()` + reloads activities. Previously the data was saved to DB but ExternalPage never refreshed its UI.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-27, v3.59)
+> **2026-05-27 (v3.58) — WIRED CONTEXT MAINTENANCE TAB, DESIGNING COMPOSE REDESIGN:**
+>   1. **Context Maintenance Tab (TerminalPage.tsx)**: Replaced hardcoded placeholder with real `<ContextMaintenanceTab>` component. Connected data loading to 4 new IPC endpoints (`get-context-systems`, `get-session-summaries`, `get-deep-memory`, `get-rag-stats`). Uncommented and wired all 6 sub-components (MemoryStatusCard, ActiveContextsList, RecentChatHistory, CompactionsPanel, ContextSearchBar, SettingsPanel).
+>   2. **SettingsPanel fix** (src/components/context-ui/SettingsPanel.tsx): Fixed `as const)` to `as const].map` syntax error.
+>   3. **ActiveContextsList icon fix** (src/components/context-ui/ActiveContextsList.tsx): Fixed `Toggle2` → `ToggleLeft` (not in lucide-react).
+>   4. **Preload bridges** (src/preload.ts): Added `getContextSystems`, `getSessionSummaries`, `getDeepMemory`, `getRAGStats`.
+>   5. **IPC handlers** (src/main.ts): Added `get-context-systems`, `get-session-summaries`, `get-deep-memory`, `get-rag-stats`.
+>   6. **IN PROGRESS: Terminal compose redesign** — Generating design prompt for unified skills/compose/checklist architecture. See `agent/docs/terminal-compose-redesign/`.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-27)
+>   1. **SkillsTab component**: Full inline skills CRUD component (~400 lines) — list, create, edit, delete project skills with form fields
+>   2. **Analytics tab improved**: Period selector (today/week/month/all), agent breakdown bars, top sessions list
+>   3. **Session detail view**: Click-to-detail panel in Sessions tab showing session metadata, messages, and actions
+>   4. **Terminals tab added**: Group-based layout display showing all terminal panes organized by group
+>   5. **Context-maintenance tab button**: Visual divider separating context-maintenance tab from others in sidebar
+>   6. **StatusDot size prop**: Extended StatusDot component to accept a `size` prop for flexible sizing
+>   7. **FEATURE_TRACKER.md updated**: Full terminal page documentation added
+> **Build Status:** ✅ Build succeeds (verified 2026-05-26, v3.56)
+> **2026-05-25 (v3.55) — IMPLEMENTED TERMINAL CONTEXT SYSTEM GAPS:**
+>   1. **Context-changed UI refresh (TerminalPage.tsx)**: `onContextChanged` listener now calls `loadAllProblems()`/`loadAllRequests()` after writing delta messages. Deps array updated to include callbacks.
+>   2. **Context-changed dispatch (main.ts)**: `parseAndExecuteActions` now sends `context-changed` event to renderer after batch processing actions.
+>   3. **InstructionPanel wired into sidebar**: Added Send button toggle in sidebar header, renders `<InstructionPanel>` as overlay in sidebar content area when toggled. `onSend` wired to existing `handleInstructionPanelSend`.
+>   4. **Problem prompt delivery fixed**: `handleCreateTerminalForProblem` replaced `setTimeout(3000)` with proper `initializeTerminal()` call that waits for terminal ready before writing prompt.
+>   5. **Actions file watcher**: `setupActionsFileWatcher` called after session creation (NewSessionDialog) and after problem-assigned terminal creation.
+>   6. **Close terminal batching**: `closeTerminal` now uses `React.startTransition` to batch `setTerminalTabs`/`setActiveTerminalId`/`setTerminalLayout`. `saveLayout` moved outside transition.
+>   7. **Session load limit**: Changed from 100 → 500.
+>   8. **TerminalWindow height fix preserved**: `h-full` retained, no regression.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-25, v3.55)
+> **2026-05-25 (v3.54) — INTEGRATED DESIGN SKILLS SYSTEM (COMPLETED):**
+>   1. Copied 5 new skill files (impeccable, ui-ux-pro-max, taste-skill, design-taste, enhanced frontend-design) to agent/skills/
+>   2. Copied 8 design references (Claude, Linear, Vercel, etc.) to agent/design-references/
+>   3. Extended ContextConfig.ts with design_skills schema ([pre-existing])
+>   4. Extended ContextService.ts with buildDesignSkillsContext() ([pre-existing])
+>   5. Extended NewSessionDialog.tsx with Design Skills toggle in systems grid, 3 taste knobs (range sliders), pink accent theme, inline panel UI. Design Skills section includes: toggle card with Palette icon, expanded panel with Design Variance/Motion Intensity/Visual Density sliders (1-10), ~800 token allocation, references toggle. Design skills wired into handleCreate() and buildPreview() for session config.
+> **2026-05-25 (v3.53) — ADDED PROVISION, NEW AGENT, MINIMIZE BUTTONS TO IDE WORKSPACE HEADER:**
+>   1. **Buttons added to IDEProjectsPage workspace header**: Minimize (Minimize2, dispatches `toggle-minimize`), Provision (green FolderTree, dispatches `trigger-provision`), and New Agent (amber Bot, dispatches `open-new-agent`) now appear in the workspace header when a project is opened on `/ide` route. Previously only X close + project name were shown.
+>   2. **Imports added**: `Minimize2`, `FolderTree`, `Bot` from lucide-react.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-25, v3.54)
+> **2026-05-23 (v3.48) — WORKSPACE MINIMIZE + CLOSE WITH SAVE PROMPT:**
+>   1. **Minimize/Restore toggle**: New `workspaceMinimized` state + button in header bar. Hides terminal layout + sidebar but keeps PTY processes alive. Shows centered restore card.
+>   2. **Close workspace with save prompt**: New "Close" button in header → dialog with Save & Close / Discard / Cancel. Save & Close saves all active terminal sessions then kills PTYs. Discard kills PTYs without saving. Uses existing `saveTerminalSession` + `killTerminal` IPC endpoints.
+>   3. **Fixed missing workspace functions**: Defined `loadSavedConfigs`, `handleSaveWorkspace`, `handleLoadWorkspace` that were referenced in JSX but never implemented. `handleSaveWorkspace` saves layout via `saveTerminalLayout`. `handleLoadWorkspace` restores layout from saved config.
+>   4. **dictionary.md updated**: Added "Terminal Workspace" section with minimize/close/save terminology.
+> **2026-05-23 (v3.49) — CLOSE TERMINAL BUTTON FIX + RESTORE MISSING CONTENT:**
+>   1. **Close terminal button fix**: Changed `<button onClick>` to `<button onPointerDown>` with `e.preventDefault()`. The click event was being swallowed by xterm.js event delegation upstream; onPointerDown fires before React's synthetic event delegation on the document, capturing the click before xterm intercepts it.
+>   2. **getLeafIds() guard**: Added `if (!node.children || node.children.length < 2) return [];` to prevent `TypeError: Cannot read properties of undefined` when PaneNode has no children.
+>   3. **Restored missing content**: Re-inserted Quick Instruction Input Bar, Terminal Tab Bar, and TerminalLayout sections that were accidentally deleted by a previous bad edit match.
+>   4. **Minimize/Restore + Close Workspace buttons**: Added Minimize2/Maximize2 toggle and X close button to the tab bar (right side, ml-auto).
+>   5. **Workspace close dialog**: Save & Close / Discard & Close / Cancel dialog when clicking the workspace X button.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-23, v3.48)
+> **2026-05-23 (v3.52) — REMAINING TERMINAL CONTEXT SYSTEM GAPS:**
+>   1. **Step 27 — Rich file display (BasicMarkdownViewer)**: Replaced raw `<pre>` file preview with full markdown renderer. Handles headers, bold/italic, `code`, ```blocks, lists, blockquotes, links. (1 new file: `src/components/BasicMarkdownViewer.tsx`)
+>   2. **Step 3/19 — onContextChanged subscription**: When AI writes to context (problems, requests, checklists), delta message appears in active terminal via `terminalWriteRaw`.
+>   3. **Step 8 — System message format**: Context delta messages now use `terminalWriteRaw` with CR instead of `terminalWrite` with LF for better agent parsing.
+>   4. **Step 18 — Prompt preview**: Already existed in InstructionPanel (collapsible preview with copy). Verified.
+>   5. **Step 30 — Bidirectional Problem↔Request linking**: Added "Related Requests" section to ProblemDetailModal with link/unlink dropdown + chips. Mirrors existing RequestDetailModal "Linked Problems" logic.
+>   6. **Step 11 — Centralize agent defaults**: Moved 9 inline `localStorage.getItem('terminal-defaultAgent')` calls to `getDefaultAgent()`/`setDefaultAgent()` in `src/lib/defaults.ts`.
+>   7. **Step 14 — Session limit**: Increased frontend `loadSessions` from `limit=20` to `limit=100`.
+>   8. **Step 21 — Target terminal indicator**: Already existed in InstructionPanel (persistent badge showing active terminal ID). Verified.
+>   9. **Setup/Initialize separation**: (v3.50) Rename + Advanced Config toggle. All still intact.
+> **2026-05-23 (v3.49) — FOCUS SESSIONS IDLE FIX + CHART HEIGHT/OVERFLOW + OLD DATA CLEARED:**
+>   1. **Focus Sessions idle detection**: Session duration now uses `lastInteractionRef + 5min` clamp — idle periods (walking away with a productive app open) no longer inflate session durations. Added global `mousemove`/`keydown`/`click` listener to track last interaction.
+>   2. **Stopwatch pauses during idle**: Stopwatch interval skips accumulation when no interaction for 5+ minutes — visible timer and saved sessions are now consistent.
+>   3. **Old inflated data cleared + auto-refresh**: Added `clear-productivity-sessions` IPC handler + `clearProductivitySessions` preload bridge. Called once on Dashboard mount to wipe all stale wall-clock-based sessions. Fixed fetch effect that only ran on `[selectedPeriod, minDuration]` — now also runs every 5s (auto-refresh interval via `fetchKey`) and immediately after clear, so new sessions appear live.
+>   4. **Productivity chart height**: Increased from `h-40` (160px) → `h-72` (288px) so bars fill the card container.
+>   5. **Hour overflow fix**: Today view stacked totals (productive + other + external) capped at 3600s per hour — bars no longer overflow y-axis.
+>   6. Removed unused `maxBarHeight` variable.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-23, v3.49 focus sessions + chart fixes)
+> **2026-05-23 (v3.50) — UI REDESIGN + PROMPT RELOCATION + WORKSPACE CLOSE FIXES:**
+>   1. **New Prompts sidebar tab**: Added `prompts` tab with `ScrollText` icon. Moved "Project Prompt" textarea from `configs` (Saved Workspaces) tab to dedicated `prompts` tab. Configs tab now only shows saved workspaces.
+>   2. **Removed Exit Workspace button**: Leftover button in IDEProjectsPage removed. Close X now dispatches `open-close-workspace-dialog` event to show TerminalPage's save dialog.
+>   3. **Close workspace dialog redesigned**: Glass-morphism background, warning icon, stacked Save & Close / Discard / Cancel layout with gradient buttons and shadows.
+>   4. **Close terminal tab fixed**: `closeTerminal` now removes terminal from UI synchronously (functional updaters) before IPC cleanup (fire-and-forget). No more stale closure issues.
+>   5. **ProblemsTab list items redesigned**: Glass cards with priority glow dots, rounded-xl, hover effects, pill-style priority badges.
+>   6. **ProblemDetailModal redesigned**: Glass-morphism dialog with priority indicator, gradient status buttons, gradient action buttons with shadows.
+>   7. **RequestDetailModal redesigned**: Same glass-morphism treatment with blue accents, inline checklist with progress bar.
+>   8. **RequestsTab list items redesigned**: Matching glass card style with link icons and priority indicators.
+>   9. **ChecklistsTab + ChecklistGroup redesigned**: Gradient progress bars, color-coded percentages, circular checkbox toggles with glow, collapsible groups with chevron.
+>   10. **ModalChecklist redesigned**: Progress bar with gradient fill, circular status toggles, pill-style status badges, gradient Approve button.
+>   11. **New `onCloseWorkspace` prop** on TerminalPage — called after Save & Close or Discard completes to close workspace overlay. Passed from IDEProjectsPage.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-23, v3.50 UI redesign + prompt relocation)
+> **2026-05-22 (v3.47) — AFK TRACKING FIX + PROMPT REDESIGN:**
+>   1. **Main process tracking paused on idle** — Added `set-tracking` IPC handler + `setTracking` preload bridge. Idle detection now calls `setTracking(false)` to pause `pollForeground()`, preventing the last app from accumulating time during AFK. Resume via `setTracking(true)` on idle return.
+>   2. **Re-idle race condition fixed** — Added 12-second `idleCooldownRef` after returning from idle. Prevents the stale 5s heartbeat value from triggering a second idle detection before the OS idle timer resets. Was causing AFK session to be closed with duration=0 and a new session created, so the user's selected activity never had the correct duration.
+>   3. **AFK prompt redesigned** — Polished glass/dark aesthetic with spring animation, amber clock icon, duration display, gradient suggestion card, hover effects.
+> **2026-05-22 (v3.46) — DOUBLE-SPAWN FIX + ALL BUNDLE E ITEMS COMPLETE:**
+> Redesigned AfkPromptModal with polished glass/dark aesthetic: gradient header accent, spring scale/fade animation (matching other modals), clock icon with amber icon badge, prominent duration display, suggested activity card with gradient + hover arrow, "Or choose an activity" section with hover states, subtle ring effects on color dots, and empty state message when no activities exist.
+> **2026-05-22 (v3.46) — DOUBLE-SPAWN FIX + ALL BUNDLE E ITEMS COMPLETE:**
+> **Note:** Fixed critical double-spawn bug (system prompt never written to terminal). Completed all remaining Bundle E items (Related Requests, PRIORITY_INDICATORS, React.memo on terminal tabs, unlink-problem-from-request IPC). All bundles A-E now fully implemented.
+> **2026-05-22 (v3.44) — TERMINAL + CONTEXT SYSTEM OVERHAUL (Bundles B-E):**
+>   1. **`dateOffset` moved to App.tsx** — Single `dateOffset` state in the top nav, shared across all pages. Resets when `selectedPeriod` or `dateRangeMode` changes.
+>   2. **Chevrons moved to top nav** — Previous/Next period chevrons and period label now live in the header bar (between period selector and Month/30d toggle). Removed from all pages.
+>   3. **All pages use shared `dateOffset` prop** — DashboardPage, StatsPage, ProductivityPage, BrowserActivityPage, ExternalPage all accept `dateOffset` + `onDateOffsetChange` instead of managing their own offset state.
+>   4. **Duplicate chevron code removed** — StatsPage, ProductivityPage, BrowserActivityPage, ExternalPage, and DashboardPage no longer have their own chevron navigation buttons.
+>   5. **StatsPage `filteredLogs`** — Inline calendar-month logic replaced with shared `getDateRange(selectedPeriod, dateOffset, dateRangeMode)`. Month chart data now iterates via `getDateRange()` boundaries instead of hardcoded `daysInMonth`. Respects trailing-30 mode.
+>   6. **ProductivityPage — all data respects dateOffset** — `productivityData` (score + breakdown) now filters `logs`/`browserLogsProp` by `getDateRange()` instead of using parent's pre-aggregated `appStats`/`browserStats`. `allWebsites` and `sessions` also filter by date range. Everything updates uniformly when timeline changes.
+>   7. **DashboardPage website/solar data** — `computedWebsiteData` and `computedSolarData` now use `getDateRange()` instead of inline calendar logic. Both respect `dateRangeMode`.
+>   8. **ExternalPage `periodOffset` → `dateOffset`** — Renamed to align with shared prop. Uses shared `getDateRange()` for all date filtering and labels. Chevrons removed from activity detail view.
+>   9. **BrowserActivityPage** — Already used `getDateRange()`; just removed local state and chevrons in favor of shared prop.
+> **2026-05-22 (v3.46) — DOUBLE-SPAWN FIX + BUNDLE E COMPLETION:**
+>   1. **Double-spawn fix (critical)**: Removed `spawnTerminal` from `onCreate` handler — let `handleTerminalReady` in TerminalWindow.tsx spawn the PTY when pane mounts. Was causing `terminal:ready` to fire before `initializeTerminal` registered its listener, resulting in 8s timeout → 7s fallback set `agentReadyRef=true` → `initializeSession` skipped system prompt entirely.
+>   2. **System prompt queuing**: `initializeSession` now queues merged prompt + init content as queue items with `isSystemPrompt`/`isInitContent` flags instead of writing via `terminalWriteRaw`. `flushMessageQueue` writes with `[SYSTEM CONTEXT — ...] [END SYSTEM CONTEXT]` / `[PROJECT CONTEXT — ...] [END PROJECT CONTEXT]` markers and 300ms delays (Fix 8).
+>   3. **Step 30 — Related Requests**: Added "Related Requests" section to ProblemDetailModal with link/unlink support. Filters `allRequests` by `linked_problems.includes(problem.id)`. Dropdown to link new requests, × button to unlink.
+>   4. **Step 26/31 — PRIORITY_INDICATORS**: New constant with color-coded priority display (critical=red, high=orange, medium=yellow, low=green). Replaces plain-text priority in modal meta section.
+>   5. **Step 28 — React.memo on terminal tabs**: Extracted `TerminalTabItem` component wrapped in `React.memo` to prevent unnecessary re-renders of tab bar.
+>   6. **unlink-problem-from-request IPC**: New handler + `RequestsService.unlinkProblem()` + preload bridge. Removes problem ID from request's `linked_problems` array.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-22, v3.47 AFK tracking fix + prompt redesign)
+>   1. **onSend wired** — InstructionPanel stub replaced with `handleInstructionPanelSend`
+>   2. **buildInitContent killed** — Duplicate context assembly path removed. NewSessionDialog uses `assembleContext()` exclusively. TerminalPage no longer merges both paths.
+>   3. **UI Refresh Events** — Fixed preload.ts cleanup (was using `() => {}` instead of stored handler refs). Added `onContextChanged` refresh effect for problems/requests.
+>   4. **Terminal Manual Input** — Added missing `terminal:write` IPC handler in main.ts for preload's `terminalAPI.write` bridge
+>   5. **Problem Prompt Delivery** — Replaced fragile 3000ms setTimeout with `queueOrSend` mechanism in `handleCreateTerminalForProblem`
+>   6. **Skills Pipeline** — Verified end-to-end (generatePrompt → onSend → queueOrSend)
+>   7. **FlowView Audit** — File doesn't exist (stub), no-op
+>   8. **Status Change Format** — Terminal notification format fixed to `[SYSTEM: #id action "status"]` pattern with per-action formatting + `\r` line ending
+>   9. **Bundle B: Session System** — tracker-mind-setup in onCreate, init/setup mode distinction, agent defaults unification (getDefaultAgent), SUPPORTED_AGENTS dropdown, resume session ID input, session list limit 500
+>  10. **Bundle C: IPC & Verification** — electron:execute-command handler, sendInstructionsToTerminal extended with linkedProblemId/linkedRequestId, tracker-mind-generate TODO, vault sync doc comment
+>  11. **Bundle D: Terminal UX** — Prompt review button/modal, InstructionPanel textarea enlarged, target terminal indicator with agent readiness status
+>  12. **Bundle E: UI Polish** — CategoryBadge + status in problem cards, startTransition batching in closeTerminal, summarize-session IPC handler, NL routing TODO
+> **Build Status:** ✅ Build succeeds (verified 2026-05-22, all 5 bundles A-F complete)
+> 13. **Bundle F: Context Sharpening & Deferrals** — summarize-session IPC handler verified in main.ts + preload bridge; smart task routing TODO deferred. Key bugfix: `getDefaultAgent()` infinite recursion (TerminalPage.tsx:24 was calling itself instead of reading localStorage).
+> **2026-05-21 #8 — TERMINAL + CONTEXT SYSTEM OVERHAUL PROMPT UPDATED:** Added 37 new issues (now 54 total). New additions: terminal can't accept manual input, wrong launch command, session blinking, agent selection empty, session ID hardcoded, can't specify existing session ID, initial message not sent properly, AI context sharpening, natural language task routing, rich file display (markdown→HTML), agent review ugly, prompt preview missing system prompt, save button not saving, workspace save/load redesign, terminal split/drag broken, problem UI redesign, prompt preview overhaul, and more. Full prompt at `agent/docs/terminal-context-system-overhaul/PROMPT.md` (530+ lines).
+> **2026-05-21 Fix #7 — SLEEP LOGIC (COMPLETED):** Timeline model corrected: App Exit → [pre-sleep amber] → Fell Asleep → [sleep indigo] → Woke Up → [post-wake rose] → App Open. Backend: `bedtime_minutes` now stores raw app exit (no preSleep shift), `sleep_seconds` = `duration - preSleep` (actual sleep). Frontend: 3 visual segments per bar (amber/indigo/rose), tooltip renamed "Bedtime"→"App Exit" + added "Fell asleep"/"Woke up" lines, legend reordered. 
+> **2026-05-21 Fix #8 — SLEEP POPUPS: DURATIONS → TIME SELECTORS + CHART 6PM EPOCH:** Add Past Sleep modal and Auto Detection popup: replaced latency/duration pickers with time selectors. Grid layout: Row 1 = Device Off | Fell asleep at, Row 2 = Wake up | Device On. Confirm handlers compute deltas from time differences. Chart Y-axis epoch shifted to 6PM — all normal sleep patterns render as one continuous bar. Build passes.
+> **2026-05-21 Fix #7b — SLEEP POPUPS REDESIGNED:** All 3 sleep popups fixed to use consistent timeline:
+>   - **Auto detection popup** (App.tsx): Removed 15-min buffer subtracting from gapStart. Device Off = gapStart (raw). Device On = gapEnd (raw). Labels renamed: "From"/"To"/"Bedtime"/"Wake time" → "Device Off"/"Device On". Summary shows "+Xm pre-sleep" line + "Actual Sleep" (indigo) + "Total inactive" (emerald).
+>   - **Add Past Sleep modal** (ExternalPage.tsx): Replaced "Bedtime"/"Wake time" pickers with "Device Off"/"Wake up time"/"Device On" pickers. Replaced "Woke up before opening app" duration picker with "Device On" absolute time picker. Timeline summary shows: Device Off → Pre-sleep → Woke Up → Device On → Actual Sleep / Total (Off→On).
+>   - **Morning Prompt**: Now pre-fills Device Off = lastCloseTime, Wake up = now - wakeUpMinutes, Device On = now.
+> Build passes.
+> **2026-05-21 Update (5.1):** CRITICAL CONTEXT SYSTEM & TERMINAL CRASHES FIXED. Deep audit found 10+ broken systems. Fixed ALL:
+> - **Missing import**: `assembleContext()` called in TerminalPage.tsx but NOT imported → ReferenceError on "Setup Agent". Added `import { assembleContext } from '../services/ContextService'`.
+> - **Dead event**: `create-terminal` events dispatched in 4 places but NO listener → Header "Open Terminal" button, "+" button, problem assignment created tabs but never spawned PTY. Added event handler that calls `spawnTerminal()`.
+> - **Race condition**: `onCreate` callback dispatched dead event then called `initializeTerminal` on an unspawned terminal → silent failure. Now awaits `spawnTerminal()` before `initializeTerminal()`.
+> - **Broken path**: QMD template check in `buildInitContent()` passed `projectPath + '/agent/templates'` to `listAgentDirFiles` which already appends `/agent` → resolved to `{projectPath}/agent/templates/agent`. Fixed.
+> - Plus all 5 fixes from Update 5 (listDirectory IPC, checkInfra path, graphify path, retry-agent-init, terminal:destroy).
+> **Build passes.**
+
+
+> **2026-05-21 Update (2):** COMPLETED ALL 6 PHASES of Terminal System overhaul. Phase 1: Terminal height responsive (flex chain fix). Phase 2: Session resume with Resume ID (DB auto-generates `resume-*` IDs, uses `opencode --resume <id>` flag). Phase 3: Dynamic system prompt assembly (`buildSessionContext()` loads active problems/requests/checklists into prompt). Phase 4: Setup vs Initialize separation (`setupTerminal()` + `initializeSession()` from `initializeTerminal()`). Phase 5: Event-driven status updates (`context-changed` IPC event fires on problem/request/checklist CRUD, writes `[System: ...]` to active terminal). Phase 6: Metadata parsing + auto-tags (Session Metadata blocks parsed, DB auto-updated, `session-metadata-updated` event, auto-tags generated). Build passes.
+> **2026-05-21 Update:** Terminal sizing CRITICAL FIX — TerminalPage root used `flex-1` but parent (App.tsx route wrapper) is NOT `display:flex`, so `flex-1` was inert = `height: auto`. Terminal pane `height: 100%` computed to `auto`. Fix: changed TerminalPage root from `flex-1` to `h-full` — parent IS a flex item with definite height, so `h-full` resolves correctly. Also fixed: missing `handleLayoutChange` definition (ReferenceError on split/merge), missing `min-h-0` on terminal container, removed fragile `!important` xterm CSS overrides. See `agent/skills/agent-reflect/logs/2026-05-21_idiot_trigger.md` for full analysis.
+> **2026-05-20 Update:** ALL FIXES APPLIED. Header nesting fully fixed — project select now closes properly with `</div>` inside the conditional. Both Open Terminal and Setup buttons are at the same level in header bar. Setup button wired and fires correctly. Setup dialog system prompt preview redesigned: always visible, layer color indicators, 2000 char limit per layer. Build passes.
+> **2026-05-20 Update (later):** Skills path clarification — `defaults.ts` now correctly references skills per project at `<projectPath>/agent/skills/` (not global). Also: Session list 1p1r → readable names, Edit Session popup fixed, ProblemDetailModal/RequestDetailModal styled (zinc theme, SVG X, shadow), ProblemDetailModal stopPropagation. Build passes. Graphify rebuilt (472 nodes, 707 edges, 48 communities).
+> **2026-05-19 Update (afternoon):** Build fixes: InstructionPanel Escape key closes panel, default session name → 'Setup Agent', graphify rebuilt (472 nodes, 708 edges, 48 communities). Edit Session popup had broken div nesting causing 3 consecutive build failures — fixed by replacing entire edit form section.
+> **2026-05-19 Update:** InstructionPanel improvements — Markdown preview (amber headers, green checkboxes, cyan code), Copy button with 1.5s feedback, persist on close/reopen (localStorage per sessionId), Cancel button, Clear button, Use Skill button wired, storageKey in useEffect deps.
+> **2026-05-19 Update:** Implemented Context Management System end-to-end:
+- `src/services/ContextConfig.ts` — ContextConfig interface + DEFAULT_CONTEXT_CONFIG
+- `src/services/ContextService.ts` — Browser-safe async context assembly (uses deskflowAPI instead of Node.js fs/path)
+- `agent/context/` — README.md + schema files (session-summaries.json, deep-memory.json)
+- `src/components/NewSessionDialog.tsx` — 6-system toggle UI with SVG ContextMapVisualization
+- `src/pages/TerminalPage.tsx` — Wires assembleContext into session creation
+- Features: 6 toggle cards, SVG context map, token budget bar, behavior toggles, condenseStateMd, async browser-safe assembly
+> **2026-05-18 Update:** Renamed "Initialize" → "Setup" throughout UI (TerminalPage button + NewSessionDialog). Created 4 PROBLEM entries (#124-127) for Context Management System. Generated research prompt at `agent/docs/research-impl/context-management-architecture-18052026/PROMPT.md` covering layered context, system integration, visualization. Inventory of all 6 knowledge systems (LLM Wiki, Obsidian Skills, Graphify, PARA, QMD, Automations) — 3 missing from Setup UI.
+> **2026-05-22 — PRODUCTIVITY CHART HEIGHT + HOUR OVERFLOW FIX:** Chart height increased from `h-40` (160px) to `h-72` (288px) so bars fill the card container. Today view stacked totals (productive + other + external) now properly capped at 3600s per hour — if total exceeds 1h, values are proportionally scaled down so stacked bars never overflow y-axis. Removed unused `maxBarHeight` variable. Categorization verified: productive→green, neutral+distracting→"Other" amber, external→indigo.
+> **Build Status:** ✅ Build succeeds (verified 2026-05-22, productivity chart fixes)
+> **Session Date:** 2026-05-22
+> **Token Estimate:** ~15000 tokens
+
+---
+
+## 🚨 2026-05-18 — THREE NEW TASKS (All COMPLETED)
+
+### Task 1: Sleep Chart Per-Bar Latency Labels — COMPLETED
+- **Problem:** "Time before device" and "Extra time after device" badges were GLOBAL averages above/below the entire chart.
+- **Fix:** Sleep chart now has 3 datasets per bar: Pre-sleep (amber), Sleep window (indigo), Post-wake (rose). Removed global aggregate badges. Added legend. Tooltips show all three values.
+- **Files:** `src/pages/ExternalPage.tsx` — Sleep detail section rewritten with 3-segment bar chart
+
+### Task 2: Database Page Table Search — COMPLETED
+- **Problem:** Too many tables with random names — hard to find the one you need.
+- **Fix:** Added `tableNameFilter` state + search input above table list. Filters by table NAME (case-insensitive substring). Clear button. Separate from content search.
+- **Files:** `src/pages/DatabasePage.tsx` — Added table name search with X icon to clear
+
+### Task 3: External vs Internal Comparison Card — COMPLETED
+- **Problem:** User wanted a clear comparison between external activity (sleep/stopwatch) and internal/device usage as a shareable visual.
+- **Design:** Bold "Time Audit" card with amber (external) vs emerald (internal) hero numbers, progress bars, context callouts, Syne + Barlow Condensed fonts, decorative gradient orbs, grain texture, "via DeskFlow" watermark.
+- **Data:** New `get-comparison-stats` IPC handler + `getComparisonStats` preload bridge. Queries `external_sessions.duration_seconds` + `logs.duration_ms` for the same period.
+- **Files:** `src/main.ts` (new IPC handler), `src/preload.ts` (new bridge), `src/pages/ExternalPage.tsx` (Time Audit card)
+
+### Task 4: Stopwatch Reset Fix — COMPLETED
+- **Problem:** Productivity timer resets to zero every time user switches to a neutral/distracting app (e.g., File Explorer).
+- **Root Cause:** Stopwatch effect re-ran on every `currentApp` change, resetting `currentProductiveMs` when `isProductive` was false.
+- **Fix:** Replaced start-time-based pattern with **accumulated delta pattern** — timer keeps accumulating across app switches. Only pauses when nothing active. Uses `stopwatchAccumulatedRef` + `stopwatchLastTickRef` + `delta` approach. Timer only resets on explicit pause/clear, not on app switch.
+- **Files:** `src/pages/DashboardPage.tsx` — Stopwatch useEffect rewritten
+
+### Task 5: Productivity Sessions Design Prompt — GENERATED
+- **Problem:** Dashboard shows live timer that resets. User wants: best time to beat, session history, ranking, threshold filter, personal best tracking.
+- **Prompt saved:** `agent/docs/productivity-sessions-18052026/PROMPT.md`
+- **Design targets:**
+  - Remove live timer, replace with "Best Time Today / Week / PB" display
+  - New `productivity_sessions` DB table for session storage
+  - Session list with filters (period + min duration threshold)
+  - Personal best tracking (longest session, longest streak, best day)
+  - Progress ring showing today's total vs goal
+  - Threshold setting in Settings page
+  - Charts: daily accumulation bar, session duration distribution, streak visualization
+- **Files:** Design prompt → implementation pending user RESULT.md
+
+---
+
+### 2026-05-18 — Compose → AI Agent Integration Research
+
+**Problem:** Compose panel sends instructions to AI agents but instructions are not properly inserted into agent context. Also, compose panel pushes terminal down instead of squashing it.
+
+**Status:** PROMPT GENERATED — User will do their own research. Prompt saved to `agent/docs/research-impl/compose-agent-integration-18052026/PROMPT.md`.
+
+**Files Created:**
+- `agent/docs/research-impl/compose-agent-integration-18052026/PROMPT.md` — Research prompt covering Claude Code, OpenCode, Gemini CLI, Codex, and other agents. Includes: input methods, session continuity, context injection, CLI flags, pros/cons.
+
+**Skill Update:**
+- `agent/skills/generate-prompt/SKILL.md` — Added rule: "Do NOT use your own interpretation or framing. Copy the user's exact words."
+
+**Compose Squash Fix:**
+- `src/pages/TerminalPage.tsx` — Changed terminal wrapper from `h-full` to `flex-1 min-h-0` so compose panel squashes terminal instead of pushing it down.
+
+---
+
+### 2026-05-18 — Context Management System — Setup Rename + Research Prompt
+
+**Problem:** After a few chats, AI agent predicts user before they finish. Current "Initialize" dialog only covers QMD + Graphify. Missing: LLM Wiki, Obsidian Skills, PARA, Automations. Need layered context summarization that stores chat history efficiently.
+
+**Status:** RESEARCH PROMPT GENERATED — User will do their own research. Prompt saved to `agent/docs/research-impl/context-management-architecture-18052026/PROMPT.md`.
+
+**Knowledge Systems Inventory:**
+
+| System | Location | Status in Setup UI | Implementation |
+|--------|----------|-------------------|----------------|
+| LLM Wiki | `agent/*.md` | ❌ Missing | Full — files exist |
+| Obsidian Skills | `agent/skills/*/SKILL.md` | ❌ Missing | SkillsService reads them |
+| Graphify | `graphify-out/` | ✅ Included | AST + LLM graph builder |
+| PARA | `CZVault/` | ❌ Missing | graphify_maintain.py syncs |
+| QMD | `agent/templates/*.qmd` | ✅ Included | Template system exists |
+| Automations | `agent/automations/` | ❌ Missing | Not yet created |
+
+**UI Changes:**
+- `src/pages/TerminalPage.tsx` — Renamed "Initialize" button → "Setup"
+- `src/components/NewSessionDialog.tsx` — Renamed "Initialize Agent Workspace" → "Setup Agent Workspace", "Agent Context & Init Files" → "Agent Context & Tools", "Initialize Agent" → "Setup Agent"
+
+**PROBLEM Entries Created:**
+- Issue #124: Context Management — AI Agent Gets Stale Context Across Chats
+- Issue #125: Setup Dialog — Missing System Toggles
+- Issue #126: Context History — Efficient Summarization
+- Issue #127: In-App Context Visualization
+
+**Research Focus:**
+- Layered context: short-term (N messages) → medium-term (session summaries) → long-term (LLM Wiki files) → deep memory (cross-session patterns)
+- System integration: how each system feeds into context, dependencies between systems
+- Setup dialog redesign: all 6 system toggles with status indicators
+- Context Map visualization: in-app graph showing system connections
+
+---
+
+### 2026-05-17 — Prompt History Fix — IN PROGRESS (using generate-prompt skill)
+
+**Problem:** Prompt history shows fake "Processing" entries for every keystroke typed in terminal. `terminal:write-old-format` inserts EVERY terminal write into `terminal_messages` as `role='user', status='in_progress'`. Individual keystrokes (single chars, Enter keys) are treated as prompts. They never get completed because no AI responds to a single "a" keystroke. Previous attempts broke terminal behavior.
+
+**Status:** IN PROGRESS — Using generate-prompt skill to design proper solution.
+
+**What Changed:**
+1. Added `terminal:write-raw` handler in main.ts — writes to PTY without creating a `terminal_messages` DB record
+2. Added `terminalWriteRaw` bridge in preload.ts
+3. Changed system-level terminal writes (launch commands, system prompts, init content) to use `terminalWriteRaw` instead of `terminalWrite` — these are not user prompts
+4. Added auto-settle stale records in `get-prompt-history` and `get-prompt-status` IPC handlers: `UPDATE terminal_messages SET status = 'completed' WHERE status = 'in_progress' AND created_at < datetime('now', '-15 minutes')`
+5. Sleep detail: replaced duration bar chart + ugly table with floating range bars (bedtime→wake crossing midnight axis), "time before/after device" badges above/below chart, uses app's glass theme
+
+**Files Modified:**
+- `src/main.ts` — Added `terminal:write-raw` handler; stale record cleanup in get-prompt-history and get-prompt-status
+- `src/preload.ts` — Added `terminalWriteRaw` bridge
+- `src/components/TerminalWindow.tsx` — Keystrokes reverted to `terminalWrite` (individual chars should not be recorded as prompts, but the terminal behavior must be identical)
+- `src/pages/TerminalPage.tsx` — System init writes use `terminalWriteRaw`
+- `src/pages/ExternalPage.tsx` — Sleep detail redesign (floating range chart)
+- `agent/state.md` — This entry
+
+**Why:** System init messages (launch commands, merged system prompts, init content) were being recorded as "prompts" with `status='in_progress'`. Since no AI responded to these, they stayed stuck as "Processing" forever and showed up as fake prompts from hours ago. Sleep sessions table was ugly and redundant.
+
+**Result:** System-level terminal writes no longer create DB records. Only actual user-initiated prompts (instruction panel sends, queued messages) are recorded. Stale stuck records auto-resolve after 15 minutes. Sleep detail shows floating range chart with bedtime→wake visualization.
+
+**Build:** ✅ Both renderer and electron compile cleanly.
+
+---
+
+### 2026-05-17 — Agent False-Positive Signature Fix (Startup Delay)
+
+**What Changed:**
+1. Added `handlerStartTime` timestamp + 3-second startup delay to `terminal:create` and `spawn-terminal` PTY data handlers — signature detection is skipped for the first 3 seconds
+2. Fixed pre-existing `const _i` → `let _i` in `spawn-terminal` for loop (TS2588 error)
+
+**Files Modified:**
+- `src/main.ts` — `terminal:create` and `spawn-terminal` handlers (3s startup guard before agent signature checking), `spawn-terminal` for loop fix
+
+**Why:** On Windows, the shell prompt (`PS C:\Users\user>`) ends with `>`, which matches the `opencode` signature `/>\s*$/`. This triggered `agent:ready` immediately — before the AI agent had even started. The "Waiting for agent..." overlay disappeared, but the agent's launch command hadn't been processed yet, so the terminal showed a bare shell prompt instead of the AI agent.
+
+**Result:** "Waiting for agent..." overlay now stays visible for at least 3 seconds, preventing shell prompts from causing false-positive readiness. The AI agent has time to start and show its real prompt, which correctly triggers `agent:ready`.
+
+**Build:** ✅ Renderer + Electron
+
+---
+
+### 2026-05-17 — Prompt History Limit + Delete
+
+**What Changed:**
+1. Added `promptHistoryLimit` preference (default 5) — stored in `deskflow-prefs.json`, adjustable per-user
+2. PromptHistoryTab now shows only N recent prompts; older ones hidden behind "Show X older" toggle
+3. Delete button (Trash2 icon) appears on hover per-entry, removes from DB permanently
+4. Added `delete-terminal-message` IPC handler in main.ts (SQL del by id)
+5. Added `deleteTerminalMessage` bridge in preload.ts
+6. Added type declarations in App.tsx for `deleteTerminalMessage`, `getPromptHistory`, `getPromptStatus`, `aiTask*`
+7. Added Prompt History section in Settings > General with preset limit buttons (3/5/10/20/50/100) + custom number input
+8. Preference saves immediately via `setPreference` on change
+
+**Files Modified:**
+- `src/components/PromptHistoryTab.tsx` — Rewritten with limit/delete/show-older
+- `src/pages/SettingsPage.tsx` — Added Prompt History section in General tab
+- `src/main.ts` — Added `delete-terminal-message` IPC handler
+- `src/preload.ts` — Added `deleteTerminalMessage` bridge
+- `src/App.tsx` — Added type declarations
+
+**Why:** User wanted the prompt history list to be manageable — only show recent chats, hide or delete older ones, with an adjustable setting.
+
+**Result:** Prompt History tab now shows a configurable number of recent prompts with per-entry delete. Older prompts can be expanded via "Show X older" button. Settings > General has a Prompt History section with preset and custom limit options.
+
+**Build:** ✅ Renderer build passes cleanly.
+
+---
+
+### 2026-05-17 — Sleep Detail Floating Range Chart (Part 2)
+
+**What Changed:**
+1. Removed the sleep sessions table entirely (ugly, redundant with InsightsPage)
+2. Removed duration bar chart (replaced with floating range bars spanning bedtime→wake time)
+3. New chart: each night is a floating bar from bedtime (below midnight) to wake time (above midnight) — bars cross the `12a` center line as a natural two-way visualization
+4. Midnight axis (`y=0`) drawn as a thicker `#52525b` line for visual anchor
+5. Y-axis labels show readable times (4p, 6p, 8p, 10p, 12a, 2a, 4a, 6a, 8a, 10a, 12p)
+6. Tooltip shows Bedtime, Wake time, and Duration in proper `h:mm` format
+7. Added "Time before device" badge above the chart (avg latency to fall asleep)
+8. Added "Extra time after device" badge below the chart (avg wake latency)
+9. Removed all custom purple/gradient styling — uses standard `glass` class now
+10. Removed decorative orbs and amber accent styling
+11. Stripped down to minimal header (Moon icon + "Sleep" + nights/duration subtitle)
+
+**Files Modified:**
+- `src/pages/ExternalPage.tsx` — Sleep detail section rewritten
+
+**Why:** Sleep sessions table was ugly and redundant (InsightsPage already shows sleep duration). Purple background didn't fit the app's theme. User wanted a chart showing "when start sleeping until waking up" as a two-way visualization with latency metrics above/below.
+
+**Result:** Clean `glass` card with a floating range chart — each bar shows the exact sleep window from bedtime to wake time crossing the midnight axis. Latency badges sit above/below the chart. Minimal, informative, fits app styling.
+
+**Build:** ✅ Both renderer and electron compile cleanly.
+
+---
+
+### 2026-05-17 — Sleep Detail Night-Sky Redesign (ExternalPage)
+
+**What Changed:**
+1. Replaced generic `glass` sleep detail section with a custom night-sky/lunar aesthetic card (`#0f0d2e` → `#1a1440` gradient, amber/indigo accents)
+2. Added decorative radial gradient orbs (amber + purple) for atmospheric depth
+3. Replaced Moon icon with `Moon` lucide icon + glowing icon container
+4. Redesigned stat cards: asymmetric hover glow, per-metric accent colors (purple/gold/blue/pink)
+5. Changed sleep chart color palette: green→gold (`#22c55e` → `#f59e0b`), amber→deeper amber, red→rose (`#ef4444` → `#e11d48`)
+6. Replaced `text-zinc-400` avg latency with `avgWake` stat (pink accent)
+7. Chart tooltip now uses night-sky theme (`#0f0d2e` bg, amber border, gold title)
+8. Replaced plain `Bar` chart with `motion.div` wrapper for fade-in animation
+9. Replaced plain table rows with `motion.tr` for staggered entry animation
+10. Table now shows weekday prefix + uses blue bedtime / pink waketime colors
+11. Added `motion` imports (framer-motion) and `Moon` import (lucide-react)
+
+**Files Modified:**
+- `src/pages/ExternalPage.tsx` — Sleep detail section complete redesign
+
+**Why:** User called sleep detail "ugly" — needed a distinctive visual identity. The night-sky lunar aesthetic differentiates sleep from all other data sections.
+
+**Result:** Sleep detail now has a rich night-sky gradient background with warm moonlight accents, staggered entry animations, per-metric accent colors, styled charts with glow effects, and cleaner table with colored bedtime/wake cells.
+
+**Build:** ✅ Both renderer and electron compile cleanly.
+
+---
+
+### 2026-05-17 — Phase 1: Agent Readiness Protocol (Terminal Overhaul)
+
+**What Changed:**
+1. Added `spawn-terminal` IPC handler in main.ts (was missing — handler didn't exist despite preload.ts calling it)
+2. Added AGENT_SIGNATURES for opencode/claude/aider/codex/generic agent detection
+3. Added `agent:ready`/`agent:timeout` IPC events and `retry-agent-init` handler
+4. Added agent status state machine (spawning → waiting → ready | timeout) with cyan/amber overlays in TerminalPane
+5. Added message queue for instruction panel messages sent before agent is ready
+6. Fixed queue flush ordering: now flushes AFTER system prompt (not before)
+7. Changed instruction panel sends from `\n` to `\r\n` to match what PTY expects
+8. Fixed all 3 terminal creation flows (split, "+" button, handleTerminalReady) to pass agentType
+9. Fixed `handleTerminalCreated` to extract agent from event detail
+10. Fixed `onRetryInit` to use terminal's agent type instead of hardcoded 'opencode'
+11. Fixed `create-terminal` dispatch at line 1367 to include agent in detail
+12. Fixed `handleTabSelect`/`handleActiveTerminalChange` ReferenceErrors (undefined functions from prior refactoring)
+13. Updated `queueOrSend` to flush stale queue when agent becomes ready (handles manual-launch edge case)
+
+**Files Modified:**
+- `src/main.ts` — Added `spawn-terminal` handler with agent readiness detection
+- `src/preload.ts` — Added `onAgentReady`, `onAgentTimeout`, `retryAgentInit` bridges
+- `src/pages/TerminalPage.tsx` — Agent status state, message queue, flush ordering, `\r\n` fix, undefined function fixes
+- `src/components/TerminalWindow.tsx` — Agent status props/overlays, agentType in all creation paths
+- `agent/state.md` — This entry
+- `agent/data.md` — Added terminal IPC endpoints and events
+- `graphify-out/` — Rebuilt and synced to vault
+
+**Why:** Terminal initialization had a race condition — instruction panel messages were sent to the PTY before the AI agent was ready, or before the system prompt was written. The `spawn-terminal` handler didn't exist in main.ts despite being called from preload. Several functions from prior refactoring were left undefined.
+
+**Result:** AI agent now receives system prompt first, then queued user messages. Manual xterm typing still works independently. All terminal creation flows pass agentType correctly. No more "just creating a new line" behavior.
+
+**Build:** ✅ Both renderer and electron compile cleanly.
+
+**Graphify:** Rebuilt (AST-only), validated, synced to Obsidian vault.
 
 ---
 
@@ -51,6 +528,43 @@
 - Build: ✅ Passes
 
 ## Recent Changes Summary
+
+**System Prompt Overhaul + NewSessionDialog Cleanup**
+- ✅ **ADDED:** `DEFAULT_SYSTEM_PROMPT` constant in `src/lib/defaults.ts` — hardcoded fixed default prompt always prepended
+- ✅ **CHANGED:** Settings page system prompts now show the default prompt (collapsible preview) + "General Additions" textarea per agent (stored in prefs as before)
+- ✅ **ADDED:** Project-specific prompt in workspace Configs tab — per-project additions stored in `prefs.projectPrompts[projectId]`
+- ✅ **CHANGED:** `initializeTerminal` now merges 4 levels: default + general additions + project additions + optional session additions
+- ✅ **ADDED:** Merged prompt preview in NewSessionDialog showing all 4 levels with collapsible sections
+- ✅ **REMOVED:** Related Problems/Requests selector from NewSessionDialog (cleanup)
+- ✅ **REMOVED:** `baseSystemPrompt` loading from NewSessionDialog (replaced by merge preview)
+- ✅ Build: ✅ Passes
+- Files: `src/lib/defaults.ts` (new), `src/pages/SettingsPage.tsx`, `src/pages/TerminalPage.tsx`, `src/components/NewSessionDialog.tsx`
+
+**PromptHistoryTab — Sidebar Prompt History Viewer**
+- ✅ **ADDED:** `get-prompt-history` IPC handler in `src/main.ts` — queries `terminal_messages` (role='user') with LEFT JOINs to `terminal_sessions` and `terminal_bindings` for full session/terminal/problem context
+- ✅ **ADDED:** `getPromptHistory` method in `src/preload.ts` — exposes the IPC to renderer
+- ✅ **ADDED:** `PromptHistoryTab` component (`src/components/PromptHistoryTab.tsx`) — sidebar tab showing all prompts sent to AI with:
+  - Search/filter by text, session, problem, agent
+  - Agent filter dropdown
+  - Expandable cards showing full prompt + all metadata
+  - Session topic, agent badge, timestamps, category tags
+  - Linked problem/request IDs highlighted
+  - Relative timestamps ("3m ago", "2d ago")
+- ✅ **CHANGED:** TerminalPage sidebar — added `history` tab button (MessageSquare icon) with rendering block
+- ✅ **CHANGED:** Updated `activeTab` union type to include `'history'`
+- ✅ Build: ✅ Passes
+- Files: `src/components/PromptHistoryTab.tsx` (new), `src/main.ts`, `src/preload.ts`, `src/pages/TerminalPage.tsx`
+
+**PromptDesignDialog + generate-prompt skill wiring + write-project-file IPC**
+- ✅ **ADDED:** `PromptDesignDialog` component (`src/components/PromptDesignDialog.tsx`) — modal dialog for the generate-prompt skill workflow
+- ✅ **ADDED:** Dialog displays the design brief (`prompt.md`) in a read-only textarea with copy button
+- ✅ **ADDED:** Dialog has a RESULT.md textarea for pasting AI output with Save button (writes to agent/docs/.../result.md)
+- ✅ **ADDED:** `write-project-file` IPC handler in `src/main.ts` — writes arbitrary files relative to project root
+- ✅ **ADDED:** `writeProjectFile` method in `src/preload.ts` — exposes the IPC to renderer
+- ✅ **CHANGED:** SkillsTab `onUseSkill` routes `generate-prompt` skill to PromptDesignDialog instead of InstructionPanel
+- ✅ **UPDATED:** `DEFAULT_SYSTEM_PROMPT` in `src/lib/defaults.ts` — replaced with comprehensive 280-line version from RESULT.md (covers: environment, sessions, problems/requests/checklists, skills, graphify, LLM wiki, data storage, activity logging, presets/workspaces, build rules, UI conventions, workflow)
+- ✅ Build: ✅ Passes
+- Files: `src/components/PromptDesignDialog.tsx` (new), `src/main.ts`, `src/preload.ts`, `src/pages/TerminalPage.tsx`, `src/lib/defaults.ts`
 
 **InstructionPanel + TerminalMiniMap + ProblemsService description/root_cause fields**
 - ✅ **ADDED:** `InstructionPanel` component (`src/components/InstructionPanel.tsx`) — full instruction composer with problem/request checkboxes, skill dropdown, prompt preview, and send
@@ -139,9 +653,43 @@
 
 ---
 
-## Current State Summary
+### 2026-05-16 — Activity Log + AI-Driven Actions + Skill Integration
 
-Working Electron/React/TypeScript desktop app for productivity tracking. v2.4 includes Tracker Mind system, insights dashboard, external page glass-styled charts, custom categories, graphify knowledge graph, and complete dashboard redesign. Builds and runs successfully.
+**What Changed:**
+1. ✅ **Removed Setup button** — Zap icon button removed (redundant with Initialize). Single init flow via Initialize button.
+2. ✅ **Enter sends, Shift+Enter newline** — Composed `onKeyDown` restructured: Enter (no shift) checks mention dropdown first, then sends; Shift+Enter inserts newline. `e.preventDefault()` always called.
+3. ✅ **Sidebar map split** — MiniMap (top) and Running Terminals+Sessions (bottom) separated by a draggable vertical split handle. Ratio persisted to `localStorage`.
+4. ✅ **Session Open dropdown** — Sessions without active terminal now show an "Open" dropdown with "Open in new terminal" and "Open in existing terminal..." options. The latter opens a terminal picker dialog.
+5. ✅ **Edit session dialog** — Modal dialog for editing session topic, agent, category, description, and product area. Uses `updateSessionCategory` + `saveTerminalSession` IPC.
+6. ✅ **Save/Load workspace** — New "Configs" sidebar tab with Layers icon. "Save Current" captures layouts + terminal tabs + session bindings and stores as JSON in `terminal_layouts` DB table. "Load" restores everything (spawns terminals, restores layout, resumes sessions).
+7. ✅ **Session resume with resume_id** — Sessions with `resume_id` show a green "Resume" button when their terminal is alive (directly resumes). When terminal is dead, dropdown shows "Resume in new terminal" / "Resume in existing terminal..." options.
+8. ✅ **Agent switching** — Edit dialog now includes agent selector dropdown (populated from presets). Agents persist via `saveTerminalSession` IPC.
+9. ✅ **Build** — Vite + tsc both pass cleanly.
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — All 9 items
+
+**Build:** ✅ Passes
+
+---
+
+### 2026-05-17 — Timeline Navigation + Sleep Detail View
+
+**What Changed:**
+1. ✅ **ProductivityPage timeline navigation** — Added `dateOffset` state with ChevronLeft/ChevronRight buttons in the header. `dailyTrend` useMemo now uses offset to shift the date range. App.tsx now passes `allLogs` instead of filtered `logs` to ProductivityPage so client-side date range filtering works. When `selectedPeriod` changes, offset resets to 0.
+2. ✅ **ExternalPage trend chart timeline navigation** — Added `dateOffset` state with chevron navigation in the Usage Trend chart header. Changed `allSessions` fetch from `selectedPeriod`-scoped to `'all'` period so client-side offset filtering supports going back in time. `trendChartData` uses `selectedPeriod` + `dateOffset` to filter bars.
+3. ✅ **Sleep Detail table** — New glass-styled section below the charts showing daily sleep entries with date, duration (color-coded: red <7h, emerald >9h), and deficit column. Shows average sleep hours and total deficit in the header.
+
+**Files Modified:**
+- `src/App.tsx` (line ~2377) — ProductivityPage route now passes `allLogs` instead of `logs`
+- `src/pages/ProductivityPage.tsx` — Added `dateOffset` state, `getViewLabel`, ChevronLeft/ChevronRight header nav, offset-aware `dailyTrend` filtering
+- `src/pages/ExternalPage.tsx` — Added `dateOffset` state, `getViewLabel`, chevron nav in trend chart header; `allSessions` fetch changed to `'all'`; `trendChartData` uses offset; Sleep Detail table section added
+
+**Why:** Users needed to navigate backward in time on Productivity and External pages to review historical data. Sleep data was being fetched but never displayed in a detail view.
+
+**Result:** Users can now browse previous days/weeks/months on ProductivityPage and ExternalPage trend charts. Sleep data is visible in a detailed table with duration and deficit tracking.
+
+**Build:** ✅ Passes
 
 ---
 
@@ -424,6 +972,27 @@ Working Electron/React/TypeScript desktop app for productivity tracking. v2.4 in
 - ✅ Tracking auto-recovers when user resumes activity
 
 ## 📦 Since Last Commit
+
+### 2026-05-17 — Research: CLI Agent Backend Integration for State Visibility
+
+**What Changed:**
+1. ✅ **Created research prompt** at `agent/docs/agent-backend-integration/prompt.md` — comprehensive exploration of how DeskFlow can gain visibility into AI CLI agent internal state (current model, chat export, slash commands, agent status)
+2. ✅ **Architecture analysis complete** — Current system launches agents via PTY (types `claude`/`opencode` into shell). Agent state is opaque: the system only knows `spawning | waiting | ready | timeout`. Model selection, chat history, and agent configuration happen inside the PTY and are invisible to DeskFlow.
+3. ✅ **Three approaches identified for research:**
+   - **Backend reads** — Read agent's own storage (opencode SQLite DB, claude JSONL files) for state
+   - **PTY interception** — Parse data stream between agent and terminal for commands/responses
+   - **IPC/plugin bridge** — Inject system prompt instructions asking agent to emit structured metadata
+
+**Files Modified:**
+- `agent/state.md` — This entry
+- `agent/docs/agent-backend-integration/prompt.md` — Research prompt (NEW)
+- `agent/docs/agent-backend-integration/RESULT.md` — Pending
+
+**Result:** Research prompt created. Waiting for execution to produce findings.
+
+**Build:** N/A (research only)
+
+---
 
 **Last Commit:** `e4f1490` — feat: Tracker Mind services, dashboard/insights/external redesign... (pending tracking fixes)
 
@@ -2684,3 +3253,105 @@ The global `spawnedTerminals` Set was the single cause of:
 **Result:** App list shows real desktop apps only (Chrome, Comet, VS Code, etc.); websites stay in their own section; browser apps are now saved and returned by all backend queries
 
 **Build:** ✅ Passes
+
+### 2026-05-16 — Terminal Group Categorization + Drag-and-Drop Between Groups
+
+**What Changed:**
+1. ✅ **Added group-categorized layout in Running Terminals sidebar** — Terminals in the Sessions tab's “Running Terminals” section are now organized by their layout group (Group 1, Group 2, etc.) instead of a flat list.
+2. ✅ **Added native HTML5 drag-and-drop** — Terminal items are draggable. Dragging a terminal item over a different group's section header highlights it as a drop target. Dropping moves the terminal from its current group to the target group.
+3. ✅ **Added handleTerminalMoveToGroup callback** — Moves a terminal from its current group into a target group by removing it from the source layout group and inserting it (via insertIntoLayout) into the target group's layout tree.
+4. ✅ **Added draggedTerminalId and hoveredGroupIdx state** — Tracks which terminal is being dragged and which group header is being hovered for visual feedback (purple-highlighted drop zone).
+
+**Files Modified:**
+- src/pages/TerminalPage.tsx — Added group-categorized rendering of running terminals with per-group sections, HTML5 drag-and-drop handlers (onDragStart, onDragOver, onDrop, onDragEnd), state for drag tracking, and the handleTerminalMoveToGroup callback.
+
+**Why:** With multiple terminal groups (separate split panes), users needed a way to move terminals between groups directly from the sidebar without using the mini-map cross-group drag feature.
+
+**Result:** The Running Terminals sidebar section now shows terminals organized by group with visual group headers. Users can drag any terminal item into a different group's section to move it there. Drop targets highlight purple on hover.
+
+**Build:** ✅ Passes
+
+
+### 2026-05-20 � Camera Planet Tracking Fix + Graphics/FPS Chart Improvements
+
+**What Changed:**
+1. Fixed camera not following planet � The PlanetTracker component was only updating the camera's target (where it looks) but NOT the camera's actual position. Fixed by calculating and maintaining an offset between camera and planet, so both the lookAt target AND camera position follow the planet as it orbits. Uses lerp for smooth tracking.
+2. Graphics + FPS chart improvements � IN PROGRESS. User wants to improve visuals and add FPS line graph (not just counter) showing trend over time.
+
+**Files Modified:**
+- src/components/OrbitSystem.tsx � PlanetTracker function rewritten with proper position tracking
+
+**Build:** Passes
+
+**Build:** Passes
+
+All three changes now COMPLETE: 1) Camera properly follows planet 2) FPS line graph added showing 60s trend 3) Graphics enhanced with better bloom, stars, and effects.
+
+---
+
+### 2026-05-25 — DESIGN SKILLS RESEARCH (IN PROGRESS)
+
+**What Changed:**
+1. ✅ **Analyzed 6 Claude Code design tools** for integration into the agent workspace setup flow
+2. ✅ **Selected 4 tools to incorporate** into the design skills system, 1 as optional, 1 excluded
+3. ✅ **Generated design prompt** at `agent/docs/frontend-design-skills-25052026/PROMPT.md`
+4. 🔲 **Create SKILL.md files** for each selected tool in `agent/skills/`
+5. 🔲 **Add "Design Skills" category** to NewSessionDialog toggle system
+6. 🔲 **Wire design skills into assembleContext()** for system prompt inclusion
+
+**Selection Analysis:**
+
+| Tool | Verdict | Rationale |
+|------|---------|-----------|
+| **frontend-design** (Anthropic) | ✅ Include (already exists) | Foundation — already at `agent/skills/frontend-design/` |
+| **impeccable** (pbakaus) | ✅ Include | 7 domain reference files, 23 commands, anti-patterns. Multi-agent. |
+| **ui-ux-pro-max** (nextlevelbuilder) | ✅ Include | 161 industry rules, design system generator, 67 styles. |
+| **taste-skill** (Leonxlnx) | ✅ Include | 3 tunable knobs (variance/motion/density), aesthetic variants. |
+| **awesome-design-md** (voltagent) | ✅ Include references | 73+ DESIGN.md templates from production sites as reference library. |
+| **skillui/npxskillui** (amaancoderx) | ❌ Skip | CLI tool (not a skill). Useful for one-time extraction, not agent context. |
+
+**Architecture:**
+- Each selected tool becomes a `SKILL.md` in `agent/skills/<name>/SKILL.md`
+- **New:** `agent/skills/design-taste/SKILL.md` — aggregated master design skill with tunable knobs
+- **New:** `agent/design-references/` — curated DESIGN.md files from awesome-design-md (Claude, Linear, Vercel, Stripe, etc.)
+- **New:** NewSessionDialog gets "Design Skills" subcategory under Context Systems
+- Taste skill knobs (DESIGN_VARIANCE, MOTION_INTENSITY, VISUAL_DENSITY) become configurable sliders in setup
+
+**Files Modified:**
+- `agent/state.md` — This entry
+- `agent/docs/frontend-design-skills-25052026/PROMPT.md` — NEW design prompt
+- Pending: `agent/skills/impeccable/SKILL.md`
+- Pending: `agent/skills/ui-ux-pro-max/SKILL.md`
+- Pending: `agent/skills/taste-skill/SKILL.md`
+- Pending: `agent/skills/design-taste/SKILL.md`
+- Pending: `src/components/NewSessionDialog.tsx` — Design skills toggles
+- Pending: `src/services/ContextService.ts` — Design skill index building
+
+**Build:** N/A (research/design phase only)
+
+---
+
+### 2026-05-27 — Model Improvement Plan (model_improv.md) — Tiers 1-5 Implementation
+
+**What Changed:**
+1. **T5.4 — Fixed 4 undefined functions**: `handleSaveWorkspace`, `handleLoadWorkspace`, `handleTerminalMoveToGroup`, `loadSavedConfigs` all implemented with tree helper functions (findLeafInTree/removeLeafFromTree/addLeafToGroup)
+2. **T1.1 — Layered system prompt**: `ContextService.assembleContext()` rewritten with LAYER 0-4 headers
+3. **T1.2 — Unconditional state injection**: state.md + patterns.md always injected before token budget
+4. **T1.3 — RULES_COMPACT.md**: Created 9-rule distilled card with `{{PROBLEM_ID}}`/`{{PROBLEM_TITLE}}` templates
+5. **T3.2 — Feedback loop**: `executeActionsFromFile()` now logs parse errors, writes `[SYSTEM]` feedback to terminal
+6. **T5.2 — Remind preset**: Built-in `[SYSTEM] Remind` preset re-injects RULES_COMPACT + state.md on demand
+7. **T2.1 — Structured state.md**: Converted to metadata format (Metadata/Active Work/Session Continuity/Progress)
+8. **T4.1 — Model tier profiles**: `ModelTier` type, `TIER_PROFILES`, dropdown in NewSessionDialog, tier-aware assembly
+9. **T4.3 — Problem-aware injection**: Full problem record + checklist items injected in Layer 3
+10. **T4.2 — Relevant-skills-only**: Low-tier models get keyword-matched skills only (top 5)
+11. **T2.3 — Validation**: Session Metadata block validation with `[SYSTEM]` feedback on missing fields
+12. **T3.1 — ACTIONS_SCHEMA.md**: JSON schema + 3 examples created
+13. **T1.4-A — Auto re-injection**: Every N user messages (default 10), writes rules reminder before message
+14. **T5.1 — Model tier badge**: Small colored badge (green/blue/yellow) in terminal tabs showing top/mid/low
+15. **Close button fix**: Added close workspace dialog with Save & Close / Discard & Close / Cancel
+16. **Terminal auto-open fix**: `if (propProjectId)` guard in layout-restoring useEffect
+17. **TerminalMiniMap crash fix**: `layout`→`layouts` prop, `onToggleDirection` handler
+
+**Result:** All 12 items from model_improv.md implemented (plus 3 bug fixes). Remaining: T2.2 (state snapshot in init — covered by T1.2), T5.3 (state diff — low ROI).
+
+**Build:** ✅ (verified 2026-05-27)

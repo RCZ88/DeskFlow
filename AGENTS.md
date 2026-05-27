@@ -174,6 +174,11 @@ When changes require user testing, add an entry to `agent/PROBLEMS.md` AND link 
 | Sleep chart respects period | 1. Select different periods on External 2. Check Sleep Trends chart | Shows correct number of days (1/7/30/90) | Issue #55 |
 | Weekly Overview styling | 1. Look at Weekly Overview chart | Rounded bar corners, total hours below chart | Issue #56 |
 | Always-visible timer | 1. Go to /external when no activity running | Shows "00:00:00" with "Click to start tracking" | New feature |
+| Setup vs Initialize buttons | 1. Open IDE page 2. Click green "Initialize" button | Shows InitializeProgressModal with 16-step animation | New feature |
+| Initialize progress modal | 1. Click Initialize 2. Watch steps animate 3. Wait for completion | All 16 steps turn green (checkmark), "Workspace Ready" summary card appears | New feature |
+| Setup workspace settings | 1. Click amber "Setup" button 2. Toggle systems 3. Adjust sliders 4. Click Save | WorkspaceSettingsDialog opens, settings persist after reopen | New feature |
+| New Agent button | 1. Click "New Agent" button 2. Verify NewSessionDialog opens | NewSessionDialog pre-populates from workspace settings | New feature |
+| NewSessionDialog defaults | 1. Set some systems OFF in Setup 2. Save 3. Click New Agent | NewSessionDialog shows saved config (not all defaults) | New feature |
 
 ### Example Entry:
 ```
@@ -297,6 +302,28 @@ This applies to ANY situation where the user calls you "idiot" - it means you ma
 - Project structure overview
 
 If state.md says "See GRAPH_REPORT.md" - use graphify for architecture context.
+
+---
+
+## ⚡ MANDATORY: Read All Reflection Logs Before ANY Task
+
+**BEFORE you do ANYTHING, read ALL files in `agent/skills/agent-reflect/logs/`**
+
+This is MANDATORY, not optional. These logs document every mistake you've made. If you don't read them, you will repeat the same mistakes and the user will call you an "idiot" again.
+
+### Why this exists
+- Each log file = one catastrophic mistake (triggered by "idiot")
+- Patterns = things you keep getting wrong despite rules existing
+- Reading them = you learn from past failures before repeating them
+
+### What to do
+1. Read ALL files in `agent/skills/agent-reflect/logs/` at start of session
+2. Note the patterns: "NEVER use git commands", "complex JSX fixes", etc.
+3. Double-check your actions against what went wrong before
+4. If you're about to do something that matches a logged mistake = STOP
+
+### Example consequence
+If a log says "Never use git checkout/restore/reset" and you use one anyway = you are ignoring your own documented failure. The reflections exist to prevent this.
 
 ---
 

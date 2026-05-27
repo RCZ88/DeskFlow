@@ -203,8 +203,10 @@ async function healthCheck() {
   }
 }
 
-// --- Check if browser is the focused application ---
+// --- Check if the SPECIFIC browser with this extension is the focused application ---
 // Queries the desktop app to see what app is currently in foreground
+// Only considers the browser focused if the foreground app matches THIS browser
+// (not just any browser), preventing website tracking when a different browser/app is active
 async function checkBrowserFocus() {
   try {
     const response = await fetch(`${DESKFLOW_SERVER}/foreground-app`, {
@@ -212,13 +214,18 @@ async function checkBrowserFocus() {
     });
     if (response.ok) {
       const data = await response.json();
-      // If desktop's foreground app contains browser-related keywords, consider browser focused
-      // Common browser names: chrome, firefox, edge, safari, brave, opera, comet, etc.
-      const browserPatterns = ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera', 'comet', 'vivaldi', 'arc'];
+      // Check if the foreground app matches the SPECIFIC browser running this extension
+      // Critical: using BROWSER_NAME (detected from user agent at load time) instead of
+      // a generic list of all browsers. This ensures website tracking only counts when
+      // the user is actually using the browser that has the DeskFlow extension installed.
       const appName = (data.app || '').toLowerCase();
-      const isBrowserActive = browserPatterns.some(pattern => appName.includes(pattern));
+      const browserName = BROWSER_NAME.toLowerCase();
       
-      console.log('[DeskFlow] 🔍 Foreground app:', data.app, '-> Browser focused:', isBrowserActive);
+      // Check if the foreground app name contains this browser's name
+      // (e.g., "chrome.exe" contains "chrome", "Google Chrome" contains "chrome")
+      const isBrowserActive = browserName.length > 0 && appName.includes(browserName);
+      
+      console.log('[DeskFlow] 🔍 Foreground app:', data.app, `(extension host: ${BROWSER_NAME})`, '-> Browser focused:', isBrowserActive);
       state.isBrowserFocused = isBrowserActive;
       await saveState();
       return isBrowserActive;
@@ -226,7 +233,11 @@ async function checkBrowserFocus() {
   } catch (err) {
     console.debug('[DeskFlow] Could not check foreground app:', err.message);
   }
-  return state.isBrowserFocused;
+  // On error (server unreachable, timeout), assume browser is NOT focused
+  // Prevents phantom tracking when the desktop app isn't responding
+  state.isBrowserFocused = false;
+  await saveState();
+  return false;
 }
 
 // Poll for foreground app changes periodically

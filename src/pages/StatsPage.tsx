@@ -18,6 +18,8 @@ import {
 } from 'chart.js';
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import { format, subDays, eachDayOfInterval } from 'date-fns';
+import { getDateRange } from '../lib/dateRange';
+import type { Period } from '../lib/dateRange';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -35,7 +37,9 @@ interface StatsPageProps {
   appStats: AppStat[];
   logs: unknown[];
   dailyStats?: unknown[];
-  selectedPeriod?: 'today' | 'week' | 'month' | 'all';
+  selectedPeriod?: Period;
+  dateOffset?: number;
+  onDateOffsetChange?: (offset: number) => void;
   timeMode?: 'focus' | 'total';
   tierAssignments?: { productive: string[]; neutral: string[]; distracting: string[] };
 }
@@ -67,10 +71,9 @@ function formatDuration(seconds: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-export default function StatsPage({ appStats, logs, selectedPeriod = 'week', timeMode = 'total', tierAssignments }: StatsPageProps) {
+export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments }: StatsPageProps) {
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   const [hourlyChartMode, setHourlyChartMode] = useState<'bar' | 'line'>('bar');
-  const [dateOffset, setDateOffset] = useState(0); // 0 = current, 1 = previous, etc.
   const scrollPosRef = useRef(0);
 
   // Save scroll position continuously
@@ -90,30 +93,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
   }, [selectedPeriod, dateOffset]);
   const chartRefs = useRef<Record<string, ChartJS | null>>({});
 
-  // Get readable label for current view
-  const getViewLabel = () => {
-    const now = new Date();
-    if (selectedPeriod === 'today') {
-      const targetDate = new Date(now);
-      targetDate.setDate(now.getDate() - dateOffset);
-      return targetDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    } else if (selectedPeriod === 'week') {
-      const weekStart = new Date(now);
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (dateOffset * 7));
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-      return `Week of ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-    } else if (selectedPeriod === 'month') {
-      const targetMonth = new Date(now.getFullYear(), now.getMonth() - dateOffset, 1);
-      return targetMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    }
-    return 'All Time';
-  };
-
-  useEffect(() => {
-    // Reset dateOffset when selectedPeriod changes
-    setDateOffset(0);
-  }, [selectedPeriod]);
+  const getViewLabel = () => getDateRange(selectedPeriod, dateOffset).label;
 
   useEffect(() => {
     return () => {
@@ -128,36 +108,11 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
 
   // Filter logs based on period + dateOffset
   const filteredLogs = useMemo(() => {
-    const now = new Date();
-    let startDate: Date;
-    let endDate: Date;
-
-    if (selectedPeriod === 'today') {
-      startDate = new Date(now);
-      startDate.setDate(now.getDate() - dateOffset);
-      startDate.setHours(0, 0, 0, 0);
-      endDate = new Date(startDate);
-      endDate.setHours(23, 59, 59, 999);
-    } else if (selectedPeriod === 'week') {
-      const currentWeekStart = new Date(now);
-      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
-      currentWeekStart.setHours(0, 0, 0, 0);
-      startDate = new Date(currentWeekStart);
-      startDate.setDate(startDate.getDate() - (dateOffset * 7));
-      endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + 6);
-      endDate.setHours(23, 59, 59, 999);
-    } else if (selectedPeriod === 'month') {
-      startDate = new Date(now.getFullYear(), now.getMonth() - dateOffset, 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() - dateOffset + 1, 0, 23, 59, 59, 999);
-    } else {
-      // 'all'
-      return logs;
-    }
-
+    if (selectedPeriod === 'all') return logs;
+    const range = getDateRange(selectedPeriod, dateOffset);
     return (logs as any[]).filter(log => {
       const logDate = new Date(log.timestamp);
-      return logDate >= startDate && logDate <= endDate;
+      return logDate >= range.start && logDate < range.end;
     });
   }, [logs, selectedPeriod, dateOffset]);
 
@@ -222,9 +177,11 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
       labels: sortedApps.map(s => s.app),
       datasets: [{
         data: sortedApps.map(s => s.total_ms / 1000),
-        backgroundColor: sortedApps.map((_, i) => {
-          const hue = (i * 137.5) % 360;
-          return `hsl(${hue}, 65%, 55%)`;
+        backgroundColor: sortedApps.map((s, i) => {
+          const catColor = CATEGORY_COLORS[s.category];
+          if (catColor) return catColor + 'cc';
+          const palette = ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#3b82f6', '#14b8a6', '#f43f5e', '#84cc16', '#a855f7'];
+          return palette[i % palette.length] + 'cc';
         }),
         borderColor: '#0a0a0a',
         borderWidth: 2,
@@ -290,15 +247,45 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
     }
 
     if (selectedPeriod === 'month') {
-      const targetMonth = new Date(now.getFullYear(), now.getMonth() - dateOffset, 1);
-      const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
-      return Array.from({ length: daysInMonth }, (_, i) => {
-        const d = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), i + 1);
-        const dayStr = format(d, 'yyyy-MM-dd');
+      const range = getDateRange('month', dateOffset);
+      const days: { date: string; label: string; minutes: number }[] = [];
+      const cursor = new Date(range.start);
+      while (cursor < range.end) {
+        const dayStr = format(cursor, 'yyyy-MM-dd');
         const dayLogs = (filteredLogs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
         const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
-        return { date: dayStr, label: `${i + 1}`, minutes: totalMin };
-      });
+        days.push({ date: dayStr, label: `${cursor.getDate()}`, minutes: totalMin });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return days;
+    }
+
+    if (selectedPeriod === '7day') {
+      const range = getDateRange('7day', dateOffset);
+      const days: { date: string; label: string; minutes: number }[] = [];
+      const cursor = new Date(range.start);
+      while (cursor < range.end) {
+        const dayStr = format(cursor, 'yyyy-MM-dd');
+        const dayLogs = (filteredLogs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
+        const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
+        days.push({ date: dayStr, label: format(cursor, 'EEE'), minutes: totalMin });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return days;
+    }
+
+    if (selectedPeriod === '30day') {
+      const range = getDateRange('30day', dateOffset);
+      const days: { date: string; label: string; minutes: number }[] = [];
+      const cursor = new Date(range.start);
+      while (cursor < range.end) {
+        const dayStr = format(cursor, 'yyyy-MM-dd');
+        const dayLogs = (filteredLogs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
+        const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
+        days.push({ date: dayStr, label: format(cursor, 'MMM dd'), minutes: totalMin });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return days;
     }
 
     // 'all'
@@ -590,26 +577,9 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
           <p className="text-sm text-zinc-500 mt-1">Track your application usage</p>
         </div>
         <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setDateOffset(prev => prev + 1)}
-            className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-sm font-medium px-2">
+          <span className="text-sm font-medium px-2 text-zinc-400">
             {getViewLabel()}
           </span>
-          <button
-            onClick={() => setDateOffset(prev => Math.max(0, prev - 1))}
-            disabled={dateOffset === 0}
-            className={`p-2 rounded-lg transition-colors ${
-              dateOffset === 0 
-                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
-                : 'bg-zinc-800 hover:bg-zinc-700'
-            }`}
-          >
-            <ChevronRight size={16} />
-          </button>
         </div>
       </div>
 
@@ -733,7 +703,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
                 {selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
               </div>
               <div className="text-sm text-zinc-500">
-                {selectedPeriod === 'today' ? 'Activity by hour of day' : `${selectedPeriod === 'week' ? '7 days' : selectedPeriod === 'month' ? '30 days' : '90 days'} of activity`}
+                {selectedPeriod === 'today' ? 'Activity by hour of day' : `${selectedPeriod === 'week' ? '7 days' : selectedPeriod === '7day' ? '7 days' : selectedPeriod === 'month' ? 'all days' : selectedPeriod === '30day' ? '30 days' : 'all time'} of activity`}
               </div>
             </div>
           </div>
@@ -973,6 +943,13 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
                       plugins: { 
                         legend: { display: false },
                         tooltip: {
+                          backgroundColor: '#18181b',
+                          borderColor: '#3f3f46',
+                          borderWidth: 1,
+                          titleColor: '#e4e4e7',
+                          bodyColor: '#a1a1aa',
+                          padding: 10,
+                          cornerRadius: 8,
                           callbacks: {
                             label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}`,
                           }
@@ -1019,6 +996,13 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', tim
                       plugins: { 
                         legend: { display: false },
                         tooltip: {
+                          backgroundColor: '#18181b',
+                          borderColor: '#3f3f46',
+                          borderWidth: 1,
+                          titleColor: '#e4e4e7',
+                          bodyColor: '#a1a1aa',
+                          padding: 10,
+                          cornerRadius: 8,
                           callbacks: {
                             label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}`,
                           }

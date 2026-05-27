@@ -24,6 +24,15 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Get recent activity logs
   getLogs: () => ipcRenderer.invoke('get-logs'),
 
+  // Get pre-computed dashboard data (single call replaces multiple fetches)
+  getDashboardData: (params: { period: string; dateOffset?: number }) => ipcRenderer.invoke('get-dashboard-data', params),
+
+  // Get pre-computed page stats
+  getPageStats: (params: { page: string; period: string; dateOffset?: number }) => ipcRenderer.invoke('get-page-stats', params),
+
+  // Backfill aggregations from existing logs
+  backfillAggregations: () => ipcRenderer.invoke('backfill-aggregations'),
+
   // Get logs filtered by period
   getLogsByPeriod: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-logs-by-period', period),
 
@@ -38,6 +47,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // Toggle tracking on/off
   toggleTracking: () => ipcRenderer.invoke('toggle-tracking'),
+  setTracking: (enabled: boolean) => ipcRenderer.invoke('set-tracking', enabled),
 
   // Clear all stored data
   clearData: () => ipcRenderer.invoke('clear-data'),
@@ -57,10 +67,12 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Set user preference
   setPreference: (key: string, value: any) => ipcRenderer.invoke('set-preference', key, value),
 
-  // Browser tracking methods (optional period: 'today', 'week', 'month', 'all' and dateOffset)
-  getBrowserLogs: (period?: 'today' | 'week' | 'month' | 'all', dateOffset = 0) => ipcRenderer.invoke('get-browser-logs', period, dateOffset),
-  getBrowserDomainStats: (period?: 'today' | 'week' | 'month' | 'all', dateOffset = 0) => ipcRenderer.invoke('get-browser-domain-stats', period, dateOffset),
-  getBrowserCategoryStats: (period?: 'today' | 'week' | 'month' | 'all', dateOffset = 0) => ipcRenderer.invoke('get-browser-category-stats', period, dateOffset),
+  // Browser tracking methods (optional period filter and dateOffset)
+  getBrowserLogs: (period: string, dateOffset = 0) => ipcRenderer.invoke('get-browser-logs', period, dateOffset),
+
+  getBrowserDomainStats: (period: string, dateOffset = 0) => ipcRenderer.invoke('get-browser-domain-stats', period, dateOffset),
+
+  getBrowserCategoryStats: (period: string, dateOffset = 0) => ipcRenderer.invoke('get-browser-category-stats', period, dateOffset),
   setBrowserTracking: (enabled: boolean) => ipcRenderer.invoke('set-browser-tracking', enabled),
   getBrowserTrackingStatus: () => ipcRenderer.invoke('get-browser-tracking-status'),
   setBrowserExcludedDomains: (domains: string[]) => ipcRenderer.invoke('set-browser-excluded-domains', domains),
@@ -68,6 +80,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // Get tracked browsers (apps categorized as Browser)
   getTrackedBrowsers: () => ipcRenderer.invoke('get-tracked-browsers'),
+  getAvailableBrowsers: () => ipcRenderer.invoke('get-available-browsers'),
 
   // Productivity tracking
   getDailyProductivity: (date: string) => ipcRenderer.invoke('get-daily-productivity', date),
@@ -90,6 +103,13 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   updateCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => 
     ipcRenderer.invoke('update-categories-from-overrides', appOverrides, domainOverrides),
 
+  // Productivity sessions
+  saveProductivitySession: (session: { started_at: string; ended_at?: string; duration_seconds?: number; app_name?: string; category?: string; is_streak?: boolean }) =>
+    ipcRenderer.invoke('save-productivity-session', session),
+  getProductivitySessions: (opts?: { period?: 'today' | 'week' | 'month' | 'all'; minDuration?: number; limit?: number; offset?: number }) =>
+    ipcRenderer.invoke('get-productivity-sessions', opts || {}),
+  clearProductivitySessions: () => ipcRenderer.invoke('clear-productivity-sessions'),
+
   // App control
   quitApp: () => ipcRenderer.invoke('quit-app'),
   showWindow: () => ipcRenderer.invoke('show-window'),
@@ -108,6 +128,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getDefaultCategories: () => ipcRenderer.invoke('get-default-categories'),
   addCategory: (name: string) => ipcRenderer.invoke('add-category', name),
   removeCategory: (name: string) => ipcRenderer.invoke('remove-category', name),
+  setDomainDefaultCategory: (domain: string, category: string) => ipcRenderer.invoke('set-domain-default-category', domain, category),
+  getDomainDefaultCategory: (domain: string) => ipcRenderer.invoke('get-domain-default-category', domain),
   
   // NEW: Keyword-based productivity categorization
   getDomainKeywordRules: (domain: string) => ipcRenderer.invoke('get-domain-keyword-rules', domain),
@@ -120,6 +142,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   generateAIColors: (apps: string[]) => ipcRenderer.invoke('generate-ai-colors', apps),
   generateAICategorization: (items: Array<{name: string, category: string}>) => ipcRenderer.invoke('generate-ai-categorization', items),
   testOpenRouterKey: () => ipcRenderer.invoke('test-openrouter-key'),
+  summarizeWithLLM: (prompt: string, options?: { maxTokens?: number; model?: string }) =>
+    ipcRenderer.invoke('summarize-with-llm', prompt, options),
 
   // File operations
   saveFile: (options: { content: string; filename: string; fileType: string }) => ipcRenderer.invoke('save-file', options),
@@ -148,6 +172,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getProjectTools: (projectId: string) => ipcRenderer.invoke('get-project-tools', projectId),
   removeProject: (projectId: string) => ipcRenderer.invoke('remove-project', projectId),
   openProject: (projectId: string, ideId?: string) => ipcRenderer.invoke('open-project', projectId, ideId),
+  detectProjectLanguage: (projectPath: string) => ipcRenderer.invoke('detect-project-language', projectPath),
 
   // AI & Git Metrics
   getAIUsageSummary: (period?: 'day' | 'week' | 'month') => ipcRenderer.invoke('get-ai-usage-summary', period),
@@ -176,7 +201,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // ========== Terminal Window ==========
   createTerminalWindow: () => ipcRenderer.invoke('create-terminal-window'),
-  spawnTerminal: (terminalId: string, cwd?: string) => ipcRenderer.invoke('spawn-terminal', terminalId, cwd),
+  spawnTerminal: (terminalId: string, cwd?: string, agentType?: string) => ipcRenderer.invoke('spawn-terminal', terminalId, cwd, agentType),
   writeTerminal: (terminalId: string, data: string) => ipcRenderer.invoke('write-terminal', terminalId, data),
   resizeTerminal: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke('resize-terminal', terminalId, cols, rows),
   killTerminal: (terminalId: string) => ipcRenderer.invoke('kill-terminal', terminalId),
@@ -193,6 +218,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // Consolidated Terminal API (new format — single arg objects)
   terminalWrite: (terminalId: string, data: string) => ipcRenderer.invoke('terminal:write-old-format', terminalId, data),
+  terminalWriteRaw: (terminalId: string, data: string) => ipcRenderer.invoke('terminal:write-raw', terminalId, data),
   terminalResize: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize-old-format', terminalId, cols, rows),
   terminalDestroy: (terminalId: string) => ipcRenderer.invoke('terminal:destroy-old-format', terminalId),
   onTerminalReady: (callback: (id: string) => void) => {
@@ -200,6 +226,17 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.on('terminal:ready', handler);
     return () => ipcRenderer.removeListener('terminal:ready', handler);
   },
+  onAgentReady: (callback: (data: { terminalId: string }) => void) => {
+    const handler = (_event: any, data: { terminalId: string }) => callback(data);
+    ipcRenderer.on('agent:ready', handler);
+    return () => ipcRenderer.removeListener('agent:ready', handler);
+  },
+  onAgentTimeout: (callback: (data: { terminalId: string; agentType: string }) => void) => {
+    const handler = (_event: any, data: { terminalId: string; agentType: string }) => callback(data);
+    ipcRenderer.on('agent:timeout', handler);
+    return () => ipcRenderer.removeListener('agent:timeout', handler);
+  },
+  retryAgentInit: (terminalId: string, agentType: string) => ipcRenderer.invoke('retry-agent-init', terminalId, agentType),
 
   // ========== New Terminal API (node-pty based) ==========
   terminalAPI: {
@@ -221,6 +258,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.invoke('add-terminal-preset', preset),
   removeTerminalPreset: (presetId: string) => ipcRenderer.invoke('remove-terminal-preset', presetId),
   executeTerminalPreset: (presetId: string, terminalId?: string) => ipcRenderer.invoke('execute-terminal-preset', presetId, terminalId),
+  saveTerminalPreset: (data: any) => ipcRenderer.invoke('save-terminal-preset', data),
 
   // ========== Terminal Layouts ==========
   saveTerminalLayout: (layout: { id?: string; name: string; layoutData: string; isActive?: boolean }) =>
@@ -235,12 +273,24 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getTerminalSessions: (projectId?: string, limit?: number) => ipcRenderer.invoke('get-terminal-sessions', projectId, limit),
   deleteTerminalSession: (sessionId: string) => ipcRenderer.invoke('delete-terminal-session', sessionId),
   getTerminalSessionResumeId: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-resume-id', sessionId),
+  getTerminalSessionById: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-by-id', sessionId),
   getSessionMessages: (sessionId: string, agentType?: string) => ipcRenderer.invoke('get-session-messages', sessionId, agentType),
+  summarizeSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke('summarize-session', sessionId, projectPath),
+
+  // ========== Context Maintenance ==========
+  getContextSystems: (projectPath?: string) => ipcRenderer.invoke('get-context-systems', projectPath),
+  getSessionSummaries: (opts?: { limit?: number; offset?: number }) => ipcRenderer.invoke('get-session-summaries', opts),
+  getDeepMemory: () => ipcRenderer.invoke('get-deep-memory'),
+  getRAGStats: (projectPath?: string) => ipcRenderer.invoke('get-rag-stats', projectPath),
   saveTerminalMessage: (data: { sessionId: string; role: 'user' | 'assistant' | 'system'; content: string }) =>
     ipcRenderer.invoke('save-terminal-message', data),
+  getPromptHistory: (opts?: { projectId?: string; limit?: number }) => ipcRenderer.invoke('get-prompt-history', opts || {}),
+  deleteTerminalMessage: (id: number) => ipcRenderer.invoke('delete-terminal-message', { id }),
+
+  executeCommand: (command: string, cwd?: string) => ipcRenderer.invoke('electron:execute-command', command, cwd),
 
   // ========== Session Categorization ==========
-  updateSessionCategory: (data: { sessionId: string; category?: string; productArea?: string; description?: string; status?: string; tags?: string[]; categoryConfirmed?: boolean }) =>
+  updateSessionCategory: (data: { sessionId: string; topic?: string; category?: string; productArea?: string; description?: string; status?: string; tags?: string[]; categoryConfirmed?: boolean }) =>
     ipcRenderer.invoke('update-session-category', data),
   getParsedSessionItems: (sessionId: string) => ipcRenderer.invoke('get-parsed-session-items', sessionId),
   analyzeSessionCategory: (sessionId: string) => ipcRenderer.invoke('analyze-session-category', sessionId),
@@ -269,7 +319,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // ========== Project File System ==========
   readProjectFile: (relativePath: string, projectPath?: string) => ipcRenderer.invoke('read-project-file', relativePath, projectPath),
+  writeProjectFile: (relativePath: string, content: string, projectPath?: string) => ipcRenderer.invoke('write-project-file', relativePath, content, projectPath),
   listProjectFiles: (subDir?: string, projectPath?: string) => ipcRenderer.invoke('list-project-files', subDir, projectPath),
+  listDirectory: (projectPath: string, relativePath: string) => ipcRenderer.invoke('list-directory', { projectPath, relativePath }),
 
   // ========== Project Health ==========
   calculateProjectHealth: (projectId: string) => ipcRenderer.invoke('calculate-project-health', projectId),
@@ -287,7 +339,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // External Sessions
   startExternalSession: (activityId: string) => ipcRenderer.invoke('start-external-session', activityId),
   startAfkSession: () => ipcRenderer.invoke('start-afk-session'),
-  stopAfkSession: () => ipcRenderer.invoke('stop-afk-session'),
+  stopAfkSession: (newActivityId?: string) => ipcRenderer.invoke('stop-afk-session', newActivityId),
   stopExternalSession: (sessionId: string, endTime?: string, deviceOffToSleepSeconds?: number, wakeUpToAppSeconds?: number) => ipcRenderer.invoke('stop-external-session', sessionId, endTime, deviceOffToSleepSeconds, wakeUpToAppSeconds),
   updateExternalSession: (sessionId: string, updates: { duration_seconds?: number; started_at?: string; ended_at?: string }) => ipcRenderer.invoke('update-external-session', sessionId, updates),
   deleteExternalSession: (sessionId: string) => ipcRenderer.invoke('delete-external-session', sessionId),
@@ -302,6 +354,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   dismissSleepDetection: () => ipcRenderer.invoke('dismiss-sleep-detection'),
   addExternalTime: (activityId: string, durationMinutes: number) => ipcRenderer.invoke('add-external-time', { activityId, durationMinutes }),
   getExternalStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-external-stats', period),
+  getComparisonStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-comparison-stats', period),
   updateActivityChartPreference: (activityId: string, chartType: string) => ipcRenderer.invoke('update-activity-chart-preference', activityId, chartType),
   getSleepTrends: (period: 'week' | 'month') => ipcRenderer.invoke('get-sleep-trends', period),
   getConsistencyScore: (period: 'week' | 'month') => ipcRenderer.invoke('get-consistency-score', period),
@@ -309,7 +362,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   setExternalSettings: (key: string, value: string) => ipcRenderer.invoke('set-external-settings', key, value),
   getTrackingSettings: () => ipcRenderer.invoke('get-tracking-settings'),
   setTrackingSetting: (key: string, value: string) => ipcRenderer.invoke('set-tracking-setting', key, value),
-  getTypicalDay: (days?: number) => ipcRenderer.invoke('get-typical-day', days),
+   getTypicalDay: (days?: number) => ipcRenderer.invoke('get-typical-day', days),
+   getTypicalActivityAtTime: (timestamp: string) => ipcRenderer.invoke('get-typical-activity-at-time', timestamp),
   getHourlyHeatmap: (days?: number) => ipcRenderer.invoke('get-hourly-heatmap', days),
   getBestDays: () => ipcRenderer.invoke('get-best-days'),
    getDayDetail: (date: string) => ipcRenderer.invoke('get-day-detail', date),
@@ -346,9 +400,25 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     projectId?: string;
   }) => ipcRenderer.invoke('assign-problem-to-terminal', data),
   getTerminalBindings: () => ipcRenderer.invoke('get-terminal-bindings'),
-  getSkills: () => ipcRenderer.invoke('get-skills'),
+  getSkills: (projectPath?: string) => ipcRenderer.invoke('get-skills', { projectPath }),
+  getWorkspaceSkills: (projectPath?: string) => ipcRenderer.invoke('get-workspace-skills', { projectPath }),
+  createSkill: (data: { name: string; category: string; description: string; content: string; projectPath?: string }) => ipcRenderer.invoke('create-skill', data),
+  updateSkill: (data: { id: string; name: string; category: string; description: string; content: string; projectPath?: string }) => ipcRenderer.invoke('update-skill', data),
   syncProblemsMd: () => ipcRenderer.invoke('sync-problems-md'),
   trackerMindSetup: (step: string, projectId?: string, agentName?: string) => ipcRenderer.invoke('tracker-mind-setup', { step, projectId, agentName }),
+  logActivity: (data: { entityType: string; entityId: string; entityTitle?: string; action: string; actor: string; summary: string; details?: string }) =>
+    ipcRenderer.invoke('log-activity', data),
+  getActivityLog: (opts?: { entityType?: string; entityId?: string; limit?: number }) =>
+    ipcRenderer.invoke('get-activity-log', opts),
+  getAiContext: (opts?: { projectId?: string; since?: string; limit?: number }) =>
+    ipcRenderer.invoke('get-ai-context', opts),
+  getChecklists: (projectId?: string, projectPath?: string) => ipcRenderer.invoke('get-checklists', { projectId, projectPath }),
+  createChecklistItem: (data: { parentType: 'problem' | 'request'; parentId: string; description: string; requiresHuman?: boolean; projectId?: string; projectPath?: string }) =>
+    ipcRenderer.invoke('create-checklist-item', data),
+  updateChecklistItem: (data: { id: string; updates: Record<string, any>; projectId?: string; projectPath?: string }) =>
+    ipcRenderer.invoke('update-checklist-item', data),
+  deleteChecklistItem: (data: { id: string; projectId?: string; projectPath?: string }) =>
+    ipcRenderer.invoke('delete-checklist-item', data),
 
   // ========= Tracker Mind - Requests =========
   getRequests: (projectId?: string) => ipcRenderer.invoke('get-requests', { projectId }),
@@ -361,6 +431,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   deleteRequest: (requestId: string, projectId?: string) => ipcRenderer.invoke('delete-request', { requestId, projectId }),
   linkProblemToRequest: (data: { requestId: string; problemId: string; projectId?: string }) =>
     ipcRenderer.invoke('link-problem-to-request', data),
+  unlinkProblemFromRequest: (data: { requestId: string; problemId: string; projectId?: string }) =>
+    ipcRenderer.invoke('unlink-problem-from-request', data),
 
   // ========= Tracker Mind - Terminal Binding =========
   registerTerminal: (data: { terminalId: string; projectId?: string; agentType?: string; status?: string }) =>
@@ -370,13 +442,25 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   saveTerminalBinding: (data: { terminalId: string; problemId?: string; sessionContext?: string; status?: string }) =>
     ipcRenderer.invoke('save-terminal-binding', data),
   getTerminalBinding: (terminalId: string) => ipcRenderer.invoke('get-terminal-binding', terminalId),
-  sendInstructionsToTerminal: (data: { terminalId: string; instructions: string }) =>
+  sendInstructionsToTerminal: (data: { terminalId: string; instructions: string; linkedProblemId?: string; linkedRequestId?: string }) =>
     ipcRenderer.invoke('send-instructions-to-terminal', data),
+  unregisterTerminal: (terminalId: string) => ipcRenderer.invoke('unregister-terminal', terminalId),
   // ========= Tracker Mind - Live Parsing =========
   watchAgentFiles: () => ipcRenderer.invoke('watch-agent-files'),
   onAgentFileChanged: (callback: (data: { file: string; mtime: string }) => void) => {
-    ipcRenderer.on('agent-file-changed', (_event, file, mtime) => callback({ file, mtime }));
-    return () => { ipcRenderer.removeListener('agent-file-changed', () => {}); };
+    const handler = (_event: Electron.IpcRendererEvent, file: string, mtime: string) => callback({ file, mtime });
+    ipcRenderer.on('agent-file-changed', handler);
+    return () => { ipcRenderer.removeListener('agent-file-changed', handler); };
+  },
+  onContextChanged: (callback: (data: { type: string; action: string; entity?: any }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on('context-changed', handler);
+    return () => { ipcRenderer.removeListener('context-changed', handler); };
+  },
+  onSessionMetadataUpdated: (callback: (data: { sessionId: string; metadata: any; autoTags: string[] }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on('session-metadata-updated', handler);
+    return () => { ipcRenderer.removeListener('session-metadata-updated', handler); };
   },
 
   // ========= Agent Files (from project) =========
@@ -397,4 +481,28 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // ========= Base System Prompt Persistence =========
   saveBaseSystemPrompt: (agent: string, prompt: string) => ipcRenderer.invoke('save-base-system-prompt', { agent, prompt }),
   getBaseSystemPrompt: (agent: string) => ipcRenderer.invoke('get-base-system-prompt', agent),
+
+  // ========= AI Task Progress Tracking =========
+  getPromptStatus: (terminalId?: string) => ipcRenderer.invoke('get-prompt-status', terminalId),
+  aiTaskWatch: (projectPath: string) => ipcRenderer.invoke('ai-task:watch', projectPath),
+  aiTaskStopWatch: (projectPath: string) => ipcRenderer.invoke('ai-task:stop-watch', projectPath),
+  aiTaskAdd: (task: { terminalId: string; prompt: string; agent: string; sessionId?: string; projectPath?: string }) => ipcRenderer.invoke('ai-task:add', task),
+  onAiTaskUpdated: (callback: (data: { terminalId: string; status: string; messageId?: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('ai-task:updated', handler);
+    return () => { ipcRenderer.removeListener('ai-task:updated', handler); };
+  },
+  onAiTaskFileChanged: (callback: (data: { tasks: any[] }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('ai-task:file-changed', handler);
+    return () => { ipcRenderer.removeListener('ai-task:file-changed', handler); };
+  },
+
+  // ========= Actions JSON Bridge =========
+  writeAgentActions: (data: { projectPath: string; terminalId: string; actions: any[] }) =>
+    ipcRenderer.invoke('write-agent-actions', data),
+  setupActionsFileWatcher: (data: { projectPath: string; terminalId: string }) =>
+    ipcRenderer.invoke('setup-actions-file-watcher', data),
+  executeActionsFromFile: (data: { projectPath: string; terminalId: string }) =>
+    ipcRenderer.invoke('execute-actions-from-file', data),
 });

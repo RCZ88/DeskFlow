@@ -37,3 +37,12 @@ body {
   z-index: 10;
   box-shadow: 0 0 0 2px #4f46e5;
 }
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}

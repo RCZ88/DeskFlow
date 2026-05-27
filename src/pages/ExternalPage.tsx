@@ -6,7 +6,6 @@ import {
   TrendingUp, TrendingDown, Minus, Lightbulb, Zap, Heart, Brain,
   Code, Laptop, Wrench, Cog, Music, Gamepad2, Footprints, Droplets,
   Wind, Flame, Backpack, Dribbble, Palette, Edit3, Pencil,
-  ChevronLeft, ChevronRight,
   PieChart as PieChartIcon, BarChart3
 } from 'lucide-react';
 import {
@@ -23,6 +22,8 @@ import {
 import { Bar } from 'react-chartjs-2';
 import { format, subDays } from 'date-fns';
 import { DurationPicker, LatencyPicker } from '../components/DurationPicker';
+import { getDateRange, isInRange } from '../lib/dateRange';
+import type { Period } from '../lib/dateRange';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler);
 
@@ -62,7 +63,7 @@ interface ConsistencyData {
 }
 
 interface SleepTrend {
-  daily: Array<{ date: string; sleep_seconds: number; deficit_seconds: number }>;
+  daily: Array<{ date: string; sleep_seconds: number; deficit_seconds: number; pre_sleep_seconds: number; post_wake_seconds: number; bedtime_minutes: number; waketime_minutes: number }>;
   average_bedtime: string;
   average_wake_time: string;
   average_sleep_duration: number;
@@ -179,7 +180,7 @@ function formatBedtime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeriod?: 'today' | 'week' | 'month' | 'all' }) {
+export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange }: { selectedPeriod?: Period; dateOffset?: number; onDateOffsetChange?: (offset: number) => void }) {
   const [activities, setActivities] = useState<ExternalActivity[]>([]);
   const [stats, setStats] = useState<ExternalStats>({ byActivity: {}, total_seconds: 0, sleep_deficit_seconds: 0, average_sleep_hours: 0 });
   const [consistency, setConsistency] = useState<ConsistencyData>({ score: 0, weekly_comparison: [] });
@@ -198,7 +199,6 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
   const [viewingActivity, setViewingActivity] = useState<ExternalActivity | null>(null);
   const [viewingActivityStats, setViewingActivityStats] = useState<any>(null);
   const [viewingActivitySessions, setViewingActivitySessions] = useState<any[]>([]);
-  const [periodOffset, setPeriodOffset] = useState(0);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [recoverySession, setRecoverySession] = useState<{ sessionId: string; activityId: string; activity: ExternalActivity; startTime: Date } | null>(null);
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
@@ -230,10 +230,10 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
   const [editingSession, setEditingSession] = useState<any | null>(null);
   const [editingSessionTimes, setEditingSessionTimes] = useState({ started_at: '', ended_at: '' });
   const [showPastSleepModal, setShowPastSleepModal] = useState(false);
-  const [pastBedtime, setPastBedtime] = useState({ hours: 22, minutes: 0 });
-  const [pastWaketime, setPastWaketime] = useState({ hours: 7, minutes: 0 });
-  const [pastSleepLatency, setPastSleepLatency] = useState(0);
-  const [pastWakeLatency, setPastWakeLatency] = useState(0);
+  const [pastDeviceOff, setPastDeviceOff] = useState({ hours: 22, minutes: 0 });
+  const [pastWakeupTime, setPastWakeupTime] = useState({ hours: 7, minutes: 0 });
+  const [pastDeviceOn, setPastDeviceOn] = useState({ hours: 7, minutes: 30 });
+  const [pastFellAsleepAt, setPastFellAsleepAt] = useState({ hours: 22, minutes: 30 });
   const [pastSleepError, setPastSleepError] = useState<string | null>(null);
   const [pastSleepSuccess, setPastSleepSuccess] = useState(false);
   const [showMorningPrompt, setShowMorningPrompt] = useState(false);
@@ -342,12 +342,17 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
   };
 
   // Load stats
+  const currentRange = useMemo(() =>
+    getDateRange(selectedPeriod, 0),
+    [selectedPeriod]
+  );
+
   useEffect(() => {
     if (window.deskflowAPI?.getExternalStats) {
       window.deskflowAPI.getExternalStats(selectedPeriod).then(setStats);
     }
     if (window.deskflowAPI?.getExternalSessions) {
-      window.deskflowAPI.getExternalSessions(selectedPeriod).then(setAllSessions);
+      window.deskflowAPI.getExternalSessions('all').then(setAllSessions);
     }
     if (window.deskflowAPI?.getConsistencyScore) {
       window.deskflowAPI.getConsistencyScore(selectedPeriod === 'week' ? 'week' : 'month').then(setConsistency);
@@ -366,37 +371,11 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
     }
   }, [viewingActivity]);
 
-  // Filter sessions by selected period + offset
+  // Filter sessions by selected period + offset + range mode
   const filteredViewSessions = useMemo(() => {
-    const now = new Date();
-    let rangeStart: Date;
-    let rangeEnd: Date;
-
-    if (selectedPeriod === 'today') {
-      rangeStart = new Date(now);
-      rangeStart.setDate(rangeStart.getDate() - periodOffset);
-      rangeStart.setHours(0, 0, 0, 0);
-      rangeEnd = new Date(rangeStart);
-      rangeEnd.setDate(rangeEnd.getDate() + 1);
-    } else if (selectedPeriod === 'week') {
-      rangeStart = new Date(now);
-      rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay() - periodOffset * 7);
-      rangeStart.setHours(0, 0, 0, 0);
-      rangeEnd = new Date(rangeStart);
-      rangeEnd.setDate(rangeEnd.getDate() + 7);
-    } else if (selectedPeriod === 'month') {
-      rangeStart = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
-      rangeEnd = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + 1, 1);
-    } else {
-      rangeStart = new Date(0);
-      rangeEnd = new Date(8640000000000000);
-    }
-
-    return viewingActivitySessions.filter((s: any) => {
-      const sStart = new Date(s.started_at);
-      return sStart >= rangeStart && sStart < rangeEnd;
-    });
-  }, [viewingActivitySessions, selectedPeriod, periodOffset]);
+    const range = getDateRange(selectedPeriod, dateOffset);
+    return viewingActivitySessions.filter((s: any) => isInRange(s.started_at, range));
+  }, [viewingActivitySessions, selectedPeriod, dateOffset]);
 
   // Timer interval
   useEffect(() => {
@@ -498,6 +477,18 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
     };
     window.addEventListener('sleep-confirmed', handleSleepConfirmed);
     return () => window.removeEventListener('sleep-confirmed', handleSleepConfirmed);
+  }, [refreshStats]);
+
+  // Listen for external-data-changed event from AFK prompt (App.tsx)
+  useEffect(() => {
+    const handleExternalDataChanged = () => {
+      refreshStats();
+      if (window.deskflowAPI?.getExternalActivities) {
+        window.deskflowAPI.getExternalActivities().then(setActivities);
+      }
+    };
+    window.addEventListener('external-data-changed', handleExternalDataChanged);
+    return () => window.removeEventListener('external-data-changed', handleExternalDataChanged);
   }, [refreshStats]);
 
   // Pause activity
@@ -646,26 +637,21 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
     return { labels, data, colors };
   }, [stats, activities]);
 
-  // Period-responsive trend chart data
+  // Period + range-mode responsive trend chart data
   const trendChartData = useMemo(() => {
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const now = new Date();
+    const range = currentRange;
     const bars: { label: string; hours: number }[] = [];
 
     if (selectedPeriod === 'today') {
-      const todayStart = new Date(now);
-      todayStart.setHours(0, 0, 0, 0);
-      const todaySessions = allSessions.filter((s: any) => {
-        const sStart = new Date(s.started_at);
-        return sStart >= todayStart && sStart < new Date(todayStart.getTime() + 86400000);
-      });
+      const rangeSessions = allSessions.filter((s: any) => isInRange(s.started_at, range));
       for (let h = 0; h < 24; h++) {
-        const hourStart = new Date(todayStart);
+        const hourStart = new Date(range.start);
         hourStart.setHours(h);
         const hourEnd = new Date(hourStart);
         hourEnd.setHours(h + 1);
         let sec = 0;
-        todaySessions.forEach((s: any) => {
+        rangeSessions.forEach((s: any) => {
           const sStart = new Date(s.started_at);
           const sEnd = s.ended_at ? new Date(s.ended_at) : new Date(sStart.getTime() + (s.duration_seconds || 0) * 1000);
           const oStart = sStart > hourStart ? sStart : hourStart;
@@ -675,27 +661,24 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
         bars.push({ label: `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`, hours: sec / 3600 });
       }
     } else if (selectedPeriod === 'week') {
-      const weekStart = new Date(now);
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-      weekStart.setHours(0, 0, 0, 0);
       for (let i = 0; i < 7; i++) {
-        const d = new Date(weekStart);
+        const d = new Date(range.start);
         d.setDate(d.getDate() + i);
         const dateStr = d.toISOString().split('T')[0];
         const daySec = allSessions
-          .filter((s: any) => s.started_at?.split('T')[0] === dateStr)
+          .filter((s: any) => isInRange(s.started_at, range) && s.started_at?.split('T')[0] === dateStr)
           .reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0);
         bars.push({ label: dayNames[d.getDay()], hours: daySec / 3600 });
       }
     } else if (selectedPeriod === 'month') {
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      for (let day = 1; day <= daysInMonth; day++) {
-        const d = new Date(now.getFullYear(), now.getMonth(), day);
+      const daysInRange = Math.round((range.end.getTime() - range.start.getTime()) / 86400000);
+      for (let i = 0; i < daysInRange; i++) {
+        const d = new Date(range.start.getTime() + i * 86400000);
         const dateStr = d.toISOString().split('T')[0];
         const daySec = allSessions
           .filter((s: any) => s.started_at?.split('T')[0] === dateStr)
           .reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0);
-        bars.push({ label: `${day}`, hours: daySec / 3600 });
+        bars.push({ label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), hours: daySec / 3600 });
       }
     } else {
       const monthMap: Record<string, { label: string; seconds: number }> = {};
@@ -712,7 +695,7 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
     }
 
     return { labels: bars.map(b => b.label), data: bars.map(b => b.hours) };
-  }, [allSessions, selectedPeriod]);
+  }, [allSessions, selectedPeriod, currentRange]);
 
 
 
@@ -837,25 +820,10 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {/* Period navigation */}
-                <button onClick={() => setPeriodOffset(o => o + 1)} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-white transition" title="Previous period">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="text-xs text-zinc-500 min-w-[80px] text-center select-none">
-                  {selectedPeriod === 'today'
-                    ? periodOffset === 0 ? 'Today' : `${periodOffset}d ago`
-                    : selectedPeriod === 'week'
-                      ? periodOffset === 0 ? 'This Week' : `-${periodOffset}wk`
-                      : selectedPeriod === 'month'
-                        ? (() => {
-                            const d = new Date();
-                            return new Date(d.getFullYear(), d.getMonth() - periodOffset, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-                          })()
-                        : periodOffset === 0 ? 'All Time' : `-${periodOffset}`}
+                {/* Period label */}
+                <span className="text-xs text-zinc-500 select-none">
+                  {getDateRange(selectedPeriod, dateOffset).label}
                 </span>
-                <button onClick={() => setPeriodOffset(o => Math.max(o - 1, 0))} disabled={periodOffset <= 0} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed" title="Next period">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
                 <button onClick={() => setViewingActivity(null)} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition ml-1">
                   <X className="w-4 h-4" />
                 </button>
@@ -912,7 +880,7 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                             if (selectedPeriod === 'today') {
                               const now = new Date();
                               const todayStart = new Date(now);
-                              todayStart.setDate(todayStart.getDate() - periodOffset);
+                              todayStart.setDate(todayStart.getDate() - dateOffset);
                               todayStart.setHours(0, 0, 0, 0);
                               const bars: number[] = [];
                               for (let h = 0; h < 24; h++) {
@@ -934,7 +902,7 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                             } else if (selectedPeriod === 'week') {
                               const now = new Date();
                               const weekStart = new Date(now);
-                              weekStart.setDate(weekStart.getDate() - weekStart.getDay() - periodOffset * 7);
+                              weekStart.setDate(weekStart.getDate() - weekStart.getDay() - dateOffset * 7);
                               weekStart.setHours(0, 0, 0, 0);
                               const bars: number[] = [];
                               for (let i = 0; i < 7; i++) {
@@ -945,7 +913,7 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                               }
                               return bars;
                             } else if (selectedPeriod === 'month') {
-                              const targetMonth = new Date(new Date().getFullYear(), new Date().getMonth() - periodOffset, 1);
+                              const targetMonth = new Date(new Date().getFullYear(), new Date().getMonth() - dateOffset, 1);
                               const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
                               const bars: number[] = [];
                               for (let day = 1; day <= daysInMonth; day++) {
@@ -987,7 +955,7 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                             if (selectedPeriod === 'today') {
                               const now = new Date();
                               const todayStart = new Date(now);
-                              todayStart.setDate(todayStart.getDate() - periodOffset);
+                              todayStart.setDate(todayStart.getDate() - dateOffset);
                               todayStart.setHours(0, 0, 0, 0);
                               for (let h = 0; h < 24; h++) {
                                 const hourStart = new Date(todayStart);
@@ -1007,7 +975,7 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                             } else if (selectedPeriod === 'week') {
                               const now = new Date();
                               const weekStart = new Date(now);
-                              weekStart.setDate(weekStart.getDate() - weekStart.getDay() - periodOffset * 7);
+                              weekStart.setDate(weekStart.getDate() - weekStart.getDay() - dateOffset * 7);
                               weekStart.setHours(0, 0, 0, 0);
                               for (let i = 0; i < 7; i++) {
                                 const d = new Date(weekStart);
@@ -1016,7 +984,7 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                                 bars.push({ label: dayNames[d.getDay()], seconds: filtered.filter((s: any) => s.started_at?.split('T')[0] === dateStr).reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0) });
                               }
                             } else if (selectedPeriod === 'month') {
-                              const targetMonth = new Date(new Date().getFullYear(), new Date().getMonth() - periodOffset, 1);
+                              const targetMonth = new Date(new Date().getFullYear(), new Date().getMonth() - dateOffset, 1);
                               const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
                               for (let day = 1; day <= daysInMonth; day++) {
                                 const d = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), day);
@@ -1328,7 +1296,176 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
           </>
         )}
 
-{/* Charts Section - 3 Glass-Styled Charts */}
+{/* Sleep Trends - Time-based chart */}
+        {sleepTrends.daily.length > 0 && (
+          <div className="glass rounded-3xl p-6 mb-8">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-200">Sleep Patterns</h3>
+                <p className="text-xs text-zinc-500 mt-0.5">App Exit → Wake time (with pre-sleep/post-wake segments)</p>
+              </div>
+              <div className="flex items-center gap-4 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span className="text-zinc-500">Pre-sleep delay</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-indigo-500" />
+                  <span className="text-zinc-500">Sleep Window</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-rose-500" />
+                  <span className="text-zinc-500">Post-wake delay</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex">
+              {/* Y-axis: Time labels (6PM→6PM) */}
+              <div className="flex flex-col justify-between pr-3 text-[10px] text-zinc-600 font-mono w-14">
+                <span>6 PM</span>
+                <span>9 PM</span>
+                <span>12 AM</span>
+                <span>3 AM</span>
+                <span>6 AM</span>
+                <span>9 AM</span>
+                <span>12 PM</span>
+                <span>3 PM</span>
+                <span>6 PM</span>
+              </div>
+              
+              {/* Chart area */}
+              <div className="flex-1 relative">
+                {/* Grid lines */}
+                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                  {[0,1,2,3,4,5,6,7,8].map(i => (
+                    <div key={i} className="h-px bg-zinc-800/60" />
+                  ))}
+                </div>
+                
+                {/* Bars for each day */}
+                <div className="flex gap-2 relative">
+                  {sleepTrends.daily.map((day, idx) => {
+                    const appExitMin = day.bedtime_minutes; // raw app exit time (when user stopped using device)
+                    const preSleepMin = Math.round(day.pre_sleep_seconds / 60);
+                    const postWakeMin = Math.round(day.post_wake_seconds / 60);
+                    const wakeMin = day.waketime_minutes;
+                    
+                    const sleepStartMin = (appExitMin + preSleepMin) % 1440; // when user actually fell asleep
+                    const appOpenMin = (wakeMin + postWakeMin) % 1440; // when user opened app
+                    
+                    const hasPreSleep = preSleepMin > 0;
+                    const hasPostWake = postWakeMin > 0;
+                    
+                    const dateObj = new Date(day.date + 'T00:00:00');
+                    const isToday = day.date === new Date().toISOString().split('T')[0];
+                    
+                    const mapTime = (mins: number) => {
+                      const normalized = ((mins - 1080) % 1440 + 1440) % 1440;
+                      return (normalized / 1440) * 100;
+                    };
+                    
+                    const formatTime = (mins: number) => {
+                      const h24 = Math.floor(mins / 60);
+                      const m = Math.floor(mins % 60);
+                      const ampm = h24 >= 12 ? 'PM' : 'AM';
+                      const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+                      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+                    };
+                    
+                    const colors = {
+                      preSleep: '#f59e0b',
+                      sleep: '#6366f1',
+                      postWake: '#e11d48',
+                    };
+                    
+                    const Seg = ({ start, end, color, topRound, bottomRound }: { start: number; end: number; color: string; topRound: boolean; bottomRound: boolean }) => {
+                      const t = mapTime(start);
+                      const b = mapTime(end);
+                      const crosses = t > b;
+                      const rounding = topRound && bottomRound ? 'rounded-md' : topRound ? 'rounded-t-md' : bottomRound ? 'rounded-b-md' : '';
+                      if (crosses) {
+                        return (<>
+                          <div className={`absolute left-1 right-1 ${topRound ? 'rounded-t-md' : ''} transition-all duration-300`} style={{ top: `${t}%`, bottom: 0, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />
+                          <div className={`absolute left-1 right-1 ${bottomRound ? 'rounded-b-md' : ''} transition-all duration-300`} style={{ top: 0, bottom: `${100 - b}%`, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />
+                        </>);
+                      }
+                      return <div className={`absolute left-1 right-1 ${rounding} transition-all duration-300`} style={{ top: `${t}%`, bottom: `${100 - b}%`, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />;
+                    };
+                    
+                    return (
+                      <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px]">
+                        {/* Tooltip */}
+                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 text-[10px] text-zinc-300 whitespace-nowrap z-20 shadow-xl pointer-events-none">
+                          <div className="font-medium text-white text-center mb-1">{dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            <span>App Exit: {formatTime(appExitMin)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            <span>Pre-sleep: {formatHours(day.pre_sleep_seconds)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                            <span>Fell asleep: {formatTime(sleepStartMin)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                            <span>Woke up: {formatTime(wakeMin)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                            <span>Post-wake: {formatHours(day.post_wake_seconds)}</span>
+                          </div>
+                          <div className="mt-1 pt-1 border-t border-zinc-700 text-indigo-400">Sleep: {formatHours(day.sleep_seconds)}</div>
+                        </div>
+                        
+                        {/* 3-segment sleep bar: amber pre-sleep → indigo sleep → rose post-wake */}
+                        <div className="relative w-full h-72">
+                          {hasPreSleep && (
+                            <Seg start={appExitMin} end={sleepStartMin} color={colors.preSleep} topRound={true} bottomRound={!hasPostWake && sleepStartMin >= wakeMin} />
+                          )}
+                          <Seg start={sleepStartMin} end={wakeMin} color={colors.sleep} topRound={!hasPreSleep} bottomRound={!hasPostWake} />
+                          {hasPostWake && (
+                            <Seg start={wakeMin} end={appOpenMin} color={colors.postWake} topRound={false} bottomRound={true} />
+                          )}
+                        </div>
+                        
+                        {/* Time labels */}
+                        <div className="text-[9px] text-amber-400 font-medium">{formatTime(appExitMin)}</div>
+                        <div className="text-[9px] text-rose-400 font-medium">{formatTime(wakeMin)}</div>
+                        
+                        {/* Day label */}
+                        <div className={`text-[10px] font-medium mt-1 ${isToday ? 'text-indigo-400' : 'text-zinc-500'}`}>
+                          {isToday ? 'Today' : dateObj.toLocaleDateString('en-US', { weekday: 'short' })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            
+            {/* Summary stats */}
+            <div className="flex justify-center gap-8 mt-4 pt-4 border-t border-zinc-800">
+              <div className="text-center">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Avg Pre-Sleep</div>
+                <div className="text-lg font-semibold text-amber-400">{formatHours(Math.round(sleepTrends.average_latency || 0))}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Avg Post-Wake</div>
+                <div className="text-lg font-semibold text-rose-400">{formatHours(Math.round(sleepTrends.average_wake_latency || 0))}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Avg Sleep</div>
+                <div className="text-lg font-semibold text-indigo-400">{formatHours(Math.round(sleepTrends.average_sleep_duration || 0))}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Charts Section - 3 Glass-Styled Charts */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {/* Daily Usage Trend */}
             <div className="glass rounded-3xl p-6">
@@ -1504,6 +1641,7 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                   maxHours={23}
                   hourLabel="Hour"
                   minuteLabel="Min"
+                  wrap={true}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3 mb-6">
@@ -1846,7 +1984,12 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                   onClick={async () => {
                     if (window.deskflowAPI?.deleteExternalActivity) {
                       try {
-                        await window.deskflowAPI.deleteExternalActivity(editingActivity.id);
+                        const ok = await window.deskflowAPI.deleteExternalActivity(editingActivity.id);
+                        if (!ok) {
+                          setEditActivityError('Delete failed — activity may be a default that cannot be removed');
+                          setShowDeleteConfirm(false);
+                          return;
+                        }
                         const updated = await window.deskflowAPI.getExternalActivities();
                         setActivities(updated);
                         setEditingActivity(null);
@@ -1920,13 +2063,16 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                     if (!morningPromptData) return;
                     
                     const lastClose = new Date(morningPromptData.lastCloseTime);
-                    const suggestedBedtime = new Date(lastClose.getTime() - sleepLatencyMinutes * 60 * 1000);
-                    const suggestedWakeTime = new Date(Date.now() - wakeUpMinutes * 60 * 1000);
+                    const now = new Date();
+                    // Wake up time = now - time spent awake before opening app
+                    const wakeUp = new Date(now.getTime() - wakeUpMinutes * 60 * 1000);
                     
-                    setPastBedtime({ hours: suggestedBedtime.getHours(), minutes: suggestedBedtime.getMinutes() });
-                    setPastWaketime({ hours: suggestedWakeTime.getHours(), minutes: suggestedWakeTime.getMinutes() });
-                    setPastSleepLatency(sleepLatencyMinutes);
-                    setPastWakeLatency(wakeUpMinutes);
+                    const offH = lastClose.getHours(), offM = lastClose.getMinutes();
+                    setPastDeviceOff({ hours: offH, minutes: offM });
+                    const fellAsleepM = offM + sleepLatencyMinutes;
+                    setPastFellAsleepAt({ hours: (offH + Math.floor(fellAsleepM / 60)) % 24, minutes: fellAsleepM % 60 });
+                    setPastWakeupTime({ hours: wakeUp.getHours(), minutes: wakeUp.getMinutes() });
+                    setPastDeviceOn({ hours: now.getHours(), minutes: now.getMinutes() });
                     setShowMorningPrompt(false);
                     setShowPastSleepModal(true);
                     
@@ -1983,45 +2129,143 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                 </div>
               )}
 
-              <div className="mb-4">
-                <label className="block text-sm text-zinc-400 mb-2 text-center">Bedtime (last night)</label>
-                <DurationPicker
-                  hours={pastBedtime.hours}
-                  minutes={pastBedtime.minutes}
-                  onHoursChange={(h) => setPastBedtime({ ...pastBedtime, hours: h })}
-                  onMinutesChange={(m) => setPastBedtime({ ...pastBedtime, minutes: m })}
-                  maxHours={23}
-                  hourLabel="Hour"
-                  minuteLabel="Min"
-                />
+              {/* Timeline summary */}
+              <div className="bg-zinc-800/50 rounded-xl p-4 mb-5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-zinc-400">Device Off</span>
+                  <span className="text-sm font-medium text-zinc-200">
+                    {(() => {
+                      const h = pastDeviceOff.hours, m = pastDeviceOff.minutes;
+                      const ampm = h >= 12 ? 'PM' : 'AM';
+                      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+                    })()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-amber-400/80">
+                  <span className="text-sm">Fell asleep at</span>
+                  <span className="text-sm font-medium">
+                    {(() => {
+                      const h = pastFellAsleepAt.hours, m = pastFellAsleepAt.minutes;
+                      const ampm = h >= 12 ? 'PM' : 'AM';
+                      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+                    })()}
+                  </span>
+                </div>
+                <div className="text-[11px] text-amber-500/60 pl-2">
+                  {(() => {
+                    const off = pastDeviceOff.hours * 60 + pastDeviceOff.minutes;
+                    const asleep = pastFellAsleepAt.hours * 60 + pastFellAsleepAt.minutes;
+                    let pre = asleep - off;
+                    if (pre < 0) pre += 24 * 60;
+                    return `+${pre}m pre-sleep`;
+                  })()}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-zinc-400">Woke Up</span>
+                  <span className="text-sm font-medium text-zinc-200">
+                    {(() => {
+                      const h = pastWakeupTime.hours, m = pastWakeupTime.minutes;
+                      const ampm = h >= 12 ? 'PM' : 'AM';
+                      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+                    })()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-zinc-400">Device On</span>
+                  <span className="text-sm font-medium text-zinc-200">
+                    {(() => {
+                      const h = pastDeviceOn.hours, m = pastDeviceOn.minutes;
+                      const ampm = h >= 12 ? 'PM' : 'AM';
+                      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+                    })()}
+                  </span>
+                </div>
+                <div className="border-t border-zinc-700/50 pt-2 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-400">Actual Sleep</span>
+                    <span className="text-sm font-semibold text-indigo-400">
+                      {(() => {
+                        const asleep = pastFellAsleepAt.hours * 60 + pastFellAsleepAt.minutes;
+                        const wakeMin = pastWakeupTime.hours * 60 + pastWakeupTime.minutes;
+                        let s = asleep, w = wakeMin;
+                        if (w < s) s -= 24 * 60;
+                        const dur = Math.max(0, w - s);
+                        return `${Math.floor(dur / 60)}h ${dur % 60}m`;
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-emerald-400">
+                    <span className="text-sm">Total (Off → On)</span>
+                    <span className="text-sm font-semibold">
+                      {(() => {
+                        let off = pastDeviceOff.hours * 60 + pastDeviceOff.minutes;
+                        let on = pastDeviceOn.hours * 60 + pastDeviceOn.minutes;
+                        let dur = on - off;
+                        if (dur < 0) dur += 24 * 60;
+                        return `${Math.floor(dur / 60)}h ${dur % 60}m`;
+                      })()}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              <div className="mb-4">
-                <label className="block text-sm text-zinc-400 mb-2 text-center">Wake time (this morning)</label>
-                <DurationPicker
-                  hours={pastWaketime.hours}
-                  minutes={pastWaketime.minutes}
-                  onHoursChange={(h) => setPastWaketime({ ...pastWaketime, hours: h })}
-                  onMinutesChange={(m) => setPastWaketime({ ...pastWaketime, minutes: m })}
-                  maxHours={23}
-                  hourLabel="Hour"
-                  minuteLabel="Min"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 mb-6">
-                <LatencyPicker
-                  totalMinutes={pastSleepLatency}
-                  onChange={setPastSleepLatency}
-                  label="Fell asleep after device off"
-                  maxHours={4}
-                />
-                <LatencyPicker
-                  totalMinutes={pastWakeLatency}
-                  onChange={setPastWakeLatency}
-                  label="Woke up before opening app"
-                  maxHours={4}
-                />
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2 text-center">Device Off</label>
+                  <DurationPicker
+                    hours={pastDeviceOff.hours}
+                    minutes={pastDeviceOff.minutes}
+                    onHoursChange={(h) => setPastDeviceOff({ ...pastDeviceOff, hours: h })}
+                    onMinutesChange={(m) => setPastDeviceOff({ ...pastDeviceOff, minutes: m })}
+                    maxHours={23}
+                    hourLabel="Hr"
+                    minuteLabel="Min"
+                    wrap={true}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2 text-center">Fell asleep at</label>
+                  <DurationPicker
+                    hours={pastFellAsleepAt.hours}
+                    minutes={pastFellAsleepAt.minutes}
+                    onHoursChange={(h) => setPastFellAsleepAt({ ...pastFellAsleepAt, hours: h })}
+                    onMinutesChange={(m) => setPastFellAsleepAt({ ...pastFellAsleepAt, minutes: m })}
+                    maxHours={23}
+                    hourLabel="Hr"
+                    minuteLabel="Min"
+                    wrap={true}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2 text-center">Wake up</label>
+                  <DurationPicker
+                    hours={pastWakeupTime.hours}
+                    minutes={pastWakeupTime.minutes}
+                    onHoursChange={(h) => setPastWakeupTime({ ...pastWakeupTime, hours: h })}
+                    onMinutesChange={(m) => setPastWakeupTime({ ...pastWakeupTime, minutes: m })}
+                    maxHours={23}
+                    hourLabel="Hr"
+                    minuteLabel="Min"
+                    wrap={true}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2 text-center">Device On</label>
+                  <DurationPicker
+                    hours={pastDeviceOn.hours}
+                    minutes={pastDeviceOn.minutes}
+                    onHoursChange={(h) => setPastDeviceOn({ ...pastDeviceOn, hours: h })}
+                    onMinutesChange={(m) => setPastDeviceOn({ ...pastDeviceOn, minutes: m })}
+                    maxHours={23}
+                    hourLabel="Hr"
+                    minuteLabel="Min"
+                    wrap={true}
+                  />
+                </div>
               </div>
 
               <div className="flex gap-3">
@@ -2038,29 +2282,50 @@ export default function ExternalPage({ selectedPeriod = 'week' }: { selectedPeri
                       setPastSleepSuccess(false);
 
                       const now = new Date();
-                      const bedtimeDate = new Date(now);
-                      bedtimeDate.setHours(pastBedtime.hours, pastBedtime.minutes, 0, 0);
+                      const deviceOffDate = new Date(now);
+                      deviceOffDate.setHours(pastDeviceOff.hours, pastDeviceOff.minutes, 0, 0);
 
-                      const waketimeDate = new Date(now);
-                      waketimeDate.setHours(pastWaketime.hours, pastWaketime.minutes, 0, 0);
+                      const fellAsleepDate = new Date(now);
+                      fellAsleepDate.setHours(pastFellAsleepAt.hours, pastFellAsleepAt.minutes, 0, 0);
 
-                      // For sleep: if wake time is earlier in the day than bedtime, it's the next day
-                      if (waketimeDate <= bedtimeDate) {
-                        waketimeDate.setDate(waketimeDate.getDate() + 1);
+                      const wakeupDate = new Date(now);
+                      wakeupDate.setHours(pastWakeupTime.hours, pastWakeupTime.minutes, 0, 0);
+
+                      const deviceOnDate = new Date(now);
+                      deviceOnDate.setHours(pastDeviceOn.hours, pastDeviceOn.minutes, 0, 0);
+
+                      // If wakeup is before device off, it's next day
+                      if (wakeupDate <= deviceOffDate) {
+                        fellAsleepDate.setDate(fellAsleepDate.getDate() + 1);
+                        wakeupDate.setDate(wakeupDate.getDate() + 1);
+                        deviceOnDate.setDate(deviceOnDate.getDate() + 1);
                       }
+                      // If fellAsleep is before device off, it's same day adjust
+                      if (fellAsleepDate <= deviceOffDate) {
+                        fellAsleepDate.setDate(fellAsleepDate.getDate() + 1);
+                      }
+                      // If device on is before wakeup, it's same day as wakeup
+                      if (deviceOnDate <= wakeupDate) {
+                        deviceOnDate.setDate(deviceOnDate.getDate() + 1);
+                      }
+
+                      const wakeUpToAppSec = Math.max(0, Math.round((deviceOnDate.getTime() - wakeupDate.getTime()) / 1000));
+                      const deviceOffToSleepSec = Math.max(0, Math.round((fellAsleepDate.getTime() - deviceOffDate.getTime()) / 1000));
 
                       if (window.deskflowAPI?.addManualSleep) {
                         const result = await window.deskflowAPI.addManualSleep({
-                          started_at: bedtimeDate.toISOString(),
-                          ended_at: waketimeDate.toISOString(),
-                          device_off_to_sleep_seconds: pastSleepLatency * 60,
-                          wake_up_to_app_seconds: pastWakeLatency * 60
+                          started_at: deviceOffDate.toISOString(),
+                          ended_at: wakeupDate.toISOString(),
+                          device_off_to_sleep_seconds: deviceOffToSleepSec,
+                          wake_up_to_app_seconds: wakeUpToAppSec
                         });
 
                         if (result.success) {
                           setPastSleepSuccess(true);
-                          setPastBedtime({ hours: 22, minutes: 0 });
-                          setPastWaketime({ hours: 7, minutes: 0 });
+                          setPastDeviceOff({ hours: 22, minutes: 0 });
+                          setPastFellAsleepAt({ hours: 22, minutes: 30 });
+                          setPastWakeupTime({ hours: 7, minutes: 0 });
+                          setPastDeviceOn({ hours: 7, minutes: 30 });
                           refreshStats();
                           setTimeout(() => setShowPastSleepModal(false), 1500);
                         } else {

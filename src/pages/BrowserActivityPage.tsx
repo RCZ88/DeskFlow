@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react';
-import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronRight, ChevronLeft, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon } from 'lucide-react';
+import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronRight, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon } from 'lucide-react';
 import { format as dateFormat } from 'date-fns';
 import { Pie, Bar, Line } from 'react-chartjs-2';
 import { format } from 'date-fns';
+import { getDateRange, isInRange } from '../lib/dateRange';
+import type { Period } from '../lib/dateRange';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -50,12 +52,14 @@ function formatDuration(ms: number): string {
 }
 
 interface BrowserActivityPageProps {
-  selectedPeriod?: 'today' | 'week' | 'month' | 'all';
+  selectedPeriod?: Period;
+  dateOffset?: number;
+  onDateOffsetChange?: (offset: number) => void;
   timeMode?: 'focus' | 'total';
   tierAssignments?: { productive: string[]; neutral: string[]; distracting: string[] };
 }
 
-export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode = 'total', tierAssignments: tierAssignmentsProp }: BrowserActivityPageProps) {
+export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments: tierAssignmentsProp }: BrowserActivityPageProps) {
   const [domainStats, setDomainStats] = useState<any[]>([]);
   const [categoryStats, setCategoryStats] = useState<any[]>([]);
   const [browserLogs, setBrowserLogs] = useState<any[]>([]);
@@ -71,7 +75,6 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
   const [availableBrowsers, setAvailableBrowsers] = useState<string[]>([]);
   const [extensionBrowser, setExtensionBrowser] = useState<string>('');
   const [hourlyChartMode, setHourlyChartMode] = useState<'bar' | 'line'>('bar');
-  const [dateOffset, setDateOffset] = useState(0);
   const scrollPosRef = useRef(0);
 
   // Save scroll position continuously
@@ -90,30 +93,12 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
     }
   }, [selectedPeriod, dateOffset]);
 
-  const getViewLabel = () => {
-    const now = new Date();
-    if (selectedPeriod === 'today') {
-      const d = new Date(now);
-      d.setDate(d.getDate() - dateOffset);
-      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    } else if (selectedPeriod === 'week') {
-      const weekStart = new Date(now);
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (dateOffset * 7));
-      weekStart.setHours(0, 0, 0, 0);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-      return `Week of ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-    } else if (selectedPeriod === 'month') {
-      const m = new Date(now.getFullYear(), now.getMonth() - dateOffset, 1);
-      return m.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    }
-    return 'All Time';
-  };
+  const currentRange = useMemo(() =>
+    getDateRange(selectedPeriod, dateOffset),
+    [selectedPeriod, dateOffset]
+  );
 
-  // Reset dateOffset when selectedPeriod changes
-  useEffect(() => {
-    setDateOffset(0);
-  }, [selectedPeriod]);
+  const getViewLabel = () => currentRange.label;
 
   // Detect browsers and load tracking browser preference
   useEffect(() => {
@@ -427,21 +412,10 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
   // Hourly/daily distribution computed from browserLogs based on selectedPeriod
   const hourlyDistribution = useMemo(() => {
     const now = new Date();
-    const filteredLogs = (browserLogs as any[]).filter((log: any) => {
-      if (selectedPeriod === 'today') {
-        const logDate = new Date(log.timestamp);
-        return logDate.getDate() === now.getDate() &&
-               logDate.getMonth() === now.getMonth() &&
-               logDate.getFullYear() === now.getFullYear();
-      } else if (selectedPeriod === 'week') {
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        return new Date(log.timestamp) >= weekAgo;
-      } else if (selectedPeriod === 'month') {
-        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        return new Date(log.timestamp) >= monthAgo;
-      }
-      return true;
-    });
+    const range = currentRange;
+    const filteredLogs = (browserLogs as any[]).filter((log: any) =>
+      isInRange(log.timestamp, range)
+    );
 
     if (selectedPeriod === 'today') {
       const hourBuckets = Array.from({ length: 24 }, () => 0);
@@ -475,10 +449,11 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
       buckets.set(dayStr, (buckets.get(dayStr) || 0) + (log.duration_ms || 0));
     }
 
-    const daysBack = selectedPeriod === 'week' ? 7 : selectedPeriod === 'month' ? 30 : 90;
+    const totalDays = Math.round((range.end.getTime() - range.start.getTime()) / 86400000);
+    const daysBack = selectedPeriod === 'week' ? 7 : selectedPeriod === 'month' ? totalDays : 90;
     const result: { label: string; ms: number }[] = [];
     for (let i = daysBack - 1; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 86400000);
+      const d = new Date(range.start.getTime() + i * 86400000);
       const dayStr = d.toISOString().split('T')[0];
       result.push({
         label: d.toLocaleDateString('en-US', selectedPeriod === 'week' ? { weekday: 'short' } : { month: 'short', day: 'numeric' }),
@@ -486,7 +461,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
       });
     }
     return result;
-  }, [browserLogs, selectedPeriod]);
+  }, [browserLogs, selectedPeriod, currentRange]);
 
   // Bar chart data
   const hourlyChartData = {
@@ -626,28 +601,11 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', timeMode 
           <p className="text-sm text-zinc-500 mt-1">Track your browsing habits by domain and category</p>
         </div>
         <div className="flex items-center gap-4">
-          {/* Navigation arrows */}
+          {/* Period label */}
           <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setDateOffset(prev => prev + 1)}
-              className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="text-sm font-medium px-2 min-w-[80px] text-center">
+            <span className="text-sm font-medium px-2 min-w-[80px] text-center text-zinc-400">
               {getViewLabel()}
             </span>
-            <button
-              onClick={() => setDateOffset(prev => Math.max(0, prev - 1))}
-              disabled={dateOffset === 0}
-              className={`p-2 rounded-lg transition-colors ${
-                dateOffset === 0 
-                  ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
-                  : 'bg-zinc-800 hover:bg-zinc-700'
-              }`}
-            >
-              <ChevronRight size={16} />
-            </button>
           </div>
 
           {/* Main Browser Config */}

@@ -4,7 +4,7 @@ id: generate-prompt
 name: Generate Prompt
 category: design
 applicable_to: [prompts, design-specs]
-version: 1.1.0
+version: 1.2.0
 created: 2026-04-19
 tags: [prompts, design, engineering]
 ---
@@ -30,10 +30,37 @@ The prompt you generate should equip the receiving AI with context and then task
 2. **Current implementation:** affected files, what exists, what's broken.
 3. **Design system:** colors, components, patterns in use.
 4. **Data layer:** How data is currently stored vs. how it needs to be processed.
+5. **Backend completeness:** Before designing any feature, verify that the necessary backend/IPC infrastructure exists. Check:
+   - IPC channel definitions in `src/preload.ts`
+   - IPC handlers in `src/main.ts`
+   - Service classes in `src/services/`
+   - DB schema in relevant DB files
+   - **If IPC channel exists but returns mock/no-op data** — flag it
+   - **If IPC channel doesn't exist at all** — flag it
+   - **If the feature is purely frontend (localStorage only)** — note explicitly
+
+### MANDATORY: Create a Context Bundle
+
+**Before writing the prompt, create a CONTEXT_BUNDLE.md.** The target AI receiving the prompt does NOT have access to your codebase. The context bundle replaces that gap.
+
+Save to `agent/docs/<relevant-dir>/CONTEXT_BUNDLE.md` and include:
+
+- **Relevant source code** — copy-paste exact lines, file paths, and line numbers for every file the solution touches
+- **Data structures** — schemas, interfaces, types, enums
+- **IPC endpoints** — channel names, payload shapes, example usage
+- **State management** — relevant stores, actions, selectors, and their structure
+- **Design tokens** — hex codes, component names, CSS patterns in use
+- **Architecture notes** — how the relevant subsystems connect (data flow direction, event flow)
+
+The bundle must be **self-contained**. The target AI should be able to design the complete solution using only this file, without needing to read the codebase itself.
+
+**If you cannot gather all context autonomously** (e.g., a file is too large, or the relevant section isn't obvious), include a step in the prompt that asks the user to provide specific files or code sections.
 
 ## What the Generated Prompt Should Include
 
+- **User's original request (verbatim):** Copy-paste the user's exact words word-for-word at the top of the prompt. This ensures the receiving AI sees the raw request without any interpretation loss. Mark it clearly (e.g., `## Raw Request` block).
 - **Problem statement:** What's wrong and why it matters to the user (e.g., "The data feels unprocessed and poorly showcased").
+- **Context bundle reference:** Reference `CONTEXT_BUNDLE.md` as the source of truth for code structure, data shapes, and architecture. The target AI must read this first.
 - **Engineering Task:** Specifically ask the AI to design the **Data Processing Pipeline** (e.g., aggregation math, smoothing logic, caching strategies).
 - **Design Task:** Specifically ask for **High-Fidelity Visual Specs** (e.g., exact hex codes, pixel-level spacing, chart types, animation curves).
 - **UX Task:** Specifically ask for the **Interaction Flow** (e.g., what happens on click, hover, and empty states).
@@ -44,6 +71,7 @@ The prompt you generate should equip the receiving AI with context and then task
 - **Multiple options (Option A / B / C):** Do not ask the user to choose; ask the AI to design the *best* version.
 - **Ambiguous outcomes:** Do not say "design something better"; say "design the technical and visual specifications for X."
 - **Prescribed component structure:** Let the AI decide the architecture of the code.
+- **Your own interpretation or framing:** Do NOT use your (AI's) perspective, tone, or phrasing. Copy the user's exact words. Do not rephrase, summarize, or add your own framing to what the user said. The raw request goes in verbatim — you are the transcriptionist, not the author.
 
 ## Output Format
 
@@ -57,8 +85,9 @@ Prompt should feel like a high-level technical brief:
 1. **User:** "the charts on external page are bad."
 2. **You:** [Update `state.md`]
 3. **You:** [Read codebase and planning docs]
-4. **You:** [Write prompt demanding a high-fidelity design → save to `agent/docs/.../prompt.md`]
-5. **You:** "I have created a prompt that tasks the AI with designing a complete data-processing and visual overhaul for the charts. Send it to the AI to get the full design."
+4. **You:** [Create `agent/docs/external-page-chart-revamp/CONTEXT_BUNDLE.md` with relevant code snippets, schemas, IPC endpoints, design tokens]
+5. **You:** [Write prompt referencing the context bundle, demanding a high-fidelity design → save to `agent/docs/external-page-chart-revamp/prompt.md`]
+6. **You:** "I have created a context bundle and prompt. The prompt tasks the AI with designing a complete data-processing and visual overhaul for the charts, with the context bundle as its codebase reference. Send the prompt and context bundle to the AI to get the full design."
 
 ---
 
@@ -95,9 +124,152 @@ If RESULT.md (or your implementation analysis) involves **removing any existing 
 
 Do not skip this. Do not assume. The user decides what gets removed.
 
+### Rule 4 — Backup Before Every Removal
+
+**Before deleting or replacing any file**, create a timestamped backup:
+
+```bash
+# Copy the file to a timestamped backup path
+cp <filepath> <filepath>.bak.<YYYYMMDD-HHMMSS>
+```
+
+Backups go in the same directory as the original. If a file is being replaced (not deleted), keep the backup alongside the replacement. The backup is for your reference in case the removal was a mistake.
+
+Do not skip this. Do not assume the file can be recovered from git. The git history may not contain the latest version (uncommitted changes).
+
+### Rule 5 — Backend Logic MUST Be Verified
+
+**Before sending a prompt, verify that every proposed feature has real backend logic.** Do not design frontends for features whose backend doesn't exist or is a no-op.
+
+For each feature in the prompt, check:
+1. **IPC channel** — defined in `preload.ts`? Handled in `main.ts`? Returns real data or mock?
+2. **Service layer** — does a corresponding service class exist in `src/services/`?
+3. **DB schema** — does the relevant DB table/column exist?
+4. **File system** — does it read/write real files or just simulate?
+
+**If the backend doesn't exist → Generate two things:**
+- The frontend spec (as normal)
+- A **backend implementation spec** specifying IPC channels, service methods, DB schemas needed
+
+**If the backend is a mock/no-op → Flag it explicitly** in the prompt with "⚠️ BACKEND IS STUB" and include the implementation needed.
+
+---
+
+---
+
+## ⚡ MANDATORY: Post-Result Workflow
+
+After the target AI returns its RESULT.md, you MUST run this three-phase workflow before touching any code.
+
+### Phase 1 — Recursive Completeness Check
+
+**Do NOT skip this. Do NOT assume coverage. Recursively verify every item.**
+
+1. **Extract all requirements** from the PROMPT.md:
+   - Every bug/task number (e.g., Bug #1, Bug #21)
+   - Every engineering task letter (e.g., Task A, Task B)
+   - Every data flow diagram specification
+   - Every constraint
+   - Every explicit question from the "Raw Request" section
+
+2. **Create a coverage table** mapping each PROMPT.md item → its location in RESULT.md:
+   ```
+   | PROMPT.md Item | Covered In RESULT.md? | Location |
+   |----------------|----------------------|----------|
+   | Bug #1: onSend STUB | ✅ Yes | Fix 1, Phase 1 |
+   | Bug #2: Toggle cards decorative | ✅ Yes | Fix 2, Phase 1 |
+   | Bug #3: create-terminal events | ❌ No | — |
+   | ... | | |
+   ```
+
+3. **Flag uncovered items.** If any item from PROMPT.md has no corresponding section in RESULT.md, it goes into a **Gaps list**.
+
+4. **If gaps exist → send a follow-up prompt.** Create a new prompt (`UNCOVERED_GAPS.md` or similar) that asks the target AI to extend RESULT.md to cover the missing items. Include:
+   - The original PROMPT.md item reference
+   - Why it's missing
+   - Where it should be inserted in RESULT.md (which phase/section)
+
+5. **Loop until complete.** After receiving the updated RESULT.md, re-run steps 1-4. Continue until the coverage table shows 100% — every PROMPT.md item has a corresponding section in RESULT.md. This is NOT optional. Do not stop at "close enough."
+
+### Phase 2 — Task Splitting (Only for Large Specifications)
+
+If RESULT.md is very large (10+ fixes, 5+ phases, or covers multiple distinct systems), split it into focused work units:
+
+1. **Identify natural boundaries:** Each phase, each system, each feature cluster.
+2. **Create focused sub-prompts** that each cover one unit:
+   - `RESULT_PHASE1_FIXES.md` — Core flows only (Fixes 1-5)
+   - `RESULT_SESSION_CREATION.md` — Session-related fixes only
+   - `RESULT_TERMINAL_LAYOUT.md` — Layout/split/resize fixes only
+3. **Each sub-prompt must be self-contained** — include only the relevant RESULT.md sections plus the necessary architectural context (you can reference `CONTEXT_BUNDLE.md` for this).
+4. **Process sequentially** — only move to the next sub-prompt after the current one is fully implemented and the build passes.
+
+### Phase 3 — Implementation Planning from Partial Context
+
+Before writing ANY code, plan how the RESULT.md solution maps to your specific codebase. The target AI that wrote RESULT.md has **no knowledge of your actual code structure**.
+
+1. **Create an implementation plan** that answers:
+   - **Which exact files** are affected (from your codebase, not from RESULT.md's generic paths)
+   - **What needs to change in each file** — specific functions, state variables, event handlers, IPC channels
+   - **Adaptation notes** — where RESULT.md's proposal doesn't match your code's reality and must be adjusted
+   - **Ripple effects** — what else might break when you change these files
+   - **Test strategy** — how to verify each change manually (since there's no test suite)
+
+2. **Trace every proposed change against the actual codebase:**
+   - RESULT.md says "change `onSend` at line 1384" → open your file and verify that line number
+   - RESULT.md says "add `electron:execute-command` handler" → grep main.ts to see if it already exists
+   - RESULT.md says "write to `agent/context/session-summaries.json`" → check the path exists and has correct permissions
+
+3. **Store this plan** as `agent/docs/.../IMPLEMENTATION_PLAN.md`. It should include:
+   ```markdown
+   ## Implementation Plan
+   
+   ### Fix N: [Title]
+   - **Files:** `src/pages/FileA.tsx` (lines X-Y), `src/main.ts` (functions Z)
+   - **Changes:** [bullet list of exact edits]
+   - **Codebase adaptation:** [what RESULT.md assumed vs what your code actually looks like]
+   - **Verification:** [how to test this works]
+   - **Ripple check:** [what else references these lines/functions]
+   ```
+
+4. **Only now write code.** Follow the plan step by step. After each step:
+   - Run the build (`npm run build`)
+   - Fix any errors
+   - Mark the step done
+   - Move to the next
+
+---
+
+### Phase 4 — Backend Logic Verification
+
+**Every RESULT.md feature must be traced to real backend code. Do not skip.**
+
+For each change proposed in RESULT.md:
+1. **Find the IPC channel** it would use → does it exist in `src/preload.ts` and `src/main.ts`?
+2. **Find the service** → does a real class in `src/services/` handle this?
+3. **Find the DB query** → does the schema support it?
+4. **If any of these is missing** → the feature has a backend gap.
+
+Create a **Backend Audit Table**:
+```
+| Feature | IPC Channel | Handler Exists? | Service Class | DB Schema | Status |
+|---------|-------------|-----------------|---------------|-----------|--------|
+| Context Sidebar - Systems | n/a (localStorage) | N/A | N/A | N/A | ✅ UI-only |
+| Initialize Workspace | tracker-mind-setup | ✅ main.ts:10200 | ✅ ProblemsService | ✅ SQLite | ✅ Real |
+| Model Improvisation | n/a (localStorage) | N/A | N/A | N/A | ✅ UI-only |
+| ... | | | | | |
+```
+
+**Flag any row where Status is NOT real.** These become a **Backend Gaps** section in the implementation plan. If gaps exist, generate a separate backend prompt to fill them.
+
 ---
 
 ### Key Changes Made:
+* **Added Phase 1 — Recursive Completeness Check:** Mandatory loop until 100% coverage between PROMPT.md and RESULT.md.
+* **Added Phase 2 — Task Splitting:** Large specs get split into focused sub-prompts for sequential implementation.
+* **Added Phase 3 — Implementation Planning:** Context-free AI proposals must be mapped to actual codebase before coding begins.
+* **Added Phase 4 — Backend Logic Verification:** Every feature traced to real IPC, service, and DB code. Backend Gaps flagged.
+* **Added Rule 5 — Backend Logic MUST Be Verified:** Prevents designing frontends for non-existent backends.
+* **Added backend completeness check to What to Gather step 5.**
 * **Removed the "Menu" approach:** Explicitly forbids generating Options A, B, and C.
 * **Mandated Technical Logic:** Added a requirement to ask for the "Data Processing Pipeline" and the "math" behind the display.
 * **High-Fidelity Visuals:** Changed the focus from "don't include pixel specs" to "ask the AI to *provide* pixel specs".

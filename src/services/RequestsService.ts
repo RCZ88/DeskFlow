@@ -9,6 +9,8 @@ export interface Request {
   priority: string;
   category: string;
   linked_problems: string[];
+  session_id: string | null;
+  session_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -18,6 +20,8 @@ export interface CreateRequestData {
   description?: string;
   priority?: string;
   category?: string;
+  sessionId?: string;
+  sessionName?: string;
 }
 
 export class RequestsService {
@@ -89,6 +93,11 @@ export class RequestsService {
       md += `**Category:** ${req.category}\n`;
       md += `**Created:** ${req.created_at}\n`;
       md += `**Updated:** ${req.updated_at}\n`;
+      if (req.session_id && req.session_name) {
+        md += `**Session:** ${req.session_name} (${req.session_id})\n`;
+      } else if (req.session_id) {
+        md += `**Session:** ${req.session_id}\n`;
+      }
       if (req.description) {
         md += `\n**Request:** \n${req.description}\n`;
       }
@@ -108,7 +117,13 @@ export class RequestsService {
       try {
         const content = fs.readFileSync(this.jsonFile, 'utf-8');
         const requests = JSON.parse(content);
-        if (Array.isArray(requests) && requests.length > 0) return requests;
+        if (Array.isArray(requests) && requests.length > 0) {
+          return requests.map(r => ({
+            ...r,
+            session_id: r.session_id || null,
+            session_name: r.session_name || null,
+          }));
+        }
         if (Array.isArray(requests) && requests.length === 0) {
           const migrated = this.migrateFromMd();
           if (migrated.length > 0) return migrated;
@@ -148,6 +163,8 @@ export class RequestsService {
       priority: data.priority || 'Medium',
       category: data.category || 'Feature',
       linked_problems: [],
+      session_id: data.sessionId || null,
+      session_name: data.sessionName || null,
       created_at: now,
       updated_at: now
     };
@@ -189,6 +206,22 @@ export class RequestsService {
     return true;
   }
 
+  unlinkProblem(requestId: string, problemId: string): boolean {
+    const requests = this.getRequests();
+    const idx = requests.findIndex(r => r.id === requestId);
+
+    if (idx === -1) return false;
+
+    const before = requests[idx].linked_problems.length;
+    requests[idx].linked_problems = requests[idx].linked_problems.filter(p => p !== problemId);
+    if (requests[idx].linked_problems.length < before) {
+      requests[idx].updated_at = new Date().toISOString();
+      this.writeJson(requests);
+      this.writeMarkdown(requests);
+    }
+    return true;
+  }
+
   deleteRequest(id: string): boolean {
     const requests = this.getRequests();
     const filtered = requests.filter(r => r.id !== id);
@@ -224,6 +257,8 @@ export class RequestsService {
         priority: priorityMatch?.[1]?.trim() || 'Medium',
         category: categoryMatch?.[1]?.trim() || 'Feature',
         linked_problems: [],
+        session_id: null,
+        session_name: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });

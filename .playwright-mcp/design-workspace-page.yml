@@ -1,0 +1,196 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e7]
+      - generic [ref=e9]:
+        - generic [ref=e10]: DeskFlow
+        - generic [ref=e11]: AI TRACKER
+    - generic [ref=e12]:
+      - button "Dashboard" [ref=e13]:
+        - img [ref=e14]
+        - text: Dashboard
+      - button "Productivity" [ref=e17]:
+        - img [ref=e18]
+        - text: Productivity
+      - button "Applications" [ref=e22]:
+        - img [ref=e23]
+        - text: Applications
+      - button "Browser Activity" [ref=e26]:
+        - img [ref=e27]
+        - text: Browser Activity
+      - button "IDE Projects" [ref=e30]:
+        - img [ref=e31]
+        - text: IDE Projects
+      - button "External" [ref=e35]:
+        - img [ref=e36]
+        - text: External
+      - button "Insights" [ref=e39]:
+        - img [ref=e40]
+        - text: Insights
+      - button "Database" [ref=e42]:
+        - img [ref=e43]
+        - text: Database
+      - button "Design" [active] [ref=e47]:
+        - img [ref=e48]
+        - text: Design
+      - button "Settings" [ref=e54]:
+        - img [ref=e55]
+        - text: Settings
+    - generic [ref=e59]:
+      - text: Local SQLite • Zero Cloud •
+      - text: Privacy-First
+  - generic [ref=e60]:
+    - generic [ref=e61]:
+      - generic [ref=e62]:
+        - generic [ref=e63]: Design
+        - generic [ref=e64]: LIVE
+      - generic [ref=e66]:
+        - generic [ref=e67]:
+          - button "Focus" [ref=e68]:
+            - img [ref=e69]
+            - text: Focus
+          - button "Total" [ref=e71]:
+            - img [ref=e72]
+            - text: Total
+        - 'generic "Apps: 5m 43s | Websites: 0s" [ref=e75]':
+          - img [ref=e76]
+          - text: 0s
+        - generic [ref=e79]:
+          - button "Today" [ref=e80]
+          - button "Week" [ref=e82]
+          - button "Month" [ref=e84]
+          - button "All Time" [ref=e85]
+        - generic [ref=e86]:
+          - button "Previous period" [ref=e87]:
+            - img [ref=e88]
+          - generic [ref=e90]: Week of May 24
+          - button "Next period" [disabled] [ref=e91]:
+            - img [ref=e92]
+        - generic [ref=e95]:
+          - img [ref=e96]
+          - text: 17:52
+        - button "Pause Tracking" [ref=e99]:
+          - img [ref=e100]
+          - text: Pause Tracking
+    - generic [ref=e314]:
+      - generic [ref=e315]:
+        - img [ref=e317]
+        - generic [ref=e323]:
+          - heading "Design Workspace" [level=1] [ref=e324]
+          - paragraph [ref=e325]: Compose design taste knobs and style references
+      - generic [ref=e326]:
+        - generic [ref=e327]:
+          - heading "Taste Knobs" [level=3] [ref=e328]
+          - generic [ref=e329]:
+            - generic [ref=e330]:
+              - generic [ref=e331]:
+                - generic [ref=e332]: Design Variance
+                - generic [ref=e333]: "5"
+              - generic [ref=e334]:
+                - generic [ref=e335]: Conservative
+                - slider [ref=e336] [cursor=pointer]: "5"
+                - generic [ref=e337]: Experimental
+            - generic [ref=e338]:
+              - generic [ref=e339]:
+                - generic [ref=e340]: Motion Intensity
+                - generic [ref=e341]: "5"
+              - generic [ref=e342]:
+                - generic [ref=e343]: Static
+                - slider [ref=e344] [cursor=pointer]: "5"
+                - generic [ref=e345]: Cinematic
+            - generic [ref=e346]:
+              - generic [ref=e347]:
+                - generic [ref=e348]: Visual Density
+                - generic [ref=e349]: "5"
+              - generic [ref=e350]:
+                - generic [ref=e351]: Airy
+                - slider [ref=e352] [cursor=pointer]: "5"
+                - generic [ref=e353]: Maximal
+          - generic [ref=e354]: "Aesthetic: Balanced SaaS — Stripe, Notion, Linear"
+        - generic [ref=e355]:
+          - generic [ref=e356]:
+            - heading "Style References" [level=3] [ref=e357]
+            - generic [ref=e358]: 8/8 active
+          - generic [ref=e359]:
+            - generic [ref=e360]:
+              - generic [ref=e361] [cursor=pointer]:
+                - checkbox "Claude Warm terracotta, editorial" [checked] [ref=e362]
+                - generic [ref=e363]:
+                  - generic [ref=e364]: Claude
+                  - generic [ref=e365]: Warm terracotta, editorial
+              - button "View Claude style" [ref=e366]:
+                - img [ref=e367]
+            - generic [ref=e370]:
+              - generic [ref=e371] [cursor=pointer]:
+                - checkbox "Linear Ultra-minimal, purple accent" [checked] [ref=e372]
+                - generic [ref=e373]:
+                  - generic [ref=e374]: Linear
+                  - generic [ref=e375]: Ultra-minimal, purple accent
+              - button "View Linear style" [ref=e376]:
+                - img [ref=e377]
+            - generic [ref=e380]:
+              - generic [ref=e381] [cursor=pointer]:
+                - checkbox "Vercel Black/white precision, Geist" [checked] [ref=e382]
+                - generic [ref=e383]:
+                  - generic [ref=e384]: Vercel
+                  - generic [ref=e385]: Black/white precision, Geist
+              - button "View Vercel style" [ref=e386]:
+                - img [ref=e387]
+            - generic [ref=e390]:
+              - generic [ref=e391] [cursor=pointer]:
+                - checkbox "Stripe Purple gradients, weight-300" [checked] [ref=e392]
+                - generic [ref=e393]:
+                  - generic [ref=e394]: Stripe
+                  - generic [ref=e395]: Purple gradients, weight-300
+              - button "View Stripe style" [ref=e396]:
+                - img [ref=e397]
+            - generic [ref=e400]:
+              - generic [ref=e401] [cursor=pointer]:
+                - checkbox "Supabase Dark emerald, code-first" [checked] [ref=e402]
+                - generic [ref=e403]:
+                  - generic [ref=e404]: Supabase
+                  - generic [ref=e405]: Dark emerald, code-first
+              - button "View Supabase style" [ref=e406]:
+                - img [ref=e407]
+            - generic [ref=e410]:
+              - generic [ref=e411] [cursor=pointer]:
+                - checkbox "Sentry Dark dashboard, data-dense" [checked] [ref=e412]
+                - generic [ref=e413]:
+                  - generic [ref=e414]: Sentry
+                  - generic [ref=e415]: Dark dashboard, data-dense
+              - button "View Sentry style" [ref=e416]:
+                - img [ref=e417]
+            - generic [ref=e420]:
+              - generic [ref=e421] [cursor=pointer]:
+                - checkbox "PostHog Playful dark, colorful charts" [checked] [ref=e422]
+                - generic [ref=e423]:
+                  - generic [ref=e424]: PostHog
+                  - generic [ref=e425]: Playful dark, colorful charts
+              - button "View PostHog style" [ref=e426]:
+                - img [ref=e427]
+            - generic [ref=e430]:
+              - generic [ref=e431] [cursor=pointer]:
+                - checkbox "Raycast Sleek dark chrome, vibrant" [checked] [ref=e432]
+                - generic [ref=e433]:
+                  - generic [ref=e434]: Raycast
+                  - generic [ref=e435]: Sleek dark chrome, vibrant
+              - button "View Raycast style" [ref=e436]:
+                - img [ref=e437]
+      - generic [ref=e440]:
+        - button "Compose Design Context" [ref=e441]:
+          - generic [ref=e442]:
+            - img [ref=e443]
+            - heading "Compose Design Context" [level=3] [ref=e446]
+          - img [ref=e448]
+        - generic [ref=e450]:
+          - generic [ref=e451]:
+            - generic [ref=e452]:
+              - generic [ref=e453]:
+                - img [ref=e454]
+                - generic [ref=e457]: Prompt Preview
+              - button [ref=e458]:
+                - img [ref=e459]
+            - generic [ref=e462]: design_variance=5 motion_intensity=5 visual_density=5 style_references=claude,linear,vercel,stripe,supabase,sentry,posthog,raycast
+          - button "Send Design Context to Terminal" [ref=e463]:
+            - img [ref=e464]
+            - text: Send Design Context to Terminal

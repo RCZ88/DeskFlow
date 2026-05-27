@@ -393,8 +393,8 @@ interface OrbitSystemProps {
   websiteCategoryOverrides?: Record<string, string>;
 }
 
-// FPS Counter component for performance monitoring - uses DOM ref to avoid React re-renders
-function FPSCounter({ fpsDisplayRef }: { fpsDisplayRef: React.RefObject<HTMLDivElement | null> }) {
+// FPS Counter + History component - tracks FPS over time and stores in ref for graph
+function FPSCounter({ fpsDisplayRef, fpsHistoryRef }: { fpsDisplayRef: React.RefObject<HTMLDivElement | null>; fpsHistoryRef: React.MutableRefObject<number[]> }) {
   const frameCount = useRef(0);
   const lastTime = useRef(performance.now());
   
@@ -410,12 +410,66 @@ function FPSCounter({ fpsDisplayRef }: { fpsDisplayRef: React.RefObject<HTMLDivE
         const frameTime = Math.round(1000 / fps);
         fpsDisplayRef.current.setAttribute('data-frame-time', `${frameTime}ms`);
       }
+      // Store in history (keep last 60 samples = 60 seconds)
+      fpsHistoryRef.current.push(fps);
+      if (fpsHistoryRef.current.length > 60) {
+        fpsHistoryRef.current.shift();
+      }
       frameCount.current = 0;
       lastTime.current = now;
     }
   });
   
   return null;
+}
+
+// FPS Line Graph component - renders SVG sparkline from history data
+function FPSLineGraph({ fpsHistoryRef, width = 160, height = 40 }: { fpsHistoryRef: React.MutableRefObject<number[]>; width?: number; height?: number }) {
+  const pathRef = useRef<string>('');
+  const [path, setPath] = useState('');
+  
+  useFrame(() => {
+    const history = fpsHistoryRef.current;
+    if (history.length < 2) return;
+    
+    const maxFps = 60;
+    const points = history.map((fps, i) => {
+      const x = (i / (history.length - 1)) * width;
+      const y = height - (Math.min(fps, maxFps) / maxFps) * height;
+      return `${x},${y}`;
+    });
+    
+    const newPath = `M ${points.join(' L ')}`;
+    if (newPath !== pathRef.current) {
+      pathRef.current = newPath;
+      setPath(newPath);
+    }
+  });
+  
+  if (fpsHistoryRef.current.length < 2) {
+    return <div className="text-zinc-500 text-xs">Collecting data...</div>;
+  }
+  
+  const latestFps = fpsHistoryRef.current[fpsHistoryRef.current.length - 1] || 0;
+  const avgFps = Math.round(fpsHistoryRef.current.reduce((a, b) => a + b, 0) / fpsHistoryRef.current.length);
+  
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-zinc-400">Trend (60s)</span>
+        <span className="text-emerald-400 font-mono">{avgFps} avg</span>
+      </div>
+      <svg width={width} height={height} className="bg-zinc-800/50 rounded">
+        {/* Grid lines */}
+        <line x1="0" y1={height * 0.33} x2={width} y2={height * 0.33} stroke="#3f3f46" strokeWidth="1" />
+        <line x1="0" y1={height * 0.66} x2={width} y2={height * 0.66} stroke="#3f3f46" strokeWidth="1" />
+        {/* FPS line */}
+        <path d={path} fill="none" stroke={latestFps >= 50 ? '#10b981' : latestFps >= 30 ? '#f59e0b' : '#ef4444'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Area fill */}
+        <path d={`${path} L ${width},${height} L 0,${height} Z`} fill={latestFps >= 50 ? 'rgba(16,185,129,0.1)' : latestFps >= 30 ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)'} />
+      </svg>
+    </div>
+  );
 }
 
 const APP_CATEGORIES: Record<string, { cat: string; color: string }> = {
@@ -1874,19 +1928,49 @@ function PlanetTracker({
   controlsRef,
   planetPositionsRef,
   trackedPlanetRef,
+  cameraPosRef,
 }: {
   controlsRef: React.MutableRefObject<any>;
   planetPositionsRef: React.MutableRefObject<Map<string, THREE.Vector3>>;
   trackedPlanetRef: React.MutableRefObject<string | null>;
+  cameraPosRef: React.MutableRefObject<[number, number, number]>;
 }) {
+  const lastPlanetPosRef = useRef<THREE.Vector3 | null>(null);
+  const cameraOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
+
   useFrame(() => {
     const name = trackedPlanetRef.current;
     if (!name || !controlsRef.current) return;
-    const pos = planetPositionsRef.current.get(name);
-    if (pos) {
-      controlsRef.current.target.lerp(pos, 0.05);
+    const planetPos = planetPositionsRef.current.get(name);
+    if (!planetPos) return;
+
+    // On first frame of tracking, calculate the offset between camera and planet
+    if (!lastPlanetPosRef.current) {
+      const camPos = controlsRef.current.object.position;
+      cameraOffsetRef.current.subVectors(camPos, planetPos);
+      lastPlanetPosRef.current = planetPos.clone();
+      return;
     }
+
+    const currentTarget = controlsRef.current.target;
+    const prevPlanetPos = lastPlanetPosRef.current;
+
+    // Update target to track planet
+    currentTarget.lerp(planetPos, 0.08);
+
+    // Move camera position to follow planet while maintaining offset
+    const camPos = controlsRef.current.object.position;
+    const offset = cameraOffsetRef.current.clone();
+    const newCamPos = planetPos.clone().add(offset);
+    camPos.lerp(newCamPos, 0.06);
+
+    lastPlanetPosRef.current = planetPos.clone();
   });
+
+  useEffect(() => {
+    lastPlanetPosRef.current = null;
+  }, [trackedPlanetRef.current]);
+
   return null;
 }
 
@@ -1901,7 +1985,7 @@ function SolarSystemScene({ planets, isPaused, speed, onPlanetClick, controlsRef
       <directionalLight position={[5, 10, 5]} intensity={0.15} color="#aabbff" />
       {planets.filter((p) => p && p.name && (p.category || p.color)).map((planetData) => (<OrbitPath key={`orbit-${planetData.name}`} planet={planetData} />))}
       {planets.filter((p) => { if (!p) return false; if (!p.name) return false; if (!p.category && !p.color) return false; return true; }).map((planetData) => (<TexturedPlanet key={planetData.name} data={planetData} isPaused={isPaused} speedMultiplier={speed} onClick={onPlanetClick} onPositionUpdate={onPlanetPositionUpdate} />))}
-      <Stars radius={200} depth={50} count={300} factor={2} fade speed={0.3} />
+      <Stars radius={300} depth={80} count={800} factor={3} fade speed={0.2} saturation={0.5} />
       <OrbitControls ref={controlsRef} enablePan={true} enableZoom={true} minDistance={8} maxDistance={200} autoRotate={!isPaused} autoRotateSpeed={0.04} target={[0, 0, 0]} />
     </>
   );
@@ -2758,6 +2842,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   const [galaxyType, setGalaxyType] = useState<'apps' | 'websites'>('apps');
   const cameraPosRef = useRef<[number, number, number]>([0, 100, 200]);
   const fpsDisplayRef = useRef<HTMLDivElement | null>(null);
+  const fpsHistoryRef = useRef<number[]>([]);
   const [currentCategory, setCurrentCategory] = useState<string>('Other');
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('all');
   
@@ -3181,7 +3266,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
         
         {/* FPS Stats panel - directly below Perf button when expanded */}
         {showPerf && (
-          <div className="glass rounded-xl px-3 py-2 text-xs font-mono space-y-1 w-[180px]">
+          <div className="glass rounded-xl px-3 py-2 text-xs font-mono space-y-2 w-[200px]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Activity className="w-3 h-3 text-emerald-400" />
@@ -3196,6 +3281,9 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                 {perfExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
               </button>
             </div>
+            
+            {/* FPS Line Graph - always visible when perf is shown */}
+            <FPSLineGraph fpsHistoryRef={fpsHistoryRef} width={176} height={48} />
             
             {/* Expanded stats */}
             {perfExpanded && (
@@ -3320,21 +3408,22 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                   <pointLight position={[0, 0, 0]} intensity={3} color="#ffaa00" distance={200} decay={1.5} />
                   <directionalLight position={[50, 30, 50]} intensity={0.5} color="#fff5e6" />
                   
-                  {/* Post-Processing Effects */}
+                  {/* Post-Processing Effects - Enhanced Graphics */}
                   <EffectComposer multisampling={0}>
                     <Bloom 
-                      intensity={1.2} 
-                      luminanceThreshold={0.85} 
-                      luminanceSmoothing={0.3}
+                      intensity={1.8} 
+                      luminanceThreshold={0.7} 
+                      luminanceSmoothing={0.4}
+                      radius={0.85}
                       mipmapBlur 
                     />
                     <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-                    <Vignette offset={0.3} darkness={0.5} blendFunction={BlendFunction.NORMAL} />
-                    <ChromaticAberration offset={[0.0005, 0.0005]} blendFunction={BlendFunction.NORMAL} />
+                    <Vignette offset={0.25} darkness={0.6} blendFunction={BlendFunction.NORMAL} />
+                    <ChromaticAberration offset={[0.0008, 0.0008]} blendFunction={BlendFunction.NORMAL} />
                   </EffectComposer>
                   
                   {/* FPS Counter - uses ref instead of state to avoid re-renders */}
-                  {showPerf && <FPSCounter fpsDisplayRef={fpsDisplayRef} />}
+                  {showPerf && <FPSCounter fpsDisplayRef={fpsDisplayRef} fpsHistoryRef={fpsHistoryRef} />}
                   
                 {viewMode === 'galaxy' ? (
                   <>
@@ -3350,7 +3439,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                       animationSpeed={animationSpeed}
                     />
                     <CameraTracker cameraPosRef={cameraPosRef} />
-                    <Stars radius={4000} depth={200} count={3000} factor={6} fade speed={0.1} saturation={0.3} />
+                    <Stars radius={5000} depth={250} count={5000} factor={7} fade speed={0.08} saturation={0.6} />
                     <OrbitControls 
                       ref={controlsRef}
                       enablePan={true} 
@@ -3377,6 +3466,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                       controlsRef={controlsRef}
                       planetPositionsRef={planetPositionsRef}
                       trackedPlanetRef={trackedPlanetRef}
+                      cameraPosRef={cameraPosRef}
                     />
                   </>
                 )}

@@ -6,7 +6,8 @@ import {
   Home, Monitor, Globe, Code2, BarChart3, Settings, Play, Pause, Clock,
   Download, Trash2, Award, Zap, Users, Info, Database, CheckCircle, XCircle, AlertTriangle,
   Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard, Target,
-  ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4
+  ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
+  X, FolderTree, Bot, Minus, HelpCircle, Settings2
 } from 'lucide-react';
 import { format as dateFormat } from 'date-fns';
 import SettingsPage from './pages/SettingsPage';
@@ -16,11 +17,15 @@ import ProductivityPage from './pages/ProductivityPage';
 import DatabasePage from './pages/DatabasePage';
 import IDEProjectsPage from './pages/IDEProjectsPage';
 import IDEHelpPage from './pages/IDEHelpPage';
+import TutorialPage from './pages/TutorialPage';
 import TerminalPage from './pages/TerminalPage';
 import ExternalPage from './pages/ExternalPage';
 import { DurationPicker, LatencyPicker } from './components/DurationPicker';
 import InsightsPage from './pages/InsightsPage';
 import DashboardPage from './pages/DashboardPage';
+import AfkPromptModal from './components/AfkPromptModal';
+import { getDateRange } from './lib/dateRange';
+import type { Period } from './lib/dateRange';
 // Agent dashboard is disabled - file incomplete
 
 // Lazy load OrbitSystem - it's heavy and should only load when needed
@@ -86,10 +91,14 @@ declare global {
       onBrowserTrackingEvent: (cb: (data: any) => void) => void;
       getLogs: () => Promise<any[]>;
       getLogsByPeriod: (period: 'today' | 'week' | 'month' | 'all') => Promise<any[]>;
+      getDashboardData: (params: { period: string; dateOffset?: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
+      getPageStats: (params: { page: string; period: string; dateOffset?: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
+      backfillAggregations: () => Promise<{ success: boolean; message?: string }>;
       getStats: () => Promise<any[]>;
       getAppStats: (period?: 'today' | 'week' | 'month' | 'all') => Promise<any[]>;
       getDailyStats: (period: 'week' | 'month' | 'all') => Promise<any>;
       toggleTracking: () => Promise<boolean>;
+      setTracking: (enabled: boolean) => Promise<boolean>;
       clearData: () => Promise<boolean>;
       clearToday: () => Promise<boolean>;
       getDbPath: () => Promise<string>;
@@ -184,6 +193,14 @@ declare global {
       deleteTerminalSession: (sessionId: string) => Promise<{ success: boolean }>;
       getSessionMessages: (sessionId: string, agentType?: string) => Promise<{ success: boolean; data: any[] }>;
       saveTerminalMessage: (data: { sessionId: string; role: string; content: string }) => Promise<{ success: boolean; id?: any }>;
+      getPromptHistory: (opts?: { projectId?: string; limit?: number }) => Promise<{ success: boolean; data: any[]; error?: string }>;
+      deleteTerminalMessage: (id: number) => Promise<{ success: boolean; error?: string }>;
+      getPromptStatus: () => Promise<{ success: boolean; data: any[] }>;
+      aiTaskAdd: (data: { terminalId: string; prompt: string; agent: string; sessionId: string; projectPath: string }) => void;
+      aiTaskWatch: (projectPath: string) => Promise<any>;
+      aiTaskStopWatch: (projectPath: string) => Promise<any>;
+      onAiTaskUpdated: (callback: (data: any) => void) => () => void;
+      onAiTaskFileChanged: (callback: (data: any) => void) => () => void;
       // Session Categorization
       updateSessionCategory: (data: { sessionId: string; category?: string; productArea?: string; description?: string; status?: string; tags?: string[]; categoryConfirmed?: boolean }) => Promise<{ success: boolean }>;
       getParsedSessionItems: (sessionId: string) => Promise<{ success: boolean; data: any[] }>;
@@ -336,28 +353,36 @@ function App() {
     logCount: number;
   }>({ type: 'none', working: false, path: '', logCount: 0 });
   const [showStorageDetails, setShowStorageDetails] = useState(false);
+  const [terminalProjectInfo, setTerminalProjectInfo] = useState<{ name: string; path: string }>({ name: '', path: '' });
+  const [provisionStatus, setProvisionStatus] = useState<'idle' | 'provisioning' | 'provisioned'>('idle');
+
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ name: string; path: string }>) => setTerminalProjectInfo(e.detail);
+    window.addEventListener('terminal-project-info', handler as EventListener);
+    return () => window.removeEventListener('terminal-project-info', handler as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ status: 'idle' | 'provisioning' | 'provisioned' }>) => setProvisionStatus(e.detail.status);
+    window.addEventListener('provision-status-changed', handler as EventListener);
+    return () => window.removeEventListener('provision-status-changed', handler as EventListener);
+  }, []);
 
   // State used by loadInitialData effect
-  const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('week');
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>('week');
+  const [expandedPeriod, setExpandedPeriod] = useState<'week' | 'month' | null>(null);
+  const [dateOffset, setDateOffset] = useState(0);
   const [allLogs, setAllLogs] = useState<ActivityLog[]>([]); // ALL logs - never changes (for heatmap)
+  
+  // Reset dateOffset when period changes
+  useEffect(() => {
+    setDateOffset(0);
+  }, [selectedPeriod]);
   
   // Computed filtered logs from allLogs based on selectedPeriod (replaces logs state)
   const filteredLogs = useMemo(() => {
-    const now = new Date();
-    if (selectedPeriod === 'today') {
-      return allLogs.filter(log =>
-        log.timestamp.getDate() === now.getDate() &&
-        log.timestamp.getMonth() === now.getMonth() &&
-        log.timestamp.getFullYear() === now.getFullYear()
-      );
-    } else if (selectedPeriod === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return allLogs.filter(log => log.timestamp >= weekAgo);
-    } else if (selectedPeriod === 'month') {
-      // Month shows ALL available data (not just last 30 days)
-      return allLogs;
-    }
-    return allLogs; // 'all'
+    const range = getDateRange(selectedPeriod, 0);
+    return allLogs.filter(log => log.timestamp >= range.start && log.timestamp < range.end);
   }, [allLogs, selectedPeriod]);
   
   // Sync logs state with filteredLogs whenever filteredLogs changes
@@ -408,6 +433,17 @@ function App() {
           console.log('[DeskFlow] Loaded logs:', formattedLogs.length, '| Date range:', minDate.toLocaleDateString(), 'to', maxDate.toLocaleDateString());
         }
         console.log('[DeskFlow] Loaded logs:', formattedLogs.length, 'entries', formattedLogs.map(l => l.app).filter((v, i, a) => a.indexOf(v) === i));
+        // Also fetch pre-computed dashboard data (if available)
+        try {
+          const dashData = await window.deskflowAPI.getDashboardData({ period: selectedPeriod });
+          if (dashData?.success) {
+            console.log('[DeskFlow] Pre-computed dashboard data loaded:', 
+              { hourly: dashData.data.hourly?.length, daily: dashData.data.daily?.length, 
+                topApps: dashData.data.topApps?.length, recentSessions: dashData.data.recentSessions?.length });
+          }
+        } catch (e) {
+          console.log('[DeskFlow] Pre-computed data not available (non-SQLite mode)');
+        }
       } catch (err) {
         console.error('[DeskFlow] Failed to load logs:', err);
       }
@@ -547,12 +583,10 @@ function App() {
           // Auto-resume from idle if system idle drops below threshold (user resumed activity)
           if (idleRef.current && data.systemIdleSeconds * 1000 < idleThreshold * 60 * 1000) {
             console.log('[DeskFlow] System idle dropped - resuming tracking');
-            if (window.deskflowAPI?.stopAfkSession) {
-              window.deskflowAPI.stopAfkSession().catch(console.error);
-            }
             setIsIdle(false);
             setIsTracking(true);
             setSessionStart(new Date());
+            idleReturnFnRef.current();
           }
         }
       });
@@ -665,22 +699,10 @@ function App() {
     suggestedBedtime: string;
     suggestedWakeTime: string;
   } | null>(null);
-  const [sleepLatencyMinutes, setSleepLatencyMinutes] = useState(15);
-  const [wakeLatencyMinutes, setWakeLatencyMinutes] = useState(5);
   const [sleepDetectCustomBedtime, setSleepDetectCustomBedtime] = useState({ hours: 22, minutes: 0 });
   const [sleepDetectCustomWaketime, setSleepDetectCustomWaketime] = useState({ hours: 7, minutes: 0 });
-
-  // Auto-calculate wakeLatencyMinutes from wake time vs current time
-  useEffect(() => {
-    const now = new Date();
-    const wakeDate = new Date();
-    wakeDate.setHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes, 0, 0);
-    if (wakeDate > now) {
-      wakeDate.setDate(wakeDate.getDate() - 1);
-    }
-    const diff = Math.max(0, Math.round((now.getTime() - wakeDate.getTime()) / 60000));
-    setWakeLatencyMinutes(diff);
-  }, [sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes]);
+  const [sleepDetectFellAsleepAt, setSleepDetectFellAsleepAt] = useState({ hours: 22, minutes: 15 });
+  const [sleepDetectWakeUpAt, setSleepDetectWakeUpAt] = useState({ hours: 6, minutes: 55 });
 
   // On mount, check if there's a pending sleep detection
   useEffect(() => {
@@ -695,6 +717,8 @@ function App() {
             const wake = new Date(data.suggestedWakeTime);
             setSleepDetectCustomBedtime({ hours: bed.getHours(), minutes: bed.getMinutes() });
             setSleepDetectCustomWaketime({ hours: wake.getHours(), minutes: wake.getMinutes() });
+            setSleepDetectFellAsleepAt({ hours: bed.getHours(), minutes: (bed.getMinutes() + 15) % 60 });
+            setSleepDetectWakeUpAt({ hours: wake.getHours(), minutes: Math.max(0, wake.getMinutes() - 5) });
             setShowSleepDetection(true);
           }
         }
@@ -715,6 +739,8 @@ function App() {
             const wake = new Date(detResult.suggestedWakeTime);
             setSleepDetectCustomBedtime({ hours: bed.getHours(), minutes: bed.getMinutes() });
             setSleepDetectCustomWaketime({ hours: wake.getHours(), minutes: wake.getMinutes() });
+            setSleepDetectFellAsleepAt({ hours: bed.getHours(), minutes: (bed.getMinutes() + 15) % 60 });
+            setSleepDetectWakeUpAt({ hours: wake.getHours(), minutes: Math.max(0, wake.getMinutes() - 5) });
             setShowSleepDetection(true);
           }
         }
@@ -736,20 +762,36 @@ function App() {
     if (!sleepDetectionData) return;
     try {
       const now = new Date();
-      // Parse custom times or use suggested
-      let bedtime: Date, wakeTime: Date;
-      bedtime = new Date(sleepDetectionData.suggestedBedtime);
-      bedtime.setHours(sleepDetectCustomBedtime.hours, sleepDetectCustomBedtime.minutes, 0, 0);
-      wakeTime = new Date(sleepDetectionData.suggestedWakeTime);
-      wakeTime.setHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes, 0, 0);
-      if (wakeTime <= bedtime) wakeTime.setDate(wakeTime.getDate() + 1);
+      const deviceOff = new Date(now);
+      deviceOff.setHours(sleepDetectCustomBedtime.hours, sleepDetectCustomBedtime.minutes, 0, 0);
+
+      const fellAsleep = new Date(now);
+      fellAsleep.setHours(sleepDetectFellAsleepAt.hours, sleepDetectFellAsleepAt.minutes, 0, 0);
+
+      const wokeUp = new Date(now);
+      wokeUp.setHours(sleepDetectWakeUpAt.hours, sleepDetectWakeUpAt.minutes, 0, 0);
+
+      const deviceOn = new Date(now);
+      deviceOn.setHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes, 0, 0);
+
+      // Handle midnight crossing
+      if (wokeUp <= deviceOff) {
+        fellAsleep.setDate(fellAsleep.getDate() + 1);
+        wokeUp.setDate(wokeUp.getDate() + 1);
+        deviceOn.setDate(deviceOn.getDate() + 1);
+      }
+      if (fellAsleep <= deviceOff) fellAsleep.setDate(fellAsleep.getDate() + 1);
+      if (deviceOn <= wokeUp) deviceOn.setDate(deviceOn.getDate() + 1);
+
+      const deviceOffToSleepSec = Math.max(0, Math.round((fellAsleep.getTime() - deviceOff.getTime()) / 1000));
+      const wakeUpToAppSec = Math.max(0, Math.round((deviceOn.getTime() - wokeUp.getTime()) / 1000));
 
       if (window.deskflowAPI?.confirmSleep) {
         const result = await window.deskflowAPI.confirmSleep({
-          started_at: bedtime.toISOString(),
-          ended_at: wakeTime.toISOString(),
-          device_off_to_sleep_seconds: sleepLatencyMinutes * 60,
-          wake_up_to_app_seconds: wakeLatencyMinutes * 60,
+          started_at: deviceOff.toISOString(),
+          ended_at: wokeUp.toISOString(),
+          device_off_to_sleep_seconds: deviceOffToSleepSec,
+          wake_up_to_app_seconds: wakeUpToAppSec,
         });
         if (result?.success) {
           window.dispatchEvent(new CustomEvent('sleep-confirmed'));
@@ -761,9 +803,17 @@ function App() {
     dismissSleepDetection();
   };
 
-  function formatDisplayTime(iso: string): string {
-    const d = new Date(iso);
+  function formatTimeFromHours(h: number, m: number): string {
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  }
+
+  function customDurationMinutes(): number {
+    const bed = sleepDetectCustomBedtime.hours * 60 + sleepDetectCustomBedtime.minutes;
+    let wake = sleepDetectCustomWaketime.hours * 60 + sleepDetectCustomWaketime.minutes;
+    if (wake <= bed) wake += 24 * 60;
+    return wake - bed;
   }
 
   useEffect(() => {
@@ -1035,6 +1085,13 @@ function App() {
   const [isIdle, setIsIdle] = useState(false);
   const [idleThreshold, setIdleThreshold] = useState(5); // minutes
   const [autoDetect, setAutoDetect] = useState(true);
+  const [afkPrompt, setAfkPrompt] = useState<{
+    open: boolean;
+    suggested: { id: number; name: string; color: string } | null;
+    duration: string | null;
+    startedAt: string | null;
+  }>({ open: false, suggested: null, duration: null, startedAt: null });
+  const afkPromptShownRef = useRef(false);
   const [autoExport, setAutoExport] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   const [externalActivities, setExternalActivities] = useState<any[]>([]);
@@ -1090,6 +1147,24 @@ function App() {
   const handleActivityFeedChange = useCallback((newItems: any[]) => {
     setActivityFeed(newItems);
     localStorage.setItem('deskflow-activity-feed', JSON.stringify(newItems));
+  }, []);
+  
+  const handleAfkConfirm = useCallback((activityId: string) => {
+    setAfkPrompt({ open: false, suggested: null });
+    if (window.deskflowAPI?.stopAfkSession) {
+      window.deskflowAPI.stopAfkSession(activityId).then((r: any) => {
+        if (r?.success) window.dispatchEvent(new CustomEvent('external-data-changed'));
+      }).catch(console.error);
+    }
+  }, []);
+  
+  const handleAfkDismiss = useCallback(() => {
+    setAfkPrompt({ open: false, suggested: null });
+    if (window.deskflowAPI?.stopAfkSession) {
+      window.deskflowAPI.stopAfkSession().then((r: any) => {
+        if (r?.success) window.dispatchEvent(new CustomEvent('external-data-changed'));
+      }).catch(console.error);
+    }
   }, []);
   
   const [foregroundApps, setForegroundApps] = useState<string[]>([]);
@@ -1281,12 +1356,48 @@ function App() {
   const idleRef = useRef(isIdle);
   const trackingRef = useRef(isTracking);
   const systemIdleSecondsRef = useRef(0); // OS-level idle seconds (from main process)
+  const idleStartRef = useRef<number | null>(null); // When idle began (for AFK duration)
+  const idleReturnFnRef = useRef<() => void>(() => {}); // Updated below to avoid stale closures
   
   // Update refs when state changes
   useEffect(() => {
     idleRef.current = isIdle;
     trackingRef.current = isTracking;
   }, [isIdle, isTracking]);
+  
+  // Ref to latest externalActivities for the idle return handler
+  const externalActivitiesRef = useRef(externalActivities);
+  externalActivitiesRef.current = externalActivities;
+  
+  // Keep idleReturnFnRef.current updated with the actual handler
+  useEffect(() => {
+    idleReturnFnRef.current = async () => {
+      if (afkPromptShownRef.current) return;
+      afkPromptShownRef.current = true;
+      
+      // Compute duration from idleStartRef (always accurate, not reliant on DB)
+      const idleStartMs = idleStartRef.current;
+      const elapsed = idleStartMs ? Math.floor((Date.now() - idleStartMs) / 1000) : 0;
+      const afkDuration = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+      
+      // Try to get the active session for the live counter timestamp
+      let startedAt: string | null = null;
+      try {
+        const activeSession = await window.deskflowAPI?.getActiveExternalSession?.();
+        if (activeSession?.started_at) {
+          startedAt = activeSession.started_at;
+        }
+      } catch {}
+      
+      try {
+        const ts = new Date().toISOString();
+        const guess = await window.deskflowAPI?.getTypicalActivityAtTime?.(ts);
+        setAfkPrompt({ open: true, suggested: guess || null, duration: afkDuration, startedAt });
+      } catch {
+        setAfkPrompt({ open: true, suggested: null, duration: afkDuration, startedAt });
+      }
+    };
+  }, []);
   
   // Set up activity listeners - stable across renders, cleaned up on unmount
   useEffect(() => {
@@ -1302,29 +1413,39 @@ function App() {
         setIsIdle(false);
         setIsTracking(true);
         setSessionStart(new Date());
+        // Cooldown: skip idle checks for 12s to let heartbeat update with low idle time
+        idleCooldownRef.current = Date.now() + 12000;
+        // Resume main process tracking
+        if (window.deskflowAPI?.setTracking) {
+          window.deskflowAPI.setTracking(true).catch(console.error);
+        }
+        // Show AFK prompt (guard prevents duplicates from focus/visibility events)
+        idleReturnFnRef.current();
       }
     };
 
     // Always listen for activity (even when tracking is paused)
-    window.addEventListener('mousemove', handleActivity);
-    window.addEventListener('mousedown', handleActivity);
-    window.addEventListener('keydown', handleActivity);
-    window.addEventListener('touchstart', handleActivity);
-    window.addEventListener('scroll', handleActivity);
-    window.addEventListener('wheel', handleActivity);
+    // Use capture phase so xterm.js (or other libs) calling stopPropagation doesn't block it
+    window.addEventListener('mousemove', handleActivity, { capture: true });
+    window.addEventListener('mousedown', handleActivity, { capture: true });
+    window.addEventListener('keydown', handleActivity, { capture: true });
+    window.addEventListener('touchstart', handleActivity, { capture: true });
+    window.addEventListener('scroll', handleActivity, { capture: true });
+    window.addEventListener('wheel', handleActivity, { capture: true });
 
     // Also listen for window focus/visibility to catch user returning to app
     const handleFocus = () => {
       if (!isMountedRef.current) return;
       if (idleRef.current) {
         console.log('[DeskFlow] Window focused - resuming tracking');
-        // Stop AFK external session when returning
-        if (window.deskflowAPI?.stopAfkSession) {
-          window.deskflowAPI.stopAfkSession().catch(console.error);
-        }
         setIsIdle(false);
         setIsTracking(true);
         setSessionStart(new Date());
+        idleCooldownRef.current = Date.now() + 12000;
+        if (window.deskflowAPI?.setTracking) {
+          window.deskflowAPI.setTracking(true).catch(console.error);
+        }
+        idleReturnFnRef.current();
       }
     };
 
@@ -1332,13 +1453,14 @@ function App() {
       if (!isMountedRef.current) return;
       if (document.visibilityState === 'visible' && idleRef.current) {
         console.log('[DeskFlow] Window visible - resuming tracking');
-        // Stop AFK external session when returning
-        if (window.deskflowAPI?.stopAfkSession) {
-          window.deskflowAPI.stopAfkSession().catch(console.error);
-        }
         setIsIdle(false);
         setIsTracking(true);
         setSessionStart(new Date());
+        idleCooldownRef.current = Date.now() + 12000;
+        if (window.deskflowAPI?.setTracking) {
+          window.deskflowAPI.setTracking(true).catch(console.error);
+        }
+        idleReturnFnRef.current();
       }
     };
 
@@ -1347,17 +1469,21 @@ function App() {
 
     return () => {
       // Cleanup: remove all activity listeners on unmount
-      window.removeEventListener('mousemove', handleActivity);
-      window.removeEventListener('mousedown', handleActivity);
-      window.removeEventListener('keydown', handleActivity);
-      window.removeEventListener('touchstart', handleActivity);
-      window.removeEventListener('scroll', handleActivity);
-      window.removeEventListener('wheel', handleActivity);
+      window.removeEventListener('mousemove', handleActivity, { capture: true });
+      window.removeEventListener('mousedown', handleActivity, { capture: true });
+      window.removeEventListener('keydown', handleActivity, { capture: true });
+      window.removeEventListener('touchstart', handleActivity, { capture: true });
+      window.removeEventListener('scroll', handleActivity, { capture: true });
+      window.removeEventListener('wheel', handleActivity, { capture: true });
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       isMountedRef.current = false;
     };
   }, []); // Empty deps - this runs once on mount and cleans up on unmount
+
+  // Guard against re-triggering idle within N seconds of returning from idle
+  // Prevents the stale heartbeat idle value from causing a second idle detection
+  const idleCooldownRef = useRef(0);
 
   // Live tracking timer with OS-level idle detection
   // Uses powerMonitor.getSystemIdleTime() from main process (via heartbeat)
@@ -1371,11 +1497,15 @@ function App() {
         
         const now = Date.now();
 
+        // Skip idle check during cooldown (prevents re-idle from stale heartbeat after return)
+        if (now < idleCooldownRef.current) return;
+
         // Idle check: Use OS-level system idle time (from main process heartbeat)
         // This correctly detects idle even when DeskFlow is in the background
         const idleMs = idleThreshold * 60 * 1000; // Convert minutes to ms
         if (systemIdleSecondsRef.current * 1000 > idleMs) {
           setIsIdle(true);
+          idleStartRef.current = Date.now();
           // Auto-pause after idle
           if (elapsedTime > 60) { // Only log if tracked >1 min
             const catInfo = APP_CATEGORIES[currentApp as keyof typeof APP_CATEGORIES] || { cat: 'Other', color: '#888888' };
@@ -1394,6 +1524,9 @@ function App() {
           if (window.deskflowAPI?.startAfkSession) {
             window.deskflowAPI.startAfkSession().catch(console.error);
           }
+          // Pause main process tracking so the last app stops accumulating time
+          window.deskflowAPI?.setTracking(false).catch(console.error);
+          afkPromptShownRef.current = false; // Allow prompt on next return
           setIsTracking(false);
           setElapsedTime(0);
           return;
@@ -1536,7 +1669,7 @@ function App() {
   };
 
   // Calculate totals - filters allLogs by period locally
-  const getTotalTime = (period: 'today' | 'week' | 'month' | 'all') => {
+  const getTotalTime = (period: Period) => {
     const now = new Date();
 
     // Filter allLogs by period
@@ -1547,12 +1680,12 @@ function App() {
         log.timestamp.getMonth() === now.getMonth() &&
         log.timestamp.getFullYear() === now.getFullYear()
       );
-    } else if (period === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      filtered = allLogs.filter(log => log.timestamp >= weekAgo);
-    } else if (period === 'month') {
-      // Month shows ALL available data (not just last 30 days)
-      filtered = allLogs;
+    } else if (period === 'week' || period === '7day') {
+      const range = getDateRange(period, 0);
+      filtered = allLogs.filter(log => log.timestamp >= range.start && log.timestamp < range.end);
+    } else if (period === 'month' || period === '30day') {
+      const range = getDateRange(period, 0);
+      filtered = allLogs.filter(log => log.timestamp >= range.start && log.timestamp < range.end);
     }
     // 'all' uses allLogs as-is
 
@@ -1978,180 +2111,18 @@ Trend: +14% vs. yesterday. Keep it up!`;
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
 
-    const sidebarItems = [
-      { icon: Home, label: 'Dashboard', path: '/' },
-      { icon: Target, label: 'Productivity', path: '/productivity' },
-      { icon: PieChart, label: 'Applications', path: '/stats' },
-      { icon: Globe, label: 'Browser Activity', path: '/browser' },
-      { icon: Code2, label: 'IDE Projects', path: '/ide' },
-      { icon: Clock4, label: 'External', path: '/external' },
-      { icon: BarChart3, label: 'Insights', path: '/reports' },
-      { icon: Database, label: 'Database', path: '/database' },
-      { icon: Settings, label: 'Settings', path: '/settings' },
-    ];
-
-  const renderHeatmap = () => {
-    const currentHour = new Date().getHours();
-    const currentDay = new Date().getDay();
-
-    // GitHub-style color scale: from zinc to emerald
-    // Values represent SECONDS of activity per hour (max 3600 = 1 full hour)
-    const getHeatColor = (val: number) => {
-      const capped = Math.min(val, 3600);
-      if (capped === 0) return '#18181b';    // No activity
-      if (capped < 300) return '#14532d';    // < 5 min - very dark green
-      if (capped < 900) return '#166534';    // 5-15 min - dark green
-      if (capped < 1800) return '#15803d';   // 15-30 min - medium green
-      if (capped < 2700) return '#16a34a';   // 30-45 min - bright green
-      return '#22c55e';                       // 45-60 min - brightest green
-    };
-
-    // Compact layout: Hours as rows (24), Days as columns (7)
-    // Days go left-to-right, Hours top-to-bottom
-    return (
-      <div className="relative w-full">
-        <div className="overflow-x-auto">
-          <div className="w-full bg-zinc-950 rounded-2xl border border-zinc-800 p-6">
-            {/* Header: Day Labels */}
-            <div className="flex items-center mb-3">
-              <div className="w-14 flex-shrink-0"></div>
-              {DAYS.map((day, dayIdx) => (
-                <div
-                  key={dayIdx}
-                  className={`flex-1 text-center text-sm font-semibold mx-px ${dayIdx === currentDay ? 'text-emerald-400' : 'text-zinc-400'}`}
-                >
-                  {day}
-                </div>
-              ))}
-            </div>
-
-            {/* Hour Rows */}
-            {Array.from({ length: 24 }, (_, hourIdx) => (
-              <div key={hourIdx} className="flex items-center py-[1px]">
-                <div className={`w-14 flex-shrink-0 pr-3 text-xs font-mono text-right ${hourIdx === currentHour ? 'text-emerald-400 font-bold' : 'text-zinc-500'}`}>
-                  {hourIdx.toString().padStart(2, '0')}:00
-                </div>
-                {DAYS.map((_, dayIdx) => {
-                  const cell = heatmap.find(c => c.day === dayIdx && c.hour === hourIdx);
-                  const val = cell?.value || 0;
-                  const isToday = dayIdx === currentDay;
-                  const isCurrentHour = hourIdx === currentHour;
-                  const bgColor = getHeatColor(val);
-
-                  return (
-                    <motion.div
-                      key={dayIdx}
-                      className="flex-1 h-6 mx-px rounded-md cursor-pointer relative min-w-[28px]"
-                      style={{
-                        backgroundColor: bgColor,
-                        boxShadow: val > 70 ? '0 0 12px rgba(16, 185, 129, 0.5)' : 'inset 0 0 2px rgba(255,255,255,0.08)'
-                      }}
-                      onMouseEnter={() => {
-                        setHoveredCell({ day: dayIdx, hour: hourIdx, value: val });
-                      }}
-                      onMouseLeave={() => setHoveredCell(null)}
-                      whileHover={{ scale: 1.08, zIndex: 20 }}
-                      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                    >
-                      {isCurrentHour && isToday && (
-                        <div className="absolute inset-0 rounded-md ring-2 ring-emerald-400 ring-offset-2 ring-offset-zinc-950" />
-                      )}
-                    </motion.div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Legend Bar */}
-        <div className="flex flex-col gap-3 mt-5">
-          {/* Color scale legend (values in seconds) */}
-          <div className="flex items-center justify-center gap-4 text-sm text-zinc-400">
-            <span>Less</span>
-            <div className="flex items-center gap-1.5">
-              {[0, 300, 900, 1800, 2700, 3600].map((v, i) => (
-                <div
-                  key={i}
-                  className="w-7 h-4 rounded relative"
-                  style={{ backgroundColor: getHeatColor(v), border: '1px solid #27272a' }}
-                  title={`${v}s (${Math.floor(v / 60)}m)`}
-                />
-              ))}
-            </div>
-            <span>More</span>
-          </div>
-          <div className="flex justify-center gap-1 text-xs text-zinc-600 -mt-1">
-            <span className="w-7 text-center">0</span>
-            <span className="w-7 text-center">5m</span>
-            <span className="w-7 text-center">15m</span>
-            <span className="w-7 text-center">30m</span>
-            <span className="w-7 text-center">45m</span>
-            <span className="w-7 text-center">1h</span>
-          </div>
-          {/* Explanation of what the values mean */}
-          <div className="text-center text-xs text-zinc-500">
-            Each cell shows <span className="text-zinc-300 font-medium">seconds of activity</span> during that hour on that day.
-            <br />
-            A value of <span className="text-emerald-400">1800</span> means you were active for <span className="text-emerald-400">30 minutes</span> (50% of that hour).
-            <span className="text-zinc-600 ml-2">Max per cell = 3600s (1 full hour).</span>
-          </div>
-        </div>
-
-        {/* Hover Tooltip - positioned dynamically based on hovered cell */}
-        <AnimatePresence>
-          {hoveredCell && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              className="absolute glass px-4 py-2.5 rounded-xl border border-zinc-700 shadow-xl z-50 pointer-events-none"
-              style={{
-                minWidth: '200px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                // Position tooltip just above the hovered row
-                top: `${(hoveredCell.hour * 26) + 50}px`
-              }}
-            >
-              <div className="font-semibold text-white text-xs mb-1.5">
-                {DAYS[hoveredCell.day]} at {hoveredCell.hour.toString().padStart(2, '0')}:00 – {(hoveredCell.hour + 1).toString().padStart(2, '0')}:00
-              </div>
-
-              {/* Seconds of activity */}
-              <div className="flex items-baseline justify-between">
-                <span className="text-zinc-400 text-xs">Active:</span>
-                <span className="font-mono text-lg text-emerald-400 tabular-nums">
-                  {formatDuration(Math.floor(hoveredCell.value))}
-                </span>
-              </div>
-
-              {/* Percentage of the hour */}
-              <div className="flex items-baseline justify-between mt-0.5">
-                <span className="text-zinc-400 text-xs">Hour usage:</span>
-                <span className="font-mono text-sm text-zinc-300 tabular-nums">
-                  {Math.min(Math.floor((Math.floor(hoveredCell.value) / 3600) * 100), 100)}<span className="text-xs text-zinc-500 ml-0.5">%</span>
-                </span>
-              </div>
-
-              {/* Activity level label */}
-              <div className="text-xs text-zinc-500 mt-1.5 pt-1.5 border-t border-zinc-700/50">
-                {hoveredCell.value === 0
-                  ? '⚪ No activity recorded'
-                  : hoveredCell.value < 300
-                    ? 'Light Light usage'
-                    : hoveredCell.value < 900
-                      ? 'Medium Moderate usage'
-                      : hoveredCell.value < 2700
-                        ? 'Heavy Heavy usage'
-                        : 'Hot Full hour'}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
-  };
+  const sidebarItems = [
+    { icon: Home, label: 'Dashboard', path: '/' },
+    { icon: Target, label: 'Productivity', path: '/productivity' },
+    { icon: PieChart, label: 'Applications', path: '/stats' },
+    { icon: Globe, label: 'Browser Activity', path: '/browser' },
+    { icon: Code2, label: 'IDE Projects', path: '/ide' },
+    { icon: Clock4, label: 'External', path: '/external' },
+    { icon: BarChart3, label: 'Insights', path: '/reports' },
+    { icon: Database, label: 'Database', path: '/database' },
+    { icon: Settings, label: 'Settings', path: '/settings' },
+    { icon: HelpCircle, label: 'Tutorial', path: '/tutorial' },
+  ];
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white">
@@ -2167,20 +2138,20 @@ Trend: +14% vs. yesterday. Keep it up!`;
           </div>
         </div>
 
-        <div className="flex-1 px-3 py-6 space-y-1">
-          {sidebarItems.map((item, idx) => {
+        <div className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+          {sidebarItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <motion.button
-                key={idx}
+                key={item.path}
                 onClick={() => handleSidebarNavigation(item.path)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition-all ${isActive
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-all ${isActive
                   ? 'bg-zinc-800 text-white shadow-lg'
                   : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
                   }`}
                 whileHover={{ x: 4 }}
               >
-                <item.icon className="w-4 h-4" />
+                <item.icon className="w-4 h-4 shrink-0" />
                 {item.label}
               </motion.button>
             );
@@ -2197,6 +2168,54 @@ Trend: +14% vs. yesterday. Keep it up!`;
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar */}
+        {location.pathname === '/terminal' ? (
+          <div className="flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-800">
+              <div className="flex items-center gap-1">
+              <button
+                onClick={() => navigate('/ide')}
+                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+                title="Back to IDE projects"
+              >
+                <Minus className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('close-workspace'))}
+                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+                title="Close workspace"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-3">
+                <Terminal className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h2 className="text-white font-semibold">{terminalProjectInfo.name || 'Terminal'}</h2>
+                  {terminalProjectInfo.path && (
+                    <p className="text-xs text-zinc-500 font-mono">{terminalProjectInfo.path}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('trigger-provision'))}
+                disabled={provisionStatus === 'provisioning'}
+                className="px-2 py-1 bg-green-700 hover:bg-green-600 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                title={provisionStatus === 'provisioned' ? 'Re-setup agent directory structure' : 'Setup agent directory structure'}
+              >
+                <FolderTree className="w-3 h-3" />
+                {provisionStatus === 'provisioned' ? 'Re-setup' : 'Setup'}
+              </button>
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('open-new-agent'))}
+                className="px-2 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200"
+                title="Start a new AI agent session"
+              >
+                <Bot className="w-3 h-3" />
+                Initialize
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 glass">
           <div className="flex items-center gap-4">
             <div className="text-lg font-semibold tracking-tight">
@@ -2239,15 +2258,101 @@ Trend: +14% vs. yesterday. Keep it up!`;
             </div>
 
             <div className="flex bg-zinc-900 rounded-full p-1 text-xs">
-              {(['today', 'week', 'month', 'all'] as const).map((p, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setSelectedPeriod(p)}
-                  className={`px-4 py-1.5 rounded-full transition ${selectedPeriod === p ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-                >
-                  {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : p === 'month' ? 'Month' : 'All Time'}
-                </button>
-              ))}
+              {/* Today */}
+              <button
+                onClick={() => { setExpandedPeriod(null); setSelectedPeriod('today'); }}
+                className={`px-3 py-1.5 rounded-full transition ${selectedPeriod === 'today' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+              >
+                Today
+              </button>
+
+              {/* Week / 7 Day */}
+              <div className="relative flex">
+                {expandedPeriod === 'week' ? (
+                  <>
+                    <button
+                      onClick={() => { setExpandedPeriod(null); setSelectedPeriod('week'); }}
+                      className={`px-3 py-1.5 rounded-full transition ${selectedPeriod === 'week' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+                    >
+                      Week
+                    </button>
+                    <button
+                      onClick={() => { setExpandedPeriod(null); setSelectedPeriod('7day'); }}
+                      className={`px-3 py-1.5 rounded-full transition ${selectedPeriod === '7day' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+                    >
+                      7 Day
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setExpandedPeriod('week')}
+                    className={`px-3 py-1.5 rounded-full transition ${selectedPeriod === 'week' || selectedPeriod === '7day' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  >
+                    {selectedPeriod === '7day' ? '7 Day' : 'Week'}
+                  </button>
+                )}
+              </div>
+
+              {/* Month / 30 Day */}
+              <div className="relative flex">
+                {expandedPeriod === 'month' ? (
+                  <>
+                    <button
+                      onClick={() => { setExpandedPeriod(null); setSelectedPeriod('month'); }}
+                      className={`px-3 py-1.5 rounded-full transition ${selectedPeriod === 'month' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+                    >
+                      Month
+                    </button>
+                    <button
+                      onClick={() => { setExpandedPeriod(null); setSelectedPeriod('30day'); }}
+                      className={`px-3 py-1.5 rounded-full transition ${selectedPeriod === '30day' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+                    >
+                      30d
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setExpandedPeriod('month')}
+                    className={`px-3 py-1.5 rounded-full transition ${selectedPeriod === 'month' || selectedPeriod === '30day' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  >
+                    {selectedPeriod === '30day' ? '30d' : 'Month'}
+                  </button>
+                )}
+              </div>
+
+              {/* All Time */}
+              <button
+                onClick={() => { setExpandedPeriod(null); setSelectedPeriod('all'); }}
+                className={`px-3 py-1.5 rounded-full transition ${selectedPeriod === 'all' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+              >
+                All Time
+              </button>
+            </div>
+
+            {/* Timeline navigation */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setDateOffset(o => o + 1)}
+                className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
+                title="Previous period"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs text-zinc-400 min-w-[80px] text-center select-none font-medium">
+                {getDateRange(selectedPeriod, dateOffset).label}
+              </span>
+              <button
+                onClick={() => setDateOffset(o => Math.max(0, o - 1))}
+                disabled={dateOffset === 0}
+                className={`p-1.5 rounded-lg transition ${
+                  dateOffset === 0
+                    ? 'bg-zinc-800/20 text-zinc-600 cursor-not-allowed'
+                    : 'bg-zinc-800/50 hover:bg-zinc-700 text-zinc-400 hover:text-white'
+                }`}
+                title="Next period"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
 
             <div className="flex items-center gap-3">
@@ -2274,12 +2379,12 @@ Trend: +14% vs. yesterday. Keep it up!`;
               {isTracking ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
               {isTracking ? 'Pause Tracking' : 'Resume Tracking'}
             </motion.button>
-
           </div>
         </div>
+        )}
 
         {/* Main Scroll Area */}
-        <div className="flex-1 overflow-auto p-8">
+        <div className={`flex-1 min-h-0 ${location.pathname === '/terminal' ? 'flex flex-col overflow-hidden' : 'overflow-auto p-8'}`}>
           <AnimatePresence mode="sync">
             <Routes location={location} key={location.pathname}>
               {/* Dashboard */}
@@ -2291,7 +2396,9 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   appColors={appColors} 
                   categoryOverrides={categoryOverrides} 
                   timerBehavior={timerBehavior} 
-                  selectedPeriod={selectedPeriod} 
+                  selectedPeriod={selectedPeriod}
+                  dateOffset={dateOffset}
+                  onDateOffsetChange={setDateOffset}
                   trackingBrowser={trackingBrowser} 
                   trackerAppMode={trackerAppMode} 
                   tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} 
@@ -2304,23 +2411,31 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 />
               } />
               {/* Stats Page */}
-              <Route path="/stats" element={<StatsPage key={selectedPeriod} logs={allLogs} appStats={appStats} selectedPeriod={selectedPeriod} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
+              <Route path="/stats" element={<StatsPage key={selectedPeriod} logs={allLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
               {/* Productivity Page */}
-              <Route path="/productivity" element={<ProductivityPage logs={logs} browserLogs={browserLogs} appStats={appStats} selectedPeriod={selectedPeriod} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} domainKeywordRules={domainKeywordRules} timeMode={timeMode} />} />
+              <Route path="/productivity" element={<ProductivityPage logs={allLogs} browserLogs={browserLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} domainKeywordRules={domainKeywordRules} timeMode={timeMode} />} />
               {/* Browser Page */}
-              <Route path="/browser" element={<BrowserActivityPage selectedPeriod={selectedPeriod} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
+              <Route path="/browser" element={<BrowserActivityPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
               {/* IDE Page */}
               <Route path="/ide" element={<IDEProjectsPage />} />
 
-              <Route path="/external" element={<ExternalPage selectedPeriod={selectedPeriod} />} />
+              <Route path="/external" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
               {/* Legacy routes */}
-              <Route path="/old-dashboard" element={<ExternalPage selectedPeriod={selectedPeriod} />} />
+              <Route path="/old-dashboard" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
+
+              <Route path="/tutorial" element={<TutorialPage />} />
 
               <Route path="/ide-help" element={<IDEHelpPage />} />
 
               <Route path="/terminal" element={<TerminalPage />} />
               {/* Reports/Insights Page */}
-              <Route path="/reports" element={<InsightsPage />} />
+              <Route path="/reports" element={<InsightsPage
+                logs={allLogs}
+                browserLogs={browserLogs}
+                appStats={appStats}
+                selectedPeriod={selectedPeriod}
+                tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS}
+              />} />
               {/* Database Page */}
               <Route path="/database" element={<DatabasePage />} />
               {/* Pricing Page */}
@@ -2402,34 +2517,70 @@ Trend: +14% vs. yesterday. Keep it up!`;
                     <div className="text-5xl mb-3">😴</div>
                     <h2 className="text-xl font-semibold text-zinc-100">Were you sleeping?</h2>
                     <p className="text-zinc-400 mt-2">
-                      App was inactive for <span className="text-zinc-200 font-medium">{sleepDetectionData.gapMinutes} minutes</span>
+                      App was inactive for <span className="text-zinc-200 font-medium">{customDurationMinutes()} minutes</span>
                     </p>
                   </div>
 
-                  <div className="bg-zinc-800/50 rounded-xl p-4 mb-5 space-y-3">
+                  <div className="bg-zinc-800/50 rounded-xl p-4 mb-5 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-zinc-400">From</span>
+                      <span className="text-sm text-zinc-400">Device Off</span>
                       <span className="text-sm font-medium text-zinc-200">
-                        {formatDisplayTime(sleepDetectionData.suggestedBedtime)}
+                        {formatTimeFromHours(sleepDetectCustomBedtime.hours, sleepDetectCustomBedtime.minutes)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-amber-400/80">
+                      <span className="text-sm">Fell asleep at</span>
+                      <span className="text-sm font-medium">
+                        {formatTimeFromHours(sleepDetectFellAsleepAt.hours, sleepDetectFellAsleepAt.minutes)}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-amber-500/60 pl-2">
+                      {(() => {
+                        const off = sleepDetectCustomBedtime.hours * 60 + sleepDetectCustomBedtime.minutes;
+                        const asleep = sleepDetectFellAsleepAt.hours * 60 + sleepDetectFellAsleepAt.minutes;
+                        let pre = asleep - off;
+                        if (pre < 0) pre += 24 * 60;
+                        return `+${pre}m pre-sleep`;
+                      })()}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-zinc-400">Woke Up</span>
+                      <span className="text-sm font-medium text-zinc-200">
+                        {formatTimeFromHours(sleepDetectWakeUpAt.hours, sleepDetectWakeUpAt.minutes)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-zinc-400">To</span>
+                      <span className="text-sm text-zinc-400">Device On</span>
                       <span className="text-sm font-medium text-zinc-200">
-                        {formatDisplayTime(sleepDetectionData.suggestedWakeTime)}
+                        {formatTimeFromHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes)}
                       </span>
                     </div>
-                    <div className="border-t border-zinc-700/50 pt-2 flex items-center justify-between">
-                      <span className="text-sm text-zinc-400">Duration</span>
-                      <span className="text-sm font-semibold text-emerald-400">
-                        {Math.floor(sleepDetectionData.gapMinutes / 60)}h {sleepDetectionData.gapMinutes % 60}m
-                      </span>
+                    <div className="border-t border-zinc-700/50 pt-2 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-zinc-400">Actual Sleep</span>
+                        <span className="text-sm font-semibold text-indigo-400">
+                          {(() => {
+                            const asleep = sleepDetectFellAsleepAt.hours * 60 + sleepDetectFellAsleepAt.minutes;
+                            const wake = sleepDetectWakeUpAt.hours * 60 + sleepDetectWakeUpAt.minutes;
+                            let s = asleep, w = wake;
+                            if (w < s) s -= 24 * 60;
+                            const dur = Math.max(0, w - s);
+                            return `${Math.floor(dur / 60)}h ${dur % 60}m`;
+                          })()}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-emerald-400">
+                        <span className="text-sm">Total inactive</span>
+                        <span className="text-sm font-semibold">
+                          {Math.floor(customDurationMinutes() / 60)}h {customDurationMinutes() % 60}m
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="grid grid-cols-2 gap-3 mb-5">
                     <div>
-                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Bedtime</label>
+                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Device Off (auto)</label>
                       <DurationPicker
                         hours={sleepDetectCustomBedtime.hours}
                         minutes={sleepDetectCustomBedtime.minutes}
@@ -2438,10 +2589,37 @@ Trend: +14% vs. yesterday. Keep it up!`;
                         maxHours={23}
                         hourLabel="Hr"
                         minuteLabel="Min"
+                        wrap={true}
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Wake time</label>
+                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Fell asleep at</label>
+                      <DurationPicker
+                        hours={sleepDetectFellAsleepAt.hours}
+                        minutes={sleepDetectFellAsleepAt.minutes}
+                        onHoursChange={(h) => setSleepDetectFellAsleepAt({ ...sleepDetectFellAsleepAt, hours: h })}
+                        onMinutesChange={(m) => setSleepDetectFellAsleepAt({ ...sleepDetectFellAsleepAt, minutes: m })}
+                        maxHours={23}
+                        hourLabel="Hr"
+                        minuteLabel="Min"
+                        wrap={true}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Woke up at</label>
+                      <DurationPicker
+                        hours={sleepDetectWakeUpAt.hours}
+                        minutes={sleepDetectWakeUpAt.minutes}
+                        onHoursChange={(h) => setSleepDetectWakeUpAt({ ...sleepDetectWakeUpAt, hours: h })}
+                        onMinutesChange={(m) => setSleepDetectWakeUpAt({ ...sleepDetectWakeUpAt, minutes: m })}
+                        maxHours={23}
+                        hourLabel="Hr"
+                        minuteLabel="Min"
+                        wrap={true}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Device On (auto)</label>
                       <DurationPicker
                         hours={sleepDetectCustomWaketime.hours}
                         minutes={sleepDetectCustomWaketime.minutes}
@@ -2450,23 +2628,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                         maxHours={23}
                         hourLabel="Hr"
                         minuteLabel="Min"
+                        wrap={true}
                       />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 mb-5">
-                    <LatencyPicker
-                      totalMinutes={sleepLatencyMinutes}
-                      onChange={setSleepLatencyMinutes}
-                      label="Fell asleep after"
-                      maxHours={4}
-                    />
-                    <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
-                      <span className="block text-xs text-zinc-500 mb-1">Woke up before app</span>
-                      <span className="text-base font-mono text-zinc-100">
-                        {String(Math.floor(wakeLatencyMinutes / 60)).padStart(2, '0')}h{' '}
-                        {String(wakeLatencyMinutes % 60).padStart(2, '0')}m
-                      </span>
                     </div>
                   </div>
 
@@ -2694,6 +2857,18 @@ Trend: +14% vs. yesterday. Keep it up!`;
               </div>
             )}
           </AnimatePresence>
+
+          {/* ── AFK Activity Prompt ── */}
+          {afkPrompt.open && (
+            <AfkPromptModal
+              suggestedActivity={afkPrompt.suggested}
+              allActivities={externalActivities}
+              duration={afkPrompt.duration}
+              startedAt={afkPrompt.startedAt}
+              onConfirm={handleAfkConfirm}
+              onDismiss={handleAfkDismiss}
+            />
+          )}
         </div>
       </div>
     </div>

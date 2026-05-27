@@ -1,0 +1,247 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e7]
+      - generic [ref=e9]:
+        - generic [ref=e10]: DeskFlow
+        - generic [ref=e11]: AI TRACKER
+    - generic [ref=e12]:
+      - button "Dashboard" [ref=e13]:
+        - img [ref=e14]
+        - text: Dashboard
+      - button "Productivity" [ref=e17]:
+        - img [ref=e18]
+        - text: Productivity
+      - button "Applications" [ref=e22]:
+        - img [ref=e23]
+        - text: Applications
+      - button "Browser Activity" [ref=e26]:
+        - img [ref=e27]
+        - text: Browser Activity
+      - button "IDE Projects" [ref=e30]:
+        - img [ref=e31]
+        - text: IDE Projects
+      - button "External" [ref=e35]:
+        - img [ref=e36]
+        - text: External
+      - button "Insights" [ref=e39]:
+        - img [ref=e40]
+        - text: Insights
+      - button "Database" [ref=e42]:
+        - img [ref=e43]
+        - text: Database
+      - button "Settings" [ref=e47]:
+        - img [ref=e48]
+        - text: Settings
+    - generic [ref=e52]:
+      - text: Local SQLite • Zero Cloud •
+      - text: Privacy-First
+  - generic [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - generic [ref=e56]: Dashboard
+        - generic [ref=e57]: LIVE
+      - generic [ref=e59]:
+        - generic [ref=e60]:
+          - button "Focus" [ref=e61]:
+            - img [ref=e62]
+            - text: Focus
+          - button "Total" [ref=e64]:
+            - img [ref=e65]
+            - text: Total
+        - 'generic "Apps: 5m 43s | Websites: 0s" [ref=e68]':
+          - img [ref=e69]
+          - text: 0s
+        - generic [ref=e72]:
+          - button "Today" [ref=e73]
+          - button "This Week" [ref=e74]
+          - button "Month" [ref=e75]
+          - button "All Time" [ref=e76]
+        - generic [ref=e78]:
+          - img [ref=e79]
+          - text: 07:20
+        - button "Pause Tracking" [ref=e82]:
+          - img [ref=e83]
+          - text: Pause Tracking
+    - generic [ref=e89]:
+      - generic [ref=e91]:
+        - generic [ref=e92]:
+          - img [ref=e93]
+          - heading "Lock-In" [level=1] [ref=e99]
+        - generic [ref=e100]: Fri, May 15
+      - generic [ref=e103]:
+        - generic [ref=e106]: ⏸ Idle
+        - generic [ref=e107]: 00:00:00
+        - generic [ref=e108]: No productive activity detected. Open an IDE, editor, or learning tool to start.
+      - generic [ref=e109]:
+        - generic [ref=e110]:
+          - generic [ref=e111]: Productive
+          - generic [ref=e112]: 5m
+        - generic [ref=e113]:
+          - generic [ref=e114]: Total
+          - generic [ref=e115]: 6m
+        - generic [ref=e116]:
+          - generic [ref=e117]: "% Productive"
+          - generic [ref=e118]: 81%
+        - generic [ref=e119]:
+          - generic [ref=e120]: Longest Focus
+          - generic [ref=e121]: 3m
+        - generic [ref=e122]:
+          - generic [ref=e123]: Resets Today
+          - generic [ref=e124]: "0"
+        - generic [ref=e125]:
+          - generic [ref=e126]: Productive
+          - generic [ref=e127]: 00:00:00
+      - generic [ref=e129]:
+        - generic [ref=e130]:
+          - button "Pinned Activities Quick manual tracking" [ref=e131]:
+            - img [ref=e132]
+            - generic [ref=e134]:
+              - heading "Pinned Activities" [level=2] [ref=e135]
+              - paragraph [ref=e136]: Quick manual tracking
+          - button [ref=e137]:
+            - img [ref=e138]
+        - generic [ref=e140]:
+          - button "Study" [ref=e142]:
+            - img [ref=e143]
+            - generic [ref=e145]: Study
+          - button "Exercise" [ref=e147]:
+            - img [ref=e148]
+            - generic [ref=e154]: Exercise
+          - button "Gym" [ref=e156]:
+            - img [ref=e157]
+            - generic [ref=e159]: Gym
+          - button "Reading" [ref=e161]:
+            - img [ref=e162]
+            - generic [ref=e164]: Reading
+          - button "Sleep" [ref=e166]:
+            - img [ref=e167]
+            - generic [ref=e169]: Sleep
+      - generic [ref=e170]:
+        - generic [ref=e172]:
+          - generic [ref=e173]:
+            - generic [ref=e174]:
+              - heading "Weekly Productivity" [level=2] [ref=e175]
+              - paragraph [ref=e176]: App + External Activity
+            - button "View Heatmap" [ref=e177]
+            - generic [ref=e178]:
+              - button "Previous period" [ref=e179]:
+                - img [ref=e180]
+              - button "Today" [ref=e182]
+              - button "Next period" [disabled] [ref=e183]:
+                - img [ref=e184]
+              - generic [ref=e186]:
+                - generic [ref=e187]: This Week
+                - generic [ref=e188]: "--"
+          - generic [ref=e189]:
+            - generic [ref=e190]:
+              - generic [ref=e191]: 1h
+              - generic [ref=e192]: 0.8h
+              - generic [ref=e193]: 0.5h
+              - generic [ref=e194]: 0.3h
+              - generic [ref=e195]: "0"
+            - generic [ref=e197]:
+              - generic [ref=e198]:
+                - generic:
+                  - generic: Sun
+                - generic [ref=e200]: Sun
+              - generic [ref=e201]:
+                - generic:
+                  - generic: Mon
+                - generic [ref=e203]: Mon
+              - generic [ref=e204]:
+                - generic:
+                  - generic: Tue
+                - generic [ref=e206]: Tue
+              - generic [ref=e207]:
+                - generic:
+                  - generic: Wed
+                - generic [ref=e209]: Wed
+              - generic [ref=e210]:
+                - generic:
+                  - generic: Thu
+                - generic [ref=e212]: Thu
+              - generic [ref=e213]:
+                - generic:
+                  - generic: Fri
+                - generic [ref=e215]: Fri
+              - generic [ref=e216]:
+                - generic:
+                  - generic: Sat
+                - generic [ref=e218]: Sat
+          - generic [ref=e219]:
+            - generic [ref=e222]: App/Device
+            - generic [ref=e225]: External
+        - generic [ref=e227]:
+          - generic [ref=e228]:
+            - generic [ref=e229]:
+              - heading "App Ecosystem" [level=2] [ref=e230]
+              - paragraph [ref=e231]: Your top tools in orbit
+            - generic [ref=e232]:
+              - button "Apps" [ref=e233]
+              - button "Websites" [ref=e234]
+              - generic [ref=e235]: This Week
+          - generic [ref=e236]:
+            - img [ref=e238]
+            - 'generic "VS Code: 0h"':
+              - generic:
+                - generic: VS Code
+                - generic: 0h
+            - 'generic "PyCharm: 0h"':
+              - generic:
+                - generic: PyCharm
+                - generic: 0h
+            - 'generic "Claude: 0h"':
+              - generic:
+                - generic: Claude
+                - generic: 0h
+            - 'generic "Chrome: 0h"':
+              - generic:
+                - generic: Chrome
+                - generic: 0h
+            - 'generic "YouTube: 0h"':
+              - generic:
+                - generic: YouTube
+                - generic: 0h
+          - button "View Solar System" [ref=e244]
+      - generic [ref=e245]:
+        - generic [ref=e246]:
+          - img [ref=e247]
+          - heading "Recent Sessions" [level=2] [ref=e250]
+        - generic [ref=e251]:
+          - generic [ref=e253]:
+            - generic [ref=e254]:
+              - generic [ref=e255]: VS Code
+              - generic [ref=e256]: IDE
+              - generic [ref=e257]: PRODUCTIVE
+            - generic [ref=e258]: 12:58:28 PM • App
+          - generic [ref=e260]:
+            - generic [ref=e261]:
+              - generic [ref=e262]: Claude
+              - generic [ref=e263]: AI Tools
+              - generic [ref=e264]: PRODUCTIVE
+            - generic [ref=e265]: 1:58:28 PM • App
+          - generic [ref=e267]:
+            - generic [ref=e268]:
+              - generic [ref=e269]: Chrome
+              - generic [ref=e270]: Browser
+              - generic [ref=e271]: NEUTRAL
+            - generic [ref=e272]: 2:58:28 PM • App
+          - generic [ref=e274]:
+            - generic [ref=e275]:
+              - generic [ref=e276]: PyCharm
+              - generic [ref=e277]: IDE
+              - generic [ref=e278]: PRODUCTIVE
+            - generic [ref=e279]: 3:28:28 PM • App
+          - generic [ref=e281]:
+            - generic [ref=e282]:
+              - generic [ref=e283]: YouTube
+              - generic [ref=e284]: Entertainment
+              - generic [ref=e285]: DISTRACTING
+            - generic [ref=e286]: 4:18:28 PM • App
+          - generic [ref=e288]:
+            - generic [ref=e289]:
+              - generic [ref=e290]: Slack
+              - generic [ref=e291]: Communication
+              - generic [ref=e292]: NEUTRAL
+            - generic [ref=e293]: 4:38:28 PM • App

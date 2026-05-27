@@ -22,27 +22,46 @@
   - Resets/pauses based on timerBehavior settings when switching to distracting apps
   - Continues tracking when in browser (uses website category, not app category)
 
-### Tracking Modes
+### Tracking - Provision vs New Agent
+- **Provision** (formerly "Setup"): One-click infrastructure setup. Creates AGENTS.md, INITIALIZE.md, PROBLEMS.md, REQUESTS.md, state.md on disk. Green button, FolderTree icon. Does NOT create a terminal session.
+- **New Agent** (formerly "Initialize"): Dialog-based agent session creation. Opens NewSessionDialog with session name, agent dropdown, terminal selector, system prompt. Amber button, Bot icon. Has collapsible "Advanced Configuration" section for context system toggles.
+- **Start Agent**: Submit button in New Agent dialog. Creates terminal session with init content + system prompt.
 
-| Mode | When Active | Shows in Timer | Shows in Recent Sessions |
-|-----|-------------|--------------|-------------------------|
-| **App** | Any non-browser app | App name, category | App name with live stopwatch |
-| **Browser** | Tracking browser window | Website title, category | Website domain with live stopwatch |
-| **Electron** | DeskFlow/Electron window | Previous app (hides Electron) | Previous app |
+### Advanced Configuration
+- **Location:** New Agent dialog, collapsed by default
+- **What it contains:** Context System toggles (LLM Wiki, Obsidian Skills, Graphify, PARA, QMD, Automations), Behavior toggles (Auto-summarize, Deep memory, agents.md), Agent Files selection, Preview Init Content
+- **Trigger:** Click ChevronDown toggle inside New Agent dialog
 
-### Categories / Tiers
+### Context Delta Messages
+- **What they are:** Real-time notifications written to active terminal when context changes (problems/requests/checklists created or updated)
+- **Format:** `[Context] New problem: Bug X (ID: 123)` or `[Context] Updated problem: Bug X → Fixed`
+- **IPC:** `onContextChanged` → `context-changed` event from main process
+- **Delivery:** `terminalWriteRaw` with `\r` for reliable agent parsing
 
-| Tier | Default Apps | Timer Behavior |
-|------|-------------|----------------|
-| **Productive** | IDE, AI Tools, Education, Productivity | Timer counts up |
-| **Neutral** | Communication, Design, Browser | Timer continues (configurable) |
-| **Distracting** | Entertainment, Social Media | Timer resets/stops (configurable) |
+### Bidirectional Problem↔Request Linking
+- **Linked Problems:** RequestDetailModal shows which problems are linked to a request (dropdown to add, chips to view)
+- **Related Requests:** ProblemDetailModal shows which requests are linked to a problem (dropdown to add, chips with × to unlink)
+- **IPC:** `linkProblemToRequest` / `unlinkProblemFromRequest`
+- **DB Storage:** `linked_problems` array on Request records
 
-### timerBehavior Settings
-- **Location:** Settings → Behavior section
-- **Options per tier:** `pause`, `reset`, `ignore`
-- **neutralAction:** What happens when switching FROM productive TO neutral
-- **distractingAction:** What happens when switching FROM productive TO distracting
+### BasicMarkdownViewer
+- **File:** `src/components/BasicMarkdownViewer.tsx`
+- **What it does:** Lightweight markdown renderer for file previews. Handles headers, bold, italic, inline code, fenced code blocks, ordered/unordered lists, checkboxes, blockquotes, links.
+- **No external dependencies** — pure React + Tailwind
+
+### Agent Defaults
+- **Utility:** `getDefaultAgent()` / `setDefaultAgent()` in `src/lib/defaults.ts`
+- **Storage:** `localStorage` key `'terminal-defaultAgent'`
+- **Default value:** `'claude'`
+- **Replaces:** 9 previously-inline `localStorage.getItem('terminal-defaultAgent')` calls
+
+### Terminal Workspace
+
+- **Location:** Terminal page (`/terminal`)
+- **What it is:** The entire terminal UI including sidebar + terminal layout (split panes, tabs)
+- **Minimize:** Hides the terminal layout and sidebar but keeps PTY processes alive in the background. Clicking "Restore" shows everything again.
+- **Close Workspace:** Kills all terminal processes and clears the workspace state. Always prompts to save first (Save & Close / Discard / Cancel). The save feature saves all active terminal sessions.
+- **Saved Workspace Config:** A named snapshot of the terminal layout (which terminals are open, their split ratios) that can be restored later via the Configs tab in the sidebar.
 
 ### IPC Endpoints
 
@@ -53,6 +72,11 @@
 | `onForegroundChange` | Event: active window changed |
 | `onBrowserTrackingEvent` | Event: browser tab changed (from extension) |
 | `addLog` | Saves app/website session to database |
+| `context-changed` | Event: context changed (problems/requests/checklists created/updated) |
+| `link-problem-to-request` | Links a problem to a request |
+| `unlink-problem-from-request` | Removes a problem-request link |
+| `trackerMindSetup` | Provision flow: creates AGENTS.md, INITIALIZE.md, etc. |
+| `terminal:write-raw` | Writes raw data to terminal PTY (used for context deltas) |
 
 ### File References
 
@@ -60,8 +84,13 @@
 |------|---------|
 | `src/pages/DashboardPage.tsx` | Main UI: timer, recent sessions, heatmap |
 | `src/pages/SettingsPage.tsx` | Settings UI: timerBehavior, browserWithExtension |
+| `src/pages/TerminalPage.tsx` | Terminal workspace: context delta listener, bidirectional linking, agent defaults |
 | `src/App.tsx` | Main app shell, loads preferences, passes to Dashboard |
 | `src/main.ts` | Electron main process, database, IPC handlers |
+| `src/components/NewSessionDialog.tsx` | New Agent dialog with Advanced Configuration toggle |
+| `src/components/BasicMarkdownViewer.tsx` | Markdown renderer for file previews |
+| `src/components/InstructionPanel.tsx` | Compose instruction panel with prompt preview |
+| `src/lib/defaults.ts` | `getDefaultAgent()`/`setDefaultAgent()` + `DEFAULT_SYSTEM_PROMPT` |
 
 ### Key State Variables
 
@@ -74,6 +103,9 @@
 | `activityFeed` | DashboardPage.tsx | Array of recent sessions with timestamps |
 | `timerBehavior` | App.tsx / DashboardPage.tsx | { neutralAction, distractingAction } |
 | `tierAssignments` | App.tsx / DashboardPage.tsx | { productive, neutral, distracting } arrays |
+| `activeTerminalId` | TerminalPage.tsx | Currently focused terminal ID (context deltas target this) |
+| `showAdvanced` | NewSessionDialog.tsx | Whether Advanced Configuration is expanded |
+| `allRequests` | TerminalPage.tsx (ProblemDetailModal) | All requests loaded for bidirectional linking |
 
 ### Flow: How Tracking Works
 

@@ -146,6 +146,41 @@ Present findings in structured format:
 Apply these changes? (Y/N/modify/1,2,3)
 ```
 
+### Step 5b: Ensure Reflection Logs Are Read (CRITICAL)
+
+If ANY reflection was logged (idiot trigger, significant mistake, or pattern violation), you MUST:
+
+1. **Add/Update AGENTS.md rule** to ensure future agents read the reflection logs:
+
+```markdown
+## ⚡ MANDATORY: Read All Reflection Logs Before ANY Task
+
+**BEFORE you do ANYTHING, read ALL files in `agent/skills/agent-reflect/logs/`**
+
+This is MANDATORY, not optional. These logs document every mistake you've made. If you don't read them, you will repeat the same mistakes and the user will call you an "idiot" again.
+
+### Why this exists
+- Each log file = one catastrophic mistake (triggered by "idiot")
+- Patterns = things you keep getting wrong despite rules existing
+- Reading them = you learn from past failures before repeating them
+
+### What to do
+1. Read ALL files in `agent/skills/agent-reflect/logs/` at start of session
+2. Note the patterns: "NEVER use git commands", "complex JSX fixes", etc.
+3. Double-check your actions against what went wrong before
+4. If you're about to do something that matches a logged mistake = STOP
+
+### Example consequence
+If a log says "Never use git checkout/restore/reset" and you use one anyway = you are ignoring your own documented failure. The reflections exist to prevent this.
+```
+
+2. **Add static note** in AGENTS.md if not already present:
+   - Search for existing "Read All Reflection Logs" section
+   - If not found, add it to the "⚡ Before Starting ANY Task" section
+   - This ensures ALL future sessions read reflections automatically
+
+**This is NOT optional.** Every time you log a reflection, you must update AGENTS.md to enforce reading those logs.
+
 ### Step 6: Apply with User Approval
 
 **On `Y` (approve):**

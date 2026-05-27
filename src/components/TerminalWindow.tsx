@@ -2,17 +2,29 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { getDefaultAgent } from '../lib/defaults';
 import '@xterm/xterm/css/xterm.css';
 
 declare global {
   interface Window {
     deskflowAPI?: {
       terminalWrite: (terminalId: string, data: string) => Promise<{ success: boolean }>;
+      terminalWriteRaw: (terminalId: string, data: string) => Promise<{ success: boolean }>;
       terminalResize: (terminalId: string, cols: number, rows: number) => Promise<{ success: boolean }>;
       terminalDestroy: (terminalId: string) => Promise<{ success: boolean }>;
       onTerminalData: (callback: (id: string, data: string) => void) => (() => void);
       onTerminalExit: (callback: (id: string, exitCode: number, signal: string) => void) => (() => void);
       onTerminalReady: (callback: (id: string) => void) => (() => void);
+      onAgentReady: (callback: (data: { terminalId: string }) => void) => (() => void);
+      onAgentTimeout: (callback: (data: { terminalId: string; agentType: string }) => void) => (() => void);
+      retryAgentInit: (terminalId: string, agentType: string) => Promise<{ success: boolean }>;
+      spawnTerminal: (terminalId: string, cwd?: string, agentType?: string) => Promise<boolean>;
+      onAiTaskUpdated: (callback: (data: { terminalId: string; status: string; messageId?: string }) => void) => (() => void);
+      onAiTaskFileChanged: (callback: (data: { tasks: any[] }) => void) => (() => void);
+      getPromptStatus: (terminalId?: string) => Promise<{ success: boolean; data: any[] }>;
+      aiTaskWatch: (projectPath: string) => Promise<{ success: boolean }>;
+      aiTaskStopWatch: (projectPath: string) => Promise<{ success: boolean }>;
+      aiTaskAdd: (task: { terminalId: string; prompt: string; agent: string; sessionId?: string; projectPath?: string }) => Promise<{ success: boolean; task?: any }>;
     };
   }
 }
@@ -32,16 +44,20 @@ interface TerminalPaneProps {
   onSplit: (id: string, direction: 'horizontal' | 'vertical') => void;
   onClose: (id: string) => void;
   onFocus: (id: string) => void;
+  agentStatus?: 'spawning' | 'waiting' | 'ready' | 'timeout';
+  onRetryInit?: (terminalId: string) => void;
 }
 
 interface TerminalLayoutProps {
   layout: PaneNode | null;
   activeTerminalId: string | null;
-  spawnTerminal: (id: string, cwd?: string) => Promise<boolean>;
+  spawnTerminal: (id: string, cwd?: string, agentType?: string) => Promise<boolean>;
   onLayoutChange: (layout: PaneNode) => void;
   onActiveTerminalChange: (id: string) => void;
   onCloseTerminal: (id: string) => void;
   projectPath?: string;
+  agentStatuses?: Record<string, 'spawning' | 'waiting' | 'ready' | 'timeout'>;
+  onRetryInit?: (terminalId: string) => void;
 }
 
 const inputBuffers = new Map<string, string[]>();
@@ -74,7 +90,7 @@ function findFirstLeaf(node: PaneNode): PaneNode | null {
   return findFirstLeaf(node.children![0]) || findFirstLeaf(node.children![1]);
 }
 
-function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose, onFocus }: TerminalPaneProps) {
+function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose, onFocus, agentStatus, onRetryInit }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -126,7 +142,11 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
 
     terminal.write('\x1b[33mStarting shell...\x1b[0m\r\n');
 
-    setTimeout(() => onTerminalReady(terminalId), 100);
+    console.log('[DEBUG:TW] TerminalPane mounted, scheduling onTerminalReady in 100ms:', terminalId);
+    setTimeout(() => {
+      console.log('[DEBUG:TW] Calling onTerminalReady:', terminalId);
+      onTerminalReady(terminalId);
+    }, 100);
 
     return () => {
       terminal.dispose();
@@ -143,7 +163,7 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
     const disposable = terminal.onData((data) => {
       const isReady = terminalReadyStates.get(terminalId);
       if (isReady) {
-        window.deskflowAPI?.terminalWrite?.(terminalId, data);
+        window.deskflowAPI?.terminalWriteRaw?.(terminalId, data);
       } else {
         const buffer = inputBuffers.get(terminalId) || [];
         buffer.push(data);
@@ -175,7 +195,7 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
         terminalReadyStates.set(terminalId, true);
         const buffer = inputBuffers.get(terminalId) || [];
         buffer.forEach((bufferedData) => {
-          window.deskflowAPI?.terminalWrite?.(terminalId, bufferedData);
+          window.deskflowAPI?.terminalWriteRaw?.(terminalId, bufferedData);
         });
         inputBuffers.set(terminalId, []);
       }
@@ -201,24 +221,34 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
 
     const resizeObserver = new ResizeObserver(handleResize);
     if (containerRef.current) resizeObserver.observe(containerRef.current);
+    window.addEventListener('resize', handleResize);
 
-    return () => resizeObserver.disconnect();
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', handleResize);
+    };
   }, [terminalId]);
 
   useEffect(() => {
     if (isActive && terminalRef.current) {
       terminalRef.current.focus();
+      // Re-fit when becoming active (tab switch may have changed layout)
+      if (fitAddonRef.current) {
+        fitAddonRef.current.fit();
+      }
     }
   }, [isActive]);
 
   return (
     <div
       ref={containerRef}
-      className={`relative w-full h-full ${isActive ? 'ring-2 ring-green-500' : ''}`}
+      className="relative w-full h-full overflow-hidden"
+      style={{ outline: isActive ? '2px solid rgb(34 197 94)' : 'none', outlineOffset: '-2px' }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={() => onFocus(terminalId)}
     >
+      <style>{`.xterm-helper-textarea { display: none !important; }`}</style>
       {isHovered && (
         <div className="absolute top-2 right-2 flex gap-1 z-10">
           <button
@@ -242,6 +272,23 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Agent status indicator (non-blocking) */}
+      {agentStatus === 'waiting' && (
+        <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-zinc-900/90 backdrop-blur-sm rounded-full px-2.5 py-1 z-10 pointer-events-none">
+          <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          <span className="text-[10px] text-cyan-400 font-medium">Initializing agent...</span>
+        </div>
+      )}
+      {agentStatus === 'timeout' && (
+        <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-zinc-900/90 backdrop-blur-sm rounded-full px-2.5 py-1 z-10 cursor-pointer"
+             onClick={() => onRetryInit?.(terminalId)}>
+          <svg className="w-2.5 h-2.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-[10px] text-amber-400 font-medium">Agent failed. Click to retry.</span>
         </div>
       )}
     </div>
@@ -284,9 +331,10 @@ function SplitHandle({ direction, onDrag }: { direction: 'horizontal' | 'vertica
   );
 }
 
-function getLeafIds(node: PaneNode): string[] {
+export function getLeafIds(node: PaneNode): string[] {
   if (node.type === 'leaf') return node.terminalId ? [node.terminalId] : [];
-  return [...getLeafIds(node.children![0]), ...getLeafIds(node.children![1])];
+  if (!node.children || node.children.length < 2) return [];
+  return [...getLeafIds(node.children[0]), ...getLeafIds(node.children[1])];
 }
 
 function PaneRenderer({
@@ -298,6 +346,8 @@ function PaneRenderer({
   onFocus,
   onDragHandle,
   path,
+  agentStatuses,
+  onRetryInit,
 }: {
   node: PaneNode;
   activeTerminalId: string | null;
@@ -307,6 +357,8 @@ function PaneRenderer({
   onFocus: (id: string) => void;
   onDragHandle: (path: number[], delta: number) => void;
   path: number[];
+  agentStatuses?: Record<string, 'spawning' | 'waiting' | 'ready' | 'timeout'>;
+  onRetryInit?: (terminalId: string) => void;
 }) {
   if (node.type === 'leaf') {
     return (
@@ -317,6 +369,8 @@ function PaneRenderer({
         onSplit={onSplit}
         onClose={onClose}
         onFocus={onFocus}
+        agentStatus={agentStatuses?.[node.terminalId!]}
+        onRetryInit={onRetryInit}
       />
     );
   }
@@ -337,6 +391,8 @@ function PaneRenderer({
           onFocus={onFocus}
           onDragHandle={onDragHandle}
           path={[...path, 0]}
+          agentStatuses={agentStatuses}
+          onRetryInit={onRetryInit}
         />
       </div>
       <SplitHandle direction={dir} onDrag={(delta) => onDragHandle(path, delta)} />
@@ -350,6 +406,8 @@ function PaneRenderer({
           onFocus={onFocus}
           onDragHandle={onDragHandle}
           path={[...path, 1]}
+          agentStatuses={agentStatuses}
+          onRetryInit={onRetryInit}
         />
       </div>
     </div>
@@ -364,6 +422,8 @@ export function TerminalLayout({
   onActiveTerminalChange,
   onCloseTerminal,
   projectPath,
+  agentStatuses,
+  onRetryInit,
 }: TerminalLayoutProps) {
   const spawnedTerminalsRef = useRef(new Set<string>());
 
@@ -382,7 +442,9 @@ export function TerminalLayout({
     const newTerminalId = `term-${Date.now()}`;
     spawnedTerminalsRef.current.add(newTerminalId);
     onLayoutChange(splitPane(layout, terminalId, newTerminalId, direction));
-    spawnTerminal(newTerminalId, projectPath).then(() => {
+    
+    const agentType = getDefaultAgent();
+    spawnTerminal(newTerminalId, projectPath, agentType).then(() => {
       window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: newTerminalId } }));
     });
   }, [layout, spawnTerminal, onLayoutChange, projectPath]);
@@ -397,13 +459,19 @@ export function TerminalLayout({
   }, [layout, onLayoutChange]);
 
   const handleTerminalReady = useCallback(async (terminalId: string) => {
+    console.log('[DEBUG:TW] handleTerminalReady called:', terminalId, 'spawnedTerminalsRef.has:', spawnedTerminalsRef.current.has(terminalId));
     if (spawnedTerminalsRef.current.has(terminalId)) {
+      console.log('[DEBUG:TW] handleTerminalReady: already spawned, dispatching ready-custom');
       window.dispatchEvent(new CustomEvent('terminal:ready-custom', { detail: { id: terminalId } }));
       return;
     }
     spawnedTerminalsRef.current.add(terminalId);
-    await spawnTerminal(terminalId, projectPath);
+    const agentType = getDefaultAgent();
+    console.log('[DEBUG:TW] handleTerminalReady: spawning terminal...', terminalId, agentType);
+    const result = await spawnTerminal(terminalId, projectPath, agentType);
+    console.log('[DEBUG:TW] handleTerminalReady: spawnTerminal result:', terminalId, JSON.stringify(result));
     window.dispatchEvent(new CustomEvent('terminal:ready-custom', { detail: { id: terminalId } }));
+    console.log('[DEBUG:TW] handleTerminalReady: done for', terminalId);
   }, [spawnTerminal, projectPath]);
 
   if (!layout || getLeafIds(layout).length === 0) {
@@ -412,8 +480,9 @@ export function TerminalLayout({
         <button
           onClick={() => {
             const newId = `term-${Date.now()}`;
+            const agentType = getDefaultAgent();
             onLayoutChange({ type: 'leaf', terminalId: newId });
-            spawnTerminal(newId, projectPath).then(() => {
+            spawnTerminal(newId, projectPath, agentType).then(() => {
               window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: newId } }));
             });
           }}
@@ -436,6 +505,8 @@ export function TerminalLayout({
         onFocus={onActiveTerminalChange}
         onDragHandle={handleSplitDrag}
         path={[]}
+        agentStatuses={agentStatuses}
+        onRetryInit={onRetryInit}
       />
     </div>
   );
@@ -464,6 +535,27 @@ export function splitPane(layout: PaneNode, targetId: string, newTerminalId: str
   return { ...layout, children: [splitPane(left, targetId, newTerminalId, direction), splitPane(right, targetId, newTerminalId, direction)] };
 }
 
+export function findGroupIndex(layouts: PaneNode[], terminalId: string): number {
+  for (let i = 0; i < layouts.length; i++) {
+    if (findLeafById(layouts[i], terminalId)) return i;
+  }
+  return -1;
+}
+
+export function removeFromLayouts(layouts: PaneNode[], terminalId: string): PaneNode[] {
+  return layouts
+    .map(l => {
+      if (l.type === 'leaf') {
+        return l.terminalId === terminalId ? null : l;
+      }
+      const updated = removePane(l, terminalId);
+      if (!updated) return null;
+      const leaves = getLeafIds(updated);
+      return leaves.length > 0 ? updated : null;
+    })
+    .filter((l): l is PaneNode => l !== null);
+}
+
 export function insertIntoLayout(layout: PaneNode | null, newTerminalId: string, targetId?: string): PaneNode {
   if (!layout) {
     return { type: 'leaf', terminalId: newTerminalId };
@@ -473,6 +565,25 @@ export function insertIntoLayout(layout: PaneNode | null, newTerminalId: string,
     return splitPane(layout, target, newTerminalId, 'vertical');
   }
   return { type: 'leaf', terminalId: newTerminalId };
+}
+
+export function toggleSplitDirection(node: PaneNode, path: number[]): PaneNode {
+  if (path.length === 0) {
+    if (node.type === 'split') {
+      return { ...node, direction: node.direction === 'horizontal' ? 'vertical' : 'horizontal' };
+    }
+    return node;
+  }
+  if (node.type === 'split' && node.children) {
+    return {
+      ...node,
+      children: [
+        path[0] === 0 ? toggleSplitDirection(node.children[0], path.slice(1)) : node.children[0],
+        path[0] === 1 ? toggleSplitDirection(node.children[1], path.slice(1)) : node.children[1],
+      ],
+    };
+  }
+  return node;
 }
 
 function adjustSplitRatio(layout: PaneNode, path: number[], delta: number): PaneNode {

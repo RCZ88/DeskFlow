@@ -3,23 +3,27 @@
     "id": "001",
     "title": "External Activity Dashboard Integration",
     "description": "Dashboard should sync with external activity - show active external activity on the stopwatch, log external activities, and resume external activity after internal activity ends.",
-    "status": "Completed",
+    "status": "In Progress",
     "priority": "High",
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-21T15:51:46.701Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "002",
     "title": "Remove Timeline Select from External Page",
     "description": "Remove the dropdown timeline selector from External page - it should use the top nav timeline instead.",
-    "status": "Completed",
+    "status": "In Progress",
     "priority": "Medium",
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-21T15:51:15.664Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "003",
@@ -30,7 +34,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "004",
@@ -41,7 +47,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "005",
@@ -52,7 +60,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "006",
@@ -63,7 +73,9 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "007",
@@ -74,7 +86,9 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "008",
@@ -85,7 +99,9 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "009",
@@ -96,7 +112,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "010",
@@ -107,7 +125,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "011",
@@ -118,7 +138,9 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "012",
@@ -129,7 +151,9 @@
     "category": "Documentation",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "013",
@@ -140,7 +164,9 @@
     "category": "Documentation",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "014",
@@ -151,7 +177,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "015",
@@ -162,7 +190,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "016",
@@ -173,7 +203,9 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "017",
@@ -184,7 +216,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "018",
@@ -195,7 +229,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "019",
@@ -206,7 +242,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "020",
@@ -217,7 +255,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "021",
@@ -228,7 +268,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "022",
@@ -239,7 +281,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "023",
@@ -250,7 +294,9 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "024",
@@ -261,7 +307,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "025",
@@ -272,7 +320,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "026",
@@ -283,7 +333,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "027",
@@ -294,7 +346,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "028",
@@ -305,7 +359,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "029",
@@ -316,7 +372,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "030",
@@ -327,7 +385,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "031",
@@ -338,7 +398,9 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "032",
@@ -349,7 +411,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "033",
@@ -360,7 +424,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "034",
@@ -371,7 +437,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "035",
@@ -382,7 +450,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "036",
@@ -393,7 +463,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "037",
@@ -404,7 +476,9 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "038",
@@ -415,7 +489,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "032",
@@ -426,7 +502,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "033",
@@ -437,7 +515,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "034",
@@ -448,7 +528,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "035",
@@ -459,7 +541,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "036",
@@ -470,7 +554,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "037",
@@ -481,7 +567,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "038",
@@ -492,7 +580,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "039",
@@ -503,7 +593,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "040",
@@ -514,7 +606,9 @@
     "category": "Architecture Change",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "041",
@@ -525,7 +619,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "042",
@@ -536,7 +632,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "043",
@@ -547,7 +645,9 @@
     "category": "Bug Fix",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "044",
@@ -558,7 +658,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "045",
@@ -569,7 +671,9 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "046",
@@ -580,7 +684,9 @@
     "category": "Feature",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   },
   {
     "id": "047",
@@ -591,6 +697,8 @@
     "category": "UI/UX",
     "linked_problems": [],
     "created_at": "2026-05-14T12:34:32.807Z",
-    "updated_at": "2026-05-14T12:34:32.807Z"
+    "updated_at": "2026-05-14T12:34:32.807Z",
+    "session_id": null,
+    "session_name": null
   }
 ]

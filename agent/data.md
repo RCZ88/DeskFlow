@@ -3,7 +3,7 @@
 **Purpose:** Document data storage, schemas, and recent changes to database/information.
 
 **Created:** 2026-04-13
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-22
 
 ---
 
@@ -56,8 +56,38 @@
 | `get-browser-sessions` | Get data from browser_sessions table |
 | `get-typical-day` | **REPLACED** — Returns `{ grid, legend, stats, generatedAt, daysCovered }` (7×24 multi-activity grid). Merges external_sessions + device logs, normalizes per-day, supports multi-activity cells with percentages and colors. |
 | `link-problem-to-request` | Links a problem ID to a request in REQUESTS.md. Calls RequestsService.linkProblem(). Accepts `{ requestId, problemId }`. |
+| `unlink-problem-from-request` | Removes a problem ID from a request's linked_problems array. Calls RequestsService.unlinkProblem(). Accepts `{ requestId, problemId }`. |
+| `detect-project-language` | Scans project directory by file extension to detect primary language. Accepts `projectPath`. Returns `{ success, language, fileCount, totalFiles }`. |
+| `terminal:create` | Creates a terminal PTY with specific dimensions + agent readiness. Accepts `(id, cwd, cols, rows, agentType?)`. Used by `terminalAPI.create` preload bridge. |
+| `spawn-terminal` | Creates a terminal PTY with default 80x24 dimensions. Accepts `(terminalId, cwd, agentType?)`. Sets up agent readiness detection via AGENT_SIGNATURES regex patterns. |
+| `terminal:write` | Write data to terminal via the new terminal API. Accepts `(id, data)`. |
+| `terminal:resize` | Resize terminal via the new terminal API. Accepts `(id, cols, rows)`. |
+| `terminal:destroy` | Kill terminal via the new terminal API. Accepts `(id)`. |
+| `retry-agent-init` | Retries agent readiness detection for a terminal. Accepts `(terminalId, agentType)`. Re-attaches data handler with new agent signature. |
+| `write-terminal` | Write data to terminal stdin. Accepts `(terminalId, data)`. |
+| `resize-terminal` | Resize terminal PTY. Accepts `(terminalId, cols, rows)`. |
+| `kill-terminal` | Kill terminal PTY process. Accepts `(terminalId)`. |
+| `terminal:write-old-format` | Write data to terminal stdin (used by `terminalWrite` preload bridge). Accepts `(terminalId, data)`. Persists to `terminal_messages` table. |
+| `terminal:resize-old-format` | Resize terminal PTY (used by `terminalResize` preload bridge). Accepts `(terminalId, cols, rows)`. |
+| `terminal:destroy-old-format` | Kill terminal PTY (used by `terminalDestroy` preload bridge). Accepts `(terminalId)`. |
+| `get-terminal-session-resume-id` | Get resume_id for a terminal session. Accepts `(sessionId)`. Returns `resume_id` string or null. |
+| `save-terminal-session` | Save/update terminal session metadata. Accepts `{ id, projectId, agent, resumeId, terminalId, topic, workingDirectory, ... }`. Auto-generates `resume_id` if missing. Returns `{ success, id, resumeId }`. |
+| `electron:execute-command` | Execute an arbitrary shell command on the host. Accepts `{ command, cwd? }`. Returns `{ stdout, stderr, exitCode }`. Used for `deskflowAPI.executeCommand()` preload bridge. |
+| `summarize-session` | Generates a summary of a terminal session by reading first/last messages. Accepts `(sessionId: string)`. Saves to `agent/context/session-summaries.json`. Returns `{ summary }` or null. |
 
 ---
+
+## 📡 IPC Events (Terminal)
+
+| Event | Direction | Description |
+|-------|-----------|-------------|
+| `terminal:data` | main → renderer | PTY output data for a terminal. Payload: `(terminalId, data)`. |
+| `terminal:exit` | main → renderer | PTY process exited. Payload: `(terminalId, exitCode, signal)`. |
+| `terminal:ready` | main → renderer | PTY spawned and ready for I/O. Payload: `(terminalId)`. |
+| `agent:ready` | main → renderer | AI agent signature detected in terminal output. Payload: `{ terminalId }`. Triggers system prompt write and message queue flush. |
+| `agent:timeout` | main → renderer | Agent initialization timed out (30s). Payload: `{ terminalId, agentType }`. Shows retry overlay. |
+| `context-changed` | main → renderer | Problem/request/checklist CRUD event. Payload: `{ type: 'problem'|'request'|'checklist', action: 'created'|'updated'|'deleted', entity: { id, title?, status? } }`. Written to active terminal as `[System: ...]` message. |
+| `session-metadata-updated` | main → renderer | Agent output was parsed for ## Session Metadata block. Payload: `{ sessionId, metadata: { title?, description?, status?, productArea?, category? }, autoTags: string[] }`. Triggers session list reload. |
 
 ## 🔧 Data Troubleshooting
 
@@ -68,4 +98,4 @@
 
 ---
 
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-15

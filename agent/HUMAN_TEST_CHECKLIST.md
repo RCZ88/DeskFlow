@@ -119,6 +119,10 @@
 | Feature | ✅ Pass | ❌ Fail | Issue # | Notes |
 |---------|--------|--------|---------|-------|
 | Build passes | ✅ | | - | `npm run build` succeeds |
+| Context Management — Setup dialog 6 toggles | | | #124 | Open Setup, verify 6 systems toggle on/off |
+| Context Management — SVG map visualization | | | #125 | Context map shows with connections + budget bar |
+| Context Management — Behavior toggles | | | #126 | Auto-summarize + Deep memory checkboxes work |
+| Context Management — assembleContext wired | | | #127 | Start session with config, verify init content assembled |
 | Terminal creation | | | #027 | |
 | AI agent selection | | | #035 | |
 | Terminal renders | | | - | |

@@ -278,94 +278,230 @@
 
 ## 🖥️ 6. Terminal Page / Workspace (`/terminal`)
 
-**Component:** `src/pages/TerminalPage.tsx` (~1256 lines)
-**Terminal Component:** `src/components/TerminalWindow.tsx`
+**Component:** `src/pages/TerminalPage.tsx` (~3966 lines)
+**Terminal Component:** `src/components/TerminalWindow.tsx` (607 lines)
 **Hook:** `src/hooks/useTerminalLayout.ts`
 
 ### Core Features:
 
 #### 6.1 Multi-Pane Terminal
-- **Technology:** `@xterm/xterm` terminal emulator
-- **Multi-pane support:** Split panes horizontally/vertically
-- **Active terminal tracking:** Tracks which pane is active
-- **Terminal spawn:** `terminal:create` or `terminal:spawn` IPC
+- **Technology:** `@xterm/xterm` terminal emulator with node-pty backend
+- **Multi-pane support:** Split panes horizontally/vertically via binary tree layout
+- **Layout Groups:** Terminals organized into groups based on their split parent in the tree
+- **Active terminal tracking:** Tracks which pane is active via `activeTerminalId` state
+- **Terminal spawn:** `terminal:create` IPC with CWD = project path
+- **Resize handling:** `terminal:resize` IPC for dimension changes
+- **Agent integration:** Supports OpenCode, Claude Code, Codex, Aider, Cursor agents
 
-#### 6.2 Sidebar Tabs (7 tabs):
+#### 6.2 Sidebar Tabs (12 tabs + 1 divider):
+
+**Tab Group 1 — Management (Tools):**
 
 ##### 6.2.1 Presets Tab
+- **Icon:** `Zap` (green accent)
 - **Feature:** Save/reuse common terminal commands
 - **DB Table:** `terminal_presets`
 - **Fields:** id, name, command, category
 - **Execute:** Writes command to active terminal
 - **Grouping:** By category (general, build, test, deploy, etc.)
-- **Search:** Filter presets by name/command
+- **Operations:** Add preset via inline form, execute with one click
 
 ##### 6.2.2 Sessions Tab
-- **Feature:** View AI agent chat history
+- **Icon:** `Clock` (green accent)
+- **Feature:** View AI agent chat history and session management
 - **DB Table:** `terminal_sessions`
-- **Fields:** id, agent, topic, resume_id, started_at, total_cost_usd
-- **Chat View:** Click session → `getSessionMessages()` → chat bubbles
-- **Supports:** OpenCode (SQLite), Claude Code (JSONL), Codex (JSONL)
-- **Start Chat:** Launch selected AI agent in terminal
+- **Fields:** id, agent, topic, resume_id, created_at, total_cost, total_tokens, status, category, product_area, description, auto_tags
+- **Status tracking:** StatusDot indicator (active/idle/completed/error/cancelled)
+- **Category filter:** Filter pills by SESSION_CATEGORIES
+- **Session cards:** Show status dot, category badge, agent badge, topic, terminal status (Running/Closed), description, date, tags, cost
+- **Detail view:** Click a session → full detail panel with:
+  - Session metadata grid (status, category, date, terminal, cost, tokens, resume_id, description, product_area)
+  - Focus Terminal / Open in Terminal buttons
+  - Message viewer with Refresh capability
+  - Messages displayed with role coloring (assistant=cyan, user=blue, system=zinc)
+- **Message viewer:** Modal popup with search and role-colored messages
+- **Actions:** Focus terminal, Open in terminal (resume), View messages, Delete
 
-##### 6.2.3 Todos Tab
-- **Feature:** Project-specific task tracking
-- **DB Table:** `workspace_todos`
-- **Fields:** id, project_id, text, completed, priority, created_at
-- **Operations:** Add, toggle, delete
-- **Priority levels:** low, medium, high
-- **Filtering:** Show all / active / completed
+##### 6.2.3 Map Tab
+- **Icon:** `Monitor` (green accent)
+- **Feature:** Terminal layout visualization + group-managed terminal list
+- **Components:** `TerminalMiniMap` — draggable pane layout visualization
+- **Mini Map:** Shows all terminal panes as draggable rectangles, click to focus, drag to rearrange via PaneNode tree
+- **Running Terminals (grouped):** Below the map, terminals organized by layout groups showing:
+  - Group number, split direction (↕ Stack / ↔ Side-by-side), terminal count
+  - Each terminal: name, agent, active indicator, linked session info (topic, category, status)
+  - Focus button, New Session button for unassigned terminals
+- **Sessions list:** Below terminals, shows all sessions with running/closed status
 
-##### 6.2.4 Files Tab
+##### 6.2.4 Analytics Tab
+- **Icon:** `PieChart` (green accent)
+- **Feature:** AI usage analytics with period selection
+- **Period selector:** Day / Week / Month toggle bar
+- **Overview cards:** Total tokens, Total cost ($), Session count
+- **By Agent breakdown:** Visual bar chart with gradient bars showing token usage per agent
+- **Top Sessions by Cost:** Sortable list of most expensive sessions (topic, agent, date, cost)
+- **Data source:** `getAIUsageSummary(period)` IPC + sessions data
+
+##### 6.2.5 Problems Tab
+- **Icon:** `AlertCircle` (purple accent)
+- **Component:** `ProblemsTab` (inline component)
+- **Feature:** Track and manage project problems/issues
+- **Status filter:** All / Active / By status (NEW, Not Started, In Progress, AI Attempted Fix, User Testing, Fixed, Irrelevant)
+- **Grouped display:** Problems grouped by status with color-coded headers
+- **Inline edit:** Click to expand, edit fields, change status
+- **Operations:** Create, update status, assign to terminal, delete
+- **Auto-refresh:** Polls every 5 seconds
+
+##### 6.2.6 Requests Tab
+- **Icon:** `FileText` (blue accent)
+- **Component:** `RequestsTab` (inline component)
+- **Feature:** Track project requests and feature requests
+- **Status filter:** All / Pending / In Progress / Completed / Cancelled
+- **Inline edit:** Click to expand and edit
+- **Operations:** Create, update status, delete
+- **Auto-refresh:** Polls every 5 seconds
+
+##### 6.2.7 Files Tab
+- **Icon:** `Folder` (yellow accent)
+- **Component:** `FilesTab` (inline component)
 - **Feature:** Browse `agent/` directory markdown files
 - **IPC:** `read-agent-file`, `list-agent-files`
-- **Features:** Navigate subdirectories, view markdown content
+- **Features:** Navigate subdirectories, view markdown content with syntax highlighting
 - **Scope:** Uses `projectPath + '/agent'`
-- **Read-only:** No edit capability yet
+- **Read-only:** View files, no edit capability
+- **Pulse notification:** Green ping dot when agent files change (via `onAgentFileChanged`)
 
-##### 6.2.5 Prompts Tab
-- **Feature:** Save/format reusable prompts
-- **DB Table:** `prompt_templates`
-- **Fields:** id, project_id, name, content, category, is_formatting_template
-- **Actions:** Copy to clipboard, insert into active terminal
-- **Search:** Filter by name/category
+**Tab Group 2 — Utilities:**
 
-##### 6.2.6 Map Tab
-- **Feature:** Visual project structure overview (placeholder)
-- **Planned:** Dependency graph, file tree visualization
+##### 6.2.8 Checklists Tab
+- **Icon:** `CheckCircle2` (emerald accent)
+- **Feature:** Project-specific task tracking and progress
+- **Status:** Placeholder (future implementation)
+- **Planned:**
+  - Create/edit checklists linked to problems/requests
+  - Track completion percentage
+  - Requires human verification
 
-##### 6.2.7 Analytics Tab
-- **Feature:** AI usage analytics
-- **Shows:** Total tokens, total cost, by tool breakdown
-- **Data Source:** `getIDEProjectsOverview()` → `aiUsage` object
+##### 6.2.9 Skills Tab
+- **Icon:** `Sparkles` (indigo accent)
+- **Component:** `SkillsTab` (inline component, ~400 lines)
+- **Feature:** Manage AI agent skills and capabilities
+- **IPC:** `getSkills(projectPath)`, `createSkill()`, `updateSkill()` 
+- **Skill source:** Parses from `agent/skills/` directory (subdirs with SKILL.md + standalone .md files) + legacy `agent/skills.md`
+- **Each skill has:** id, name, description, category, content (markdown), filePath
+- **Search:** Filter skills by name/description/content
+- **Category filter:** Filter pills by skill category
+- **Skill cards:** Show name, category badge, description
+- **Expandable:** Click to show full markdown content with path info
+- **Use Skill modal:** View skill content, select target terminal, enter prompt, send to terminal
+- **Edit Skill modal:** Edit name, category, description, content (markdown editor)
+- **Create Skill modal:** New skill form with name, category, description, content
+- **Delete:** Remove skill from filesystem
+- **Auto-refresh:** Polls every 10 seconds
+- **Notification toast:** Success/error feedback on operations
 
-#### 6.3 AI Agent Integration
+##### 6.2.10 Configs Tab
+- **Icon:** `Settings` (orange accent)
+- **Feature:** Manage project-specific configurations
+- **Status:** Placeholder (future implementation)
+- **Planned:**
+  - View active configs per project
+  - Edit config values inline
+  - Save/load config presets
+
+##### 6.2.11 History Tab
+- **Icon:** `Clock` (rose accent)
+- **Feature:** Activity history and audit log
+- **Status:** Placeholder (future implementation)
+- **Planned:**
+  - Session activity history
+  - Command execution log
+  - Changes timeline per session
+
+**Visual Divider (vertical line, zinc-700/50)**
+
+##### 6.2.12 Context Maintenance Tab ⭐
+- **Icon:** `Database` (violet accent)
+- **Feature:** Persistent AI memory management across sessions (wiring in progress)
+- **Component:** `src/components/ContextMaintenanceTab.tsx` (382 lines, available for rendering)
+- **Status:** Placeholder until service wiring complete
+- **Planned:**
+  - Memory status card (token usage visualization)
+  - Active contexts list (skill, graphify, wiki, QMD contexts with toggles)
+  - Recent chat history with message management
+  - Compactions panel (monthly summary management)
+  - Context search (semantic + full-text)
+  - Settings panel (auto-compaction, RAG mode, token budget)
+
+#### 6.3 Layout & Group System
+- **Binary tree layout:** `PaneNode` type supports `leaf` (terminal) and `split` (horizontal/vertical division) nodes
+- **Group extraction:** `extractGroups()` helper collects terminals into top-level split groups
+- **Layout persistence:** Save/load via `saveTerminalLayout`/`getTerminalLayouts` IPC
+- **Drag-drop:** Pane rearrangement via `TerminalLayout` component
+
+#### 6.4 AI Agent Integration
 - **Supported Agents:**
   - OpenCode (`opencode`)
   - Claude Code (`claude`)
   - Codex (`codex`)
   - Aider (`aider`)
   - Cursor (`cursor`)
-- **Agent Selector:** Dropdown in header, persists in localStorage
-- **Start Chat:** Launches selected agent in active terminal
-- **Session Tracking:** Sessions saved to `terminal_sessions` table
+- **Agent Selector:** Dropdown in session creation, persists in localStorage
+- **Session Management:**
+  - New Session dialog with configurable agent, terminal mode (create/select), init content
+  - Resume sessions via `resume_id` 
+  - Session categorization (category, product_area, description, auto_tags)
+  - Category analysis via `analyzeSessionCategory` IPC
+- **Init content:** Auto-load INITIALIZE.md, custom init files, problem/request context
 
-#### 6.4 Workspace Save/Load
-- **Save:** `workspace:save` IPC → saves layout + active terminal ID
-- **Load:** `workspace:load` IPC → restores layout for project or global
-- **Scope:** Per-project or global (no project_id = global)
+#### 6.5 Instruction Panel
+- **Feature:** Send instructions to a terminal
+- **Access:** Via instruction input field in the tab bar area
+- **Send:** Writes instruction text to active terminal via IPC
+- **Binding:** Can bind instructions to specific problems/requests
 
-#### 6.5 Terminal Management
-- **New Terminal:** Spawn new terminal pane
-- **Close Terminal:** Destroy terminal process via `terminal:destroy`
-- **Split Pane:** Horizontal/vertical split (visual, resize pending)
-- **Project Switcher:** ← → arrows to switch between projects
-- **Minimize Sidebar:** Collapse sidebar to maximize terminal space
+#### 6.6 Session Categorization
+- **Feature:** Auto-categorize and manually categorize sessions
+- **Categories:** feature, bug-fix, research, code-review, refactor, devops, docs, other
+- **Fields:** category, product_area, description, status, auto_tags, category_confirmed
+- **IPC:** `updateSessionCategory`, `getParsedSessionItems`, `analyzeSessionCategory`
+- **Display:** CategoryBadge and StatusDot components throughout all terminal views
+- **Statuses:** active, idle, completed, error, cancelled
 
-#### 6.6 Project Integration
+#### 6.7 File Change Detection
+- **Feature:** Visual pulse notification when agent files change
+- **Mechanism:** `onAgentFileChanged` IPC event
+- **Files affected:** AGENTS.md, PROBLEMS.md, etc. in `agent/` dir
+- **Visual:** Green ping animation on Files tab icon
+
+#### 6.8 Project Integration
 - **Receives props:** `projectId`, `projectPath` from IDEProjectsPage
 - **CWD:** Terminal working directory = `projectPath`
-- **Scoped data:** Todos and prompts can be project-specific
+- **Scoped data:** Problems, requests, todos, presets can be project-specific
+- **Project switching:** Dropdown in sidebar, persists in localStorage
+
+#### 6.9 Workspace Save/Load
+- **Save:** `workspace:save` IPC → saves layout + active terminal ID + todos + presets
+- **Load:** `workspace:load` IPC → restores layout for session/project/global scope
+- **Scope:** Per-session, per-project, or global (no project_id = global)
+
+#### 6.10 Compose & Prompt Systems
+- **Short compose:** Quick prompt input for active terminal
+- **Long compose:** Full prompt editor with skills dropdown
+- **Skills dropdown:** Attach skill context to composed prompts
+- **Progress tracking:** AI task progress via `aiTask:watch` and `onAiTaskUpdated`
+- **Prompt templates:** Save/load reusable prompt templates
+- **@mention routing:** Resolve @mentions to terminal names and session topics
+
+#### 6.11 Terminal Management
+- **New Terminal:** Spawn new terminal pane via IPC
+- **Close Terminal:** Destroy terminal process via `terminal:destroy`
+- **Split Pane:** Horizontal/vertical split of current pane
+- **Resize:** Drag pane dividers to resize
+- **Project Switcher:** ← → arrows in header
+- **Sidebar toggle:** Collapse/expand sidebar
+- **Confirm dialogs:** Modal dialogs for destructive actions (delete session, etc.)
+- **Error display:** Toast notifications for terminal errors/warnings/info
 
 ---
 
@@ -632,6 +768,15 @@
 ---
 
 ## 🔄 Recent Feature Additions
+
+### 2026-05-26:
+- SkillsTab component: full CRUD for project skills (parse, create, edit, delete, use via terminal)
+- Analytics tab: period selector (day/week/month), agent breakdown bars, top sessions by cost
+- Sessions tab: click-to-detail panel with full session metadata and inline message viewer
+- Map tab: merged group-based terminal display into the MiniMap layout (removed separate Terminals tab)
+- Context-maintenance tab button added with visual divider grouping
+- Tab bar: 12 tabs organized into 2 groups with divider line; StatusDot updated with size prop
+- Note: checklists/configs/history tabs remain as placeholders for future implementation
 
 ### 2026-05-06:
 - Heatmap external mode fix (field name mismatch)

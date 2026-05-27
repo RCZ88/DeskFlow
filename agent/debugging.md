@@ -582,6 +582,17 @@ const WEBSITES_GALAXY_POS: [number, number, number] = [3250, 0, 0];
 
 ---
 
+## � System Prompt Must Include Project-Specific Context
+
+The `DEFAULT_SYSTEM_PROMPT` in `src/lib/defaults.ts` must describe the actual DeskFlow project features, not be a generic "AI coding assistant" template. A generic prompt causes the AI to have no knowledge of:
+- Problems/Requests/Checklists CRUD (IPC methods, JSON storage)
+- Session and terminal flow
+- UI patterns (sidebar tabs, dialogs, navigation)
+- Data storage rules (JSON vs DB vs prefs)
+- Build/verify commands
+
+If the system prompt looks generic, rewrite it by researching all project features and IPC endpoints.
+
 ## 🎨 Tailwind v4 CSS Silent Failure (CRITICAL)
 
 **Severity:** P0 — Entire app looks unstyled/broken with zero build errors
@@ -698,6 +709,84 @@ useEffect(() => {
 
 ---
 
+### Agent Readiness False-Positive on Windows Shell Prompts
+
+**Symptoms:**
+- "Waiting for agent..." overlay appears briefly then disappears
+- Terminal shows a shell prompt (no AI agent visible)
+- System prompt text may appear as garbage in the terminal
+
+**Root Cause:**
+- On Windows, shell prompts end with `>` (PowerShell: `PS C:\path>`, CMD: `C:\path>`)
+- The `opencode` agent signature `/>\s*$/` matches any line ending with `>` — including the shell prompt
+- `agent:ready` fires immediately when the shell prompt appears (first ~100ms), before the AI agent launch command has been processed
+- The renderer's `initializeTerminal` sees `agent:ready`, stops waiting, and writes the system prompt to the shell instead of the AI agent
+
+**Fix:**
+Added a 3-second startup delay (`handlerStartTime`) to the data handlers in `terminal:create` and `spawn-terminal`. Agent signature detection is skipped for the first 3 seconds, allowing the shell prompt to pass by harmlessly. After 3 seconds, only the real AI agent prompt triggers readiness.
+
+**Prevention:**
+- Keep the startup delay as a guard against any shell prompt matching
+- If adding new agent signatures (`AGENT_SIGNATURES`), avoid overly broad patterns like `/>\s*$/` — prefer patterns that include the agent name (e.g., `aider>\s*$`)
+
+**Introduced in:** v3.25
+**Added:** 2026-05-17
+
+---
+
+### Agent Status Stuck on 'Waiting' (Opposite of False-Positive)
+
+**Symptoms:**
+- "Initializing agent..." pill stays visible forever even after agent has started
+- Terminal is fully functional but the UI thinks agent isn't ready
+
+**Root Cause:**
+- `detectAgentPrompt` only returns `true` when the last non-empty line matches `^[>?$]\s*$`
+- If the AI agent outputs multi-line text, headings, or anything before the prompt char, detection never fires
+- The condition `!agentReady && agentType && promptDetected` never triggers
+- Status stays 'waiting' forever because it only updates on prompt detection
+
+**Fix:**
+Added a 7-second fallback timer in `terminal:create` and `spawn-terminal` handlers. If prompt detection hasn't fired within 7 seconds, emit `agent:ready` anyway. This covers cases where the agent outputs initialization text before showing a prompt char.
+
+**Prevention:**
+- Don't rely on output pattern matching for state transitions that must happen
+- If state must change within a timeframe, always add a time-based fallback
+- Pattern-based detection is fragile; explicit event emission is more reliable
+
+**Files:** `src/main.ts` — `terminal:create` (line ~5757) and `spawn-terminal` (line ~5833)
+
+**Introduced in:** v3.26
+**Added:** 2026-05-18
+
+---
+
+## 🛑 Dual-State Sync Pattern (AFK/Idle Tracking)
+
+**Symptom:**
+- AFK sessions are created correctly but the selected activity doesn't show on the External page (or has 0 duration)
+- App sessions continue to be logged for the last active app even while user is AFK
+
+**Root Cause:**
+- Two separate `isTracking` flags exist: renderer (React state) and main process (module-level var)
+- Idle detection only pauses the renderer's `isTracking` — main process's `pollForeground()` keeps running
+- When user returns from idle, `setIsTracking(true)` restarts the 1s timer immediately, but the 5s heartbeat hasn't updated `systemIdleSecondsRef.current` yet — stale high idle value triggers a false re-idle, closing the AFK session with duration=0 and starting a new one
+
+**Fix:**
+1. Always sync main process tracking state when idle state changes — use dedicated `setTracking(boolean)` IPC
+2. Add a cooldown period (12s = 2+ heartbeat cycles) after returning from idle to prevent false re-idle from stale heartbeat data
+
+**Files:** `src/main.ts` (tracking state), `src/preload.ts` (setTracking bridge), `src/App.tsx` (idle detection + cooldown ref)
+
+**Prevention:**
+- When a feature spans main process + renderer, always verify state sync across both
+- Account for timer update intervals: if heartbeat is 5s and your timer is 1s, the stale heartbeat value can cause false triggers
+- Never assume refs update immediately — they update at their timer's cadence
+
+**Added:** 2026-05-22
+
+---
+
 ## 🔄 Version History
 
 | Version | Date | Changes |
@@ -708,10 +797,22 @@ useEffect(() => {
 | 1.3 | 2026-04-16 | Added Data Computation Pattern (Single Source of Truth) |
 | 1.4 | 2026-04-16 | Added 3D Camera/Clipping Debugging Pattern |
 | 1.5 | 2026-04-17 | Added Electron + Three.js/WebGL Memory Leak Pattern |
+| 1.7 | 2026-05-16 | Added System Prompt must include project-specific context pattern |
 | 1.6 | 2026-04-19 | Added Tailwind v4 CSS Silent Failure pattern |
 | 1.7 | 2026-05-06 | Added useMemo object dependencies TDZ pattern |
+| 1.9 | 2026-05-18 | Added Agent Status Stuck on Waiting pattern |
 
----
+### Minimize Button Hides Wrong Elements
 
-**Last Updated:** 2026-05-06
+**Symptom:** Minimize button only collapses the sidebar instead of the entire workspace (tabs + terminal layout + sidebar).
+
+**Root Cause:** When wiring `workspaceMinimized` state, the condition `{!workspaceMinimized && sidebarOpen &&` was only placed on the sidebar element. The terminal layout area (tab bar + `TerminalLayout` component) had no `workspaceMinimized` guard at all.
+
+**Fix:** Wrap both the terminal area and the sidebar in a ternary: `{workspaceMinimized ? <RestoreCard /> : (<><terminal-area>{sidebarOpen && <sidebar/>}</>)}`.
+
+**Also check:** 
+- Minimize button should use `Minus` icon (not `Minimize2`), be placed beside the close (X) button, and toggle `workspaceMinimized` state via `toggle-minimize` custom event.
+- Sidebar collapse (`sidebarOpen`) is a SEPARATE concern — do not conflate with workspace minimize.
+
+**Last Updated:** 2026-05-18
 **Maintained By:** AI Development Team

@@ -9,6 +9,7 @@ interface DurationPickerProps {
   hourLabel?: string;
   minuteLabel?: string;
   showLabels?: boolean;
+  wrap?: boolean;
 }
 
 export function DurationPicker({
@@ -20,18 +21,35 @@ export function DurationPicker({
   hourLabel = 'Hour',
   minuteLabel = 'Min',
   showLabels = true,
+  wrap = false,
 }: DurationPickerProps) {
   const [editing, setEditing] = useState<'hours' | 'minutes' | null>(null);
   const [editValue, setEditValue] = useState('');
   const holdTimerRef = useRef<number | null>(null);
   const holdCountRef = useRef(0);
 
-  const incHours = () => onHoursChange(Math.min(hours + 1, maxHours));
-  const decHours = () => onHoursChange(Math.max(hours - 1, 0));
+  const incHours = () => {
+    if (wrap && hours >= maxHours) {
+      onHoursChange(0);
+    } else {
+      onHoursChange(Math.min(hours + 1, maxHours));
+    }
+  };
+  const decHours = () => {
+    if (wrap && hours <= 0) {
+      onHoursChange(maxHours);
+    } else {
+      onHoursChange(Math.max(hours - 1, 0));
+    }
+  };
   const incMinutes = () => {
     if (minutes + 1 >= 60) {
       onMinutesChange(0);
-      onHoursChange(Math.min(hours + 1, maxHours));
+      if (wrap && hours >= maxHours) {
+        onHoursChange(0);
+      } else {
+        onHoursChange(Math.min(hours + 1, maxHours));
+      }
     } else {
       onMinutesChange(minutes + 1);
     }
@@ -39,7 +57,11 @@ export function DurationPicker({
   const decMinutes = () => {
     if (minutes - 1 < 0) {
       onMinutesChange(59);
-      onHoursChange(Math.max(hours - 1, 0));
+      if (wrap && hours <= 0) {
+        onHoursChange(maxHours);
+      } else {
+        onHoursChange(Math.max(hours - 1, 0));
+      }
     } else {
       onMinutesChange(minutes - 1);
     }
@@ -108,7 +130,6 @@ export function DurationPicker({
           onMouseDown={() => startHold(incHours)}
           onMouseUp={stopHold}
           onMouseLeave={stopHold}
-          onMouseOut={stopHold}
           className="w-14 h-7 bg-zinc-800 hover:bg-zinc-700 rounded-t-lg flex items-center justify-center text-zinc-400 transition-colors cursor-pointer"
         >
           <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 5L5 0L10 5H0Z"/></svg>
@@ -135,7 +156,6 @@ export function DurationPicker({
           onMouseDown={() => startHold(decHours)}
           onMouseUp={stopHold}
           onMouseLeave={stopHold}
-          onMouseOut={stopHold}
           className="w-14 h-7 bg-zinc-800 hover:bg-zinc-700 rounded-b-lg flex items-center justify-center text-zinc-400 transition-colors cursor-pointer"
         >
           <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 1L5 6L10 1H0Z"/></svg>
@@ -148,7 +168,6 @@ export function DurationPicker({
           onMouseDown={() => startHold(incMinutes)}
           onMouseUp={stopHold}
           onMouseLeave={stopHold}
-          onMouseOut={stopHold}
           className="w-14 h-7 bg-zinc-800 hover:bg-zinc-700 rounded-t-lg flex items-center justify-center text-zinc-400 transition-colors cursor-pointer"
         >
           <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 5L5 0L10 5H0Z"/></svg>
@@ -175,7 +194,6 @@ export function DurationPicker({
           onMouseDown={() => startHold(decMinutes)}
           onMouseUp={stopHold}
           onMouseLeave={stopHold}
-          onMouseOut={stopHold}
           className="w-14 h-7 bg-zinc-800 hover:bg-zinc-700 rounded-b-lg flex items-center justify-center text-zinc-400 transition-colors cursor-pointer"
         >
           <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 1L5 6L10 1H0Z"/></svg>

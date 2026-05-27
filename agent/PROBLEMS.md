@@ -1,8 +1,8 @@
 # PROBLEMS.md
 
 > **Purpose:** Issue tracker for AI agents and humans — all known bugs, feature requests, and their resolution status.
-> **Last Updated:** 2026-05-13 (ProblemsTab markdown round-trip fix + Setup button moved)
-> **Total Issues:** 110
+> **Last Updated:** 2026-05-22 (Bundle A — 8 Core Flow fixes)
+> **Total Issues:** 111
 > **Parse Priority:** High
 
 ---
@@ -31,6 +31,23 @@
 | **User Testing** | User is testing the fix | Wait for user feedback |
 | **Fixed** | User confirmed it works | Document solution |
 | **Irrelevant** | Feature changed, issue no longer applies | Document why |
+
+---
+
+## 🚨 2026-05-22 — Bundle A: Terminal Core Flows (Applied)
+
+### Terminal Issues from 54-Item Overhaul (Steps 1-8)
+
+| Old Ref | Issue | Status | Fix |
+|---------|-------|--------|-----|
+| Fix 1 | InstructionPanel `onSend` stub ignores config | Fixed | Wired to `handleInstructionPanelSend` |
+| Fix 2 | BuildInitContent duplicates assembleContext | Fixed | Removed buildInitContent, uses assembleContext exclusively |
+| Fix 5 | UI doesn't refresh on context changes | Fixed | Added onContextChanged refresh effect + fixed preload cleanup handlers |
+| Fix 3 | terminal:write IPC handler missing | Fixed | Added handler delegating to terminalManager.write |
+| Fix 4 | Problem prompt uses fragile 3000ms timeout | Fixed | Replaced with queueOrSend mechanism |
+| Fix 1.5 | Skills pipeline verification | Verified | End-to-end working (generatePrompt → onSend → queueOrSend) |
+| Fix 1.6 | FlowView audit | Noted | FlowView.tsx doesn't exist (stub) — no-op |
+| Fix 1.7 | Status change terminal format | Fixed | Changed to `[SYSTEM: #id action "status"]` with per-action formatting |
 
 ---
 
@@ -393,20 +410,142 @@
 
 ---
 
+## 🚨 2026-05-17 SESSION — AI Task Progress Tracking System
+
+### Issue #122: terminalTabs ReferenceError in TerminalWindow.tsx handleSplit
+- **Status:** Fixed
+- **Root cause:** `handleSplit` in TerminalWindow.tsx referenced `terminalTabs` but this variable only exists in TerminalPage.tsx. TerminalWindow never had access to it.
+- **Fix:** Changed to `localStorage.getItem('terminal-defaultAgent') || 'claude'` — same pattern used by `handleTerminalReady` and the "+" button in empty state. All three terminal creation paths now use the same agent source.
+- **Files:** `src/components/TerminalWindow.tsx`
+
+### Issue #123: No Prompt Progress Tracking (pending→in_progress→completed)
+- **Status:** Fixed
+- **What's built:** Complete AI Task Progress Tracking System:
+  1. **PTY-based status detection** — `pendingCompletions` Set tracks when user input is sent, agent signature detection marks completion
+  2. **JSON file bridge** — `fs.watch` on `agent/ai-tasks.json` with 500ms debounce, pushes changes to renderer
+  3. **Status in DB** — `status` column on `terminal_messages`, updated via `markTaskCompleted()`
+  4. **Live UI** — PromptHistoryTab shows color-coded badges (gray Pending, cyan spinning Processing, green Completed)
+  5. **Send integration** — `sendInstruction` creates AI task via `ai-task:add` IPC
+- **New IPC:** `get-prompt-status`, `ai-task:watch`/`stop-watch`, `ai-task:add`, `ai-task:updated`/`file-changed` events
+- **Files:** `src/main.ts`, `src/preload.ts`, `src/components/PromptHistoryTab.tsx`, `src/components/TerminalWindow.tsx`, `src/pages/TerminalPage.tsx`
+
+---
+
 ## 🚨 2026-05-15 SESSION — Browser Extension Background Tab Phantom Tracking
 
 ### Issue #121: Background tab events log websites when browser isn't focused
 
-- Status: AI Attempted Fix
+- Status: Fixed (2026-05-26)
 - Priority: High
 - User said: "theres a commonly happening problem where the app still tracks a website even if the browser is not focused. browser with the extension."
-- Root cause: `logPreviousSession()` is called from tab events (`onUpdated`, `onActivated`, `webNavigation.onCompleted`) that fire even when the browser window is backgrounded. The payload had no `is_browser_focused` field, so the server guards (`data.is_browser_focused === false`) never caught it (`undefined !== false`).
-- Fix:
-  1. Added `force` parameter to `logPreviousSession(force = false)` — when called from `onFocusChanged(WINDOW_ID_NONE)`, passes `true` for the legitimate final flush. All other callers default to `false`.
-  2. Added early return guard in `logPreviousSession`: if `!force && !state.isBrowserFocused`, skip silently.
-  3. Added `is_browser_focused: state.isBrowserFocused` to the payload for defense-in-depth on server side.
-- Files: `browser-extension/background.js`
+- Root cause (round 1): `logPreviousSession()` was called from tab events that fire even when the browser is backgrounded. Payload had no `is_browser_focused` field, so server guards never caught it.
+- Root cause (round 2 — final): `checkBrowserFocus()` checked if the foreground app matches ANY browser in a generic list (`['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera', 'comet', 'vivaldi', 'arc']`). When user switched to a different browser (e.g., Firefox while extension is in Chrome/Comet), it still considered the browser "focused" and continued tracking.
+- Fix (round 1):
+  1. Added `force` parameter to `logPreviousSession(force = false)`
+  2. Added early return guard if `!force && !state.isBrowserFocused`
+  3. Added `is_browser_focused: state.isBrowserFocused` to the payload
+- Fix (round 2 — 2026-05-26):
+  4. Changed `checkBrowserFocus()` to compare against `BROWSER_NAME` (the specific browser detected via user agent at extension load time) instead of a generic list. Now only counts website time when the SPECIFIC browser with the extension is in the foreground.
+  5. On `/foreground-app` fetch failure, `state.isBrowserFocused` now defaults to `false` instead of returning the stale previous state.
+- Files: `browser-extension/background.js`, `src/main.ts`
 - Human Testing:
-  1. Browse a site in Chrome, then Alt+Tab to another app — the final session should still be logged (captures time spent before switching)
-  2. Leave Chrome backgrounded for a while with sites auto-refreshing — no new website entries should appear in the app
+  1. Browse a site in Chrome/Comet, then Alt+Tab to another app — the final session should still be logged (captures time spent before switching)
+  2. Leave browser backgrounded for a while with sites auto-refreshing — no new website entries should appear
+  3. Switch to a DIFFERENT browser (e.g., Firefox) while extension is in Chrome/Comet — no website tracking should occur during this time
+
+---
+
+## 🚨 2026-05-18 SESSION — Context Management System (Research + Design)
+
+### Issue #124: Context Management — AI Agent Gets Stale Context Across Chats
+
+- **Status:** Not Started
+- **Priority:** High
+- **User said:** "After a few chats in the same system, the AI agent would already predict what we're saying... We need to improve the context throughout the chat. And we need to somehow store those history of chats... Not too heavy, because inserting every single history with all its details is inefficient."
+- **Root Cause:** No layered context summarization system. AI gets no persistent cross-session memory. Context is rebuilt fresh each chat.
+- **Systems to integrate:** LLM Wiki, Obsidian Skills, Graphify, PARA, QMD, Automations
+- **Current Setup UI only covers:** QMD (templates) + Graphify (graph report). Missing: LLM Wiki, Obsidian Skills, PARA, Automations toggles.
+- **UI rename:** "Initialize" → "Setup" (button label + dialog title)
+
+**Files to modify:**
+- `src/components/NewSessionDialog.tsx` — Rename Initialize→Setup, add system toggles
+- `src/pages/TerminalPage.tsx` — Rename button
+- `agent/docs/research-impl/` — Research prompt for context architecture
+
+**Knowledge systems inventory (what exists vs what's missing):**
+
+| System | Location | Status in Setup UI | Implementation |
+|--------|----------|-------------------|----------------|
+| LLM Wiki | `agent/*.md` (AI-optimized) | ❌ Not included | Full — files exist |
+| Obsidian Skills | `agent/skills/*/SKILL.md` | ❌ Not included | SkillsService reads them |
+| Graphify | `graphify-out/` | ✅ Included (toggle) | AST + LLM graph builder |
+| PARA | `CZVault/` | ❌ Not included | graphify_maintain.py syncs |
+| QMD | `agent/templates/*.qmd` | ✅ Included (toggle) | Template system exists |
+| Automations | `agent/automations/` | ❌ Not included | Not yet created |
+
+**Research approach:** Use `agent/skills/generate-prompt/` skill to create research prompt covering:
+1. How to summarize chat history (efficient, not everything)
+2. How to inject LLM Wiki, Obsidian Skills, PARA, Graphify into agent context
+3. How to visualize system connections in-app
+4. How automations can trigger context updates
+
+### Issue #125: Setup Dialog — Missing System Toggles
+
+- **Status:** Not Started
+- **Priority:** High
+- **User said:** "I don't think it's complete because there's only the QMD and the graphify, right? But there's much more than that."
+- **Root Cause:** `NewSessionDialog` only has `includeQMD` and `includeGraphify` toggles. Missing: LLM Wiki, Obsidian Skills, PARA, Automations.
+- **Fix:** Add toggles for each system in the Setup dialog. Make it comprehensive.
+
+**What each system needs in the Setup UI:**
+- `includeLLMWiki` — Include agent markdown files (state.md, context.md, AGENTS.md, etc.) in context
+- `includeObsidianSkills` — Include skill files from agent/skills/ directory
+- `includePARA` — Sync graphify-out/ to CZVault/ and include PARA reference
+- `includeAutomations` — Include automation scripts (agent/automations/)
+
+### Issue #126: Context History — Efficient Summarization
+
+- **Status:** Not Started
+- **Priority:** High
+- **User said:** "Not too heavy... if there's too much going on and if we insert everything in the system from the whole history that means it's very inefficient."
+- **Root Cause:** No summarization pipeline. Every chat is treated as isolated.
+- **Solution:** Design a layered context system:
+  - **Short-term:** Last N messages (keep full detail)
+  - **Medium-term:** Session summary (every 10 messages → 1-sentence summary)
+  - **Long-term:** Project-level context (read from LLM Wiki files)
+  - **Deep memory:** Cross-session patterns stored in agent memory files
+
+### Issue #127: In-App Context Visualization
+
+- **Status:** Not Started
+- **Priority:** Medium
+- **User said:** "you can create an internal in the app, in the app, what is it called, in the app visualization of the thing, right."
+- **Root Cause:** No visual representation of how systems connect (Graphify → PARA → Obsidian, etc.)
+- **Solution:** Create a "Context Map" panel in the Setup dialog showing:
+  - Which systems are active/linked
+  - Connection lines between systems (e.g., graphify→PARA, skills→LLM Wiki)
+  - Last sync times, file counts
+  - Quick enable/disable per system
   3. Switch back to Chrome — tracking should resume correctly, no phantom deltas
+
+---
+
+## 🚨 2026-05-27 — AFK Prompt External Page Refresh + Stats Page Period Fixes
+
+### Issue #128: AFK Prompt Activity Selection Does Not Show on External Page
+
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User said:** "the AFK thing and prompting the user to insert what external activity doesn't add into the external activity"
+- **Root Cause:** `handleAfkConfirm`/`handleAfkDismiss` in `App.tsx` called `stopAfkSession()` to save the data to DB, but never notified `ExternalPage` to refresh. The data existed in the database but the UI was stale.
+- **Fix:** Added `window.dispatchEvent(new CustomEvent('external-data-changed'))` after successful `stopAfkSession` in both handlers. Added corresponding `useEffect` listener in `ExternalPage.tsx` that calls `refreshStats()` and reloads activities.
+- **Files:** `src/App.tsx`, `src/pages/ExternalPage.tsx`
+
+### Issue #129: App Stats Page Missing 7day/30day Chart Handlers
+
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User said:** "the application page doesn't show the 7-day properly, it shows like one day... 30-day doesn't work... all-time also doesn't work"
+- **Root Cause:** `dailyUsage` useMemo in `StatsPage.tsx` had handlers for `'today'`, `'week'`, `'month'`, and `'all'`, but **`'7day'` and `'30day'` were missing**. When selected, the code fell through to the `'all'` grouping (by month), showing monthly aggregates instead of daily bars.
+- **Fix:** Added dedicated iteration handlers for both `'7day'` (7 consecutive days, EEE labels) and `'30day'` (30 consecutive days, MMM dd labels). Also fixed the hardcoded subtitle label.
+- **Files:** `src/pages/StatsPage.tsx`

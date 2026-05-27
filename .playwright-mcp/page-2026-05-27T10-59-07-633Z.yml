@@ -1,0 +1,100 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e7]
+      - generic [ref=e9]:
+        - generic [ref=e10]: DeskFlow
+        - generic [ref=e11]: AI TRACKER
+    - generic [ref=e12]:
+      - button "Dashboard" [ref=e13]:
+        - img [ref=e14]
+        - text: Dashboard
+      - button "Productivity" [ref=e17]:
+        - img [ref=e18]
+        - text: Productivity
+      - button "Applications" [ref=e22]:
+        - img [ref=e23]
+        - text: Applications
+      - button "Browser Activity" [ref=e26]:
+        - img [ref=e27]
+        - text: Browser Activity
+      - button "IDE Projects" [ref=e30]:
+        - img [ref=e31]
+        - text: IDE Projects
+      - button "External" [ref=e35]:
+        - img [ref=e36]
+        - text: External
+      - button "Insights" [ref=e39]:
+        - img [ref=e40]
+        - text: Insights
+      - button "Database" [ref=e42]:
+        - img [ref=e43]
+        - text: Database
+      - button "Settings" [ref=e47]:
+        - img [ref=e48]
+        - text: Settings
+    - generic [ref=e52]:
+      - text: Local SQLite • Zero Cloud •
+      - text: Privacy-First
+  - generic [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - button "Back to IDE projects" [ref=e307]:
+          - img [ref=e308]
+        - button "Close workspace" [ref=e309]:
+          - img [ref=e310]
+        - generic [ref=e313]:
+          - img [ref=e314]
+          - heading "Terminal" [level=2] [ref=e317]
+      - generic [ref=e59]:
+        - button "Setup" [ref=e318]:
+          - img [ref=e319]
+          - text: Setup
+        - button "Initialize" [ref=e324]:
+          - img [ref=e325]
+          - text: Initialize
+    - generic [ref=e328]:
+      - generic [ref=e329]:
+        - generic [ref=e331]:
+          - img [ref=e332]
+          - generic [ref=e334]: Terminal
+        - button "New Terminal" [ref=e336]:
+          - img [ref=e337]
+        - button "+ Open Terminal" [ref=e340]
+      - generic [ref=e341]:
+        - generic [ref=e343]:
+          - generic [ref=e344]: Terminal
+          - button [ref=e345]:
+            - img [ref=e346]
+        - generic [ref=e349]:
+          - button [ref=e350]:
+            - img [ref=e351]
+          - button [ref=e353]:
+            - img [ref=e354]
+          - button [ref=e357]:
+            - img [ref=e358]
+          - button [ref=e360]:
+            - img [ref=e361]
+          - button "Problems" [ref=e364]:
+            - img [ref=e365]
+          - button "Requests" [ref=e367]:
+            - img [ref=e368]
+          - button "Agent Files" [ref=e371]:
+            - img [ref=e372]
+          - button "Checklists" [ref=e374]:
+            - img [ref=e375]
+          - button "Skills" [ref=e378]:
+            - img [ref=e379]
+          - button "Design" [ref=e382]:
+            - img [ref=e383]
+          - button "Configs" [ref=e389]:
+            - img [ref=e390]
+          - button "History" [ref=e393]:
+            - img [ref=e394]
+          - button "Context Maintenance" [ref=e398]:
+            - img [ref=e399]
+        - generic [ref=e404]:
+          - button "Add Preset" [ref=e405]:
+            - img [ref=e406]
+            - text: Add Preset
+          - paragraph [ref=e407]: No presets yet. Add one to get started.

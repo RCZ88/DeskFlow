@@ -1,13 +1,17 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Bar, Line } from 'react-chartjs-2';
 import {
   BookOpen, Dumbbell, Activity, Moon,
   Utensils, Coffee, Bus, Book, Timer, Zap,
   Sun, Zap as ZapIcon, Focus, Clock, X,
   Edit3, Check, Plus, Minus, TrendingUp,
   Target, ZapCircle, RefreshCw, Clock3,
-  ChevronLeft, ChevronRight, Maximize2, Minimize2
+  ChevronLeft, ChevronRight, Maximize2, Minimize2,
+  BarChart3
 } from 'lucide-react';
+import { getDateRange } from '../lib/dateRange';
+import type { Period } from '../lib/dateRange';
 
 const OrbitSystem = lazy(() => import('../components/OrbitSystem').then(module => ({ default: module.default })));
 const DayDetailPopup = lazy(() => import('../components/DayDetailPopup').then(module => ({ default: module.DayDetailPopup })));
@@ -128,17 +132,15 @@ interface ActivityFeedItem {
 }
 
 interface DashboardPageProps {
-  externalActivities?: ExternalActivity[];
-  hourlyHeatmap?: HourlyHeatmapData[];
-  solarSystemData?: SolarSystemData[];
-  productiveTimeMs?: number;
   logs?: ActivityLog[];
   allLogs?: ActivityLog[];
   browserLogs?: ActivityLog[];
   appColors?: Record<string, string>;
   categoryOverrides?: Record<string, string>;
   timerBehavior?: TimerBehavior;
-  selectedPeriod?: 'today' | 'week' | 'month' | 'all';
+  selectedPeriod?: Period;
+  dateOffset?: number;
+  onDateOffsetChange?: (offset: number) => void;
   trackingBrowser?: string;
   trackerAppMode?: 'show-other' | 'pause' | 'track';
   tierAssignments?: {
@@ -174,6 +176,8 @@ export default function DashboardPage({
   categoryOverrides = {},
   timerBehavior = { neutralAction: 'ignore', distractingAction: 'ignore' },
   selectedPeriod = 'week',
+  dateOffset = 0,
+  onDateOffsetChange,
   trackingBrowser = '',
   trackerAppMode = 'track',
   tierAssignments = { productive: ['IDE', 'AI Tools', 'Education', 'Productivity', 'Tools'], neutral: ['Browser', 'Communication', 'Design', 'News', 'Uncategorized', 'Other'], distracting: ['Entertainment', 'Social Media', 'Shopping'] },
@@ -215,12 +219,41 @@ export default function DashboardPage({
   const [currentProductiveMs, setCurrentProductiveMs] = useState(persistedTimer.productiveMs);
   const [isPaused, setIsPaused] = useState(persistedTimer.paused);
   const [lastTier, setLastTier] = useState<'productive' | 'neutral' | 'distracting' | null>(persistedTimer.lastTier);
-  const isCurrentlyProductive = lastTier === 'productive' && !isPaused;
+  const isCurrentlyProductive = (() => {
+    if (!lastTier || isPaused) return false;
+    if (lastTier === 'productive') return true;
+    if (lastTier === 'neutral') return timerBehavior.neutralAction === 'ignore';
+    if (lastTier === 'distracting') return timerBehavior.distractingAction === 'ignore';
+    return false;
+  })();
   const isDistracting = lastTier === 'distracting' && !isPaused;
 
   // Stopwatch refs - declared early to avoid TDZ issues
   const stopwatchTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const stopwatchStartRef = useRef<number | null>(null);
+  const stopwatchAccumulatedRef = useRef(0); // tracks accumulated productive ms
+  const stopwatchLastTickRef = useRef(0); // tracks last tick time
+  const stopwatchActiveRef = useRef(false); // is timer actively running
+  const stopwatchPausedRef = useRef(false); // is timer paused
+
+  // Track productivity sessions for saving to database
+  const productivitySessionStartRef = useRef<number | null>(null);
+  const productivitySessionAppRef = useRef<string | null>(null);
+
+  // Track last user interaction (mouse/keyboard) for idle detection
+  const lastInteractionRef = useRef<number>(Date.now());
+
+  // Global interaction listener — detects user activity for idle-aware session tracking
+  useEffect(() => {
+    const update = () => { lastInteractionRef.current = Date.now(); };
+    window.addEventListener('mousemove', update, { passive: true });
+    window.addEventListener('keydown', update, { passive: true });
+    window.addEventListener('click', update, { passive: true });
+    return () => {
+      window.removeEventListener('mousemove', update);
+      window.removeEventListener('keydown', update);
+      window.removeEventListener('click', update);
+    };
+  }, []);
 
   // Persist external stopwatch too
   // FIX: If session is running but start time is missing, recalculate from database
@@ -367,11 +400,8 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     localStorage.setItem('deskflow-activity-feed', JSON.stringify(activityFeed));
   }, [activityFeed]);
   
-  // Sync selectedPeriod from top nav with chart periodOffset
+  // Sync weekOffset for heatmap when selectedPeriod changes
   useEffect(() => {
-    // When top nav period changes, reset periodOffset to 0 to show current period
-    setPeriodOffset(0);
-    // Also sync weekOffset for heatmap
     setWeekOffset(0);
   }, [selectedPeriod]);
   
@@ -379,7 +409,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   useEffect(() => {
     const newState = {
       productiveMs: currentProductiveMs,
-      startTime: stopwatchStartRef.current,
+      startTime: stopwatchLastTickRef.current || Date.now(),
       paused: isPaused,
       lastTier: lastTier,
       externalRunning: externalSessionRunning,
@@ -394,7 +424,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     // Also persist to localStorage as backup
     if (typeof window === 'undefined') return;
     localStorage.setItem('deskflow-timer-state', JSON.stringify(newState));
-  }, [currentProductiveMs, stopwatchStartRef.current, isPaused, lastTier, externalSessionRunning, externalSessionStart, externalElapsedMs, selectedExternalActivity, onTimerStateChange]);
+  }, [currentProductiveMs, isPaused, lastTier, externalSessionRunning, externalSessionStart, externalElapsedMs, selectedExternalActivity, onTimerStateChange]);
 
   // Sync timer state from parent prop (e.g., when ExternalPage starts/stops a stopwatch)
   const prevTimerStateRef = useRef(timerState);
@@ -432,8 +462,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   const [heatmapMode, setHeatmapMode] = useState<'device' | 'external' | 'combined'>('combined');
   const [externalHourlyData, setExternalHourlyData] = useState<Map<string, { externalSeconds: number; breakdown: Record<string, { seconds: number; color: string; icon: string }> }>>(new Map());
   const [weekOffset, setWeekOffset] = useState(0);
-  const [periodOffset, setPeriodOffset] = useState(0);
-  const [chartExternalData, setChartExternalData] = useState<Map<string, number>>(new Map());
+  const [externalSessions, setExternalSessions] = useState<any[]>([]);
   const [expandedModal, setExpandedModal] = useState<'heatmap' | 'solar' | null>(null);
   const [solarFullscreen, setSolarFullscreen] = useState(false);
   const [currentWebsite, setCurrentWebsite] = useState<{ title?: string; url?: string; category?: string } | null>(null);
@@ -457,7 +486,13 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
       try {
         const saved = localStorage.getItem('dashboard-pinned-activities');
         if (saved) {
-          setPinnedActivities(JSON.parse(saved));
+          const parsed: ExternalActivity[] = JSON.parse(saved);
+          if (parsed.some(a => a.name === 'Family Time')) {
+            localStorage.removeItem('dashboard-pinned-activities');
+            setPinnedActivities(DEFAULT_ACTIVITIES.slice(0, 5));
+          } else {
+            setPinnedActivities(parsed);
+          }
         } else {
           setPinnedActivities(DEFAULT_ACTIVITIES.slice(0, 5));
         }
@@ -484,9 +519,16 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   // Determine tier from category
   const getTierFromCategory = (category?: string): 'productive' | 'neutral' | 'distracting' => {
     if (!category) return 'neutral';
-    if (DEFAULT_TIER_ASSIGNMENTS.productive.includes(category)) return 'productive';
-    if (DEFAULT_TIER_ASSIGNMENTS.distracting.includes(category)) return 'distracting';
+    const tiers = tierAssignments || DEFAULT_TIER_ASSIGNMENTS;
+    if (tiers.productive.includes(category)) return 'productive';
+    if (tiers.distracting.includes(category)) return 'distracting';
     return 'neutral';
+  };
+
+  const getProductiveTier = (category?: string) => {
+    if (!category) return false;
+    const tiers = tierAssignments || DEFAULT_TIER_ASSIGNMENTS;
+    return tiers.productive.includes(category);
   };
 
   // Listen for foreground window changes
@@ -501,9 +543,9 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
 window.deskflowAPI.onForegroundChange((data: ForegroundData) => {
       console.log('[Dashboard] Foreground change:', data.app, 'category:', data.category);
       
-      // Check if this is EXACTLY the tracking browser
+      // Check if this is the tracking browser (use includes for .exe suffix)
       const isTrackingBrowser = trackingBrowser && data.app && 
-        data.app.toLowerCase() === trackingBrowser.toLowerCase();
+        data.app.toLowerCase().includes(trackingBrowser.toLowerCase());
       
       console.log('[Dashboard] isTrackingBrowser:', isTrackingBrowser, 'trackingBrowser:', trackingBrowser);
       
@@ -555,6 +597,15 @@ window.deskflowAPI.onForegroundChange((data: ForegroundData) => {
       // Update lastTier so isCurrentlyProductive works
       setLastTier(tier);
       const now = Date.now();
+      
+      // Check if stopwatch should pause/reset for this tier (keep feed in sync)
+      const feedShouldPause = (() => {
+        if (tier === 'productive') return false;
+        if (tier === 'neutral') return timerBehavior.neutralAction === 'pause' || timerBehavior.neutralAction === 'reset';
+        if (tier === 'distracting') return timerBehavior.distractingAction === 'pause' || timerBehavior.distractingAction === 'reset';
+        return true;
+      })();
+      
       const newItem: ActivityFeedItem = {
         id: `${now}-${Math.random().toString(36).substr(2, 9)}`,
         timestamp: new Date(now),
@@ -563,7 +614,7 @@ window.deskflowAPI.onForegroundChange((data: ForegroundData) => {
         name: newAppName,
         category: data.category || 'Unknown',
         tier,
-        isActive: true
+        isActive: !feedShouldPause
       };
       activityFeedRef.current = activityFeedRef.current.map((item) => {
         if (item.isActive) {
@@ -596,6 +647,13 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
           return;
         }
         
+        // Extra guard: skip if extension reports browser not focused
+        // (handles race condition between 2s foreground poll and extension data)
+        if (data.type === 'browser-data' && data.is_browser_focused === false) {
+          console.log('[Dashboard] Skipping - browser not focused per extension');
+          return;
+        }
+        
         console.log('[Dashboard] Processing website:', data.domain);
         
         const websiteTier = getTierFromCategory(data.category || 'Uncategorized');
@@ -614,6 +672,13 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         }
 
         const now = Date.now();
+        // Check if stopwatch would pause for this website tier
+        const browserFeedShouldPause = (() => {
+          if (websiteTier === 'productive') return false;
+          if (websiteTier === 'neutral') return timerBehavior.neutralAction === 'pause' || timerBehavior.neutralAction === 'reset';
+          if (websiteTier === 'distracting') return timerBehavior.distractingAction === 'pause' || timerBehavior.distractingAction === 'reset';
+          return true;
+        })();
         const newItem: ActivityFeedItem = {
           id: `${now}-${Math.random().toString(36).substr(2, 9)}`,
           timestamp: new Date(now),
@@ -622,7 +687,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
           name: newDomain,
           category: data.category || 'Uncategorized',
           tier: websiteTier,
-          isActive: true
+          isActive: !browserFeedShouldPause
         };
         activityFeedRef.current = activityFeedRef.current.map((item) => {
           if (item.isActive) {
@@ -637,7 +702,8 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     });
   }, [isInBrowser, trackingBrowser]);
 
-  // SIMPLE stopwatch - single timer for both productive and external
+  // SIMPLE stopwatch - respects timerBehavior settings for neutral/distracting apps
+  // Uses accumulated pattern: keeps running across app switches, only pauses/resets based on settings
   useEffect(() => {
     // Clear existing timer
     if (stopwatchTimerRef.current) {
@@ -645,44 +711,96 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       stopwatchTimerRef.current = null;
     }
 
-    // Determine what's active
-    const isProductive = (() => {
-      const currentCategory = isInBrowser
-        ? (currentWebsite?.category || lastNonBrowserApp?.category)
-        : currentApp?.category;
-      const tier = getTierFromCategory(currentCategory || '');
-      return tier === 'productive' && !isPaused;
-    })();
-
     const isExternal = externalSessionRunning && externalSessionStart;
 
-    // Nothing active
-    if (!isProductive && !isExternal) {
-      console.log('[Dashboard] Stopwatch: nothing active');
-      stopwatchStartRef.current = null;
+    // Determine current tier
+    const currentCategory = isInBrowser
+      ? (currentWebsite?.category || lastNonBrowserApp?.category)
+      : currentApp?.category;
+    const tier = getTierFromCategory(currentCategory || '');
+
+    // Determine what action to take based on tier and settings
+    const shouldAccumulate = (() => {
+      if (isPaused) return false;
+      if (tier === 'productive') return true;
+      if (tier === 'neutral') {
+        return timerBehavior.neutralAction === 'ignore';
+      }
+      if (tier === 'distracting') {
+        return timerBehavior.distractingAction === 'ignore';
+      }
+      return false;
+    })();
+
+    const shouldPause = (() => {
+      if (isPaused) return true;
+      if (tier === 'productive') return false;
+      if (tier === 'neutral') {
+        return timerBehavior.neutralAction === 'pause';
+      }
+      if (tier === 'distracting') {
+        return timerBehavior.distractingAction === 'pause';
+      }
+      return true; // default: pause for unknown tiers
+    })();
+
+    const shouldReset = (() => {
+      if (tier === 'productive') return false;
+      if (tier === 'neutral') {
+        return timerBehavior.neutralAction === 'reset';
+      }
+      if (tier === 'distracting') {
+        return timerBehavior.distractingAction === 'reset';
+      }
+      return false;
+    })();
+
+    // Handle reset action
+    if (shouldReset) {
+      console.log(`[Dashboard] Stopwatch: ${tier} app detected — RESET`);
+      stopwatchAccumulatedRef.current = 0;
+      stopwatchActiveRef.current = false;
+      stopwatchPausedRef.current = true;
       setCurrentProductiveMs(0);
-      setExternalElapsedMs(0);
       return;
     }
 
-    // Start timer
-    const startTime = isExternal ? externalSessionStart.getTime() : Date.now();
-    stopwatchStartRef.current = startTime;
+    // Handle pause action or nothing active
+    if (shouldPause && !isExternal) {
+      console.log(`[Dashboard] Stopwatch: ${tier} app detected — PAUSE`);
+      stopwatchActiveRef.current = false;
+      stopwatchPausedRef.current = true;
+      return;
+    }
 
-    if (isProductive) {
-      console.log('[Dashboard] Stopwatch: productive STARTED at', new Date(startTime).toLocaleTimeString());
-    } else {
-      console.log('[Dashboard] Stopwatch: external STARTED at', new Date(startTime).toLocaleTimeString());
+    // Resume or start timer
+    const now = Date.now();
+    if (!stopwatchActiveRef.current) {
+      // Was paused/inactive — start fresh from now
+      stopwatchLastTickRef.current = now;
+      stopwatchActiveRef.current = true;
+      stopwatchPausedRef.current = false;
+    }
+
+    if (shouldAccumulate || isExternal) {
+      console.log(`[Dashboard] Stopwatch: ${tier} app — timer RUNNING`);
     }
 
     stopwatchTimerRef.current = setInterval(() => {
-      if (stopwatchStartRef.current) {
-        const elapsed = Date.now() - stopwatchStartRef.current;
-        if (isExternal) {
-          setExternalElapsedMs(elapsed);
-        } else {
-          setCurrentProductiveMs(elapsed);
-        }
+      const tickNow = Date.now();
+      // Don't accumulate during idle periods (no interaction for 5+ minutes)
+      if (tickNow - lastInteractionRef.current > 300000) {
+        stopwatchLastTickRef.current = tickNow;
+        return;
+      }
+      const delta = tickNow - stopwatchLastTickRef.current;
+      stopwatchLastTickRef.current = tickNow;
+      
+      if (isExternal) {
+        setExternalElapsedMs(prev => prev + delta);
+      } else if (shouldAccumulate) {
+        stopwatchAccumulatedRef.current += delta;
+        setCurrentProductiveMs(stopwatchAccumulatedRef.current);
       }
     }, 1000);
 
@@ -692,7 +810,93 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         stopwatchTimerRef.current = null;
       }
     };
-  }, [currentApp, currentWebsite, isInBrowser, lastNonBrowserApp, isPaused, externalSessionRunning, externalSessionStart]);
+  }, [currentApp, currentWebsite, isInBrowser, lastNonBrowserApp, isPaused, externalSessionRunning, externalSessionStart, timerBehavior, tierAssignments]);
+
+  // Track and save productivity sessions — respects timerBehavior settings
+  useEffect(() => {
+    const currentCategory = isInBrowser
+      ? (currentWebsite?.category || lastNonBrowserApp?.category)
+      : currentApp?.category;
+    const tier = getTierFromCategory(currentCategory || '');
+    const appName = currentApp?.app || currentWebsite?.title || 'Unknown';
+
+    // Determine if we should count this as a productive session
+    const shouldCountSession = (() => {
+      if (isPaused) return false;
+      if (tier === 'productive') return true;
+      if (tier === 'neutral') {
+        return timerBehavior.neutralAction === 'ignore';
+      }
+      if (tier === 'distracting') {
+        return timerBehavior.distractingAction === 'ignore';
+      }
+      return false;
+    })();
+
+    if (shouldCountSession) {
+      // Starting/continuing a productive session
+      if (!productivitySessionStartRef.current) {
+        productivitySessionStartRef.current = Date.now();
+        productivitySessionAppRef.current = appName;
+        console.log('[Dashboard] Productivity session started:', appName, `(${tier})`);
+      }
+    } else {
+      // Ending productive session - save to database
+      if (productivitySessionStartRef.current && productivitySessionAppRef.current) {
+        // Clamp end time to last known interaction + 5min to exclude idle periods
+        const effectiveEnd = Math.min(Date.now(), lastInteractionRef.current + 300000);
+        const durationMs = Math.max(0, effectiveEnd - productivitySessionStartRef.current);
+        const durationSec = Math.floor(durationMs / 1000);
+        
+        if (durationSec >= 60) { // Only save sessions longer than 1 minute
+          const session = {
+            started_at: new Date(productivitySessionStartRef.current).toISOString(),
+            ended_at: new Date().toISOString(),
+            duration_seconds: durationSec,
+            app_name: productivitySessionAppRef.current,
+            category: currentCategory || 'Unknown'
+          };
+          
+          if (window.deskflowAPI?.saveProductivitySession) {
+            window.deskflowAPI.saveProductivitySession(session).then(() => {
+              console.log('[Dashboard] Productivity session saved:', productivitySessionAppRef.current, durationSec, 'seconds');
+            }).catch(err => {
+              console.error('[Dashboard] Failed to save productivity session:', err);
+            });
+          }
+        }
+        
+        // Reset session tracking
+        productivitySessionStartRef.current = null;
+        productivitySessionAppRef.current = null;
+      }
+    }
+  }, [currentApp, currentWebsite, isInBrowser, lastNonBrowserApp, isPaused, timerBehavior, tierAssignments]);
+
+  // Periodic session flush — saves every 60s so sessions appear during long productive streaks
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!productivitySessionStartRef.current || !productivitySessionAppRef.current) return;
+      const effectiveEnd = Math.min(Date.now(), lastInteractionRef.current + 300000);
+      const durationMs = Math.max(0, effectiveEnd - productivitySessionStartRef.current);
+      const durationSec = Math.floor(durationMs / 1000);
+      if (durationSec < 60) return;
+      const session = {
+        started_at: new Date(productivitySessionStartRef.current).toISOString(),
+        ended_at: new Date().toISOString(),
+        duration_seconds: durationSec,
+        app_name: productivitySessionAppRef.current,
+        category: ''
+      };
+      if (window.deskflowAPI?.saveProductivitySession) {
+        window.deskflowAPI.saveProductivitySession(session).then(() => {
+          console.log('[Dashboard] Periodic session flush:', durationSec, 'seconds');
+        }).catch(() => {});
+      }
+      productivitySessionStartRef.current = Date.now();
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // External activity manual stopwatch
   useEffect(() => {
@@ -764,196 +968,264 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     loadExternalData();
   }, [weekOffset]);
 
-  // Load external data for Weekly Productivity chart based on selectedPeriod + periodOffset
+  // Load all external sessions once (used by chart aggregation below)
   useEffect(() => {
     if (!window.deskflowAPI?.getExternalSessions) return;
-    const computePeriodRange = () => {
-      const now = new Date();
-      if (selectedPeriod === 'today') {
-        const d = new Date(now);
-        d.setDate(d.getDate() - periodOffset);
-        d.setHours(0, 0, 0, 0);
-        const start = new Date(d);
-        const end = new Date(d);
-        end.setHours(23, 59, 59, 999);
-        return { start, end, label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
-      } else if (selectedPeriod === 'week') {
-        const currentWeekStart = new Date(now);
-        currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
-        currentWeekStart.setHours(0, 0, 0, 0);
-        const targetWeekStart = new Date(currentWeekStart.getTime() - (periodOffset * 7 * 24 * 60 * 60 * 1000));
-        const targetWeekEnd = new Date(targetWeekStart.getTime() + (7 * 24 * 60 * 60 * 1000) - 1);
-        const label = `${targetWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${targetWeekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-        return { start: targetWeekStart, end: targetWeekEnd, label };
-      } else if (selectedPeriod === 'month') {
-        const targetMonth = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
-        const start = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1);
-        const end = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0, 23, 59, 59, 999);
-        const label = targetMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        return { start, end, label };
+    window.deskflowAPI.getExternalSessions('all').then(setExternalSessions).catch(err => console.error('[Dashboard] Error loading external sessions:', err));
+  }, []);
+
+  const computeChartDateRange = (period: string, offset: number): { start: Date; end: Date; label: string } =>
+    getDateRange(period, offset);
+
+  // ── Helper: get unique bucket key for a timestamp + period ──
+  const getChartDateKey = (() => {
+    return (timestamp: Date, period: string): string => {
+      switch (period) {
+        case 'today': return `${timestamp.getHours()}`;
+        case 'week':
+        case 'month': return `${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, '0')}-${String(timestamp.getDate()).padStart(2, '0')}`;
+        case 'all': return `${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, '0')}`;
+        default: return `${timestamp.getHours()}`;
       }
-      // 'all' - no range limit
-      return { start: new Date(0), end: new Date(), label: 'All Time' };
     };
-    const { start: periodStart, end: periodEnd } = computePeriodRange();
-    window.deskflowAPI.getExternalSessions('all').then((sessions: any[]) => {
-      const newChartExternal = new Map<string, number>();
-      (sessions || []).forEach((session: any) => {
-        const sStart = new Date(session.started_at).getTime();
-        const sEnd = session.ended_at ? new Date(session.ended_at).getTime() : Date.now();
-        if (sStart >= periodEnd.getTime() || sEnd < periodStart.getTime()) return;
-        let cur = sStart;
-        while (cur < sEnd) {
+  })();
+
+  // ── Layer 1: Aggregate external sessions with hourly segmentation (like heatmap) ──
+  const chartExternalData = useMemo(() => {
+    const data = new Map<string, number>();
+    if (!externalSessions || externalSessions.length === 0) return data;
+
+    const range = computeChartDateRange(selectedPeriod, dateOffset);
+
+    for (const session of externalSessions) {
+      const sStart = new Date(session.started_at).getTime();
+      const sEnd = session.ended_at ? new Date(session.ended_at).getTime() : Date.now();
+      if (sStart >= range.end || sEnd < range.start) continue;
+
+      let cur = Math.max(sStart, range.start.getTime());
+      const ceiling = Math.min(sEnd, range.end.getTime());
+      let iterations = 0;
+      while (cur < ceiling && iterations < 10000) {
+        iterations++;
+        const hourFloor = Math.floor(cur / 3600000) * 3600000;
+        const hourEndMs = hourFloor + 3600000;
+        const segEnd = Math.min(ceiling, hourEndMs);
+        const segSec = (segEnd - cur) / 1000;
+        if (segSec > 0) {
           const d = new Date(cur);
-          if (d >= periodStart && d < periodEnd) {
-            let key;
-            if (selectedPeriod === 'today') {
-              key = `${d.getHours()}`;
-            } else if (selectedPeriod === 'week') {
-              key = `${d.getDay()}`;
-            } else if (selectedPeriod === 'month') {
-              key = `${d.getDate()}`;
-            } else {
-              key = `${d.toISOString().slice(0, 10)}`;
-            }
-            const hourStart = d.getTime();
-            const hourEnd = hourStart + 3600000;
-            const segStart = Math.max(cur, hourStart);
-            const segEnd = Math.min(sEnd, hourEnd);
-            const segSec = Math.max(0, (segEnd - segStart) / 1000);
-            if (segSec > 0) {
-              newChartExternal.set(key, (newChartExternal.get(key) || 0) + segSec);
-            }
-          }
-          cur = d.getTime() + (3600000 - (d.getTime() % 3600000));
+          const hourKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getHours()}`;
+          const existing = data.get(hourKey) || 0;
+          data.set(hourKey, Math.min(existing + segSec, 3600));
         }
-      });
-      setChartExternalData(newChartExternal);
-    }).catch(err => console.error('[Dashboard] Error loading chart external data:', err));
-  }, [selectedPeriod, periodOffset]);
-
-  // Compute chart bars based on selectedPeriod + periodOffset
-  const [chartBarsResult, setChartBarsResult] = useState<{ chartBars: { label: string; deviceSeconds: number; externalSeconds: number; isToday?: boolean }[]; maxBarSeconds: number }>({ chartBars: [], maxBarSeconds: 1 });
-
-  useEffect(() => {
-    if (!selectedPeriod || !chartExternalData) {
-      setChartBarsResult({ chartBars: [], maxBarSeconds: 1 });
-      return;
+        cur = segEnd;
+      }
     }
 
-    const logs = allLogs || [];
-    const now = new Date();
-    let bars: { label: string; deviceSeconds: number; externalSeconds: number; isToday?: boolean }[] = [];
+    const finalData = new Map<string, number>();
+    for (const [hourKey, sec] of data) {
+      const parts = hourKey.split('-');
+      const dateStr = `${parts[0]}-${parts[1]}-${parts[2]}`;
+      const hour = parseInt(parts[3]);
+      let key: string;
+      if (selectedPeriod === 'today') key = `${hour}`;
+      else if (selectedPeriod === 'week' || selectedPeriod === 'month') key = dateStr;
+      else key = `${parts[0]}-${parts[1]}`;
+      finalData.set(key, (finalData.get(key) || 0) + sec);
+    }
+
+    return finalData;
+  }, [externalSessions, selectedPeriod, dateOffset]);
+
+  // ── Layer 1: Aggregate internal logs with hourly segmentation (like heatmap) ──
+  const chartInternalData = useMemo(() => {
+    const productive = new Map<string, number>();
+    const nonProductive = new Map<string, number>();
+    if (!allLogs || allLogs.length === 0) return { productive, nonProductive };
+
+    const range = computeChartDateRange(selectedPeriod, dateOffset);
+
+    const addLog = (startMs: number, durationSec: number, category: string) => {
+      const endMs = startMs + durationSec * 1000;
+      let cur = Math.max(startMs, range.start.getTime());
+      const ceiling = Math.min(endMs, range.end.getTime());
+      let iterations = 0;
+      while (cur < ceiling && iterations < 100000) {
+        iterations++;
+        const hourFloor = Math.floor(cur / 3600000) * 3600000;
+        const hourEndMs = hourFloor + 3600000;
+        const segEnd = Math.min(ceiling, hourEndMs);
+        const segSec = (segEnd - cur) / 1000;
+        if (segSec > 0) {
+          const d = new Date(cur);
+          const hourKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getHours()}`;
+          const target = getProductiveTier(category) ? productive : nonProductive;
+          const existing = target.get(hourKey) || 0;
+          target.set(hourKey, Math.min(existing + segSec, 3600));
+        }
+        cur = segEnd;
+      }
+    };
+
+    for (const log of allLogs) {
+      const logDate = new Date(log.timestamp);
+      if (logDate >= range.end) continue;
+      const durationSec = (log.duration_ms || ((log.duration || 0) * 1000)) / 1000;
+      addLog(logDate.getTime(), durationSec, log.category || '');
+    }
+
+    const prodFinal = new Map<string, number>();
+    const nonProdFinal = new Map<string, number>();
+
+    for (const [hourKey, sec] of productive) {
+      const parts = hourKey.split('-');
+      const dateStr = `${parts[0]}-${parts[1]}-${parts[2]}`;
+      const hour = parseInt(parts[3]);
+      let key: string;
+      if (selectedPeriod === 'today') key = `${hour}`;
+      else if (selectedPeriod === 'week' || selectedPeriod === 'month') key = dateStr;
+      else key = `${parts[0]}-${parts[1]}`;
+      prodFinal.set(key, (prodFinal.get(key) || 0) + sec);
+    }
+
+    for (const [hourKey, sec] of nonProductive) {
+      const parts = hourKey.split('-');
+      const dateStr = `${parts[0]}-${parts[1]}-${parts[2]}`;
+      const hour = parseInt(parts[3]);
+      let key: string;
+      if (selectedPeriod === 'today') key = `${hour}`;
+      else if (selectedPeriod === 'week' || selectedPeriod === 'month') key = dateStr;
+      else key = `${parts[0]}-${parts[1]}`;
+      nonProdFinal.set(key, (nonProdFinal.get(key) || 0) + sec);
+    }
+
+    return { productive: prodFinal, nonProductive: nonProdFinal };
+  }, [allLogs, selectedPeriod, dateOffset, tierAssignments]);
+
+  // ── Layer 2: Generate buckets + merge internal + external ──
+  const chartBarsResult = useMemo(() => {
+    const range = computeChartDateRange(selectedPeriod, dateOffset);
+    const bars: { label: string; productiveSeconds: number; nonProductiveSeconds: number; externalSeconds: number; isToday?: boolean }[] = [];
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const now = new Date();
 
-  if (selectedPeriod === 'today') {
-      // Show 24 hours for target date - compute from allLogs
-      const targetDate = new Date(now);
-      targetDate.setDate(targetDate.getDate() - periodOffset);
-      targetDate.setHours(0, 0, 0, 0);
-
-      for (let h = 0; h < 24; h++) {
-        const hourStart = new Date(targetDate);
-        hourStart.setHours(h);
-        const hourEnd = new Date(hourStart);
-        hourEnd.setHours(h + 1);
-
-        const deviceSec = logs
-          .filter(l => l.timestamp >= hourStart && l.timestamp < hourEnd)
-          .reduce((s, l) => s + (l.duration_ms || ((l.duration || 0) * 1000)), 0) / 1000;
-
-        const extSec = chartExternalData.get(`${h}`) || 0;
-        bars.push({ label: `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`, deviceSeconds: deviceSec, externalSeconds: extSec });
+    switch (selectedPeriod) {
+      case 'today': {
+        for (let h = 0; h < 24; h++) {
+          const key = `${h}`;
+          let prodSec = Math.min(chartInternalData.productive.get(key) || 0, 3600);
+          let nonProdSec = Math.min(chartInternalData.nonProductive.get(key) || 0, 3600);
+          let extSec = Math.min(chartExternalData.get(key) || 0, 3600);
+          const totalSec = prodSec + nonProdSec + extSec;
+          if (totalSec > 3600) {
+            const scale = 3600 / totalSec;
+            prodSec = Math.round(prodSec * scale);
+            nonProdSec = Math.round(nonProdSec * scale);
+            extSec = Math.round(extSec * scale);
+          }
+          bars.push({
+            label: h === 0 ? '12a' : h === 12 ? '12p' : h < 12 ? `${h}a` : `${h - 12}p`,
+            productiveSeconds: prodSec,
+            nonProductiveSeconds: nonProdSec,
+            externalSeconds: extSec,
+            isToday: now >= range.start && now < range.end && now.getHours() === h,
+          });
+        }
+        break;
       }
-    } else if (selectedPeriod === 'week') {
-      // Show 7 days for target week (offset goes back in time)
-      const currentWeekStart = new Date(now);
-      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
-      currentWeekStart.setHours(0, 0, 0, 0);
-      const targetWeekStart = new Date(currentWeekStart.getTime() - (periodOffset * 7 * 24 * 60 * 60 * 1000));
-
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(targetWeekStart);
-        d.setDate(d.getDate() + i);
-        const dayNum = d.getDay();
-        const dayStart = new Date(d);
-        const dayEnd = new Date(d);
-        dayEnd.setHours(23, 59, 59, 999);
-
-        // Device seconds from allLogs
-        const deviceSec = logs
-          .filter(l => l.timestamp >= dayStart && l.timestamp <= dayEnd)
-          .reduce((s, l) => s + (l.duration_ms || ((l.duration || 0) * 1000)), 0) / 1000;
-
-        // External seconds from chartExternalData
-        const extSec = chartExternalData.get(`${dayNum}`) || 0;
-
-        const isToday = periodOffset === 0 && dayNum === now.getDay();
-        bars.push({ label: dayNames[dayNum], deviceSeconds: deviceSec, externalSeconds: extSec, isToday });
+      case 'week': {
+        for (let i = 0; i < 7; i++) {
+          const dayDate = new Date(range.start);
+          dayDate.setDate(dayDate.getDate() + i);
+          const key = getChartDateKey(dayDate, 'week');
+          const prodSec = chartInternalData.productive.get(key) || 0;
+          const nonProdSec = chartInternalData.nonProductive.get(key) || 0;
+          const extSec = chartExternalData.get(key) || 0;
+          bars.push({
+            label: dayNames[dayDate.getDay()],
+            productiveSeconds: prodSec,
+            nonProductiveSeconds: nonProdSec,
+            externalSeconds: extSec,
+            isToday: dayDate.getFullYear() === now.getFullYear() && dayDate.getMonth() === now.getMonth() && dayDate.getDate() === now.getDate(),
+          });
+        }
+        break;
       }
-    } else if (selectedPeriod === 'month') {
-      // Show days for target month (offset goes back in time)
-      const targetMonth = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
-      const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        const d = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), day);
-        const dayStart = new Date(d);
-        const dayEnd = new Date(d);
-        dayEnd.setHours(23, 59, 59, 999);
-
-        const deviceSec = logs
-          .filter(l => l.timestamp >= dayStart && l.timestamp <= dayEnd)
-          .reduce((s, l) => s + (l.duration_ms || ((l.duration || 0) * 1000)), 0) / 1000;
-
-        const key = `${d.getDate()}`;
-        const extSec = chartExternalData.get(key) || 0;
-        bars.push({ label: `${day}`, deviceSeconds: deviceSec, externalSeconds: extSec });
+      case 'month': {
+        const current = new Date(range.start);
+        while (current < range.end) {
+          const key = getChartDateKey(current, 'month');
+          const prodSec = chartInternalData.productive.get(key) || 0;
+          const nonProdSec = chartInternalData.nonProductive.get(key) || 0;
+          const extSec = chartExternalData.get(key) || 0;
+          bars.push({
+            label: `${current.getDate()}`,
+            productiveSeconds: prodSec,
+            nonProductiveSeconds: nonProdSec,
+            externalSeconds: extSec,
+            isToday: current.getFullYear() === now.getFullYear() && current.getMonth() === now.getMonth() && current.getDate() === now.getDate(),
+          });
+          current.setDate(current.getDate() + 1);
+        }
+        break;
       }
-    } else {
-      // 'all' - Show monthly totals
-      const monthMap: Record<string, { device: number; external: number }> = {};
-
-      logs.forEach(l => {
-        const key = `${l.timestamp.getFullYear()}-${l.timestamp.getMonth() + 1}`;
-        if (!monthMap[key]) monthMap[key] = { device: 0, external: 0 };
-        monthMap[key].device += (l.duration_ms || ((l.duration || 0) * 1000)) / 1000;
-      });
-
-      chartExternalData.forEach((sec, key) => {
-        if (!monthMap[key]) monthMap[key] = { device: 0, external: 0 };
-        monthMap[key].external += sec;
-      });
-
-      Object.entries(monthMap).sort(([a], [b]) => a.localeCompare(b)).forEach(([key, val]) => {
-        const [yr, mo] = key.split('-');
-        bars.push({
-          label: new Date(parseInt(yr), parseInt(mo) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-          deviceSeconds: val.device,
-          externalSeconds: val.external
-        });
-      });
+      case 'all': {
+        const current = new Date(range.start);
+        let lastKey = '';
+        while (current < range.end) {
+          const key = getChartDateKey(current, 'all');
+          if (key !== lastKey) {
+            const prodSec = chartInternalData.productive.get(key) || 0;
+            const nonProdSec = chartInternalData.nonProductive.get(key) || 0;
+            const extSec = chartExternalData.get(key) || 0;
+            bars.push({
+              label: current.toLocaleDateString([], { month: 'short', year: '2-digit' }),
+              productiveSeconds: prodSec,
+              nonProductiveSeconds: nonProdSec,
+              externalSeconds: extSec,
+              isToday: current.getFullYear() === now.getFullYear() && current.getMonth() === now.getMonth(),
+            });
+            lastKey = key;
+          }
+          current.setMonth(current.getMonth() + 1);
+        }
+        break;
+      }
     }
 
-    const max = Math.max(1, ...bars.map(b => b.deviceSeconds + b.externalSeconds));
-    setChartBarsResult({ chartBars: bars, maxBarSeconds: max });
-  }, [selectedPeriod, periodOffset, chartExternalData, allLogs]);
+    const max = Math.max(1, ...bars.map(b => b.productiveSeconds + b.nonProductiveSeconds + b.externalSeconds));
+    return { chartBars: bars, maxBarSeconds: max };
+  }, [chartInternalData, chartExternalData, selectedPeriod, dateOffset]);
 
   // Y-axis tick computation for productivity chart
   const yAxisTicks = useMemo(() => {
     const maxHours = chartBarsResult.maxBarSeconds / 3600;
-    const niceSteps = [1, 2, 4, 6, 8, 10, 12, 16, 20, 24];
-    const niceMax = niceSteps.find(s => s >= maxHours) || Math.ceil(maxHours / 4) * 4;
     const tickCount = 4;
     const ticks: number[] = [];
+
+    let niceMax: number;
+    if (selectedPeriod === 'all') {
+      // Monthly totals can exceed 24h — auto-scale
+      if (maxHours <= 24) {
+        niceMax = Math.ceil(maxHours / 4) * 4 || 4;
+      } else if (maxHours <= 100) {
+        niceMax = Math.ceil(maxHours / 20) * 20 || 20;
+      } else {
+        niceMax = Math.ceil(maxHours / 50) * 50 || 50;
+      }
+    } else if (selectedPeriod === 'today') {
+      niceMax = 1; // Max 1h per hour slot
+    } else {
+      const niceSteps = [1, 2, 4, 6, 8, 10, 12, 16, 20, 24];
+      const rawMax = niceSteps.find(s => s >= maxHours) || Math.ceil(maxHours / 4) * 4;
+      niceMax = Math.min(rawMax, 24);
+    }
+
     const step = niceMax / tickCount;
     for (let i = 0; i <= tickCount; i++) {
       ticks.push(Math.round(step * i * 10) / 10);
     }
     return { ticks, niceMax, step };
-  }, [chartBarsResult.maxBarSeconds]);
-
-  const maxBarHeight = useMemo(() => selectedPeriod === 'month' || selectedPeriod === 'all' ? 200 : 160, [selectedPeriod]);
+  }, [chartBarsResult.maxBarSeconds, selectedPeriod]);
 
   // External activity stopwatch - adaptive: shows external activity if running
   const stopwatchIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1742,43 +2014,20 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     );
   };
 
-// Compute website data from allLogs (filtered by selectedPeriod + periodOffset)
+// Compute website data from allLogs (filtered by selectedPeriod + dateOffset)
   const computedWebsiteData = useMemo(() => {
     const websiteUsage: Record<string, number> = {};
 
-    // Filter logs by selectedPeriod + periodOffset (same as chart)
-    const now = new Date();
-    let targetStart: Date;
-    let targetEnd: Date;
-
-    if (selectedPeriod === 'today') {
-      targetStart = new Date(now);
-      targetStart.setDate(targetStart.getDate() - periodOffset);
-      targetStart.setHours(0, 0, 0, 0);
-      targetEnd = new Date(targetStart);
-      targetEnd.setHours(23, 59, 59, 999);
-    } else if (selectedPeriod === 'week') {
-      const currentWeekStart = new Date(now);
-      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
-      currentWeekStart.setHours(0, 0, 0, 0);
-      targetStart = new Date(currentWeekStart.getTime() - (periodOffset * 7 * 24 * 60 * 60 * 1000));
-      targetEnd = new Date(targetStart.getTime() + (7 * 24 * 60 * 60 * 1000) - 1);
-    } else if (selectedPeriod === 'month') {
-      targetStart = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
-      targetEnd = new Date(targetStart.getFullYear(), targetStart.getMonth() + 1, 0, 23, 59, 59, 999);
-    } else {
-      // 'all' - no filter
-      targetStart = new Date(0);
-      targetEnd = new Date();
-    }
+    const range = selectedPeriod === 'all'
+      ? { start: new Date(0), end: new Date() }
+      : getDateRange(selectedPeriod, dateOffset);
 
     const filteredLogs = allLogs.filter(log => {
       const logTime = log.timestamp.getTime();
-      return logTime >= targetStart.getTime() && logTime <= targetEnd.getTime();
+      return logTime >= range.start.getTime() && logTime < range.end.getTime();
     });
 
     filteredLogs.forEach((log: any) => {
-      // Only browser logs
       if (!log.is_browser_tracking) return;
       const domain = log.domain || log.url || log.app || 'Unknown';
       const durationMs = log.duration_ms || ((log.duration || 0) * 1000);
@@ -1791,47 +2040,24 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     return Object.entries(websiteUsage)
       .map(([name, usage_ms]) => ({ name, usage_ms, category: 'Website' }))
       .sort((a, b) => b.usage_ms - a.usage_ms);
-  }, [allLogs, selectedPeriod, periodOffset]);
+  }, [allLogs, selectedPeriod, dateOffset]);
 
-  // Compute real solar system data from allLogs (filtered by selectedPeriod + periodOffset)
+  // Compute real solar system data from allLogs (filtered by selectedPeriod + dateOffset)
   const computedSolarData = useMemo(() => {
     const appUsage: Record<string, number> = {};
     const selectedBrowser = trackingBrowser?.toLowerCase() || '';
 
-    // Filter logs by selectedPeriod + periodOffset (same as chart)
-    const now = new Date();
-    let targetStart: Date;
-    let targetEnd: Date;
-
-    if (selectedPeriod === 'today') {
-      targetStart = new Date(now);
-      targetStart.setDate(targetStart.getDate() - periodOffset);
-      targetStart.setHours(0, 0, 0, 0);
-      targetEnd = new Date(targetStart);
-      targetEnd.setHours(23, 59, 59, 999);
-    } else if (selectedPeriod === 'week') {
-      const currentWeekStart = new Date(now);
-      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
-      currentWeekStart.setHours(0, 0, 0, 0);
-      targetStart = new Date(currentWeekStart.getTime() - (periodOffset * 7 * 24 * 60 * 60 * 1000));
-      targetEnd = new Date(targetStart.getTime() + (7 * 24 * 60 * 60 * 1000) - 1);
-    } else if (selectedPeriod === 'month') {
-      targetStart = new Date(now.getFullYear(), now.getMonth() - periodOffset, 1);
-      targetEnd = new Date(targetStart.getFullYear(), targetStart.getMonth() + 1, 0, 23, 59, 59, 999);
-    } else {
-      // 'all' - no filter
-      targetStart = new Date(0);
-      targetEnd = new Date();
-    }
+    const range = selectedPeriod === 'all'
+      ? { start: new Date(0), end: new Date() }
+      : getDateRange(selectedPeriod, dateOffset);
 
     const filteredLogs = allLogs.filter(log => {
       const logTime = log.timestamp.getTime();
-      return logTime >= targetStart.getTime() && logTime <= targetEnd.getTime();
+      return logTime >= range.start.getTime() && logTime < range.end.getTime();
     });
 
     filteredLogs.forEach((log: any) => {
       if (!log.app) return;
-      // Skip browser tracking logs
       if (log.is_browser_tracking) return;
       const appLower = (log.app || '').toLowerCase();
       if (selectedBrowser && appLower.includes(selectedBrowser)) return;
@@ -1845,7 +2071,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     return Object.entries(appUsage)
       .map(([name, usage_ms]) => ({ name, usage_ms, category: 'App' }))
       .sort((a, b) => b.usage_ms - a.usage_ms);
-  }, [allLogs, selectedPeriod, periodOffset]);
+  }, [allLogs, selectedPeriod, dateOffset, trackingBrowser]);
 
   // Toggle for App/Website view in solar system
   const [solarMode, setSolarMode] = useState<'apps' | 'websites'>('apps');
@@ -1858,7 +2084,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     { name: 'Antigravity', usage_ms: 1800000, category: 'IDE' },
   ];
 
-  // Use computed data based on selectedPeriod + periodOffset (same as chart)
+  // Use computed data based on selectedPeriod + dateOffset (same as chart)
   const solar = solarMode === 'websites'
     ? (allLogs.length > 0 ? computedWebsiteData : defaultSolarData)
     : (allLogs.length > 0 ? computedSolarData : defaultSolarData);
@@ -2079,7 +2305,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                           ? '#ef4444'  // Red for distracting
                           : isCurrentlyProductive 
                             ? '#10b981'  // Green for productive
-                            : '#6b7280'  // Gray for idle
+                            : '#3b82f6'  // Blue for neutral/idle
                     }}
                   />
                  <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
@@ -2110,13 +2336,15 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                         ? '#ef4444'  // Red for distracting
                         : isCurrentlyProductive 
                           ? '#10b981'  // Green for productive
-                          : '#9ca3af',  // Gray for idle
+                          : '#3b82f6',  // Blue for neutral/idle
                     textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isDistracting) 
                       ? (displayTime.label.includes('External') 
                         ? '0 0 30px rgba(139, 92, 246, 0.3)' 
                         : isDistracting 
                           ? '0 0 30px rgba(239, 68, 68, 0.3)' 
-                          : '0 0 30px rgba(16, 185, 129, 0.3)') 
+                          : isCurrentlyProductive
+                            ? '0 0 30px rgba(16, 185, 129, 0.3)'
+                            : '0 0 30px rgba(59, 130, 246, 0.3)') 
                       : 'none',
                     letterSpacing: '-0.02em'
                   }}
@@ -2514,9 +2742,167 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                  </motion.div>
                </motion.div>
              )}
-           </AnimatePresence>
+</AnimatePresence>
 
-           {/* Two-Column Stats Section */}
+            {/* ══════════════════════════════════════════════════════════════
+                 PRODUCTIVITY SESSIONS - Best Time, History, Ranking
+                 ══════════════════════════════════════════════════════════════ */}
+              {(() => {
+                const [sessionsData, setSessionsData] = useState<{ sessions: any[]; stats: { todayBest: number; weekBest: number; allTimeBest: number; todayTotal: number; weekTotal: number; longestStreak: number } }>({ sessions: [], stats: { todayBest: 0, weekBest: 0, allTimeBest: 0, todayTotal: 0, weekTotal: 0, longestStreak: 0 } });
+                const [minDuration, setMinDuration] = useState(300);
+                const [sessionsExpanded, setSessionsExpanded] = useState(false);
+                const [fetchKey, setFetchKey] = useState(0);
+
+                const fetchSessions = useCallback(() => {
+                  if (!window.deskflowAPI?.getProductivitySessions) return;
+                  window.deskflowAPI.getProductivitySessions({ period: selectedPeriod, minDuration }).then((data: any) => {
+                    setSessionsData(data || { sessions: [], stats: { todayBest: 0, weekBest: 0, allTimeBest: 0, todayTotal: 0, weekTotal: 0, longestStreak: 0 } });
+                  }).catch(() => {});
+                }, [selectedPeriod, minDuration]);
+
+                // Clear old inflated session data once, then refresh
+                useEffect(() => {
+                  if (window.deskflowAPI?.clearProductivitySessions) {
+                    window.deskflowAPI.clearProductivitySessions().then(() => {
+                      setFetchKey(k => k + 1);
+                    }).catch(() => {});
+                  }
+                }, []);
+
+                // Re-fetch when deps or fetchKey change
+                useEffect(() => {
+                  fetchSessions();
+                }, [fetchSessions, fetchKey]);
+
+                // Auto-refresh every 5s so new sessions appear without manual reload
+                useEffect(() => {
+                  const interval = setInterval(() => setFetchKey(k => k + 1), 5000);
+                  return () => clearInterval(interval);
+                }, []);
+
+              const fmtSec = (sec: number) => {
+                const h = Math.floor(sec / 3600);
+                const m = Math.floor((sec % 3600) / 60);
+                const s = sec % 60;
+                if (h > 0) return `${h}h ${m}m`;
+                if (m > 0) return `${m}m ${s}s`;
+                return `${s}s`;
+              };
+
+              const { stats } = sessionsData;
+
+              return (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.23 }}
+                  className="rounded-2xl p-8 border backdrop-blur-sm mb-8"
+                  style={{ backgroundColor: 'rgba(10, 10, 10, 0.8)', borderColor: 'rgba(16, 185, 129, 0.2)' }}
+                >
+                  <div className="space-y-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: '#10b981' }}>Focus Sessions</h2>
+                        <p className="text-xs text-zinc-500 mt-1">Your best productivity times</p>
+                      </div>
+                      <button
+                        onClick={() => setSessionsExpanded(!sessionsExpanded)}
+                        className="text-xs px-3 py-1 rounded-lg border transition-colors"
+                        style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)', color: '#10b981' }}
+                      >
+                        {sessionsExpanded ? 'Hide' : 'Show'} History
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="rounded-xl p-4 text-center border" style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: 'rgba(16, 185, 129, 0.2)' }}>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Best Today</div>
+                        <div className="text-2xl font-bold" style={{ color: '#10b981' }}>{fmtSec(stats.todayBest)}</div>
+                        <div className="text-[10px] text-zinc-600 mt-1">of {fmtSec(stats.todayTotal)} total</div>
+                      </div>
+                      <div className="rounded-xl p-4 text-center border" style={{ backgroundColor: 'rgba(234, 179, 8, 0.05)', borderColor: 'rgba(234, 179, 8, 0.2)' }}>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Best This Week</div>
+                        <div className="text-2xl font-bold" style={{ color: '#eab308' }}>{fmtSec(stats.weekBest)}</div>
+                        <div className="text-[10px] text-zinc-600 mt-1">of {fmtSec(stats.weekTotal)} total</div>
+                      </div>
+                      <div className="rounded-xl p-4 text-center border" style={{ backgroundColor: 'rgba(168, 85, 247, 0.05)', borderColor: 'rgba(168, 85, 247, 0.2)' }}>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">All-Time PB</div>
+                        <div className="text-2xl font-bold" style={{ color: '#a855f7' }}>{fmtSec(stats.allTimeBest)}</div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-zinc-500">Min:</span>
+                        <input
+                          type="range"
+                          min={60}
+                          max={3600}
+                          step={60}
+                          value={minDuration}
+                          onChange={e => setMinDuration(parseInt(e.target.value))}
+                          className="w-24 h-1 rounded-lg appearance-none cursor-pointer"
+                          style={{ accentColor: '#10b981' }}
+                        />
+                        <span className="text-xs" style={{ color: '#10b981' }}>{fmtSec(minDuration)}</span>
+                      </div>
+                    </div>
+
+                    {sessionsExpanded && (
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {sessionsData.sessions.length === 0 ? (
+                          <div className="text-center py-6 text-zinc-500 text-sm">
+                            No sessions found. Start working in a productive app to build your focus history.
+                          </div>
+                        ) : (
+                          sessionsData.sessions.map((sess: any, idx: number) => {
+                            const rank = idx + 1;
+                            const isGold = rank === 1;
+                            const isSilver = rank === 2;
+                            const isBronze = rank === 3;
+                            const started = new Date(sess.started_at);
+                            const timeStr = started.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                            const dateStr = started.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+                            return (
+                              <div
+                                key={sess.id || idx}
+                                className="flex items-center gap-3 p-3 rounded-lg border transition-colors"
+                                style={{
+                                  backgroundColor: isGold ? 'rgba(234, 179, 8, 0.08)' : isSilver ? 'rgba(148, 163, 184, 0.08)' : isBronze ? 'rgba(180, 83, 9, 0.08)' : 'rgba(107, 114, 128, 0.05)',
+                                  borderColor: isGold ? 'rgba(234, 179, 8, 0.3)' : isSilver ? 'rgba(148, 163, 184, 0.3)' : isBronze ? 'rgba(180, 83, 9, 0.3)' : 'rgba(107, 114, 128, 0.15)'
+                                }}
+                              >
+                                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                                  isGold ? 'text-amber-400' : isSilver ? 'text-zinc-400' : isBronze ? 'text-orange-400' : 'text-zinc-600'
+                                }`} style={{
+                                  backgroundColor: isGold ? 'rgba(234, 179, 8, 0.15)' : isSilver ? 'rgba(148, 163, 184, 0.15)' : isBronze ? 'rgba(180, 83, 9, 0.15)' : 'rgba(107, 114, 128, 0.1)'
+                                }}>
+                                  {rank}
+                                </div>
+                                <div className="flex-1">
+                                  <div className="text-sm font-semibold text-white">{fmtSec(sess.duration_seconds)}</div>
+                                  <div className="text-xs text-zinc-500">{dateStr} · {timeStr}{sess.app_name ? ` · ${sess.app_name}` : ''}</div>
+                                </div>
+                                {rank <= 3 && (
+                                  <div className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                    isGold ? 'text-amber-400' : isSilver ? 'text-zinc-300' : 'text-orange-400'
+                                  }`} style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
+                                    Top {rank}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })()}
+
+            {/* Two-Column Stats Section */}
            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
               {/* Weekly Heatmap */}
               <motion.div
@@ -2529,185 +2915,141 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                   borderColor: 'rgba(107, 114, 128, 0.2)'
                 }}
                >
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Weekly Productivity</h2>
-                        <p className="text-xs text-zinc-600 mt-1">App + External Activity</p>
-                      </div>
-                      <button
-                        onClick={() => setExpandedModal('heatmap')}
-                        className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 hover:text-white transition-colors border border-zinc-700 hover:border-zinc-600"
-                      >
-                        View Heatmap
-                      </button>
-                      <div className="flex items-center gap-3">
-                       {/* Period navigation */}
-                       <button
-                         onClick={() => setPeriodOffset(o => o + 1)}
-                         className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white transition"
-                         title="Previous period"
-                       >
-                         <ChevronLeft className="w-4 h-4" />
-                       </button>
-                       <button
-                         onClick={() => setPeriodOffset(0)}
-                         className="px-2 py-0.5 text-xs rounded hover:bg-zinc-800 text-zinc-500 hover:text-white transition"
-                       >
-                         Today
-                       </button>
-                       <button
-                         onClick={() => setPeriodOffset(o => Math.max(o - 1, 0))}
-                         disabled={periodOffset <= 0}
-                         className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed"
-                         title="Next period"
-                       >
-                         <ChevronRight className="w-4 h-4" />
-                       </button>
-                       <div className="text-right ml-2">
-                         <div className="text-xs text-zinc-500">
-                           {periodOffset === 0 && selectedPeriod === 'today' ? 'Today' : 
-                            periodOffset === 0 && selectedPeriod === 'week' ? 'This Week' : 
-                            periodOffset === 0 && selectedPeriod === 'month' ? 'This Month' :
-                            periodOffset === 0 && selectedPeriod === 'all' ? 'All Time' :
-                            periodOffset > 0 ? `${selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'Week' : selectedPeriod === 'month' ? 'Month' : 'Period'} -${periodOffset}` :
-                            selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === 'month' ? 'This Month' : 'All Time'}
-                         </div>
-                         <div className="text-lg font-bold text-emerald-400">
-                           {chartBarsResult.chartBars.length > 0 ? (() => {
-                             const total = chartBarsResult.chartBars.reduce((sum, bar) => sum + bar.deviceSeconds + bar.externalSeconds, 0);
-                             return total > 0 ? `${(total / 3600).toFixed(1)}h` : '--';
-                           })() : '--'}
-                         </div>
+                   <div className="space-y-4">
+                     <div className="flex items-center justify-between">
+                       <div className="flex items-center gap-2">
+                         <BarChart3 className="w-4 h-4 text-zinc-500" />
+                         <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Productivity</h2>
+                       </div>
+                       <div className="flex items-center gap-3">
+                         <button
+                           onClick={() => setExpandedModal('heatmap')}
+                           className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 hover:text-white transition-colors border border-zinc-700 hover:border-zinc-600"
+                         >
+                           View Heatmap
+                         </button>
                        </div>
                      </div>
-                    </div>
-
-{/* BAR CHART - Redesigned with Y-axis, grid, tooltips */}
-                    <div className="flex gap-3 w-full overflow-x-auto" style={{ minHeight: selectedPeriod === 'month' || selectedPeriod === 'all' ? '340px' : '260px' }}>
-                      {/* Y-Axis */}
-                      <div
-                        className="flex flex-col justify-between items-end text-[10px] font-medium text-zinc-500 pr-1 flex-shrink-0 select-none leading-none"
-                        style={{ height: `${maxBarHeight}px` }}
-                      >
-                        {yAxisTicks.ticks.slice().reverse().map((tick, i) => (
-                          <span key={i} className="-translate-y-1/2">{tick}{tick > 0 ? 'h' : ''}</span>
-                        ))}
+                     
+                      {/* Date range label */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-zinc-500">
+                          {computeChartDateRange(selectedPeriod, dateOffset).label}
+                        </span>
                       </div>
 
-                      {/* Chart area */}
-                      <div className="flex-1 relative min-w-0">
-                        {/* Grid lines */}
-                        <div
-                          className="absolute inset-0 flex flex-col justify-between pointer-events-none"
-                        >
-                          {yAxisTicks.ticks.map((_, i) => (
-                            <div key={i} className="border-t border-zinc-800/30 w-full" />
-                          ))}
-                        </div>
+                     {/* Total hours */}
+                     <div className="text-lg font-bold text-emerald-400">
+                       {chartBarsResult.chartBars.length > 0 ? (() => {
+                         const total = chartBarsResult.chartBars.reduce((sum, bar) => sum + bar.productiveSeconds + bar.nonProductiveSeconds + bar.externalSeconds, 0);
+                         return total > 0 ? `${(total / 3600).toFixed(1)}h` : '--';
+                       })() : '--'}
+                     </div>
 
-                        {/* Bars */}
-                        <div className="flex items-end justify-between gap-1 relative z-10" style={{ height: `${maxBarHeight}px` }}>
-                          {chartBarsResult.chartBars.map((bar, idx) => {
-                            const totalSec = bar.deviceSeconds + bar.externalSeconds;
-                            const totalHours = totalSec / 3600;
-                            const maxSec = yAxisTicks.niceMax * 3600;
-                            const barHeight = totalSec > 0 ? Math.max(2, (totalSec / maxSec) * maxBarHeight) : 0;
-                            const deviceH = totalSec > 0 ? (bar.deviceSeconds / totalSec) * barHeight : 0;
-                            const extH = barHeight - deviceH;
-                            const hasActivity = totalSec > 0;
-                            const isExtOnly = bar.deviceSeconds === 0 && bar.externalSeconds > 0;
+                     {/* CHART */}
+                     {chartBarsResult.chartBars.length === 0 ? (
+                       <div className="flex flex-col items-center justify-center py-12 text-zinc-600">
+                         <BarChart3 className="w-8 h-8 mb-2 opacity-30" />
+                         <span className="text-[11px]">No tracking data for this period</span>
+                         <span className="text-[9px] mt-1">Start using apps to see productivity data</span>
+                       </div>
+                     ) : (
+                        <div className="h-72">
+                          <Bar
+                            data={{
+                              labels: chartBarsResult.chartBars.map(b => b.label),
+                              datasets: [
+                                {
+                                  label: 'Productive',
+                                  data: chartBarsResult.chartBars.map(b => Math.round((b.productiveSeconds / 3600) * 100) / 100),
+                                  backgroundColor: chartBarsResult.chartBars.map(b => b.isToday ? '#10b981' : 'rgba(16, 185, 129, 0.7)'),
+                                  borderRadius: 4,
+                                  borderSkipped: false,
+                                },
+                                {
+                                  label: 'Other',
+                                  data: chartBarsResult.chartBars.map(b => Math.round((b.nonProductiveSeconds / 3600) * 100) / 100),
+                                  backgroundColor: chartBarsResult.chartBars.map(b => b.isToday ? '#f59e0b' : 'rgba(245, 158, 11, 0.7)'),
+                                  borderRadius: 4,
+                                  borderSkipped: false,
+                                },
+                                {
+                                  label: 'External',
+                                  data: chartBarsResult.chartBars.map(b => Math.round((b.externalSeconds / 3600) * 100) / 100),
+                                  backgroundColor: chartBarsResult.chartBars.map(b => b.isToday ? '#6366f1' : 'rgba(99, 102, 241, 0.7)'),
+                                  borderRadius: 4,
+                                  borderSkipped: false,
+                                },
+                              ],
+                            }}
+                           options={{
+                             responsive: true,
+                             maintainAspectRatio: false,
+                             plugins: {
+                               legend: { display: true, position: 'bottom' as const, labels: { color: '#71717a', usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 9 } } },
+                               tooltip: {
+                                 backgroundColor: 'rgba(39, 39, 42, 0.95)',
+                                 borderColor: 'rgba(63, 63, 70, 0.5)',
+                                 borderWidth: 1,
+                                 titleColor: '#e4e4e7',
+                                 bodyColor: '#a1a1aa',
+                                 padding: 12,
+                                 cornerRadius: 8,
+                                 titleFont: { size: 10, weight: '600' },
+                                 bodyFont: { size: 9 },
+                                 displayColors: true,
+                                 boxPadding: 4,
+                                  callbacks: {
+                                    title: (items: any[]) => items[0]?.label || '',
+                                    label: (ctx: any) => {
+                                      const hours = ctx.raw as number;
+                                      if (hours === 0) return null;
+                                      const h = Math.floor(hours);
+                                      const m = Math.round((hours - h) * 60);
+                                      const label = h > 0 && m > 0 ? `${h}h ${m}m` : h > 0 ? `${h}h` : `${m}m`;
+                                      return ` ${ctx.dataset.label}: ${label}`;
+                                    },
+                                  },
+                               },
+                             },
+                             scales: {
+                               x: {
+                                 stacked: true,
+                                 grid: { display: false },
+                                 ticks: {
+                                   color: '#71717a',
+                                   font: { size: 9 },
+                                   maxRotation: 0,
+                                   autoSkip: true,
+                                   maxTicksLimit: selectedPeriod === 'today' ? 12 : selectedPeriod === 'month' ? 10 : undefined,
+                                 },
+                               },
+                               y: {
+                                 stacked: true,
+                                 grid: { color: '#27272a' },
+                                 ticks: {
+                                   color: '#71717a',
+                                   font: { size: 9 },
+                                   callback: (v: number) => {
+                                     if (selectedPeriod === 'today') {
+                                       const mins = Math.round(v * 60);
+                                       return mins % 60 === 0 ? `${mins / 60}h` : `${mins}m`;
+                                     }
+                                     if (selectedPeriod === 'all' && v >= 24) return `${(v / 24).toFixed(0)}d`;
+                                     return `${v}h`;
+                                   },
+                                 },
+                                 suggestedMax: yAxisTicks.niceMax,
+                               },
+                             },
+                           }}
+                         />
+                       </div>
+                     )}
+                   </div>
+                </motion.div>
 
-                            return (
-                              <div
-                                key={idx}
-                                className="flex flex-col items-center gap-0.5 flex-shrink-0 group relative"
-                                style={{ minWidth: selectedPeriod === 'month' ? '24px' : selectedPeriod === 'week' ? '36px' : '28px' }}
-                              >
-                                {/* Hover tooltip */}
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-zinc-900/95 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-[10px] text-zinc-300 whitespace-nowrap z-20 shadow-xl backdrop-blur-sm pointer-events-none">
-                                  <div className="font-medium text-white mb-0.5 text-center">{bar.label}</div>
-                                  {hasActivity && (
-                                    <>
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="w-1.5 h-1.5 rounded-sm bg-emerald-500 flex-shrink-0" />
-                                        <span>Device: {(bar.deviceSeconds / 3600).toFixed(1)}h</span>
-                                      </div>
-                                      {bar.externalSeconds > 0 && (
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="w-1.5 h-1.5 rounded-sm bg-purple-500 flex-shrink-0" />
-                                          <span>External: {(bar.externalSeconds / 3600).toFixed(1)}h</span>
-                                        </div>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
-
-                                {/* Bar */}
-                                {hasActivity ? (
-                                  <div className="w-full flex flex-col justify-end" style={{ height: `${maxBarHeight}px` }}>
-                                    {extH > 0 && (
-                                      <div
-                                        className="w-full transition-all duration-300 ease-out"
-                                        style={{
-                                          height: `${extH}px`,
-                                          background: extH > 16
-                                            ? 'linear-gradient(to top, #7c3aed, #8b5cf6)'
-                                            : '#8b5cf6',
-                                          borderTopLeftRadius: '0.25rem',
-                                          borderTopRightRadius: '0.25rem',
-                                          borderBottomLeftRadius: isExtOnly ? '0.25rem' : '0',
-                                          borderBottomRightRadius: isExtOnly ? '0.25rem' : '0',
-                                          opacity: isExtOnly ? 0.7 : 1,
-                                          boxShadow: isExtOnly ? '0 0 4px rgba(139, 92, 246, 0.2)' : '0 0 6px rgba(139, 92, 246, 0.3)',
-                                        }}
-                                      />
-                                    )}
-                                    <div
-                                      className="w-full transition-all duration-300 ease-out"
-                                      style={{
-                                        height: `${deviceH}px`,
-                                        background: deviceH > 16
-                                          ? `linear-gradient(to top, #059669, ${totalHours >= 4 ? '#10b981' : totalHours >= 2 ? '#34d399' : '#6ee7b7'})`
-                                          : totalHours >= 4 ? '#10b981' : totalHours >= 2 ? '#34d399' : '#6ee7b7',
-                                        borderBottomLeftRadius: '0.25rem',
-                                        borderBottomRightRadius: '0.25rem',
-                                        borderTopLeftRadius: extH === 0 ? '0.25rem' : '0',
-                                        borderTopRightRadius: extH === 0 ? '0.25rem' : '0',
-                                        boxShadow: deviceH > 0 ? '0 0 6px rgba(52, 211, 153, 0.3)' : 'none',
-                                      }}
-                                    />
-                                  </div>
-                                ) : (
-                                  <div className="w-full" style={{ height: `${maxBarHeight}px` }} />
-                                )}
-
-                                {/* Label */}
-                                <div className={`text-[10px] font-medium ${bar.isToday ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                                  {bar.label}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-
-                  {/* Legend */}
-                  <div className="flex items-center justify-center gap-6 text-xs pt-2 border-t border-zinc-800">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded bg-emerald-500" />
-                      <span className="text-zinc-400">App/Device</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded bg-purple-500" />
-                      <span className="text-zinc-400">External</span>
-                    </div>
-                  </div>
-                </div>
-             </motion.div>
-
-               {/* App Usage Solar System */}
+                {/* App Usage Solar System */}
                <motion.div
                  initial={{ opacity: 0, y: 20 }}
                  animate={{ opacity: 1, y: 0 }}
@@ -2740,11 +3082,11 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                        </button>
                        <div className="ml-2">
                          <span className="text-xs text-zinc-500">
-                           {periodOffset === 0 && selectedPeriod === 'today' ? 'Today' : 
-                            periodOffset === 0 && selectedPeriod === 'week' ? 'This Week' : 
-                            periodOffset === 0 && selectedPeriod === 'month' ? 'This Month' :
-                            periodOffset === 0 && selectedPeriod === 'all' ? 'All Time' :
-                            `${selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'Week' : selectedPeriod === 'month' ? 'Month' : 'Period'} -${periodOffset}`}
+                           {dateOffset === 0 && selectedPeriod === 'today' ? 'Today' : 
+                            dateOffset === 0 && selectedPeriod === 'week' ? 'This Week' : 
+                            dateOffset === 0 && selectedPeriod === 'month' ? 'This Month' :
+                            dateOffset === 0 && selectedPeriod === 'all' ? 'All Time' :
+                            `${selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'Week' : selectedPeriod === 'month' ? 'Month' : 'Period'} -${dateOffset}`}
                          </span>
                        </div>
                      </div>

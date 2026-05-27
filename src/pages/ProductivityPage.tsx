@@ -3,10 +3,12 @@ import {
   Target, TrendingUp, TrendingDown, Clock, Award, Zap,
   Monitor, Globe, BarChart3, Info,
   PieChart as PieChartIcon, ArrowUp, ArrowDown, Minus,
-  ChevronRight, ChevronDown
+  ChevronRight, ChevronDown, ChevronLeft
 } from 'lucide-react';
 import { Pie, Bar, Line } from 'react-chartjs-2';
-import { format, subDays, eachDayOfInterval, startOfDay, isToday } from 'date-fns';
+import { format, eachDayOfInterval, startOfDay, isToday } from 'date-fns';
+import { getDateRange } from '../lib/dateRange';
+import type { Period } from '../lib/dateRange';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -74,7 +76,9 @@ interface ProductivityPageProps {
   logs?: unknown[];
   browserLogs?: unknown[];
   tierAssignments?: typeof DEFAULT_TIER_ASSIGNMENTS;
-  selectedPeriod?: 'today' | 'week' | 'month' | 'all';
+  selectedPeriod?: Period;
+  dateOffset?: number;
+  onDateOffsetChange?: (offset: number) => void;
   domainKeywordRules?: Record<string, string[]>;
   timeMode?: 'focus' | 'total';
 }
@@ -133,6 +137,8 @@ export default function ProductivityPage({
   browserLogs: browserLogsProp = [],
   tierAssignments = DEFAULT_TIER_ASSIGNMENTS,
   selectedPeriod = 'week',
+  dateOffset = 0,
+  onDateOffsetChange,
   domainKeywordRules = {},
   timeMode = 'total'
 }: ProductivityPageProps) {
@@ -144,6 +150,8 @@ export default function ProductivityPage({
       console.log('[ProductivityPage] Cleaning up on unmount');
     };
   }, []);
+  
+  const getViewLabel = () => getDateRange(selectedPeriod, dateOffset).label;
   
   // Persisted expand state for website domains
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(() => {
@@ -194,8 +202,11 @@ export default function ProductivityPage({
 
   // Compute all websites grouped by domain for the websites section
   const allWebsites = useMemo(() => {
-    // Include ALL websites - no filtering
-    const allLogs = browserLogsProp;
+    const range = getDateRange(selectedPeriod, dateOffset);
+    const allLogs = (browserLogsProp as any[]).filter((log: any) => {
+      const t = new Date(log.timestamp || log.start_time).getTime();
+      return t >= range.start.getTime() && t < range.end.getTime();
+    });
 
     // Group by domain
     const grouped: Record<string, any[]> = {};
@@ -236,7 +247,7 @@ export default function ProductivityPage({
 
     // Sort domains by total time (highest first)
     return domainStats.sort((a, b) => b.totalSeconds - a.totalSeconds);
-  }, [browserLogsProp, tierAssignments, domainKeywordRules]);
+  }, [browserLogsProp, selectedPeriod, dateOffset, tierAssignments, domainKeywordRules]);
 
   // Filtered websites based on tier filter
   const filteredWebsites = useMemo(() => {
@@ -249,23 +260,39 @@ export default function ProductivityPage({
 
   // Calculate combined productivity data
   const productivityData = useMemo(() => {
-    // Normalize app durations (ms -> seconds)
-    // Fix: appStats from parent can be object with appBreakdown array, not raw array
-    const appArray = Array.isArray(appStats) ? appStats : (appStats?.appBreakdown || []);
-    const appItems = appArray.map((a: any) => ({
-      name: a.app || 'Unknown',
-      category: a.category || 'Other',
-      type: 'app' as const,
-      duration_sec: (a.total_ms || 0) / 1000
+    const range = getDateRange(selectedPeriod, dateOffset);
+
+    // Filter raw logs by date range
+    const filteredLogs = (logs as any[]).filter((log: any) => {
+      const t = new Date(log.timestamp || log.start_time).getTime();
+      return t >= range.start.getTime() && t < range.end.getTime();
+    });
+    const filteredBrowserLogs = (browserLogsProp as any[]).filter((log: any) => {
+      const t = new Date(log.timestamp || log.start_time).getTime();
+      return t >= range.start.getTime() && t < range.end.getTime();
+    });
+
+    // Compute app items from filtered raw logs
+    const appMap: Record<string, { total_ms: number; category: string }> = {};
+    filteredLogs.forEach((log: any) => {
+      if (log.is_browser_tracking) return;
+      const name = log.app || 'Unknown';
+      if (!appMap[name]) appMap[name] = { total_ms: 0, category: log.category || 'Other' };
+      appMap[name].total_ms += log.duration_ms || ((log.duration || 0) * 1000);
+    });
+    const appItems = Object.entries(appMap).map(([name, data]) => ({
+      name, category: data.category, type: 'app' as const, duration_sec: data.total_ms / 1000
     }));
 
-    // Normalize browser durations (ms -> seconds) and map categories
-    const browserItems = (browserStats || []).map((b: any) => ({
-      name: b.domain || 'Unknown',
-      category: WEBSITE_CATEGORY_MAP[b.category] || 'Other',
-      originalCategory: b.category,
-      type: 'website' as const,
-      duration_sec: (b.total_ms || 0) / 1000
+    // Compute browser items from filtered raw logs
+    const browserMap: Record<string, { total_ms: number; category: string }> = {};
+    filteredBrowserLogs.forEach((log: any) => {
+      const name = log.domain || 'Unknown';
+      if (!browserMap[name]) browserMap[name] = { total_ms: 0, category: log.category || 'Other' };
+      browserMap[name].total_ms += log.duration_ms || ((log.duration || 0) * 1000);
+    });
+    const browserItems = Object.entries(browserMap).map(([name, data]) => ({
+      name, category: WEBSITE_CATEGORY_MAP[data.category] || 'Other', originalCategory: data.category, type: 'website' as const, duration_sec: data.total_ms / 1000
     }));
 
     // Combine all items - ALWAYS include both apps and websites
@@ -361,16 +388,17 @@ export default function ProductivityPage({
       topDistracting,
       items: allItems
     };
-  }, [appStats, browserStats, logs, browserLogsProp, tierAssignments]);
+  }, [logs, browserLogsProp, selectedPeriod, dateOffset, tierAssignments]);
 
   // Calculate daily trend data
   const dailyTrend = useMemo(() => {
     const now = new Date();
-    
+    const range = getDateRange(selectedPeriod, dateOffset);
+
     // For 'today', show hourly breakdown with 24 separate hour columns
     if (selectedPeriod === 'today') {
       const hourBuckets = Array.from({ length: 24 }, (_, hour) => {
-        const hourStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour);
+        const hourStart = new Date(range.start.getFullYear(), range.start.getMonth(), range.start.getDate(), hour);
         const hourEnd = new Date(hourStart.getTime() + 60 * 60 * 1000);
         
         const hourLogs = [...(logs as any[]), ...(browserLogsProp as any[])].filter(log => {
@@ -411,6 +439,7 @@ export default function ProductivityPage({
         const weighted = productive + (neutral * 0.5);
         const score = total > 0 ? (weighted / total) * 100 : 0;
         
+        const isToday = dateOffset === 0;
         return {
           date: format(hourStart, 'yyyy-MM-dd-HH'),
           label: format(hourStart, 'HH:mm'),
@@ -420,18 +449,19 @@ export default function ProductivityPage({
           neutral: Math.round(neutral),
           distracting: Math.round(distracting),
           total: Math.round(total),
-          isToday: true,
-          isCurrentHour: hour === now.getHours()
+          isToday: isToday,
+          isCurrentHour: isToday && hour === now.getHours()
         };
       });
       
       return hourBuckets;
     }
     
-    // For week/month/all, show daily breakdown
-    const days = selectedPeriod === 'week' ? 7 : selectedPeriod === 'month' ? 30 : 90;
-    const startDate = subDays(now, days - 1);
-    const daysInRange = eachDayOfInterval({ start: startDate, end: now });
+    // For week/month/all, show daily breakdown using shared date range
+    const endDate = new Date(range.end);
+    endDate.setDate(endDate.getDate() - 1);
+    const dayStartDate = new Date(range.start);
+    const daysInRange = eachDayOfInterval({ start: dayStartDate, end: endDate });
 
     return daysInRange.map(day => {
       const dayStart = startOfDay(day);
@@ -466,7 +496,7 @@ export default function ProductivityPage({
 
       return {
         date: format(day, 'yyyy-MM-dd'),
-        label: format(day, selectedPeriod === 'week' ? 'EEE' : 'MMM d'),
+        label: format(day, selectedPeriod === 'week' || selectedPeriod === '7day' ? 'EEE' : 'MMM d'),
         score: Math.round(score),
         productive: Math.round(productive),
         neutral: Math.round(neutral),
@@ -476,7 +506,7 @@ export default function ProductivityPage({
         isCurrentHour: false
       };
     });
-  }, [logs, browserLogsProp, selectedPeriod, tierAssignments]);
+  }, [logs, browserLogsProp, selectedPeriod, tierAssignments, dateOffset]);
 
   // Calculate comparison with previous period
   const comparison = useMemo(() => {
@@ -519,16 +549,14 @@ export default function ProductivityPage({
         }
       });
     } else {
-      // For week/month, get hourly distribution - need to calculate from original logs
-      const now = new Date();
-      const days = selectedPeriod === 'week' ? 7 : selectedPeriod === 'month' ? 30 : 90;
-      const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      // Use the shared date range utility (respects dateOffset and new period types)
+      const range = getDateRange(selectedPeriod, dateOffset);
       
       // Aggregate by hour
       const allLogs = [...(logs as any[]), ...(browserLogsProp as any[])];
       allLogs.forEach((log: any) => {
         const logTime = new Date(log.timestamp || log.start_time);
-        if (logTime >= startDate && logTime <= now) {
+        if (logTime >= range.start && logTime < range.end) {
           const hour = logTime.getHours();
           const duration = (log.duration || 0);
           const category = tierAssignments.productive.includes(log.category) ? 'productive' :
@@ -640,13 +668,23 @@ export default function ProductivityPage({
 
   // Build sessions list from logs (app sessions) and browserLogs (website sessions)
   const sessions = useMemo(() => {
+    const range = getDateRange(selectedPeriod, dateOffset);
     const getTier = (category: string): 'productive' | 'neutral' | 'distracting' => {
       if (tierAssignments.productive.includes(category)) return 'productive';
       if (tierAssignments.distracting.includes(category)) return 'distracting';
       return 'neutral';
     };
 
-    const appSessions = (logs as any[] || []).map(log => ({
+    const filteredLogs = (logs as any[] || []).filter((log: any) => {
+      const t = new Date(log.timestamp || log.start_time).getTime();
+      return t >= range.start.getTime() && t < range.end.getTime();
+    });
+    const filteredBrowserLogs = (browserLogsProp as any[] || []).filter((log: any) => {
+      const t = new Date(log.timestamp || log.start_time).getTime();
+      return t >= range.start.getTime() && t < range.end.getTime();
+    });
+
+    const appSessions = filteredLogs.map(log => ({
       type: 'app',
       name: log.app || 'Unknown',
       category: log.category || 'Other',
@@ -655,7 +693,7 @@ export default function ProductivityPage({
       tier: getTier(log.category)
     }));
 
-    const websiteSessions = (browserLogsProp as any[] || []).map(log => ({
+    const websiteSessions = filteredBrowserLogs.map(log => ({
       type: 'website',
       name: log.domain || 'Unknown',
       category: WEBSITE_CATEGORY_MAP[log.category] || 'Other',
@@ -667,7 +705,7 @@ export default function ProductivityPage({
     return [...appSessions, ...websiteSessions]
       .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
       .slice(0, 20);
-  }, [logs, browserLogsProp, tierAssignments]);
+  }, [logs, browserLogsProp, selectedPeriod, dateOffset, tierAssignments]);
 
   return (
     <div className="space-y-6">
@@ -679,6 +717,11 @@ export default function ProductivityPage({
             Productivity
           </h1>
           <p className="text-zinc-500 mt-1">Apps vs Websites — where your time goes</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium px-2 min-w-[80px] text-center text-zinc-400">
+            {getViewLabel()}
+          </span>
         </div>
       </div>
 
@@ -884,11 +927,13 @@ export default function ProductivityPage({
                 plugins: {
                   legend: { display: false },
                   tooltip: {
-                    backgroundColor: 'rgba(24, 24, 27, 0.95)',
-                    titleColor: '#fff',
+                    backgroundColor: '#18181b',
+                    titleColor: '#e4e4e7',
                     bodyColor: '#a1a1aa',
                     borderColor: '#3f3f46',
                     borderWidth: 1,
+                    padding: 10,
+                    cornerRadius: 8,
                     callbacks: {
                       label: (ctx) => ` Score: ${ctx.parsed.y}%`
                     }
@@ -934,7 +979,13 @@ export default function ProductivityPage({
                     labels: { color: '#a1a1aa', padding: 20 }
                   },
                   tooltip: {
-                    backgroundColor: 'rgba(24, 24, 27, 0.95)',
+                    backgroundColor: '#18181b',
+                    borderColor: '#3f3f46',
+                    borderWidth: 1,
+                    titleColor: '#e4e4e7',
+                    bodyColor: '#a1a1aa',
+                    padding: 10,
+                    cornerRadius: 8,
                     callbacks: {
                       label: (ctx) => {
                         const seconds = (ctx.raw as number) * 3600;
@@ -1202,11 +1253,16 @@ export default function ProductivityPage({
                   labels: { color: '#a1a1aa', padding: 20 }
                 },
                 tooltip: {
-                  backgroundColor: 'rgba(24, 24, 27, 0.95)',
+                  backgroundColor: '#18181b',
+                  borderColor: '#3f3f46',
+                  borderWidth: 1,
+                  titleColor: '#e4e4e7',
+                  bodyColor: '#a1a1aa',
+                  padding: 10,
+                  cornerRadius: 8,
                   callbacks: {
                     label: (ctx) => {
                       const label = ctx.dataset.label || '';
-                      // Data is in hours, convert back to seconds for tooltip
                       return ` ${label}: ${formatDuration((ctx.raw as number) * 3600)}`;
                     }
                   }
@@ -1340,7 +1396,7 @@ export default function ProductivityPage({
               options={{
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                plugins: { legend: { display: false }, tooltip: { backgroundColor: '#18181b', borderColor: '#3f3f46', borderWidth: 1, titleColor: '#e4e4e7', bodyColor: '#a1a1aa', padding: 10, cornerRadius: 8 } },
                 scales: {
                   x: { display: true, grid: { display: false }, ticks: { color: '#71717a', font: { size: 10 } } },
                   y: { display: false, min: 0, max: 100 }

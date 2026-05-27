@@ -10,6 +10,8 @@ export interface Problem {
   terminal_id: string | null;
   skill_used: string | null;
   user_notes: string | null;
+  session_id: string | null;
+  session_name: string | null;
   description?: string;
   fix_description?: string;
   root_cause?: string;
@@ -25,6 +27,8 @@ export interface CreateProblemData {
   description?: string;
   root_cause?: string;
   projectId?: string;
+  sessionId?: string;
+  sessionName?: string;
 }
 
 export class ProblemsService {
@@ -112,6 +116,8 @@ export class ProblemsService {
       md += `- Category: ${problem.category}\n`;
       if (problem.terminal_id) md += `- Terminal: ${problem.terminal_id}\n`;
       if (problem.skill_used) md += `- Skill Used: ${problem.skill_used}\n`;
+      if (problem.session_id && problem.session_name) md += `- Session: ${problem.session_name} (${problem.session_id})\n`;
+      else if (problem.session_id) md += `- Session: ${problem.session_id}\n`;
       if (problem.files.length > 0) md += `- Files: \`${problem.files.join('`, `')}\`\n`;
       md += `- Created: ${problem.created_at}\n`;
       md += `- Updated: ${problem.updated_at}\n`;
@@ -181,6 +187,8 @@ export class ProblemsService {
       terminal_id: null,
       skill_used: null,
       user_notes: null,
+      session_id: data.sessionId || null,
+      session_name: data.sessionName || null,
       description: data.description || null,
       root_cause: data.root_cause || null,
       fix_description: null,
@@ -266,6 +274,8 @@ export class ProblemsService {
         priority: 'medium',
         category: categoryMatch?.[1]?.trim() || 'other',
         terminal_id: null,
+        session_id: null,
+        session_name: null,
         skill_used: null,
         user_notes: userNotesMatch?.[1]?.trim() || null,
         fix_description: fixMatch?.[1]?.trim() || null,
