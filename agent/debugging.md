@@ -4,6 +4,117 @@
 
 ---
 
+## `mainWindow.on('focus')` never fires on app startup
+
+**Root cause:** The `BrowserWindow` constructor creates and shows the window immediately (with default `show: true`). By the time `mainWindow.on('focus', handler)` is registered, the window is **already focused** — so the `focus` event never fires. This means any focus-gated logic (like sleep detection) silently never runs on app launch.
+
+**Symptoms:**
+- Sleep detection modal never shows on app startup even after long overnight gaps
+- Code assumes `focus` will fire at least once, but it doesn't on cold start
+- Works fine on subsequent `alt-tab` or window click
+
+**Fix:**
+- Extract the inline focus-handler logic into a reusable `checkSleepGap()` function
+- Call it explicitly after registering the handler: `checkSleepGap(lastFocusTime, Date.now())`
+- If IPC is sent before renderer loads, use a JSON file as fallback that the renderer reads on mount
+
+---
+
+## Terminals can exist without a session (pre-session state)
+
+**Root cause:** Designing features (file locks, context sync, broadcasts) that assume `session_id` is always set. But terminals can exist in a pre-initialization state where `initializeSession()` hasn't run yet — `session_id` is null.
+
+**Symptoms:**
+- Session ID is null or "not set" but code assumes it's always a string
+- Fake/generated session IDs assigned before the real session exists
+- Resume logic runs on terminals that should just launch fresh
+- Cross-session sync fails on terminals that have no session
+
+**Fix:**
+- Always treat `session_id` as nullable (null = "session not yet created")
+- No resume, no context restore, no sync participation when session_id is null
+- Fill session_id lazily when `initializeSession()` / `save-terminal-session` runs
+- Never assign fake/generated session IDs before the real session exists
+
+**Related:** `agent/skills/agent-reflect/logs/2026-05-30_session_id_hardcode.md`
+
+## `toISOString().split('T')[0]` returns UTC date, not local date
+
+**Root cause:** Using `.toISOString().split('T')[0]` to get "today's date" gives the **UTC date**, but this disagrees with the user's **local date** when their timezone offset causes the UTC date to be 1 day off. For users in UTC+5:30 (India), at 2:00 AM local the UTC date is still the *previous* day.
+
+**Symptoms:**
+- Sleep chart shows wrong bedtime/waketime labels
+- `isToday` check fails for UTC+ timezone users in early morning hours
+- 'today' period filter includes sessions from yesterday or misses overnight sleep
+
+**Fix:** Use local date methods for date strings:
+```js
+const d = new Date();
+const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+```
+
+For SQL filtering by local day, convert local midnight to UTC timestamps:
+```js
+const localStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+const localEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+// SQL: es.started_at >= localStart AND es.started_at < localEnd
+```
+
+**See also:** `agent/skills/agent-reflect/logs/2026-05-29_idiot_trigger.md`
+
+## AFK → External Session Not Saving to Database
+
+**Root cause:** Multiple potential issues:
+1. `start-afk-session` creates the AFK session on idle, but `stop-afk-session` returns `{ success: false }` because no running AFK session is found (AFK session may have been closed by a previous call or never created).
+2. The frontend's `handleAfkConfirm` only dispatches `external-data-changed` on `r?.success`, so if the backend fails, the ExternalPage never refreshes.
+
+**Symptoms:**
+- User picks an activity from the AFK prompt, but nothing appears on the External page
+- Console shows "Failed to stop AFK session" errors
+- `stop-afk-session` returns `{ success: false }` due to no running AFK session found
+
+**Fix:**
+- `stop-afk-session` should always fire `external-data-changed` event so the UI refreshes
+- Add fallback: if no session with `activity_id = AFK.id` is found, try finding ANY running external session
+- Log IPC call arguments and return values for debugging
+
+## TDZ (Temporal Dead Zone) — `Cannot access 'X' before initialization`
+
+**Root cause:** A `const` (useState, useRef, useMemo, or plain const) is referenced in a hook's dependency array or useMemo callback BEFORE its declaration line in the function body. `const` is in TDZ until its declaration line executes.
+
+**Detection:**
+- Error in minified output: `Cannot access 'ht' before initialization` where `ht` maps to a minified variable name
+- Line number in the source map points to a dependency array or useMemo callback
+- Minifier assigns different short names per build, so the variable name changes between builds
+
+**Fix:**
+- Find which `const` declaration is referenced before its declaration
+- Move it ABOVE the hook that references it
+- Common culprits: `weekOffset`, `externalSessions`, or any `useState` declared after a `useEffect`/`useMemo` that references it
+
+**Prevention:**
+- Group ALL `useState` and `useRef` declarations at the TOP of the function body, before any `useEffect` or `useMemo`
+- Never scatter `const [foo, setFoo] = useState()` between hooks
+- When adding `weekOffset` or similar to a dependency array, verify its `useState` is declared BEFORE the hook
+
+---
+
+## ⚠️ Prompt Generation Mistakes (DO NOT REPEAT)
+
+### Mistake: Writing documentation prompts instead of design prompts
+**Symptom:** User asks to "generate prompt" for existing features. I write a prompt that catalogs/document what exists instead of tasking an AI with designing NEW UI/settings/features built ON TOP.
+
+**Fix:** 
+- Existing features are the FOUNDATION, not the ENDPOINT
+- Write prompts that EXPAND the features: new settings panels, live dashboards, configurable knobs, visualizations
+- Include in every prompt: Data Processing Logic (real IPC, real math), Visual Specs (exact hex codes, spacing, design tokens), UX Flow (loading/empty/error states, animations, interactions)
+- The skill says "act as Lead Designer and Engineer" — the prompt should mandate design + engineering, not documentation
+
+**Example of bad prompt:** "Design a verification document that lists what exists."
+**Example of good prompt:** "Design a live dashboard with 5 stat cards, 3 settings sliders, and a context assembly map — all pulling real data via IPC. Expand the customizability with new UI controls."
+
+---
+
 ## 🔍 Debugging Workflow
 
 ### Step 1: Identify the Issue
@@ -802,6 +913,35 @@ Added a 7-second fallback timer in `terminal:create` and `spawn-terminal` handle
 | 1.7 | 2026-05-06 | Added useMemo object dependencies TDZ pattern |
 | 1.9 | 2026-05-18 | Added Agent Status Stuck on Waiting pattern |
 
+### Sidebar Won't Scroll
+
+**Symptom:** Sidebar navigation items extend past viewport but no scrollbar appears. Content is cut off at the bottom.
+
+**Root Cause:** Missing `min-h-0` on a `flex-col` container in the scroll chain. In flex layout, `flex-col` items default to `min-height: auto`, which means they expand to fit their content and cannot shrink below that. `overflow-y-auto` needs a defined constraint — without `min-h-0` on the flex container, the overflow is never triggered because the container's minimum height is its content height.
+
+**Fix:** Use the two-level wrapper pattern (decouples height from overflow):
+
+```html
+<!-- Outer: height constraint from flex (min-h-0 allows shrink) -->
+<div className="flex-1 min-h-0">
+  <!-- Inner: uses parent's definite height, handles overflow -->
+  <div className="h-full overflow-y-auto">
+    {content}
+  </div>
+</div>
+```
+
+Putting `overflow-y-auto` directly on the `flex-1` element is unreliable across browsers — the single element must serve as both the flex child (height computed) and the scroll container (overflow computed). The two-level wrapper pattern matches what TabPanel uses and is bulletproof.
+
+**Also check:**
+- `py-4` (24px) on each nav item × 11 items = 264px of padding alone. Reduce to `py-2.5` if items need to fit before scrolling.
+- Main sidebar nav in `App.tsx` is the most common location for this bug.
+- Workspace sidebar tabs (TerminalPage Sessions/Map) typically have correct `relative flex-1 min-h-0` → `h-full overflow-y-auto` chain.
+
+**Last Updated:** 2026-06-05
+
+---
+
 ### Minimize Button Hides Wrong Elements
 
 **Symptom:** Minimize button only collapses the sidebar instead of the entire workspace (tabs + terminal layout + sidebar).
@@ -816,3 +956,100 @@ Added a 7-second fallback timer in `terminal:create` and `spawn-terminal` handle
 
 **Last Updated:** 2026-05-18
 **Maintained By:** AI Development Team
+
+---
+
+### Browser Tracked as App Despite Website Tracking Being ON
+
+**Symptom:** User enables Website Tracking for their browser (Brave, Chrome, etc.), but the browser process name (e.g., "brave.exe") still appears as a regular app entry in Dashboard/StatsPage alongside website entries like "youtube.com".
+
+**Root Cause (v1):** The `pollForeground()` function logs ALL foreground window changes as app entries via `addLog()`. There was no check to skip logging when the detected app is the known browser with the extension installed.
+
+**Root Cause (v2 — rediscovered 2026-05-28):** Three additional bugs found:
+1. `isBrowserWithExtension()` had `!isBrowserTrackingEnabled` guard — browser was logged as app when user turned off website tracking
+2. Sleep gap detection (line ~2520) was missing `!isBrowserWithExtension(currentApp)` — waking from sleep with browser as last app logged browser
+3. Sleep detection (line ~2509) nulled `currentApp` even for browser — undetectable games destroyed tracking state
+
+**Fix in `main.ts`:**
+1. `isBrowserWithExtension()` no longer depends on `isBrowserTrackingEnabled` — only checks `browserWithExtension` preference
+2. Added `&& !isBrowserWithExtension(currentApp)` to sleep gap detection
+3. Sleep detection only nulls `currentApp` for non-browser apps; `sessionStart` is always reset
+4. Added safety net in `addLog()` itself: `!is_browser_tracking && app && isBrowserWithExtension(app)` → reject silently
+
+**6 locations where `!isBrowserWithExtension(currentApp)` is checked:**
+- PS fallback app change
+- PS fallback checkpoint
+- Main poll app change
+- Main poll checkpoint
+- Sleep detection (30 null polls)
+- Sleep gap detection (wake from sleep)
+- Before-quit handler
+
+**How it works:** When the foreground app matches the browser with the extension, `currentApp` is still set (so `/foreground-app` endpoint returns the browser name for focus checks) but `addLog` is NOT called. The extension handles all website-level tracking via its own data pipeline. 
+
+**Also check:** The `userPreferences.browserWithExtension` is set when the extension calls `POST /browser-identify`. Value comes from `detectBrowserName()` in background.js which returns human-readable names like "Brave", "Chrome", "Edge". The app name from active-win is process names like "brave.exe". The comparison normalizes both sides.
+
+**Last Updated:** 2026-05-28
+
+### Game Sessions Show 3 Seconds Instead of Actual Duration
+
+**Symptom:** Playing a fullscreen game (WuWa, Osu) for 5+ minutes but Dashboard shows only 3 seconds.
+
+**Root Cause:** Games in exclusive fullscreen mode are invisible to both `active-win` and the PS fallback (`GetForegroundWindow()`). After 30 consecutive null polls (150 seconds with 5s interval), the sleep detection fired and reset `currentApp = null`, destroying the tracking state. The "3 seconds" comes from a brief detectable window (launcher, overlay, or exit animation) during game launch/exit.
+
+**Fix in `main.ts`:**
+- Sleep detection no longer nulls `currentApp` when `isBrowserWithExtension(currentApp)` returns true (browser last known app). Only `sessionStart` is reset. When the game exits and a detectable app appears, tracking resumes normally.
+- Note: Game duration itself is still lost when both detection methods fail. This is a fundamental limitation of window-based detection with anti-cheat protected games.
+
+## Miscommunication: User says "prompt" meaning "my message text"
+
+**Symptom:** User asks "wheres the prompt for the problems" but means their own original message, not a file.
+
+**Root Cause:** In this project's convention, "prompt" = markdown file in `agent/`. But in user-speak, "prompt" = "the text I gave you".
+
+**Fix:** When user asks for "the prompt for [something they mentioned]", always quote their original message back to them first. If they wanted a file, they'll clarify.
+
+**Last Updated:** 2026-06-04
+
+---
+
+## ⚡ React Functional Updater Race with Async IPC Callbacks
+
+**Symptom:** An async callback (e.g., idle return handler) queues a state update via functional updater (`setQueue(prev => [...prev, entry])`). A separate callback (e.g., sleep detection) clears the queue (`setQueue([])`). The entry from the first callback still appears, undoing the clear.
+
+**Root Cause:** React's state batching + functional updater behavior:
+1. Sleep handler calls `setAfkPromptQueue([])` — this is a state SET, not a function
+2. Idle return handler's `setAfkPromptQueue(prev => [...prev, entry])` uses a **functional updater**
+3. When React batches these updates, it processes the functional updater AFTER the direct set
+4. The functional updater's `prev` argument is the **latest committed state**, not the "current" one
+5. Since the idle handler ran asynchronously and already captured `prev` from before the sleep clear, `...prev, entry` still contains the AFK entry
+
+**Fix pattern — synchronous guard ref:**
+```ts
+const guardRef = useRef(false);
+
+// In the "clear" callback (always synchronous entrance, no await before set):
+guardRef.current = true;
+setQueue([]);
+
+// In the "append" callback (has await calls):
+async () => {
+  if (guardRef.current) return; // Check BEFORE async
+  const result = await someAsyncOp();
+  if (guardRef.current) return; // Check AFTER async (reentrancy)
+  setQueue(prev => [...prev, result]);
+}
+```
+
+**Why this works:**
+- `useRef` is synchronous — `guardRef.current = true` is visible immediately, even before React has processed the batch
+- The async callback checks the ref BEFORE doing work (short-circuits) and AFTER async operations (catches race during the await gap)
+- Unlike `useState`, `useRef` doesn't participate in React's batching — its mutation is immediate
+
+**Key differences from useState guards:**
+- ❌ Checking `someState` won't work — React state is stale in async callbacks
+- ✅ Checking `someRef.current` works — refs are synchronous across all callbacks
+- ✅ Checking the ref AT BOTH points (pre-async + post-async) covers the race window
+
+**Added:** 2026-06-04
+**Fixed in:** `src/App.tsx` — `sleepActiveRef` pattern in `onSleepDetection`/`idleReturnFnRef`

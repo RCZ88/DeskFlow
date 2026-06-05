@@ -1,0 +1,7 @@
+Looking at this — you want a full frontend dashboard component that visualizes the model improvement systems with live data, settings controls, and real IPC connections. Let me build this as a complete, self-contained React component.Now the IPC additions for `main.ts` and `preload.ts`:Now let me render a live preview of exactly what this dashboard looks like:Two files delivered. Here's what's in each and what to do with them:
+
+**`ModelImprovementDashboard.tsx`** — drop into `src/components/`. It's a fully self-contained React component with 5 tabs you can see in the preview above. It calls `window.deskflowAPI` for all data — nothing is hardcoded except the fallback display values. The interactive preview above is a pixel-accurate representation of what it looks like.
+
+**`MODEL_DASHBOARD_IPC_ADDITIONS.ts`** — not a file to run, it's a code patch guide. Open it and you'll see exactly what to paste into `src/main.ts` (4 new `ipcMain.handle` blocks + 4 runtime variables) and what to add to `src/preload.ts` (4 new bridge methods). Everything is annotated with which line to insert near.
+
+To wire it up, you need to do three things in order: add the 4 runtime variables near the top of `main.ts` (next to `RULES_REINJECT_THRESHOLD`), paste the 4 IPC handlers near line 6094, add the 4 preload methods, then increment `globalReinjectionCount` inside `maybeReinjectRules()` and `globalActionsAttempted`/`globalActionsFailed` inside `parseAndExecuteActions()`. Once that's done, the Overview tab shows real live data from the running system instead of the mock values.

@@ -403,6 +403,82 @@ The final prompt sent is: `DEFAULT + GeneralAdditions[agent] + ProjectAdditions[
 
 ---
 
+### 21. CROSS-SESSION SYNC (File Locking & Context Broadcast)
+
+Multiple AI agent terminals can now operate simultaneously. The cross-session sync system prevents them from conflicting and allows them to share context.
+
+**File Lock Manager** (in-memory, `src/main.ts`):
+- Acquires locks on file paths detected in agent output
+- Locks auto-expire after 60 seconds
+- When a lock is denied, a `file:conflict` event is broadcast to all renderers
+- Locks are released when the terminal is killed
+
+**Edit Detection (`detectEditsInOutput` in `src/main.ts`)**:
+- Runs in both `terminal:create` and `spawn-terminal` data handlers
+- Scans agent output for file write patterns (`wrote`, `saved`, `modified`, etc.)
+- Acquires locks for detected file paths
+- Logs to `touched_files` DB table
+- Broadcasts `file:conflict` events when another terminal holds the lock
+
+**`/sync` Command:**
+- Typing `/sync` in the instruction panel compiles a summary of other active sessions
+- Returns: other active terminals, their active problems, recent file changes, currently locked files
+- IPC: `compileSyncSummary(terminalId)`
+
+**`broadcastContextDelta`:**
+- When one terminal's context changes (problems, requests), it can broadcast to all other terminals
+- Other terminals receive `context-changed` events with `source: terminalId`
+- The renderer uses `onContextChanged()` to listen and auto-refresh problems/requests
+
+**IPC Methods to include in system prompt:**
+- `lockFile(filePath, terminalId, sessionId, action?)` — Acquire a file lock
+- `releaseFileLock(filePath, terminalId)` — Release a lock
+- `getFileLocks()` — Get all current locks
+- `getTouchedFiles(opts?)` — Query file edit history
+- `compileSyncSummary(terminalId)` — Get cross-session context summary
+- `broadcastContextDelta({ terminalId, type, payload })` — Broadcast context to other terminals
+
+**What the AI should know:**
+- Other agent terminals may be editing the same files — check `/sync` before making conflicting changes
+- File locks are automatic (detected from agent output) but you can also manually call `lockFile`
+- Use `compileSyncSummary('/sync')` at the start of any session to see what other agents are working on
+- If you see a file conflict warning, coordinate with the other agent or wait for their lock to expire (60s)
+
+### Config Toggle — Thought Process Instruction
+
+The Configs tab has a **Thought Process** toggle (amber-500, alongside cross-session sync controls). When ON, the `initializeTerminal` function appends a `## Thought Process` instruction to the system prompt before writing to the terminal:
+
+```typescript
+// In initializeTerminal, after writing base system prompt:
+if (thoughtProcessEnabled && window.deskflowAPI?.terminalWrite) {
+  const thoughtInstruction = `## Thought Process
+
+Before providing your final answer, you MUST show your thought process in a <thought_process> block. This should include:
+- How you interpret the request and what you need to do
+- Which files or code areas you're considering
+- Tradeoffs you're weighing between different approaches
+- Why you chose the approach you did
+- Any potential pitfalls or edge cases to watch for
+
+Keep the thought process concise and focused — 3-10 sentences is usually sufficient.
+`;
+  await window.deskflowAPI.terminalWrite(terminalId, thoughtInstruction + '\n');
+}
+```
+
+**State:** `thoughtProcessEnabled` — initialized from `localStorage.getItem('thought-process-enabled') !== 'false'` (default ON). Saves to localStorage on change. No IPC needed (renderer-only setting).
+
+**When OFF:** No thought process instruction is written — the AI responds directly without a `<thought_process>` block.
+
+**Edge cases:**
+- Toggled OFF mid-session: existing terminals keep their system prompt (no re-send). New terminals pick up the current state.
+- Agent that doesn't support thought process tags: the instruction is still written — the AI may or may not comply based on its capabilities. The toggle is a best-effort instruction, not a hard enforcement.
+- Multiple agents in same session: Each terminal gets its own thought process instruction independently based on the toggle state at the time of initialization.
+
+**What the AI should know:** When the thought process instruction is present, include a `<thought_process>` block before your final answer. This is your scratchpad — the user doesn't see it directly, but it helps you reason step by step.
+
+---
+
 ## Design Requirements
 
 Your output (`RESULT.md`) must contain:

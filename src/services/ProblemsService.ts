@@ -16,6 +16,7 @@ export interface Problem {
   fix_description?: string;
   root_cause?: string;
   files: string[];
+  checks: CheckItem[];
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +30,25 @@ export interface CreateProblemData {
   projectId?: string;
   sessionId?: string;
   sessionName?: string;
+}
+
+export interface CheckFeedback {
+  type: 'approved' | 'rejected' | 'text';
+  value?: string;
+  timestamp: string;
+  session_id?: string;
+  terminal_id?: string;
+}
+
+export interface CheckItem {
+  id: string;
+  description: string;
+  instruction: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  feedback?: CheckFeedback;
+  session_id?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export class ProblemsService {
@@ -193,6 +213,7 @@ export class ProblemsService {
       root_cause: data.root_cause || null,
       fix_description: null,
       files: [],
+      checks: [],
       created_at: now,
       updated_at: now
     };
@@ -242,9 +263,86 @@ export class ProblemsService {
     return true;
   }
 
+  addCheck(problemId: string, description: string, instruction: string): CheckItem | null {
+    const problems = this.getProblems();
+    const problem = problems.find(p => p.id === problemId);
+    if (!problem) return null;
+
+    if (!problem.checks) problem.checks = [];
+    const checkNum = problem.checks.length + 1;
+    const now = new Date().toISOString();
+    const check: CheckItem = {
+      id: `${problem.id}-check-${checkNum}`,
+      description,
+      instruction,
+      status: 'pending',
+      created_at: now,
+      updated_at: now,
+    };
+
+    problem.checks.push(check);
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return check;
+  }
+
+  updateCheck(problemId: string, checkId: string, updates: Partial<CheckItem>): CheckItem | null {
+    const problems = this.getProblems();
+    const problem = problems.find(p => p.id === problemId);
+    if (!problem?.checks) return null;
+
+    const check = problem.checks.find(c => c.id === checkId);
+    if (!check) return null;
+
+    Object.assign(check, updates, { updated_at: new Date().toISOString() });
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return check;
+  }
+
+  completeCheck(problemId: string, checkId: string, feedback?: CheckFeedback): CheckItem | null {
+    const problems = this.getProblems();
+    const problem = problems.find(p => p.id === problemId);
+    if (!problem?.checks) return null;
+
+    const check = problem.checks.find(c => c.id === checkId);
+    if (!check) return null;
+
+    check.status = 'completed';
+    check.updated_at = new Date().toISOString();
+    if (feedback) check.feedback = feedback;
+
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return check;
+  }
+
+  addCheckFeedback(problemId: string, checkId: string, feedback: CheckFeedback): CheckItem | null {
+    const problems = this.getProblems();
+    const problem = problems.find(p => p.id === problemId);
+    if (!problem?.checks) return null;
+
+    const check = problem.checks.find(c => c.id === checkId);
+    if (!check) return null;
+
+    check.feedback = feedback;
+    check.updated_at = new Date().toISOString();
+
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return check;
+  }
+
   parseProblemsLegacy(content: string): Problem[] {
     const problems: Problem[] = [];
     content = content.replace(/\r\n/g, '\n');
+
+    const sectionDates: { pos: number; date: string }[] = [];
+    const sectionRe = /^##\s.*?(\d{4}-\d{2}-\d{2}).*$/gm;
+    let secMatch;
+    while ((secMatch = sectionRe.exec(content)) !== null) {
+      sectionDates.push({ pos: secMatch.index, date: secMatch[1] });
+    }
 
     const pattern4 = /### Issue #([\d.]+):\s*(.+?)\n([\s\S]*?)(?=\n### Issue #|\n## |\n---+\n|$)/gi;
     let match;
@@ -258,14 +356,26 @@ export class ProblemsService {
       const statusMatch = body.match(/(?:^|\n)-\s*Status:\s*(.+?)(?:\n|$)/i);
       const filesMatch = body.match(/(?:^|\n)-\s*Files:\s*(.+?)(?:\n|$)/i);
       const userNotesMatch = body.match(/(?:^|\n)-\s*User said:\s*(.+?)(?:\n|$)/i);
-      const fixMatch = body.match(/(?:^|\n)-\s*Fix:\s*([\s\S]*?)(?=\n-\s+(?:Status|User|Files|Root|Category|Priority)\b|\n###|\n##|\n---+\n|$)/i);
+      const fixMatch = body.match(/(?:^|\n)-\s*Fix:\s*([\s\S]*?)(?=\n-\s+(?:Status|User|Files|Root|Category|Priority|Created|Updated)\b|\n###|\n##|\n---+\n|$)/i);
       const categoryMatch = body.match(/(?:^|\n)-\s*Category:\s*(.+?)(?:\n|$)/i);
+      const createdMatch = body.match(/(?:^|\n)-\s*Created:\s*(.+?)(?:\n|$)/i);
+      const updatedMatch = body.match(/(?:^|\n)-\s*Updated:\s*(.+?)(?:\n|$)/i);
+
+      let sectionDate = '';
+      for (let i = sectionDates.length - 1; i >= 0; i--) {
+        if (sectionDates[i].pos < match.index) {
+          sectionDate = sectionDates[i].date;
+          break;
+        }
+      }
 
       let files: string[] = [];
       if (filesMatch?.[1]) {
         const filesStr = filesMatch[1].trim().replace(/`/g, '');
         files = filesStr.split(',').map(f => f.trim()).filter(f => f.length > 0);
       }
+
+      const dateFallback = sectionDate ? `${sectionDate}T00:00:00.000Z` : new Date().toISOString();
 
       problems.push({
         id,
@@ -280,8 +390,9 @@ export class ProblemsService {
         user_notes: userNotesMatch?.[1]?.trim() || null,
         fix_description: fixMatch?.[1]?.trim() || null,
         files,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        checks: [],
+        created_at: createdMatch?.[1]?.trim() || dateFallback,
+        updated_at: updatedMatch?.[1]?.trim() || dateFallback
       });
     }
 

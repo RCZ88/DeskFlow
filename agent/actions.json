@@ -1,4 +1,19 @@
 {
-  "terminal_id": "",
-  "actions": []
+  "terminal_id": "term-001",
+  "actions": [
+    {
+      "type": "create_problem",
+      "title": "Cross-session sync config controls missing",
+      "priority": "high",
+      "category": "bug-fix",
+      "description": "Cross-session sync had no user-facing config. Added runtime config object, IPC handlers, preload bridges, type decls, 5 state vars, Configs tab card with master toggle/TTL slider/broadcast toggle/conflict mode dropdown/sync toggle"
+    },
+    {
+      "type": "create_problem",
+      "title": "Thought-process toggle feature",
+      "priority": "high",
+      "category": "bug-fix",
+      "description": "AI agents had no instruction to show reasoning. Added thoughtProcessEnabled toggle, Configs tab UI, injection in initializeTerminal that appends ## Thought Process instruction after system prompt"
+    }
+  ]
 }

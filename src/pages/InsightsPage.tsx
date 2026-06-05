@@ -3,7 +3,7 @@ import { subDays, format } from 'date-fns';
 import type { Period } from '../lib/dateRange';
 import { BarChart3, Clock, Target, Moon, TrendingUp, TrendingDown, Activity, Zap, Sun, Globe, Monitor, PieChart } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { Line, Bar, Pie } from 'react-chartjs-2';
+import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -17,6 +17,9 @@ import {
   Legend,
   Filler,
 } from 'chart.js';
+import { PageShell } from '../components/PageShell';
+import { GlassCard } from '../components/GlassCard';
+import { SectionHeader } from '../components/SectionHeader';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
 
@@ -148,6 +151,7 @@ export default function InsightsPage({
   const [tooltip, setTooltip] = useState<{ day: number; hour: number; x: number; y: number } | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month'>('week');
   const [activeTab, setActiveTab] = useState<'typical' | 'weekly' | 'activities'>('typical');
+  const [dailyStats, setDailyStats] = useState<any[]>([]);
 
   useEffect(() => {
     const p = selectedPeriod === 'week' ? 'week' : 'month';
@@ -158,6 +162,7 @@ export default function InsightsPage({
     window.deskflowAPI?.getTypicalDay(30).then((result: any) => {
       if (result?.grid) setTypicalDayData(result as TypicalDayData);
     });
+    window.deskflowAPI?.getDailyStats?.(p).then((data: any) => setDailyStats(Array.isArray(data) ? data : []));
   }, [selectedPeriod]);
 
   const sleepTrendData = useMemo(() => {
@@ -289,8 +294,45 @@ export default function InsightsPage({
     return { deviceSec, externalSec, total: deviceSec + externalSec };
   }, [logs, browserLogs, stats.total_seconds]);
 
+  const dailyTrend = useMemo(() => {
+    if (!dailyStats?.length) return { labels: [], values: [] };
+    const dayTotals: Record<string, number> = {};
+    for (const stat of dailyStats) {
+      const day = stat.day || stat.date;
+      if (!day) continue;
+      dayTotals[day] = (dayTotals[day] || 0) + (stat.total_sec || stat.total_ms / 1000 || 0);
+    }
+    const sorted = Object.keys(dayTotals).sort();
+    return {
+      labels: sorted.map(d => { try { return format(new Date(d + 'T00:00:00'), 'MMM d'); } catch { return d; } }),
+      values: sorted.map(d => +(dayTotals[d] / 3600).toFixed(2)),
+    };
+  }, [dailyStats]);
+
+  const activityCategoryDist = useMemo(() => {
+    if (!appStats?.length) return { labels: [], values: [] };
+    const totals: Record<string, number> = {};
+    for (const stat of appStats) {
+      const cat = stat.category || 'Other';
+      totals[cat] = (totals[cat] || 0) + (stat.total_ms || 0);
+    }
+    const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    return { labels: entries.map(e => e[0]), values: entries.map(e => Math.round(e[1] / 3600000 * 100) / 100) };
+  }, [appStats]);
+
+  const barOptions = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(24, 24, 27, 0.95)', titleColor: '#e4e4e7', bodyColor: '#a1a1aa', borderColor: 'rgba(63, 63, 70, 0.5)', borderWidth: 1, cornerRadius: 8, padding: 10 } },
+    scales: {
+      x: { ticks: { color: '#71717a', font: { size: 10 } }, grid: { color: 'rgba(113,113,122,0.08)' }, border: { color: 'rgba(113,113,122,0.15)' } },
+      y: { ticks: { color: '#71717a', font: { size: 10 } }, grid: { color: 'rgba(113,113,122,0.08)' }, border: { color: 'rgba(113,113,122,0.15)' }, title: { display: true, text: 'Hours', color: '#71717a', font: { size: 10 } } },
+    },
+  };
+
+  const chartColors = ['rgba(168, 85, 247, 0.8)', 'rgba(34, 211, 238, 0.8)', 'rgba(52, 211, 153, 0.8)', 'rgba(251, 113, 133, 0.8)', 'rgba(245, 158, 11, 0.8)', 'rgba(96, 165, 250, 0.8)', 'rgba(129, 140, 248, 0.8)', 'rgba(251, 146, 60, 0.8)'];
+
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0f]">
+    <PageShell page="insights" variant="sticky-header" className="bg-[#0a0a0f]">
       <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/60 bg-zinc-900/40 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
@@ -307,7 +349,7 @@ export default function InsightsPage({
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-150 ${
                   activeTab === tab
                     ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
                     : 'text-zinc-400 hover:text-zinc-300'
@@ -328,7 +370,7 @@ export default function InsightsPage({
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6 space-y-6">
+      <div className="flex-1 overflow-auto p-5 space-y-6">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -369,21 +411,17 @@ export default function InsightsPage({
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-6"
           >
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-200">Typical Day</h3>
-                <p className="text-xs text-zinc-500 mt-0.5">
-                  {typicalDayData ? `Activity patterns across ${typicalDayData.daysCovered} days` : 'Loading...'}
-                </p>
-              </div>
-              {typicalDayData && (
-                <div className="text-xs text-zinc-600">
-                  Updated {new Date(typicalDayData.generatedAt).toLocaleTimeString()}
-                </div>
-              )}
-            </div>
+            <GlassCard>
+            <SectionHeader
+              title="Typical Day"
+              action={typicalDayData && <div className="text-xs text-zinc-600">Updated {new Date(typicalDayData.generatedAt).toLocaleTimeString()}</div>}
+            />
+            {typicalDayData && (
+              <p className="text-xs text-zinc-500 mt-0.5 mb-4">
+                Activity patterns across {typicalDayData.daysCovered} days
+              </p>
+            )}
 
             {patchedTypicalDay ? (() => {
               const data = patchedTypicalDay;
@@ -473,7 +511,7 @@ export default function InsightsPage({
 
                   {tooltip && data.grid[tooltip.day]?.[tooltip.hour] && (
                     <div
-                      className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl min-w-[160px]"
+                      className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 min-w-[160px]"
                       style={{ left: tooltip.x + 12, top: tooltip.y + 12 }}
                     >
                       <div className="flex items-center justify-between mb-2">
@@ -535,6 +573,7 @@ export default function InsightsPage({
                 </div>
               </div>
             )}
+          </GlassCard>
           </motion.div>
         )}
 
@@ -546,7 +585,7 @@ export default function InsightsPage({
           >
             {/* Weekly hours + Day score row */}
             <div className="grid grid-cols-2 gap-6">
-              <div className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-5">
+              <GlassCard>
                 <h3 className="text-sm font-semibold text-zinc-200 mb-1">Hours Per Week</h3>
                 <p className="text-xs text-zinc-500 mb-4">Total active hours tracked per week. The dashed line shows your 30h target.</p>
                 <div className="h-56">
@@ -606,9 +645,9 @@ export default function InsightsPage({
                     <div className="h-full flex items-center justify-center text-zinc-600 text-sm">No data yet</div>
                   )}
                 </div>
-              </div>
+              </GlassCard>
 
-              <div className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-5">
+              <GlassCard>
                 <h3 className="text-sm font-semibold text-zinc-200 mb-1">Day of Week Performance</h3>
                 <p className="text-xs text-zinc-500 mb-4">Average active hours per day of the week. Higher bars show your most productive days.</p>
                 <div className="h-56">
@@ -656,16 +695,13 @@ export default function InsightsPage({
                     }}
                   />
                 </div>
-              </div>
+              </GlassCard>
             </div>
 
             {/* Core tracking data row: Top apps + Browser categories */}
             <div className="grid grid-cols-2 gap-6">
-              <div className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <Monitor className="w-4 h-4 text-indigo-400" />
-                  <h3 className="text-sm font-semibold text-zinc-200">Most Used</h3>
-                </div>
+              <GlassCard>
+                <SectionHeader title="Most Used" icon={<Monitor className="w-5 h-5" />} />
                 <p className="text-xs text-zinc-500 mb-3">Top apps and websites by time spent</p>
                 {topApps.length > 0 ? (
                   <div className="space-y-2">
@@ -694,13 +730,10 @@ export default function InsightsPage({
                 ) : (
                   <div className="text-xs text-zinc-600 py-4 text-center">No app data available</div>
                 )}
-              </div>
+              </GlassCard>
 
-              <div className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <Globe className="w-4 h-4 text-cyan-400" />
-                  <h3 className="text-sm font-semibold text-zinc-200">Browser Activity</h3>
-                </div>
+              <GlassCard>
+                <SectionHeader title="Browser Activity" icon={<Globe className="w-5 h-5" />} />
                 <p className="text-xs text-zinc-500 mb-3">Website categories by time spent</p>
                 {browserCategoryData.data.length > 0 ? (
                   <div className="space-y-2">
@@ -735,12 +768,12 @@ export default function InsightsPage({
                 ) : (
                   <div className="text-xs text-zinc-600 py-4 text-center">No browser data available</div>
                 )}
-              </div>
+              </GlassCard>
             </div>
 
             {/* Sleep + Time Split row */}
             <div className="grid grid-cols-2 gap-6">
-              <div className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-5">
+              <GlassCard>
                 <h3 className="text-sm font-semibold text-zinc-200 mb-4">Sleep & Recovery</h3>
                 <div className="h-48">
                   {sleepTrendData.labels.length > 0 ? (
@@ -811,9 +844,9 @@ export default function InsightsPage({
                     </div>
                   </div>
                 )}
-              </div>
+              </GlassCard>
 
-              <div className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-5">
+              <GlassCard>
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="text-sm font-semibold text-zinc-200">Time Distribution</h3>
@@ -837,7 +870,7 @@ export default function InsightsPage({
                     <div className="relative mb-5">
                       <div className="flex h-10 rounded-lg overflow-hidden bg-zinc-900/50">
                         <div 
-                          className="flex items-center justify-center bg-gradient-to-r from-cyan-600/80 to-cyan-500/60 transition-all duration-500"
+                          className="flex items-center justify-center bg-gradient-to-r from-cyan-600/80 to-cyan-500/60 transition-colors duration-500"
                           style={{ width: `${timeSplit.total > 0 ? (timeSplit.deviceSec / timeSplit.total) * 100 : 0}%` }}
                         >
                           {timeSplit.deviceSec / timeSplit.total > 0.15 && (
@@ -847,7 +880,7 @@ export default function InsightsPage({
                           )}
                         </div>
                         <div 
-                          className="flex items-center justify-center bg-gradient-to-r from-purple-600/80 to-purple-500/60 transition-all duration-500"
+                          className="flex items-center justify-center bg-gradient-to-r from-purple-600/80 to-purple-500/60 transition-colors duration-500"
                           style={{ width: `${timeSplit.total > 0 ? (timeSplit.externalSec / timeSplit.total) * 100 : 0}%` }}
                         >
                           {timeSplit.externalSec / timeSplit.total > 0.15 && (
@@ -906,7 +939,7 @@ export default function InsightsPage({
                       {/* Score bar */}
                       <div className="h-2 bg-zinc-900/60 rounded-full overflow-hidden mb-4">
                         <div 
-                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-cyan-500 to-purple-500 transition-all duration-500"
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-cyan-500 to-purple-500 transition-colors duration-500"
                           style={{ width: `${tierDistribution.score}%` }}
                         />
                       </div>
@@ -921,7 +954,7 @@ export default function InsightsPage({
                           <div className="flex items-center gap-3">
                             <div className="w-20 h-1.5 bg-zinc-900/60 rounded-full overflow-hidden">
                               <div 
-                                className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                                className="h-full rounded-full bg-emerald-500 transition-colors duration-500"
                                 style={{ width: `${tierDistribution.total > 0 ? (tierDistribution.productive / tierDistribution.total) * 100 : 0}%` }}
                               />
                             </div>
@@ -938,7 +971,7 @@ export default function InsightsPage({
                           <div className="flex items-center gap-3">
                             <div className="w-20 h-1.5 bg-zinc-900/60 rounded-full overflow-hidden">
                               <div 
-                                className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                                className="h-full rounded-full bg-blue-500 transition-colors duration-500"
                                 style={{ width: `${tierDistribution.total > 0 ? (tierDistribution.neutral / tierDistribution.total) * 100 : 0}%` }}
                               />
                             </div>
@@ -955,7 +988,7 @@ export default function InsightsPage({
                           <div className="flex items-center gap-3">
                             <div className="w-20 h-1.5 bg-zinc-900/60 rounded-full overflow-hidden">
                               <div 
-                                className="h-full rounded-full bg-red-500 transition-all duration-500"
+                                className="h-full rounded-full bg-red-500 transition-colors duration-500"
                                 style={{ width: `${tierDistribution.total > 0 ? (tierDistribution.distracting / tierDistribution.total) * 100 : 0}%` }}
                               />
                             </div>
@@ -978,7 +1011,7 @@ export default function InsightsPage({
                     </div>
                   </div>
                 )}
-              </div>
+              </GlassCard>
             </div>
           </motion.div>
         )}
@@ -989,8 +1022,52 @@ export default function InsightsPage({
             animate={{ opacity: 1 }}
             className="space-y-6"
           >
+            {/* Charts Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <GlassCard>
+                <SectionHeader title="Daily Activity Trend" icon={<TrendingUp className="w-5 h-5" />} />
+                <p className="text-[11px] text-zinc-600 mb-3">Hours tracked per day</p>
+                <div className="relative" style={{ height: 240 }}>
+                  {dailyTrend.values.length > 0 ? (
+                    <Bar data={{
+                      labels: dailyTrend.labels,
+                      datasets: [{ data: dailyTrend.values, backgroundColor: 'rgba(168, 85, 247, 0.6)', borderColor: 'rgba(168, 85, 247, 1)', borderWidth: 1, borderRadius: 6, barPercentage: 0.7 }]
+                    }} options={barOptions} />
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600">
+                      <BarChart3 className="w-8 h-8 mb-2 opacity-30" />
+                      <span className="text-xs">No daily activity data available</span>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+              <GlassCard>
+                <SectionHeader title="Activity by Category" icon={<PieChart className="w-5 h-5" />} />
+                <p className="text-[11px] text-zinc-600 mb-3">Tracked time by activity type</p>
+                <div className="relative" style={{ height: 240 }}>
+                  {activityCategoryDist.values.length > 0 ? (
+                    <Doughnut data={{
+                      labels: activityCategoryDist.labels,
+                      datasets: [{ data: activityCategoryDist.values, backgroundColor: activityCategoryDist.labels.map((_, i) => chartColors[i % chartColors.length]), borderColor: activityCategoryDist.labels.map((_, i) => chartColors[i % chartColors.length].replace('0.8)', '1)')), borderWidth: 1.5 }]
+                    }} options={{
+                      responsive: true, maintainAspectRatio: false,
+                      plugins: {
+                        legend: { position: 'right' as const, labels: { color: '#a1a1aa', font: { size: 11 }, padding: 12, usePointStyle: true, pointStyleWidth: 8 } },
+                        tooltip: { backgroundColor: 'rgba(24, 24, 27, 0.95)', titleColor: '#e4e4e7', bodyColor: '#a1a1aa', borderColor: 'rgba(63, 63, 70, 0.5)', borderWidth: 1, cornerRadius: 8, padding: 10 },
+                      },
+                    }} />
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600">
+                      <PieChart className="w-8 h-8 mb-2 opacity-30" />
+                      <span className="text-xs">No activity data available</span>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+            </div>
+
             {/* External Activities */}
-            <div className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-5">
+            <GlassCard>
               <h3 className="text-sm font-semibold text-zinc-200 mb-4">External Activity Breakdown</h3>
               {Object.keys(stats.byActivity).length > 0 ? (
                 <div className="space-y-2">
@@ -1031,11 +1108,11 @@ export default function InsightsPage({
               ) : (
                 <div className="h-32 flex items-center justify-center text-zinc-600 text-sm">No activity data yet</div>
               )}
-            </div>
+              </GlassCard>
 
             {/* Device App Breakdown */}
             <div className="grid grid-cols-2 gap-6">
-              <div className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-5">
+              <GlassCard>
                 <h3 className="text-sm font-semibold text-zinc-200 mb-3">App Usage (Device Tracking)</h3>
                 <p className="text-xs text-zinc-500 mb-3">All apps and websites tracked by the system</p>
                 {appUsageBreakdown.length > 0 ? (
@@ -1064,10 +1141,10 @@ export default function InsightsPage({
                 ) : (
                   <div className="text-xs text-zinc-600 py-8 text-center">No device data available</div>
                 )}
-              </div>
+              </GlassCard>
 
               {/* Least used apps */}
-              <div className="bg-zinc-800/30 border border-zinc-700/30 rounded-xl p-5">
+              <GlassCard>
                 <h3 className="text-sm font-semibold text-zinc-200 mb-3">Least Used</h3>
                 <p className="text-xs text-zinc-500 mb-3">Apps and sites with the least tracked time</p>
                 {leastUsedApps.length > 0 ? (
@@ -1095,11 +1172,11 @@ export default function InsightsPage({
                 ) : (
                   <div className="text-xs text-zinc-600 py-8 text-center">No data available</div>
                 )}
-              </div>
+              </GlassCard>
             </div>
           </motion.div>
         )}
       </div>
-    </div>
+    </PageShell>
   );
 }

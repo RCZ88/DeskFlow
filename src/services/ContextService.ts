@@ -195,19 +195,6 @@ export async function assembleContext(projectPath: string, config: ContextConfig
         const match = problems.find((p: any) => p.id === opts.problemId || p.title === opts.problemTitle);
         if (match) {
           problemDetail = `Problem ID: ${match.id}\nTitle: ${match.title}\nPriority: ${match.priority || 'medium'}\nStatus: ${match.status || 'NEW'}\nDescription: ${match.description || 'N/A'}\nRoot Cause: ${match.root_cause || 'N/A'}\n`;
-          const checklistsRaw = await readFile(projectPath, 'agent/checklists.json');
-          if (checklistsRaw) {
-            try {
-              const checklists = JSON.parse(checklistsRaw);
-              const items = checklists.filter((c: any) => c.parentId === match.id || c.parentId === opts.problemId);
-              if (items.length > 0) {
-                problemDetail += `\nChecklist:\n`;
-                for (const item of items) {
-                  problemDetail += `- [${item.status === 'completed' ? 'x' : ' '}] ${item.description}\n`;
-                }
-              }
-            } catch {}
-          }
         }
       } catch {}
     }

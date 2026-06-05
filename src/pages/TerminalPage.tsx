@@ -1,11 +1,12 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, Database, Palette, ListChecks } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare } from 'lucide-react';
 import type { PaneNode } from '../components/TerminalWindow';
-import { TerminalLayout, insertIntoLayout } from '../components/TerminalWindow';
+import { TerminalLayout, insertIntoLayout, getLeafIds, getGroupTrees, updateGroupTree } from '../components/TerminalWindow';
 import { MapEditor, swapLeavesInTree } from '../components/MapEditor';
 import { TerminalMiniMap } from '../components/TerminalMiniMap';
 import { InstructionPanel } from '../components/InstructionPanel';
 import { NewSessionDialog, type SessionConfig } from '../components/NewSessionDialog';
+import ImportSessionsDialog from '../components/ImportSessionsDialog';
 import { splitPane, removePane } from '../components/TerminalWindow';
 import { ContextMaintenanceTab } from '../components/ContextMaintenanceTab';
 import DesignWorkspacePage from './DesignWorkspacePage';
@@ -13,6 +14,17 @@ import IssuesWorkspace from '../components/IssuesWorkspace';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import ContextSidebar from '../components/ContextSidebar';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
+import GeneralistDialog from '../components/GeneralistDialog';
+import SkillDynamicForm from '../components/SkillDynamicForm';
+import DSLGenerationModal from '../components/DSLGenerationModal';
+import { RoutingDisambiguationDialog } from '../components/RoutingDisambiguationDialog';
+import { RoutingToast } from '../components/RoutingToast';
+import { SessionEditDialog } from '../components/SessionEditDialog';
+import { PageShell } from '../components/PageShell';
+import { GlassCard } from '../components/GlassCard';
+import { LoadingState } from '../components/LoadingState';
+import { EmptyState } from '../components/EmptyState';
 import '@xterm/xterm/css/xterm.css';
 
 function generateTerminalId(): string {
@@ -40,7 +52,7 @@ function togglePaneDirection(node: PaneNode, path: number[]): PaneNode {
   }
   const [index, ...rest] = path;
   if (!node.children || !node.children[index]) return node;
-  const newChildren = [...node.children] as [PaneNode, PaneNode];
+  const newChildren = [...node.children];
   newChildren[index] = togglePaneDirection(newChildren[index], rest);
   return { ...node, children: newChildren };
 }
@@ -59,13 +71,10 @@ function findLeafInTree(node: PaneNode, terminalId: string): PaneNode | null {
 function removeLeafFromTree(node: PaneNode, terminalId: string): PaneNode | null {
   if (node.type === 'leaf') return node.terminalId === terminalId ? null : node;
   if (!node.children) return node;
-  const [a, b] = node.children;
-  const newA = removeLeafFromTree(a, terminalId);
-  const newB = removeLeafFromTree(b, terminalId);
-  if (!newA && !newB) return null;
-  if (!newA) return newB;
-  if (!newB) return newA;
-  return { ...node, children: [newA, newB] };
+  const newChildren = node.children.map(c => removeLeafFromTree(c, terminalId)).filter((c): c is PaneNode => c !== null);
+  if (newChildren.length === 0) return null;
+  if (newChildren.length === 1) return newChildren[0];
+  return { ...node, children: newChildren };
 }
 
 function addLeafToGroup(tree: PaneNode, targetId: string, leaf: PaneNode, direction: 'horizontal' | 'vertical'): PaneNode {
@@ -73,20 +82,20 @@ function addLeafToGroup(tree: PaneNode, targetId: string, leaf: PaneNode, direct
     return { type: 'split', direction, children: [tree, leaf] };
   }
   if (tree.children) {
-    return { ...tree, children: [addLeafToGroup(tree.children[0], targetId, leaf, direction), addLeafToGroup(tree.children[1], targetId, leaf, direction)] };
+    return { ...tree, children: tree.children.map(c => addLeafToGroup(c, targetId, leaf, direction)) };
   }
   return tree;
 }
 
 // ── Session Categorization Config ──
 
-const SESSION_CATEGORIES: Record<string, { label: string; icon: any; bg: string; text: string; border: string }> = {
-  'bug-fix': { label: 'Bug Fix', icon: Bug, bg: 'bg-red-500/15', text: 'text-red-300', border: 'border-red-500/30' },
-  'feature': { label: 'Feature', icon: Sparkles, bg: 'bg-blue-500/15', text: 'text-blue-300', border: 'border-blue-500/30' },
-  'refactor': { label: 'Refactor', icon: RefreshCw, bg: 'bg-purple-500/15', text: 'text-purple-300', border: 'border-purple-500/30' },
-  'research': { label: 'Research', icon: Search, bg: 'bg-teal-500/15', text: 'text-teal-300', border: 'border-teal-500/30' },
-  'review': { label: 'Review', icon: Eye, bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-amber-500/30' },
-  'other': { label: 'Other', icon: MoreHorizontal, bg: 'bg-zinc-500/15', text: 'text-zinc-400', border: 'border-zinc-500/30' },
+const SESSION_CATEGORIES: Record<string, { label: string; icon: any; bg: string; text: string; border: string; color: string }> = {
+  'bug-fix': { label: 'Bug Fix', icon: Bug, bg: 'bg-red-500/15', text: 'text-red-300', border: 'border-red-500/30', color: 'red' },
+  'feature': { label: 'Feature', icon: Sparkles, bg: 'bg-blue-500/15', text: 'text-blue-300', border: 'border-blue-500/30', color: 'blue' },
+  'refactor': { label: 'Refactor', icon: RefreshCw, bg: 'bg-purple-500/15', text: 'text-purple-300', border: 'border-purple-500/30', color: 'purple' },
+  'research': { label: 'Research', icon: Search, bg: 'bg-teal-500/15', text: 'text-teal-300', border: 'border-teal-500/30', color: 'teal' },
+  'review': { label: 'Review', icon: Eye, bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-amber-500/30', color: 'amber' },
+  'other': { label: 'Other', icon: MoreHorizontal, bg: 'bg-zinc-500/15', text: 'text-zinc-400', border: 'border-zinc-500/30', color: 'zinc' },
 };
 
 const SESSION_STATUS_STYLES: Record<string, { dot: string; label: string }> = {
@@ -113,6 +122,123 @@ function StatusDot({ status, size }: { status?: string; size?: 'sm' | 'md' }) {
   return <span className={`${dims} rounded-full flex-shrink-0 ${style.dot}`} title={style.label} />;
 }
 
+// ── Workspace UI Primitives ──
+
+const WS_ICON_BTN = 'p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors duration-150 active:scale-95';
+
+const WS_SELECT = 'h-7 w-full rounded-md bg-zinc-900 border border-zinc-800/60 px-2 pr-7 text-[11px] text-zinc-200 appearance-none bg-no-repeat bg-[right_0.5rem_center] hover:border-zinc-700 focus:border-cyan-500/60 focus:outline-none transition-colors duration-150';
+
+const TAB_ACTIVE: Record<string, string> = {
+	green: 'text-green-400 border-green-500', emerald: 'text-emerald-400 border-emerald-500',
+	yellow: 'text-yellow-400 border-yellow-500', indigo: 'text-indigo-400 border-indigo-500',
+	pink: 'text-pink-400 border-pink-500', orange: 'text-orange-400 border-orange-500',
+	rose: 'text-rose-400 border-rose-500', amber: 'text-amber-400 border-amber-500',
+	violet: 'text-violet-400 border-violet-500',
+};
+
+const ACCENT_STRIP: Record<string, string> = {
+	green: 'bg-green-500', emerald: 'bg-emerald-500', yellow: 'bg-yellow-500',
+	indigo: 'bg-indigo-500', pink: 'bg-pink-500', orange: 'bg-orange-500',
+	rose: 'bg-rose-500', amber: 'bg-amber-500', violet: 'bg-violet-500',
+};
+
+function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
+	return (
+		<button
+			role="switch" aria-checked={checked} aria-label={label}
+			onClick={() => onChange(!checked)}
+			className={`relative inline-flex items-center w-9 h-5 rounded-full shrink-0 transition-colors duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${checked ? 'bg-cyan-600' : 'bg-zinc-700'}`}
+		>
+			<span className={`inline-block w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-150 ${checked ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+		</button>
+	);
+}
+
+function Pill({ active, onClick, dotClass, children }: { active: boolean; onClick: () => void; dotClass?: string; children: React.ReactNode }) {
+	return (
+		<button
+			onClick={onClick}
+			className={`inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[11px] font-medium transition-colors duration-150 active:scale-95 border ${active ? 'bg-zinc-200 text-zinc-900 border-transparent' : 'bg-transparent text-zinc-400 border-zinc-800/60 hover:text-zinc-200 hover:border-zinc-700'}`}
+		>
+			{dotClass && <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />}
+			{children}
+		</button>
+	);
+}
+
+function Badge({ tone = 'zinc', children }: { tone?: 'zinc' | 'blue' | 'green'; children: React.ReactNode }) {
+	const tones: Record<string, string> = {
+		zinc: 'bg-zinc-800 text-zinc-300',
+		blue: 'bg-blue-500/15 text-blue-300',
+		green: 'bg-green-500/15 text-green-300',
+	};
+	return <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium ${tones[tone]}`}>{children}</span>;
+}
+
+function ToolbarButton({ variant = 'secondary', icon: Icon, children, ...props }: { variant?: 'primary' | 'secondary'; icon?: React.ComponentType<any>; children: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+	return (
+		<button
+			{...props}
+			className={`inline-flex items-center gap-1.5 h-7 px-3 rounded-lg text-[11px] font-medium transition-colors duration-150 active:scale-95 ${variant === 'primary' ? 'bg-cyan-600 hover:bg-cyan-500 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'}`}
+		>
+			{Icon && <Icon className="w-3.5 h-3.5" />}
+			{children}
+		</button>
+	);
+}
+
+function WsEmptyState({ icon: Icon, title, hint, action }: { icon: React.ComponentType<any>; title: string; hint?: string; action?: React.ReactNode }) {
+	return (
+		<div className="flex flex-col items-center justify-center text-center py-10 px-4">
+			<div className="w-9 h-9 rounded-lg border border-zinc-800/60 bg-zinc-900 flex items-center justify-center mb-3">
+				<Icon className="w-4 h-4 text-zinc-600" />
+			</div>
+			<p className="text-xs font-medium text-zinc-300">{title}</p>
+			{hint && <p className="text-[11px] text-zinc-500 mt-1 max-w-[200px]">{hint}</p>}
+			{action && <div className="mt-3">{action}</div>}
+		</div>
+	);
+}
+
+function Modal({ open, onClose, title, children, footer, width = 'max-w-md' }: { open: boolean; onClose: () => void; title: string; width?: string; children: React.ReactNode; footer?: React.ReactNode }) {
+	if (!open) return null;
+	return (
+		<div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[var(--z-overlay)] flex items-center justify-center p-4" onClick={onClose}>
+			<div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} className={`w-full ${width} rounded-xl border border-zinc-800/60 bg-zinc-900 animate-[ws-modal-in_250ms_cubic-bezier(0.2,0,0,1)]`}>
+				<header className="flex items-center justify-between px-4 h-11 border-b border-zinc-800/60">
+					<h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
+					<button onClick={onClose} className={WS_ICON_BTN}><X className="w-4 h-4" /></button>
+				</header>
+				<div className="p-4 space-y-3 text-xs text-zinc-300">{children}</div>
+				{footer && <footer className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-800/60">{footer}</footer>}
+			</div>
+		</div>
+	);
+}
+
+function SectionCard({ accent, title, children }: { accent: string; title: string; children: React.ReactNode }) {
+	return (
+		<section className="rounded-lg border border-zinc-800/60 bg-zinc-900">
+			<header className="flex items-center gap-1.5 px-3 h-9 border-b border-zinc-800/60">
+				<span className={`w-1.5 h-1.5 rounded-full ${ACCENT_STRIP[accent]}`} />
+				<span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{title}</span>
+			</header>
+			<div className="p-3 space-y-3">{children}</div>
+		</section>
+	);
+}
+
+function TabPanel({ accent, children }: { accent: string; children: React.ReactNode }) {
+	return (
+		<div className="relative flex-1 min-h-0">
+			<span className={`absolute left-0 top-0 bottom-0 w-0.5 ${ACCENT_STRIP[accent]} opacity-60`} />
+			<div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
+				{children}
+			</div>
+		</div>
+	);
+}
+
 interface Preset {
   id: string;
   name: string;
@@ -137,6 +263,7 @@ interface Session {
   description?: string;
   auto_tags?: string;
   category_confirmed?: number;
+  auto_named?: number;
 }
 
 const loggedErrors = new Set<string>();
@@ -163,16 +290,68 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showAddPreset, setShowAddPreset] = useState(false);
   const [newPreset, setNewPreset] = useState({ name: '', command: '', category: '' });
+  const [showEditPreset, setShowEditPreset] = useState(false);
+  const [editPreset, setEditPreset] = useState<Preset | null>(null);
+  const [showFeaturesDialog, setShowFeaturesDialog] = useState(false);
+  const [showGeneralistDialog, setShowGeneralistDialog] = useState(false);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
+  const [showImportSessionsDialog, setShowImportSessionsDialog] = useState(false);
+  const [preferences, setPreferences] = useState<any>(null);
+  useEffect(() => {
+    window.deskflowAPI?.getPreferences?.().then(prefs => { if (prefs) setPreferences(prefs); });
+  }, []);
+  const [modelReinjectThreshold, setModelReinjectThreshold] = useState(() => {
+    const saved = localStorage.getItem('model-reinject-threshold');
+    return saved ? Number(saved) : 10;
+  });
+  const [modelDefaultTier, setModelDefaultTier] = useState<'top' | 'mid' | 'low'>(() => {
+    return (localStorage.getItem('default-model-tier') as any) || 'mid';
+  });
+  const [modelDebugMode, setModelDebugMode] = useState(() => {
+    return localStorage.getItem('model-debug-mode') === 'true';
+  });
+  const [openCodeSessionName, setOpenCodeSessionName] = useState('');
   const [newSessionAgent, setNewSessionAgent] = useState('claude');
   const [newSessionName, setNewSessionName] = useState('');
   const [newSessionMode, setNewSessionMode] = useState<'create' | 'initialize'>('create');
   const [newSessionTerminalMode, setNewSessionTerminalMode] = useState<'create' | 'select'>('create');
   const [newSessionSelectedTerminal, setNewSessionSelectedTerminal] = useState('');
   const [sendTargetSession, setSendTargetSession] = useState<string>('');
+  const [autoAssignConfig, setAutoAssignConfig] = useState<any>(null);
+  // ── Cross-session sync config ─────────────────────────────────
+  const [crossSessionSyncEnabled, setCrossSessionSyncEnabled] = useState(() => {
+    return localStorage.getItem('cross-session-sync-enabled') !== 'false';
+  });
+  const [fileLockTTL, setFileLockTTL] = useState(() => {
+    const saved = localStorage.getItem('file-lock-ttl');
+    return saved ? Number(saved) : 300;
+  });
+  const [contextBroadcastEnabled, setContextBroadcastEnabled] = useState(() => {
+    return localStorage.getItem('context-broadcast-enabled') !== 'false';
+  });
+  const [conflictWarningMode, setConflictWarningMode] = useState(() => {
+    return localStorage.getItem('conflict-warning-mode') || 'both';
+  });
+  const [syncCommandEnabled, setSyncCommandEnabled] = useState(() => {
+    return localStorage.getItem('sync-command-enabled') !== 'false';
+  });
+  const [thoughtProcessEnabled, setThoughtProcessEnabled] = useState(() => {
+    return localStorage.getItem('thought-process-enabled') !== 'false';
+  });
+  const [routingResult, setRoutingResult] = useState<any>(null);
+  const [isRouting, setIsRouting] = useState(false);
+  const [showDisambiguation, setShowDisambiguation] = useState(false);
+  const [disambiguationCandidates, setDisambiguationCandidates] = useState<any[]>([]);
+  const [showRoutingToast, setShowRoutingToast] = useState(false);
+  const [routingToastSession, setRoutingToastSession] = useState('');
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [showMessagesViewer, setShowMessagesViewer] = useState<string | null>(null);
+  const [sessionToEdit, setSessionToEdit] = useState<Session | null>(null);
   const [selectedSessionDetail, setSelectedSessionDetail] = useState<string | null>(null);
   const [sessionMessages, setSessionMessages] = useState<any[]>([]);
+  const [quotedReferences, setQuotedReferences] = useState<Array<{ role: string; content: string; createdAt?: string; id?: number }>>([]);
+  const [sessionProblems, setSessionProblems] = useState<any[]>([]);
+  const [sessionRequests, setSessionRequests] = useState<any[]>([]);
   const [messagesSearchQuery, setMessagesSearchQuery] = useState('');
   const [projects, setProjects] = useState<{ id: string; name: string; path: string }[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>(propProjectId || '');
@@ -182,9 +361,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsProblems, setAnalyticsProblems] = useState<any[]>([]);
   const [analyticsRequests, setAnalyticsRequests] = useState<any[]>([]);
-  const [analyticsDailyStats, setAnalyticsDailyStats] = useState<any[]>([]);
-  const [analyticsAppStats, setAnalyticsAppStats] = useState<any[]>([]);
   const [analyticsPromptHistory, setAnalyticsPromptHistory] = useState<any[]>([]);
+  const [analyticsDailyStats, setAnalyticsDailyStats] = useState<any[]>([]);
+
   
   // Terminal binding state
   const [terminalBindings, setTerminalBindings] = useState<Record<string, {
@@ -204,9 +383,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveDialogName, setSaveDialogName] = useState('');
   const [showCloseWorkspaceDialog, setShowCloseWorkspaceDialog] = useState(false);
+  const [fileConflicts, setFileConflicts] = useState<Array<{
+    filePath: string; requestingTerminal: string; lockingTerminal: string;
+    sessionId: string | null; timestamp: number;
+  }>>([]);
+  const [terminalFileLocks, setTerminalFileLocks] = useState<Record<string, string[]>>({});
+  const [touchedFiles, setTouchedFiles] = useState<Array<{
+    id: string; terminal_id: string; session_id: string;
+    file_path: string; action: string; project_path: string; timestamp: string;
+  }>>([]);
 
   // Confirm dialog (replaces window.confirm)
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; message: string; onConfirm: () => void }>({ isOpen: false, message: '', onConfirm: () => {} });
+
+  // Context menu for session items
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; session: Session } | null>(null);
+
+  // Session drag state for drag-to-terminal
+  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null);
 
   const showError = useCallback((msg: string, type: 'error' | 'warning' | 'info' = 'error') => {
     setTerminalError(msg);
@@ -214,12 +408,22 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     setTimeout(() => setTerminalError(null), 8000);
   }, []);
 
+  interface AgentInitErrorInfo {
+    terminalId: string;
+    reason: string;
+    detail: string;
+    installHint: string;
+  }
+  const [agentInitErrors, setAgentInitErrors] = useState<Record<string, AgentInitErrorInfo>>({});
+
   // Terminal tab bar state
   type TerminalTabInfo = { name: string; agent: string; modelTier?: string };
   const [terminalTabs, setTerminalTabs] = useState<Record<string, TerminalTabInfo>>({});
   const terminalTabsRef = useRef(terminalTabs);
-  terminalTabsRef.current = terminalTabs;
+  const draggedTabRef = useRef<string | null>(null);
+  // to hold onCloseWorkspace for IPC cleanup
   const onCloseWorkspaceRef = useRef(onCloseWorkspace);
+  const instructionTextareaRef = useRef<HTMLTextAreaElement>(null);
   onCloseWorkspaceRef.current = onCloseWorkspace;
 
   // Problems and Requests for binding/instruction panel
@@ -247,29 +451,106 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   // File change pulse notification
   const [fileChangedPulse, setFileChangedPulse] = useState(false);
   const [terminalLayout, setTerminalLayout] = useState<PaneNode | null>(null);
+  const [activeGroupIndex, setActiveGroupIndex] = useState(0);
   const [layoutLoading, setLayoutLoading] = useState(true);
+  const [mapListRatio, setMapListRatio] = useState(0.6);
+  const mapResizeRef = useRef<{ startY: number; startRatio: number } | null>(null);
   const userCreatedTerminalRef = useRef(false);
 
   const effectiveProjectId = propProjectId || selectedProject;
 
-  // Load saved layout from DB — but don't overwrite if user already created a terminal
+  // Load saved layout from DB — only restore if empty state (no terminals to auto-spawn)
   useEffect(() => {
     if (!window.deskflowAPI) { setLayoutLoading(false); return; }
     (async () => {
       try {
         const layouts = await window.deskflowAPI.getTerminalLayouts(effectiveProjectId || undefined);
         const active = layouts?.find((l: any) => l.is_active);
-        if (!userCreatedTerminalRef.current) {
-          if (active?.layout_data) {
-            setTerminalLayout(JSON.parse(active.layout_data));
+        if (!userCreatedTerminalRef.current && active?.layout_data) {
+          const parsed = JSON.parse(active.layout_data);
+          const leafIds = getLeafIds(parsed);
+          // Only restore if no terminals would auto-spawn (empty layout)
+          if (leafIds.length === 0) {
+            setTerminalLayout(parsed);
           } else {
             setTerminalLayout(null);
           }
+        } else {
+          setTerminalLayout(null);
         }
       } catch { if (!userCreatedTerminalRef.current) setTerminalLayout(null); }
       setLayoutLoading(false);
     })();
   }, [effectiveProjectId, propProjectId]);
+
+  // ── Cross-session conflict listener + notification ─────────────
+  useEffect(() => {
+    if (!window.deskflowAPI?.onFileConflict) return;
+    const unsub = window.deskflowAPI.onFileConflict((data) => {
+      setFileConflicts(prev => [...prev.slice(-9), { ...data, timestamp: Date.now() }]);
+      setTerminalError(`Conflict: ${data.requestingTerminal} wants to edit ${data.filePath} (locked by ${data.lockingTerminal})`);
+      setTerminalErrorType('warning');
+
+      if (crossSessionSyncEnabled && data.requestingTerminal === activeTerminalId && window.deskflowAPI?.terminalWrite) {
+        const msg = `[System: Conflict — ${data.filePath} is locked by ${data.lockingTerminal}. Wait for lock to expire (~60s) or coordinate with that session.]`;
+        window.deskflowAPI.terminalWrite(activeTerminalId, msg + '\r\n');
+      }
+    });
+    return unsub;
+  }, [activeTerminalId, crossSessionSyncEnabled]);
+
+  // ── Context sync listener — refresh + notify other terminals ──
+  useEffect(() => {
+    if (!window.deskflowAPI?.onContextChanged) return;
+    const unsub = window.deskflowAPI.onContextChanged((data) => {
+      if (data.source && data.source !== activeTerminalId && (data.type === 'problems' || data.type === 'requests')) {
+        if (data.action === 'broadcast') {
+          loadAllProblems?.();
+          loadAllRequests?.();
+
+          if (crossSessionSyncEnabled && window.deskflowAPI?.terminalWrite) {
+            const typeLabel = data.type === 'problems' ? 'problem' : 'request';
+            const actionLabel = data.action === 'created' ? 'created' : data.action === 'updated' ? 'updated' : 'modified';
+            const title = data.entity?.title ? ` "${data.entity.title}"` : '';
+            const msg = `[System: ${data.source} ${actionLabel} ${typeLabel}${title}. Run /sync for full context.]`;
+            window.deskflowAPI.terminalWrite(activeTerminalId, msg + '\r\n');
+          }
+        }
+      }
+    });
+    return unsub;
+  }, [activeTerminalId, crossSessionSyncEnabled]);
+
+  // ── Periodic file lock refresh ─────────────────────────────────
+  useEffect(() => {
+    if (!window.deskflowAPI?.getFileLocks) return;
+    const refresh = () => {
+      window.deskflowAPI!.getFileLocks!().then((locks) => {
+        const byTerminal: Record<string, string[]> = {};
+        for (const l of locks) {
+          if (!byTerminal[l.terminalId]) byTerminal[l.terminalId] = [];
+          byTerminal[l.terminalId].push(l.filePath);
+        }
+        setTerminalFileLocks(byTerminal);
+      }).catch(() => {});
+    };
+    refresh();
+    const interval = setInterval(refresh, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ── Periodic touched files refresh ──────────────────────────────
+  useEffect(() => {
+    if (!window.deskflowAPI?.getTouchedFiles || !crossSessionSyncEnabled) { setTouchedFiles([]); return; }
+    const refresh = () => {
+      window.deskflowAPI!.getTouchedFiles!({ limit: 10 }).then((result) => {
+        setTouchedFiles(result?.data || []);
+      }).catch(() => {});
+    };
+    refresh();
+    const interval = setInterval(refresh, 10000);
+    return () => clearInterval(interval);
+  }, [crossSessionSyncEnabled]);
 
   const saveLayout = useCallback((layout: PaneNode | null) => {
     if (!window.deskflowAPI) return;
@@ -283,14 +564,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     } catch {}
   }, [effectiveProjectId]);
 
-  const initializeTerminal = useCallback(async (terminalId: string, agent: string, resumeId?: string, initContent?: string, systemPrompt?: string) => {
+  const initializeTerminal = useCallback(async (terminalId: string, agent: string, resumeId?: string, initContent?: string, systemPrompt?: string, projectPath?: string) => {
     if (initializingTerminals.current.has(terminalId)) {
       console.log('[TerminalPage] Already initializing terminal:', terminalId);
       return;
     }
     initializingTerminals.current.add(terminalId);
     try {
-      // Wait for terminal ready signal first (with timeout)
+      // ═══ VERIFY AGENT AVAILABILITY ═══
+      if (window.deskflowAPI?.verifyAgent) {
+        const verifyResult = await window.deskflowAPI.verifyAgent(agent);
+        if (!verifyResult?.found) {
+          console.warn('[TerminalPage] Agent not found on PATH:', agent);
+          showError(verifyResult?.installHint || `Agent '${agent}' not found. Install it and restart.`, 'warning');
+          return;
+        }
+      }
+
+      // ═══ WAIT FOR TERMINAL READY ═══
       try {
         await new Promise<void>((resolve) => {
           let done = false;
@@ -308,45 +599,85 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       // small pause to let shell render
       await new Promise(r => setTimeout(r, 200));
 
-      // Write system prompt
+      // ═══ LAUNCH AGENT ═══
+      const cdCmd = projectPath ? `cd "${projectPath}"\r\n` : '';
+      let launchCommand: string;
+      if (resumeId) {
+        let resumeCmd = `${agent} -s ${resumeId}`;
+        try {
+          const prefs = await window.deskflowAPI?.getPreferences?.();
+          const templates: Record<string, string> = prefs?.agentResumeCommands || {};
+          const template = templates[agent];
+          if (template) {
+            resumeCmd = template.replace('{agent}', agent).replace('{resumeId}', resumeId);
+          }
+        } catch {}
+        launchCommand = `${cdCmd}${resumeCmd}\r\n`;
+      } else {
+        launchCommand = `${cdCmd}${agent}\r\n`;
+      }
+      const r2 = await window.deskflowAPI?.terminalWrite?.(terminalId, launchCommand);
+      console.log('[TerminalPage] Wrote launch command:', JSON.stringify(launchCommand), 'result:', r2);
+
+      // ═══ WAIT FOR AGENT TO BE READY ═══
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const remover = window.deskflowAPI?.onAgentReady?.((data: { terminalId: string }) => {
+          if (data.terminalId === terminalId && !done) {
+            done = true;
+            remover?.();
+            resolve();
+          }
+        });
+        setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 15000);
+      });
+
+      // ═══ ARM HANDSHAKE ═══
+      if (window.deskflowAPI?.armHandshake) {
+        const hs = await window.deskflowAPI.armHandshake(terminalId);
+        if (hs?.success && hs.token) {
+          await window.deskflowAPI.terminalWrite(terminalId, hs.token + '\r');
+          // Wait for handshake token to appear in agent output
+          await new Promise<void>((resolve) => {
+            let done = false;
+            const remover = window.deskflowAPI?.onAgentIdle?.((data: { terminalId: string }) => {
+              if (data.terminalId === terminalId && !done) {
+                done = true;
+                remover?.();
+                resolve();
+              }
+            });
+            setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 10000);
+          });
+        }
+      }
+
+      // ═══ WRITE SYSTEM PROMPT + INIT CONTENT AS SINGLE SEND ═══
+      const parts: string[] = [];
       if (systemPrompt) {
-        await window.deskflowAPI?.terminalWrite?.(terminalId, systemPrompt + '\n');
+        parts.push(systemPrompt);
       } else {
         const prefs = await window.deskflowAPI?.getPreferences?.();
         const prompts = prefs?.systemPrompts || {};
         const prompt = prompts[agent] || prompts['claude'] || '';
-        if (prompt && window.deskflowAPI?.terminalWrite) {
-          await window.deskflowAPI.terminalWrite(terminalId, prompt + '\n');
-        }
+        if (prompt) parts.push(prompt);
       }
-
-      // Write init content
       if (initContent) {
-        await window.deskflowAPI?.terminalWrite?.(terminalId, initContent + '\n');
-      } else {
-        const proj = projects.find(p => p.id === selectedProject);
-        if (proj?.path) {
-          try {
-            const initResult = await window.deskflowAPI?.readProjectFile?.('INITIALIZE.md', proj.path);
-            if (initResult?.success && initResult.data && window.deskflowAPI?.terminalWrite) {
-              await window.deskflowAPI.terminalWrite(terminalId, initResult.data + '\n');
-            }
-          } catch {}
-        }
+        parts.push(initContent);
       }
-
-      // Use CRLF for the final launch command to ensure shells on Windows receive an Enter
-      const NL = '\r\n';
-      const launchCommand = resumeId ? `${agent} --resume ${resumeId}${NL}` : `${agent}${NL}`;
-
-      const r2 = await window.deskflowAPI?.terminalWrite?.(terminalId, launchCommand);
-      console.log('[TerminalPage] Wrote launch command (raw):', JSON.stringify(launchCommand), 'result:', r2);
+      if (thoughtProcessEnabled) {
+        parts.push(`## Thought Process\n\nBefore providing your final answer, you MUST show your thought process in a <thought_process> block. This should include:\n- How you interpret the request and what you need to do\n- Which files or code areas you're considering\n- Tradeoffs you're weighing between different approaches\n- Why you chose the approach you did\n- Any potential pitfalls or edge cases to watch for\n\nKeep the thought process concise and focused — 3-10 sentences is usually sufficient.`);
+      }
+      if (parts.length > 0 && window.deskflowAPI?.agentSend) {
+        const combined = parts.join('\n\n');
+        await window.deskflowAPI.agentSend(terminalId, combined, agent);
+      }
     } catch (e) {
       console.error('[TerminalPage] initializeTerminal failed:', e);
     } finally {
       initializingTerminals.current.delete(terminalId);
     }
-  }, [selectedProject, projects]);
+  }, [thoughtProcessEnabled, showError]);
 
   // Load all problems for binding dropdown
   const loadAllProblems = useCallback(async () => {
@@ -383,6 +714,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     const cleanup = window.deskflowAPI.onAgentFileChanged(() => {
       setFileChangedPulse(true);
       setTimeout(() => setFileChangedPulse(false), 3000);
+    });
+    return () => cleanup?.();
+  }, []);
+
+  // Listen for agent init errors (launch failure recovery)
+  useEffect(() => {
+    if (!window.deskflowAPI?.onAgentInitError) return;
+    const cleanup = window.deskflowAPI.onAgentInitError((data) => {
+      setAgentInitErrors(prev => ({ ...prev, [data.terminalId]: data }));
     });
     return () => cleanup?.();
   }, []);
@@ -437,13 +777,35 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     }
   }, [selectedProject, loadTerminalBindings]);
 
+  const systemPromptLayers = useMemo(() => {
+    const layers: Array<{ label: string; content: string; color: string }> = [];
+    layers.push({ label: 'Default', content: DEFAULT_SYSTEM_PROMPT || '', color: 'text-cyan-400' });
+    const generalAdditions = preferences?.systemPrompts?.generalAdditions || '';
+    if (generalAdditions.trim()) {
+      layers.push({ label: 'General', content: generalAdditions, color: 'text-blue-400' });
+    }
+    const projectPrompt = preferences?.systemPrompts?.[selectedProject || ''] || '';
+    if (projectPrompt.trim()) {
+      layers.push({ label: 'Project', content: projectPrompt, color: 'text-purple-400' });
+    }
+    return layers;
+  }, [preferences, selectedProject]);
+
   // Send instruction from InstructionPanel (with problem/request/skill data)
-  const handleInstructionPanelSend = useCallback(async (config: { problems: string[]; requests: string[]; skill?: string; instruction: string; prompt: string }) => {
+  const handleInstructionPanelSend = useCallback(async (config: {
+    problems: string[];
+    requests: string[];
+    skill?: string;
+    instruction: string;
+    prompt: string;
+    systemPromptIncluded?: boolean;
+  }) => {
     if (!window.deskflowAPI || !config.prompt.trim() || isSending) return;
     setIsSending(true);
     setShowInstructionPanel(false);
     try {
-      let resolvedTargetId = activeTerminalId;
+      // ── 1. Resolve target terminal ──────────────────────────
+      let resolvedTargetId = activeTerminalId || '';
       if (!resolvedTargetId && sendTargetSession) {
         const targetSession = sessions.find(s => s.id === sendTargetSession);
         if (targetSession?.terminal_id) {
@@ -454,33 +816,94 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         showError('No terminal available for this session.', 'error');
         return;
       }
-      const result = await window.deskflowAPI.terminalWrite(resolvedTargetId, config.prompt + '\n');
-      if (result && !result.success) {
-        showError(`Terminal not responding: ${result.error || 'Unknown error'}`, 'error');
+
+      // /sync command — compile cross-session context summary
+      if (config.prompt.trim().toLowerCase() === '/sync') {
+        const syncResult = await window.deskflowAPI.compileSyncSummary(resolvedTargetId);
+        if (syncResult?.success && syncResult.summary) {
+          await window.deskflowAPI.terminalWrite(resolvedTargetId, syncResult.summary + '\r\n');
+          showError('Cross-session context synced', 'info');
+        } else {
+          showError(syncResult?.error || 'Sync failed', 'error');
+        }
         return;
       }
-      // Save session with problem/request/skill bindings
+
       const proj = projects.find(p => p.id === selectedProject);
-      const session = sessions.find(s => s.terminal_id === resolvedTargetId || s.id === resolvedTargetId);
-      await window.deskflowAPI.saveTerminalSession?.({
-        id: session?.id || `session-${Date.now()}`,
+      const cwd = proj?.path || undefined;
+
+      // ── 2. Build meaningful topic ───────────────────────────
+      const instructionText = config.instruction?.trim();
+      let topic: string;
+      if (instructionText && instructionText.length > 0) {
+        topic = instructionText.replace(/\n/g, ' ').trim();
+        if (topic.length > 60) topic = topic.substring(0, 57) + '...';
+      } else {
+        const parts: string[] = [];
+        if (config.problems.length > 0) parts.push(`${config.problems.length}p`);
+        if (config.requests.length > 0) parts.push(`${config.requests.length}r`);
+        if (config.skill) parts.push(config.skill);
+        topic = parts.length > 0 ? `Instruction: ${parts.join(' ')}` : 'Quick instruction';
+      }
+
+      // ── 3. Generate session ID ──────────────────────────────
+      const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // ── 4. Save session BEFORE terminal write ───────────────
+      const existingSession = sessions.find(s => s.terminal_id === resolvedTargetId || s.id === resolvedTargetId);
+      const sessionPayload: any = {
+        id: existingSession?.id || sessionId,
         projectId: selectedProject,
-        agent: session?.agent || 'claude',
+        agent: existingSession?.agent || 'claude',
         terminalId: resolvedTargetId,
-        topic: `Instruction: ${config.problems.length}p ${config.requests.length}r${config.skill ? ` + ${config.skill}` : ''}`,
-        workingDirectory: proj?.path || '',
-      });
-      // Update terminal binding with problem/request context
-      await window.deskflowAPI.updateTerminalBinding?.({
-        terminalId: resolvedTargetId,
-        updates: {
-          active_problem_id: config.problems[0] || null,
-          session_context: JSON.stringify({ problems: config.problems, requests: config.requests, skill: config.skill }),
-        },
-      });
+        topic,
+        workingDirectory: cwd || '',
+        description: instructionText || undefined,
+      };
+      try {
+        const saveResult = await window.deskflowAPI?.saveTerminalSession?.(sessionPayload);
+        if (!saveResult?.success) {
+          console.error('[InstructionSend] Session save failed:', saveResult);
+        }
+      } catch (err) {
+        console.error('[InstructionSend] Session save exception:', err);
+      }
+
+      // ── 5. Send prompt to agent ────────────────────────────
+      try {
+        const sendResult = await window.deskflowAPI?.agentSend?.(resolvedTargetId, config.prompt, existingSession?.agent || 'claude');
+        if (sendResult && !sendResult.success) {
+          showError(`Terminal not responding: ${sendResult.error || 'Unknown error'}`, 'error');
+          return;
+        }
+      } catch (err) {
+        console.error('[InstructionSend] agentSend failed:', err);
+        return;
+      }
+
+      // ── 6. Update terminal binding ──────────────────────────
+      try {
+        await window.deskflowAPI?.updateTerminalBinding?.({
+          terminalId: resolvedTargetId,
+          updates: {
+            active_problem_id: config.problems[0] || null,
+            session_context: JSON.stringify({
+              problems: config.problems,
+              requests: config.requests,
+              skill: config.skill,
+              systemPromptIncluded: config.systemPromptIncluded,
+            }),
+          },
+        });
+      } catch (err) {
+        console.error('[InstructionSend] Binding update failed:', err);
+      }
+
+      // ── 7. Feedback ─────────────────────────────────────────
       loadTerminalBindings();
       loadSessions();
-      showError(`Sent to terminal (${config.problems.length} problems, ${config.requests.length} requests)`, 'info');
+      const toastMsg = `Sent to terminal (${config.problems.length} problems, ${config.requests.length} requests)`;
+      showError(toastMsg, 'info');
     } catch (e) {
       console.error('[TerminalPage] Failed to send instruction:', e);
       showError(`Failed to send: ${(e as any).message}`, 'error');
@@ -490,10 +913,157 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   }, [activeTerminalId, sendTargetSession, sessions, showError, isSending, selectedProject, projects, loadSessions, loadTerminalBindings]);
 
   // Send instruction to terminal
+  const handleSendToTerminal = useCallback(async (terminalId: string, message: string, agentType?: string) => {
+    const result = await window.deskflowAPI.agentSend(terminalId, message, agentType);
+    if (result && !result.success) {
+      showError(`Terminal not responding: ${result.error || 'Unknown error'}`, 'error');
+      return false;
+    }
+    setInstructionText('');
+    setMentionDropdown(prev => ({ ...prev, visible: false }));
+    setShowInstructionInput(false);
+    if (terminalId !== activeTerminalId) {
+      showError(`Sent to ${Object.entries(terminalTabs).find(([id]) => id === terminalId)?.[1]?.name || 'terminal'}`, 'info');
+    }
+    if (autoAssignConfig?.enabled) {
+      const session = sessions.find((s: any) => s.terminal_id === terminalId);
+      if (session) {
+        window.deskflowAPI?.updateSessionSummary?.({ sessionId: session.id }).catch(() => {});
+      }
+    }
+    return true;
+  }, [activeTerminalId, instructionText, terminalTabs, showError, autoAssignConfig, sessions]);
+
+  const handleRetryAgentInit = useCallback(async (terminalId: string, agentType: string) => {
+    setAgentInitErrors(prev => { const n = { ...prev }; delete n[terminalId]; return n; });
+    if (window.deskflowAPI?.retryAgentLaunch) {
+      await window.deskflowAPI.retryAgentLaunch(terminalId, agentType);
+    }
+    const launchCommand = `${agentType}\r\n`;
+    await window.deskflowAPI?.terminalWrite?.(terminalId, launchCommand);
+    await initializeTerminal(terminalId, agentType);
+  }, [initializeTerminal]);
+
+  const handleCreateNewSession = useCallback(async (name?: string, summary?: string, prompt?: string) => {
+    try {
+      // Use selected project, or fallback to first available project
+      const activeProjectId = selectedProject || projects[0]?.id || '';
+      const proj = projects.find(p => p.id === activeProjectId);
+      const newTerminalId = generateTerminalId();
+      const cwd = proj?.path || '';
+      
+      if (!cwd) {
+        showError('No project path available. Please select a project with a valid path.', 'warning');
+        return null;
+      }
+      
+      // ═══ CREATE UI ═══
+      setTerminalTabs(prev => ({ ...prev, [newTerminalId]: { name: name || 'New Session', agent: newSessionAgent, modelTier: 'mid' } }));
+      setActiveTerminalId(newTerminalId);
+      const updatedLayout = insertIntoLayout(terminalLayout, newTerminalId);
+      setTerminalLayout(updatedLayout);
+      saveLayout(updatedLayout);
+      
+      // ═══ SPAWN PTY ═══
+      if (!window.deskflowAPI?.spawnTerminal) {
+        showError('Terminal API not available', 'error');
+        return null;
+      }
+      const spawnResult = await window.deskflowAPI.spawnTerminal(newTerminalId, cwd, newSessionAgent);
+      if (!spawnResult?.success) {
+        showError(`Failed to spawn terminal: ${spawnResult?.error}`, 'error');
+        return null;
+      }
+      window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: newTerminalId } }));
+      
+      // ═══ INITIALIZE AGENT ═══
+      await registerTerminal(newTerminalId);
+      await initializeTerminal(newTerminalId, newSessionAgent, undefined, undefined, undefined, cwd);
+
+      // ═══ WRITE USER PROMPT ═══
+      if (prompt && prompt.trim()) {
+        const writeResult = await window.deskflowAPI?.agentSend?.(newTerminalId, prompt, newSessionAgent);
+        if (!writeResult?.success) {
+          console.error('[handleCreateNewSession] Failed to write prompt:', writeResult?.error);
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+      
+      // ═══ SAVE SESSION ═══
+      const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const savePayload: any = {
+        id: sessionId,
+        projectId: selectedProject,
+        agent: newSessionAgent,
+        terminalId: newTerminalId,
+        topic: name || 'New Session',
+        workingDirectory: cwd,
+        description: summary || '',
+        autoNamed: 1,
+      };
+      const saveResult = await window.deskflowAPI?.saveTerminalSession?.(savePayload);
+      if (!saveResult?.success) {
+        console.error('[handleCreateNewSession] Failed to save session:', saveResult?.error);
+        showError(`Session save failed: ${saveResult?.error}`, 'warning');
+      }
+      
+      loadSessions();
+      return newTerminalId;
+    } catch (err) {
+      console.error('[handleCreateNewSession] Unexpected error:', err);
+      showError(`Session creation failed: ${(err as any).message}`, 'error');
+      return null;
+    }
+  }, [projects, selectedProject, terminalLayout, loadSessions, registerTerminal, initializeTerminal, saveLayout, showError]);
+
   const sendInstruction = useCallback(async () => {
     if (!window.deskflowAPI || !instructionText.trim() || isSending) return;
     setIsSending(true);
     try {
+      // Auto-assign routing (ONLY if no @term mention and feature is enabled)
+      if (autoAssignConfig?.enabled && !instructionText.includes('@')) {
+        setIsRouting(true);
+        setPendingPrompt(instructionText);
+        try {
+          const result = await window.deskflowAPI?.routePrompt?.({ prompt: instructionText });
+          if (result && result.action === 'route' && result.confidence != null) {
+            if (result.confidence >= 0.7) {
+              // High confidence — auto-send
+              await handleSendToTerminal(result.terminalId!, instructionText);
+              return;
+            } else if (result.confidence >= 0.4) {
+              // Medium — show toast with 3s cancel window
+              setRoutingToastSession(result.sessionName || 'Session');
+              setShowRoutingToast(true);
+              setRoutingResult(result);
+              // Don't return yet — toast will auto-confirm or cancel
+              // Fall through to prevent double-send from existing flow
+              return;
+            } else {
+              // Low — show disambiguation
+              setDisambiguationCandidates([{
+                sessionId: result.sessionId!,
+                sessionName: result.sessionName || 'Session',
+                summary: result.reason || '',
+                confidence: result.confidence,
+              }]);
+              setShowDisambiguation(true);
+              setRoutingResult(result);
+              return;
+            }
+          } else if (result?.action === 'create_new') {
+            await handleCreateNewSession(result.suggestedName || 'New Session', result.suggestedSummary || '', instructionText);
+            return;
+          }
+          // action === 'manual' or unknown — fall through to existing flow
+        } catch (err) {
+          console.error('[AutoAssign] Routing failed, falling back:', err);
+          // Fall through to existing flow
+        } finally {
+          setIsRouting(false);
+        }
+      }
+
       // Check for @mention first
       let resolvedTargetId = activeTerminalId;
       let resolvedMessage = instructionText;
@@ -516,12 +1086,20 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         showError('No terminal available for this session. Open a session first.', 'error');
         return;
       }
-      const result = await window.deskflowAPI.terminalWrite(resolvedTargetId, resolvedMessage + '\n');
+      // Prepend quoted references as context
+      if (quotedReferences.length > 0) {
+        const refBlock = quotedReferences
+          .map(r => `[Referenced ${r.role} message${r.createdAt ? ` (${new Date(r.createdAt).toLocaleTimeString()})` : ''}]: ${r.content}`)
+          .join('\n---\n');
+        resolvedMessage = `Context from session messages:\n${refBlock}\n\n---\n${resolvedMessage}`;
+      }
+      const result = await window.deskflowAPI.terminalWrite(resolvedTargetId, resolvedMessage + '\r\n');
       if (result && !result.success) {
         showError(`Terminal not responding: ${result.error || 'Unknown error'}`, 'error');
         return;
       }
       setInstructionText('');
+      setQuotedReferences([]);
       setMentionDropdown(prev => ({ ...prev, visible: false }));
       setShowInstructionInput(false);
       if (resolvedTargetId !== activeTerminalId) {
@@ -533,7 +1111,40 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     } finally {
       setIsSending(false);
     }
-  }, [activeTerminalId, instructionText, isSending, showError, sendTargetSession, sessions, terminalTabs]);
+  }, [activeTerminalId, instructionText, isSending, showError, sendTargetSession, sessions, terminalTabs, autoAssignConfig, handleSendToTerminal, handleCreateNewSession, quotedReferences]);
+
+  // Routing confirm/cancel/disambiguation handlers
+  const handleRoutingConfirm = useCallback(async () => {
+    setShowRoutingToast(false);
+    if (routingResult?.terminalId && pendingPrompt) {
+      await handleSendToTerminal(routingResult.terminalId, pendingPrompt);
+    }
+    setPendingPrompt(null);
+    setRoutingResult(null);
+  }, [routingResult, pendingPrompt, handleSendToTerminal]);
+
+  const handleRoutingCancel = useCallback(() => {
+    setShowRoutingToast(false);
+    setPendingPrompt(null);
+    setRoutingResult(null);
+  }, []);
+
+  const handleDisambiguationSelect = useCallback(async (sessionId: string) => {
+    setShowDisambiguation(false);
+    const session = sessions.find((s: any) => s.id === sessionId);
+    if (session?.terminal_id && pendingPrompt) {
+      await handleSendToTerminal(session.terminal_id, pendingPrompt);
+    }
+    setPendingPrompt(null);
+  }, [sessions, pendingPrompt, handleSendToTerminal]);
+
+  const handleDisambiguationCreateNew = useCallback(async (name: string) => {
+    setShowDisambiguation(false);
+    if (pendingPrompt) {
+      await handleCreateNewSession(name, pendingPrompt.substring(0, 120), pendingPrompt);
+    }
+    setPendingPrompt(null);
+  }, [pendingPrompt, handleCreateNewSession]);
 
   const loadPresets = useCallback(async () => {
     if (!window.deskflowAPI) return;
@@ -554,31 +1165,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     try {
       const periodMap: Record<string, string> = { '7d': 'week', '30d': 'month', 'all': 'all' };
       const p = periodMap[analyticsPeriod] || 'month';
-      const results = await Promise.allSettled([
+      const [aiResult, problemsResult, requestsResult, historyResult, dailyResult] = await Promise.all([
         window.deskflowAPI.getAIUsageSummary(p === 'all' ? 'month' : p),
-        window.deskflowAPI.getTerminalSessions?.(selectedProject || undefined, 500),
-        window.deskflowAPI.getProblems(),
-        window.deskflowAPI.getRequests(),
-        window.deskflowAPI.getDailyStats?.(p),
-        window.deskflowAPI.getAppStats?.(p),
-        window.deskflowAPI.getPromptHistory?.({ limit: 2000 }),
+        window.deskflowAPI.getProblems(selectedProject, propProjectPath).catch(() => null),
+        window.deskflowAPI.getRequests(selectedProject).catch(() => null),
+        window.deskflowAPI.getPromptHistory({ projectId: selectedProject, limit: 500 }).catch(() => null),
+        window.deskflowAPI.getDailyAggregates().catch(() => null),
       ]);
-      if (results[0].status === 'fulfilled' && results[0].value) setAiSummary(results[0].value);
-      if (results[1].status === 'fulfilled' && results[1].value?.data) setSessions(results[1].value.data);
-      else if (results[1].status === 'fulfilled' && Array.isArray(results[1].value)) setSessions(results[1].value);
-      if (results[2].status === 'fulfilled' && results[2].value?.data) setAnalyticsProblems(results[2].value.data);
-      else if (results[2].status === 'fulfilled' && Array.isArray(results[2].value)) setAnalyticsProblems(results[2].value);
-      if (results[3].status === 'fulfilled' && results[3].value?.data) setAnalyticsRequests(results[3].value.data);
-      else if (results[3].status === 'fulfilled' && Array.isArray(results[3].value)) setAnalyticsRequests(results[3].value);
-      if (results[4].status === 'fulfilled' && Array.isArray(results[4].value)) setAnalyticsDailyStats(results[4].value);
-      if (results[5].status === 'fulfilled' && Array.isArray(results[5].value)) setAnalyticsAppStats(results[5].value);
-      if (results[6].status === 'fulfilled' && Array.isArray(results[6].value)) setAnalyticsPromptHistory(results[6].value);
+      if (aiResult) setAiSummary(aiResult);
+      if (problemsResult) setAnalyticsProblems(Array.isArray(problemsResult) ? problemsResult : problemsResult?.data || []);
+      if (requestsResult) setAnalyticsRequests(Array.isArray(requestsResult) ? requestsResult : requestsResult?.data || []);
+      if (historyResult) setAnalyticsPromptHistory(Array.isArray(historyResult) ? historyResult : historyResult?.data || []);
+      if (dailyResult) setAnalyticsDailyStats(Array.isArray(dailyResult) ? dailyResult : dailyResult?.data || []);
     } catch (err) {
       console.error('[TerminalPage] Analytics fetch error:', err);
     } finally {
       setAnalyticsLoading(false);
     }
-  }, [analyticsPeriod, selectedProject]);
+  }, [analyticsPeriod, selectedProject, propProjectPath]);
 
   const loadProjects = useCallback(async () => {
     if (!window.deskflowAPI) return;
@@ -680,8 +1284,26 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       loadSessions();
     } else if (activeTab === 'analytics' && window.deskflowAPI) {
       fetchAnalyticsData();
+      loadSessions();
     }
-  }, [activeTab, selectedProject, loadPresets, loadSessions, analyticsPeriod]);
+  }, [activeTab, selectedProject, loadPresets, loadSessions, analyticsPeriod, fetchAnalyticsData]);
+
+  // Load auto-assign config on mount
+  useEffect(() => {
+    window.deskflowAPI?.getAutoAssignConfig?.().then(setAutoAssignConfig);
+  }, []);
+
+  // Load routing costs when Configs tab is active
+  const loadRoutingCosts = useCallback(async () => {
+    try { const costs = await window.deskflowAPI?.getRoutingCosts?.(); setRoutingCosts(costs); } catch {}
+  }, []);
+  const [routingCosts, setRoutingCosts] = useState<any>(null);
+  useEffect(() => {
+    if (activeTab === 'configs') {
+      loadRoutingCosts();
+      window.deskflowAPI?.getAutoAssignConfig?.().then(setAutoAssignConfig);
+    }
+  }, [activeTab, loadRoutingCosts]);
 
   // Persist active tab to localStorage
   useEffect(() => {
@@ -740,6 +1362,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         activeTab,
         terminalTabs: Object.keys(terminalTabs),
       });
+      showError('Workspace saved', 'info');
     } catch {}
   }, [propProjectId, sidebarWidth, activeTab, terminalTabs]);
 
@@ -753,6 +1376,49 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       }
     } catch {}
   }, [propProjectId]);
+
+  const handleImportOpencodeSessions = useCallback(async (opencodeSessions: any[]) => {
+    const proj = projects.find(p => p.id === selectedProject);
+    const cwd = proj?.path || '';
+    let imported = 0;
+    let skipped = 0;
+    for (const s of opencodeSessions) {
+      const exists = sessions.some(t => t.resume_id === s.id);
+      if (exists) { skipped++; continue; }
+      await window.deskflowAPI?.saveTerminalSession?.({
+        projectId: selectedProject,
+        agent: s.agent || 'opencode',
+        resumeId: s.id,
+        topic: s.topic || 'Imported from opencode',
+        workingDirectory: cwd || s.workingDirectory || '',
+      });
+      imported++;
+    }
+    loadSessions();
+    setShowImportSessionsDialog(false);
+    showError(`Imported ${imported} session${imported !== 1 ? 's' : ''}${skipped > 0 ? ` (${skipped} already exist)` : ''}`, 'info');
+  }, [selectedProject, projects, sessions]);
+
+  const fetchOpencodeSessionTitle = useCallback(async () => {
+    try {
+      const result = await window.deskflowAPI?.executeCommand?.('opencode session list');
+      if (result?.error || !result?.stdout?.trim()) return;
+      const lines = result.stdout.trim().split('\n').filter((l: string) => l.trim());
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        const idMatch = line.match(/^([a-zA-Z0-9_\-]{8,})\s+/);
+        if (!idMatch) continue;
+        const rest = line.slice(idMatch[0].length).trim();
+        const dateMatch = rest.match(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*$/);
+        const title = dateMatch ? rest.slice(0, dateMatch.index).trim() : rest;
+        if (title) { setOpenCodeSessionName(title); return; }
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (showNewSessionDialog) fetchOpencodeSessionTitle();
+  }, [showNewSessionDialog, fetchOpencodeSessionTitle]);
 
   useEffect(() => {
     if (!propProjectId || !window.deskflowAPI?.saveWorkspace) return;
@@ -790,6 +1456,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       const d = e.detail as { terminalId: string; cwd?: string; agent?: string; sessionName?: string };
       userCreatedTerminalRef.current = true;
       await spawnTerminal(d.terminalId, d.cwd || propProjectPath);
+      window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: d.terminalId } }));
       window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: d.terminalId, agent: d.agent } }));
     };
     window.addEventListener('create-terminal', handleCreateTerminal as EventListener);
@@ -821,11 +1488,18 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
   const handleTabSelect = useCallback((terminalId: string) => {
     setActiveTerminalId(terminalId);
-    if (terminalLayout && terminalLayout.type === 'leaf') {
-      if (terminalLayout.terminalId !== terminalId) {
-        const updated = { ...terminalLayout, terminalId };
-        setTerminalLayout(updated);
-        saveLayout(updated);
+    if (terminalLayout) {
+      const groups = extractGroups(terminalLayout);
+      const groupIdx = groups.findIndex(g => g.terminals.includes(terminalId));
+      if (groupIdx >= 0) {
+        setActiveGroupIndex(groupIdx);
+      }
+      if (terminalLayout.type === 'leaf') {
+        if (terminalLayout.terminalId !== terminalId) {
+          const updated = { ...terminalLayout, terminalId };
+          setTerminalLayout(updated);
+          saveLayout(updated);
+        }
       }
     }
   }, [terminalLayout, saveLayout]);
@@ -851,11 +1525,17 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     const sourceGroup = groups.find(g => g.terminals.includes(terminalId));
     if (!sourceGroup) return;
     if (groups.indexOf(sourceGroup) === targetGroupIndex) return;
+    const targetGroupFirstId = groups[targetGroupIndex].terminals[0];
+    if (!targetGroupFirstId) return;
     const newLeaf: PaneNode = { type: 'leaf', terminalId };
-    const targetLeaf = findLeafInTree(terminalLayout, groups[targetGroupIndex].terminals[0]);
-    if (!targetLeaf) return;
+    // Remove source terminal from tree first
     const newLayout = removeLeafFromTree(terminalLayout, terminalId);
-    const finalLayout = addLeafToGroup(newLayout, targetLeaf.terminalId!, newLeaf, 'vertical');
+    if (!newLayout) return;
+    // Find the target group's anchor terminal in the new tree
+    // (group indices may have shifted after removal, so search by terminal ID)
+    const anchorTarget = findLeafInTree(newLayout, targetGroupFirstId);
+    if (!anchorTarget) return;
+    const finalLayout = addLeafToGroup(newLayout, anchorTarget.terminalId!, newLeaf, 'vertical');
     setTerminalLayout(finalLayout);
     saveLayout(finalLayout);
   }, [terminalLayout, saveLayout]);
@@ -922,6 +1602,12 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         saveLayout(updated);
       }
 
+      // Ensure activeGroupIndex is in bounds
+      const groupsAfterClose = getGroupTrees(terminalLayout?.type === 'split' ? removePane(terminalLayout!, terminalId) : terminalLayout);
+      if (activeGroupIndex >= groupsAfterClose.length) {
+        setActiveGroupIndex(Math.max(0, groupsAfterClose.length - 1));
+      }
+
       window.dispatchEvent(new CustomEvent('terminal-cleanup', { detail: { terminalId } }));
     } catch (e) {
       console.error('[TerminalPage] Failed to close terminal:', e);
@@ -959,6 +1645,18 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     }
   }, [loadPresets]);
 
+  const handleSavePresetEdit = useCallback(async () => {
+    if (!window.deskflowAPI || !editPreset || !editPreset.name || (!editPreset.isBuiltIn && !editPreset.command)) return;
+    try {
+      await window.deskflowAPI.saveTerminalPreset(editPreset);
+      setShowEditPreset(false);
+      setEditPreset(null);
+      loadPresets();
+    } catch (e) {
+      console.warn('[TerminalPage] Failed to save preset:', e);
+    }
+  }, [editPreset, loadPresets]);
+
   const handleExecutePreset = useCallback(async (preset: Preset) => {
     if (!window.deskflowAPI || !activeTerminalId) return;
     try {
@@ -976,14 +1674,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               const truncated = stateContent.length > 1500 ? stateContent.slice(0, 1500) + '...' : stateContent;
               remindContent += '## Current State (from state.md)\n' + truncated + '\n';
             }
-            await window.deskflowAPI.terminalWrite(activeTerminalId, remindContent + '\n');
+            await window.deskflowAPI.terminalWrite(activeTerminalId, remindContent + '\r\n');
           }
         }
         return;
       }
       const result = await window.deskflowAPI.executeTerminalPreset(preset.id);
       if (result?.command) {
-        await window.deskflowAPI.terminalWrite(activeTerminalId, result.command + '\n');
+        await window.deskflowAPI.terminalWrite(activeTerminalId, result.command + '\r\n');
       }
     } catch (e) {
       console.warn('[TerminalPage] Failed to execute preset:', e);
@@ -1022,8 +1720,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           showError('Failed to create terminal', 'error');
           return;
         }
+        window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: resolvedTerminalId } }));
         await registerTerminal(resolvedTerminalId);
-        await initializeTerminal(resolvedTerminalId, session.agent || 'claude', resumeId || undefined, savedInitContent, savedSystemPrompt);
+        await initializeTerminal(resolvedTerminalId, session.agent || 'claude', resumeId || undefined, undefined, savedSystemPrompt, cwd);
       } else {
         setActiveTerminalId(resolvedTerminalId);
       }
@@ -1049,15 +1748,43 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     }
   }, [selectedProject, projects, terminalTabs, sessions, showError, loadSessions, spawnTerminal, initializeTerminal]);
 
+  const handleOpenSessionInTerminal = useCallback((session: Session, terminalId: string) => {
+    const existingSession = sessions.find(s => s.terminal_id === terminalId);
+    const doReplace = async () => {
+      await closeTerminal(terminalId);
+      handleResumeSession(session);
+    };
+    if (existingSession) {
+      setConfirmDialog({
+        isOpen: true,
+        message: `Terminal already has session "${existingSession.topic}". Replace it with "${session.topic}"?`,
+        onConfirm: doReplace,
+      });
+    } else {
+      doReplace();
+    }
+  }, [sessions, handleResumeSession, closeTerminal]);
+
   // Delete session from database
   const handleDeleteSession = useCallback(async (sessionId: string) => {
     if (!window.deskflowAPI) return;
     try {
       await window.deskflowAPI.deleteTerminalSession(sessionId);
-      // Refresh sessions list
       loadSessions();
     } catch (e) {
       console.warn('[TerminalPage] Failed to delete session:', e);
+    }
+  }, [loadSessions]);
+
+  const handleSaveSession = useCallback(async (data: { sessionId: string; topic?: string; category?: string; productArea?: string; description?: string; status?: string; tags?: string[] }): Promise<boolean> => {
+    if (!window.deskflowAPI) return false;
+    try {
+      const result = await window.deskflowAPI.updateSessionCategory(data);
+      if (result?.success) { loadSessions(); return true; }
+      return false;
+    } catch (e) {
+      console.warn('[TerminalPage] Failed to update session:', e);
+      return false;
     }
   }, [loadSessions]);
 
@@ -1079,7 +1806,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       }));
       if (prompt) {
         setTimeout(async () => {
-          await window.deskflowAPI?.terminalWrite?.(terminalId, prompt + '\n');
+          await window.deskflowAPI?.terminalWrite?.(terminalId, prompt + '\r\n');
         }, 3000);
       }
       // Auto-create session when problem is assigned to terminal
@@ -1171,10 +1898,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   }, [projects, selectedProject, propProjectId, propProjectPath, registerTerminal, spawnTerminal, loadSessions, initializeTerminal, handleTabSelect, closeTerminal, showError, setInitStatus, setNewSessionMode, setNewSessionAgent, setShowNewSessionDialog]);
 
   return (
-    <div className="flex-1 flex bg-black text-white">
+    <PageShell page="terminal" className="flex-1 flex bg-black text-white !p-0 !space-y-0 relative overflow-hidden">
       {/* Main Terminal Area */}
-      <div className="flex-1 flex flex-col bg-gradient-to-b from-black via-zinc-950 to-black">
-        <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-zinc-900 via-zinc-900/95 to-zinc-950 border-b border-zinc-800/60">
+      <div className="flex-1 flex flex-col bg-zinc-950">
+        <div className="flex items-center justify-between px-4 py-2 bg-zinc-950 border-b border-zinc-800/60">
           <div className="flex items-center gap-3">
             <Monitor className="w-4 h-4 text-green-500" />
             <span className="text-sm font-semibold tracking-wider text-white">Terminal</span>
@@ -1196,7 +1923,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   <select
                     value={selectedProject}
                     onChange={(e) => setSelectedProject(e.target.value)}
-                    className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300"
+                    className={WS_SELECT}
                   >
                     <option value="">Select Project...</option>
                     {projects.map((p) => (
@@ -1210,8 +1937,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={async () => {
+                <ToolbarButton variant="primary" icon={Plus} onClick={async () => {
                     if (!selectedProject) { alert('Please select a project first'); return; }
                     const proj = projects.find(p => p.id === selectedProject);
                     if (proj) {
@@ -1226,18 +1952,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         detail: { terminalId: termId, cwd: proj.path, agent },
                       }));
                     }
-                  }}
-                  className="px-2 py-1 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 active:scale-95"
-                >
-                  <Plus className="w-3 h-3" />
+                  }}>
                   Open Terminal
-                </button>
+                </ToolbarButton>
               </div>
             )}
 
           {/* Terminal Status Indicator */}
             {activeTerminalId && terminalBindings[activeTerminalId] && (
-              <div className="flex items-center gap-2 ml-4 px-2 py-1 bg-zinc-800/50 rounded text-xs relative border border-zinc-700/30">
+              <div className="flex items-center gap-2 ml-4 px-2 py-1 text-xs relative border border-zinc-800/60 rounded-md">
                 <TerminalIcon className="w-3 h-3 text-green-400" />
                 <span className="text-zinc-400">
                   {terminalBindings[activeTerminalId].agentType || 'claude'}
@@ -1251,7 +1974,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 <div className="relative">
                   <button
                     onClick={() => setShowBindDropdown(!showBindDropdown)}
-                    className="px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-400 hover:text-zinc-200 transition-colors duration-150"
+                    className={WS_ICON_BTN}
                     title="Bind problem"
                   >
                     <Link className="w-3 h-3" />
@@ -1295,44 +2018,29 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             {/* Instruction Input */}
             {activeTerminalId && (
               <>
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      if (showInstructionPanel) {
-                        setShowInstructionPanel(false);
-                      } else {
-                        setShowInstructionInput(false);
-                        setShowInstructionPanel(true);
-                      }
-                    }}
-                    className="px-2 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200"
-                    title="Open instruction panel with problem/request/skill selectors"
-                  >
-                    <Send className="w-3 h-3" />
-                    Compose
-                  </button>
-                </div>
-                <button
-                  onClick={() => {
+                <ToolbarButton variant="primary" icon={Send} onClick={() => {
+                    if (showInstructionPanel) {
+                      setShowInstructionPanel(false);
+                    } else {
+                      setShowInstructionInput(false);
+                      setShowInstructionPanel(true);
+                    }
+                  }}>
+                  Compose
+                </ToolbarButton>
+                <ToolbarButton onClick={() => {
                     if (showInstructionInput) {
                       setShowInstructionInput(false);
                     } else {
                       setShowInstructionPanel(false);
                       setShowInstructionInput(true);
                     }
-                  }}
-                  className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-white text-xs rounded flex items-center gap-1 transition-colors duration-150"
-                  title="Quick send (text only)"
-                >
+                  }}>
                   Quick
-                </button>
-                <button
-                  onClick={handleSaveCheckpoint}
-                  className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded flex items-center gap-1 transition-colors duration-150"
-                  title="Save session checkpoint"
-                >
-                  💾 Save
-                </button>
+                </ToolbarButton>
+                <ToolbarButton icon={Save} onClick={handleSaveCheckpoint}>
+                  Save
+                </ToolbarButton>
               </>
             )}
           </div>
@@ -1347,18 +2055,39 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             onClose={() => setShowInstructionPanel(false)}
             isSending={isSending}
             projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path}
+            systemPromptLayers={systemPromptLayers}
           />
         )}
 
         {/* Quick Instruction Input Bar */}
         {showInstructionInput && activeTerminalId && (
-          <div className="px-4 py-2 bg-gradient-to-r from-zinc-800/90 to-zinc-900/80 border-b border-zinc-700/60 backdrop-blur-sm">
+          <div className="px-4 py-2 bg-zinc-950/90 border-b border-zinc-800/60">
+            {/* Quoted References Chips */}
+            {quotedReferences.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2 px-0.5">
+                {quotedReferences.map((ref, i) => (
+                  <div
+                    key={ref.id ?? i}
+                    className="flex items-center gap-1 px-1.5 py-0.5 bg-cyan-900/30 border border-cyan-700/30 rounded text-[10px] text-cyan-300 max-w-[240px]"
+                  >
+                    <span className="font-semibold uppercase text-[9px] text-cyan-500 flex-shrink-0">{ref.role}</span>
+                    <span className="truncate text-zinc-300">{ref.content.slice(0, 40)}</span>
+                    <button
+                      onClick={() => setQuotedReferences(prev => prev.filter(r => r.id !== ref.id))}
+                      className="ml-0.5 text-zinc-500 hover:text-zinc-200 flex-shrink-0"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex gap-2 items-center">
               {/* Session selector dropdown */}
               <select
                 value={sendTargetSession}
                 onChange={(e) => setSendTargetSession(e.target.value)}
-                className="px-2 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-300 min-w-[120px]"
+                className={`${WS_SELECT} min-w-[100px]`}
                 title="Select session to route commands to"
               >
                 <option value="">Active Terminal</option>
@@ -1370,6 +2099,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               </select>
               <div className="flex-1 relative">
                 <textarea
+                  ref={instructionTextareaRef}
                   value={instructionText}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -1424,12 +2154,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     }
                   }}
                   rows={1}
+                  autoFocus
                   placeholder="Type @term to route, or type instruction... (Enter to send, Shift+Enter for newline)"
-                  className="w-full px-3 py-1.5 bg-zinc-900/80 border border-zinc-700 rounded text-xs text-white placeholder-zinc-500 pr-16 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all duration-200 resize-none overflow-hidden"
+                  className="w-full px-3 py-1.5 bg-zinc-900/80 border border-zinc-700 rounded text-xs text-white placeholder-zinc-500 pr-16 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 transition-colors duration-150 resize-none overflow-hidden"
                 />
                 {/* @mention dropdown */}
                 {mentionDropdown.visible && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl z-50 max-h-[200px] overflow-y-auto">
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-zinc-900 border border-zinc-800 rounded-lg  z-50 max-h-[200px] overflow-y-auto">
                     {mentionDropdown.results.map((r, i) => (
                       <div
                         key={r.id}
@@ -1456,77 +2187,104 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   {instructionText.length}/500
                 </span>
               </div>
-               <button
-                 onClick={sendInstruction}
-                 disabled={!instructionText.trim() || isSending || instructionText.length > 500}
-                 className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white text-xs rounded flex items-center gap-1 min-w-[60px] justify-center transition-all duration-200 active:scale-95"
-               >
-                 {isSending ? (
-                   <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
-                 ) : (
-                   <Send className="w-3 h-3" />
-                 )}
-                 {isSending ? '' : 'Send'}
-               </button>
-                <button
-                  onClick={handleSaveCheckpoint}
-                  className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded flex items-center gap-1 transition-colors duration-150"
-                  title="Save checkpoint"
-                >
-                  💾 Save
+               <ToolbarButton variant="primary" icon={Send} disabled={!instructionText.trim() || isSending || instructionText.length > 500} onClick={sendInstruction}>
+                  {isSending ? (
+                    <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
+                  ) : 'Send'}
+                </ToolbarButton>
+                <ToolbarButton icon={Save} onClick={handleSaveCheckpoint}>
+                  Save
+                </ToolbarButton>
+               <button className={WS_ICON_BTN} onClick={() => { setShowInstructionInput(false); setInstructionText(''); }}>
+                  <X className="w-4 h-4" />
                 </button>
-               <button
-                 onClick={() => { setShowInstructionInput(false); setInstructionText(''); }}
-                 className="px-2 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded transition-colors duration-150"
-               >
-                 ✕
-               </button>
             </div>
           </div>
         )}
         
         {/* Terminal Tab Bar */}
-        <div className="flex items-center bg-zinc-900 border-b border-zinc-800 overflow-x-auto min-h-[36px]">
-          {Object.entries(terminalTabs).map(([id, tab]) => {
-            const sessionInTab = sessions.find(s => s.terminal_id === id);
-            return (
-              <div
-                key={id}
-                onClick={() => handleTabSelect(id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-r border-zinc-800 select-none transition-all duration-150 ${
-                  activeTerminalId === id
-                    ? 'bg-zinc-800 text-white border-t border-t-green-500 shadow-[0_-2px_6px_rgba(34,197,94,0.15)]'
-                    : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
-                }`}
-              >
-                <Monitor className="w-3 h-3 text-green-500" />
-                {sessionInTab && <StatusDot status={sessionInTab.status} />}
-                <span>{tab.name}</span>
-                {tab.modelTier && (
-                  <span className={`text-[9px] px-1 rounded font-medium ${
-                    tab.modelTier === 'top' ? 'bg-green-500/20 text-green-400' :
-                    tab.modelTier === 'low' ? 'bg-yellow-500/20 text-yellow-400' :
-                    'bg-blue-500/20 text-blue-400'
-                  }`}>
-                    {tab.modelTier}
-                  </span>
-                )}
-                {sessionInTab && <CategoryBadge category={sessionInTab.category} />}
-                <span className="text-[10px] text-zinc-600 max-w-[80px] truncate">{sessionInTab?.topic || tab.agent}</span>
-                {sessionInTab && (
-                  <span className="text-[8px] text-cyan-500 bg-cyan-500/10 px-1 rounded">S</span>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); closeTerminal(id); }}
-                  className="ml-1 p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200"
+        <div className="flex items-center bg-zinc-950 border-b border-zinc-800/60 overflow-x-auto min-h-[36px]">
+          {(() => {
+            const groups = extractGroups(terminalLayout);
+            const tabToGroupMap: Record<string, number> = {};
+            groups.forEach((g, i) => g.terminals.forEach(tid => { tabToGroupMap[tid] = i; }));
+            return Object.entries(terminalTabs).map(([id, tab]) => {
+              const sessionInTab = sessions.find(s => s.terminal_id === id);
+              const groupIdx = tabToGroupMap[id];
+              const isActive = activeTerminalId === id;
+              const isDragTarget = draggedTabRef.current !== null && draggedTabRef.current !== id;
+              return (
+                <div
+                  key={id}
+                  draggable
+                  onClick={() => handleTabSelect(id)}
+                  onDragStart={(e) => {
+                    draggedTabRef.current = id;
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', id);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const srcId = draggedTabRef.current;
+                    if (!srcId || srcId === id || !terminalLayout) return;
+                    const srcGroupIdx = tabToGroupMap[srcId];
+                    const dstGroupIdx = groupIdx;
+                    if (srcGroupIdx === undefined || dstGroupIdx === undefined) return;
+                    if (srcGroupIdx === dstGroupIdx) {
+                      const swapped = swapLeavesInTree(terminalLayout, srcId, id);
+                      setTerminalLayout(swapped);
+                      saveLayout(swapped);
+                    } else {
+                      handleTerminalMoveToGroup(srcId, dstGroupIdx);
+                    }
+                    draggedTabRef.current = null;
+                  }}
+                  onDragEnd={() => { draggedTabRef.current = null; }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-r border-zinc-800 select-none transition-colors duration-150 ${
+                    isActive
+                      ? 'bg-zinc-800 text-white border-t-2 border-cyan-500'
+                      : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+                  } ${isDragTarget ? 'opacity-60' : ''}`}
                 >
-                  <X className="w-2.5 h-2.5" />
-                </button>
-              </div>
-            );
-          })}
-          <button
-            onClick={async () => {
+                  <Monitor className="w-3 h-3 text-green-500" />
+                  {sessionInTab && <StatusDot status={sessionInTab.status} />}
+                  <span>{tab.name}</span>
+                  {tab.modelTier && (
+                    <span className={`text-[9px] px-1 rounded font-medium ${
+                      tab.modelTier === 'top' ? 'bg-green-500/20 text-green-400' :
+                      tab.modelTier === 'low' ? 'bg-yellow-500/20 text-yellow-400' :
+                      'bg-blue-500/20 text-blue-400'
+                    }`}>
+                      {tab.modelTier}
+                    </span>
+                  )}
+                  {sessionInTab && <CategoryBadge category={sessionInTab.category} />}
+                  {terminalFileLocks[id]?.length > 0 && (
+                    <span className="flex items-center gap-0.5 text-[9px] text-amber-400 bg-amber-500/10 px-1 rounded" title={`Locked files: ${terminalFileLocks[id].join(', ')}`}>
+                      <Lock className="w-2.5 h-2.5" />
+                      {terminalFileLocks[id].length}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-zinc-600 max-w-[80px] truncate">{sessionInTab ? (sessionInTab.topic || tab.agent) : ''}</span>
+                  {sessionInTab && (
+                    <span className="text-[8px] text-cyan-500 bg-cyan-500/10 px-1 rounded">S</span>
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); closeTerminal(id); }}
+                    className={WS_ICON_BTN}
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              );
+            });
+          })()}
+          <button className={WS_ICON_BTN} title="New Terminal" onClick={async () => {
               const cwd = selectedProject ? (projects.find(p => p.id === selectedProject)?.path || '') : '';
               const newId = `term-${Date.now()}`;
               const count = Object.keys(terminalTabs).length;
@@ -1535,38 +2293,135 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               setActiveTerminalId(newId);
               const updatedLayout = insertIntoLayout(terminalLayout, newId);
               setTerminalLayout(updatedLayout);
+              setActiveGroupIndex(getGroupTrees(updatedLayout).length - 1);
               saveLayout(updatedLayout);
               window.dispatchEvent(new CustomEvent('create-terminal', { detail: { cwd, terminalId: newId } }));
-            }}
-            className="px-2 py-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 text-xs transition-colors duration-150"
-            title="New Terminal"
-          >
-            <Plus className="w-3.5 h-3.5" />
+            }}>
+            <Plus className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="flex-1 relative">
+        <div className="flex-1 relative overflow-hidden">
           {terminalError && (
             <div className={`px-4 py-2 text-xs border-b ${
-              terminalErrorType === 'error' ? 'bg-red-900/40 border-red-700 text-red-200' :
-              terminalErrorType === 'warning' ? 'bg-yellow-900/40 border-yellow-700 text-yellow-200' :
-              'bg-green-900/40 border-green-700 text-green-200'
+              terminalErrorType === 'error' ? 'bg-red-950/50 border-red-800/60 text-red-200' :
+              terminalErrorType === 'warning' ? 'bg-yellow-950/50 border-yellow-800/60 text-yellow-200' :
+              'bg-green-950/50 border-green-800/60 text-green-200'
             }`}>
               {terminalError}
             </div>
           )}
+          {Object.entries(agentInitErrors).map(([tid, err]) => (
+            <div key={tid} className="px-4 py-3 text-xs border-b bg-red-950/50 border-red-800/60 text-red-200 flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-red-300 font-medium mb-1">Agent initialization failed</div>
+                <div className="text-red-200/70 mb-1">{err.detail}</div>
+                <div className="text-red-200/50">{err.installHint}</div>
+              </div>
+              <button
+                onClick={() => handleRetryAgentInit(tid, err.reason === 'not-recognized' ? 'opencode' : 'claude')}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs rounded"
+              >
+                Retry
+              </button>
+            </div>
+          ))}
           {layoutLoading ? (
-            <div className="w-full h-full flex items-center justify-center text-zinc-500 bg-[#0d0d0d]">Loading layout...</div>
+            <div className="w-full h-full flex items-center justify-center bg-[#0d0d0d]">
+              <LoadingState variant="spinner" />
+            </div>
           ) : (
-            <TerminalLayout
-              layout={terminalLayout}
-              activeTerminalId={activeTerminalId}
-              spawnTerminal={spawnTerminal}
-              onLayoutChange={handleLayoutChange}
-              onActiveTerminalChange={handleActiveTerminalChange}
-              onCloseTerminal={closeTerminal}
-              projectPath={propProjectPath}
-            />
+            <>
+              {(() => {
+                const groups = getGroupTrees(terminalLayout);
+                if (groups.length > 1) {
+                  return (
+                    <div className="flex items-center gap-1 px-2 py-1 bg-zinc-950 border-b border-zinc-800/50">
+                      {groups.map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setActiveGroupIndex(i)}
+                          className={`px-2.5 py-0.5 text-[11px] rounded transition-colors ${
+                            activeGroupIndex === i
+                              ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-600/40'
+                              : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                          }`}
+                        >
+                          Group {i + 1}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+              {(() => {
+                const activeGroupTree = terminalLayout ? getGroupTrees(terminalLayout)[activeGroupIndex] ?? terminalLayout : null;
+                const handleGroupLayoutChange = (newGroupTree: PaneNode) => {
+                  setTerminalLayout(prev => {
+                    if (!prev) return newGroupTree;
+                    const updated = updateGroupTree(prev, activeGroupIndex, newGroupTree);
+                    saveLayout(updated);
+                    return updated;
+                  });
+                };
+                return (
+                  <div
+                    className="w-full h-full relative"
+                    onDragOver={(e) => {
+                      if (draggedTabRef.current || draggedSessionId) e.preventDefault();
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const srcId = draggedTabRef.current;
+                      if (srcId && terminalLayout) {
+                        const targetEl = (e.target as HTMLElement).closest('[data-terminal-id]') as HTMLElement | null;
+                        if (targetEl) {
+                          const targetId = targetEl.getAttribute('data-terminal-id');
+                          if (targetId && targetId !== srcId) {
+                            const groups = extractGroups(terminalLayout);
+                            const targetGroupIdx = groups.findIndex(g => g.terminals.includes(targetId));
+                            const srcGroupIdx = groups.findIndex(g => g.terminals.includes(srcId));
+                            if (srcGroupIdx !== -1 && targetGroupIdx !== -1 && srcGroupIdx !== targetGroupIdx) {
+                              handleTerminalMoveToGroup(srcId, targetGroupIdx);
+                            }
+                          }
+                        }
+                        draggedTabRef.current = null;
+                        return;
+                      }
+                      const sessionData = e.dataTransfer.getData('text/plain');
+                      if (sessionData) {
+                        try {
+                          const parsed = JSON.parse(sessionData);
+                          const targetEl = (e.target as HTMLElement).closest('[data-terminal-id]') as HTMLElement | null;
+                          if (targetEl) {
+                            const targetId = targetEl.getAttribute('data-terminal-id');
+                            if (targetId && sessions) {
+                              const session = sessions.find(s => s.id === parsed.id);
+                              if (session) {
+                                handleOpenSessionInTerminal(session, targetId);
+                              }
+                            }
+                          }
+                        } catch {}
+                        setDraggedSessionId(null);
+                      }
+                    }}
+                  >
+                    <TerminalLayout
+                      layout={activeGroupTree}
+                      activeTerminalId={activeTerminalId}
+                      spawnTerminal={spawnTerminal}
+                      onLayoutChange={handleGroupLayoutChange}
+                      onActiveTerminalChange={handleActiveTerminalChange}
+                      onCloseTerminal={closeTerminal}
+                      projectPath={propProjectPath}
+                    />
+                  </div>
+                );
+              })()}
+            </>
           )}
         </div>
       </div>
@@ -1574,53 +2429,49 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       {/* Sidebar */}
       {sidebarOpen && (
         <div 
-          className="bg-gradient-to-b from-zinc-900 to-black border-l border-zinc-800/70 flex flex-col relative"
+          className="relative h-full shrink-0 bg-zinc-950 ws-sidebar-edge"
           style={{ width: sidebarWidth }}
         >
           {/* Resize Handle */}
-          <div 
-            className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-cyan-500/50 transition-colors ${isResizing ? 'bg-cyan-500 shadow-[0_0_6px_rgba(6,182,212,0.5)]' : ''}`}
+          <div
+            role="separator"
+            aria-orientation="vertical"
             onMouseDown={startResize}
-          />
-          
-          {/* Sidebar Header with Collapse Button */}
-          <div className="flex items-center justify-between px-2 py-2 border-b border-zinc-800/70">
-            <span className="text-xs text-zinc-500 font-medium">Terminal</span>
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-            >
-              <PanelLeftClose className="w-3.5 h-3.5" />
-            </button>
+            className="group absolute left-0 top-0 bottom-0 w-2 -ml-1 cursor-ew-resize z-10 flex items-center justify-center"
+          >
+            <span className={`h-full w-px transition-colors duration-150 ${isResizing ? 'w-0.5 bg-cyan-400' : 'bg-zinc-800 group-hover:bg-zinc-600'}`} />
           </div>
-          {/* Tab Headers */}
-          <div className="flex border-b border-zinc-800 flex-wrap">
+          
+          {/* Sidebar Header */}
+          <header className="flex items-center justify-between px-3 h-9 border-b border-zinc-800/60">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Terminal</span>
+            </div>
+            <div className="flex items-center gap-0.5">
+              <button onClick={() => setShowFeaturesDialog(true)} title="Workspace Features" className={WS_ICON_BTN}><Info className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setShowGeneralistDialog(true)} title="Skill Configuration" className={WS_ICON_BTN}><BookOpen className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setSidebarOpen(false)} title="Collapse sidebar" className={WS_ICON_BTN}><PanelLeftClose className="w-3.5 h-3.5" /></button>
+            </div>
+          </header>
+          {/* Tab Bar */}
+          <nav className="flex flex-wrap border-b border-zinc-800/60 px-1 pt-1">
             {([
-              { key: 'presets', icon: Zap, label: 'Presets', color: 'green' },
-              { key: 'sessions', icon: Clock, label: 'Sessions', color: 'green' },
-              { key: 'map', icon: Monitor, label: 'Map', color: 'green' },
-              { key: 'analytics', icon: PieChart, label: 'Analytics', color: 'green' },
-              { key: 'issues', icon: ListChecks, label: 'Issues', color: 'emerald' },
-              { key: 'files', icon: Folder, label: 'Files', color: 'yellow' },
-              { key: 'skills', icon: Sparkles, label: 'Skills', color: 'indigo' },
-              { key: 'design', icon: Palette, label: 'Design', color: 'pink' },
-              { key: 'configs', icon: Settings, label: 'Configs', color: 'orange' },
-              { key: 'history', icon: RefreshCw, label: 'History', color: 'rose' },
-              { key: 'context', icon: Settings2, label: 'Context', color: 'amber' },
-              { key: 'context-maintenance', icon: Database, label: 'Maintenance', color: 'violet' },
-            ] as const).map((tab) => {
-              const colorMap: Record<string, string> = {
-                green: 'text-green-400 border-green-500 shadow-[0_0_6px_rgba(34,197,94,0.25)]',
-                emerald: 'text-emerald-400 border-emerald-500 shadow-[0_0_6px_rgba(52,211,153,0.25)]',
-                yellow: 'text-yellow-400 border-yellow-500 shadow-[0_0_6px_rgba(234,179,8,0.25)]',
-                indigo: 'text-indigo-400 border-indigo-500 shadow-[0_0_6px_rgba(102,51,153,0.25)]',
-                pink: 'text-pink-400 border-pink-500 shadow-[0_0_6px_rgba(236,72,153,0.25)]',
-                orange: 'text-orange-400 border-orange-500 shadow-[0_0_6px_rgba(251,146,60,0.25)]',
-                rose: 'text-rose-400 border-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.25)]',
-                violet: 'text-violet-400 border-violet-500 shadow-[0_0_6px_rgba(168,85,247,0.25)]',
-                amber: 'text-amber-400 border-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.25)]',
-              };
-              const isActive = activeTab === tab.key;
+              { key: 'presets', icon: Zap, label: 'Presets', accent: 'green' },
+              { key: 'sessions', icon: Clock, label: 'Sessions', accent: 'green' },
+              { key: 'map', icon: Monitor, label: 'Map', accent: 'green' },
+              { key: 'analytics', icon: PieChart, label: 'Analytics', accent: 'green' },
+              { key: 'issues', icon: ListChecks, label: 'Issues', accent: 'emerald' },
+              { key: 'files', icon: Folder, label: 'Files', accent: 'yellow' },
+              { key: 'skills', icon: Sparkles, label: 'Skills', accent: 'indigo' },
+              { key: 'design', icon: Palette, label: 'Design', accent: 'pink' },
+              { key: 'configs', icon: Settings, label: 'Configs', accent: 'orange' },
+              { key: 'history', icon: RefreshCw, label: 'History', accent: 'rose' },
+              { key: 'context', icon: Settings2, label: 'Context', accent: 'amber' },
+              { key: 'context-maintenance', icon: Database, label: 'Maintenance', accent: 'violet' },
+            ] as const).map((tab, i) => {
+              const active = activeTab === tab.key;
+              const Icon = tab.icon;
               return (
                 <button
                   key={tab.key}
@@ -1628,76 +2479,68 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     if (tab.key === 'files') setFileChangedPulse(false);
                     setActiveTab(tab.key);
                   }}
-                  className={`flex items-center gap-1.5 px-2 py-2 text-xs font-medium transition-all duration-150 relative ${
-                    isActive
-                      ? `${colorMap[tab.color]} border-b-2`
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                  }`}
+                  title={tab.label}
+                  className={`flex items-center gap-1.5 px-2.5 h-8 -mb-px border-b-2 text-[11px] font-medium rounded-t-md transition-colors duration-150 active:scale-95 ${active ? TAB_ACTIVE[tab.accent] : 'border-transparent text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
                 >
-                  <tab.icon className="w-3 h-3 shrink-0" />
-                  <span className="hidden sm:inline">{tab.label}</span>
+                  <Icon className={`w-3.5 h-3.5 ${active ? '' : 'opacity-80'}`} />
+                  <span>{tab.label}</span>
                   {tab.key === 'files' && fileChangedPulse && (
                     <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full animate-ping" />
                   )}
                 </button>
               );
             })}
-          </div>
+          </nav>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-2">
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {/* Project Stats */}
             {selectedProject && projects.find(p => p.id === selectedProject) && (
-              <div className="mb-4 p-2 bg-zinc-800/50 rounded-lg">
-                <div className="text-xs text-zinc-400 mb-2">Project Stats</div>
+              <SectionCard accent="green" title="Project Stats">
                 <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
+                  <div className="flex justify-between text-[11px]">
                     <span className="text-zinc-500">Language:</span>
                     <span className="text-zinc-300">{projects.find(p => p.id === selectedProject)?.primary_language || 'N/A'}</span>
                   </div>
-                  <div className="flex justify-between text-xs">
+                  <div className="flex justify-between text-[11px]">
                     <span className="text-zinc-500">VCS:</span>
                     <span className="text-zinc-300">{projects.find(p => p.id === selectedProject)?.vcs_type || 'N/A'}</span>
                   </div>
-                  <div className="flex justify-between text-xs">
+                  <div className="flex justify-between text-[11px]">
                     <span className="text-zinc-500">IDE:</span>
                     <span className="text-zinc-300">{projects.find(p => p.id === selectedProject)?.default_ide || 'N/A'}</span>
+                    </div>
                   </div>
-                </div>
-              </div>
+                 </SectionCard>
             )}
             {activeTab === 'presets' && (
-              <div>
-                <button
-                  onClick={() => setShowAddPreset(true)}
-                  className="w-full mb-2 px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded flex items-center justify-center gap-1"
-                >
-                  <Plus className="w-3 h-3" />
+              <TabPanel accent="green">
+                <ToolbarButton variant="primary" icon={Plus} onClick={() => setShowAddPreset(true)}>
                   Add Preset
-                </button>
+                </ToolbarButton>
 
                 {showAddPreset && (
-                  <div className="mb-2 p-2 bg-zinc-800 rounded">
+                  <div className="p-3 bg-zinc-900 border border-zinc-800/60 rounded-lg space-y-2">
                     <input
                       type="text"
                       placeholder="Name (e.g., 'Run Tests')"
                       value={newPreset.name}
                       onChange={(e) => setNewPreset({ ...newPreset, name: e.target.value })}
-                      className="w-full mb-2 px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs"
+                      className="w-full px-2 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-zinc-200 placeholder-zinc-500"
                     />
                     <input
                       type="text"
                       placeholder="Command (e.g., 'npm test')"
                       value={newPreset.command}
                       onChange={(e) => setNewPreset({ ...newPreset, command: e.target.value })}
-                      className="w-full mb-2 px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs"
+                      className="w-full px-2 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-zinc-200 placeholder-zinc-500"
                     />
                     <input
                       type="text"
                       placeholder="Category (optional)"
                       value={newPreset.category}
                       onChange={(e) => setNewPreset({ ...newPreset, category: e.target.value })}
-                      className="w-full mb-2 px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs"
+                      className="w-full px-2 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-zinc-200 placeholder-zinc-500"
                     />
                     <div className="flex gap-1">
                       <button
@@ -1717,10 +2560,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 )}
 
                 {presets.length === 0 ? (
-                  <p className="text-xs text-zinc-500">No presets yet. Add one to get started.</p>
+                  <WsEmptyState icon={TerminalIcon} title="No presets yet" hint="Add a preset to quickly execute commands." />
                 ) : (
                   presets.map((preset) => (
-                    <div key={preset.id} className="mb-2 p-2 bg-zinc-800 rounded group">
+                    <div key={preset.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900 p-2 group">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-medium text-zinc-200">
                           {preset.isBuiltIn && <span className="text-[10px] text-blue-400 mr-1">[SYSTEM]</span>}
@@ -1729,15 +2572,38 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100">
                           <button
                             onClick={() => handleExecutePreset(preset)}
-                            className="p-1 hover:bg-zinc-700 rounded"
+                            className={WS_ICON_BTN}
                             title="Run"
                           >
                             <Play className="w-3 h-3 text-green-400" />
                           </button>
+                          {preset.isBuiltIn ? (
+                            <button
+                              onClick={() => {
+                                setEditPreset(preset);
+                                setShowEditPreset(true);
+                              }}
+                              className={WS_ICON_BTN}
+                              title="View Details"
+                            >
+                              <Info className="w-3 h-3 text-blue-400" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditPreset(preset);
+                                setShowEditPreset(true);
+                              }}
+                              className={WS_ICON_BTN}
+                              title="Edit"
+                            >
+                              <Edit className="w-3 h-3 text-yellow-400" />
+                            </button>
+                          )}
                           {!preset.isBuiltIn && (
                             <button
                               onClick={() => handleRemovePreset(preset.id)}
-                              className="p-1 hover:bg-zinc-700 rounded"
+                              className={WS_ICON_BTN}
                               title="Delete"
                             >
                               <Trash2 className="w-3 h-3 text-red-400" />
@@ -1749,444 +2615,1022 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     </div>
                   ))
                 )}
-              </div>
+              </TabPanel>
             )}
 
-             {activeTab === 'sessions' && (
-               <div>
-                 {selectedSessionDetail ? (
-                   /* ── Session Detail View ── */
-                   <div>
-                     <button
-                       onClick={() => { setSelectedSessionDetail(null); setSessionMessages([]); }}
-                       className="mb-3 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded flex items-center gap-1"
-                     >
-                       ← Back to sessions
-                     </button>
-                     {(() => {
-                       const session = sessions.find(s => s.id === selectedSessionDetail);
-                       if (!session) return <p className="text-xs text-zinc-500">Session not found.</p>;
-                       const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
-                         ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
-                         : null;
-                       return (
-                         <div>
-                           {/* Session Header */}
-                           <div className="p-3 bg-zinc-800 rounded-lg mb-3">
-                             <div className="flex items-center justify-between mb-2">
-                               <div className="flex items-center gap-2">
-                                 <StatusDot status={session.status} size="md" />
-                                 <span className="text-sm font-bold text-white">{session.topic || 'Unnamed Session'}</span>
-                               </div>
-                               <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-2 py-1 rounded">{session.agent}</span>
-                             </div>
-                             <div className="grid grid-cols-2 gap-2 text-[10px]">
-                               <div><span className="text-zinc-500">Status:</span> <span className="text-zinc-300">{session.status || 'Unknown'}</span></div>
-                               <div><span className="text-zinc-500">Category:</span> <span className="text-zinc-300">{session.category || 'Uncategorized'}</span></div>
-                               <div><span className="text-zinc-500">Date:</span> <span className="text-zinc-300">{formatDate(session.created_at)}</span></div>
-                               <div><span className="text-zinc-500">Terminal:</span> <span className="text-zinc-300">{terminalInfo ? `${terminalInfo.name} (active)` : 'Closed'}</span></div>
-                               <div><span className="text-zinc-500">Cost:</span> <span className="text-emerald-400">${session.total_cost?.toFixed(2) || '0.00'}</span></div>
-                               <div><span className="text-zinc-500">Tokens:</span> <span className="text-zinc-300">{session.total_tokens?.toLocaleString() || 0}</span></div>
-                               {session.resume_id && <div className="col-span-2"><span className="text-zinc-500">Resume ID:</span> <span className="text-zinc-300 font-mono">{session.resume_id}</span></div>}
-                               {session.description && <div className="col-span-2"><span className="text-zinc-500">Description:</span> <span className="text-zinc-300">{session.description}</span></div>}
-                               {session.product_area && <div className="col-span-2"><span className="text-zinc-500">Area:</span> <span className="text-cyan-600">{session.product_area}</span></div>}
-                             </div>
-                             <div className="flex gap-2 mt-3">
-                               {terminalInfo ? (
-                                 <button onClick={() => { setActiveTerminalId(session.terminal_id!); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } })); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-blue-100 text-xs rounded">Focus Terminal</button>
-                               ) : (
-                                 <button onClick={() => handleResumeSession(session)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-cyan-100 text-xs rounded">Open in Terminal</button>
-                               )}
-                             </div>
-                           </div>
-                           {/* Session Messages */}
-                           <div className="p-3 bg-zinc-800 rounded-lg">
-                             <div className="flex items-center justify-between mb-2">
-                               <span className="text-[10px] text-zinc-500">Messages</span>
-                               <button
-                                 onClick={async () => {
-                                   try {
-                                     const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
-                                     if (result?.success) setSessionMessages(result.data || []);
-                                   } catch {}
-                                 }}
-                                 className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded"
-                               >
-                                 Refresh
-                               </button>
-                             </div>
-                             {sessionMessages.length === 0 ? (
-                               <p className="text-[10px] text-zinc-600">No messages loaded. Click Refresh to load.</p>
-                             ) : (
-                               <div className="space-y-1 max-h-48 overflow-y-auto">
-                                 {sessionMessages.map((msg: any, i: number) => (
-                                   <div key={i} className={`px-2 py-1 rounded text-[10px] ${msg.role === 'assistant' ? 'bg-cyan-900/20 border-l-2 border-cyan-500/30' : msg.role === 'user' ? 'bg-blue-900/20 border-l-2 border-blue-500/30' : 'bg-zinc-900/50 border-l-2 border-zinc-500/30'}`}>
-                                     <span className="text-[9px] font-medium text-zinc-500 uppercase mr-1">{msg.role}</span>
-                                     <span className="text-zinc-300">{msg.content?.slice(0, 200)}{msg.content?.length > 200 ? '...' : ''}</span>
-                                   </div>
-                                 ))}
-                               </div>
-                             )}
-                           </div>
-                         </div>
-                       );
-                     })()}
-                   </div>
-                 ) : (
-                   /* ── Session List ── */
-                   <div>
-                     <div className="mb-4 flex gap-2">
-                       <button
-                         onClick={() => {
-                           setNewSessionTerminalMode('create');
-                           setNewSessionSelectedTerminal('');
-                           setNewSessionAgent('claude');
-                           setNewSessionName('');
-                           setShowNewSessionDialog(true);
-                         }}
-                         className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 active:scale-95"
-                       >
-                         <Plus className="w-3 h-3" />
-                         New Session
-                       </button>
-                     </div>
-                     {/* Category filter pills */}
-                     {sessions.length > 0 && (
-                       <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
-                         {[{ key: 'all', label: 'All' }, ...Object.entries(SESSION_CATEGORIES).map(([k, v]) => ({ key: k, label: v.label }))].map(f => {
-                           const cat = SESSION_CATEGORIES[f.key];
-                           const isActive = sessionCategoryFilter === f.key;
-                           return (
-                             <button
-                               key={f.key}
-                               onClick={() => setSessionCategoryFilter(f.key)}
-                               className={`px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-all ${
-                                 isActive
-                                   ? cat ? `${cat.bg} ${cat.text} border ${cat.border}` : 'bg-zinc-700 text-white'
-                                   : 'bg-transparent text-zinc-400 border border-zinc-700 hover:bg-zinc-800'
-                               }`}
-                             >
-                               {f.label}
-                             </button>
-                           );
-                         })}
-                       </div>
-                     )}
-                     {sessions.length === 0 ? (
-                       <p className="text-xs text-zinc-500">No sessions yet. Create one using the button above.</p>
-                     ) : (
-                       <div className="space-y-2">
-                         {sessions
-                           .filter(s => sessionCategoryFilter === 'all' || s.category === sessionCategoryFilter)
-                           .map((session) => {
-                           const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
-                             ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
-                             : null;
-                           const tags = (() => { try { return JSON.parse(session.auto_tags || '[]'); } catch { return []; } })();
-                           return (
-                             <div key={session.id} className={`mb-2 p-2 bg-zinc-800 rounded group hover:bg-zinc-750 transition-colors border-l-2 ${
-                               terminalInfo ? 'border-l-green-700/40' : 'border-l-zinc-700/20'
-                             } cursor-pointer`}
-                               onClick={() => { setSelectedSessionDetail(session.id); setSessionMessages([]); }}
-                             >
-                               <div className="flex items-start justify-between">
-                                 <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
-                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                     <StatusDot status={session.status} />
-                                     <CategoryBadge category={session.category} />
-                                     <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-1.5 py-0.5 rounded">{session.agent}</span>
-                                     <span className="text-xs font-medium text-zinc-200 truncate">{session.topic || 'Unnamed Session'}</span>
-                                     {terminalInfo ? (
-                                       <span className="text-[10px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                         {terminalInfo.name}
-                                       </span>
-                                     ) : (
-                                       <span className="text-[10px] text-zinc-500 bg-zinc-700/30 px-1.5 py-0.5 rounded">Closed</span>
-                                     )}
-                                   </div>
-                                   {session.description && (
-                                     <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1">{session.description}</div>
-                                   )}
-                                   <div className="flex items-center gap-2 mt-0.5">
-                                     <span className="text-[10px] text-zinc-500">{formatDate(session.created_at)}</span>
-                                     {session.product_area && (
-                                       <span className="text-[10px] text-cyan-600/80">{session.product_area}</span>
-                                     )}
-                                     {session.resume_id && (
-                                       <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(0, 12)}…</span>
-                                     )}
-                                   </div>
-                                   {tags.length > 0 && (
-                                     <div className="flex gap-1 mt-1 flex-wrap">
-                                       {tags.slice(0, 5).map((t: string, i: number) => (
-                                         <span key={i} className="text-[9px] px-1.5 py-0.5 bg-zinc-700/50 text-zinc-400 rounded">{t}</span>
-                                       ))}
-                                     </div>
-                                   )}
-                                   {session.total_cost !== undefined && (
-                                     <div className="text-[10px] text-zinc-600 mt-0.5">Cost: ${session.total_cost.toFixed(2)}</div>
-                                   )}
-                                 </div>
-                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                                   <button
-                                     onClick={async () => {
-                                       if (terminalInfo) {
-                                         setActiveTerminalId(session.terminal_id!);
-                                         window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } }));
-                                       } else {
-                                         handleResumeSession(session);
-                                       }
-                                     }}
-                                     title={terminalInfo ? 'Focus terminal' : 'Open in terminal'}
-                                     className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-blue-200 text-xs rounded whitespace-nowrap"
-                                   >
-                                     {terminalInfo ? 'Focus' : 'Open'}
-                                   </button>
-                                   <button
-                                     onClick={async () => {
-                                       try {
-                                         const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
-                                         if (result?.success) {
-                                           setSessionMessages(result.data || []);
-                                           setShowMessagesViewer(session.id);
-                                         }
-                                       } catch {}
-                                     }}
-                                     title="View session messages"
-                                     className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-xs rounded"
-                                   >
-                                     Messages
-                                   </button>
-                                   <button
-                                     onClick={() => setConfirmDialog({
-                                       isOpen: true,
-                                       message: `Delete session "${session.topic}" permanently?`,
-                                       onConfirm: () => handleDeleteSession(session.id),
-                                     })}
-                                     title="Delete session"
-                                     className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-red-200 text-xs rounded"
-                                   >
-                                     Delete
-                                   </button>
-                                 </div>
-                               </div>
-                             </div>
-                           );
-                         })}
-                       </div>
-                     )}
-                   </div>
-                 )}
+            <Modal
+              open={showEditPreset}
+              onClose={() => { setShowEditPreset(false); setEditPreset(null); }}
+              title={editPreset?.isBuiltIn ? 'Preset Details' : 'Edit Preset'}
+              footer={<>
+                <button
+                  onClick={() => { setShowEditPreset(false); setEditPreset(null); }}
+                  className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white transition-colors"
+                >
+                  Close
+                </button>
+                {editPreset && !editPreset.isBuiltIn && (
+                  <ToolbarButton variant="primary" onClick={handleSavePresetEdit}>Save</ToolbarButton>
+                )}
+              </>}
+            >
+              {editPreset && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Name</label>
+                    <input
+                      value={editPreset.name}
+                      onChange={(e) => setEditPreset(prev => prev ? { ...prev, name: e.target.value } : null)}
+                      disabled={editPreset.isBuiltIn}
+                      className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50"
+                    />
+                  </div>
+                  {!editPreset.isBuiltIn && (
+                    <div>
+                      <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Command</label>
+                      <input
+                        value={editPreset.command || ''}
+                        onChange={(e) => setEditPreset(prev => prev ? { ...prev, command: e.target.value } : null)}
+                        className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 font-mono"
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Category</label>
+                    <input
+                      value={editPreset.category || ''}
+                      onChange={(e) => setEditPreset(prev => prev ? { ...prev, category: e.target.value } : null)}
+                      disabled={editPreset.isBuiltIn}
+                      className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50"
+                    />
+                  </div>
+                  {editPreset.isBuiltIn && (
+                    <div>
+                      <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Description</label>
+                      <div className="mt-1 p-2 bg-zinc-800/50 border border-zinc-700/50 rounded text-xs text-zinc-400">
+                        Reads <code className="text-cyan-400">agent/RULES_COMPACT.md</code> and <code className="text-cyan-400">agent/state.md</code>, then injects them into the active terminal as a context reminder.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Modal>
+
+              {activeTab === 'sessions' && (
+                <div className="relative flex-1 min-h-0">
+                  <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-green-400 to-green-600 opacity-60" />
+                  <div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
+                   {selectedSessionDetail ? (
+                     <div>
+                        <button
+                          onClick={() => { setSelectedSessionDetail(null); setSessionMessages([]); }}
+                          className="mb-3 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded flex items-center gap-1"
+                        >
+                          <ChevronLeft className="w-3 h-3" />
+                          Back to sessions
+                        </button>
+                      {(() => {
+                        const session = sessions.find(s => s.id === selectedSessionDetail);
+                        if (!session) return <p className="text-xs text-zinc-500">Session not found.</p>;
+                        const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
+                          ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
+                          : null;
+                        return (
+                            <div>
+                               <div className="p-3 bg-zinc-800 rounded-lg mb-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <StatusDot status={session.status} size="md" />
+                                    <span className="text-sm font-bold text-white">{session.topic || 'Unnamed Session'}</span>
+                                  </div>
+                                  <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-2 py-1 rounded">{session.agent}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                  <div><span className="text-zinc-500">Status:</span> <span className="text-zinc-300">{session.status || 'Unknown'}</span></div>
+                                  <div><span className="text-zinc-500">Category:</span> <span className="text-zinc-300">{session.category || 'Uncategorized'}</span></div>
+                                  <div><span className="text-zinc-500">Date:</span> <span className="text-zinc-300">{formatDate(session.created_at)}</span></div>
+                                  <div><span className="text-zinc-500">Terminal:</span> <span className="text-zinc-300">{terminalInfo ? `${terminalInfo.name} (active)` : 'Closed'}</span></div>
+                                  <div><span className="text-zinc-500">Cost:</span> <span className="text-emerald-400">${session.total_cost?.toFixed(2) || '0.00'}</span></div>
+                                  <div><span className="text-zinc-500">Tokens:</span> <span className="text-zinc-300">{session.total_tokens?.toLocaleString() || 0}</span></div>
+                                  {session.resume_id && <div className="col-span-2"><span className="text-zinc-500">Resume ID:</span> <span className="text-zinc-300 font-mono">{session.resume_id}</span></div>}
+                                  {session.description && <div className="col-span-2"><span className="text-zinc-500">Description:</span> <span className="text-zinc-300">{session.description}</span></div>}
+                                  {session.product_area && <div className="col-span-2"><span className="text-zinc-500">Area:</span> <span className="text-cyan-600">{session.product_area}</span></div>}
+                                </div>
+                                <div className="flex gap-2 mt-3">
+                                  {terminalInfo ? (
+                                    <button onClick={() => { setActiveTerminalId(session.terminal_id!); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } })); }} className="px-3 py-1.5 bg-green-600/80 hover:bg-green-500 text-green-50 text-xs font-medium rounded-lg transition-colors duration-150 hover:shadow-[0_0_8px_rgba(34,197,94,0.3)] active:scale-95">Focus Terminal</button>
+                                  ) : (
+                                    <button onClick={() => handleResumeSession(session)} className="px-3 py-1.5 bg-green-600/80 hover:bg-green-500 text-green-50 text-xs font-medium rounded-lg transition-colors duration-150 hover:shadow-[0_0_8px_rgba(34,197,94,0.3)] active:scale-95">Open in Terminal</button>
+                                  )}
+                                </div>
+                              </div>
+                               <div className="p-3 bg-zinc-800 rounded-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-[10px] text-zinc-500">Messages</span>
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
+                                        if (result?.success) setSessionMessages(result.data || []);
+                                      } catch {}
+                                    }}
+                                    className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded"
+                                  >
+                                    Refresh
+                                  </button>
+                                </div>
+                                {sessionMessages.length === 0 ? (
+                                  <p className="text-[10px] text-zinc-600">No messages loaded. Click Refresh to load.</p>
+                                ) : (
+                                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                                    {sessionMessages.map((msg: any, i: number) => (
+                                      <div key={i} className={`px-2 py-1 rounded text-[10px] ${msg.role === 'assistant' ? 'bg-cyan-900/20 border-l-2 border-cyan-500/30' : msg.role === 'user' ? 'bg-blue-900/20 border-l-2 border-blue-500/30' : 'bg-zinc-900/50 border-l-2 border-zinc-500/30'}`}>
+                                        <span className="text-[9px] font-medium text-zinc-500 uppercase mr-1">{msg.role}</span>
+                                        <span className="text-zinc-300">{msg.content?.slice(0, 200)}{msg.content?.length > 200 ? '...' : ''}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              </div>
+                          );
+                        })()}
+                      </div>
+                   ) : (
+                     <div>
+                        <div className="flex gap-2 mb-4">
+                          <ToolbarButton variant="primary" icon={Plus} onClick={() => {
+                              setNewSessionTerminalMode('create');
+                              setNewSessionSelectedTerminal('');
+                              setNewSessionAgent('claude');
+                              setNewSessionName('');
+                              setShowNewSessionDialog(true);
+                            }}>
+                            New Session
+                          </ToolbarButton>
+                          <ToolbarButton onClick={() => setShowImportSessionsDialog(true)}>
+                            <TerminalIcon className="w-3 h-3" />
+                            Import
+                          </ToolbarButton>
+                          <div className="ml-auto flex gap-1">
+                            <ToolbarButton onClick={handleSaveWorkspace}>
+                              Save
+                            </ToolbarButton>
+                            <ToolbarButton onClick={handleLoadWorkspace}>
+                              Load
+                            </ToolbarButton>
+                          </div>
+                        </div>
+                       {sessions.length > 0 && (
+                          <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1 scrollbar-none">
+                            {[{ key: 'all', label: 'All', color: 'zinc' }, ...Object.entries(SESSION_CATEGORIES).map(([k, v]) => ({ key: k, label: v.label, color: v.color || 'zinc' }))].map(f => {
+                              const dotColor: Record<string, string> = {
+                                zinc: 'bg-zinc-400', green: 'bg-green-400', blue: 'bg-blue-400',
+                                purple: 'bg-purple-400', amber: 'bg-amber-400', cyan: 'bg-cyan-400',
+                                red: 'bg-red-400', emerald: 'bg-emerald-400', pink: 'bg-pink-400',
+                                teal: 'bg-teal-400',
+                              };
+                              return (
+                                <Pill key={f.key} active={sessionCategoryFilter === f.key} onClick={() => setSessionCategoryFilter(f.key)} dotClass={dotColor[f.color]}>
+                                  {f.label}
+                                </Pill>
+                              );
+                            })}
+                          </div>
+                        )}
+                      {sessions.length === 0 ? (
+                          <WsEmptyState icon={Clock} title="No sessions yet" hint="Create one using the button above." />
+                       ) : (
+                        <div className="space-y-2">
+                          {sessions
+                            .filter(s => sessionCategoryFilter === 'all' || s.category === sessionCategoryFilter)
+                            .map((session) => {
+                            const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
+                              ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
+                              : null;
+                            const tags = (() => { try { return JSON.parse(session.auto_tags || '[]'); } catch { return []; } })();
+                            return (
+                              <div key={session.id}
+                                   onClick={() => { setSelectedSessionDetail(session.id); setSessionMessages([]); }}
+                                   className="mb-2 p-2 bg-zinc-800 rounded group hover:bg-zinc-750 transition-colors border-l-2 cursor-pointer"
+                                   style={{ borderLeftColor: terminalInfo ? 'rgb(34 197 94 / 0.4)' : 'rgb(113 113 122 / 0.2)' }}
+                              >
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <StatusDot status={session.status} />
+                                      <CategoryBadge category={session.category} />
+                                      <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-1.5 py-0.5 rounded">{session.agent}</span>
+                                      <span className="text-xs font-medium text-zinc-200 truncate">{session.topic || 'Unnamed Session'}</span>
+                                      {terminalInfo ? (
+                                        <span className="text-[10px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                          {terminalInfo.name}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] text-zinc-500 bg-zinc-700/30 px-1.5 py-0.5 rounded">Closed</span>
+                                      )}
+                                    </div>
+                                    {session.description && (
+                                      <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1">{session.description}</div>
+                                    )}
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className="text-[10px] text-zinc-500">{formatDate(session.created_at)}</span>
+                                      {session.product_area && (
+                                        <span className="text-[10px] text-cyan-600/80">{session.product_area}</span>
+                                      )}
+                                      {session.resume_id && (
+                                        <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(0, 12)}&hellip;</span>
+                                      )}
+                                    </div>
+                                    {tags.length > 0 && (
+                                      <div className="flex gap-1 mt-1 flex-wrap">
+                                        {tags.slice(0, 5).map((t: string, i: number) => (
+                                          <span key={i} className="text-[9px] px-1.5 py-0.5 bg-zinc-700/50 text-zinc-400 rounded">{t}</span>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {session.total_cost !== undefined && (
+                                      <div className="text-[10px] text-zinc-600 mt-0.5">Cost: ${session.total_cost.toFixed(2)}</div>
+                                    )}
+                                  </div>
+                                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                    <button
+                                      onClick={async () => {
+                                        if (terminalInfo) {
+                                          setActiveTerminalId(session.terminal_id!);
+                                          window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } }));
+                                        } else {
+                                          handleResumeSession(session);
+                                        }
+                                      }}
+                                      title={terminalInfo ? 'Focus terminal' : 'Open in terminal'}
+                                      className="px-2 py-0.5 bg-green-600/60 hover:bg-green-500/80 text-green-200 text-[10px] font-medium rounded-md transition-colors duration-150 active:scale-95"
+                                    >
+                                      {terminalInfo ? 'Focus' : 'Open'}
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
+                                          if (result?.success) {
+                                            setSessionMessages(result.data || []);
+                                            setShowMessagesViewer(session.id);
+                                          }
+                                        } catch {}
+                                      }}
+                                      title="View session messages"
+                                      className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded"
+                                    >
+                                      Messages
+                                    </button>
+                                    <button
+                                      onClick={() => setConfirmDialog({
+                                        isOpen: true,
+                                        message: `Delete session "${session.topic}" permanently?`,
+                                        onConfirm: () => handleDeleteSession(session.id),
+                                      })}
+                                      title="Delete session"
+                                      className="px-2 py-0.5 bg-rose-600/50 hover:bg-rose-500/80 text-rose-200 text-[10px] font-medium rounded-md transition-colors duration-150 active:scale-95"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                   )}
+                </div>
+              </div>
+             )}
+
+             {activeTab === 'map' && (
+                <div className="relative flex-1 min-h-0">
+                  <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-green-400 to-green-600 opacity-60" />
+                  <div className="h-full overflow-y-auto ws-scroll p-3 space-y-3">
+                  <p className="text-xs text-zinc-500">Drag panes to rearrange or split • Click to focus</p>
+                  <div className="min-h-0 overflow-hidden" style={{ flex: mapListRatio }}>
+                    {terminalLayout ? (
+                      <TerminalMiniMap
+                        layouts={[terminalLayout]}
+                        activeTerminalId={activeTerminalId}
+                        onTerminalSelect={handleMiniMapTerminalSelect}
+                        onTerminalMove={handleMiniMapTerminalMove}
+                        onSplit={handleMiniMapSplit}
+                        onToggleDirection={handleMiniMapToggleDirection}
+                      />
+                    ) : (
+                      <p className="text-xs text-zinc-600 mb-4">No terminals open</p>
+                    )}
+                  </div>
+
+                  <div
+                    onMouseDown={(e) => {
+                      mapResizeRef.current = { startY: e.clientY, startRatio: mapListRatio };
+                      const handleMouseMove = (me: MouseEvent) => {
+                        if (!mapResizeRef.current) return;
+                        const parent = (me.target as HTMLElement).closest('[data-map-container]') as HTMLElement | null;
+                        if (!parent) return;
+                        const rect = parent.getBoundingClientRect();
+                        const deltaY = me.clientY - mapResizeRef.current.startY;
+                        const newRatio = Math.max(0.2, Math.min(0.8, mapResizeRef.current.startRatio + deltaY / rect.height));
+                        setMapListRatio(newRatio);
+                      };
+                      const handleMouseUp = () => {
+                        mapResizeRef.current = null;
+                        window.removeEventListener('mousemove', handleMouseMove);
+                        window.removeEventListener('mouseup', handleMouseUp);
+                      };
+                      window.addEventListener('mousemove', handleMouseMove);
+                      window.addEventListener('mouseup', handleMouseUp);
+                    }}
+                    className="relative h-1.5 cursor-row-resize hover:bg-zinc-700/30 rounded transition-colors"
+                  >
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-0.5 bg-zinc-600 rounded-full" />
+                  </div>
+
+                  <div className="min-h-0 overflow-hidden border-t border-zinc-800 pt-2" style={{ flex: 1 - mapListRatio }}>
+                    <SectionCard accent="green" title="Running Terminals">
+                      <div className="text-xs font-medium text-zinc-400 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-500" />
+                        {Object.keys(terminalTabs).length} active
+                      </div>
+                      {Object.keys(terminalTabs).length === 0 ? (
+                        <p className="text-xs text-zinc-600 px-2 mb-3">No running terminals</p>
+                      ) : (
+                        <div className="space-y-2 mb-4">
+                          {(() => {
+                            const groups = extractGroups(terminalLayout);
+                            return groups.length > 0 ? groups.map((group, gi) => (
+                              <div key={gi} className="bg-zinc-800/20 border border-zinc-700/30 rounded-lg overflow-hidden">
+                                <div className="px-2 py-1 bg-zinc-800/40 border-b border-zinc-700/20 flex items-center justify-between">
+                                  <span className="text-[10px] font-medium text-zinc-500">Group {gi + 1}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[9px] text-zinc-600">{group.direction === 'vertical' ? '↕ Stack' : group.direction === 'horizontal' ? '↔ Side-by-side' : '—'}</span>
+                                    <span className="text-[9px] text-zinc-600">{group.terminals.length} terminal{group.terminals.length !== 1 ? 's' : ''}</span>
+                                  </div>
+                                </div>
+                                <div className="p-1.5 space-y-1">
+                                  {group.terminals.map(tid => {
+                                    const tab = terminalTabs[tid];
+                                    if (!tab) return null;
+                                    const sessionInTerminal = sessions.find(s => s.terminal_id === tid);
+                                    return (
+                                      <div key={tid} className={`p-2 rounded border transition-all duration-150 ${
+                                        activeTerminalId === tid
+                                          ? 'bg-zinc-700/80 border-zinc-600/50 shadow-[0_0_10px_rgba(0,0,0,0.2)]'
+                                          : 'bg-zinc-800/50 border-zinc-700/30 hover:bg-zinc-700/50'
+                                      }`}>
+                                        <div className="flex items-center gap-2">
+                                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                                          <div className="flex-1 min-w-0">
+                                            <div className="text-xs font-medium text-zinc-200 truncate">{tab.name}</div>
+                                            <div className="text-[10px] text-zinc-500">{tab.agent}</div>
+                                          </div>
+                                          {activeTerminalId === tid && (
+                                            <span className="text-[10px] text-green-400">active</span>
+                                          )}
+                                        </div>
+                                        {sessionInTerminal ? (
+                                          <div className="mt-1.5 ml-4 pl-2 border-l-2 border-cyan-500/30">
+                                            <div className="flex items-center gap-1 flex-wrap">
+                                              <span className="text-[10px] text-cyan-400">Session:</span>
+                                              <CategoryBadge category={sessionInTerminal.category} />
+                                              <StatusDot status={sessionInTerminal.status} />
+                                              <span className="text-[10px] text-zinc-300 truncate">{sessionInTerminal.topic || 'Unnamed'}</span>
+                                            </div>
+                                            <div className="text-[9px] text-zinc-600 mt-0.5">{sessionInTerminal.agent} • {formatDate(sessionInTerminal.created_at)}</div>
+                                          </div>
+                                        ) : (
+                                          <div className="mt-1.5 ml-4 pl-2 border-l-2 border-zinc-700/30">
+                                            <div className="text-[9px] text-zinc-500">No session — ready to assign</div>
+                                          </div>
+                                        )}
+                                        <div className="flex gap-1 mt-1.5">
+                                          <button
+                                            onClick={() => { setActiveTerminalId(tid); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: tid } })); }}
+                                            className="flex-1 px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[9px] rounded"
+                                          >
+                                            Focus
+                                          </button>
+                                          {!sessionInTerminal && (
+                                            <button
+                                              onClick={() => {
+                                                const event = new CustomEvent('open-new-session-for-terminal', { detail: { terminalId: tid } });
+                                                window.dispatchEvent(event);
+                                              }}
+                                              className="flex-1 px-1.5 py-0.5 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 text-[9px] rounded"
+                                            >
+                                              New Session
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )) : (
+                              <p className="text-[10px] text-zinc-500">No layout groups defined.</p>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </SectionCard>
+                  </div>
+                 </div>
                </div>
              )}
 
-            {activeTab === 'map' && (
-              <div className="flex flex-col h-full">
-                <p className="text-xs text-zinc-500 mb-2">Drag panes to rearrange or split • Click to focus</p>
-                {terminalLayout ? (
-                  <TerminalMiniMap
-                    layouts={[terminalLayout]}
-                    activeTerminalId={activeTerminalId}
-                    onTerminalSelect={handleMiniMapTerminalSelect}
-                    onTerminalMove={handleMiniMapTerminalMove}
-                    onSplit={handleMiniMapSplit}
-                    onToggleDirection={handleMiniMapToggleDirection}
-                  />
-                ) : (
-                  <p className="text-xs text-zinc-600 mb-4">No terminals open</p>
-                )}
-
-                <div className="mt-4 border-t border-zinc-800 pt-3">
-                  <div className="text-xs font-medium text-zinc-400 mb-2 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-green-500" />
-                    Running Terminals ({Object.keys(terminalTabs).length})
-                  </div>
-                  {Object.keys(terminalTabs).length === 0 ? (
-                    <p className="text-xs text-zinc-600 px-2 mb-3">No running terminals</p>
-                  ) : (
-                    <div className="space-y-2 mb-4">
-                      {(() => {
-                        const groups = extractGroups(terminalLayout);
-                        return groups.length > 0 ? groups.map((group, gi) => (
-                          <div key={gi} className="bg-zinc-800/20 border border-zinc-700/30 rounded-lg overflow-hidden">
-                            <div className="px-2 py-1 bg-zinc-800/40 border-b border-zinc-700/20 flex items-center justify-between">
-                              <span className="text-[10px] font-medium text-zinc-500">Group {gi + 1}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] text-zinc-600">{group.direction === 'vertical' ? '↕ Stack' : group.direction === 'horizontal' ? '↔ Side-by-side' : '—'}</span>
-                                <span className="text-[9px] text-zinc-600">{group.terminals.length} terminal{group.terminals.length !== 1 ? 's' : ''}</span>
-                              </div>
-                            </div>
-                            <div className="p-1.5 space-y-1">
-                              {group.terminals.map(tid => {
-                                const tab = terminalTabs[tid];
-                                if (!tab) return null;
-                                const sessionInTerminal = sessions.find(s => s.terminal_id === tid);
-                                return (
-                                  <div key={tid} className={`p-2 rounded border transition-all duration-150 ${
-                                    activeTerminalId === tid
-                                      ? 'bg-zinc-700/80 border-zinc-600/50 shadow-[0_0_10px_rgba(0,0,0,0.2)]'
-                                      : 'bg-zinc-800/50 border-zinc-700/30 hover:bg-zinc-700/50'
-                                  }`}>
-                                    <div className="flex items-center gap-2">
-                                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="text-xs font-medium text-zinc-200 truncate">{tab.name}</div>
-                                        <div className="text-[10px] text-zinc-500">{tab.agent}</div>
-                                      </div>
-                                      {activeTerminalId === tid && (
-                                        <span className="text-[10px] text-green-400">active</span>
-                                      )}
-                                    </div>
-                                    {sessionInTerminal ? (
-                                      <div className="mt-1.5 ml-4 pl-2 border-l-2 border-cyan-500/30">
-                                        <div className="flex items-center gap-1 flex-wrap">
-                                          <span className="text-[10px] text-cyan-400">Session:</span>
-                                          <CategoryBadge category={sessionInTerminal.category} />
-                                          <StatusDot status={sessionInTerminal.status} />
-                                          <span className="text-[10px] text-zinc-300 truncate">{sessionInTerminal.topic || 'Unnamed'}</span>
-                                        </div>
-                                        <div className="text-[9px] text-zinc-600 mt-0.5">{sessionInTerminal.agent} • {formatDate(sessionInTerminal.created_at)}</div>
-                                      </div>
-                                    ) : (
-                                      <div className="mt-1.5 ml-4 pl-2 border-l-2 border-zinc-700/30">
-                                        <div className="text-[9px] text-zinc-500">No session — ready to assign</div>
-                                      </div>
-                                    )}
-                                    <div className="flex gap-1 mt-1.5">
-                                      <button
-                                        onClick={() => { setActiveTerminalId(tid); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: tid } })); }}
-                                        className="flex-1 px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[9px] rounded"
-                                      >
-                                        Focus
-                                      </button>
-                                      {!sessionInTerminal && (
-                                        <button
-                                          onClick={() => {
-                                            const event = new CustomEvent('open-new-session-for-terminal', { detail: { terminalId: tid } });
-                                            window.dispatchEvent(event);
-                                          }}
-                                          className="flex-1 px-1.5 py-0.5 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 text-[9px] rounded"
-                                        >
-                                          New Session
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )) : (
-                          <p className="text-[10px] text-zinc-500">No layout groups defined.</p>
-                        );
-                      })()}
-                    </div>
-                  )}
-
+              {activeTab === 'analytics' && (
+              <TabPanel accent="purple">
+                <div className="flex gap-1.5">
+                  {(['7d', '30d', 'all'] as const).map(p => (
+                    <Pill key={p} active={analyticsPeriod === p} onClick={() => setAnalyticsPeriod(p)}>
+                      {p === '7d' ? '7 Days' : p === '30d' ? '30 Days' : 'All Time'}
+                    </Pill>
+                  ))}
                 </div>
-              </div>
+                <AnalyticsDashboard
+                  aiUsage={aiSummary}
+                  sessions={sessions}
+                  problems={analyticsProblems}
+                  requests={analyticsRequests}
+                  promptHistory={analyticsPromptHistory}
+                  dailyStats={analyticsDailyStats}
+                  loading={analyticsLoading}
+                  period={analyticsPeriod}
+                  variant="full"
+                />
+              </TabPanel>
             )}
 
-             {activeTab === 'analytics' && (
-                <div className="space-y-4">
-                  <div className="flex gap-1 bg-zinc-800/50 rounded-lg p-0.5 border border-zinc-700/50 w-fit">
-                    {(['7d', '30d', 'all'] as const).map(p => (
-                      <button key={p} onClick={() => setAnalyticsPeriod(p)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                          analyticsPeriod === p ? 'bg-purple-500/20 text-purple-300' : 'text-zinc-500 hover:text-zinc-300'
-                        }`}>
-                        {p === '7d' ? '7 Days' : p === '30d' ? '30 Days' : 'All Time'}
-                      </button>
-                    ))}
-                  </div>
-                  <AnalyticsDashboard
-                    aiUsage={aiSummary}
-                    sessions={sessions}
-                    problems={analyticsProblems}
-                    requests={analyticsRequests}
-                    dailyStats={analyticsDailyStats}
-                    appStats={analyticsAppStats}
-                    promptHistory={analyticsPromptHistory}
-                    loading={analyticsLoading}
-                    period={analyticsPeriod}
-                  />
-                </div>
-              )}
-
             {activeTab === 'issues' && (
-              <IssuesWorkspace projectId={selectedProject} projectPath={propProjectPath} />
+              <TabPanel accent="emerald">
+                <IssuesWorkspace projectId={selectedProject} projectPath={propProjectPath} activeTerminalId={activeTerminalId} sessions={sessions} />
+              </TabPanel>
             )}
 
               {activeTab === 'files' && (
+              <TabPanel accent="yellow">
                 <FilesTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
+              </TabPanel>
                )}
 
                {activeTab === 'context-maintenance' && (
+              <TabPanel accent="violet">
                 <ContextMaintenanceTab
                   projectId={selectedProject || ''}
                   projectPath={propProjectPath || ''}
                   sessionId={selectedSessionDetail || undefined}
                 />
+              </TabPanel>
                )}
 
              {activeTab === 'skills' && (
+              <TabPanel accent="indigo">
                <SkillsTab
                  projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
                  terminalTabs={terminalTabs}
                  activeTerminalId={activeTerminalId}
                />
+              </TabPanel>
              )}
 
              {activeTab === 'design' && (
+              <TabPanel accent="pink">
                 <DesignWorkspacePage
                   projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
                   activeTerminalId={activeTerminalId}
                 />
+              </TabPanel>
               )}
 
              {activeTab === 'context' && (
+              <TabPanel accent="amber">
                <ContextSidebar
                  projectId={selectedProject || propProjectId || undefined}
                  projectPath={propProjectPath}
                />
+              </TabPanel>
              )}
 
              {activeTab === 'configs' && (
-              <div className="space-y-2">
-                <div className="px-2 py-3 bg-orange-500/5 border border-orange-500/20 rounded">
-                  <div className="text-xs text-orange-400 font-medium mb-2">Workspace Configurations</div>
-                  <div className="flex gap-2 mb-2">
+              <TabPanel accent="orange">
+                <SectionCard accent="orange" title="Model Configuration">
+
+                  {/* Re-injection threshold */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-semibold text-zinc-300">Rules Re-injection</span>
+                      <span className="font-mono text-emerald-400 text-[11px]">{modelReinjectThreshold}</span>
+                    </div>
+                    <p className="text-[9px] text-zinc-600 mb-2">Auto-inject RULES_COMPACT.md every N messages</p>
+                    <input
+                      type="range"
+                      min={3}
+                      max={30}
+                      value={modelReinjectThreshold}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setModelReinjectThreshold(v);
+                        localStorage.setItem('model-reinject-threshold', String(v));
+                        window.deskflowAPI?.setReinjectThreshold?.({ threshold: v });
+                      }}
+                      className="w-full h-1 rounded-full appearance-none cursor-pointer accent-emerald-500"
+                    />
+                    <div className="flex justify-between text-[9px] text-zinc-600 mt-0.5">
+                      <span>3</span>
+                      <span>30</span>
+                    </div>
+                  </div>
+
+                  {/* Default model tier */}
+                  <div className="mb-3">
+                    <span className="text-[10px] font-semibold text-zinc-300 block mb-1">Default Model Tier</span>
+                    <p className="text-[9px] text-zinc-600 mb-2">Context budget for new sessions</p>
+                    <div className="flex gap-1">
+                      {(['top', 'mid', 'low'] as const).map((tier) => (
+                        <button
+                          key={tier}
+                          onClick={() => {
+                            setModelDefaultTier(tier);
+                            localStorage.setItem('default-model-tier', tier);
+                          }}
+                          className={`flex-1 py-1.5 rounded text-[10px] font-semibold border transition-colors duration-150 ${
+                            modelDefaultTier === tier
+                              ? tier === 'top'
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                : tier === 'mid'
+                                ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                                : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
+                              : 'bg-zinc-700/50 text-zinc-500 border-zinc-600/40'
+                          }`}
+                        >
+                          {tier}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Debug mode */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-semibold text-zinc-300">Debug Mode</span>
+                      <p className="text-[9px] text-zinc-600">Verbose [SYSTEM] logging</p>
+                    </div>
                     <button
-                      onClick={handleSaveWorkspace}
-                      className="flex-1 px-2 py-1 bg-orange-600 hover:bg-orange-500 text-white text-xs rounded"
+                      onClick={() => {
+                        const v = !modelDebugMode;
+                        setModelDebugMode(v);
+                        localStorage.setItem('model-debug-mode', String(v));
+                        window.deskflowAPI?.setModelDebug?.({ enabled: v });
+                      }}
+                      className={`w-10 h-5 rounded-full transition-colors duration-150 relative ${modelDebugMode ? 'bg-emerald-500' : 'bg-zinc-600'}`}
                     >
-                      Save Workspace
-                    </button>
-                    <button
-                      onClick={handleLoadWorkspace}
-                      className="flex-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded"
-                    >
-                      Load Workspace
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-colors duration-150 ${modelDebugMode ? 'translate-x-5' : ''}`} />
                     </button>
                   </div>
-                  <p className="text-xs text-zinc-500">Save/load sidebar layout, width, and active tab.</p>
-                </div>
-              </div>
+
+                  {/* ── Auto-Assign Configuration ── */}
+                  <div className="pt-3 border-t border-orange-500/10 space-y-3">
+                    <h4 className="text-xs font-semibold text-orange-400 flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3" />
+                      Auto-Assign Routing
+                    </h4>
+
+                    {/* Toggle */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs text-zinc-300">Auto-assign prompts to sessions</span>
+                        <p className="text-[10px] text-zinc-600">AI routes your prompts to the best-matching session</p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const newConfig = { ...autoAssignConfig, enabled: !autoAssignConfig?.enabled };
+                          await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                          setAutoAssignConfig(newConfig);
+                        }}
+                        className={`relative w-9 h-5 rounded-full transition-colors ${
+                          autoAssignConfig?.enabled ? 'bg-cyan-500/30 border border-cyan-500/40' : 'bg-zinc-700 border border-zinc-600'
+                        }`}
+                      >
+                        <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${
+                          autoAssignConfig?.enabled ? 'translate-x-4 bg-cyan-400' : 'translate-x-0.5 bg-zinc-400'
+                        }`} />
+                      </button>
+                    </div>
+
+                    {/* Routing Model */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">Routing model</span>
+                      <select
+                        value={autoAssignConfig?.routingModel || 'anthropic/claude-3.5-haiku'}
+                        onChange={async (e) => {
+                          const newConfig = { ...autoAssignConfig, routingModel: e.target.value };
+                          await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                          setAutoAssignConfig(newConfig);
+                        }}
+                        className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-orange-500/40"
+                      >
+                        <option value="anthropic/claude-3.5-haiku">Claude 3.5 Haiku ($0.80/M)</option>
+                        <option value="anthropic/claude-3-haiku">Claude 3 Haiku ($0.25/M)</option>
+                        <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash ($0.10/M)</option>
+                        <option value="openai/gpt-4o-mini">GPT-4o Mini ($0.15/M)</option>
+                      </select>
+                    </div>
+
+                    {/* Summary Frequency */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">Summary frequency</span>
+                      <select
+                        value={autoAssignConfig?.summaryFrequency || 10}
+                        onChange={async (e) => {
+                          const newConfig = { ...autoAssignConfig, summaryFrequency: parseInt(e.target.value) };
+                          await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                          setAutoAssignConfig(newConfig);
+                        }}
+                        className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-orange-500/40"
+                      >
+                        <option value="5">Every 5 messages</option>
+                        <option value="10">Every 10 messages</option>
+                        <option value="20">Every 20 messages</option>
+                        <option value="0">Manual only</option>
+                      </select>
+                    </div>
+
+                    {/* Auto-Rename Toggle */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs text-zinc-300">Auto-rename sessions</span>
+                        <p className="text-[10px] text-zinc-600">AI generates descriptive session names</p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const newConfig = { ...autoAssignConfig, autoRename: !autoAssignConfig?.autoRename };
+                          await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                          setAutoAssignConfig(newConfig);
+                        }}
+                        className={`relative w-9 h-5 rounded-full transition-colors ${
+                          autoAssignConfig?.autoRename ? 'bg-cyan-500/30 border border-cyan-500/40' : 'bg-zinc-700 border border-zinc-600'
+                        }`}
+                      >
+                        <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${
+                          autoAssignConfig?.autoRename ? 'translate-x-4 bg-cyan-400' : 'translate-x-0.5 bg-zinc-400'
+                        }`} />
+                      </button>
+                    </div>
+
+                    {/* Rename Threshold */}
+                    {autoAssignConfig?.autoRename && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-zinc-400">Rename after N messages</span>
+                        <select
+                          value={autoAssignConfig?.renameThreshold || 5}
+                          onChange={async (e) => {
+                            const newConfig = { ...autoAssignConfig, renameThreshold: parseInt(e.target.value) };
+                            await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                            setAutoAssignConfig(newConfig);
+                          }}
+                          className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-orange-500/40"
+                        >
+                          <option value="3">3 messages</option>
+                          <option value="5">5 messages</option>
+                          <option value="10">10 messages</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Infrastructure Cost Card ── */}
+                  <div className="bg-zinc-900/50 rounded-lg p-3 border border-zinc-800/70">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                        <DollarSign className="w-3 h-3 text-emerald-400" />
+                        Routing Infrastructure Cost
+                      </h4>
+                      <button
+                        onClick={async () => {
+                          if (confirm('Reset all routing cost counters?')) {
+                            await window.deskflowAPI?.resetRoutingCosts?.();
+                            loadRoutingCosts();
+                          }
+                        }}
+                        className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    {routingCosts ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-zinc-800/50 rounded p-2">
+                          <span className="text-[10px] text-zinc-500">Today</span>
+                          <p className="text-sm font-mono text-emerald-400">${(routingCosts.today?.total || 0).toFixed(4)}</p>
+                          <span className="text-[9px] text-zinc-600">{routingCosts.today?.calls || 0} calls</span>
+                        </div>
+                        <div className="bg-zinc-800/50 rounded p-2">
+                          <span className="text-[10px] text-zinc-500">This Week</span>
+                          <p className="text-sm font-mono text-emerald-400">${(routingCosts.week?.total || 0).toFixed(4)}</p>
+                          <span className="text-[9px] text-zinc-600">{routingCosts.week?.calls || 0} calls</span>
+                        </div>
+                        <div className="bg-zinc-800/50 rounded p-2">
+                          <span className="text-[10px] text-zinc-500">This Month</span>
+                          <p className="text-sm font-mono text-emerald-400">${(routingCosts.month?.total || 0).toFixed(4)}</p>
+                          <span className="text-[9px] text-zinc-600">{routingCosts.month?.calls || 0} calls</span>
+                        </div>
+                        <div className="bg-zinc-800/50 rounded p-2">
+                          <span className="text-[10px] text-zinc-500">All Time</span>
+                          <p className="text-sm font-mono text-zinc-300">${(routingCosts.total?.total || 0).toFixed(4)}</p>
+                          <span className="text-[9px] text-zinc-600">{routingCosts.total?.calls || 0} calls</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-3">
+                        <p className="text-[10px] text-zinc-600">Loading costs...</p>
+                      </div>
+                    )}
+                    {routingCosts?.byType && routingCosts.byType.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-zinc-800/50 space-y-1">
+                        {routingCosts.byType.map((bt: any) => (
+                          <div key={bt.call_type} className="flex items-center justify-between">
+                            <span className="text-[10px] text-zinc-500 capitalize">{bt.call_type}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-zinc-400">${(bt.total || 0).toFixed(4)}</span>
+                        <span className="text-[9px] text-zinc-600">×{bt.calls}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  </div>
+                </SectionCard>
+
+                  {/* ── Cross-Session Sync ── */}
+                  <SectionCard accent="amber" title="Cross-Session Sync">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <h4 className="text-[11px] font-medium text-amber-300">Cross-Session Sync</h4>
+                        <p className="text-[9px] text-zinc-500">File lock detection, context broadcast</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const v = !crossSessionSyncEnabled;
+                          setCrossSessionSyncEnabled(v);
+                          localStorage.setItem('cross-session-sync-enabled', String(v));
+                          window.deskflowAPI?.setCrossSessionSyncConfig?.({ enabled: v });
+                        }}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${
+                          crossSessionSyncEnabled ? 'bg-amber-500' : 'bg-zinc-700'
+                        }`}
+                      >
+                        <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
+                          crossSessionSyncEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                        }`} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {/* File Lock TTL */}
+                      <div>
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="text-[10px] text-zinc-400">Lock TTL</span>
+                          <span className="text-[10px] text-amber-400 font-mono">{fileLockTTL}s</span>
+                        </div>
+                        <p className="text-[8px] text-zinc-600 mb-1">How long a file lock lasts before auto-release</p>
+                        <input
+                          type="range"
+                          min={30}
+                          max={600}
+                          step={30}
+                          value={fileLockTTL}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            setFileLockTTL(v);
+                            localStorage.setItem('file-lock-ttl', String(v));
+                            window.deskflowAPI?.setCrossSessionSyncConfig?.({ lockTTL: v });
+                          }}
+                          className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-amber-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-amber-500 [&::-webkit-slider-thumb]:rounded-full"
+                        />
+                        <div className="flex justify-between text-[8px] text-zinc-600">
+                          <span>30s</span>
+                          <span>10m</span>
+                        </div>
+                      </div>
+
+                      {/* Context Broadcast Toggle */}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-zinc-400">Context Broadcast</span>
+                          <p className="text-[8px] text-zinc-600">Notify other terminals of problem/request changes</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const v = !contextBroadcastEnabled;
+                            setContextBroadcastEnabled(v);
+                            localStorage.setItem('context-broadcast-enabled', String(v));
+                            window.deskflowAPI?.setCrossSessionSyncConfig?.({ contextBroadcast: v });
+                          }}
+                          className={`w-8 h-4 rounded-full transition-colors relative ${
+                            contextBroadcastEnabled ? 'bg-amber-500' : 'bg-zinc-700'
+                          }`}
+                        >
+                          <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
+                            contextBroadcastEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                          }`} />
+                        </button>
+                      </div>
+
+                      {/* Conflict Warning Mode */}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-zinc-400">Conflict Warnings</span>
+                          <p className="text-[8px] text-zinc-600">Show toast + terminal warning, or toast only</p>
+                        </div>
+                        <select
+                          value={conflictWarningMode}
+                          onChange={(e) => {
+                            setConflictWarningMode(e.target.value);
+                            localStorage.setItem('conflict-warning-mode', e.target.value);
+                            window.deskflowAPI?.setCrossSessionSyncConfig?.({ conflictWarningMode: e.target.value });
+                          }}
+                          className="bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 px-2 py-1"
+                        >
+                          <option value="both">Toast + Terminal</option>
+                          <option value="toast">Toast Only</option>
+                          <option value="none">Off</option>
+                        </select>
+                      </div>
+
+                      {/* /sync Command Toggle */}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-zinc-400">/sync Command</span>
+                          <p className="text-[8px] text-zinc-600">Enable the /sync slash command</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const v = !syncCommandEnabled;
+                            setSyncCommandEnabled(v);
+                            localStorage.setItem('sync-command-enabled', String(v));
+                            window.deskflowAPI?.setCrossSessionSyncConfig?.({ syncCommand: v });
+                          }}
+                          className={`w-8 h-4 rounded-full transition-colors relative ${
+                            syncCommandEnabled ? 'bg-amber-500' : 'bg-zinc-700'
+                          }`}
+                        >
+                          <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
+                            syncCommandEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                          }`} />
+                        </button>
+                      </div>
+
+                      {/* ── Thought Process Toggle ── */}
+                      <div className="pt-2 border-t border-amber-500/10">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] text-zinc-400">Thought Process</span>
+                            <p className="text-[8px] text-zinc-600">AI shows reasoning before answering</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const v = !thoughtProcessEnabled;
+                              setThoughtProcessEnabled(v);
+                              localStorage.setItem('thought-process-enabled', String(v));
+                            }}
+                            className={`w-8 h-4 rounded-full transition-colors relative ${
+                              thoughtProcessEnabled ? 'bg-amber-500' : 'bg-zinc-700'
+                            }`}
+                          >
+                            <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
+                              thoughtProcessEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                            }`} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                 </SectionCard>
+
+                   {/* ── Live Context Viewer ── */}
+                  <div className="rounded-lg border border-zinc-800/60 bg-zinc-900 overflow-hidden">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className={`w-1.5 h-1.5 rounded-full ${crossSessionSyncEnabled ? 'bg-green-400 animate-pulse' : 'bg-zinc-600'}`} />
+                      <h4 className="text-[11px] font-medium text-amber-300">Live Context</h4>
+                      <span className="text-[8px] text-zinc-600 ml-auto">
+                        {Object.keys(terminalFileLocks).length} terminal{Object.keys(terminalFileLocks).length !== 1 ? 's' : ''} active
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {/* ── Active Locks ── */}
+                      <div>
+                        <div className="flex items-center gap-1 text-[10px] text-zinc-400 mb-1">
+                          <Lock className="w-3 h-3" />
+                          <span>File Locks</span>
+                        </div>
+                        {Object.keys(terminalFileLocks).length === 0 ? (
+                          <p className="text-[9px] text-zinc-600 pl-4">No active locks</p>
+                        ) : (
+                          <div className="space-y-1 pl-3">
+                            {Object.entries(terminalFileLocks).map(([termId, files]) => (
+                              <div key={termId} className="flex items-start gap-1.5">
+                                <span className="text-[9px] text-amber-400/70 font-mono shrink-0 mt-0.5">{termId.replace('term-', '').slice(0, 8)}</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {files.map((fp, i) => (
+                                    <span key={i} className="text-[9px] bg-amber-500/10 text-amber-400/80 px-1 rounded truncate max-w-[160px]" title={fp}>
+                                      {fp.split('\\').pop()?.split('/').pop()}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── Recent Activity ── */}
+                      <div className="pt-2 border-t border-amber-500/10">
+                        <div className="flex items-center gap-1 text-[10px] text-zinc-400 mb-1">
+                          <FileText className="w-3 h-3" />
+                          <span>Recent Edits</span>
+                        </div>
+                        {touchedFiles.length === 0 ? (
+                          <p className="text-[9px] text-zinc-600 pl-4">No recent file activity</p>
+                        ) : (
+                          <div className="space-y-0.5 pl-3 max-h-[120px] overflow-y-auto">
+                            {touchedFiles.map((f, i) => (
+                              <div key={f.id || i} className="flex items-center gap-1 text-[9px]">
+                                <span className={`shrink-0 w-1 h-1 rounded-full ${
+                                  f.action === 'create' ? 'bg-green-500' :
+                                  f.action === 'delete' ? 'bg-red-500' : 'bg-blue-400'
+                                }`} />
+                                <span className={`text-[8px] uppercase font-medium ${
+                                  f.action === 'create' ? 'text-green-500' :
+                                  f.action === 'delete' ? 'text-red-400' : 'text-blue-400'
+                                }`}>{f.action}</span>
+                                <span className="text-zinc-400 truncate max-w-[140px]" title={f.file_path}>
+                                  {f.file_path.split('\\').pop()?.split('/').pop()}
+                                </span>
+                                <span className="text-zinc-600 ml-auto shrink-0">
+                                  {f.timestamp ? (() => {
+                                    const d = new Date(f.timestamp);
+                                    const now = Date.now();
+                                    const diff = Math.floor((now - d.getTime()) / 1000);
+                                    if (diff < 60) return `${diff}s`;
+                                    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+                                    return `${Math.floor(diff / 3600)}h`;
+                                  })() : ''}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── Conflict History ── */}
+                      <div className="pt-2 border-t border-amber-500/10">
+                        <div className="flex items-center gap-1 text-[10px] text-zinc-400 mb-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>Recent Conflicts</span>
+                        </div>
+                        {fileConflicts.length === 0 ? (
+                          <p className="text-[9px] text-zinc-600 pl-4">No recent conflicts</p>
+                        ) : (
+                          <div className="space-y-0.5 pl-3 max-h-[100px] overflow-y-auto">
+                            {fileConflicts.slice(-5).reverse().map((c, i) => (
+                              <div key={i} className="flex items-center gap-1 text-[9px] text-yellow-400/80">
+                                <span className="shrink-0 w-1 h-1 rounded-full bg-yellow-500" />
+                                <span className="text-zinc-400 truncate max-w-[100px]" title={c.filePath}>
+                                  {c.filePath.split('\\').pop()?.split('/').pop()}
+                                </span>
+                                <span className="text-zinc-500 text-[8px]">
+                                  {c.lockingTerminal.substring(0, 6)} → {c.requestingTerminal.substring(0, 6)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </TabPanel>
             )}
 
-            {activeTab === 'history' && (
-              <div className="space-y-2">
-                <div className="px-2 py-3 bg-rose-500/5 border border-rose-500/20 rounded">
-                  <div className="text-xs text-rose-400 font-medium mb-2">History</div>
-                  <p className="text-xs text-zinc-500">No history records yet. Activity will appear here.</p>
-                </div>
-              </div>
-            )}
+              {activeTab === 'history' && (
+               <TabPanel accent="rose">
+                 <WsEmptyState icon={Clock}>
+                   No history records yet. Activity will appear here.
+                 </WsEmptyState>
+               </TabPanel>
+             )}
 
             <NewSessionDialog
               open={showNewSessionDialog}
               mode={newSessionMode}
+              defaultName={openCodeSessionName || undefined}
               onClose={() => { setShowNewSessionDialog(false); setNewSessionSelectedTerminal(''); }}
               onCreate={async (config: SessionConfig) => {
                 const proj = projects.find(p => p.id === selectedProject);
@@ -2196,9 +3640,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 localStorage.setItem('terminal-defaultAgent', agent);
                 setShowNewSessionDialog(false);
 
-                // Resolve init content from config
+                // Resolve init content from config (skip when resuming existing session)
                 let initContent = config.initContent || '';
-                if (!config.initContent) {
+                if (!config.resumeId && !config.initContent) {
                   if (config.includeDefaultInit) {
                     const dflt = await window.deskflowAPI?.readProjectFile?.('INITIALIZE.md', cwd);
                     if (dflt?.success && dflt.data) initContent = dflt.data;
@@ -2210,11 +3654,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     }
                   }
                   // Append problem/request context to init content
-                  if (config.problemIds.length > 0) {
+                  if (config.problemIds?.length) {
                     const ctx = config.problemIds.map(id => `- ${allProblems.find(p => p.id === id)?.title || id}`).join('\n');
                     initContent += `\n## Context: Problems\n${ctx}\n`;
                   }
-                  if (config.requestIds.length > 0) {
+                  if (config.requestIds?.length) {
                     const ctx = config.requestIds.map(id => `- ${allRequests.find(r => r.id === id)?.title || id}`).join('\n');
                     initContent += `\n## Context: Requests\n${ctx}\n`;
                   }
@@ -2222,19 +3666,40 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 const systemPrompt = config.customSystemPrompt || undefined;
 
                 let targetTerminalId = '';
-                if (config.terminalMode === 'select' && config.selectedTerminal) {
-                  targetTerminalId = config.selectedTerminal;
-                  setActiveTerminalId(targetTerminalId);
-                  if (initContent) {
-                    await window.deskflowAPI?.terminalWrite?.(targetTerminalId, initContent + '\n');
-                    await new Promise(r => setTimeout(r, 500));
-                  }
-                  if (systemPrompt) {
-                    await window.deskflowAPI?.terminalWrite?.(targetTerminalId, systemPrompt + '\n');
-                    await new Promise(r => setTimeout(r, 500));
-                  }
-                } else {
-                  targetTerminalId = `term-${Date.now()}`;
+                 if (config.terminalMode === 'select' && config.selectedTerminal) {
+                   // Re-launch agent on existing terminal
+                   targetTerminalId = config.selectedTerminal;
+                   setActiveTerminalId(targetTerminalId);
+                   
+                     // Launch the agent on the existing terminal
+                    const NL = '\r\n';
+                    const cdCmd = cwd ? `cd "${cwd}"${NL}` : '';
+                    let resumeCmd = `${agent} -s ${config.resumeId}`;
+                    if (config.resumeId) {
+                      try {
+                        const prefs = await window.deskflowAPI?.getPreferences?.();
+                        const templates: Record<string, string> = prefs?.agentResumeCommands || {};
+                        const tmpl = templates[agent];
+                        if (tmpl) resumeCmd = tmpl.replace('{agent}', agent).replace('{resumeId}', config.resumeId);
+                      } catch {}
+                    }
+                    const launchCommand = config.resumeId ? `${cdCmd}${resumeCmd}${NL}` : `${cdCmd}${agent}${NL}`;
+                   await window.deskflowAPI?.terminalWrite?.(targetTerminalId, launchCommand);
+                   await new Promise(r => setTimeout(r, 500));
+                   
+                   if (systemPrompt) {
+                     await window.deskflowAPI?.terminalWrite?.(targetTerminalId, systemPrompt + '\r\n');
+                     await new Promise(r => setTimeout(r, 500));
+                   }
+                   
+                   // Write init content (from INITIALIZE.md, problems, requests)
+                   // NOTE: Do NOT write user prompts here - use InstructionPanel instead
+                   if (initContent) {
+                     await new Promise(r => setTimeout(r, 800));
+                     await window.deskflowAPI?.terminalWrite?.(targetTerminalId, initContent + '\r\n');
+                   }
+                 } else {
+                  targetTerminalId = generateTerminalId();
                   const count = Object.keys(terminalTabs).length;
                   setTerminalTabs(prev => ({ ...prev, [targetTerminalId]: { name: proj?.name || sessionName, agent, modelTier: config.modelTier || config.contextConfig?.model_tier || 'mid' } }));
                   setActiveTerminalId(targetTerminalId);
@@ -2242,8 +3707,32 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   setTerminalLayout(updatedLayout);
                   saveLayout(updatedLayout);
                   sessionTerminalsRef.current.add(targetTerminalId);
-                  window.dispatchEvent(new CustomEvent('create-terminal', { detail: { cwd, agent, sessionName, terminalId: targetTerminalId } }));
-                  await initializeTerminal(targetTerminalId, agent, undefined, initContent, systemPrompt);
+                  
+                  // ═══ SPAWN PTY AND WAIT FOR COMPLETION ═══
+                  // Spawn BEFORE initializing, don't just dispatch event
+                  if (!window.deskflowAPI?.spawnTerminal) {
+                    console.error('[NewSessionDialog] Terminal API not available');
+                    return;
+                  }
+                  const spawnRes = await window.deskflowAPI.spawnTerminal(targetTerminalId, cwd, agent);
+                  if (!spawnRes?.success) {
+                    console.error('[NewSessionDialog] Failed to spawn terminal:', spawnRes?.error);
+                    return;
+                  }
+                  window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: targetTerminalId } }));
+                  
+                  // ═══ REGISTER AND INITIALIZE ═══
+                  await registerTerminal(targetTerminalId);
+                  await initializeTerminal(targetTerminalId, agent, config.resumeId, undefined, systemPrompt, cwd);
+                  
+                  // ═══ WRITE INITIALIZATION CONTENT ═══
+                  if (initContent) {
+                    await new Promise(r => setTimeout(r, 800));
+                    const writeRes = await window.deskflowAPI?.terminalWrite?.(targetTerminalId, initContent + '\r\n');
+                    if (!writeRes?.success) {
+                      console.error('[NewSessionDialog] Failed to write init content:', writeRes?.error);
+                    }
+                  }
                 }
 
                 const sessionResult = await window.deskflowAPI?.saveTerminalSession?.({
@@ -2253,6 +3742,8 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   terminalId: targetTerminalId,
                   topic: sessionName,
                   workingDirectory: proj?.path || '',
+                  description: initContent || '',
+                  autoNamed: 1,
                 });
                 if (sessionResult?.success) {
                   await window.deskflowAPI?.saveSessionConfig?.(config.id, config, proj?.path);
@@ -2268,6 +3759,69 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               defaultAgent={localStorage.getItem('terminal-defaultAgent') || 'claude'}
             />
 
+            {showImportSessionsDialog && (
+              <ImportSessionsDialog
+                onClose={() => setShowImportSessionsDialog(false)}
+                onImport={handleImportOpencodeSessions}
+                projectId={propProjectId}
+              />
+            )}
+
+            {/* Features Dialog */}
+            {showFeaturesDialog && (
+              <FeaturesDialog onClose={() => setShowFeaturesDialog(false)} />
+            )}
+
+            {/* Generalist Dialog */}
+            {showGeneralistDialog && (
+              <GeneralistDialog onClose={() => setShowGeneralistDialog(false)} />
+            )}
+
+            {/* Routing toast */}
+            {showRoutingToast && (
+              <RoutingToast
+                sessionName={routingToastSession}
+                onCancel={handleRoutingCancel}
+                onConfirm={handleRoutingConfirm}
+              />
+            )}
+            {/* File conflict toasts */}
+            {fileConflicts.map((conflict, idx) => (
+              <div key={idx} className="fixed bottom-20 right-4 z-50 max-w-sm bg-yellow-900/90 border border-yellow-600 rounded-lg p-3 shadow-lg animate-in slide-in-from-bottom-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-yellow-200">File Conflict</p>
+                    <p className="text-[11px] text-yellow-300/80 mt-0.5 truncate">{conflict.filePath}</p>
+                    <p className="text-[10px] text-yellow-400/60 mt-0.5">
+                      {conflict.lockingTerminal} is editing → {conflict.requestingTerminal} wants access
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setFileConflicts(prev => prev.filter((_, i) => i !== idx))}
+                    className="text-yellow-400/60 hover:text-yellow-300 shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {/* Disambiguation dialog */}
+            {showDisambiguation && (
+              <RoutingDisambiguationDialog
+                candidates={disambiguationCandidates}
+                onSelectSession={handleDisambiguationSelect}
+                onCreateNew={handleDisambiguationCreateNew}
+                onCancel={() => { setShowDisambiguation(false); setPendingPrompt(null); }}
+              />
+            )}
+            {/* Routing spinner */}
+            {isRouting && (
+              <div className="flex items-center gap-1.5 text-cyan-400">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span className="text-[10px]">Routing...</span>
+              </div>
+            )}
             {/* Initialize Progress Modal */}
             <InitializeProgressModal
               isOpen={showInitModal}
@@ -2281,24 +3835,30 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             />
 
             {showMessagesViewer && (
-              <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
-                <div className="bg-zinc-800 rounded-xl w-full max-w-2xl border border-zinc-700 shadow-2xl flex flex-col" style={{ maxHeight: '80vh' }}>
-                  <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-700">
-                    <h2 className="text-lg font-bold text-white">Session Messages</h2>
-                    <button onClick={() => setShowMessagesViewer(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]">
+                <div className="bg-zinc-900 border border-zinc-800/60 rounded-xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '80vh' }}>
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/50">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_4px_rgba(6,182,212,0.5)]" />
+                      <h2 className="text-base font-bold text-white">Session Messages</h2>
+                    </div>
+                    <button onClick={() => setShowMessagesViewer(null)} className={WS_ICON_BTN}><X className="w-4 h-4" /></button>
                   </div>
-                  <div className="px-4 py-2 border-b border-zinc-700">
-                    <input
-                      type="text"
-                      value={messagesSearchQuery}
-                      onChange={(e) => setMessagesSearchQuery(e.target.value)}
-                      placeholder="Search messages..."
-                      className="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
-                    />
+                  <div className="px-4 py-2.5 border-b border-zinc-800/50">
+                    <div className="relative">
+                      <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                      <input
+                        type="text"
+                        value={messagesSearchQuery}
+                        onChange={(e) => setMessagesSearchQuery(e.target.value)}
+                        placeholder="Search messages..."
+                        className="w-full pl-8 pr-3 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 transition-colors duration-150"
+                      />
+                    </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-2">
                     {sessionMessages.length === 0 ? (
-                      <p className="text-xs text-zinc-500 text-center py-8">No messages recorded for this session.</p>
+                      <WsEmptyState icon={MessageSquare} title="No messages" hint="No messages recorded for this session." />
                     ) : (() => {
                       const filtered = messagesSearchQuery
                         ? sessionMessages.filter(m => m.content && m.content.toLowerCase().includes(messagesSearchQuery.toLowerCase()))
@@ -2306,30 +3866,34 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                       if (filtered.length === 0) {
                         return <p className="text-xs text-zinc-500 text-center py-4">No messages match your search.</p>;
                       }
-                      return filtered.slice(0, 500).map((msg, i) => (
-                        <div key={i} className={`p-2 rounded-lg ${msg.role === 'user' ? 'bg-cyan-900/20 border border-cyan-800/30 ml-8' : msg.role === 'system' ? 'bg-amber-900/20 border border-amber-800/30' : 'bg-zinc-800/80 mr-8'}`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                              msg.role === 'user' ? 'text-cyan-300 bg-cyan-500/20' :
-                              msg.role === 'system' ? 'text-amber-300 bg-amber-500/20' :
-                              'text-green-300 bg-green-500/20'
-                            }`}>{msg.role}</span>
-                            {msg.created_at && <span className="text-[10px] text-zinc-600">{new Date(msg.created_at).toLocaleTimeString()}</span>}
+                      return filtered.slice(0, 500).map((msg, i) => {
+                        const roleColor = msg.role === 'user' ? 'cyan' : msg.role === 'system' ? 'amber' : 'emerald';
+                        const colorMap = { cyan: { bg: 'bg-cyan-900/15', border: 'border-cyan-800/20', dot: 'bg-cyan-400', text: 'text-cyan-300', tag: 'bg-cyan-500/20' }, amber: { bg: 'bg-amber-900/15', border: 'border-amber-800/20', dot: 'bg-amber-400', text: 'text-amber-300', tag: 'bg-amber-500/20' }, emerald: { bg: 'bg-emerald-900/15', border: 'border-emerald-800/20', dot: 'bg-emerald-400', text: 'text-emerald-300', tag: 'bg-emerald-500/20' } };
+                        const c = colorMap[roleColor];
+                        return (
+                          <div key={i} className={`group flex items-start gap-3 p-3 rounded-xl ${c.bg} border ${c.border} transition-colors duration-150 hover:shadow-[0_2px_8px_rgba(0,0,0,0.15)] ${msg.role === 'user' ? 'ml-8' : msg.role === 'system' ? '' : 'mr-8'}`}>
+                            <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${c.dot}`} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-[9px] font-bold uppercase tracking-wider ${c.text}`}>{msg.role}</span>
+                                {msg.created_at && <span className="text-[10px] text-zinc-600">{new Date(msg.created_at).toLocaleTimeString()}</span>}
+                              </div>
+                              <pre className="text-xs text-zinc-300 whitespace-pre-wrap font-mono break-words max-h-40 overflow-y-auto leading-relaxed">{msg.content.replace(/[\x1b\x9b][[\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\x07)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')}</pre>
+                            </div>
                           </div>
-                          <pre className="text-xs text-zinc-300 whitespace-pre-wrap font-mono break-words max-h-32 overflow-y-auto">{msg.content.replace(/[\x1b\x9b][[\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\x07)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')}</pre>
-                        </div>
-                      ));
+                        );
+                      });
                     })()}
                     {!messagesSearchQuery && sessionMessages.length > 500 && (
-                      <p className="text-xs text-zinc-500 text-center py-2">... and {sessionMessages.length - 500} more messages</p>
+                      <p className="text-xs text-zinc-500 text-center py-2 border-t border-zinc-800/30 mt-2">... and {sessionMessages.length - 500} more messages</p>
                     )}
                     {messagesSearchQuery && (
-                      <p className="text-xs text-zinc-500 text-center py-1">{sessionMessages.filter(m => m.content && m.content.toLowerCase().includes(messagesSearchQuery.toLowerCase())).length} of {sessionMessages.length} messages</p>
+                      <p className="text-xs text-zinc-600 text-center py-1">{sessionMessages.filter(m => m.content && m.content.toLowerCase().includes(messagesSearchQuery.toLowerCase())).length} of {sessionMessages.length} messages</p>
                     )}
                   </div>
-                  <div className="px-6 py-3 border-t border-zinc-700 flex justify-between items-center">
-                    <span className="text-xs text-zinc-600">{sessionMessages.length} messages total</span>
-                    <button onClick={() => setShowMessagesViewer(null)} className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm">Close</button>
+                  <div className="px-6 py-3 border-t border-zinc-800/50 flex justify-between items-center">
+                    <span className="text-xs text-zinc-600">{sessionMessages.length} message{sessionMessages.length !== 1 ? 's' : ''} total</span>
+                    <ToolbarButton onClick={() => setShowMessagesViewer(null)}>Close</ToolbarButton>
                   </div>
                 </div>
               </div>
@@ -2338,55 +3902,40 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         </div>
       )}
 
+      {/* Session Edit Dialog */}
+      <SessionEditDialog
+        session={sessionToEdit}
+        onClose={() => setSessionToEdit(null)}
+        onSave={handleSaveSession}
+      />
+
       {/* Save Checkpoint Dialog */}
-      {showSaveDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowSaveDialog(false)}>
-          <div className="bg-zinc-800 rounded-xl p-6 w-full max-w-md border border-zinc-700 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-white">Save Checkpoint</h2>
-              <button onClick={() => setShowSaveDialog(false)} className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Workspace Name</label>
-                <input
-                  type="text"
-                  value={saveDialogName}
-                  onChange={(e) => setSaveDialogName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSaveCheckpointSubmit()}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-white text-sm"
-                  placeholder="e.g. Fix login bug"
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="flex gap-2 mt-6">
-              <button
-                onClick={() => setShowSaveDialog(false)}
-                className="flex-1 px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveCheckpointSubmit}
-                disabled={!saveDialogName.trim()}
-                className="flex-1 px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white rounded text-sm font-medium"
-              >
-                Save
-              </button>
-            </div>
+      <Modal open={showSaveDialog} onClose={() => setShowSaveDialog(false)} title="Save Checkpoint" footer={
+        <div className="flex gap-2">
+          <button onClick={() => setShowSaveDialog(false)} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white transition-colors">Cancel</button>
+          <ToolbarButton variant="primary" disabled={!saveDialogName.trim()} onClick={handleSaveCheckpointSubmit}>Save</ToolbarButton>
+        </div>
+      }>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Workspace Name</label>
+            <input
+              type="text"
+              value={saveDialogName}
+              onChange={(e) => setSaveDialogName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSaveCheckpointSubmit()}
+              className="w-full bg-zinc-950 border border-zinc-800/60 rounded px-3 py-2 text-white text-sm"
+              placeholder="e.g. Fix login bug"
+              autoFocus
+            />
           </div>
         </div>
-      )}
+      </Modal>
 
       {/* Close Workspace Dialog */}
       {showCloseWorkspaceDialog && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]" onClick={() => setShowCloseWorkspaceDialog(false)}>
-          <div className="bg-zinc-800 rounded-xl p-6 w-full max-w-sm border border-zinc-700 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <GlassCard className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-base font-bold text-white mb-2">Close Workspace</h2>
             <p className="text-sm text-zinc-400 mb-6">Save a checkpoint before closing, or discard changes?</p>
             <div className="flex flex-col gap-2">
@@ -2415,48 +3964,70 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 Cancel
               </button>
             </div>
-          </div>
+          </GlassCard>
         </div>
       )}
 
       {/* Confirm Dialog */}
-      {confirmDialog.isOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}>
-          <div className="bg-zinc-800 rounded-xl p-6 w-full max-w-sm border border-zinc-700 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h2 className="text-base font-bold text-white mb-3">Confirm</h2>
-            <p className="text-sm text-zinc-300 mb-6">{confirmDialog.message}</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
-                className="flex-1 px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  confirmDialog.onConfirm();
-                  setConfirmDialog(prev => ({ ...prev, isOpen: false }));
-                }}
-                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded text-sm font-medium"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
+      <Modal open={confirmDialog.isOpen} onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} title="Confirm" width="max-w-sm" footer={
+        <div className="flex gap-2 w-full">
+          <button onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} className="flex-1 px-3 py-1.5 text-xs text-zinc-400 hover:text-white transition-colors rounded-md bg-zinc-800 hover:bg-zinc-700">Cancel</button>
+          <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog(prev => ({ ...prev, isOpen: false })); }} className="flex-1 px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded-md font-medium">Delete</button>
         </div>
+      }>
+        <p className="text-xs text-zinc-300">{confirmDialog.message}</p>
+      </Modal>
+
+      {/* Session context menu */}
+      {contextMenu && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} />
+          <div
+            className="fixed z-50 bg-zinc-900 border border-zinc-800/60 rounded-lg py-1 min-w-[180px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <div className="px-2.5 py-1.5 text-[10px] text-zinc-500 border-b border-zinc-800/60">Open in Terminal</div>
+            {Object.entries(terminalTabs).length === 0 ? (
+              <div className="px-2.5 py-2 text-[10px] text-zinc-600">No running terminals</div>
+            ) : (
+              Object.entries(terminalTabs).map(([tid, tab]) => {
+                const hasSession = sessions.some(s => s.terminal_id === tid);
+                return (
+                  <button
+                    key={tid}
+                    onClick={() => {
+                      handleOpenSessionInTerminal(contextMenu.session, tid);
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-2.5 py-1.5 text-xs text-left text-zinc-300 hover:bg-zinc-800/80 transition-colors flex items-center gap-2"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hasSession ? 'bg-amber-400' : 'bg-green-400'}`} />
+                    <span className="flex-1 truncate">{tab.name}</span>
+                    {hasSession && <span className="text-[9px] text-amber-400">occupied</span>}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </>
       )}
 
-      {/* Collapse Button - shown when sidebar is closed */}
+      {/* Collapsed sidebar strip */}
       {!sidebarOpen && (
-        <button
-          onClick={() => setSidebarOpen(true)}
-          className="absolute left-0 top-1/2 -translate-y-1/2 p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-200 z-50 border-l border-zinc-700 transition-colors duration-150"
-          style={{ transform: 'translateY(-50%)' }}
-        >
-          <PanelLeft className="w-4 h-4" />
-        </button>
+        <div className="h-full w-10 bg-zinc-950 ws-sidebar-edge flex flex-col items-center gap-1 py-2">
+          <button title="Workspace Features" className={`${WS_ICON_BTN} ws-tip`} data-tip="Features" onClick={() => setShowFeaturesDialog(true)}>
+            <Info className="w-4 h-4" />
+          </button>
+          <button title="Skill Configuration" className={`${WS_ICON_BTN} ws-tip`} data-tip="Skills" onClick={() => setShowGeneralistDialog(true)}>
+            <BookOpen className="w-4 h-4" />
+          </button>
+          <span className="w-5 h-px bg-zinc-800 my-1" />
+          <button title="Expand sidebar" className={`${WS_ICON_BTN} ws-tip`} data-tip="Expand" onClick={() => setSidebarOpen(true)}>
+            <PanelLeft className="w-4 h-4" />
+          </button>
+        </div>
       )}
-    </div>
+    </PageShell>
   );
 }
 
@@ -2523,6 +4094,33 @@ const ProblemsTab: React.FC<{ projectId?: string; projectPath?: string; projects
     return () => clearInterval(interval);
   }, [loadProblems]);
 
+  // Auto-compaction: check active sessions every 60s
+  useEffect(() => {
+    if (!window.deskflowAPI?.checkSessionCompaction) return;
+    const check = async () => {
+      for (const session of sessions) {
+        if (session.status !== 'active') continue;
+        try {
+          const result = await window.deskflowAPI.checkSessionCompaction({
+            sessionId: session.id,
+            messageThreshold: 500,
+          });
+          if (result?.needsCompaction) {
+            console.log('[SessionCompaction] Session', session.id, 'needs compaction (', result.messageCount, 'messages )');
+            const compactResult = await window.deskflowAPI.compactSession?.({ sessionId: session.id });
+            if (compactResult?.success) {
+              console.log('[SessionCompaction] Compacted', session.id, '->', compactResult.newSessionId);
+            }
+          }
+        } catch (err) {
+          console.error('[SessionCompaction] Error checking session', session.id, err);
+        }
+      }
+    };
+    const interval = setInterval(check, 60000);
+    return () => clearInterval(interval);
+  }, [sessions]);
+
   const filteredProblems = problems.filter(p => {
     if (filterStatus === 'all') return true;
     if (filterStatus === 'active') return ['NEW', 'In Progress', 'AI Attempted Fix', 'User Testing'].includes(p.status);
@@ -2538,6 +4136,8 @@ const ProblemsTab: React.FC<{ projectId?: string; projectPath?: string; projects
 
   const handleStatusChange = async (problemId: string, status: string) => {
     await window.deskflowAPI?.updateProblemStatus?.({ problemId, status, projectId });
+    setProblems(prev => prev.map(p => p.id === problemId ? { ...p, status } : p));
+    setSelectedProblem(prev => prev?.id === problemId ? { ...prev, status } : prev);
     loadProblems();
   };
 
@@ -2675,7 +4275,7 @@ const ProblemDetailModal: React.FC<{
     if (!additionalInstructions.trim() || !problem.terminal_id || isSending) return;
     setIsSending(true);
     try {
-      await window.deskflowAPI?.terminalWrite?.(problem.terminal_id, additionalInstructions + '\n');
+      await window.deskflowAPI?.terminalWrite?.(problem.terminal_id, additionalInstructions + '\r\n');
       setAdditionalInstructions('');
     } finally {
       setIsSending(false);
@@ -2683,8 +4283,8 @@ const ProblemDetailModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-xl p-6 w-full max-w-md border border-gray-700 max-h-[80vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]">
+      <div className="bg-gray-800 rounded-xl p-5 w-full max-w-md border border-gray-700 max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-white">{problem.id}</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">×</button>
@@ -2812,8 +4412,8 @@ const NewProblemDialog: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-xl p-6 w-full max-w-md border border-gray-700">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]">
+      <div className="bg-gray-800 rounded-xl p-5 w-full max-w-md border border-gray-700">
         <h2 className="text-lg font-bold text-white mb-4">New Problem</h2>
         <div className="space-y-4">
           <div>
@@ -2919,7 +4519,32 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [runningSkill, setRunningSkill] = useState<Skill | null>(null);
   const [skillPrompt, setSkillPrompt] = useState('');
+  const [skillFormValues, setSkillFormValues] = useState<Record<string, any>>({});
   const [targetTerminal, setTargetTerminal] = useState('');
+  const [dslSkill, setDslSkill] = useState<Skill | null>(null);
+
+  useEffect(() => {
+    if (runningSkill?.inputs && runningSkill.inputs.length > 0) {
+      const init: Record<string, any> = {};
+      for (const input of runningSkill.inputs) {
+        if (input.default !== undefined) {
+          init[input.name] = input.default;
+        } else {
+          switch (input.type) {
+            case 'boolean': init[input.name] = false; break;
+            case 'number': init[input.name] = input.min || 0; break;
+            case 'list':
+            case 'multienum': init[input.name] = []; break;
+            case 'enum': init[input.name] = input.choices?.[0] || ''; break;
+            default: init[input.name] = '';
+          }
+        }
+      }
+      setSkillFormValues(init);
+    } else {
+      setSkillFormValues({});
+    }
+  }, [runningSkill]);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [editName, setEditName] = useState('');
   const [editCategory, setEditCategory] = useState('');
@@ -3033,15 +4658,24 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
   };
 
   const handleUse = async () => {
-    if (!runningSkill || !skillPrompt.trim()) return;
+    if (!runningSkill) return;
     const terminalId = targetTerminal || activeTerminalId || Object.keys(terminalTabs)[0];
     if (!terminalId) {
       showNotify('No terminal available. Create a session first.', 'error');
       return;
     }
     try {
-      const fullPrompt = `[Skill: ${runningSkill.name}]\n${runningSkill.content}\n\n${skillPrompt}`;
-      await window.deskflowAPI?.terminalWrite?.(terminalId, fullPrompt);
+      const hasInputs = runningSkill.inputs && runningSkill.inputs.length > 0;
+      const configLines = hasInputs
+        ? Object.entries(skillFormValues)
+            .filter(([_, v]) => v !== '' && v !== undefined && !(Array.isArray(v) && v.length === 0))
+            .map(([key, val]) => `- ${key}: ${Array.isArray(val) ? val.join(', ') : val}`)
+            .join('\n')
+        : '';
+      const configSection = configLines ? `\n\n## Skill Configuration\n\n${configLines}` : '';
+      const userSection = skillPrompt.trim() ? `\n\n${skillPrompt}` : '';
+      const fullPrompt = `[Skill: ${runningSkill.name}]\n${runningSkill.content}${configSection}${userSection}`;
+      await window.deskflowAPI?.terminalWrite?.(terminalId, fullPrompt + '\r\n');
       showNotify(`Sent "${runningSkill.name}" to terminal`, 'success');
       setRunningSkill(null);
       setSkillPrompt('');
@@ -3074,7 +4708,7 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
         <span className="text-xs text-zinc-400">{skills.length} skill{skills.length !== 1 ? 's' : ''}</span>
         <button
           onClick={() => setShowNewForm(true)}
-          className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded flex items-center gap-1 transition-all active:scale-95"
+          className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded flex items-center gap-1 transition-colors duration-150 active:scale-95"
         >
           <Plus className="w-3 h-3" />
           Create Skill
@@ -3097,7 +4731,7 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
             <button
               key={cat}
               onClick={() => setCategoryFilter(cat)}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-all ${
+              className={`px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-colors duration-150 ${
                 categoryFilter === cat
                   ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50'
                   : 'bg-transparent text-zinc-400 border border-zinc-700 hover:bg-zinc-800'
@@ -3154,6 +4788,13 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
                     Use
                   </button>
                   <button
+                    onClick={e => { e.stopPropagation(); setDslSkill(skill); }}
+                    className="px-2 py-0.5 bg-amber-600 hover:bg-amber-500 text-amber-100 text-[10px] rounded"
+                    title="Generate DSL frontmatter via terminal agent"
+                  >
+                    DSL
+                  </button>
+                  <button
                     onClick={e => { e.stopPropagation(); openEditor(skill); }}
                     className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded"
                     title="Edit skill"
@@ -3185,20 +4826,28 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
 
       {/* ── Run Skill Modal ── */}
       {runningSkill && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setRunningSkill(null)}>
-          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700 shadow-2xl mx-4" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]" onClick={() => setRunningSkill(null)}>
+          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700  mx-4" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-zinc-700 flex items-center justify-between">
               <h3 className="text-sm font-bold text-white">Use Skill: {runningSkill.name}</h3>
               <button onClick={() => setRunningSkill(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
             </div>
-            <div className="px-4 py-3">
-              <div className="mb-3 p-2 bg-zinc-900 rounded max-h-28 overflow-y-auto">
-                <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap font-mono">{runningSkill.content.slice(0, 500)}{runningSkill.content.length > 500 ? '...' : ''}</pre>
-              </div>
+            <div className="px-4 py-3 overflow-y-auto max-h-[55vh]">
+              {runningSkill.inputs && runningSkill.inputs.length > 0 ? (
+                <SkillDynamicForm
+                  inputs={runningSkill.inputs}
+                  values={skillFormValues}
+                  onChange={setSkillFormValues}
+                />
+              ) : (
+                <div className="mb-3 p-2 bg-zinc-900 rounded max-h-28 overflow-y-auto">
+                  <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap font-mono">{runningSkill.content.slice(0, 500)}{runningSkill.content.length > 500 ? '...' : ''}</pre>
+                </div>
+              )}
               <select
                 value={targetTerminal}
                 onChange={e => setTargetTerminal(e.target.value)}
-                className="w-full mb-2 px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
+                className="w-full mt-3 mb-2 px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
               >
                 <option value="">Active terminal ({activeTerminalId ? terminalTabs[activeTerminalId]?.name || 'unnamed' : 'none'})</option>
                 {Object.entries(terminalTabs).map(([id, tab]) => (
@@ -3208,22 +4857,47 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
               <textarea
                 value={skillPrompt}
                 onChange={e => setSkillPrompt(e.target.value)}
-                placeholder="Enter your prompt or instructions for this skill..."
-                className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 min-h-[80px] resize-y"
+                placeholder={runningSkill.inputs && runningSkill.inputs.length > 0 ? "Additional instructions or context..." : "Enter your prompt or instructions for this skill..."}
+                className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 min-h-[60px] resize-y"
               />
             </div>
             <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end">
               <button onClick={() => setRunningSkill(null)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>
-              <button onClick={handleUse} disabled={!skillPrompt.trim()} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded disabled:opacity-50">Send to Terminal</button>
+              <button onClick={handleUse} disabled={!(runningSkill.inputs && runningSkill.inputs.length > 0) && !skillPrompt.trim()} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded disabled:opacity-50">Send to Terminal</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* ── DSL Generation Modal ── */}
+      {dslSkill && (
+        <DSLGenerationModal
+          skill={{
+            id: dslSkill.id,
+            name: dslSkill.name,
+            description: dslSkill.description,
+            content: dslSkill.content,
+            filePath: dslSkill.filePath,
+          }}
+          terminals={Object.entries(terminalTabs).map(([id, tab]) => ({
+            id,
+            label: tab.name,
+            agent: tab.agent,
+            topic: tab.topic,
+          }))}
+          activeTerminalId={activeTerminalId}
+          onClose={() => setDslSkill(null)}
+          onSend={async (terminalId, prompt) => {
+            await window.deskflowAPI?.terminalWrite?.(terminalId, prompt + '\r\n');
+            showNotify(`DSL prompt sent to terminal for "${dslSkill?.name}"`, 'success');
+          }}
+        />
+      )}
+
       {/* ── Edit Skill Modal ── */}
       {editingSkill && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setEditingSkill(null)}>
-          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700 shadow-2xl mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]" onClick={() => setEditingSkill(null)}>
+          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700  mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-zinc-700 flex items-center justify-between flex-shrink-0">
               <h3 className="text-sm font-bold text-white">Edit Skill: {editingSkill.name}</h3>
               <button onClick={() => setEditingSkill(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
@@ -3244,8 +4918,8 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
 
       {/* ── Create Skill Modal ── */}
       {showNewForm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowNewForm(false)}>
-          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700 shadow-2xl mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]" onClick={() => setShowNewForm(false)}>
+          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700  mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-zinc-700 flex items-center justify-between flex-shrink-0">
               <h3 className="text-sm font-bold text-white">Create Skill</h3>
               <button onClick={() => setShowNewForm(false)} className="text-zinc-400 hover:text-zinc-200">✕</button>
@@ -3329,6 +5003,8 @@ const RequestsTab: React.FC<{ projectId?: string; projectPath?: string; onNewReq
 
   const handleStatusChange = async (requestId: string, status: string) => {
     await window.deskflowAPI?.updateRequestStatus?.({ requestId, status });
+    setRequests(prev => prev.map(r => r.id === requestId ? { ...r, status } : r));
+    setSelectedRequest(prev => prev?.id === requestId ? { ...prev, status } : prev);
     loadRequests();
   };
 
@@ -3549,115 +5225,214 @@ const FilesTab: React.FC<{ projectId?: string; projectPath?: string; projects?: 
     loadFileContent(file);
   };
 
-  const statusColors: Record<string, string> = {
-    'idle': 'text-zinc-500',
-    'checking': 'text-yellow-400',
-    'ready': 'text-green-400',
-    'init-ok': 'text-green-400',
-    'error': 'text-red-400'
+  const statusIcons: Record<string, React.ReactNode> = {
+    'idle': <div className="w-1.5 h-1.5 rounded-full bg-zinc-500" />,
+    'checking': <Loader2 className="w-3 h-3 text-yellow-400 animate-spin" />,
+    'ready': <CheckCircle2 className="w-3 h-3 text-green-400" />,
+    'init-ok': <CheckCircle2 className="w-3 h-3 text-green-400" />,
+    'error': <AlertCircle className="w-3 h-3 text-red-400" />,
   };
   const statusLabels: Record<string, string> = {
-    'idle': '⚪ Not initialized',
-    'checking': '⏳ Checking...',
-    'ready': '✅ Ready',
-    'init-ok': '✅ Initialized',
-    'error': '❌ Error'
+    'idle': 'Not initialized',
+    'checking': 'Checking...',
+    'ready': 'Ready',
+    'init-ok': 'Initialized',
+    'error': 'Error'
+  };
+
+  const getFileCategory = (file: AgentFile): string => {
+    if (file.isDirectory) return '';
+    const sep = file.path.includes('\\') ? '\\' : '/';
+    const parts = file.path.split(sep);
+    if (parts.length === 1) return 'Root';
+    return parts[0];
+  };
+
+  const groupedFiles = files.filter(f => !f.isDirectory).reduce<Record<string, AgentFile[]>>((acc, file) => {
+    const cat = getFileCategory(file);
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(file);
+    return acc;
+  }, {});
+
+  const categoryOrder = ['Root', 'skills', 'docs', 'templates'];
+  const sortedCategories = Object.keys(groupedFiles).sort((a, b) => {
+    const ai = categoryOrder.indexOf(a);
+    const bi = categoryOrder.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  const categoryIcons: Record<string, React.ReactNode> = {
+    'Root': <Folder className="w-3 h-3 text-zinc-500" />,
+    'skills': <Zap className="w-3 h-3 text-amber-500" />,
+    'docs': <FileText className="w-3 h-3 text-cyan-500" />,
+    'templates': <FileText className="w-3 h-3 text-violet-500" />,
+  };
+
+  const closePreview = () => {
+    setSelectedFile(null);
+    setFileContent('');
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Status indicator (Setup button is in terminal header) */}
+    <div className="flex flex-col h-full relative">
+      {/* Status & Project header */}
       <div className="flex items-center justify-between mb-2">
-        <span className={`text-xs ${statusColors[initStatus]}`}>
-          {statusLabels[initStatus]}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {statusIcons[initStatus]}
+          <span className={`text-[10px] font-medium ${
+            initStatus === 'error' ? 'text-red-400' :
+            initStatus === 'checking' ? 'text-yellow-400' :
+            initStatus === 'ready' || initStatus === 'init-ok' ? 'text-green-400' :
+            'text-zinc-500'
+          }`}>
+            {statusLabels[initStatus]}
+          </span>
+        </div>
+        {projectPath && (
+          <span className="text-[10px] text-zinc-600">{files.filter(f => !f.isDirectory).length} files</span>
+        )}
       </div>
 
       {/* Project path display */}
       {projectPath ? (
-        <div className="mb-2 px-2 py-1.5 bg-zinc-800/50 rounded">
-          <div className="text-xs text-zinc-300 truncate" title={projectPath}>
-            📂 {project?.name || 'Project'}
+        <GlassCard className="p-2 mb-2">
+          <div className="flex items-center gap-2">
+            <Folder className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[11px] text-zinc-300 truncate" title={projectPath}>
+                {project?.name || 'Project'}
+              </div>
+              <div className="text-[10px] text-zinc-500 truncate" title={projectPath}>
+                {projectPath}
+              </div>
+            </div>
           </div>
-          <div className="text-[10px] text-zinc-500 truncate mt-0.5" title={projectPath}>
-            {projectPath}
-          </div>
-        </div>
+        </GlassCard>
       ) : (
-        <div className="mb-2 px-2 py-3 bg-zinc-800/50 rounded space-y-2">
-          <div className="text-xs text-yellow-400">⚠️ No project selected</div>
+        <GlassCard className="p-3 mb-2 space-y-2">
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="w-3 h-3 text-yellow-400" />
+            <span className="text-xs text-yellow-400">No project selected</span>
+          </div>
           <div className="text-[10px] text-zinc-500">Select a project:</div>
           <select
             value=""
             onChange={(e) => { if (e.target.value) onSelectProject?.(e.target.value); }}
-            className="w-full px-2 py-1.5 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-200"
+            className="w-full bg-zinc-900/60 border border-zinc-700/50 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-zinc-600"
           >
             <option value="">-- Choose project --</option>
             {projects?.filter(p => p.id).map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
-        </div>
+        </GlassCard>
       )}
 
       {/* File Change Notification */}
       {fileChangedNotify && (
-        <div className="mb-2 px-2 py-1.5 bg-green-600/20 border border-green-500/30 rounded text-xs text-green-300 animate-pulse flex items-center gap-1">
-          <span className="w-1.5 h-1.5 bg-green-400 rounded-full" />
+        <div className="mb-2 px-2.5 py-1.5 bg-green-600/15 border border-green-500/25 rounded-lg text-[10px] text-green-300 flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
           {fileChangedNotify}
         </div>
       )}
 
       {/* Files List */}
       {loading ? (
-        <div className="text-xs text-yellow-400 py-4 text-center">⏳ Loading agent files...</div>
+        <LoadingState variant="spinner" />
       ) : error ? (
-        <div className="text-xs text-red-400 py-4 text-center">{error}</div>
+        <div className="flex items-center gap-1.5 text-[10px] text-rose-400 py-4 justify-center">
+          <AlertCircle className="w-3 h-3" />
+          {error}
+        </div>
       ) : !projectPath ? (
-        <div className="text-xs text-zinc-500 py-4 text-center">
+        <div className="text-[11px] text-zinc-500 py-4 text-center">
           Select a project to view agent files
         </div>
       ) : files.length === 0 ? (
-        <div className="text-xs text-zinc-500 py-4 text-center">
-          No agent/ files found.<br />
-          Use the <strong>Setup</strong> button in the header to initialize.
-        </div>
+        <EmptyState icon={FileText} title="No agent files" description='Use the Setup button in the header to initialize.' />
       ) : (
-        <div className="flex-1 overflow-y-auto">
-          <div className="text-[10px] text-zinc-600 mb-1 px-1">
-            {files.length} file{files.length !== 1 ? 's' : ''} in agent/
-          </div>
-          {files.map((file) => (
-            <div
-              key={file.path}
-              onClick={() => handleFileClick(file)}
-              className={`p-2 rounded mb-1 cursor-pointer flex items-center gap-2 ${
-                selectedFile === file.name 
-                  ? 'bg-zinc-700 border border-zinc-600' 
-                  : 'bg-zinc-800 hover:bg-zinc-750'
-              }`}
-            >
-              <Folder className={`w-4 h-4 ${file.isDirectory ? 'text-yellow-400' : 'text-zinc-500'}`} />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs text-white truncate">{file.name}</div>
-                <div className="text-[10px] text-zinc-600 truncate">{file.path}</div>
+        <div className="flex-1 overflow-y-auto pb-2">
+          {sortedCategories.map(cat => (
+            <div key={cat} className="mb-2">
+              <div className="flex items-center gap-1.5 px-1 py-1 mb-1">
+                {categoryIcons[cat] || <FileText className="w-3 h-3 text-zinc-500" />}
+                <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
+                  {cat === 'Root' ? 'Infrastructure' : cat}
+                </span>
+                <span className="text-[10px] text-zinc-700 ml-auto">{groupedFiles[cat].length}</span>
               </div>
+              {groupedFiles[cat].map(file => (
+                <div
+                  key={file.path}
+                  onClick={() => handleFileClick(file)}
+                  className={`p-2 rounded mb-0.5 cursor-pointer flex items-center gap-2 transition-colors duration-150 ${
+                    selectedFile === file.name 
+                      ? 'bg-zinc-700/70 border border-zinc-600/50' 
+                      : 'bg-zinc-800/50 hover:bg-zinc-700/50'
+                  }`}
+                >
+                  <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${
+                    file.name.endsWith('.md') ? 'text-cyan-500' :
+                    file.name.endsWith('.json') ? 'text-amber-500' :
+                    'text-zinc-500'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-zinc-200 truncate">{file.name}</div>
+                    <div className="text-[10px] text-zinc-600 truncate">{file.path}</div>
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
         </div>
       )}
 
-      {/* File Content Preview */}
+      {/* File Content Preview — overlay */}
       {selectedFile && fileContent && (
-        <div className="mt-2 p-2 bg-zinc-900 rounded border border-zinc-700 max-h-48 overflow-y-auto">
-          <div className="text-xs text-zinc-400 mb-1 flex items-center justify-between">
-            <span>📄 {selectedFile}</span>
-            <span className="text-zinc-600">{(fileContent.length / 1024).toFixed(1)} KB</span>
+        <div className="absolute bottom-0 left-0 right-0 z-20 max-h-[45%] flex flex-col bg-zinc-900/95 backdrop-blur-sm border-t border-zinc-700/50 rounded-t-lg shadow-2xl">
+          <div className="flex items-center justify-between px-2.5 py-1.5 bg-zinc-800/60 border-b border-zinc-700/30 rounded-t-lg flex-shrink-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${
+                selectedFile.endsWith('.md') ? 'text-cyan-500' : 'text-zinc-500'
+              }`} />
+              <span className="text-[11px] text-zinc-300 truncate">{selectedFile}</span>
+              <span className="text-[10px] text-zinc-600">{(fileContent.length / 1024).toFixed(1)} KB</span>
+            </div>
+            <button onClick={closePreview} className="p-0.5 hover:bg-zinc-700/50 rounded transition-colors flex-shrink-0">
+              <X className="w-3.5 h-3.5 text-zinc-500" />
+            </button>
           </div>
-          <pre className="text-[10px] text-zinc-300 whitespace-pre-wrap font-mono">
-            {fileContent.substring(0, 2000)}
-            {fileContent.length > 2000 && '\n...\n(truncated)'}
-          </pre>
+          <div className="flex-1 overflow-y-auto p-2.5">
+            {selectedFile.endsWith('.md') ? (
+              <div className="space-y-1.5 text-xs">
+                {fileContent.split('\n').map((line, i) => {
+                  if (line.startsWith('# ')) return <h2 key={i} className="text-sm font-bold text-white pb-0.5">{line.slice(2)}</h2>;
+                  if (line.startsWith('## ')) return <h3 key={i} className="text-xs font-semibold text-amber-300 pt-1">{line.slice(3)}</h3>;
+                  if (line.startsWith('### ')) return <h4 key={i} className="text-[11px] font-semibold text-cyan-300 pt-0.5">{line.slice(4)}</h4>;
+                  if (line.startsWith('- ')) return <div key={i} className="text-zinc-400 pl-3">• {line.slice(2)}</div>;
+                  if (line.startsWith('> ')) return <div key={i} className="text-zinc-500 italic border-l-2 border-zinc-600 pl-2 py-0.5">{line.slice(2)}</div>;
+                  if (line.startsWith('| ')) return <div key={i} className="text-zinc-400 font-mono text-[10px]">{line}</div>;
+                  if (line.trim() === '---') return <hr key={i} className="border-zinc-700/50 my-1" />;
+                  if (line.startsWith('```')) return null;
+                  const codeMatch = line.match(/`([^`]+)`/);
+                  if (codeMatch) {
+                    const parts = line.split(/`([^`]+)`/);
+                    return <p key={i} className="text-zinc-400">{parts.map((part, j) => j % 2 === 1 ? <code key={j} className="bg-zinc-800/80 px-1 rounded text-cyan-400 text-[10px]">{part}</code> : part)}</p>;
+                  }
+                  if (line.trim()) return <p key={i} className="text-zinc-400">{line}</p>;
+                  return <div key={i} className="h-0.5" />;
+                })}
+              </div>
+            ) : (
+              <pre className="text-[10px] text-zinc-300 whitespace-pre-wrap font-mono leading-relaxed">
+                {fileContent}
+              </pre>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -3695,7 +5470,7 @@ const TerminalsTab: React.FC<{
               return (
                 <div
                   key={id}
-                  className={`p-2 rounded border transition-all duration-150 ${
+                  className={`p-2 rounded border transition-colors duration-150 ${
                     activeTerminalId === id
                       ? 'bg-zinc-700/80 border-zinc-600/50 shadow-[0_0_10px_rgba(0,0,0,0.2)]'
                       : 'bg-zinc-800/50 border-zinc-700/30 hover:bg-zinc-700/50'
@@ -3764,7 +5539,7 @@ const TerminalsTab: React.FC<{
           Sessions ({sessions.length})
         </div>
         {sessions.length === 0 ? (
-          <p className="text-xs text-zinc-600 px-2">No sessions</p>
+          <EmptyState title="No sessions" />
         ) : (
           <div className="space-y-1">
             {sessions.slice(0, 20).map((session) => {
@@ -3848,8 +5623,8 @@ const RequestDetailModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-xl p-6 w-full max-w-md border border-gray-700 max-h-[80vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]">
+      <div className="bg-gray-800 rounded-xl p-5 w-full max-w-md border border-gray-700 max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-white">Request #{request.id}</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">×</button>
@@ -3946,8 +5721,8 @@ const NewRequestDialog: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-xl p-6 w-full max-w-md border border-gray-700">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]">
+      <div className="bg-gray-800 rounded-xl p-5 w-full max-w-md border border-gray-700">
         <h2 className="text-lg font-bold text-white mb-4">New Request</h2>
         <div className="space-y-4">
           <div>
@@ -3992,3 +5767,144 @@ const NewRequestDialog: React.FC<{
     </div>
   );
 };
+
+// ─────────────────────────────────────────────
+// FEATURES DIALOG
+// ─────────────────────────────────────────────
+
+const FEATURES = [
+  {
+    category: 'Terminal',
+    color: 'green',
+    items: [
+      { name: 'Split Panes', desc: 'Split terminal into horizontal/vertical panes with drag resize' },
+      { name: 'Multi-Terminal', desc: 'Run multiple terminals simultaneously with tabbed interface' },
+      { name: 'Layout Persistence', desc: 'Terminal layouts auto-save and restore across sessions' },
+      { name: 'Minimap', desc: 'Visual minimap for navigating split terminal panes' },
+    ],
+  },
+  {
+    category: 'Presets',
+    color: 'green',
+    items: [
+      { name: 'Quick Commands', desc: 'Save and run frequently used terminal commands as presets' },
+      { name: 'Categorized', desc: 'Organize presets by category (test, build, deploy, etc.)' },
+    ],
+  },
+  {
+    category: 'Sessions',
+    color: 'green',
+    items: [
+      { name: 'Session Tracking', desc: 'Track each AI agent session with metadata and categorization' },
+      { name: 'Category System', desc: 'Categorize sessions as bug-fix, feature, refactor, research, review' },
+      { name: 'Status Tracking', desc: 'Monitor session status (active, paused, completed, error)' },
+      { name: 'Message History', desc: 'View full message history for any session with search' },
+    ],
+  },
+  {
+    category: 'Analytics',
+    color: 'emerald',
+    items: [
+      { name: 'AI Usage Stats', desc: 'Token usage, cost tracking, and session statistics per agent' },
+      { name: 'Charts & Trends', desc: 'Visual charts for cost, tokens, sessions by agent and status' },
+      { name: 'Problem/Request Progress', desc: 'Progress bars for problem resolution and request completion' },
+    ],
+  },
+  {
+    category: 'Issues',
+    color: 'emerald',
+    items: [
+      { name: 'Problems Tab', desc: 'Track and manage problems with status, priority, and category' },
+      { name: 'Requests Tab', desc: 'Manage feature requests and changes with linking to problems' },
+      { name: 'Status Management', desc: 'Update problem/request status with visual feedback' },
+      { name: 'Problem Linking', desc: 'Link problems to terminals and requests for traceability' },
+    ],
+  },
+  {
+    category: 'Files',
+    color: 'yellow',
+    items: [
+      { name: 'Agent File Browser', desc: 'Browse and edit agent directory files inline' },
+      { name: 'Live File Watching', desc: 'Auto-detect file changes and show real-time notifications' },
+      { name: 'Init File Support', desc: 'Create and select custom INITIALIZE.md files per project' },
+    ],
+  },
+  {
+    category: 'Skills',
+    color: 'indigo',
+    items: [
+      { name: 'Skill Management', desc: 'Create, edit, and manage AI agent skills with full CRUD' },
+      { name: 'Inline Editing', desc: 'Edit skill markdown directly in the sidebar with save support' },
+      { name: 'Category Filtering', desc: 'Filter skills by type (design, research, debugging, etc.)' },
+    ],
+  },
+  {
+    category: 'Design',
+    color: 'pink',
+    items: [
+      { name: 'Design Skills', desc: 'Configure design intelligence levels (variance, motion, density)' },
+      { name: 'Taste Configuration', desc: 'Fine-tune design output preferences' },
+    ],
+  },
+  {
+    category: 'Context',
+    color: 'amber',
+    items: [
+      { name: 'Context Systems', desc: 'Toggle context sources (LLM Wiki, Obsidian Skills, Graphify, PARÁ, QMD, Automations, Design Skills)' },
+      { name: 'Context Map', desc: 'Visual map showing active context systems and token budget' },
+      { name: 'Context Assembly', desc: 'Build and preview assembled context before starting a session' },
+      { name: 'Maintenance', desc: 'Manage context optimization, summarization, and deep memory' },
+    ],
+  },
+  {
+    category: 'History',
+    color: 'rose',
+    items: [
+      { name: 'Command History', desc: 'View and search command execution history' },
+      { name: 'Session Log', desc: 'Complete log of past sessions with timestamps' },
+    ],
+  },
+];
+
+const categoryColors: Record<string, string> = {
+  green: 'border-green-500/30 text-green-400',
+  emerald: 'border-emerald-500/30 text-emerald-400',
+  yellow: 'border-yellow-500/30 text-yellow-400',
+  indigo: 'border-indigo-500/30 text-indigo-400',
+  pink: 'border-pink-500/30 text-pink-400',
+  amber: 'border-amber-500/30 text-amber-400',
+  rose: 'border-rose-500/30 text-rose-400',
+};
+
+function FeaturesDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]" onClick={onClose}>
+      <GlassCard className="w-full max-w-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-bold text-white">Workspace Features</h2>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">✕</button>
+        </div>
+
+        <p className="text-xs text-zinc-400 mb-6">
+          Overview of all features available in the Terminal Workspace sidebar.
+        </p>
+
+        <div className="grid grid-cols-2 gap-4">
+          {FEATURES.map((group) => (
+            <div key={group.category} className={`bg-zinc-900/50 rounded-lg p-3 border-l-2 ${categoryColors[group.color]}`}>
+              <h3 className="text-sm font-semibold text-white mb-3">{group.category}</h3>
+              <div className="space-y-2">
+                {group.items.map((item) => (
+                  <div key={item.name} className="text-xs">
+                    <div className="text-zinc-200 font-medium">{item.name}</div>
+                    <div className="text-zinc-500 mt-0.5">{item.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </GlassCard>
+    </div>
+  );
+}

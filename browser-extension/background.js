@@ -102,16 +102,39 @@ function detectBrowserName() {
 
 const BROWSER_NAME = detectBrowserName();
 
+// Map browser brand names to OS process names (what active-win returns)
+// Key = BROWSER_NAME return value, values = possible process names (without .exe)
+// This handles cases where the UA brand name differs from the executable name
+const BROWSER_PROCESS_NAMES = {
+  'comet': ['chrome', 'comet', 'chromium'],
+  'chrome': ['chrome', 'chromium'],
+  'brave': ['brave', 'chrome'],
+  'edge': ['msedge', 'edge'],
+  'opera': ['opera'],
+  'vivaldi': ['vivaldi'],
+  'firefox': ['firefox'],
+  'arc': ['arc'],
+  'safari': ['safari'],
+};
+
+function getBrowserProcessNames(browserName) {
+  const key = browserName.toLowerCase();
+  return BROWSER_PROCESS_NAMES[key] || [key];
+}
+
 // --- Send browser identification to DeskFlow ---
 async function identifyBrowser() {
   try {
+    const processNames = getBrowserProcessNames(BROWSER_NAME);
+    // Send the BROWSER_NAME (brand) AND a normalized process-compatible name
+    // so the desktop app can match against OS process names
     await fetch(`${DESKFLOW_SERVER}/browser-identify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ browser: BROWSER_NAME }),
+      body: JSON.stringify({ browser: BROWSER_NAME, processNames }),
       signal: AbortSignal.timeout(2000)
     });
-    console.log('[DeskFlow] 🏷️ Identified as:', BROWSER_NAME);
+    console.log('[DeskFlow] 🏷️ Identified as:', BROWSER_NAME, 'processNames:', processNames);
   } catch (err) {
     console.debug('[DeskFlow] Could not identify browser to server:', err.message);
   }
@@ -214,16 +237,19 @@ async function checkBrowserFocus() {
     });
     if (response.ok) {
       const data = await response.json();
-      // Check if the foreground app matches the SPECIFIC browser running this extension
-      // Critical: using BROWSER_NAME (detected from user agent at load time) instead of
-      // a generic list of all browsers. This ensures website tracking only counts when
-      // the user is actually using the browser that has the DeskFlow extension installed.
       const appName = (data.app || '').toLowerCase();
       const browserName = BROWSER_NAME.toLowerCase();
+      const processNames = getBrowserProcessNames(BROWSER_NAME);
       
-      // Check if the foreground app name contains this browser's name
-      // (e.g., "chrome.exe" contains "chrome", "Google Chrome" contains "chrome")
-      const isBrowserActive = browserName.length > 0 && appName.includes(browserName);
+      // Check multiple matching strategies:
+      // 1. Foreground app contains the browser brand name (e.g., "chrome.exe" contains "chrome")
+      // 2. Browser brand name contains the foreground app (handles short process names)
+      // 3. Foreground app matches any known process name for this browser (handles brand-name mismatch)
+      const isBrowserActive = browserName.length > 0 && (
+        appName.includes(browserName) ||
+        browserName.includes(appName) ||
+        processNames.some(p => appName.includes(p))
+      );
       
       console.log('[DeskFlow] 🔍 Foreground app:', data.app, `(extension host: ${BROWSER_NAME})`, '-> Browser focused:', isBrowserActive);
       state.isBrowserFocused = isBrowserActive;

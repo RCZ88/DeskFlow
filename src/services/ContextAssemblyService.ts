@@ -11,6 +11,8 @@ import fs from 'fs';
 import path from 'path';
 import { RAGService } from './RAGService';
 import { ProjectContextService } from './ProjectContextService';
+import { ProblemsService } from './ProblemsService';
+import { RequestsService } from './RequestsService';
 
 import type {
   AssembledContext,
@@ -29,6 +31,8 @@ export class ContextAssemblyService {
   private ragService: RAGService;
   private projectContextService: ProjectContextService;
   private projectPath: string;
+  private problemsService: ProblemsService;
+  private requestsService: RequestsService;
 
   /**
    * Initialize context assembly service
@@ -37,6 +41,8 @@ export class ContextAssemblyService {
     this.projectPath = projectPath;
     this.ragService = ragService;
     this.projectContextService = projectContextService;
+    this.problemsService = new ProblemsService(projectPath);
+    this.requestsService = new RequestsService(projectPath);
   }
 
   /**
@@ -175,7 +181,50 @@ export class ContextAssemblyService {
       }
 
       // ──────────────────────────────────────────────────────────────
-      // 4. Include Compaction Summaries (last 3 months)
+      // 4. Include Active Problems and Requests
+      // ──────────────────────────────────────────────────────────────
+
+      let activeIssuesMarkdown = '';
+
+      try {
+        const allProblems = this.problemsService.getProblems();
+        const activeProblems = allProblems.filter(p => ['NEW', 'Not Started', 'In Progress', 'AI Attempted Fix', 'User Testing'].includes(p.status));
+        const allRequests = this.requestsService.getRequests();
+        const activeRequests = allRequests.filter(r => ['Pending', 'In Progress'].includes(r.status));
+
+        if (activeProblems.length > 0 || activeRequests.length > 0) {
+          activeIssuesMarkdown += '# Active Problems & Requests\n\n';
+
+          if (activeProblems.length > 0) {
+            activeIssuesMarkdown += '## Active Problems\n';
+            activeProblems.slice(0, 5).forEach(p => {
+              activeIssuesMarkdown += `- **#${p.id}** [${p.priority}] ${p.title} (${p.status})\n`;
+            });
+            if (activeProblems.length > 5) {
+              activeIssuesMarkdown += `  - *...and ${activeProblems.length - 5} more*\n`;
+            }
+            activeIssuesMarkdown += '\n';
+          }
+
+          if (activeRequests.length > 0) {
+            activeIssuesMarkdown += '## Active Requests\n';
+            activeRequests.slice(0, 5).forEach(r => {
+              activeIssuesMarkdown += `- **#${r.id}** [${r.priority}] ${r.title} (${r.status})\n`;
+            });
+            if (activeRequests.length > 5) {
+              activeIssuesMarkdown += `  - *...and ${activeRequests.length - 5} more*\n`;
+            }
+            activeIssuesMarkdown += '\n';
+          }
+
+          ragResultsTokens += 200;
+        }
+      } catch (err) {
+        warnings.push('Failed to load active problems/requests');
+      }
+
+      // ──────────────────────────────────────────────────────────────
+      // 5. Include Compaction Summaries (last 3 months)
       // ──────────────────────────────────────────────────────────────
 
       let compactionMarkdown = '';
@@ -213,10 +262,10 @@ export class ContextAssemblyService {
       }
 
       // ──────────────────────────────────────────────────────────────
-      // 5. Assemble Final Context
+      // 6. Assemble Final Context
       // ──────────────────────────────────────────────────────────────
 
-      sessionContextMarkdown += decisionsMarkdown + compactionMarkdown;
+      sessionContextMarkdown += decisionsMarkdown + activeIssuesMarkdown + compactionMarkdown;
       sessionContextTokens = Math.ceil(sessionContextMarkdown.length / 4); // Rough estimate
 
       const totalTokens = projectContextTokens + sessionContextTokens + ragResultsTokens;

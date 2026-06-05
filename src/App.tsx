@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback, memo, lazy, Suspense } from 'react';
+﻿import { useState, useEffect, useMemo, useRef, useCallback, memo, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -20,10 +20,12 @@ import IDEHelpPage from './pages/IDEHelpPage';
 import TutorialPage from './pages/TutorialPage';
 import TerminalPage from './pages/TerminalPage';
 import ExternalPage from './pages/ExternalPage';
+import { AiPage } from './pages/AiPage';
 import { DurationPicker, LatencyPicker } from './components/DurationPicker';
 import InsightsPage from './pages/InsightsPage';
 import DashboardPage from './pages/DashboardPage';
 import AfkPromptModal from './components/AfkPromptModal';
+import GapPanel from './components/GapPanel';
 import { getDateRange } from './lib/dateRange';
 import type { Period } from './lib/dateRange';
 // Agent dashboard is disabled - file incomplete
@@ -86,11 +88,12 @@ import { format } from 'date-fns';
 declare global {
   interface Window {
     deskflowAPI?: {
-      onForegroundChange: (cb: (data: any) => void) => void;
-      onTrackingHeartbeat: (cb: (data: any) => void) => void;
-      onBrowserTrackingEvent: (cb: (data: any) => void) => void;
+      onForegroundChange: (cb: (data: any) => void) => () => void;
+      onTrackingHeartbeat: (cb: (data: any) => void) => () => void;
+      onBrowserTrackingEvent: (cb: (data: any) => void) => () => void;
+      onTrackerMindInitProgress: (cb: (data: any) => void) => () => void;
       getLogs: () => Promise<any[]>;
-      getLogsByPeriod: (period: 'today' | 'week' | 'month' | 'all') => Promise<any[]>;
+      getLogsByPeriod: (params: { period: 'today' | 'week' | 'month' | 'all'; dateOffset?: number }) => Promise<any[]>;
       getDashboardData: (params: { period: string; dateOffset?: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
       getPageStats: (params: { page: string; period: string; dateOffset?: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
       backfillAggregations: () => Promise<{ success: boolean; message?: string }>;
@@ -124,9 +127,19 @@ declare global {
         excludedDomains: string[];
       }>;
       setBrowserExcludedDomains: (domains: string[]) => Promise<boolean>;
+      setRecordingMode: (type: 'browser', mode: 'always' | 'on-view') => Promise<boolean>;
+      getRecordingModes: () => Promise<{
+        browser: string;
+        browserPageVisible: boolean;
+      }>;
+      setPageVisibility: (page: 'browser', visible: boolean) => Promise<boolean>;
       // Productivity tracking
       getDailyProductivity: (date: string) => Promise<any>;
       getProductivityRange: (startDate: string, endDate: string) => Promise<any[]>;
+      saveProductivitySession: (session: any) => Promise<any>;
+      getProductivitySessions: (opts?: any) => Promise<any>;
+      clearProductivitySessions: () => Promise<void>;
+      getCurrentForeground: () => Promise<any>;
       // Clean corrupted data
       cleanCorruptedData: () => Promise<{ success: boolean; deletedCount: number; error?: string }>;
       // Deep cleanup and rebuild
@@ -159,6 +172,7 @@ declare global {
       getAIUsageSummary: (period?: string) => Promise<any>;
       getCommitStats: (projectId?: string, period?: string) => Promise<any>;
       getIDEProjectsOverview: () => Promise<any>;
+      scanIdeDefaultProjects: () => Promise<{ ide: string; projects: { name: string; path: string }[] }[]>;
       syncAIUsage: () => Promise<{ success: boolean; [key: string]: number | boolean | string }>;
       onAISyncProgress: (callback: (data: any) => void) => () => void;
       debugAIAgents: () => Promise<Record<string, { detected: boolean; paths: string[] }>>;
@@ -214,6 +228,44 @@ declare global {
       // Project Health
       calculateProjectHealth: (projectId: string) => Promise<{ healthScore: number; activityLevel: string; aiSessions: number; commits: number }>;
       getProjectDetails: (projectId: string) => Promise<{ project: any; tools: any[]; sessions: any[]; health: any; presets: any[]; aiUsage: any }>;
+      // Model Improvement Dashboard
+      getModelImprovementStats: (opts?: { terminalId?: string }) => Promise<{ messageCounts: Record<string, number>; reinjectionCount: number; threshold: number; actionsAttempted: number; actionsFailed: number } | null>;
+      setReinjectThreshold: (payload: { threshold: number }) => Promise<{ success: boolean; error?: string }>;
+      setModelDebug: (payload: { enabled: boolean }) => Promise<{ success: boolean; error?: string }>;
+      readActionsErrorLog: () => Promise<{ entries: string[]; exists: boolean }>;
+      // Auto-Assign Routing
+      routePrompt: (request: { prompt: string; projectPath?: string }) => Promise<{ action: string; sessionId?: string; sessionName?: string; terminalId?: string; confidence?: number; suggestedName?: string; suggestedSummary?: string; reason?: string }>;
+      updateSessionSummary: (request: { sessionId: string; force?: boolean }) => Promise<{ success: boolean; skipped?: boolean; summary?: string; topic?: string; autoNamed?: boolean; reason?: string; error?: string }>;
+      getRoutingCosts: () => Promise<{ today: any; week: any; month: any; total: any; byType: any[] }>;
+      resetRoutingCosts: () => Promise<{ success: boolean }>;
+      getAutoAssignConfig: () => Promise<any>;
+      saveAutoAssignConfig: (config: any) => Promise<{ success: boolean }>;
+      // Cross-Session Sync
+      lockFile: (filePath: string, terminalId: string, sessionId?: string | null, action?: string) => Promise<{ acquired: boolean; heldBy?: string }>;
+      releaseFileLock: (filePath: string, terminalId: string) => Promise<{ success: boolean }>;
+      getFileLocks: () => Promise<Array<{ filePath: string; terminalId: string; sessionId: string | null; timestamp: number; action: string }>>;
+      getLocksForTerminal: (terminalId: string) => Promise<Array<{ filePath: string; terminalId: string; sessionId: string | null; timestamp: number; action: string }>>;
+      getTouchedFiles: (opts?: { terminalId?: string; filePath?: string; limit?: number }) => Promise<{ success: boolean; data: any[]; error?: string }>;
+      compileSyncSummary: (terminalId: string) => Promise<{ success: boolean; summary: string; error?: string }>;
+      broadcastContextDelta: (data: { terminalId: string; type: string; payload: any }) => Promise<{ success: boolean; sentCount: number }>;
+      onFileConflict: (callback: (data: { filePath: string; requestingTerminal: string; lockingTerminal: string; sessionId: string | null; timestamp: number }) => void) => () => void;
+      getCrossSessionSyncConfig: () => Promise<{ enabled: boolean; lockTTL: number; contextBroadcast: boolean; conflictWarningMode: string; syncCommand: boolean }>;
+      setCrossSessionSyncConfig: (config: any) => Promise<{ success: boolean }>;
+      executeCommand: (command: string, cwd?: string) => Promise<{ stdout: string; stderr: string; error?: string }>;
+      // AI Daily News & Updates
+      getAiBrief: (params: { type: string }) => Promise<{ success: boolean; content?: any; error?: string }>;
+      regenerateAiBrief: (params: { type: string }) => Promise<{ success: boolean; content?: any; error?: string }>;
+      getTopicDigest: () => Promise<{ success: boolean; topics?: any[]; error?: string }>;
+      checkAnomalies: () => Promise<{ success: boolean; anomalies?: any[]; error?: string }>;
+      analyzePatterns: () => Promise<{ success: boolean; content: any; error?: string }>;
+      analyzeSleep: () => Promise<{ success: boolean; content: any; error?: string }>;
+      dataChatQuery: (params: { query: string; history: Array<{ role: string; content: string }> }) => Promise<{ success: boolean; content: string; error?: string }>;
+      saveAiConfig: (config: any) => Promise<{ success: boolean }>;
+      getAiConfig: () => Promise<any>;
+      getInterestTopics: () => Promise<string[]>;
+      addInterestTopic: (topic: string) => Promise<{ success: boolean }>;
+      removeInterestTopic: (topic: string) => Promise<{ success: boolean }>;
+      onAiBriefReady: (callback: (data: any) => void) => () => void;
     };
   }
 }
@@ -225,7 +277,7 @@ interface ActivityLog {
   timestamp: Date;
   app: string;
   category: string;
-  duration: number; // seconds (NOT minutes — stores exact seconds for sub-minute precision)
+  duration: number; // seconds (NOT minutes â€” stores exact seconds for sub-minute precision)
   title?: string;
   project?: string;
   is_browser_tracking?: boolean;
@@ -334,9 +386,39 @@ function hslToHex(hsl: string): string {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
+// Map browser brand names to OS process names (what active-win returns)
+// Duplicated in DashboardPage.tsx and main.ts â€” keep in sync
+const BROWSER_PROCESS_NAMES_RENDERER: Record<string, string[]> = {
+  'comet': ['chrome', 'comet', 'chromium'],
+  'chrome': ['chrome', 'chromium'],
+  'brave': ['brave', 'chrome'],
+  'edge': ['msedge', 'edge'],
+  'opera': ['opera'],
+  'vivaldi': ['vivaldi'],
+  'firefox': ['firefox'],
+  'arc': ['arc'],
+  'safari': ['safari'],
+};
+
+function isAppMatchingBrowserRenderer(appName: string, browserName: string): boolean {
+  if (!appName || !browserName) return false;
+  const appLower = appName.toLowerCase().replace(/\.exe$/i, '');
+  const browserLower = browserName.toLowerCase();
+  const processNames = BROWSER_PROCESS_NAMES_RENDERER[browserLower] || [browserLower];
+  return appLower.includes(browserLower) ||
+    browserLower.includes(appLower) ||
+    processNames.some(p => appLower.includes(p));
+}
+
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    const page = location.pathname === '/' ? 'dashboard'
+      : location.pathname.replace('/', '') || 'dashboard';
+    document.documentElement.setAttribute('data-page', page);
+  }, [location.pathname]);
 
   const [isTracking, setIsTracking] = useState(true);
   const [currentApp, setCurrentApp] = useState('VS Code');
@@ -374,20 +456,26 @@ function App() {
   const [dateOffset, setDateOffset] = useState(0);
   const [allLogs, setAllLogs] = useState<ActivityLog[]>([]); // ALL logs - never changes (for heatmap)
   
+  const allLogsFingerprintRef = useRef<string>('');
   // Reset dateOffset when period changes
   useEffect(() => {
     setDateOffset(0);
   }, [selectedPeriod]);
   
-  // Computed filtered logs from allLogs based on selectedPeriod (replaces logs state)
+  // Computed filtered logs from allLogs based on selectedPeriod and dateOffset
   const filteredLogs = useMemo(() => {
-    const range = getDateRange(selectedPeriod, 0);
+    const range = getDateRange(selectedPeriod, dateOffset);
     return allLogs.filter(log => log.timestamp >= range.start && log.timestamp < range.end);
-  }, [allLogs, selectedPeriod]);
+  }, [allLogs, selectedPeriod, dateOffset]);
   
-  // Sync logs state with filteredLogs whenever filteredLogs changes
+  // Track filteredLogs fingerprint to avoid unnecessary logs sync
+  const prevFilteredFingerprint = useRef('');
   useEffect(() => {
-    setLogs(filteredLogs);
+    const fp = filteredLogs.length + '|' + (filteredLogs[0]?.timestamp || '');
+    if (fp !== prevFilteredFingerprint.current) {
+      prevFilteredFingerprint.current = fp;
+      setLogs(filteredLogs);
+    }
   }, [filteredLogs]);
 
   const [browserCategoryStats, setBrowserCategoryStats] = useState<any[]>([]); // Browser domain/category stats
@@ -477,6 +565,17 @@ function App() {
     }
   }, []);
 
+  // Auto-generate daily brief on mount (only if API key is actually configured)
+  useEffect(() => {
+    if (window.deskflowAPI?.getAiConfig) {
+      window.deskflowAPI.getAiConfig().then((config: any) => {
+        if (config?.autoGenerateBrief !== false && config?.hasApiKey) {
+          window.deskflowAPI.regenerateAiBrief({ type: 'daily' }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
   // Load external activities from database on mount
   useEffect(() => {
     if (window.deskflowAPI?.getExternalActivities) {
@@ -526,6 +625,27 @@ function App() {
     }
   }, []);
 
+  // Refresh external activities when external-data-changed event fires
+  useEffect(() => {
+    const refreshActivities = () => {
+      if (window.deskflowAPI?.getExternalActivities) {
+        window.deskflowAPI.getExternalActivities().then((activities: any[]) => {
+          const mapped = activities.map((a: any) => ({
+            id: a.id,
+            name: a.name,
+            type: a.type || 'stopwatch',
+            color: a.color || '#10b981',
+            icon: a.icon || 'Activity',
+            is_productive: a.is_productive !== false
+          }));
+          setExternalActivities(mapped);
+        }).catch((err: any) => console.warn('[DeskFlow] Failed to refresh external activities:', err));
+      }
+    };
+    window.addEventListener('external-data-changed', refreshActivities);
+    return () => window.removeEventListener('external-data-changed', refreshActivities);
+  }, []);
+
   // Listen for real foreground changes from Electron
   useEffect(() => {
     if (window.deskflowAPI && typeof window.deskflowAPI.onForegroundChange === 'function') {
@@ -551,7 +671,7 @@ function App() {
         liveActivityLogsRef.current = [...liveActivityLogsRef.current.slice(-49), newLog];
         setLiveActivityLogs([...liveActivityLogsRef.current]);
         
-        // Refresh logs - update allLogs but let the useEffect handle logs filtering
+        // Refresh logs - only update allLogs if data actually changed (avoids cascading useMemo recomputation)
         window.deskflowAPI?.getLogs().then(electronLogs => {
           const formattedLogs: ActivityLog[] = electronLogs.map((log: any) => ({
             id: log.id,
@@ -563,9 +683,14 @@ function App() {
             project: log.project,
             is_browser_tracking: log.is_browser_tracking === 1 || log.is_browser_tracking === true,
             domain: log.domain,
-            url: log.url,
+            url: log.url
           }));
-          setAllLogs(formattedLogs);
+          // Fingerprint: compare by count + first/last ID to skip no-op updates
+          const fp = formattedLogs.length + ':' + (formattedLogs.length > 0 ? formattedLogs[0].id + '-' + formattedLogs[formattedLogs.length - 1].id : 'empty');
+          if (fp !== allLogsFingerprintRef.current) {
+            allLogsFingerprintRef.current = fp;
+            setAllLogs(formattedLogs);
+          }
           // Don't setLogs here - the useEffect will handle filtering based on selectedPeriod
         });
       });
@@ -600,7 +725,8 @@ function App() {
         const currentApp = currentForegroundAppRef.current;
         
         // If current app is NOT the tracking browser, skip
-        if (!trackingBrowser || !currentApp || !currentApp.toLowerCase().includes(trackingBrowser.toLowerCase())) {
+        // Uses process name mapping to handle brand-name vs executable-name mismatches
+        if (!trackingBrowser || !currentApp || !isAppMatchingBrowserRenderer(currentApp, trackingBrowser)) {
           return; // Not on browser - don't log website
         }
         
@@ -631,30 +757,32 @@ function App() {
   }, []);
 
   // Load saved planet colors or generate new ones
+  // Read saved colors once on mount, persist passively
+  const [savedColorMap, setSavedColorMap] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('deskflow-planet-colors');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+
   const appColors = useMemo(() => {
-    // Get unique apps from logs
     const uniqueApps = Array.from(new Set(logs.map(log => log.app)));
-
-    // Try to load saved colors from localStorage
-    const savedColors = localStorage.getItem('deskflow-planet-colors');
-    const colorMap: Record<string, string> = savedColors ? JSON.parse(savedColors) : {};
-
-    // Find apps without saved colors
+    const colorMap = { ...savedColorMap };
     const appsNeedingColors = uniqueApps.filter(app => !colorMap[app]);
-
-    // Generate new colors for apps without saved colors
     if (appsNeedingColors.length > 0) {
-      const existingColorCount = Object.keys(colorMap).length;
       const newColors = generateDistinctColors(appsNeedingColors.length);
       appsNeedingColors.forEach((app, i) => {
         colorMap[app] = hslToHex(newColors[i]);
       });
-      // Save to localStorage
-      localStorage.setItem('deskflow-planet-colors', JSON.stringify(colorMap));
+      // Defer the persist to effect below
     }
-
     return colorMap;
-  }, [logs]);
+  }, [logs, savedColorMap]);
+
+  // Passive persist: save when colorMap grows
+  useEffect(() => {
+    localStorage.setItem('deskflow-planet-colors', JSON.stringify(appColors));
+  }, [appColors]);
 
   // Ref to track tracking browser without causing re-renders in useEffect dependencies
   const trackingBrowserRef = useRef<string>('');
@@ -732,6 +860,10 @@ function App() {
     if (window.deskflowAPI?.onSleepDetection) {
       window.deskflowAPI.onSleepDetection(async (data: any) => {
         if (data?.gapMinutes >= 45) {
+          sleepActiveRef.current = true;
+          // Dismiss any open AFK prompts â€” sleep takes priority
+          setAfkPromptQueue([]);
+          afkPromptShownRef.current = true;
           const detResult = await window.deskflowAPI?.checkSleepDetection?.();
           if (detResult?.detected) {
             setSleepDetectionData(detResult);
@@ -749,6 +881,7 @@ function App() {
   }, []);
 
   const dismissSleepDetection = async () => {
+    sleepActiveRef.current = false;
     setShowSleepDetection(false);
     setSleepDetectionData(null);
     try {
@@ -760,6 +893,7 @@ function App() {
 
   const confirmSleepDetection = async () => {
     if (!sleepDetectionData) return;
+    sleepActiveRef.current = false;
     try {
       const now = new Date();
       const deviceOff = new Date(now);
@@ -774,17 +908,35 @@ function App() {
       const deviceOn = new Date(now);
       deviceOn.setHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes, 0, 0);
 
-      // Handle midnight crossing
-      if (wokeUp <= deviceOff) {
-        fellAsleep.setDate(fellAsleep.getDate() + 1);
-        wokeUp.setDate(wokeUp.getDate() + 1);
-        deviceOn.setDate(deviceOn.getDate() + 1);
-      }
-      if (fellAsleep <= deviceOff) fellAsleep.setDate(fellAsleep.getDate() + 1);
+                      // Handle midnight crossing
+                      // DO NOT advance fellAsleep here â€” it's typically on the SAME evening
+                      // as device off. Advancing it would inflate device_off_to_sleep_seconds
+                      // to 24h+, making actualSleepSeconds compute to 0 in get-sleep-trends.
+                      if (wokeUp <= deviceOff) {
+                        wokeUp.setDate(wokeUp.getDate() + 1);
+                        deviceOn.setDate(deviceOn.getDate() + 1);
+                      }
+                      // If fellAsleep is before device off by 10+ hours, it crossed midnight
+                      // (e.g., device off 23:00, fell asleep 01:00 next day)
+                      if (fellAsleep <= deviceOff) {
+                        const offMin = deviceOff.getHours() * 60 + deviceOff.getMinutes();
+                        const sleepMin = fellAsleep.getHours() * 60 + fellAsleep.getMinutes();
+                        if (offMin - sleepMin >= 600) {
+                          fellAsleep.setDate(fellAsleep.getDate() + 1);
+                        }
+                      }
       if (deviceOn <= wokeUp) deviceOn.setDate(deviceOn.getDate() + 1);
 
       const deviceOffToSleepSec = Math.max(0, Math.round((fellAsleep.getTime() - deviceOff.getTime()) / 1000));
       const wakeUpToAppSec = Math.max(0, Math.round((deviceOn.getTime() - wokeUp.getTime()) / 1000));
+
+      // Stop any running AFK session left from the sleep period
+      if (window.deskflowAPI?.stopAfkSession) {
+        await window.deskflowAPI.stopAfkSession().catch(console.error);
+      }
+      // Clear any queued AFK prompts since sleep covers this period
+      setAfkPromptQueue([]);
+      afkPromptShownRef.current = true;
 
       if (window.deskflowAPI?.confirmSleep) {
         const result = await window.deskflowAPI.confirmSleep({
@@ -914,21 +1066,7 @@ function App() {
 
   // Compute period-filtered app stats (for StatsPage)
   const appStats = useMemo(() => {
-    const now = new Date();
-    let filteredLogs = [...allLogs];
-
-    // Filter by selectedPeriod
-    if (selectedPeriod === 'today') {
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      filteredLogs = filteredLogs.filter(log => new Date(log.timestamp) >= todayStart);
-    } else if (selectedPeriod === 'week') {
-      const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      filteredLogs = filteredLogs.filter(log => new Date(log.timestamp) >= weekStart);
-    } else if (selectedPeriod === 'month') {
-      const monthStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      filteredLogs = filteredLogs.filter(log => new Date(log.timestamp) >= monthStart);
-    }
-    // 'all' shows all logs (no filtering)
+    if (filteredLogs.length === 0 && allLogs.length > 0) return [];
 
     const getCategory = (app: string, defaultCategory: string) => {
       const override = categoryOverrides[app.toLowerCase()];
@@ -956,7 +1094,7 @@ function App() {
     }));
 
     return stats.sort((a, b) => b.total_ms - a.total_ms);
-  }, [allLogs, categoryOverrides, selectedPeriod]);
+  }, [filteredLogs, categoryOverrides]);
 
   // Compute ALL TIME app stats - no filtering by period (for Settings page)
   const allTimeAppStats = useMemo(() => {
@@ -1025,10 +1163,10 @@ function App() {
   // NO separate logs loading - we filter allLogs locally for display
   // allLogs is set once on mount and never changes (preserves heatmap)
 
-  // Load browser logs (website data) when period changes
+  // Load browser logs (website data) when period OR dateOffset changes
   useEffect(() => {
     if (window.deskflowAPI?.getBrowserLogs) {
-      window.deskflowAPI.getBrowserLogs(selectedPeriod).then(electronLogs => {
+      window.deskflowAPI.getBrowserLogs(selectedPeriod, dateOffset).then(electronLogs => {
         const formattedLogs: ActivityLog[] = electronLogs.map((log: any) => ({
           id: log.id,
           timestamp: new Date(log.timestamp),
@@ -1042,10 +1180,10 @@ function App() {
           url: log.url,
         }));
         setBrowserLogs(formattedLogs);
-        console.log('[DeskFlow] Loaded browser logs for period:', selectedPeriod, 'count:', formattedLogs.length);
+        console.log('[DeskFlow] Loaded browser logs for period:', selectedPeriod, 'dateOffset:', dateOffset, 'count:', formattedLogs.length);
       }).catch(err => console.warn('[DeskFlow] Failed to load browser logs:', err));
     }
-  }, [selectedPeriod]);
+  }, [selectedPeriod, dateOffset]);
 
   // Load ALL website stats (no time filter) for Settings page
   useEffect(() => {
@@ -1085,16 +1223,34 @@ function App() {
   const [isIdle, setIsIdle] = useState(false);
   const [idleThreshold, setIdleThreshold] = useState(5); // minutes
   const [autoDetect, setAutoDetect] = useState(true);
-  const [afkPrompt, setAfkPrompt] = useState<{
-    open: boolean;
+  interface AfkPromptEntry {
+    id: number;
     suggested: { id: number; name: string; color: string } | null;
-    duration: string | null;
+    duration: string;
     startedAt: string | null;
-  }>({ open: false, suggested: null, duration: null, startedAt: null });
+    idleStartMs: number | null;
+    returnMs: number;
+    sessionId: number | null;
+  }
+  const [afkPromptQueue, setAfkPromptQueue] = useState<AfkPromptEntry[]>([]);
+  const [showGapPanel, setShowGapPanel] = useState(false);
+  const afkQueueIdRef = useRef(0);
   const afkPromptShownRef = useRef(false);
+  const sleepDetectionPendingRef = useRef(false);
+  const sleepActiveRef = useRef(false);
+  const triggerAfkDebugRef = useRef<() => void>(() => {});
   const [autoExport, setAutoExport] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   const [externalActivities, setExternalActivities] = useState<any[]>([]);
+  const [externalActivityTiers, setExternalActivityTiers] = useState<Record<number, string>>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('deskflow-external-activity-tiers');
+      if (saved) {
+        try { return JSON.parse(saved); } catch { /* ignore */ }
+      }
+    }
+    return {};
+  });
   const [timerBehavior, setTimerBehavior] = useState<{ neutralAction: 'pause' | 'reset' | 'ignore'; distractingAction: 'pause' | 'reset' | 'ignore' }>({ neutralAction: 'ignore', distractingAction: 'reset' });
   const [trackerAppMode, setTrackerAppMode] = useState<'show-other' | 'pause' | 'track'>('track');
   const [timerState, setTimerState] = useState<any>(() => {
@@ -1149,22 +1305,109 @@ function App() {
     localStorage.setItem('deskflow-activity-feed', JSON.stringify(newItems));
   }, []);
   
-  const handleAfkConfirm = useCallback((activityId: string) => {
-    setAfkPrompt({ open: false, suggested: null });
-    if (window.deskflowAPI?.stopAfkSession) {
-      window.deskflowAPI.stopAfkSession(activityId).then((r: any) => {
-        if (r?.success) window.dispatchEvent(new CustomEvent('external-data-changed'));
-      }).catch(console.error);
+  const handleAfkConfirm = useCallback(async (segments: { activityId: string; startedAt: string; endedAt: string }[]) => {
+    console.log('[DeskFlow] handleAfkConfirm called with', segments.length, 'segments:', JSON.stringify(segments));
+    let saved = false;
+
+    // Path 1: Batch save (transactional multi-insert)
+    if (segments.length > 0 && window.deskflowAPI?.batchSaveAfkSegments) {
+      try {
+        const result = await window.deskflowAPI.batchSaveAfkSegments(segments);
+        console.log('[DeskFlow] batchSaveAfkSegments result:', result);
+        if (result?.success) saved = true;
+      } catch (err) { console.error('[DeskFlow] batchSaveAfkSegments error:', err); }
     }
+
+    // Path 2: Single-segment fallback via debugSaveAfk
+    if (!saved && segments.length === 1 && window.deskflowAPI?.debugSaveAfk) {
+      const seg = segments[0];
+      try {
+        const result = await window.deskflowAPI.debugSaveAfk({ activityId: seg.activityId, startedAt: seg.startedAt, endedAt: seg.endedAt });
+        if (result?.success) saved = true;
+      } catch (err) { console.error('[DeskFlow] debugSaveAfk fallback error:', err); }
+    }
+
+    // Path 3: Legacy stopAfkSession (real AFK detection flow)
+    if (!saved && segments.length === 1 && window.deskflowAPI?.stopAfkSession) {
+      try {
+        const result = await window.deskflowAPI.stopAfkSession(segments[0].activityId);
+        if (result?.success) saved = true;
+      } catch (err) { console.error('[DeskFlow] stopAfkSession fallback error:', err); }
+    }
+
+    setAfkPromptQueue(prev => prev.slice(1));
+    console.log('[DeskFlow] handleAfkConfirm saved:', saved);
+    window.dispatchEvent(new CustomEvent('external-data-changed'));
   }, []);
   
   const handleAfkDismiss = useCallback(() => {
-    setAfkPrompt({ open: false, suggested: null });
+    console.log('[DeskFlow] handleAfkDismiss called');
+    setAfkPromptQueue(prev => prev.slice(1));
     if (window.deskflowAPI?.stopAfkSession) {
       window.deskflowAPI.stopAfkSession().then((r: any) => {
-        if (r?.success) window.dispatchEvent(new CustomEvent('external-data-changed'));
+        console.log('[DeskFlow] stopAfkSession dismiss result:', r);
+        window.dispatchEvent(new CustomEvent('external-data-changed'));
       }).catch(console.error);
     }
+  }, []);
+
+  // Debug: manually trigger AFK prompt (for testing the popup without waiting for idle detection)
+  const triggerAfkDebug = useCallback(async () => {
+    console.log('[DeskFlow] ðŸ› Debug: manually triggering AFK prompt');
+    // Self-contained â€” no dependency on startAfkSession or active session lookup
+    const nowMs = Date.now();
+    const startedAt = new Date(nowMs - 90000).toISOString(); // pretend 90s ago
+    console.log('[DeskFlow] ðŸ› startedAt:', startedAt, 'returnMs:', nowMs);
+    // Get a suggested activity based on current time
+    let guess: { id: number; name: string; color: string } | null = null;
+    try {
+      guess = await window.deskflowAPI?.getTypicalActivityAtTime?.(new Date().toISOString());
+    } catch {}
+    const entry: AfkPromptEntry = {
+      id: afkQueueIdRef.current++,
+      suggested: guess,
+      duration: '1m 30s',
+      startedAt,
+      idleStartMs: nowMs - 90000,
+      returnMs: nowMs,
+      sessionId: null,
+    };
+    console.log('[DeskFlow] ðŸ› pushing AFK entry:', JSON.stringify(entry));
+    setAfkPromptQueue(prev => [...prev, entry]);
+  }, []);
+  triggerAfkDebugRef.current = triggerAfkDebug;
+
+  // Listen for gap-fill events from GapPanel
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      const { start, end } = e.detail;
+      const totalDurationSeconds = Math.max(1, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000));
+      const entry: AfkPromptEntry = {
+        id: afkQueueIdRef.current++,
+        suggested: null,
+        duration: `${Math.floor(totalDurationSeconds / 60)}m`,
+        startedAt: start,
+        idleStartMs: new Date(start).getTime(),
+        returnMs: new Date(end).getTime(),
+        sessionId: null,
+      };
+      console.log('[DeskFlow] gap-fill: pushing entry', JSON.stringify(entry));
+      setAfkPromptQueue(prev => [...prev, entry]);
+    };
+    window.addEventListener('fill-time-gap', handler as EventListener);
+    return () => window.removeEventListener('fill-time-gap', handler as EventListener);
+  }, []);
+
+  // Listen for debug/gap events from External page
+  useEffect(() => {
+    const triggerAfkHandler = () => triggerAfkDebugRef.current();
+    const openGapHandler = () => setShowGapPanel(true);
+    window.addEventListener('trigger-afk-debug', triggerAfkHandler);
+    window.addEventListener('open-gap-panel', openGapHandler);
+    return () => {
+      window.removeEventListener('trigger-afk-debug', triggerAfkHandler);
+      window.removeEventListener('open-gap-panel', openGapHandler);
+    };
   }, []);
   
   const [foregroundApps, setForegroundApps] = useState<string[]>([]);
@@ -1364,6 +1607,10 @@ function App() {
     idleRef.current = isIdle;
     trackingRef.current = isTracking;
   }, [isIdle, isTracking]);
+
+  useEffect(() => {
+    sleepDetectionPendingRef.current = showSleepDetection;
+  }, [showSleepDetection]);
   
   // Ref to latest externalActivities for the idle return handler
   const externalActivitiesRef = useRef(externalActivities);
@@ -1372,30 +1619,58 @@ function App() {
   // Keep idleReturnFnRef.current updated with the actual handler
   useEffect(() => {
     idleReturnFnRef.current = async () => {
+      // If sleep detection is active or pending, skip AFK prompt entirely
+      // sleepActiveRef is set synchronously by onSleepDetection (race-condition-proof)
+      if (sleepActiveRef.current || sleepDetectionPendingRef.current) {
+        window.deskflowAPI?.stopAfkSession().catch(console.error);
+        afkPromptShownRef.current = true;
+        return;
+      }
+      
       if (afkPromptShownRef.current) return;
       afkPromptShownRef.current = true;
       
       // Compute duration from idleStartRef (always accurate, not reliant on DB)
       const idleStartMs = idleStartRef.current;
-      const elapsed = idleStartMs ? Math.floor((Date.now() - idleStartMs) / 1000) : 0;
+      const nowMs = Date.now();
+      const elapsed = idleStartMs ? Math.floor((nowMs - idleStartMs) / 1000) : 0;
       const afkDuration = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
       
       // Try to get the active session for the live counter timestamp
       let startedAt: string | null = null;
+      let sessionId: number | null = null;
       try {
         const activeSession = await window.deskflowAPI?.getActiveExternalSession?.();
         if (activeSession?.started_at) {
           startedAt = activeSession.started_at;
         }
+        if (activeSession?.id) {
+          sessionId = Number(activeSession.id);
+        }
       } catch {}
       
+      const ts = new Date().toISOString();
+      let guess: { id: number; name: string; color: string } | null = null;
       try {
-        const ts = new Date().toISOString();
-        const guess = await window.deskflowAPI?.getTypicalActivityAtTime?.(ts);
-        setAfkPrompt({ open: true, suggested: guess || null, duration: afkDuration, startedAt });
-      } catch {
-        setAfkPrompt({ open: true, suggested: null, duration: afkDuration, startedAt });
+        guess = await window.deskflowAPI?.getTypicalActivityAtTime?.(ts);
+      } catch {}
+      
+      // CRITICAL: re-check after all awaits â€” sleep may have fired during our async gap
+      if (sleepActiveRef.current) {
+        window.deskflowAPI?.stopAfkSession().catch(console.error);
+        return;
       }
+      
+      const entry: AfkPromptEntry = {
+        id: afkQueueIdRef.current++,
+        suggested: guess,
+        duration: afkDuration,
+        startedAt,
+        idleStartMs,
+        returnMs: nowMs,
+        sessionId,
+      };
+      setAfkPromptQueue(prev => [...prev, entry]);
     };
   }, []);
   
@@ -1464,6 +1739,15 @@ function App() {
       }
     };
 
+    // Debug: Ctrl+Shift+Alt+A to manually trigger AFK prompt
+    const handleAfkDebugKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.altKey && e.key === 'a') {
+        e.preventDefault();
+        triggerAfkDebugRef.current();
+      }
+    };
+    document.addEventListener('keydown', handleAfkDebugKey);
+
     window.addEventListener('focus', handleFocus);
     window.addEventListener('visibilitychange', handleVisibilityChange);
 
@@ -1475,6 +1759,7 @@ function App() {
       window.removeEventListener('touchstart', handleActivity, { capture: true });
       window.removeEventListener('scroll', handleActivity, { capture: true });
       window.removeEventListener('wheel', handleActivity, { capture: true });
+      document.removeEventListener('keydown', handleAfkDebugKey);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       isMountedRef.current = false;
@@ -1930,18 +2215,18 @@ function App() {
     const summary = `Stats DeskFlow AI Analysis for ${format(new Date(), 'MMMM dd')}
 
 Hot Focus Summary: ${Math.floor(totalMin / 60)}h ${totalMin % 60}m tracked today
-   • Coding: ${codingPct}% (${codingTime}min) — Top Project: ${topProject}
-   • AI Tools: ${aiPct}% (${aiTime}min) — Smart prompting on Claude & ChatGPT
-   • Distractions: ${distPct}% — Minimal YouTube/Entertainment
+   â€¢ Coding: ${codingPct}% (${codingTime}min) â€” Top Project: ${topProject}
+   â€¢ AI Tools: ${aiPct}% (${aiTime}min) â€” Smart prompting on Claude & ChatGPT
+   â€¢ Distractions: ${distPct}% â€” Minimal YouTube/Entertainment
 
-⏰ Peak Productivity Window: ${peakHour}
+â° Peak Productivity Window: ${peakHour}
    You averaged 92% focus during this window.
 
 Tip Insights:
-   • 87% of IDE time spent on actual editing (vs. idle)
-   • You completed 3 major tasks in PyCharm
-   • Browser time was 68% productive (docs, GitHub)
-   • Productivity Score: ${Math.floor(Math.random() * 15) + 83}/100
+   â€¢ 87% of IDE time spent on actual editing (vs. idle)
+   â€¢ You completed 3 major tasks in PyCharm
+   â€¢ Browser time was 68% productive (docs, GitHub)
+   â€¢ Productivity Score: ${Math.floor(Math.random() * 15) + 83}/100
 
 Trend: +14% vs. yesterday. Keep it up!`;
 
@@ -2098,7 +2383,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
   };
 
   // Format duration in seconds to human-readable string
-  // < 60s → "45s", 60s-3600s → "2m 15s", ≥ 3600s → "1h 23m"
+  // < 60s â†’ "45s", 60s-3600s â†’ "2m 15s", â‰¥ 3600s â†’ "1h 23m"
   const formatDuration = (seconds: number): string => {
     if (seconds < 60) return `${seconds}s`;
     if (seconds < 3600) {
@@ -2118,6 +2403,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
     { icon: Globe, label: 'Browser Activity', path: '/browser' },
     { icon: Code2, label: 'IDE Projects', path: '/ide' },
     { icon: Clock4, label: 'External', path: '/external' },
+    { icon: Bot, label: 'AI Assistant', path: '/ai' },
     { icon: BarChart3, label: 'Insights', path: '/reports' },
     { icon: Database, label: 'Database', path: '/database' },
     { icon: Settings, label: 'Settings', path: '/settings' },
@@ -2127,8 +2413,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
   return (
     <div className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white">
       {/* Sidebar */}
-      <div className="w-64 border-r border-zinc-800 flex flex-col glass">
-        <div className="p-8 flex items-center gap-3 border-b border-zinc-800">
+      <div className="w-64 border-r border-zinc-800 flex flex-col h-full glass">
+        <div className="p-5 flex items-center gap-3 border-b border-zinc-800 shrink-0">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-500 flex items-center justify-center">
             <Zap className="w-5 h-5 text-white" />
           </div>
@@ -2138,30 +2424,30 @@ Trend: +14% vs. yesterday. Keep it up!`;
           </div>
         </div>
 
-        <div className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        <div className="flex-1 min-h-0 max-h-full">
+          <div className="h-full overflow-y-auto px-3 py-4 space-y-1.5">
           {sidebarItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <motion.button
                 key={item.path}
                 onClick={() => handleSidebarNavigation(item.path)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-all ${isActive
-                  ? 'bg-zinc-800 text-white shadow-lg'
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-colors duration-150 ${isActive
+                  ? 'bg-zinc-800 text-white'
                   : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
                   }`}
-                whileHover={{ x: 4 }}
               >
                 <item.icon className="w-4 h-4 shrink-0" />
                 {item.label}
               </motion.button>
             );
           })}
+          </div>
         </div>
 
-        <div className="p-6 border-t border-zinc-800">
-          <div className="px-4 text-[10px] text-zinc-500 leading-tight">
-            Local SQLite • Zero Cloud •<br />Privacy-First
-          </div>
+        <div className="px-5 py-2 border-t border-zinc-800 flex items-center justify-between shrink-0">
+          <span className="text-[10px] text-zinc-500">Local SQLite â€¢ Zero Cloud â€¢ Privacy-First</span>
+          <span className="text-[10px] text-zinc-600">DeskFlow v3.85</span>
         </div>
       </div>
 
@@ -2186,7 +2472,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 <X className="w-5 h-5" />
               </button>
               <div className="flex items-center gap-3">
-                <Terminal className="w-5 h-5 text-emerald-400" />
+                <Terminal className="w-5 h-5 text-[var(--page-accent)]" />
                 <div>
                   <h2 className="text-white font-semibold">{terminalProjectInfo.name || 'Terminal'}</h2>
                   {terminalProjectInfo.path && (
@@ -2199,7 +2485,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent('trigger-provision'))}
                 disabled={provisionStatus === 'provisioning'}
-                className="px-2 py-1 bg-green-700 hover:bg-green-600 text-white text-xs rounded flex items-center gap-1 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-2 py-1 bg-green-700 hover:bg-green-600 text-white text-xs rounded flex items-center gap-1 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
                 title={provisionStatus === 'provisioned' ? 'Re-setup agent directory structure' : 'Setup agent directory structure'}
               >
                 <FolderTree className="w-3 h-3" />
@@ -2207,7 +2493,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               </button>
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent('open-new-agent'))}
-                className="px-2 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs rounded flex items-center gap-1 transition-all duration-200"
+                className="px-2 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs rounded flex items-center gap-1 transition-colors duration-150"
                 title="Start a new AI agent session"
               >
                 <Bot className="w-3 h-3" />
@@ -2384,15 +2670,12 @@ Trend: +14% vs. yesterday. Keep it up!`;
         )}
 
         {/* Main Scroll Area */}
-        <div className={`flex-1 min-h-0 ${location.pathname === '/terminal' ? 'flex flex-col overflow-hidden' : 'overflow-auto p-8'}`}>
+        <div className={`flex-1 min-h-0 ${location.pathname === '/terminal' ? 'flex flex-col overflow-hidden' : 'overflow-auto p-5'}`}>
           <AnimatePresence mode="sync">
             <Routes location={location} key={location.pathname}>
               {/* Dashboard */}
               <Route path="/" element={
                 <DashboardPage 
-                  logs={logs} 
-                  allLogs={allLogs} 
-                  browserLogs={browserLogs} 
                   appColors={appColors} 
                   categoryOverrides={categoryOverrides} 
                   timerBehavior={timerBehavior} 
@@ -2411,15 +2694,16 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 />
               } />
               {/* Stats Page */}
-              <Route path="/stats" element={<StatsPage key={selectedPeriod} logs={allLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
+              <Route path="/stats" element={<StatsPage key={selectedPeriod} logs={filteredLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} liveActivityLogs={liveActivityLogs} />} />
               {/* Productivity Page */}
-              <Route path="/productivity" element={<ProductivityPage logs={allLogs} browserLogs={browserLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} domainKeywordRules={domainKeywordRules} timeMode={timeMode} />} />
+              <Route path="/productivity" element={<ProductivityPage logs={allLogs} browserLogs={browserLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} domainKeywordRules={domainKeywordRules} timeMode={timeMode} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} />} />
               {/* Browser Page */}
               <Route path="/browser" element={<BrowserActivityPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
               {/* IDE Page */}
               <Route path="/ide" element={<IDEProjectsPage />} />
 
               <Route path="/external" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
+              <Route path="/ai" element={<AiPage />} />
               {/* Legacy routes */}
               <Route path="/old-dashboard" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
 
@@ -2441,11 +2725,11 @@ Trend: +14% vs. yesterday. Keep it up!`;
               {/* Pricing Page */}
               <Route path="/pricing" element={<div className="glass rounded-3xl p-8 flex items-center justify-center h-96"><div className="text-center text-zinc-400"><div className="text-4xl mb-4">!</div><div className="text-lg font-medium">Not Yet Added Feature</div><div className="text-sm text-zinc-500 mt-1">Pricing plans are coming soon</div></div></div>} />
               {/* Settings Page */}
-<Route path="/settings" element={<SettingsPage logs={logs} appStats={allTimeAppStats} websiteStats={allTimeWebsiteStats} onRegisterSave={handleRegisterSave} onReloadData={loadData} onCategoryOverridesChange={setCategoryOverrides} onHasChangesChange={setSettingsHasChanges} timerBehavior={timerBehavior} setTimerBehavior={setTimerBehavior} trackerAppMode={trackerAppMode} setTrackerAppMode={setTrackerAppMode} />} />
+<Route path="/settings" element={<SettingsPage logs={logs} appStats={allTimeAppStats} websiteStats={allTimeWebsiteStats} onRegisterSave={handleRegisterSave} onReloadData={loadData} onCategoryOverridesChange={setCategoryOverrides} onHasChangesChange={setSettingsHasChanges} timerBehavior={timerBehavior} setTimerBehavior={setTimerBehavior} trackerAppMode={trackerAppMode} setTrackerAppMode={setTrackerAppMode} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} onExternalActivityTiersChange={setExternalActivityTiers} />} />
             </Routes>
           </AnimatePresence>
 
-          {/* ── Unsaved Changes Warning Modal ── */}
+          {/* â”€â”€ Unsaved Changes Warning Modal â”€â”€ */}
           <AnimatePresence>
             {showUnsavedWarning && (
               <div className="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center z-[65]" onClick={() => setShowUnsavedWarning(false)}>
@@ -2467,8 +2751,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   </div>
 
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 mb-6 space-y-1">
-                    <p>• Your category assignments and color customizations</p>
-                    <p>• will be lost if you navigate away without saving</p>
+                    <p>â€¢ Your category assignments and color customizations</p>
+                    <p>â€¢ will be lost if you navigate away without saving</p>
                   </div>
 
                   <div className="flex flex-col gap-2">
@@ -2496,7 +2780,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             )}
           </AnimatePresence>
 
-          {/* ── Sleep Detection Modal ── */}
+          {/* â”€â”€ Sleep Detection Modal â”€â”€ */}
           <AnimatePresence>
             {showSleepDetection && sleepDetectionData && (
               <motion.div
@@ -2514,7 +2798,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   onClick={e => e.stopPropagation()}
                 >
                   <div className="text-center mb-6">
-                    <div className="text-5xl mb-3">😴</div>
+                    <div className="text-5xl mb-3">ðŸ˜´</div>
                     <h2 className="text-xl font-semibold text-zinc-100">Were you sleeping?</h2>
                     <p className="text-zinc-400 mt-2">
                       App was inactive for <span className="text-zinc-200 font-medium">{customDurationMinutes()} minutes</span>
@@ -2642,7 +2926,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                     </button>
                     <button
                       onClick={confirmSleepDetection}
-                      className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-xl text-sm text-white font-medium hover:from-emerald-400 hover:to-emerald-500 transition-all"
+                      className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-xl text-sm text-white font-medium hover:from-emerald-400 hover:to-emerald-500 transition-colors duration-150"
                     >
                       Confirm Sleep
                     </button>
@@ -2674,9 +2958,9 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   </div>
 
                   <div className="p-3 rounded-xl bg-zinc-900/50 border border-zinc-700 text-xs text-zinc-400 mb-6">
-                    <p>• {logs.length} activity records will be exported</p>
-                    <p>• File format: <span className="text-zinc-200 uppercase">{showConfirmExport}</span></p>
-                    <p>• File stays on your device</p>
+                    <p>â€¢ {logs.length} activity records will be exported</p>
+                    <p>â€¢ File format: <span className="text-zinc-200 uppercase">{showConfirmExport}</span></p>
+                    <p>â€¢ File stays on your device</p>
                   </div>
 
                   <div className="flex gap-3">
@@ -2719,10 +3003,10 @@ Trend: +14% vs. yesterday. Keep it up!`;
                       </div>
                       <div>
                         <div className="font-semibold text-xl">SQLite Activity Logs</div>
-                        <div className="text-xs text-zinc-500">TABLE: activity_logs • {allLogs.length} rows • SQLite database</div>
+                        <div className="text-xs text-zinc-500">TABLE: activity_logs â€¢ {allLogs.length} rows â€¢ SQLite database</div>
                       </div>
                     </div>
-                    <button onClick={() => setShowDatabase(false)} className="text-zinc-400 hover:text-white text-xl">✕</button>
+                    <button onClick={() => setShowDatabase(false)} className="text-zinc-400 hover:text-white text-xl">âœ•</button>
                   </div>
 
                   {/* Schema Info */}
@@ -2774,8 +3058,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                                 </span>
                               </td>
                               <td className="px-4 py-3 tabular-nums text-white">{log.duration} min</td>
-                              <td className="px-4 py-3 text-zinc-400">{log.project || '—'}</td>
-                              <td className="px-4 py-3 text-zinc-400 truncate max-w-[200px]">{log.title || '—'}</td>
+                              <td className="px-4 py-3 text-zinc-400">{log.project || 'â€”'}</td>
+                              <td className="px-4 py-3 text-zinc-400 truncate max-w-[200px]">{log.title || 'â€”'}</td>
                             </tr>
                           ))
                         )}
@@ -2784,7 +3068,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   </div>
 
                   <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
-                    <div>Showing {Math.min(50, allLogs.length)} of {allLogs.length} records • Data persists in SQLite database</div>
+                    <div>Showing {Math.min(50, allLogs.length)} of {allLogs.length} records â€¢ Data persists in SQLite database</div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
@@ -2829,7 +3113,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                         <div className="text-xs text-emerald-400">Generated using local heuristics</div>
                       </div>
                     </div>
-                    <button onClick={() => setShowSummary(false)} className="text-zinc-400">✕</button>
+                    <button onClick={() => setShowSummary(false)} className="text-zinc-400">âœ•</button>
                   </div>
 
                   <div className="font-mono text-sm whitespace-pre-wrap bg-zinc-950 p-6 rounded-2xl leading-relaxed border border-zinc-800">
@@ -2858,17 +3142,30 @@ Trend: +14% vs. yesterday. Keep it up!`;
             )}
           </AnimatePresence>
 
-          {/* ── AFK Activity Prompt ── */}
-          {afkPrompt.open && (
-            <AfkPromptModal
-              suggestedActivity={afkPrompt.suggested}
-              allActivities={externalActivities}
-              duration={afkPrompt.duration}
-              startedAt={afkPrompt.startedAt}
-              onConfirm={handleAfkConfirm}
-              onDismiss={handleAfkDismiss}
-            />
-          )}
+          {/* â”€â”€ AFK Activity Prompt â”€â”€ */}
+          {afkPromptQueue.length > 0 && (() => {
+            const entry = afkPromptQueue[0];
+            const periodStart = entry.startedAt || (entry.idleStartMs ? new Date(entry.idleStartMs).toISOString() : new Date(entry.returnMs - 90000).toISOString());
+            const periodEnd = new Date(entry.returnMs).toISOString();
+            const totalDurationSeconds = Math.max(1, Math.floor((new Date(periodEnd).getTime() - new Date(periodStart).getTime()) / 1000));
+            return (
+              <AfkPromptModal
+                key={entry.id}
+                allActivities={externalActivities}
+                totalDurationSeconds={totalDurationSeconds}
+                periodStart={periodStart}
+                periodEnd={periodEnd}
+                idleStartMs={entry.idleStartMs}
+                returnMs={entry.returnMs}
+                queueRemaining={afkPromptQueue.length - 1}
+                onConfirm={handleAfkConfirm}
+                onDismiss={handleAfkDismiss}
+              />
+            );
+          })()}
+
+          {/* â”€â”€ Usage Gaps Panel â”€â”€ */}
+          {showGapPanel && <GapPanel onClose={() => setShowGapPanel(false)} />}
         </div>
       </div>
     </div>

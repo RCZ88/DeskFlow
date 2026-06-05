@@ -12,6 +12,8 @@ import type { PaneNode } from './TerminalWindow';
 interface TerminalMiniMapProps {
   layouts: PaneNode[];
   activeTerminalId: string | null;
+  activeGroupIndex?: number;
+  onGroupSelect?: (index: number) => void;
   onTerminalSelect: (id: string) => void;
   onTerminalMove: (fromId: string, toId: string) => void;
   onSplit: (terminalId: string, direction: 'horizontal' | 'vertical') => void;
@@ -42,6 +44,8 @@ function flattenLayout(node: PaneNode): FlattenedItem[] {
 export function TerminalMiniMap({
   layouts,
   activeTerminalId,
+  activeGroupIndex,
+  onGroupSelect,
   onTerminalSelect,
   onTerminalMove,
   onSplit,
@@ -52,15 +56,26 @@ export function TerminalMiniMap({
   const [selGroup, setSelGroup] = useState(0);
 
   const groupCount = layouts.length;
+
+  // Sync from parent
+  const effectiveGroup = typeof activeGroupIndex === 'number' ? activeGroupIndex : selGroup;
   useEffect(() => {
-    if (selGroup >= groupCount) {
+    if (typeof activeGroupIndex === 'undefined' && selGroup >= groupCount) {
       setSelGroup(Math.max(0, groupCount - 1));
     }
-  }, [groupCount, selGroup]);
+  }, [groupCount, selGroup, activeGroupIndex]);
 
-  // Auto-switch to group containing active terminal
+  const handleGroupSelect = useCallback((index: number) => {
+    if (onGroupSelect) {
+      onGroupSelect(index);
+    } else {
+      setSelGroup(index);
+    }
+  }, [onGroupSelect]);
+
+  // Auto-switch to group containing active terminal (only when uncontrolled)
   useEffect(() => {
-    if (!activeTerminalId || groupCount <= 1) return;
+    if (!activeTerminalId || groupCount <= 1 || typeof activeGroupIndex !== 'undefined') return;
     for (let i = 0; i < groupCount; i++) {
       const term = flattenLayout(layouts[i]);
       if (term.some(t => t.terminalId === activeTerminalId)) {
@@ -68,9 +83,9 @@ export function TerminalMiniMap({
         break;
       }
     }
-  }, [activeTerminalId, layouts, groupCount]);
+  }, [activeTerminalId, layouts, groupCount, activeGroupIndex]);
 
-  const currentLayout = groupCount > 0 ? layouts[selGroup] : null;
+  const currentLayout = groupCount > 0 ? layouts[effectiveGroup] : null;
   const terminals = currentLayout ? flattenLayout(currentLayout) : [];
 
   const sensors = useSensors(
@@ -125,37 +140,35 @@ export function TerminalMiniMap({
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <div className="relative w-full bg-zinc-900 rounded border border-zinc-700 overflow-hidden min-h-[100px]">
+      <div className="relative w-full bg-zinc-900 rounded border border-zinc-700 overflow-hidden h-full min-h-[60px]">
         {groupCount === 0 ? (
           <div className="flex items-center justify-center h-[100px] text-[10px] text-zinc-600">
             No terminals
           </div>
         ) : (
           <>
-            {/* Group switcher bar */}
             {groupCount > 1 && (
               <div className="flex items-center justify-between px-2 py-1 border-b border-zinc-800">
                 <button
-                  onClick={() => setSelGroup(Math.max(0, selGroup - 1))}
-                  disabled={selGroup === 0}
+                  onClick={() => handleGroupSelect(Math.max(0, effectiveGroup - 1))}
+                  disabled={effectiveGroup === 0}
                   className="text-zinc-500 hover:text-white disabled:text-zinc-700 disabled:cursor-default transition-colors p-0.5"
                 >
                   ◀
                 </button>
                 <span className="text-[10px] text-zinc-500">
-                  {selGroup + 1} / {groupCount}
+                  {effectiveGroup + 1} / {groupCount}
                 </span>
                 <button
-                  onClick={() => setSelGroup(Math.min(groupCount - 1, selGroup + 1))}
-                  disabled={selGroup === groupCount - 1}
+                  onClick={() => handleGroupSelect(Math.min(groupCount - 1, effectiveGroup + 1))}
+                  disabled={effectiveGroup === groupCount - 1}
                   className="text-zinc-500 hover:text-white disabled:text-zinc-700 disabled:cursor-default transition-colors p-0.5"
                 >
                   ▶
                 </button>
               </div>
             )}
-            {/* Visual tree for selected group */}
-            <div className="aspect-square p-1">
+            <div className="h-full p-1 overflow-hidden">
               {currentLayout && (
                 <div className="relative w-full h-full">
                   <TreePane
@@ -163,7 +176,7 @@ export function TerminalMiniMap({
                     terminals={terminals}
                     activeTerminalId={activeTerminalId}
                     onTerminalSelect={onTerminalSelect}
-                    onToggleDirection={(path) => onToggleDirection(selGroup, path)}
+                    onToggleDirection={(path) => onToggleDirection(effectiveGroup, path)}
                     path={[]}
                   />
                 </div>

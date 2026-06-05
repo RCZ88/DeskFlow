@@ -37,7 +37,7 @@ export interface SkillWorkspaceProps {
 export interface ComposeSource {
   id: string;
   label: string;
-  type: 'workspace' | 'problems' | 'requests' | 'checklists' | 'skills' | 'custom';
+  type: 'workspace' | 'problems' | 'requests' | 'skills' | 'custom';
   enabled: boolean;
   contextSnippet?: string;
 }

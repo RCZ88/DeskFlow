@@ -1,22 +1,26 @@
 # Terminal & Workspace — Complete Feature Inventory
 
-**Last Updated:** 2026-05-22
-**Source files:** `src/pages/TerminalPage.tsx` (~4910 lines), `src/components/TerminalWindow.tsx`, `src/components/*`, `src/services/*`, `src/main.ts`, `src/preload.ts`
+**Last Updated:** 2026-06-05
+**Source files:** `src/pages/TerminalPage.tsx` (~5991 lines), `src/components/TerminalWindow.tsx`, `src/components/IssuesWorkspace.tsx`, `src/components/ContextSidebar.tsx`, `src/components/ContextMaintenanceTab.tsx`, `src/pages/DesignWorkspacePage.tsx`, `src/components/*`, `src/services/*`, `src/main.ts`, `src/preload.ts`
 
 ---
 
-## 1. HEADER / TOP BAR
+## 1. HEADER / TOP BAR (Toolbar)
 
-| Feature | Location (TerminalPage.tsx) | Description |
-|---------|----------------------------|-------------|
-| **Project Selector** | ~1086–1098 | `<select>` dropdown listing all projects from `deskflowAPI.getProjects()` |
-| **Project Info Badge** | ~1074–1085 | Shows project name, green dot, path, language, VCS type |
-| **Open Terminal Button** | ~1107–1126 | Creates new terminal tab + layout entry via `'create-terminal'` CustomEvent |
-| **Setup Button** | ~1127–1141 | Opens `NewSessionDialog` in `'initialize'` mode — creates agent workspace files |
-| **Terminal Binding Badge** | ~1142–1196 | Shows agent type, problem ID binding, green pulse dot, Bind Problem dropdown |
-| **Compose Button** | ~1204–1220 | Opens full `InstructionPanel` component (problem/request/skill selectors) |
-| **Quick Send Button** | ~1221–1234 | Opens inline text-only instruction input bar with @mention routing |
-| **Save Checkpoint Button** | ~1235–1242 | Opens Save Checkpoint dialog for the active terminal's session |
+Rendered inline in TerminalPage.tsx, above the terminal tab bar.
+
+| Feature | Description |
+|---------|-------------|
+| **Project Selector** | `<select>` dropdown listing all projects from `deskflowAPI.getProjects()` |
+| **Project Info Badge** | Shows project name, green dot, path, language, VCS type |
+| **Open Terminal Button** | Creates new terminal tab + layout entry |
+| **Setup Button** | Opens `NewSessionDialog` in `'initialize'` mode |
+| **Compose Button** | Purple gradient. Opens full `InstructionPanel` component (problem/request/skill selectors) |
+| **Quick Send Button** | Zinc. Opens inline text-only instruction input bar with @mention routing |
+| **Save Checkpoint Button** | Zinc with 💾 icon. Opens Save Checkpoint dialog |
+| **Terminal Binding Badge** | Shows agent type, bound problem ID, green pulse dot, dropdown to bind problems |
+| **Instruction Panel** | Full compose/instruction panel (`InstructionPanel`) with problem/request checkboxes, skill selector, custom instruction textarea, agent file picker, prompt preview, auto-persist |
+| **Quick Instruction Input** | Inline textarea with session target selector, @mention routing, 500-char limit, Enter=send, Shift+Enter=newline |
 
 ### IPC Endpoints (header)
 - `getProjects` → `'get-projects'`
@@ -28,71 +32,69 @@
 
 ## 2. TERMINAL TAB BAR
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Terminal Tabs** | ~1412–1441 | Horizontal tab bar. Each tab: monitor icon, status dot, name, session category badge, agent type, session indicator "S", close button |
-| **New Terminal Tab (+)** | ~1442–1459 | Creates new terminal, adds to layout, dispatches `'create-terminal'` CustomEvent |
+| Feature | Description |
+|---------|-------------|
+| **Terminal Tabs** | Horizontal tab bar. Each tab: Monitor icon, status dot, name, session category badge, model tier badge (top/mid/low), file lock count, session indicator "S", close (X) button |
+| **Group Color Indicators** | Each tab has a colored top-border strip (8 rotating colors) from the layout group |
+| **Drag-to-Reorder** | Drag-and-drop reorder within groups and between groups |
+| **New Terminal Tab (+)** | Creates new terminal, adds to layout, dispatches `'create-terminal'` CustomEvent |
+| **Group Tabs** | If multiple layout groups exist, shows "Group 1", "Group 2", etc. pill selectors |
 
 ---
 
 ## 3. TERMINAL LAYOUT / XTERM PANES
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Terminal Error Notification Bar** | ~1463–1471 | Dismissible notification bar (red/yellow/green based on type) |
-| **Empty State** | ~1472–1489 | "+ Open Terminal" button when no terminals exist |
-| **TerminalLayout Component** | TerminalWindow.tsx:410–501 | Recursive pane tree rendering |
-| **TerminalPane Component** | TerminalWindow.tsx:92–289 | Individual `@xterm/xterm` instance |
-| **Custom Dark Theme** | TerminalWindow.tsx:101–128 | xterm theme configuration |
-| **FitAddon** | TerminalWindow.tsx | Auto-sizing terminal to container |
-| **WebLinksAddon** | TerminalWindow.tsx | Clickable links in terminal |
-| **Hover Overlay Controls** | TerminalWindow.tsx | Split Vertical (⋮), Split Horizontal (⋯), Close (✕) buttons on hover |
-| **Agent Status Overlay** | TerminalWindow.tsx:273–287 | "Initializing agent..." (cyan pulsing) or "Agent failed. Click to retry." (amber) |
-| **Split Handle Dragging** | TerminalWindow.tsx:292–326 | Mouse drag to resize split ratio between panes |
-| **Layout Tree Operations** | TerminalWindow.tsx:503–593 | `removePane`, `splitPane`, `findGroupIndex`, `removeFromLayouts`, `insertIntoLayout`, `toggleSplitDirection`, `adjustSplitRatio` |
-
-### IPC Endpoints (pane level)
-- `terminalWriteRaw` → `'terminal:write-raw'`
-- `terminalResize` → `'terminal:resize-old-format'`
-- `onTerminalData` → terminal data from PTY
-- `onTerminalExit` → terminal process exit
-- `onTerminalReady` → PTY ready signal
-- `retryAgentInit` → `'retry-agent-init'`
+| Feature | Description |
+|---------|-------------|
+| **Terminal Error Notification Bar** | Dismissible notification bar (red/yellow/green based on type) |
+| **Empty State** | "+ Open Terminal" button when no terminals exist |
+| **TerminalLayout Component** (TerminalWindow.tsx) | Recursive pane tree rendering |
+| **TerminalPane Component** (TerminalWindow.tsx) | Individual `@xterm/xterm` instance with custom dark theme |
+| **FitAddon** | Auto-sizing terminal to container |
+| **WebLinksAddon** | Clickable links in terminal |
+| **Hover Overlay Controls** | Split Vertical (⋮), Split Horizontal (⋯), Close (✕) buttons on hover |
+| **Agent Status Overlay** | "Initializing agent..." (cyan pulsing) or "Agent failed. Click to retry." (amber) |
+| **Split Handle Dragging** | Mouse drag to resize split ratio between panes |
+| **Layout Tree Operations** | `removePane`, `splitPane`, `findGroupIndex`, `removeFromLayouts`, `insertIntoLayout`, `toggleSplitDirection`, `adjustSplitRatio` |
 
 ---
 
 ## 4. SIDEBAR
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Sidebar Resize Handle** | ~1527–1531, 593–613 | Left-edge drag to resize (200px min), persisted to localStorage |
-| **Sidebar Collapse/Expand** | ~1536–1542, 2650–2658 | Toggle sidebar visibility |
+| Feature | Description |
+|---------|-------------|
+| **Sidebar Container** | Right-side panel, `width` state-controlled (default ~350px, range 240-600px), with gradient background |
+| **Resize Handle** | Left-edge 1px drag handle, turns cyan on hover/drag |
+| **Sidebar Header** | Cyan dot + "TERMINAL" label + Info icon + BookOpen icon + collapse button |
+| **Collapse/Expand** | Toggles sidebar visibility; collapsed shows vertical icon strip (Info → BookOpen → divider → PanelLeft) |
 
-### Sidebar Tabs (14 total)
+### Sidebar Tabs (12 total)
 
-| Tab | Icon | Color | Location | Description |
-|-----|------|-------|----------|-------------|
-| Presets | Zap | Green | ~1669–1747 | CRUD command presets |
-| Sessions | Clock | Green | ~1750–1913 | Session management |
-| Map | Monitor | Green | ~1915–2131 | Terminal visual layout (MiniMap) |
-| Analytics | PieChart | Green | ~2133–2142, 4282–4523 | AI usage analytics |
-| Problems | AlertCircle | Purple | ~2663–2883 | Problem/issue tracker |
-| Requests | FileText | Blue | ~3283–3458 | Feature requests |
-| Checklists | CheckSquare | Amber | ~4529–4682 | Checklist tracking |
-| Files | Folder | Yellow (pulse) | ~3460–3860 | Agent file browser |
-| Skills | BookOpen | Cyan | ~4688–4910 | Skill management |
-| Configs | Layers | Cyan | ~2181–2256 | Workspace configs + project prompt |
-| History | MessageSquare | Cyan | ~2258–2264 | Prompt history |
+| # | Tab | Icon | Color | Type | Content Source |
+|---|-----|------|-------|------|---------------|
+| 1 | Presets | Zap | green | Inline | Inline JSX (~2407-2578) |
+| 2 | Sessions | Clock | green | Inline | Inline JSX (~2580-2905) |
+| 3 | Map | Monitor | green | Inline + Component | MiniMap + running terminals (~2907-3050) |
+| 4 | Analytics | PieChart | green | Component | AnalyticsDashboard (~3052-3076) |
+| 5 | Issues | ListChecks | emerald | Component | IssuesWorkspace (~3089-3091) |
+| 6 | Files | Folder | yellow | Inline Component | FilesTab defined at line 5217 |
+| 7 | Skills | Sparkles | indigo | Inline Component | SkillsTab defined at line 4595 |
+| 8 | Design | Palette | pink | Component | DesignWorkspacePage (separate page file) |
+| 9 | Configs | Settings | orange | Inline | Multiple config sections (~3116-3615) |
+| 10 | History | RefreshCw | rose | Inline | Placeholder (~3617-3624) |
+| 11 | Context | Settings2 | amber | Component | ContextSidebar (37KB) |
+| 12 | Maintenance | Database | violet | Component | ContextMaintenanceTab (15KB) |
 
 ---
 
-## 5. PRESETS TAB
+## 5. PRESETS TAB (green)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Add Preset Button** | ~1671–1677 | Toggles inline add form |
-| **Add Preset Form** | ~1679–1717 | Name, Command, Category inputs + Save/Cancel |
-| **Preset List** | ~1718–1747 | Each shows name (editable), command (mono truncated). Hover: Run (▶) and Delete (🗑) |
+| Feature | Description |
+|---------|-------------|
+| **Add Preset Button** | Toggles inline add form |
+| **Add Preset Form** | Name, Command, Category inputs + Save/Cancel |
+| **Preset List** | Each preset: name, command (mono truncated). Hover: Run (Play green), Edit/Info, Delete. Built-in presets marked `[SYSTEM]` (blue). |
+| **Edit Preset Dialog** | Modal overlay editing name/command/category |
 
 ### IPC Endpoints
 - `getTerminalPresets` → `'get-terminal-presets'`
@@ -102,24 +104,27 @@
 
 ---
 
-## 6. SESSIONS TAB
+## 6. SESSIONS TAB (green)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **New Session Button** | ~1752–1765 | Opens `NewSessionDialog` |
-| **Category Filter Pills** | ~1768–1788 | All + 6 categories (Bug Fix, Feature, Refactor, Research, Review, Other) |
-| **Session Cards** | ~1792–1909 | StatusDot, CategoryBadge, agent badge, topic, running indicator, description, date, product area, resume ID, auto-tags, cost. Hover: Resume, Focus, Edit, Messages, Delete |
-| **Session Context Highlighting** | ~1800–1805 | Pulses cyan for 3s when navigated from elsewhere |
-| **Session Edit Dialog** | ~2492–2562 | Edit topic, agent, category, product area, description |
-| **Session Messages Viewer (Modal)** | ~2361–2414 | Full modal with search, role-colored bubbles (user=cyan, system=amber, assistant=green), ANSI stripping |
-| **Delete Session (Confirm Dialog)** | ~1895–1904, 2465–2489 | Confirmation dialog (no `window.confirm`) |
+| Feature | Description |
+|---------|-------------|
+| **New Session Button** | Opens `NewSessionDialog` |
+| **Import Button** | Opens `ImportSessionsDialog` to import from opencode CLI |
+| **Save/Load Workspace Buttons** | Save/load workspace layout (sidebar, tab, terminals) |
+| **Category Filter Pills** | All + 6 categories (Bug Fix, Feature, Refactor, Research, Review, Other) with dot colors |
+| **Session Cards** | GlassCard with left border accent (emerald if running, zinc if closed). Shows: StatusDot, CategoryBadge, agent badge, topic, auto-named indicator, date, terminal name (or "Closed"), product area, description, auto-tags, cost, resume ID. Hover actions: Details, Focus/Open, Messages, Delete |
+| **Session Detail View** | Detail card with metadata grid (status, category, date, terminal, cost, tokens, resume_id, description, product_area) + Focus Terminal/Open button |
+| **Session Messages Viewer** | Inline messages list with Refresh, role-colored bubbles (user=blue, assistant=cyan, system=amber), Quote button, ANSI stripping |
+| **Session Edit Dialog** | Edit topic, agent, category, product area, description |
+| **Full Messages Viewer (Modal)** | Full modal with search, role-colored bubbles, ANSI stripping |
+| **Context Menu** | Right-click session → "Open in Terminal" submenu listing running terminals |
 
 ### IPC Endpoints
 - `getTerminalSessions` → `'get-terminal-sessions'`
 - `saveTerminalSession` → `'save-terminal-session'`
-- `getTerminalSessionResumeId` → `'get-terminal-session-resume-id'`
 - `deleteTerminalSession` → `'delete-terminal-session'`
 - `updateSessionCategory` → `'update-session-category'`
+- `getTerminalSessionResumeId` → `'get-terminal-session-resume-id'`
 - `getSessionMessages` → `'get-session-messages'`
 - `saveTerminalMessage` → `'save-terminal-message'`
 - `saveSessionConfig` → `'save-session-config'`
@@ -127,31 +132,26 @@
 
 ---
 
-## 7. MAP TAB / TERMINAL MINI-MAP
+## 7. MAP TAB (green)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **TerminalMiniMap Component** | TerminalMiniMap.tsx:298 lines | Visual terminal layout editor |
-| **Group Switcher** | TerminalMiniMap.tsx:136–156 | ◀ / ▶ arrows to switch terminal groups |
-| **Visual Tree Pane** | TerminalMiniMap.tsx:158–170 | Split-pane tree as nested divs, click handles to toggle direction |
-| **DnD Drag & Drop** | TerminalMiniMap.tsx:80–119 | `@dnd-kit/core` — swap (center), split vertical (left/right), split horizontal (top/bottom) |
-| **Auto-switch to active group** | TerminalMiniMap.tsx:62–71 | Follows active terminal |
-| **Running Terminals List** | ~2064–2127 | Per-group with drag-to-reorder, Focus/New Session buttons |
-| **Session List** | ~2065–2127 | All sessions with Open/Resume/Focus buttons |
-| **Map Split Ratio Handle** | ~615–636, 1935–1940 | Drag to resize map vs. list, persisted to localStorage |
+| Feature | Description |
+|---------|-------------|
+| **TerminalMiniMap Component** (TerminalMiniMap.tsx) | Visual terminal layout editor |
+| **Group Switcher** | ◀ / ▶ arrows to switch terminal groups |
+| **Visual Tree Pane** | Split-pane tree as nested divs, click handles to toggle direction |
+| **DnD Drag & Drop** | `@dnd-kit/core` — swap (center), split vertical (left/right), split horizontal (top/bottom) |
+| **Auto-switch to active group** | Follows active terminal |
+| **Running Terminals List** | Per-group with drag-to-reorder, Focus/New Session buttons. Shows: terminal name, agent, file lock count, active state, session info |
+| **Map Split Ratio Handle** | Drag to resize map vs. list, persisted to localStorage |
 
 ---
 
-## 8. ANALYTICS TAB
+## 8. ANALYTICS TAB (green)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Period Selector** | ~4405–4413 | Day / Week / Month / All |
-| **Metric Cards** | ~4416–4421 | Sessions, Tokens, Cost ($), Active Checklists |
-| **Token Usage by Agent (Bar Chart)** | ~4424–4440 | Horizontal bar chart (`chart.js`) |
-| **Cost Distribution (Doughnut Chart)** | ~4443–4459 | Cost share by agent |
-| **Sessions Over Time (Line Chart)** | ~4462–4484 | Filled line chart |
-| **Checklist Progress** | ~4487–4502 | Top 5 checklists with progress bars |
+| Feature | Description |
+|---------|-------------|
+| **Period Selector** | 7 Days / 30 Days / All Time pill toggle |
+| **AnalyticsDashboard Component** | Full analytics dashboard with token usage, cost distribution, sessions over time, checklist progress |
 
 ### IPC Endpoints
 - `getAIUsageSummary` → `'get-ai-usage-summary'`
@@ -159,56 +159,27 @@
 
 ---
 
-## 9. PROBLEMS TAB
+## 9. ISSUES TAB (emerald)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Status Filter Dropdown** | ~2754–2763 | All Issues, Active, New, In Progress, Fixed |
-| **New Problem Button** | ~2765–2771 | Opens `NewProblemDialog` |
-| **Project Path Display** | ~2775–2799 | Shows path and "N issues parsed" count |
-| **Problems List (grouped by status)** | ~2808–2858 | Priority color bar, problem ID, cancel, title, session indicator |
-| **Problem Detail Modal** | ~3002–3124 | 7 status buttons, embedded checklist, "Open in Terminal", send instructions, user notes |
-| **New Problem Dialog** | ~3126–3278 | Title, priority, category, session selector, skill grid |
-| **ModalChecklist** | ~2885–3000 | Inline checklist for problem/request with status toggle, approval, notes |
+| Feature | Description |
+|---------|-------------|
+| **IssuesWorkspace Component** (49KB) | Complete issue tracker workspace |
+| **Hide Finished Toggle** | Eye/EyeOff toggle to filter hidden problems/requests |
 
-### IPC Endpoints
+*(Full feature breakdown in IssuesWorkspace.tsx source)*
+
+### IPC Endpoints (via IssuesWorkspace)
 - `getProblems` → `'get-problems'`
 - `createProblem` → `'create-problem'`
 - `updateProblemStatus` → `'update-problem-status'`
 - `assignProblemToTerminal` → `'assign-problem-to-terminal'`
 - `deleteProblem` → `'delete-problem'`
 - `syncProblemsMd` → `'sync-problems-md'`
-
----
-
-## 10. REQUESTS TAB
-
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Status Filter Dropdown** | ~3348–3358 | All, Pending, In Progress, Completed |
-| **New Request Button** | ~3359–3366 | Opens `NewRequestDialog` |
-| **Requests List (grouped by status)** | ~3411–3444 | Priority color bar, linked problems |
-| **Request Detail Modal** | ~4024–4128 | Status buttons, linked problems selector, checklist |
-| **New Request Dialog** | ~4134–4242 | Title, description, priority, category |
-
-### IPC Endpoints
 - `getRequests` → `'get-requests'`
 - `createRequest` → `'create-request'`
 - `updateRequestStatus` → `'update-request-status'`
 - `deleteRequest` → `'delete-request'`
 - `linkProblemToRequest` → `'link-problem-to-request'`
-
----
-
-## 11. CHECKLISTS TAB
-
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Summary Bar** | ~4610–4622 | "X done / Y total" + progress bar |
-| **Grouped Checklist View** | ~4625–4627 | Grouped by parent (Problem/Request), collapsible with status badge, progress bar, items |
-| **ModalChecklist** | ~2885–3000 | Status toggle, human approval, notes editor (inline textarea) |
-
-### IPC Endpoints
 - `getChecklists` → `'get-checklists'`
 - `createChecklistItem` → `'create-checklist-item'`
 - `updateChecklistItem` → `'update-checklist-item'`
@@ -216,17 +187,18 @@
 
 ---
 
-## 12. FILES TAB
+## 10. FILES TAB (yellow)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Init Status Indicator** | ~3751–3754 | ⚪ Not initialized, ⏳ Checking..., ✅ Ready/Initialized, ❌ Error |
-| **Project Path Display** | ~3757–3781 | Shows folder path, fallback project selector |
-| **Live File Change Notification** | ~3784–3789 | Green pulse when agent file changes (`onAgentFileChanged`) |
-| **File Search Bar** | ~3808–3812 | Search by file name/path |
-| **Files List** | ~3813–3842 | Icons by type (state=📌, context=🧠, problems=🚨, etc.) |
-| **File Content Preview** | ~3847–3857 | Smart rendering: state/context has version+badge, problems/requests has colored dots, JSON has tree view, debugging has pattern cards |
-| **Auto-refresh** | ~3721–3725 | Polls every 10 seconds |
+| Feature | Description |
+|---------|-------------|
+| **FilesTab Component** (inline in TerminalPage.tsx:5217) | Agent file browser |
+| **Init Status Indicator** | ⚪ Not initialized, ⏳ Checking..., ✅ Ready/Initialized, ❌ Error |
+| **Project Path Display** | Shows folder path, fallback project selector |
+| **Live File Change Notification** | Green ping dot on tab when agent file changes |
+| **File Search Bar** | Search by file name/path |
+| **Files List** | Icons by type (state=📌, context=🧠, problems=🚨, etc.) |
+| **File Content Preview** | Smart rendering: state/context has version+badge, problems/requests has colored dots, JSON has tree view, debugging has pattern cards |
+| **Auto-refresh** | Polls every 10 seconds |
 
 ### IPC Endpoints
 - `readAgentFiles` → `'read-agent-files'`
@@ -239,16 +211,18 @@
 
 ---
 
-## 13. SKILLS TAB
+## 11. SKILLS TAB (indigo)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Search Bar** | ~4751–4753 | Search by name, description, content |
-| **+ New Skill Button** | ~4754–4757 | Opens `SkillFormModal` |
-| **Category Filter Pills** | ~4761–4772 | "All" + dynamic categories |
-| **Skill Cards (2-column grid)** | ~4775–4792 | Icon, name, description, category badge, char count, "Use" button |
-| **Skill Detail Modal** | ~4803–4839 | Full markdown content, version/tags, Edit + Use |
-| **Skill Create/Edit Form Modal** | ~4842–4910 | Name, Category, Description, Content (markdown textarea) |
+| Feature | Description |
+|---------|-------------|
+| **SkillsTab Component** (inline in TerminalPage.tsx:4595) | Skill management |
+| **Search Bar** | Search by name, description, content |
+| **+ New Skill Button** | Opens `SkillFormModal` |
+| **Category Filter Pills** | "All" + dynamic categories |
+| **Skill Cards (2-column grid)** | Icon, name, description, category badge, char count, "Use" button |
+| **Skill Detail Modal** | Full markdown content, version/tags, Edit + Use |
+| **Skill Create/Edit Form** | Name, Category, Description, Content (markdown textarea) |
+| **Skill Dynamic Form** | `SkillDynamicForm` component for parameterized skill execution |
 
 ### IPC Endpoints
 - `getSkills` → `'get-skills'`
@@ -257,12 +231,23 @@
 
 ---
 
-## 14. CONFIGS TAB
+## 12. DESIGN TAB (pink)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Project Prompt Editor** | ~2184–2206 | Textarea for project-specific instructions, auto-saves on blur, collapsible merged prompt preview |
-| **Saved Workspaces List** | ~2211–2254 | Name + date, Load/Delete buttons, "Save Current" opens SaveConfigDialog |
+| Feature | Description |
+|---------|-------------|
+| **DesignWorkspacePage Component** (separate page file) | Workspace design tools |
+
+---
+
+## 13. CONFIGS TAB (orange)
+
+| Feature | Description |
+|---------|-------------|
+| **Model Configuration** | Re-injection threshold slider (3-30), default model tier selector (top/mid/low), debug mode toggle |
+| **Auto-Assign Routing** | Enable toggle, routing model select, summary frequency, auto-rename toggle + threshold |
+| **Infrastructure Cost** | Cost cards (today, week, month, all time) with call type breakdown |
+| **Cross-Session Sync** | Lock TTL slider (30s-10m), context broadcast toggle, conflict warning mode select, /sync command toggle, thought process toggle |
+| **Live Context Viewer** | File locks per terminal, recent edits feed (timestamps), recent conflicts feed |
 
 ### IPC Endpoints
 - `getPreferences` → `'get-preferences'`
@@ -273,101 +258,93 @@
 
 ---
 
-## 15. PROMPT HISTORY TAB
+## 14. HISTORY TAB (rose)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **PromptHistoryTab** | ~2258–2264 (imported) | External component: search/filter, agent filter, expandable cards, timestamps, linked problem/request |
-| **Delete entry** | PromptHistoryTab | Per-entry Trash2 icon |
-| **Show older toggle** | PromptHistoryTab | Configurable limit (default 5) |
-| **Settings > Prompt History** | SettingsPage | Preset limits (3/5/10/20/50/100) + custom input |
-
-### IPC Endpoints
-- `getPromptHistory` → `'get-prompt-history'`
-- `getPromptStatus` → `'get-prompt-status'`
-- `deleteTerminalMessage` → `'delete-terminal-message'`
+| Feature | Description |
+|---------|-------------|
+| **Placeholder** | "No history records yet. Activity will appear here." |
+| *(To be implemented)* | Future: prompt history viewer |
 
 ---
 
-## 16. QUICK INSTRUCTION INPUT BAR
+## 15. CONTEXT TAB (amber)
 
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Session Target Selector** | ~1281–1293 | Dropdown to choose target terminal |
-| **Instruction Textarea** | ~1295–1352 | Multi-line, auto-expand, char counter (500 limit). Enter=send, Shift+Enter=newline |
-| **@Mention Routing** | ~1301–1377 | Type `@` for dropdown of terminals, arrow-key navigable |
-| **Send Button** | ~1382–1393 | Sends to target terminal with spinner |
-| **Save Checkpoint (quick bar)** | ~1394–1400 | Duplicate save checkpoint |
-| **Close Button** | ~1401–1406 | Closes quick input bar |
-
-### IPC Endpoints
-- `terminalWrite` → `'terminal:write-old-format'`
-- `terminalWriteRaw` → `'terminal:write-raw'`
-- `resolveAtMention` → `'resolve-at-mention'`
-- `aiTaskAdd` → `'ai-task:add'`
+| Feature | Description |
+|---------|-------------|
+| **ContextSidebar Component** (37KB) | Full context management sidebar |
+| **Project Context** | Project ID and path configuration |
+| **Knowledge Systems** | 6 knowledge system toggles (LLM Wiki, Skills, Graphify, PARA, QMD, Deep Memory) |
 
 ---
 
-## 17. INSTRUCTION PANEL (Full Compose)
+## 16. MAINTENANCE TAB (violet)
 
-**Component:** `src/components/InstructionPanel.tsx` (~514 lines)
-
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **Problem Checkbox List** | InstructionPanel.tsx:290–319 | Active problems (non-Fixed, non-Irrelevant) |
-| **Request Checkbox List** | InstructionPanel.tsx:322–352 | Active requests (non-Completed, non-Cancelled) |
-| **Skill Selector** | InstructionPanel.tsx:356–368 | Dropdown of available skills |
-| **Custom Instruction Textarea** | InstructionPanel.tsx:370–378 | Free-form text |
-| **Agent File Picker** | InstructionPanel.tsx:382–429 | Expandable file list, content embedded in prompt |
-| **Prompt Preview** | InstructionPanel.tsx:432–463 | Rendered markdown with copy button |
-| **Auto-persist to localStorage** | InstructionPanel.tsx:116–126 | Saves/restores panel state |
-| **Double-Escape Close** | InstructionPanel.tsx:128–148 | Escape twice within 500ms closes |
-| **Send to Terminal** | TerminalPage.tsx:416–470 | Assembles prompt, queues or writes, saves session with bindings |
+| Feature | Description |
+|---------|-------------|
+| **ContextMaintenanceTab Component** (15KB) | Context maintenance utilities |
 
 ---
 
-## 18. DIALOGS
+## 17. DIALOGS
 
-| Dialog | Location | Description |
-|--------|----------|-------------|
-| **NewSessionDialog** | ~2274–2359 | Create/Initialize modes, terminal modes, 6 context system toggles, token budget, context map visualization |
-| **PromptDesignDialog** | ~1268–1274 | For generate-prompt skill workflow |
-| **Save Config Dialog** | ~2565–2593 | Name input for workspace save |
-| **Save Checkpoint Dialog** | ~2420–2462 | Name input, pre-filled, Enter to submit |
-| **Confirm Dialog** | ~2465–2489 | Custom confirm for destructive actions |
-| **Terminal Picker Dialog** | ~2596–2647 | Lists running terminals for session resume |
+| Dialog | Description |
+|--------|-------------|
+| **NewSessionDialog** | Create/Initialize modes, terminal modes, 6 context system toggles, token budget, context map visualization |
+| **SessionEditDialog** | Edit session topic, agent, category, product area, description |
+| **FeaturesDialog** | Overview of all workspace features (renders at end of TerminalPage.tsx) |
+| **GeneralistDialog** | Skill configuration (from agent/skills/) |
+| **Save Checkpoint Dialog** | Name input for workspace checkpoint, pre-filled, Enter to submit |
+| **Close Workspace Dialog** | Save & Close or Discard & Close options |
+| **Confirm Dialog** | Custom confirm for destructive actions (using state, not window.confirm) |
+| **ImportSessionsDialog** | Import sessions from opencode CLI |
+| **InitializeProgressModal** | Workspace initialization progress with grouped directory display, expandable previews, error retry |
+| **RoutingDisambiguationDialog** | AI routing disambiguation |
+| **RoutingToast** | Routing notifications |
+| **PromptDesignDialog** | Generate-prompt skill workflow |
+| **DSLGenerationModal** | DSL generation |
+
+---
+
+## 18. COLLAPSED SIDEBAR STATE
+
+| Feature | Description |
+|---------|-------------|
+| **Vertical Icon Strip** | Shown when sidebar is collapsed. Icons: Info (cyan hover) → BookOpen (violet hover) → divider → PanelLeft (cyan hover to re-open) |
+| **Tooltips** | Each icon has `title` attribute for tooltip |
 
 ---
 
 ## 19. TERMINAL SPAWNING & INITIALIZATION
 
 ### initializeTerminal (5-step process)
-
-| Step | Location | Description | IPC |
-|------|----------|-------------|-----|
-| 1. Wait for PTY | ~253–265 | Wait for `onTerminalReady` or 8s timeout | `'terminal:ready'` |
-| 2. Set status | ~268 | Set agent status to 'waiting' | — |
-| 3. Write launch | ~271–273 | `claude\r\n` or `claude --resume <id>\r\n` | `'terminal:write-raw'` |
-| 4. Wait for agent | ~276–286 | Wait for `onAgentReady` or 35s timeout | `'agent:ready'` |
-| 5. Write prompts | ~288–318 | Merge DEFAULT + general + project + session prompts, flush queue | `'terminal:write-raw'`, `'get-preferences'`, `'read-project-file'` |
+1. Wait for PTY ready + 8s timeout
+2. Set agent status to 'waiting'
+3. Write launch command (`claude\r\n` or `${agent}\r\n`)
+4. Wait for `agent:ready` event (35s timeout)
+5. Write system prompt → init content → thought process
 
 ### Message Queue System
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **queueOrSend** | ~227–235 | Queues messages if agent not ready, sends directly if ready |
-| **flushMessageQueue** | ~237–243 | Flushes all queued messages after agent is ready |
+- `queueOrSend`: Queues messages if agent not ready, sends directly if ready
+- `flushMessageQueue`: Flushes all queued messages after agent is ready
 
 ### Terminal Lifecycle
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **spawnTerminal** | ~740–748 | Calls `deskflowAPI.spawnTerminal(id, cwd, agentType)` |
-| **closeTerminal** | ~750–791 | Saves session, kills PTY, removes from tabs/layouts, dispatches cleanup |
-| **registerTerminal** | ~399–414 | Registers terminal with backend binding |
-| **handleResumeSession** | ~880–937 | Loads session config, creates terminal, initializes agent with resume ID |
+- `spawnTerminal`: Creates PTY via IPC
+- `closeTerminal`: Saves session, kills PTY, removes from tabs/layouts
+- `registerTerminal`: Registers with backend binding
+- `handleResumeSession`: Loads config, creates terminal, initializes with resume ID
 
 ---
 
-## 20. COMPONENT REFERENCE (External)
+## 20. PROJECT STATS (above tab content)
+
+| Feature | Description |
+|---------|-------------|
+| **Project Stats Card** | Shows when project is selected: Language, VCS, IDE in key-value layout |
+| **Container** | `bg-zinc-800/50 rounded-lg p-2` |
+
+---
+
+## 21. COMPONENT REFERENCE (External to TerminalPage.tsx)
 
 | Component | File | Purpose |
 |-----------|------|---------|
@@ -375,14 +352,30 @@
 | `TerminalMiniMap` | `src/components/TerminalMiniMap.tsx` | Visual layout editor with DnD |
 | `InstructionPanel` | `src/components/InstructionPanel.tsx` | Full compose/instruction panel |
 | `NewSessionDialog` | `src/components/NewSessionDialog.tsx` | Create/initialize sessions |
-| `PromptDesignDialog` | `src/components/PromptDesignDialog.tsx` | Generate-prompt skill workflow |
-| `PromptHistoryTab` | `src/components/PromptHistoryTab.tsx` | Prompt history viewer |
-| `ContextService` | `src/services/ContextService.ts` | Assembles context from 6 knowledge systems |
-| `useTerminalLayout` | `src/hooks/useTerminalLayout.ts` | Layout state hook (unused, preserved) |
+| `IssuesWorkspace` | `src/components/IssuesWorkspace.tsx` | Issues/Problems/Requests/Checklists workspace (49KB) |
+| `ContextSidebar` | `src/components/ContextSidebar.tsx` | Context management (37KB) |
+| `ContextMaintenanceTab` | `src/components/ContextMaintenanceTab.tsx` | Context maintenance (15KB) |
+| `DesignWorkspacePage` | `src/pages/DesignWorkspacePage.tsx` | Design tools |
+| `ImportSessionsDialog` | `src/components/ImportSessionsDialog.tsx` | CLI import |
+| `GeneralistDialog` | `src/components/GeneralistDialog.tsx` | Skill configuration |
+| `PromptDesignDialog` | `src/components/PromptDesignDialog.tsx` | Generate-prompt workflow |
+| `InitializeProgressModal` | `src/components/InitializeProgressModal.tsx` | Workspace initialization |
+| `AnalyticsDashboard` | `src/components/AnalyticsDashboard.tsx` | AI usage analytics |
+| `RoutingDisambiguationDialog` | `src/components/RoutingDisambiguationDialog.tsx` | AI routing |
+| `SessionEditDialog` | `src/components/SessionEditDialog.tsx` | Session editing |
+| `SkillDynamicForm` | `src/components/SkillDynamicForm.tsx` | Skill execution forms |
+| `DSLGenerationModal` | `src/components/DSLGenerationModal.tsx` | DSL generation |
+| `GlassCard` | `src/components/GlassCard.tsx` | Glass card component |
+
+**Inline sub-components (defined inside TerminalPage.tsx):**
+| Component | Line | Purpose |
+|-----------|------|---------|
+| `SkillsTab` | ~4595 | Skill management UI |
+| `FilesTab` | ~5217 | Agent file browser |
 
 ---
 
-## 21. DATA PERSISTENCE (localStorage)
+## 22. DATA PERSISTENCE (localStorage)
 
 | Key | Purpose |
 |-----|---------|
@@ -392,10 +385,19 @@
 | `terminal-mapSplitRatio` | Map/list split ratio |
 | `terminal-defaultAgent` | Default agent type |
 | `compose-instruction` / `compose-<id>` | InstructionPanel state persistence |
+| `model-reinject-threshold` | Re-injection threshold |
+| `default-model-tier` | Default model tier |
+| `model-debug-mode` | Debug mode state |
+| `cross-session-sync-enabled` | Cross-session sync toggle |
+| `file-lock-ttl` | File lock TTL |
+| `context-broadcast-enabled` | Context broadcast toggle |
+| `conflict-warning-mode` | Conflict warning mode |
+| `sync-command-enabled` | /sync command toggle |
+| `thought-process-enabled` | Thought process toggle |
 
 ---
 
-## 22. AGENT FILE SYSTEM (JSON + Markdown dual-write)
+## 23. AGENT FILE SYSTEM (JSON + Markdown dual-write)
 
 | Entity | JSON File | Markdown Mirror |
 |--------|-----------|-----------------|
@@ -404,14 +406,9 @@
 | Checklists | `agent/checklists.json` | None (JSON only) |
 | Skills | `agent/skills/*/SKILL.md` | Skills folder (read from files) |
 
-### Data Flow
-```
-User/AI Action → IPC Handler → Service (JSON read/write) → Optional MD mirror
-```
-
 ---
 
-## 23. SESSION CATEGORIES
+## 24. SESSION CATEGORIES
 
 | Category | Color (pill) | Icon |
 |----------|-------------|------|
@@ -421,20 +418,19 @@ User/AI Action → IPC Handler → Service (JSON read/write) → Optional MD mir
 | Research | cyan | Search |
 | Review | green | Eye |
 | Other | gray | Ellipsis |
-| (default) | — | — |
 
 ---
 
-## 24. AGENT STATUS STATE MACHINE
+## 25. AGENT STATUS STATE MACHINE
 
 ```
 [spawning] → (terminal:ready) → [waiting] → (agent:ready) → [ready]
-                                  [waiting] → (30s timeout) → [timeout] → (click retry) → [waiting]
+                                  [waiting] → (35s timeout) → [timeout] → (click retry) → [waiting]
 ```
 
 ---
 
-## 25. KNOWLEDGE SYSTEMS (Context Assembly)
+## 26. KNOWLEDGE SYSTEMS (Context Assembly)
 
 | System | Source Path | Default Enabled | Max Tokens |
 |--------|-------------|----------------|------------|
@@ -448,125 +444,82 @@ User/AI Action → IPC Handler → Service (JSON read/write) → Optional MD mir
 
 ---
 
-## 26. IPC ENDPOINT FULL REFERENCE (Terminal/Workspace only)
+## 27. IPC ENDPOINT FULL REFERENCE (Terminal/Workspace only)
 
 ### Terminal Lifecycle
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `terminal:create` | main→renderer | Create PTY (node-pty) |
-| `spawn-terminal` | main→renderer | Spawn PTY (separate handler) |
-| `terminal:write-raw` | renderer→main | Write data to PTY (no DB record) |
-| `terminal:write-old-format` | renderer→main | Legacy write (creates DB record) |
-| `terminal:resize-old-format` | renderer→main | Resize PTY |
-| `terminal:destroy-old-format` | renderer→main | Destroy PTY |
-| `kill-terminal` | renderer→main | Kill terminal process |
-| `terminal:ready` | main→renderer | PTY ready signal |
-| `agent:ready` | main→renderer | Agent prompt detected |
-| `agent:timeout` | main→renderer | Agent init timeout |
+- `terminal:create` — Create PTY (node-pty)
+- `spawn-terminal` — Spawn PTY
+- `terminal:write-raw` — Write data to PTY (no DB record)
+- `terminal:write-old-format` — Legacy write (creates DB record)
+- `terminal:resize-old-format` — Resize PTY
+- `terminal:destroy-old-format` — Destroy PTY
+- `kill-terminal` — Kill terminal process
+- `terminal:ready` — PTY ready signal
+- `agent:ready` — Agent prompt detected
+- `agent:timeout` — Agent init timeout
 
 ### Sessions
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `get-terminal-sessions` | renderer→main | Fetch sessions |
-| `save-terminal-session` | renderer→main | Save/update session |
-| `delete-terminal-session` | renderer→main | Delete session |
-| `update-session-category` | renderer→main | Update categorization |
-| `get-terminal-session-resume-id` | renderer→main | Get resume ID |
-| `get-session-messages` | renderer→main | Get session messages |
-| `save-terminal-message` | renderer→main | Save message |
-| `save-session-config` | renderer→main | Save config |
-| `load-session-config` | renderer→main | Load config |
+- `get-terminal-sessions` / `save-terminal-session` / `delete-terminal-session`
+- `update-session-category`
+- `get-terminal-session-resume-id`
+- `get-session-messages` / `save-terminal-message`
+- `save-session-config` / `load-session-config`
 
 ### Presets & Layouts
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `get-terminal-presets` | renderer→main | Fetch presets |
-| `add-terminal-preset` | renderer→main | Add preset |
-| `remove-terminal-preset` | renderer→main | Remove preset |
-| `execute-terminal-preset` | renderer→main | Get preset command |
-| `save-terminal-preset` | renderer→main | Save/update preset |
-| `get-terminal-layouts` | renderer→main | Fetch saved layouts |
-| `save-terminal-layout` | renderer→main | Save layout |
-| `delete-terminal-layout` | renderer→main | Delete layout |
+- `get-terminal-presets` / `add-terminal-preset` / `remove-terminal-preset`
+- `execute-terminal-preset` / `save-terminal-preset`
+- `get-terminal-layouts` / `save-terminal-layout` / `delete-terminal-layout`
 
 ### Bindings & Registration
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `get-terminal-bindings` | renderer→main | Get all bindings |
-| `save-terminal-binding` | renderer→main | Create/update binding |
-| `get-terminal-binding` | renderer→main | Get single binding |
-| `update-terminal-binding` | renderer→main | Update binding |
-| `register-terminal` | renderer→main | Register terminal |
+- `get-terminal-bindings` / `save-terminal-binding`
+- `get-terminal-binding` / `update-terminal-binding`
+- `register-terminal`
 
 ### Problems, Requests, Checklists, Skills
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `get-problems` | renderer→main | Load problems |
-| `create-problem` | renderer→main | Create problem |
-| `update-problem-status` | renderer→main | Update status |
-| `delete-problem` | renderer→main | Delete problem |
-| `assign-problem-to-terminal` | renderer→main | Assign problem |
-| `sync-problems-md` | renderer→main | Regenerate PROBLEMS.md |
-| `get-requests` | renderer→main | Load requests |
-| `create-request` | renderer→main | Create request |
-| `update-request-status` | renderer→main | Update status |
-| `delete-request` | renderer→main | Delete request |
-| `link-problem-to-request` | renderer→main | Link problem |
-| `get-checklists` | renderer→main | Load checklists |
-| `create-checklist-item` | renderer→main | Create item |
-| `update-checklist-item` | renderer→main | Update item |
-| `delete-checklist-item` | renderer→main | Delete item |
-| `get-skills` | renderer→main | Load skills |
-| `create-skill` | renderer→main | Create skill |
-| `update-skill` | renderer→main | Update skill |
+- `get-problems` / `create-problem` / `update-problem-status` / `delete-problem`
+- `assign-problem-to-terminal` / `sync-problems-md`
+- `get-requests` / `create-request` / `update-request-status` / `delete-request`
+- `link-problem-to-request`
+- `get-checklists` / `create-checklist-item` / `update-checklist-item` / `delete-checklist-item`
+- `get-skills` / `create-skill` / `update-skill`
 
 ### Agent Files & Tracker Mind
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `read-agent-files` | renderer→main | List agent/ files |
-| `read-agent-file` | renderer→main | Read agent file |
-| `read-project-file` | renderer→main | Read project file |
-| `write-project-file` | renderer→main | Write project file |
-| `list-agent-dir-files` | renderer→main | List agent dir |
-| `read-agent-file-content` | renderer→main | Read file content |
-| `list-project-files` | renderer→main | List project subdirectory |
-| `tracker-mind-setup` | renderer→main | Initialize workspace |
-| `sync-problems-md` | renderer→main | Sync markdown |
-| `update-state-from-agent` | renderer→main | Update from agent |
-| `watch-agent-files` | renderer→main | Watch file changes |
+- `read-agent-files` / `read-agent-file` / `read-project-file` / `write-project-file`
+- `list-agent-dir-files` / `read-agent-file-content` / `list-project-files`
+- `tracker-mind-setup` / `sync-problems-md` / `update-state-from-agent`
+- `watch-agent-files` / `agent-file-changed`
 
 ### Prompt History
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `get-prompt-history` | renderer→main | Get history |
-| `get-prompt-status` | renderer→main | Get all statuses |
-| `delete-terminal-message` | renderer→main | Delete message |
-| `ai-task:add` | renderer→main | Track AI task |
+- `get-prompt-history` / `get-prompt-status` / `delete-terminal-message`
+- `ai-task:add`
 
 ---
 
-## 27. KNOWN BUGS (undefined functions)
+## 28. KNOWN ISSUES (undefined functions)
 
-| Function | Called at | Effect |
-|----------|-----------|--------|
-| `handleTerminalMoveToGroup` | TerminalPage.tsx:1978 | Breaks drag-drop in Map tab |
-| `loadSavedConfigs` | TerminalPage.tsx:1628, 2243 | Breaks Configs tab |
-| `handleSaveWorkspace` | TerminalPage.tsx:2578, 2584 | Breaks Save Config dialog |
-| `handleLoadWorkspace` | TerminalPage.tsx:2234 | Breaks Load workspace button |
+| Function | Effect |
+|----------|--------|
+| `handleTerminalMoveToGroup` | Breaks drag-drop in Map tab |
+| `loadSavedConfigs` | Breaks Configs tab saved workspaces |
+| `handleSaveWorkspace` | Breaks Save Config dialog |
+| `handleLoadWorkspace` | Breaks Load workspace button |
 
 ---
 
-## 28. KEY FILES REFERENCE
+## 29. KEY FILES REFERENCE
 
 | File | Purpose |
 |------|---------|
-| `src/pages/TerminalPage.tsx` | Main terminal workspace (4910 lines) |
+| `src/pages/TerminalPage.tsx` | Main terminal workspace (5991 lines) — sidebar + toolbar + terminal |
 | `src/components/TerminalWindow.tsx` | xterm pane + split layout |
 | `src/components/TerminalMiniMap.tsx` | Visual layout editor |
+| `src/components/IssuesWorkspace.tsx` | Issues/Problems/Requests/Checklists (49KB) |
+| `src/components/ContextSidebar.tsx` | Context management (37KB) |
+| `src/components/ContextMaintenanceTab.tsx` | Context maintenance (15KB) |
+| `src/pages/DesignWorkspacePage.tsx` | Design workspace tools |
 | `src/components/InstructionPanel.tsx` | Compose/instruction panel |
 | `src/components/NewSessionDialog.tsx` | Session creation/init |
-| `src/components/PromptDesignDialog.tsx` | Generate-prompt workflow |
-| `src/components/PromptHistoryTab.tsx` | Prompt history |
+| `src/components/AnalyticsDashboard.tsx` | Analytics dashboard |
 | `src/services/ProblemsService.ts` | Problems CRUD + MD migration |
 | `src/services/RequestsService.ts` | Requests CRUD + linking |
 | `src/services/ChecklistService.ts` | Checklist CRUD |
@@ -576,13 +529,10 @@ User/AI Action → IPC Handler → Service (JSON read/write) → Optional MD mir
 | `src/lib/defaults.ts` | DEFAULT_SYSTEM_PROMPT, constants |
 | `src/main.ts` | All IPC handlers |
 | `src/preload.ts` | IPC bridge |
-| `agent/` | Workspace files (JSON + MD) |
-| `agent/skills/` | Skill definitions |
-| `graphify-out/` | Knowledge graph output |
 
 ---
 
-## 29. DATA STRUCTURES
+## 30. DATA STRUCTURES
 
 ### Problem
 ```typescript
@@ -626,15 +576,18 @@ User/AI Action → IPC Handler → Service (JSON read/write) → Optional MD mir
 
 ---
 
-## 30. EVENTS (CustomEvent)
+## 31. EVENTS (CustomEvent)
 
-| Event | Dispatch | Purpose |
-|-------|----------|---------|
-| `create-terminal` | TerminalPage | Main.ts creates PTY |
-| `create-terminal-for-problem` | Various | Problem tab opens terminal |
-| `focus-terminal` | Various | Focus specific terminal |
-| `terminal-created` | Various | Post-PTY-creation setup |
-| `close-pane` | TerminalWindow | Close pane |
-| `open-new-session-for-terminal` | TerminalWindow | Open session dialog |
-| `terminal-cleanup` | TerminalPage | Clean up PTY references |
-| `terminal:ready-custom` | TerminalPage | Internal ready signal |
+| Event | Purpose |
+|-------|---------|
+| `create-terminal` | Main.ts creates PTY |
+| `create-terminal-for-problem` | Problem tab opens terminal |
+| `focus-terminal` | Focus specific terminal |
+| `terminal-created` | Post-PTY-creation setup |
+| `close-pane` | Close pane |
+| `open-new-session-for-terminal` | Open session dialog |
+| `terminal-cleanup` | Clean up PTY references |
+| `switch-sidebar-tab` | Switch active sidebar tab (e.g., to 'context') |
+| `trigger-provision` | Trigger workspace provisioning |
+| `open-new-agent` | Open new agent dialog |
+| `terminal:mark-spawned` | Mark terminal as spawned |

@@ -1892,7 +1892,7 @@ function PlanetDetailPanel({ planet, onClose }: { planet: PlanetData | null; onC
   const mins = Math.floor((planet.time % 3600) / 60);
   return (
     <AnimatePresence>
-      <motion.div initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 40 }} className="absolute top-4 right-4 w-80 glass rounded-3xl p-6 shadow-2xl z-50 border border-white/10">
+      <motion.div initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 40 }} className="absolute top-4 right-4 w-80 glass rounded-xl p-5 z-[var(--z-overlay)] border border-white/10">
         <button onClick={onClose} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition"><X className="w-5 h-5" /></button>
         <div className="flex items-center gap-4 mb-6">
           <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: `radial-gradient(circle, ${planet.color}55, transparent)`, border: `2px solid ${planet.color}` }}>
@@ -2615,7 +2615,7 @@ function CategorySidebar({
         initial={{ opacity: 0, x: 40 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 40 }}
-        className="absolute top-4 right-4 w-72 glass rounded-3xl p-5 shadow-2xl z-50 border border-white/10 max-h-[560px] overflow-y-auto"
+        className="absolute top-4 right-4 w-72 glass rounded-xl p-5 z-[var(--z-overlay)] border border-white/10 max-h-[560px] overflow-y-auto"
       >
         <button onClick={onClose} className="absolute top-3 right-3 text-zinc-400 hover:text-white transition">
           <X className="w-5 h-5" />
@@ -3476,7 +3476,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
           } catch (e) {
             console.error('[OrbitSystem] Canvas render error:', e);
             return (
-              <div className="h-[600px] flex items-center justify-center bg-zinc-900/50 rounded-3xl">
+              <div className="h-[600px] flex items-center justify-center bg-zinc-900/50 rounded-xl">
                 <div className="text-zinc-400">3D visualization error. Check console for details.</div>
               </div>
             );

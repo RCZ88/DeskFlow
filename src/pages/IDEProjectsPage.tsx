@@ -61,6 +61,12 @@ import {
 } from 'chart.js';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
 import { format, subDays, eachDayOfInterval, formatDistanceToNow } from 'date-fns';
+import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import { PageShell } from '../components/PageShell';
+import { GlassCard } from '../components/GlassCard';
+import { SectionHeader } from '../components/SectionHeader';
+import { LoadingState } from '../components/LoadingState';
+import { EmptyState } from '../components/EmptyState';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, BarElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -149,15 +155,22 @@ export default function IDEProjectsPage() {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showAddProject, setShowAddProject] = useState(false);
   const [newProject, setNewProject] = useState({ name: '', path: '', repositoryUrl: '', defaultIde: '' });
-  const [activeTab, setActiveTab] = useState<'overview' | 'ides' | 'tools' | 'projects' | 'ai' | 'git' | 'trash'>(() => {
+  const [activeTab, setActiveTab] = useState<'overview' | 'ides' | 'tools' | 'projects' | 'ai' | 'git' | 'analytics' | 'trash'>(() => {
     const saved = localStorage.getItem('ide-projects-activeTab');
     return (saved as any) || 'overview';
   });
   const commitHistoryRef = useRef<any[]>([]);
   const [commitHistory, setCommitHistory] = useState<any[]>([]);
+  const [workspaceAnalytics, setWorkspaceAnalytics] = useState<{ aiUsage: any; sessions: any[]; problems: any[]; requests: any[]; promptHistory: any[] } | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [contributorStats, setContributorStats] = useState<any>(null);
   const [doraMetrics, setDoraMetrics] = useState<any>(null);
   const [syncingGit, setSyncingGit] = useState(false);
+  const [expandedCommit, setExpandedCommit] = useState<string | null>(null);
+  const [gitDiff, setGitDiff] = useState<string | null>(null);
+  const [loadingDiff, setLoadingDiff] = useState(false);
+  const [generatedCommitMsg, setGeneratedCommitMsg] = useState<string | null>(null);
+  const [generatingMsg, setGeneratingMsg] = useState(false);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [showAgentDebug, setShowAgentDebug] = useState(false);
@@ -175,6 +188,8 @@ export default function IDEProjectsPage() {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const [addingProject, setAddingProject] = useState(false);
+  const [quickAddProjects, setQuickAddProjects] = useState<{ ide: string; projects: { name: string; path: string }[] }[]>([]);
+  const [loadingQuickAdd, setLoadingQuickAdd] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('ide-projects-expandedProjects');
@@ -241,6 +256,31 @@ export default function IDEProjectsPage() {
   useEffect(() => {
     localStorage.setItem('ide-projects-expandedProjects', JSON.stringify([...expandedProjects]));
   }, [expandedProjects]);
+
+  // Fetch workspace analytics when analytics tab is active
+  useEffect(() => {
+    if (activeTab !== 'analytics' || !window.deskflowAPI) return;
+    setAnalyticsLoading(true);
+    Promise.all([
+      window.deskflowAPI.getAIUsageSummary('month'),
+      window.deskflowAPI.getProblems(),
+      window.deskflowAPI.getRequests(),
+      window.deskflowAPI.getTerminalSessions?.(undefined, 500),
+      window.deskflowAPI.getPromptHistory?.({ limit: 2000 }),
+    ]).then(([aiUsage, problems, requests, sessions, promptHistory]) => {
+      setWorkspaceAnalytics({
+        aiUsage: aiUsage || null,
+        problems: problems?.data || problems || [],
+        requests: requests?.data || requests || [],
+        sessions: sessions?.data || sessions || [],
+        promptHistory: promptHistory || [],
+      });
+    }).catch((err) => {
+      console.error('[IDEProjectsPage] Failed to fetch workspace analytics:', err);
+    }).finally(() => {
+      setAnalyticsLoading(false);
+    });
+  }, [activeTab]);
 
   const loadGitData = async (projectId: string) => {
     try {
@@ -755,19 +795,11 @@ export default function IDEProjectsPage() {
   }, [editProjectForm.primaryLanguage]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500" />
-      </div>
-    );
+    return <LoadingState variant="spinner" className="h-64" />;
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="p-6 max-w-7xl mx-auto space-y-6"
-    >
+    <PageShell page="ide-projects" className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -784,7 +816,7 @@ export default function IDEProjectsPage() {
             <button
               onClick={handleSyncAI}
               disabled={syncingAI}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors duration-150 disabled:opacity-50"
               title="Import AI usage data"
             >
               <Sparkles className={`w-4 h-4 ${syncingAI ? 'animate-spin' : ''}`} />
@@ -806,7 +838,7 @@ export default function IDEProjectsPage() {
           </div>
           <button
             onClick={() => setShowSetupModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-all"
+            className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors duration-150"
             title="Setup guide"
           >
             <HelpCircle className="w-4 h-4" />
@@ -818,7 +850,7 @@ export default function IDEProjectsPage() {
             <button
               onClick={handleScan}
               disabled={scanning}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors duration-150 disabled:opacity-50"
               title="Scan for tools"
             >
               <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
@@ -831,7 +863,7 @@ export default function IDEProjectsPage() {
             <button
               onClick={handleScan}
               disabled={scanning}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors duration-150 disabled:opacity-50"
               title="Detect IDEs"
             >
               <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
@@ -848,7 +880,7 @@ export default function IDEProjectsPage() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="glass rounded-2xl p-4 flex items-center gap-3"
+            className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-4 flex items-center gap-3"
           >
             <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-emerald-400" />
@@ -866,8 +898,8 @@ export default function IDEProjectsPage() {
       </AnimatePresence>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-zinc-900/50 rounded-2xl w-fit">
-        {(['overview', 'ides', 'tools', 'projects', 'ai', 'git', 'trash'] as const).map((tab) => (
+      <div className="flex gap-1 p-1 bg-zinc-900/50 rounded-xl w-fit">
+        {(['overview', 'ides', 'tools', 'projects', 'ai', 'git', 'analytics', 'trash'] as const).map((tab) => (
           <motion.button
             key={tab}
             onClick={() => {
@@ -876,13 +908,13 @@ export default function IDEProjectsPage() {
             }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-150 ${
               activeTab === tab
-                ? 'bg-zinc-800 text-white shadow-lg'
+                ? 'bg-zinc-800 text-white'
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            {tab === 'ai' ? 'AI Tools' : tab === 'git' ? 'Git' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'ai' ? 'AI Tools' : tab === 'git' ? 'Git' : tab === 'analytics' ? 'Analytics' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </motion.button>
         ))}
       </div>
@@ -903,7 +935,7 @@ export default function IDEProjectsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.05 }}
-                className="glass rounded-3xl p-6"
+                className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5"
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className={`w-10 h-10 rounded-xl ${stat.bg} flex items-center justify-center`}>
@@ -921,13 +953,13 @@ export default function IDEProjectsPage() {
           </div>
 
           {/* AI & Projects Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {/* AI Usage Overview */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="glass rounded-3xl p-8"
+              className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5"
             >
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
@@ -1012,11 +1044,11 @@ export default function IDEProjectsPage() {
                   </div>
                 </>
               ) : (
-                <div className="text-center py-12 text-zinc-500">
-                  <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No AI usage data yet</p>
-                  <p className="text-sm mt-2">Sync AI to start tracking</p>
-                </div>
+                <EmptyState
+                  icon={<Sparkles className="w-12 h-12" />}
+                  title="No AI usage data yet"
+                  description="Sync AI to start tracking"
+                />
               )}
             </motion.div>
 
@@ -1025,7 +1057,7 @@ export default function IDEProjectsPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.25 }}
-              className="glass rounded-3xl p-8"
+              className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5"
             >
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
@@ -1071,11 +1103,11 @@ export default function IDEProjectsPage() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12 text-zinc-500">
-                  <Terminal className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No projects tracked yet</p>
-                  <p className="text-sm mt-2">Add a project to get started</p>
-                </div>
+                <EmptyState
+                  icon={<Terminal className="w-12 h-12" />}
+                  title="No projects tracked yet"
+                  description="Add a project to get started"
+                />
               )}
             </motion.div>
           </div>
@@ -1097,7 +1129,7 @@ export default function IDEProjectsPage() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.05 }}
-                  className="glass rounded-3xl p-6"
+                  className="glass rounded-xl p-5"
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -1127,11 +1159,13 @@ export default function IDEProjectsPage() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="glass rounded-3xl p-12 text-center"
+              className="glass rounded-xl"
             >
-              <Monitor className="w-16 h-16 mx-auto mb-4 text-zinc-600" />
-              <p className="text-lg text-zinc-400">No IDEs detected</p>
-              <p className="text-sm text-zinc-500 mt-2">Click "Scan" to detect your development environments</p>
+              <EmptyState
+                icon={<Monitor className="w-16 h-16" />}
+                title="No IDEs detected"
+                description='Click "Scan" to detect your development environments'
+              />
             </motion.div>
           )}
         </motion.div>
@@ -1170,7 +1204,7 @@ export default function IDEProjectsPage() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.03 }}
-                className="glass rounded-2xl overflow-hidden"
+                className="glass rounded-xl overflow-hidden"
               >
                 <button
                   onClick={() => toggleCategory(category)}
@@ -1222,11 +1256,13 @@ export default function IDEProjectsPage() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="glass rounded-3xl p-12 text-center"
+              className="glass rounded-xl"
             >
-              <Package className="w-16 h-16 mx-auto mb-4 text-zinc-600" />
-              <p className="text-lg text-zinc-400">No tools detected</p>
-              <p className="text-sm text-zinc-500 mt-2">Click "Scan" to detect your development environment</p>
+              <EmptyState
+                icon={<Package className="w-16 h-16" />}
+                title="No tools detected"
+                description='Click "Scan" to detect your development environment'
+              />
             </motion.div>
           )}
         </motion.div>
@@ -1240,10 +1276,21 @@ export default function IDEProjectsPage() {
           className="space-y-6"
         >
           <motion.button
-            onClick={() => setShowAddProject(!showAddProject)}
+            onClick={async () => {
+              const next = !showAddProject;
+              setShowAddProject(next);
+              if (next && window.deskflowAPI?.scanIdeDefaultProjects) {
+                setLoadingQuickAdd(true);
+                try {
+                  const result = await window.deskflowAPI.scanIdeDefaultProjects();
+                  setQuickAddProjects(result);
+                } catch {}
+                setLoadingQuickAdd(false);
+              }
+            }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded-xl transition-all"
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded-xl transition-colors duration-150"
           >
 <Plus className="w-4 h-4" />
             Add Project
@@ -1263,7 +1310,7 @@ export default function IDEProjectsPage() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.05 }}
-                  className="glass rounded-3xl overflow-hidden"
+                  className="glass rounded-xl overflow-hidden"
                 >
                   {/* Card Header - Always Visible */}
                   <div className="p-5">
@@ -1288,7 +1335,7 @@ export default function IDEProjectsPage() {
                         </button>
                         <button
                           onClick={() => toggleProjectExpand(project)}
-                          className={`p-2 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-lg transition-all ${isExpanded ? 'rotate-180' : ''}`}
+                          className={`p-2 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-lg transition-colors duration-150 ${isExpanded ? 'rotate-180' : ''}`}
                         >
                           <ChevronDown className="w-4 h-4" />
                         </button>
@@ -1306,7 +1353,7 @@ export default function IDEProjectsPage() {
                       {project.default_ide && (
                         <button
                           onClick={() => handleOpenProject(project.id)}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-violet-300 rounded-xl transition-all"
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-violet-300 rounded-xl transition-colors duration-150"
                         >
                           <Monitor className="w-4 h-4" />
                           <span className="text-sm font-medium">Open in IDE</span>
@@ -1318,7 +1365,7 @@ export default function IDEProjectsPage() {
                           setWorkspaceProject(project);
                           setIsWorkspaceOpen(true);
                         }}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 rounded-xl transition-all"
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 rounded-xl transition-colors duration-150"
                       >
                         <Terminal className="w-4 h-4" />
                         <span className="text-sm font-medium">Open Workspace</span>
@@ -1492,11 +1539,13 @@ export default function IDEProjectsPage() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="glass rounded-3xl p-12 text-center"
+              className="glass rounded-xl"
             >
-              <Terminal className="w-16 h-16 mx-auto mb-4 text-zinc-600" />
-              <p className="text-lg text-zinc-400">No projects tracked yet</p>
-              <p className="text-sm text-zinc-500 mt-2">Add a project to start tracking its metrics</p>
+              <EmptyState
+                icon={<Terminal className="w-16 h-16" />}
+                title="No projects tracked yet"
+                description="Add a project to start tracking its metrics"
+              />
             </motion.div>
           )}
         </motion.div>
@@ -1509,7 +1558,7 @@ export default function IDEProjectsPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="glass rounded-3xl p-6 flex items-center justify-between"
+            className="glass rounded-xl p-5 flex items-center justify-between"
           >
             <div className="flex items-center gap-3">
               <Sparkles className="w-5 h-5 text-violet-400" />
@@ -1518,7 +1567,7 @@ export default function IDEProjectsPage() {
                 <span className="text-zinc-500 ml-2">{aiAgents.filter(a => a.status !== 'inactive').length} active</span>
               </div>
             </div>
-            <div className="flex items-center gap-6 text-sm">
+            <div className="flex items-center gap-5 text-sm">
               <div>
                 <span className="text-zinc-500">Total Tokens: </span>
                 <span className="text-violet-400 font-medium">{formatTokens(overview?.aiUsage?.totalTokens || 0)}</span>
@@ -1547,7 +1596,7 @@ export default function IDEProjectsPage() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="glass rounded-3xl p-6 overflow-hidden"
+                className="glass rounded-xl p-5 overflow-hidden"
               >
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-white">Agent Detection Details</h3>
@@ -1635,7 +1684,7 @@ export default function IDEProjectsPage() {
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="glass rounded-2xl p-4"
+                className="glass rounded-xl p-4"
               >
                 <div className="flex items-center gap-3">
                   <Sparkles className="w-5 h-5 text-emerald-400" />
@@ -1668,7 +1717,7 @@ export default function IDEProjectsPage() {
                   setSelectedAgent(selectedAgent === agent.id ? null : agent.id);
                   if (agent.status !== 'inactive') setSelectedAgentDetail(agent);
                 }}
-                className={`glass rounded-3xl p-6 cursor-pointer transition-all hover:border-violet-500/50 ${
+                className={`glass rounded-xl p-5 cursor-pointer transition-colors duration-150 hover:border-violet-500/50 ${
                   selectedAgent === agent.id ? 'border-violet-500' : 'border-transparent'
                 }`}
               >
@@ -1777,7 +1826,7 @@ export default function IDEProjectsPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: aiAgents.length * 0.05 }}
-              className="glass rounded-3xl p-6 border border-zinc-800"
+              className="glass rounded-xl p-5 border border-zinc-800"
             >
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -1810,14 +1859,14 @@ export default function IDEProjectsPage() {
                 const top = sorted[0];
                 if (!top) return null;
                 return (
-                  <div className="glass rounded-2xl p-4">
+                  <GlassCard className="p-4">
                     <div className="text-xs text-zinc-500 mb-1">Most Active</div>
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: top.color }} />
                       <span className="text-white font-medium">{top.name}</span>
                     </div>
                     <div className="text-sm text-violet-400 mt-1">{formatTokens(top.tokens)} tokens</div>
-                  </div>
+                  </GlassCard>
                 );
               })()}
               {/* Most Efficient */}
@@ -1826,18 +1875,18 @@ export default function IDEProjectsPage() {
                 const top = sorted[0];
                 if (!top) return null;
                 return (
-                  <div className="glass rounded-2xl p-4">
+                  <GlassCard className="p-4">
                     <div className="text-xs text-zinc-500 mb-1">Most Efficient</div>
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: top.color }} />
                       <span className="text-white font-medium">{top.name}</span>
                     </div>
                     <div className="text-sm text-emerald-400 mt-1">{formatTokens(Math.round(top.tokens / top.messageCount))} tokens/msg</div>
-                  </div>
+                  </GlassCard>
                 );
               })()}
               {/* Export Button */}
-              <div className="glass rounded-2xl p-4 flex flex-col justify-center">
+              <GlassCard className="p-4 flex flex-col justify-center">
                 <button
                   onClick={() => {
                     const rows: string[] = ['Agent,Tokens,Messages,Sessions,Cost,Tokens/Msg,Cost/Session'];
@@ -1858,7 +1907,7 @@ export default function IDEProjectsPage() {
                   <Download className="w-4 h-4" />
                   Export CSV
                 </button>
-              </div>
+              </GlassCard>
             </motion.div>
           )}
 
@@ -1917,7 +1966,7 @@ export default function IDEProjectsPage() {
               {/* Per-Agent Charts Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {agentChartsData.map((agentChart) => (
-                  <div key={agentChart.agentId} className="glass rounded-2xl p-5">
+                  <GlassCard key={agentChart.agentId}>
                     <div className="flex items-center gap-2 mb-4">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: agentChart.color }} />
                       <span className="text-sm font-medium text-white">{agentChart.agentName}</span>
@@ -1967,12 +2016,12 @@ export default function IDEProjectsPage() {
                         }}
                       />
                     </div>
-                  </div>
+                  </GlassCard>
                 ))}
               </div>
 
               {/* Distribution Doughnut */}
-              <div className="glass rounded-3xl p-8">
+              <GlassCard>
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
                     <Activity className="w-5 h-5 text-emerald-400" />
@@ -2019,11 +2068,11 @@ export default function IDEProjectsPage() {
                     <p className="text-zinc-500">No data yet</p>
                   )}
                 </div>
-              </div>
+              </GlassCard>
 
               {/* Multi-Agent Comparison Chart */}
               {aiAgents.filter(a => a.tokens > 0).length > 1 && (
-                <div className="glass rounded-3xl p-8">
+                <GlassCard>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <BarChart3 className="w-5 h-5 text-violet-400" />
@@ -2169,7 +2218,7 @@ export default function IDEProjectsPage() {
                       );
                     })()}
                   </div>
-                </div>
+                </GlassCard>
               )}
             </motion.div>
           )}
@@ -2184,7 +2233,7 @@ export default function IDEProjectsPage() {
           className="space-y-6"
         >
           {/* Project Selector & Sync */}
-          <div className="glass rounded-3xl p-6 flex items-center justify-between">
+          <GlassCard className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <select
                 value={selectedProject || ''}
@@ -2206,14 +2255,14 @@ export default function IDEProjectsPage() {
               <GitCommit className={`w-4 h-4 ${syncingGit ? 'animate-spin' : ''}`} />
               {syncingGit ? 'Syncing...' : 'Sync Commits'}
             </motion.button>
-          </div>
+          </GlassCard>
 
           {/* DORA Metrics */}
           {doraMetrics && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="glass rounded-3xl p-8"
+              className="glass rounded-xl p-5"
             >
               <div className="flex items-center gap-3 mb-6">
                 <Zap className="w-5 h-5 text-amber-400" />
@@ -2229,7 +2278,7 @@ export default function IDEProjectsPage() {
                   { label: 'MTTR', value: doraMetrics.meanTimeToRecoveryHours, sub: '~1 day est.' },
                   { label: 'Change Failure', value: doraMetrics.changeFailureRate, sub: `${doraMetrics.changeFailureRate || 0}%` },
                 ].map((metric, idx) => (
-                  <div key={idx} className="bg-zinc-900/50 rounded-2xl p-4 text-center">
+                  <div key={idx} className="bg-zinc-900/50 rounded-xl p-4 text-center">
                     <div className={`text-2xl font-bold mb-1 ${
                       metric.value === 'elite' ? 'text-emerald-400' :
                       metric.value === 'high' ? 'text-blue-400' :
@@ -2246,7 +2295,158 @@ export default function IDEProjectsPage() {
             </motion.div>
           )}
 
-{/* Commit Stats */}
+          {/* Commit Activity Chart */}
+          {commitHistory.length > 0 && (() => {
+            const dayMap: Record<string, number> = {};
+            const changeMap: Record<string, { add: number; del: number }> = {};
+            const last30 = eachDayOfInterval({ start: subDays(new Date(), 29), end: new Date() });
+
+            for (const c of commitHistory) {
+              const day = format(new Date(c.date), 'yyyy-MM-dd');
+              dayMap[day] = (dayMap[day] || 0) + 1;
+              changeMap[day] = {
+                add: (changeMap[day]?.add || 0) + (c.additions || 0),
+                del: (changeMap[day]?.del || 0) + (c.deletions || 0),
+              };
+            }
+
+            const labels = last30.map(d => format(d, 'MMM dd'));
+            const days = last30.map(d => format(d, 'yyyy-MM-dd'));
+            const commitCounts = days.map(d => dayMap[d] || 0);
+            const additionsData = days.map(d => changeMap[d]?.add || 0);
+            const deletionsData = days.map(d => changeMap[d]?.del || 0);
+
+            const weekLabels = last30
+              .filter((_, i) => i % 7 === 0 || i === last30.length - 1)
+              .map(d => format(d, 'MMM dd'));
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="glass rounded-xl p-5"
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <GitCommit className="w-5 h-5 text-amber-400" />
+                    <div>
+                      <div className="text-sm font-semibold">Commits per Day</div>
+                      <div className="text-xs text-zinc-500">Last 30 days</div>
+                    </div>
+                  </div>
+                  <div className="h-48">
+                    <Bar
+                      data={{
+                        labels,
+                        datasets: [{
+                          label: 'Commits',
+                          data: commitCounts,
+                          backgroundColor: 'rgba(251, 191, 36, 0.6)',
+                          borderColor: 'rgba(251, 191, 36, 0.9)',
+                          borderWidth: 1,
+                          borderRadius: 3,
+                        }]
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                          x: {
+                            ticks: {
+                              color: '#71717a',
+                              maxRotation: 0,
+                              font: { size: 9 },
+                              callback: (_, i) => (i % 7 === 0 || i === labels.length - 1) ? labels[i] : '',
+                            },
+                            grid: { display: false },
+                          },
+                          y: {
+                            beginAtZero: true,
+                            ticks: {
+                              color: '#71717a',
+                              font: { size: 9 },
+                              stepSize: 1,
+                            },
+                            grid: { color: 'rgba(113, 113, 122, 0.15)' },
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 }}
+                  className="glass rounded-xl p-5"
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <TrendingUp className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <div className="text-sm font-semibold">Lines Changed</div>
+                      <div className="text-xs text-zinc-500">Additions vs Deletions</div>
+                    </div>
+                  </div>
+                  <div className="h-48">
+                    <Bar
+                      data={{
+                        labels,
+                        datasets: [
+                          {
+                            label: 'Additions',
+                            data: additionsData,
+                            backgroundColor: 'rgba(16, 185, 129, 0.6)',
+                            borderColor: 'rgba(16, 185, 129, 0.9)',
+                            borderWidth: 1,
+                            borderRadius: 3,
+                          },
+                          {
+                            label: 'Deletions',
+                            data: deletionsData,
+                            backgroundColor: 'rgba(239, 68, 68, 0.6)',
+                            borderColor: 'rgba(239, 68, 68, 0.9)',
+                            borderWidth: 1,
+                            borderRadius: 3,
+                          }
+                        ]
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: {
+                            position: 'top',
+                            align: 'end',
+                            labels: { boxWidth: 10, padding: 8, font: { size: 9 }, color: '#a1a1aa' },
+                          }
+                        },
+                        scales: {
+                          x: {
+                            ticks: {
+                              color: '#71717a',
+                              maxRotation: 0,
+                              font: { size: 9 },
+                              callback: (_, i) => (i % 7 === 0 || i === labels.length - 1) ? labels[i] : '',
+                            },
+                            grid: { display: false },
+                          },
+                          y: {
+                            beginAtZero: true,
+                            ticks: { color: '#71717a', font: { size: 9 } },
+                            grid: { color: 'rgba(113, 113, 122, 0.15)' },
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                </motion.div>
+              </div>
+            );
+          })()}
+
+          {/* Commit Stats */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               { label: 'Total Commits', value: overview?.commits?.totalCommits || 0, icon: GitCommit, color: '#f59e0b', bg: 'bg-amber-500/10' },
@@ -2258,7 +2458,7 @@ export default function IDEProjectsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.05 }}
-                className="glass rounded-3xl p-6"
+                className="glass rounded-xl p-5"
               >
                 <div className="flex items-center gap-3 mb-4">
                   <div className={`w-10 h-10 rounded-xl ${stat.bg} flex items-center justify-center`}>
@@ -2272,6 +2472,263 @@ export default function IDEProjectsPage() {
               </motion.div>
             ))}
           </div>
+
+          {/* Commit History */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass rounded-xl p-5"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <GitCommit className="w-5 h-5 text-amber-400" />
+                <div>
+                  <div className="text-lg font-semibold">Recent Commits</div>
+                  <div className="text-sm text-zinc-500">Last {commitHistory.length} commits</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <motion.button
+                  onClick={async () => {
+                    if (!selectedProject) return;
+                    setLoadingDiff(true);
+                    try {
+                      const res = await (window as any).deskflowAPI.getGitDiff(selectedProject, 'working');
+                      setGitDiff(res.success ? res.diff : 'No changes');
+                    } catch { setGitDiff('Failed to load diff'); }
+                    setLoadingDiff(false);
+                  }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                >
+                  {loadingDiff ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Show Diff'}
+                </motion.button>
+              </div>
+            </div>
+
+            {commitHistory.length === 0 ? (
+              <div className="text-center py-8 text-zinc-600 text-sm">No commits yet. Sync to load commit history.</div>
+            ) : (
+              <div className="space-y-1.5">
+                {commitHistory.map((commit: any) => {
+                  const isExpanded = expandedCommit === commit.id;
+                  const relativeDate = (() => {
+                    const d = new Date(commit.date);
+                    const now = new Date();
+                    const diffMs = now.getTime() - d.getTime();
+                    const diffMins = Math.floor(diffMs / 60000);
+                    if (diffMins < 1) return 'just now';
+                    if (diffMins < 60) return `${diffMins}m ago`;
+                    const diffHours = Math.floor(diffMins / 60);
+                    if (diffHours < 24) return `${diffHours}h ago`;
+                    const diffDays = Math.floor(diffHours / 24);
+                    if (diffDays < 30) return `${diffDays}d ago`;
+                    return d.toLocaleDateString();
+                  })();
+
+                  return (
+                    <div key={commit.id} className="group">
+                      <motion.div
+                        onClick={() => setExpandedCommit(isExpanded ? null : commit.id)}
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800/50 cursor-pointer transition-colors"
+                      >
+                        <div className="w-2 h-2 rounded-full bg-amber-500/60 flex-shrink-0" />
+                        <span className="font-mono text-xs text-zinc-500 w-16 flex-shrink-0">
+                          {commit.sha?.substring(0, 7)}
+                        </span>
+                        <span className="text-sm text-zinc-300 truncate flex-1">
+                          {commit.message?.split('\n')[0] || 'No message'}
+                        </span>
+                        <div className="flex items-center gap-2 text-xs">
+                          {commit.additions > 0 && (
+                            <span className="text-emerald-400">+{commit.additions}</span>
+                          )}
+                          {commit.deletions > 0 && (
+                            <span className="text-red-400">-{commit.deletions}</span>
+                          )}
+                          {commit.files_changed > 0 && (
+                            <span className="text-zinc-500">{commit.files_changed} files</span>
+                          )}
+                        </div>
+                        <span className="text-xs text-zinc-600 w-16 text-right flex-shrink-0">{relativeDate}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 text-zinc-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      </motion.div>
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="ml-8 pl-4 border-l border-zinc-800 py-3 space-y-2">
+                              <div className="flex items-center gap-4 text-xs">
+                                <span className="text-zinc-500">
+                                  <span className="text-zinc-600">Author:</span> {commit.author}
+                                </span>
+                                {commit.author_email && (
+                                  <span className="text-zinc-500">
+                                    <span className="text-zinc-600">Email:</span> {commit.author_email}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                <span className="text-zinc-600">Date:</span> {new Date(commit.date).toLocaleString()}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                <span className="text-zinc-600">SHA:</span> <span className="font-mono">{commit.sha}</span>
+                              </div>
+                              {commit.message?.includes('\n') && (
+                                <div className="text-xs text-zinc-400 bg-zinc-900/50 rounded-lg p-3 mt-1 whitespace-pre-wrap">
+                                  {commit.message}
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </motion.div>
+
+          {/* Auto-Generate Commit Message */}
+          {gitDiff !== null && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="glass rounded-xl p-5"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="w-5 h-5 text-violet-400" />
+                  <div>
+                    <div className="text-lg font-semibold">Generate Commit Message</div>
+                    <div className="text-sm text-zinc-500">From working tree changes</div>
+                  </div>
+                </div>
+                <motion.button
+                  onClick={() => setGitDiff(null)}
+                  whileHover={{ scale: 1.02 }}
+                  className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </motion.button>
+              </div>
+
+              <textarea
+                value={gitDiff}
+                onChange={(e) => setGitDiff(e.target.value)}
+                className="w-full h-40 bg-zinc-900/50 text-zinc-300 text-xs font-mono rounded-lg p-3 border border-zinc-800 focus:border-violet-500 focus:outline-none resize-y"
+                placeholder="No changes detected..."
+              />
+
+              <div className="flex items-center justify-end gap-2 mt-3">
+                <motion.button
+                  onClick={() => navigator.clipboard.writeText(gitDiff)}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                >
+                  Copy Diff
+                </motion.button>
+                <motion.button
+                  onClick={async () => {
+                    if (!selectedProject) return;
+                    setGeneratingMsg(true);
+                    setGeneratedCommitMsg(null);
+                    try {
+                      const res = await (window as any).deskflowAPI.getGitDiff(selectedProject, 'cached');
+                      const stagedDiff = res.success ? res.diff.trim() : '';
+
+                      const pathRes = await (window as any).deskflowAPI.getTerminalSessions();
+                      const terminals = Array.isArray(pathRes) ? pathRes.filter((t: any) => t.terminal_id) : [];
+                      const targetTerminal = terminals[0]?.terminal_id;
+
+                      if (!stagedDiff) {
+                        setGeneratedCommitMsg('No staged changes found. Stage your changes first with `git add`.');
+                        setGeneratingMsg(false);
+                        return;
+                      }
+
+                      if (targetTerminal) {
+                        const prompt = `Generate a conventional commit message for the following changes:\n\`\`\`diff\n${stagedDiff.slice(0, 8000)}\n\`\`\`\n\nRespond with ONLY the commit message, no explanations. Use format: type(scope): description`;
+                        await (window as any).deskflowAPI.terminalWrite(targetTerminal, prompt + '\r\n');
+                        setGeneratedCommitMsg('Prompt sent to terminal agent. Check the terminal for the generated commit message.');
+                      } else {
+                        setGeneratedCommitMsg('No active terminal found. Open a terminal and try again.');
+                      }
+                    } catch (err) {
+                      setGeneratedCommitMsg('Failed to generate commit message.');
+                    }
+                    setGeneratingMsg(false);
+                  }}
+                  disabled={generatingMsg}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="flex items-center gap-2 px-3 py-1.5 text-xs bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {generatingMsg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  {generatingMsg ? 'Generating...' : 'Generate with Agent'}
+                </motion.button>
+              </div>
+
+              {generatedCommitMsg && (
+                <div className="mt-3 p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg">
+                  <div className="text-xs text-zinc-600 mb-1">Result:</div>
+                  <div className="text-sm text-zinc-300 whitespace-pre-wrap">{generatedCommitMsg}</div>
+                  {generatedCommitMsg.startsWith('Prompt sent') && (
+                    <motion.button
+                      onClick={() => navigator.clipboard.writeText(generatedCommitMsg)}
+                      whileHover={{ scale: 1.02 }}
+                      className="mt-2 px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded transition-colors"
+                    >
+                      Copy Note
+                    </motion.button>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Analytics Tab */}
+      {activeTab === 'analytics' && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <BarChart3 className="w-5 h-5 text-violet-400" />
+            <div>
+              <h2 className="text-lg font-semibold text-white">Workspace Analytics</h2>
+              <p className="text-sm text-zinc-500">AI usage, problems, and requests across all projects</p>
+            </div>
+          </div>
+          {workspaceAnalytics ? (
+            <AnalyticsDashboard
+              aiUsage={workspaceAnalytics.aiUsage}
+              sessions={workspaceAnalytics.sessions}
+              problems={workspaceAnalytics.problems}
+              requests={workspaceAnalytics.requests}
+              promptHistory={workspaceAnalytics.promptHistory}
+              loading={analyticsLoading}
+              period="30d"
+              variant="workspace"
+            />
+          ) : analyticsLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+              <span className="ml-3 text-zinc-400 text-sm">Loading analytics...</span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-20 text-zinc-600 text-sm">No analytics data available</div>
+          )}
         </motion.div>
       )}
 
@@ -2282,7 +2739,7 @@ export default function IDEProjectsPage() {
           animate={{ opacity: 1, y: 0 }}
           className="space-y-6"
         >
-          <div className="glass rounded-3xl p-6">
+          <GlassCard>
             <div className="flex items-center gap-3 mb-4">
               <Trash2 className="w-6 h-6 text-zinc-400" />
               <div>
@@ -2292,13 +2749,11 @@ export default function IDEProjectsPage() {
             </div>
 
             {trashProjects.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-800 flex items-center justify-center">
-                  <Trash2 className="w-8 h-8 text-zinc-600" />
-                </div>
-                <p className="text-zinc-400">Trash is empty</p>
-                <p className="text-sm text-zinc-500 mt-1">Deleted projects will appear here</p>
-              </div>
+              <EmptyState
+                icon={<Trash2 className="w-8 h-8" />}
+                title="Trash is empty"
+                description="Deleted projects will appear here"
+              />
             ) : (
               <div className="space-y-3">
                 {trashProjects.map((project: any) => (
@@ -2330,7 +2785,7 @@ export default function IDEProjectsPage() {
                 ))}
               </div>
             )}
-          </div>
+          </GlassCard>
         </motion.div>
       )}
 
@@ -2354,10 +2809,10 @@ export default function IDEProjectsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-zinc-900 rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden border border-zinc-700"
+              className="bg-zinc-900 rounded-xl w-full max-w-3xl max-h-[85vh] overflow-hidden border border-zinc-700"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="p-6 border-b border-zinc-700 flex items-center justify-between sticky top-0 bg-zinc-900 z-10">
+              <div className="p-5 border-b border-zinc-700 flex items-center justify-between sticky top-0 bg-zinc-900 z-10">
                 <h2 className="text-xl font-semibold text-white flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
                     <HelpCircle className="w-5 h-5 text-white" />
@@ -2395,7 +2850,7 @@ export default function IDEProjectsPage() {
                 </div>
               </div>
 
-              <div className="p-6 overflow-y-auto max-h-[calc(85vh-88px)] space-y-6">
+              <div className="p-5 overflow-y-auto max-h-[calc(85vh-88px)] space-y-6">
                 {showOnboarding && (
                   <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-4">
                     <p className="text-blue-300 text-sm"> Welcome! This guide will help you set up project tracking. Follow the steps below to get started.</p>
@@ -2403,7 +2858,7 @@ export default function IDEProjectsPage() {
                 )}
 
                 {/* Step 1: Add Project */}
-                <div className="glass rounded-2xl p-5">
+                <GlassCard>
                   <div className="flex items-start gap-4">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
                       <span className="text-lg font-bold text-emerald-400">1</span>
@@ -2440,10 +2895,10 @@ export default function IDEProjectsPage() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </GlassCard>
 
                 {/* Step 2: AI Usage Tracking */}
-                <div className="glass rounded-2xl p-5">
+                <GlassCard>
                   <div className="flex items-start gap-4">
                     <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center flex-shrink-0">
                       <span className="text-lg font-bold text-violet-400">2</span>
@@ -2481,10 +2936,10 @@ export default function IDEProjectsPage() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </GlassCard>
 
                 {/* Step 3: Git Tracking */}
-                <div className="glass rounded-2xl p-5">
+                <GlassCard>
                   <div className="flex items-start gap-4">
                     <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
                       <span className="text-lg font-bold text-amber-400">3</span>
@@ -2509,10 +2964,10 @@ export default function IDEProjectsPage() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </GlassCard>
 
                 {/* Step 4: IDE Detection */}
-                <div className="glass rounded-2xl p-5">
+                <GlassCard>
                   <div className="flex items-start gap-4">
                     <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center flex-shrink-0">
                       <span className="text-lg font-bold text-blue-400">4</span>
@@ -2545,10 +3000,10 @@ export default function IDEProjectsPage() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </GlassCard>
 
                 {/* Quick Start Checklist */}
-                <div className="glass rounded-2xl p-5 bg-gradient-to-br from-zinc-900 to-zinc-800/50">
+                <GlassCard className="bg-gradient-to-br from-zinc-900 to-zinc-800/50">
                   <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                     <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                     Quick Start Checklist
@@ -2573,7 +3028,7 @@ export default function IDEProjectsPage() {
                   <div className="mt-4 p-3 bg-violet-500/10 border border-violet-500/30 rounded-lg">
                     <p className="text-sm text-violet-300">Tip Your data is stored locally and private. No data leaves your computer.</p>
                   </div>
-                </div>
+                </GlassCard>
               </div>
             </motion.div>
           </motion.div>
@@ -2593,7 +3048,7 @@ export default function IDEProjectsPage() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-zinc-900 rounded-2xl p-8 border border-zinc-700 shadow-2xl max-w-sm w-full mx-4"
+              className="bg-zinc-900 rounded-xl p-5 border border-zinc-700 max-w-sm w-full mx-4"
             >
               <div className="flex flex-col items-center text-center">
                 <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
@@ -2621,7 +3076,7 @@ export default function IDEProjectsPage() {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-zinc-900 border border-zinc-700 rounded-2xl p-8 shadow-2xl max-w-sm w-full mx-4 text-center"
+            className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 max-w-sm w-full mx-4 text-center"
           >
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-violet-500/20 flex items-center justify-center">
               <Sparkles className="w-8 h-8 text-violet-400 animate-spin" />
@@ -2655,7 +3110,7 @@ export default function IDEProjectsPage() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 shadow-2xl max-w-4xl w-full max-h-[85vh] overflow-y-auto"
+              className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 max-w-4xl w-full max-h-[85vh] overflow-y-auto"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-6">
@@ -2902,7 +3357,7 @@ export default function IDEProjectsPage() {
               </div>
 
               {/* Agent-specific help info */}
-              <div className="p-4 bg-zinc-800/30 rounded-xl border border-zinc-700/50">
+              <GlassCard className="p-4 bg-zinc-800/30 border-zinc-700/50">
                 <h4 className="text-sm font-medium text-zinc-300 mb-2">How This Is Calculated</h4>
                 <div className="space-y-1 text-xs text-zinc-500">
                   <p><span className="text-zinc-300">Sessions:</span> Number of chat/conversation files. One JSONL file = one session.</p>
@@ -2928,7 +3383,7 @@ export default function IDEProjectsPage() {
                     <p className="text-emerald-400">Codex: Reads ~/.codex/sessions/*.jsonl files</p>
                   )}
                 </div>
-              </div>
+              </GlassCard>
             </motion.div>
           </motion.div>
         )}
@@ -2948,7 +3403,7 @@ export default function IDEProjectsPage() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto"
+              className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 max-w-2xl w-full max-h-[80vh] overflow-y-auto"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-6">
@@ -2965,7 +3420,7 @@ export default function IDEProjectsPage() {
               </div>
 
               <div className="space-y-6">
-                <div className="glass rounded-xl p-4">
+                <GlassCard className="p-4">
                   <h4 className="text-emerald-400 font-medium mb-3">IDE Detection</h4>
                   <ul className="space-y-2 text-sm text-zinc-300">
                     <li>• IntelliJ IDEA (IntelliJ, Community)</li>
@@ -2974,9 +3429,9 @@ export default function IDEProjectsPage() {
                     <li>• VS Code, Cursor</li>
                     <li>• Android Studio</li>
                   </ul>
-                </div>
+                </GlassCard>
 
-                <div className="glass rounded-xl p-4">
+                <GlassCard className="p-4">
                   <h4 className="text-violet-400 font-medium mb-3">AI Tool Integration</h4>
                   <ul className="space-y-2 text-sm text-zinc-300">
                     <li>• Claude Code - parses .claude/projects/*.jsonl</li>
@@ -2985,9 +3440,9 @@ export default function IDEProjectsPage() {
                     <li>• Codex CLI, Qwen, Aider</li>
                     <li>Tracks: tokens, cost, sessions</li>
                   </ul>
-                </div>
+                </GlassCard>
 
-                <div className="glass rounded-xl p-4">
+                <GlassCard className="p-4">
                   <h4 className="text-blue-400 font-medium mb-3">Project Tracking</h4>
                   <ul className="space-y-2 text-sm text-zinc-300">
                     <li>• Add projects with path & default IDE</li>
@@ -2995,9 +3450,9 @@ export default function IDEProjectsPage() {
                     <li>• Track primary language</li>
                     <li>• Git repository integration</li>
                   </ul>
-                </div>
+                </GlassCard>
 
-                <div className="glass rounded-xl p-4">
+                <GlassCard className="p-4">
                   <h4 className="text-amber-400 font-medium mb-3">Tools Detection</h4>
                   <ul className="space-y-2 text-sm text-zinc-300">
                     <li>• Git - version control</li>
@@ -3006,7 +3461,7 @@ export default function IDEProjectsPage() {
                     <li>• Docker, Docker Compose</li>
                     <li>• And many more...</li>
                   </ul>
-                </div>
+                </GlassCard>
               </div>
             </motion.div>
           </motion.div>
@@ -3027,7 +3482,7 @@ export default function IDEProjectsPage() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 shadow-2xl max-w-lg w-full"
+              className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 max-w-lg w-full"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-6">
@@ -3046,6 +3501,38 @@ export default function IDEProjectsPage() {
               {addProjectError && (
                 <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
                   {addProjectError}
+                </div>
+              )}
+
+              {loadingQuickAdd ? (
+                <div className="mb-4 flex items-center gap-2 text-zinc-400 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Scanning IDE default directories...
+                </div>
+              ) : quickAddProjects.length > 0 && (
+                <div className="mb-4">
+                  <label className="block text-xs text-zinc-500 mb-2 uppercase tracking-wider">Quick Add from IDE Directories</label>
+                  <div className="flex flex-col gap-2">
+                    {quickAddProjects.map(group => (
+                      <div key={group.ide}>
+                        <div className="text-xs text-zinc-500 mb-1 ml-1">{group.ide}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {group.projects.map(p => (
+                            <button
+                              key={p.path}
+                              onClick={() => {
+                                setNewProject({ name: p.name, path: p.path, repositoryUrl: '', defaultIde: '' });
+                              }}
+                              className="flex items-center gap-2 px-3 py-2 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg border border-zinc-700 hover:border-indigo-500/50 transition text-sm"
+                            >
+                              <FolderOpen className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                              <span className="truncate max-w-[200px]">{p.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -3143,7 +3630,7 @@ export default function IDEProjectsPage() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 shadow-2xl max-w-lg w-full"
+              className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 max-w-lg w-full"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-6">
@@ -3227,7 +3714,7 @@ export default function IDEProjectsPage() {
                         className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none"
                       />
                       {showLanguageDropdown && (
-                        <div className="absolute z-10 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg max-h-48 overflow-y-auto shadow-xl">
+                        <div className="absolute z-10 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg max-h-48 overflow-y-auto">
                           {filteredLanguages.length > 0 ? (
                             filteredLanguages.map(lang => (
                               <button
@@ -3324,7 +3811,7 @@ export default function IDEProjectsPage() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 shadow-2xl max-w-md w-full"
+              className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 max-w-md w-full"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center gap-4 mb-4">
@@ -3378,8 +3865,16 @@ export default function IDEProjectsPage() {
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent('open-close-workspace-dialog'))}
                   className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+                  title="Close workspace"
                 >
                   <X className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => setIsWorkspaceOpen(false)}
+                  className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+                  title="Minimize workspace"
+                >
+                  <Minus className="w-4 h-4" />
                 </button>
                 <div className="flex items-center gap-3">
                   <Terminal className="w-5 h-5 text-emerald-400" />
@@ -3391,13 +3886,6 @@ export default function IDEProjectsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setIsWorkspaceOpen(false)}
-                  className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
-                  title="Back to projects"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <button
                   onClick={() => {
                     if (provisionStatus === 'provisioned') {
                       if (!window.confirm('This project is already initialized. Re-initialize workspace files?')) return;
@@ -3405,7 +3893,7 @@ export default function IDEProjectsPage() {
                     setShowInitModal(true);
                   }}
                   disabled={provisionStatus === 'provisioning' || !selectedProject}
-                  className="px-2.5 py-1.5 bg-green-700 hover:bg-green-600 text-white text-xs rounded-lg flex items-center gap-1.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-2.5 py-1.5 bg-green-700 hover:bg-green-600 text-white text-xs rounded-lg flex items-center gap-1.5 transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
                   title="Initialize workspace infrastructure (creates agent files, directories)"
                 >
                   <FolderTree className="w-3.5 h-3.5" />
@@ -3414,7 +3902,7 @@ export default function IDEProjectsPage() {
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent('open-new-agent'))}
                   disabled={!selectedProject}
-                  className="px-2 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 border border-zinc-600/50 text-zinc-300 text-xs rounded-lg flex items-center gap-1.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-2 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 border border-zinc-600/50 text-zinc-300 text-xs rounded-lg flex items-center gap-1.5 transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
                   title="Start a new AI agent session"
                 >
                   <Bot className="w-3.5 h-3.5" />
@@ -3442,6 +3930,6 @@ export default function IDEProjectsPage() {
 
           </motion.div>
         )}
-    </motion.div>
+    </PageShell>
   );
 }

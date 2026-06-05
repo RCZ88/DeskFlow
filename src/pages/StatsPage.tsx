@@ -2,8 +2,13 @@ import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Clock, TrendingUp, Zap, Calendar, BarChart3, X, Monitor,
-  ChevronRight, ChevronLeft, Award, Activity, TrendingUp as TrendingUpIcon
+  ChevronRight, ChevronLeft, Award, Activity, TrendingUp as TrendingUpIcon,
+  Pencil, Trash2, Save, Terminal
 } from 'lucide-react';
+import { PageShell } from '../components/PageShell';
+import { GlassCard } from '../components/GlassCard';
+import { SectionHeader } from '../components/SectionHeader';
+import { LoadingState } from '../components/LoadingState';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -42,6 +47,7 @@ interface StatsPageProps {
   onDateOffsetChange?: (offset: number) => void;
   timeMode?: 'focus' | 'total';
   tierAssignments?: { productive: string[]; neutral: string[]; distracting: string[] };
+  liveActivityLogs?: Array<{id: string; timestamp: number; type: 'app' | 'browser' | 'ide'; name: string; category?: string; title?: string; url?: string}>;
 }
 
 // Category color map
@@ -71,9 +77,16 @@ function formatDuration(seconds: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments }: StatsPageProps) {
+export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments, liveActivityLogs }: StatsPageProps) {
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   const [hourlyChartMode, setHourlyChartMode] = useState<'bar' | 'line'>('bar');
+  const [editingAppLogId, setEditingAppLogId] = useState<number | null>(null);
+  const [editingAppLogTimes, setEditingAppLogTimes] = useState({ started_at: '', ended_at: '' });
+  const [localAppLogs, setLocalAppLogs] = useState<any[]>([]);
+  const [liveCurrentApp, setLiveCurrentApp] = useState<{ app: string; category: string; title?: string } | null>(null);
+  const [liveElapsed, setLiveElapsed] = useState(0);
+  const [liveLogs, setLiveLogs] = useState<Array<{ id: string; timestamp: number; app: string; category: string; level: string }>>([]);
+  const liveSessionStartRef = useRef<number>(Date.now());
   const scrollPosRef = useRef(0);
 
   // Save scroll position continuously
@@ -93,7 +106,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
   }, [selectedPeriod, dateOffset]);
   const chartRefs = useRef<Record<string, ChartJS | null>>({});
 
-  const getViewLabel = () => getDateRange(selectedPeriod, dateOffset).label;
+  const viewLabel = useMemo(() => getDateRange(selectedPeriod, dateOffset).label, [selectedPeriod, dateOffset]);
 
   useEffect(() => {
     return () => {
@@ -106,46 +119,16 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
     };
   }, []);
 
-  // Filter logs based on period + dateOffset
-  const filteredLogs = useMemo(() => {
-    if (selectedPeriod === 'all') return logs;
-    const range = getDateRange(selectedPeriod, dateOffset);
-    return (logs as any[]).filter(log => {
-      const logDate = new Date(log.timestamp);
-      return logDate >= range.start && logDate < range.end;
-    });
-  }, [logs, selectedPeriod, dateOffset]);
+  // Logs are already period-filtered by parent (App.tsx filteredLogs)
+  const filteredLogs = logs;
 
-  // Filter and sort apps based on timeMode and filteredLogs
+  // Filter and sort apps — use parent pre-computed appStats (already period-filtered)
   const sortedApps = useMemo(() => {
-    // Recompute app usage from filtered logs
-    const appUsageMap: Record<string, { total_ms: number; sessions: number }> = {};
-    (filteredLogs as any[]).forEach(log => {
-      if (log.is_browser_tracking) return;
-      const appName = log.app;
-      if (!appUsageMap[appName]) {
-        appUsageMap[appName] = { total_ms: 0, sessions: 0 };
-      }
-      appUsageMap[appName].total_ms += log.duration_ms || ((log.duration || 0) * 1000);
-      appUsageMap[appName].sessions += 1;
-    });
-
-    // Transform into AppStat array format for compatibility
-    const computedAppStats: AppStat[] = Object.entries(appUsageMap).map(([app, data]) => ({
-      app,
-      category: appStats.find(s => s.app === app)?.category || 'Other',
-      total_ms: data.total_ms,
-      sessions: data.sessions,
-      avg_session_ms: data.sessions > 0 ? data.total_ms / data.sessions : 0,
-      first_seen: '', // Not critical for sorting
-      last_seen: ''   // Not critical for sorting
-    }));
-
-    const filtered = timeMode === 'focus' 
-      ? computedAppStats.filter(app => tierAssignments?.productive.includes(app.category))
-      : computedAppStats;
-    return [...filtered].sort((a, b) => b.total_ms - a.total_ms);
-  }, [filteredLogs, timeMode, tierAssignments, appStats]);
+    const filtered = timeMode === 'focus'
+      ? appStats.filter(app => tierAssignments?.productive.includes(app.category))
+      : [...appStats];
+    return filtered.sort((a, b) => b.total_ms - a.total_ms);
+  }, [appStats, timeMode, tierAssignments]);
 
   // Aggregate stats - filtered by timeMode and filteredLogs
   const totals = useMemo(() => {
@@ -199,13 +182,12 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       for (const log of (filteredLogs as any[])) {
         const sessionStart = new Date(log.timestamp).getTime();
         const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
-        const logDate = new Date(sessionStart);
 
         let currentMs = sessionStart;
         while (currentMs < sessionEnd) {
-          const currentHour = new Date(currentMs).getHours();
-          const hourStart = new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate(), currentHour).getTime();
+          const hourStart = Math.floor(currentMs / 3600000) * 3600000;
           const hourEnd = hourStart + 3600000;
+          const currentHour = new Date(hourStart).getHours();
           const segmentStart = Math.max(currentMs, hourStart);
           const segmentEnd = Math.min(sessionEnd, hourEnd);
           const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
@@ -214,7 +196,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
             hourBuckets[currentHour] += segmentSeconds;
           }
 
-          currentMs = hourStart + 3600000;
+          currentMs = hourEnd;
         }
       }
 
@@ -223,6 +205,13 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
         label: `${i.toString().padStart(2, '0')}:00`,
         minutes
       }));
+    }
+
+    // Build date-keyed map once (single pass) for all multi-day periods
+    const logsByDate = new Map<string, number>();
+    for (const log of (filteredLogs as any[])) {
+      const key = format(new Date(log.timestamp), 'yyyy-MM-dd');
+      logsByDate.set(key, (logsByDate.get(key) || 0) + (log.duration || 0));
     }
 
     if (selectedPeriod === 'week') {
@@ -240,9 +229,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
 
       return daysInRange.map(day => {
         const dayStr = format(day, 'yyyy-MM-dd');
-        const dayLogs = (filteredLogs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
-        const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
-        return { date: dayStr, label: format(day, 'EEE'), minutes: totalMin };
+        return { date: dayStr, label: format(day, 'EEE'), minutes: logsByDate.get(dayStr) || 0 };
       });
     }
 
@@ -252,9 +239,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       const cursor = new Date(range.start);
       while (cursor < range.end) {
         const dayStr = format(cursor, 'yyyy-MM-dd');
-        const dayLogs = (filteredLogs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
-        const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
-        days.push({ date: dayStr, label: `${cursor.getDate()}`, minutes: totalMin });
+        days.push({ date: dayStr, label: `${cursor.getDate()}`, minutes: logsByDate.get(dayStr) || 0 });
         cursor.setDate(cursor.getDate() + 1);
       }
       return days;
@@ -266,9 +251,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       const cursor = new Date(range.start);
       while (cursor < range.end) {
         const dayStr = format(cursor, 'yyyy-MM-dd');
-        const dayLogs = (filteredLogs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
-        const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
-        days.push({ date: dayStr, label: format(cursor, 'EEE'), minutes: totalMin });
+        days.push({ date: dayStr, label: format(cursor, 'EEE'), minutes: logsByDate.get(dayStr) || 0 });
         cursor.setDate(cursor.getDate() + 1);
       }
       return days;
@@ -280,9 +263,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       const cursor = new Date(range.start);
       while (cursor < range.end) {
         const dayStr = format(cursor, 'yyyy-MM-dd');
-        const dayLogs = (filteredLogs as any[]).filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
-        const totalMin = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
-        days.push({ date: dayStr, label: format(cursor, 'MMM dd'), minutes: totalMin });
+        days.push({ date: dayStr, label: format(cursor, 'MMM dd'), minutes: logsByDate.get(dayStr) || 0 });
         cursor.setDate(cursor.getDate() + 1);
       }
       return days;
@@ -302,8 +283,12 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
     }));
   }, [filteredLogs, selectedPeriod, dateOffset]);
 
-  // Hourly distribution (computed from filteredLogs)
+  // Hourly distribution — reuse dailyUsage's hour data when period is 'today' (saves a full O(N*M) while-loop)
   const hourlyDistribution = useMemo(() => {
+    if (selectedPeriod === 'today') {
+      return dailyUsage.map(d => ({ hour: d.hour, minutes: d.minutes }));
+    }
+
     const hourBuckets = Array.from({ length: 24 }, () => 0);
 
     for (const log of (filteredLogs as any[])) {
@@ -313,10 +298,9 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
 
       let currentMs = sessionStart;
       while (currentMs < sessionEnd) {
-        const currentHour = new Date(currentMs).getHours();
-        const currentDate = new Date(currentMs);
-        const hourStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), currentHour).getTime();
+        const hourStart = Math.floor(currentMs / 3600000) * 3600000;
         const hourEnd = hourStart + 3600000;
+        const currentHour = new Date(hourStart).getHours();
         const segmentStart = Math.max(currentMs, hourStart);
         const segmentEnd = Math.min(sessionEnd, hourEnd);
         const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
@@ -325,12 +309,12 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
           hourBuckets[currentHour] += segmentSeconds;
         }
 
-        currentMs = hourStart + 3600000;
+        currentMs = hourEnd;
       }
     }
 
     return hourBuckets.map((minutes, hour) => ({ hour, minutes }));
-  }, [filteredLogs]);
+  }, [filteredLogs, selectedPeriod, dailyUsage]);
 
   // Selected app detailed data
   const selectedAppData = useMemo(() => {
@@ -343,16 +327,20 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
-    // Daily breakdown for this app - ALWAYS 7 days
+    // Daily breakdown for this app - ALWAYS 7 days (single-pass Map, no nested filter)
     const now = new Date();
-    const startDate = subDays(now, 6); // Always 7 days
+    const startDate = subDays(now, 6);
     const daysInRange = eachDayOfInterval({ start: startDate, end: now });
-
+    const logsByDayStr = new Map<string, { seconds: number; sessions: number }>();
+    for (const log of appLogs) {
+      const d = format(new Date(log.timestamp), 'yyyy-MM-dd');
+      const cur = logsByDayStr.get(d);
+      logsByDayStr.set(d, { seconds: (cur?.seconds || 0) + (log.duration || 0), sessions: (cur?.sessions || 0) + 1 });
+    }
     const dailyBreakdown = daysInRange.map(day => {
       const dayStr = format(day, 'yyyy-MM-dd');
-      const dayLogs = appLogs.filter(log => format(new Date(log.timestamp), 'yyyy-MM-dd') === dayStr);
-      const totalSec = dayLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
-      return { date: dayStr, label: format(day, 'MMM dd'), seconds: totalSec, sessions: dayLogs.length };
+      const val = logsByDayStr.get(dayStr);
+      return { date: dayStr, label: format(day, 'MMM dd'), seconds: val?.seconds || 0, sessions: val?.sessions || 0 };
     });
 
     // Hourly distribution for this app — split duration across hours
@@ -365,10 +353,9 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
 
       let currentMs = sessionStart;
       while (currentMs < sessionEnd) {
-        const currentHour = new Date(currentMs).getHours();
-        const currentDate = new Date(currentMs);
-        const hourStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), currentHour).getTime();
+        const hourStart = Math.floor(currentMs / 3600000) * 3600000;
         const hourEnd = hourStart + 3600000;
+        const currentHour = new Date(hourStart).getHours();
         const segmentStart = Math.max(currentMs, hourStart);
         const segmentEnd = Math.min(sessionEnd, hourEnd);
         const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
@@ -377,7 +364,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
           hourlyDist[currentHour].seconds += segmentSeconds;
         }
 
-        currentMs = hourStart + 3600000;
+        currentMs = hourEnd;
       }
       hourlyDist[new Date(log.timestamp).getHours()].sessions += 1;
     }
@@ -385,10 +372,11 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
     // Peak hours
     const peakHour = hourlyDist.reduce((max, h) => h.seconds > max.seconds ? h : max, hourlyDist[0]);
 
-    // Longest session (in seconds)
-    const longestSession = appLogs.length > 0
-      ? Math.max(...appLogs.map(log => log.duration || 0))
-      : 0;
+    // Longest session (in seconds) — avoid spread on large array
+    let longestSession = 0;
+    for (const log of appLogs) {
+      if ((log.duration || 0) > longestSession) longestSession = log.duration || 0;
+    }
 
     // Productivity estimate (based on category)
     const productiveCategories = ['IDE', 'AI Tools', 'Productivity', 'Tools'];
@@ -409,21 +397,60 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
     };
   }, [selectedApp, appStats, filteredLogs]);
 
-  // Chart data for daily usage (values in seconds)
-  const dailyChartData = {
+  // Sync localAppLogs when selected app changes
+  useEffect(() => {
+    if (selectedAppData) {
+      setLocalAppLogs(selectedAppData.appLogs);
+    }
+  }, [selectedApp]);
+
+  // Live tracking — listen for foreground changes
+  useEffect(() => {
+    const api = (window as any).deskflowAPI;
+    if (!api?.onForegroundChange) return;
+    api.onForegroundChange((data: any) => {
+      if (data.app && !data.app.toLowerCase().includes('deskflow') && !data.app.toLowerCase().includes('electron')) {
+        setLiveCurrentApp({ app: data.app, category: data.category || 'Other', title: data.title });
+        liveSessionStartRef.current = Date.now();
+        setLiveElapsed(0);
+      }
+    });
+  }, []);
+
+  // Sync live logs from App.tsx (persists across page navigation)
+  useEffect(() => {
+    if (liveActivityLogs) {
+      const appEntries = liveActivityLogs
+        .filter(e => e.type === 'app')
+        .map(e => ({ id: e.id, timestamp: e.timestamp, app: e.name, category: e.category || 'Other', level: 'info' as const }));
+      setLiveLogs(appEntries);
+    }
+  }, [liveActivityLogs]);
+
+  // 1-second timer for live elapsed
+  useEffect(() => {
+    if (!liveCurrentApp) return;
+    const interval = setInterval(() => {
+      setLiveElapsed(Math.floor((Date.now() - liveSessionStartRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [liveCurrentApp]);
+
+  // Memoized chart data and options — prevents Chart.js re-renders from fresh object references
+  const dailyChartData = useMemo(() => ({
     labels: dailyUsage.map(d => d.label),
     datasets: [{
       label: 'Daily Usage',
-      data: dailyUsage.map(d => d.minutes), // values are in seconds
+      data: dailyUsage.map(d => d.minutes),
       backgroundColor: 'rgba(99, 102, 241, 0.5)',
       borderColor: '#6366f1',
       borderWidth: 2,
       fill: true,
       tension: 0.4,
     }]
-  };
+  }), [dailyUsage]);
 
-  const dailyChartOptions = {
+  const dailyChartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -447,17 +474,13 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       },
       y: {
         grid: { color: '#27272a' },
-        ticks: {
-          color: '#71717a',
-          callback: (v: any) => formatDuration(v),
-        },
+        ticks: { color: '#71717a', callback: (v: any) => formatDuration(v) },
         beginAtZero: true,
       }
     },
-  };
+  }), []);
 
-  // Hourly chart data
-  const hourlyChartData = {
+  const hourlyChartData = useMemo(() => ({
     labels: hourlyDistribution.map(h => `${h.hour.toString().padStart(2, '0')}:00`),
     datasets: [{
       label: 'Minutes',
@@ -473,9 +496,9 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       borderWidth: 1,
       borderRadius: 4,
     }]
-  };
+  }), [hourlyDistribution]);
 
-  const hourlyChartOptions = {
+  const hourlyChartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -499,17 +522,13 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       },
       y: {
         grid: { color: '#27272a' },
-        ticks: {
-          color: '#71717a',
-          callback: (v: any) => formatDuration(v),
-        },
+        ticks: { color: '#71717a', callback: (v: any) => formatDuration(v) },
         beginAtZero: true,
       }
     },
-  };
+  }), []);
 
-  // Line chart version of hourly data (connected dots)
-  const hourlyLineChartData = {
+  const hourlyLineChartData = useMemo(() => ({
     labels: hourlyDistribution.map(h => `${h.hour.toString().padStart(2, '0')}:00`),
     datasets: [{
       label: 'Minutes',
@@ -529,9 +548,9 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       pointRadius: 4,
       pointHoverRadius: 6,
     }]
-  };
+  }), [hourlyDistribution]);
 
-  const hourlyLineChartOptions = {
+  const hourlyLineChartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -555,21 +574,50 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       },
       y: {
         grid: { color: '#27272a' },
-        ticks: {
-          color: '#71717a',
-          callback: (v: any) => formatDuration(v),
-        },
+        ticks: { color: '#71717a', callback: (v: any) => formatDuration(v) },
         beginAtZero: true,
       }
     },
-  };
+  }), []);
+
+  // Memoized Pie chart options (was inline in JSX, causing re-renders)
+  const pieChartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'bottom' as const, labels: { color: '#a1a1aa', padding: 18, usePointStyle: true } },
+      tooltip: {
+        backgroundColor: 'rgba(24, 24, 27, 0.95)',
+        titleColor: '#fff',
+        bodyColor: '#a1a1aa',
+        borderColor: '#3f3f46',
+        borderWidth: 1,
+        padding: 12,
+        callbacks: {
+          label: (ctx: any) => {
+            const total = (ctx.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0);
+            const val = ctx.parsed as number;
+            const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0';
+            return ` ${ctx.label}: ${formatDuration(val)} (${pct}%)`;
+          }
+        }
+      }
+    }
+  }), []);
+
+  // Memoized summary cards — was inline array created every render
+  // Memoized reversed live logs — avoiding slice().reverse() every render
+  const reversedLiveLogs = useMemo(() => liveLogs.slice().reverse(), [liveLogs]);
+
+  const summaryCards = useMemo(() => [
+    { label: 'Total Time', value: `${Math.floor(totals.totalTime / 3600000)}h ${Math.floor((totals.totalTime % 3600000) / 60000)}m`, icon: Clock, color: 'text-emerald-400' },
+    { label: 'Total Sessions', value: totals.totalSessions, icon: Activity, color: 'text-indigo-400' },
+    { label: 'Avg Session', value: `${Math.floor(totals.avgSession / 60000)}m`, icon: TrendingUp, color: 'text-violet-400' },
+    { label: 'Active Apps', value: totals.uniqueApps, icon: Monitor, color: 'text-amber-400' },
+  ], [totals.totalTime, totals.totalSessions, totals.avgSession, totals.uniqueApps]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-8"
-    >
+    <PageShell page="stats">
     {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -578,18 +626,72 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
         </div>
         <div className="flex items-center space-x-2">
           <span className="text-sm font-medium px-2 text-zinc-400">
-            {getViewLabel()}
+            {viewLabel}
           </span>
         </div>
       </div>
 
+      {/* Live tracking indicator */}
+      {liveCurrentApp && (
+        <GlassCard>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse shadow-emerald-500/30" />
+              <div>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider">Currently Tracking</div>
+                <div className="text-xl font-semibold text-white">{liveCurrentApp.app}</div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-3xl font-mono font-bold text-emerald-400 tabular-nums">{formatDuration(liveElapsed)}</div>
+              <div className="text-xs text-zinc-500 mt-1">{liveCurrentApp.category}</div>
+            </div>
+          </div>
+        </GlassCard>
+      )}
+
+      {/* Live Detection Panel */}
+      <GlassCard>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Terminal className="w-5 h-5 text-emerald-400" />
+            <span className="font-medium">Live Detection</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
+          </div>
+        </div>
+        <div className="bg-zinc-950 rounded-xl border border-zinc-800/50 p-3 h-48 overflow-y-auto font-mono text-xs">
+          {liveLogs.length === 0 ? (
+            <div className="text-zinc-500 text-center py-8">
+              Waiting for app activity...
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {reversedLiveLogs.map((log) => (
+                <div key={log.id} className="flex items-start gap-2">
+                  <span className="text-zinc-600 shrink-0">
+                    {new Date(log.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                  <span className="shrink-0 px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                    INFO
+                  </span>
+                  <span className="text-blue-400">{log.app}</span>
+                  <span className="text-zinc-500 truncate">{log.category}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </GlassCard>
+
       {/* App Time Distribution & Top Applications */}
-      <div className="flex gap-8">
-        <div className="flex-1 glass rounded-3xl p-8">
+      <div className="flex gap-5">
+        <GlassCard className="w-full md:w-2/5">
           <div className="flex justify-between items-center mb-8">
             <div>
               <div className="text-xl font-semibold">App Time Distribution</div>
-              <div className="text-sm text-zinc-500">{getViewLabel()}</div>
+              <div className="text-sm text-zinc-500">{viewLabel}</div>
             </div>
             <div className="text-right">
               <div className="text-2xl font-semibold tabular-nums">
@@ -600,39 +702,17 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
           </div>
           {sortedApps.length > 0 ? (
             <div className="chart-container h-64">
-              <Pie data={pieData} options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: { position: 'bottom', labels: { color: '#a1a1aa', padding: 18, usePointStyle: true } },
-                  tooltip: {
-                    backgroundColor: 'rgba(24, 24, 27, 0.95)',
-                    titleColor: '#fff',
-                    bodyColor: '#a1a1aa',
-                    borderColor: '#3f3f46',
-                    borderWidth: 1,
-                    padding: 12,
-                    callbacks: {
-                      label: (ctx: any) => {
-                        const total = (ctx.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0);
-                        const val = ctx.parsed as number;
-                        const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0';
-                        return ` ${ctx.label}: ${formatDuration(val)} (${pct}%)`;
-                      }
-                    }
-                  }
-                }
-              }} />
+              <Pie data={pieData} options={pieChartOptions} />
             </div>
           ) : (
             <div className="text-center py-16 text-zinc-500">
               No data available yet
             </div>
           )}
-        </div>
+        </GlassCard>
 
         <div className="flex-1 space-y-4">
-          <div className="glass rounded-3xl p-8">
+          <GlassCard>
             <div className="text-xl font-semibold mb-6">Top Applications</div>
             {sortedApps.slice(0, 6).map((app) => {
               const catColor = CATEGORY_COLORS[app.category] || '#64748b';
@@ -660,37 +740,33 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
                 No applications tracked yet
               </div>
             )}
-          </div>
+          </GlassCard>
         </div>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Time', value: `${Math.floor(totals.totalTime / 3600000)}h ${Math.floor((totals.totalTime % 3600000) / 60000)}m`, icon: Clock, color: 'text-emerald-400' },
-          { label: 'Total Sessions', value: totals.totalSessions, icon: Activity, color: 'text-indigo-400' },
-          { label: 'Avg Session', value: `${Math.floor(totals.avgSession / 60000)}m`, icon: TrendingUp, color: 'text-violet-400' },
-          { label: 'Active Apps', value: totals.uniqueApps, icon: Monitor, color: 'text-amber-400' },
-        ].map((stat, idx) => (
+        {summaryCards.map((stat, idx) => (
           <motion.div
             key={idx}
-            className="glass rounded-3xl p-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.05 }}
           >
-            <div className="flex items-center justify-between mb-4">
-              <stat.icon className={`w-5 h-5 ${stat.color}`} />
-              <div className="text-xs text-zinc-500">LIVE</div>
-            </div>
-            <div className={`text-3xl font-semibold tabular-nums tracking-tight ${stat.color}`}>{stat.value}</div>
-            <div className="text-sm text-zinc-400 mt-1">{stat.label}</div>
+            <GlassCard>
+              <div className="flex items-center justify-between mb-4">
+                <stat.icon className={`w-5 h-5 ${stat.color}`} />
+                <div className="text-xs text-zinc-500">LIVE</div>
+              </div>
+              <div className={`text-3xl font-semibold tabular-nums tracking-tight ${stat.color}`}>{stat.value}</div>
+              <div className="text-sm text-zinc-400 mt-1">{stat.label}</div>
+            </GlassCard>
           </motion.div>
         ))}
       </div>
 
 {/* Hourly Distribution */}
-      <div className="glass rounded-3xl p-8">
+      <GlassCard>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             {hourlyChartMode === 'bar' ? (
@@ -710,7 +786,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
           <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
             <button
               onClick={() => setHourlyChartMode('bar')}
-              className={`p-2 rounded-md transition-all ${
+              className={`p-2 rounded-md transition-colors duration-150 ${
                 hourlyChartMode === 'bar'
                   ? 'bg-emerald-500/20 text-emerald-400'
                   : 'text-zinc-400 hover:text-white'
@@ -721,7 +797,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
             </button>
             <button
               onClick={() => setHourlyChartMode('line')}
-              className={`p-2 rounded-md transition-all ${
+              className={`p-2 rounded-md transition-colors duration-150 ${
                 hourlyChartMode === 'line'
                   ? 'bg-indigo-500/20 text-indigo-400'
                   : 'text-zinc-400 hover:text-white'
@@ -747,10 +823,10 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
             )
           )}
         </div>
-      </div>
+      </GlassCard>
 
       {/* Category Breakdown */}
-      <div className="glass rounded-3xl p-8">
+      <GlassCard>
         <h2 className="text-xl font-semibold mb-6">Category Breakdown</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {categoryBreakdown.map(({ category, total_ms, pct }) => (
@@ -768,17 +844,17 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
               <div className="text-xs text-zinc-500 mt-1">{pct.toFixed(1)}% of total</div>
               <div className="mt-2 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all"
+                  className="h-full rounded-full transition-colors duration-150"
                   style={{ width: `${pct}%`, backgroundColor: CATEGORY_COLORS[category] || '#64748b' }}
                 />
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </GlassCard>
 
       {/* Per-App Cards */}
-      <div className="glass rounded-3xl p-8">
+      <GlassCard>
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold">Application Statistics</h2>
@@ -794,9 +870,9 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
             return (
               <motion.div
                 key={stat.app}
-                className={`rounded-2xl p-5 border cursor-pointer transition ${
+                className={`rounded-xl p-5 border cursor-pointer transition ${
                   isSelected
-                    ? 'bg-zinc-800/80 border-indigo-500/50 shadow-lg shadow-indigo-500/10'
+                    ? 'bg-zinc-800/80 border-indigo-500/50 shadow-indigo-500/10'
                     : 'bg-zinc-900/30 border-zinc-800/50 hover:border-zinc-700'
                 }`}
                 onClick={() => setSelectedApp(isSelected ? null : stat.app)}
@@ -845,27 +921,28 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
             <p>No statistics available yet. Start using your computer to collect data.</p>
           </div>
         )}
-      </div>
+      </GlassCard>
 
       {/* Selected App Detail Modal */}
       <AnimatePresence>
         {selectedAppData && (
           <div
-            className="fixed inset-0 bg-black/70 backdrop-blur flex items-center justify-center z-50 p-8"
+            className="fixed inset-0 bg-black/70 backdrop-blur flex items-center justify-center z-50 p-5"
             onClick={() => setSelectedApp(null)}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="glass rounded-3xl p-8 w-full max-w-3xl max-h-[85vh] overflow-y-auto"
               onClick={e => e.stopPropagation()}
+              className="w-full max-w-3xl max-h-[85vh] overflow-y-auto"
             >
+              <GlassCard variant="elevated">
               {/* Header */}
               <div className="flex items-start justify-between mb-8">
                 <div className="flex items-center gap-4">
                   <div
-                    className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                    className="w-14 h-14 rounded-xl flex items-center justify-center"
                     style={{ backgroundColor: (CATEGORY_COLORS[selectedAppData.stat.category] || '#64748b') + '22' }}
                   >
                     <Monitor
@@ -1057,7 +1134,7 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
                 </div>
                 <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400 transition-all"
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400 transition-colors duration-150"
                     style={{ width: `${selectedAppData.productivityScore}%` }}
                   />
                 </div>
@@ -1066,29 +1143,134 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
                 </div>
               </div>
 
-              {/* Recent Sessions */}
+              {/* Sessions */}
               <div className="mt-8">
-                <h3 className="text-lg font-semibold mb-4">Recent Sessions</h3>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {selectedAppData.appLogs.slice(-10).reverse().map((log: any, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between py-2 px-3 bg-zinc-900/30 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="text-xs text-zinc-500 font-mono">
-                          {format(new Date(log.timestamp), 'MMM dd, HH:mm')}
-                        </div>
-                        {log.title && (
-                          <div className="text-xs text-zinc-400 truncate max-w-[200px]">{log.title}</div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">Sessions</h3>
+                  <span className="text-xs text-zinc-500">{localAppLogs.length} total</span>
+                </div>
+                {localAppLogs.length === 0 ? (
+                  <div className="text-center py-8 text-zinc-600 text-sm">No sessions found</div>
+                ) : (
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {localAppLogs.slice(-20).reverse().map((log: any) => {
+                    const isEditing = editingAppLogId === log.id;
+                    const startDate = new Date(log.timestamp);
+                    const durationMs = log.duration_ms || (log.duration || 0) * 1000;
+                    const endDate = new Date(startDate.getTime() + durationMs);
+                    return (
+                      <div key={log.id} className="bg-zinc-800/30 rounded-lg px-3 py-2 text-sm group hover:bg-zinc-800/50 transition-colors">
+                        {isEditing ? (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[10px] text-zinc-500">Start</label>
+                                <input
+                                  type="datetime-local"
+                                  value={editingAppLogTimes.started_at}
+                                  onChange={(e) => setEditingAppLogTimes(prev => ({ ...prev, started_at: e.target.value }))}
+                                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-zinc-500">End</label>
+                                <input
+                                  type="datetime-local"
+                                  value={editingAppLogTimes.ended_at}
+                                  onChange={(e) => setEditingAppLogTimes(prev => ({ ...prev, ended_at: e.target.value }))}
+                                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex gap-1 justify-end">
+                              <button
+                                onClick={async () => {
+                                  const newStart = new Date(editingAppLogTimes.started_at);
+                                  const newEnd = new Date(editingAppLogTimes.ended_at);
+                                  const durMs = Math.max(0, newEnd.getTime() - newStart.getTime());
+                                  const res = await (window as any).deskflowAPI.updateAppLog(log.id, {
+                                    timestamp: newStart.toISOString(),
+                                    duration_ms: durMs,
+                                  });
+                                  if (res?.success) {
+                                    setEditingAppLogId(null);
+                                    setLocalAppLogs(prev => prev.map(l =>
+                                      l.id === log.id ? { ...l, timestamp: newStart.toISOString(), duration_ms: durMs, duration: durMs / 1000 } : l
+                                    ));
+                                  }
+                                }}
+                                className="px-2 py-1 bg-emerald-600/50 hover:bg-emerald-600 rounded text-xs text-white"
+                              >
+                                <Save className="w-3 h-3 inline mr-1" />Save
+                              </button>
+                              <button
+                                onClick={() => setEditingAppLogId(null)}
+                                className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-xs text-zinc-300"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs text-zinc-400 flex-shrink-0">
+                                {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                              <span className="text-xs text-zinc-300 font-medium">
+                                {startDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              <span className="text-zinc-600">→</span>
+                              <span className="text-xs text-zinc-400">
+                                {endDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-xs text-zinc-400 font-medium">{formatDuration(durationMs / 1000)}</span>
+                              <button
+                                onClick={() => {
+                                  const toLocal = (iso: string) => {
+                                    const d = new Date(iso);
+                                    const pad = (n: number) => String(n).padStart(2, '0');
+                                    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                                  };
+                                  setEditingAppLogId(log.id);
+                                  setEditingAppLogTimes({
+                                    started_at: toLocal(log.timestamp),
+                                    ended_at: toLocal(endDate.toISOString()),
+                                  });
+                                }}
+                                className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-zinc-700 transition-colors duration-150"
+                              >
+                                <Pencil className="w-3 h-3 text-zinc-500" />
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (window.confirm('Delete this session?')) {
+                                    const res = await (window as any).deskflowAPI.deleteAppLog(log.id);
+                                    if (res?.success) {
+                                      setLocalAppLogs(prev => prev.filter(l => l.id !== log.id));
+                                    }
+                                  }
+                                }}
+                                className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-900/50 transition-colors duration-150"
+                              >
+                                <Trash2 className="w-3 h-3 text-red-400" />
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
-                      <div className="text-sm font-mono text-white">{formatDuration(log.duration || 0)}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+                )}
               </div>
+              </GlassCard>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </PageShell>
   );
 }

@@ -1,19 +1,31 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+// Bridge external-data-changed IPC event to window CustomEvent
+// This allows main process to trigger renderer-side data refreshes
+ipcRenderer.on('external-data-changed', () => {
+  window.dispatchEvent(new CustomEvent('external-data-changed'));
+});
+
 contextBridge.exposeInMainWorld('deskflowAPI', {
   // Listen for foreground window changes
   onForegroundChange: (callback: (data: any) => void) => {
-    ipcRenderer.on('foreground-changed', (_event, data) => callback(data));
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('foreground-changed', handler);
+    return () => { ipcRenderer.removeListener('foreground-changed', handler); };
   },
 
   // Listen for tracking heartbeat
   onTrackingHeartbeat: (callback: (data: any) => void) => {
-    ipcRenderer.on('tracking-heartbeat', (_event, data) => callback(data));
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('tracking-heartbeat', handler);
+    return () => { ipcRenderer.removeListener('tracking-heartbeat', handler); };
   },
 
   // Listen for browser tracking live events
   onBrowserTrackingEvent: (callback: (data: any) => void) => {
-    ipcRenderer.on('browser-tracking-event', (_event, data) => callback(data));
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('browser-tracking-event', handler);
+    return () => { ipcRenderer.removeListener('browser-tracking-event', handler); };
   },
 
   // Listen for sleep detection events
@@ -24,6 +36,19 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Get recent activity logs
   getLogs: () => ipcRenderer.invoke('get-logs'),
 
+  // Update/delete individual app log entries
+  updateAppLog: (id: number, data: { timestamp?: string; duration_ms?: number; title?: string }) =>
+    ipcRenderer.invoke('update-app-log', id, data),
+  deleteAppLog: (id: number) => ipcRenderer.invoke('delete-app-log', id),
+
+  // New: pre-aggregated dashboard data (replaces allLogs-based client-side computation)
+  getDashboardAggregates: (request: { period: string; dateOffset?: number; weekOffset?: number }) =>
+    ipcRenderer.invoke('get-dashboard-aggregates', request),
+
+  // New: app stats for StatsPage
+  getAppStats: (request: { period: string; dateOffset?: number }) =>
+    ipcRenderer.invoke('get-app-stats', request),
+
   // Get pre-computed dashboard data (single call replaces multiple fetches)
   getDashboardData: (params: { period: string; dateOffset?: number }) => ipcRenderer.invoke('get-dashboard-data', params),
 
@@ -33,14 +58,11 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Backfill aggregations from existing logs
   backfillAggregations: () => ipcRenderer.invoke('backfill-aggregations'),
 
-  // Get logs filtered by period
-  getLogsByPeriod: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-logs-by-period', period),
+  // Get logs filtered by period and optional dateOffset
+  getLogsByPeriod: (params: { period: 'today' | 'week' | 'month' | 'all'; dateOffset?: number }) => ipcRenderer.invoke('get-logs-by-period', params),
 
   // Get aggregated stats
   getStats: () => ipcRenderer.invoke('get-stats'),
-
-  // Get per-app detailed stats (optional period filter: 'today', 'week', 'month', 'all')
-  getAppStats: (period?: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-app-stats', period),
 
   // Get daily stats
   getDailyStats: (period: 'week' | 'month' | 'all') => ipcRenderer.invoke('get-daily-stats', period),
@@ -76,6 +98,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   setBrowserTracking: (enabled: boolean) => ipcRenderer.invoke('set-browser-tracking', enabled),
   getBrowserTrackingStatus: () => ipcRenderer.invoke('get-browser-tracking-status'),
   setBrowserExcludedDomains: (domains: string[]) => ipcRenderer.invoke('set-browser-excluded-domains', domains),
+  setRecordingMode: (type: 'browser', mode: 'always' | 'on-view') => ipcRenderer.invoke('set-recording-mode', { type, mode }),
+  getRecordingModes: () => ipcRenderer.invoke('get-recording-modes'),
+  setPageVisibility: (page: 'browser', visible: boolean) => ipcRenderer.invoke('set-page-visibility', { page, visible }),
   setBrowserWithExtension: (browser: string) => ipcRenderer.invoke('set-browser-with-extension', browser),
 
   // Get tracked browsers (apps categorized as Browser)
@@ -109,6 +134,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getProductivitySessions: (opts?: { period?: 'today' | 'week' | 'month' | 'all'; minDuration?: number; limit?: number; offset?: number }) =>
     ipcRenderer.invoke('get-productivity-sessions', opts || {}),
   clearProductivitySessions: () => ipcRenderer.invoke('clear-productivity-sessions'),
+  getCurrentForeground: () => ipcRenderer.invoke('get-current-foreground'),
 
   // App control
   quitApp: () => ipcRenderer.invoke('quit-app'),
@@ -145,9 +171,29 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   summarizeWithLLM: (prompt: string, options?: { maxTokens?: number; model?: string }) =>
     ipcRenderer.invoke('summarize-with-llm', prompt, options),
 
+  // AI Briefing & News Features
+  getAiBrief: (params: { type: 'daily' | 'weekly' }) => ipcRenderer.invoke('get-ai-brief', params),
+  regenerateAiBrief: (params: { type: 'daily' | 'weekly' }) => ipcRenderer.invoke('regenerate-ai-brief', params),
+  getTopicDigest: () => ipcRenderer.invoke('get-topic-digest'),
+  checkAnomalies: () => ipcRenderer.invoke('check-anomalies'),
+  analyzePatterns: () => ipcRenderer.invoke('analyze-patterns'),
+  analyzeSleep: () => ipcRenderer.invoke('analyze-sleep'),
+  dataChatQuery: (params: { query: string; history: Array<{ role: string; content: string }> }) => ipcRenderer.invoke('data-chat-query', params),
+  getAiConfig: () => ipcRenderer.invoke('get-ai-config'),
+  saveAiConfig: (config: { apiKey?: string; enabled?: boolean; briefModel?: string; weeklyModel?: string; digestModel?: string; anomalyModel?: string; autoGenerateBrief?: boolean }) => ipcRenderer.invoke('save-ai-config', config),
+  getInterestTopics: () => ipcRenderer.invoke('get-interest-topics'),
+  addInterestTopic: (topic: string) => ipcRenderer.invoke('add-interest-topic', topic),
+  removeInterestTopic: (topic: string) => ipcRenderer.invoke('remove-interest-topic', topic),
+  onAiBriefReady: (callback: (data: { type: string; content: any }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('ai-brief-ready', handler);
+    return () => { ipcRenderer.removeListener('ai-brief-ready', handler); };
+  },
+
   // File operations
   saveFile: (options: { content: string; filename: string; fileType: string }) => ipcRenderer.invoke('save-file', options),
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
+  showOpenDialog: (options: any) => ipcRenderer.invoke('show-open-dialog', options),
 
   // ========== IDE Projects ==========
   // IDE Detection
@@ -173,6 +219,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   removeProject: (projectId: string) => ipcRenderer.invoke('remove-project', projectId),
   openProject: (projectId: string, ideId?: string) => ipcRenderer.invoke('open-project', projectId, ideId),
   detectProjectLanguage: (projectPath: string) => ipcRenderer.invoke('detect-project-language', projectPath),
+  scanIdeDefaultProjects: () => ipcRenderer.invoke('scan-ide-default-projects'),
 
   // AI & Git Metrics
   getAIUsageSummary: (period?: 'day' | 'week' | 'month') => ipcRenderer.invoke('get-ai-usage-summary', period),
@@ -198,6 +245,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getDORAMetrics: (projectId: string, period?: 'week' | 'month') => ipcRenderer.invoke('get-dora-metrics', projectId, period),
   getCommitHistory: (projectId: string, limit?: number) => ipcRenderer.invoke('get-commit-history', projectId, limit),
   getContributorStats: (projectId: string) => ipcRenderer.invoke('get-contributor-stats', projectId),
+  getGitDiff: (projectId: string, diffType?: 'cached' | 'working') => ipcRenderer.invoke('get-git-diff', projectId, diffType),
 
   // ========== Terminal Window ==========
   createTerminalWindow: () => ipcRenderer.invoke('create-terminal-window'),
@@ -237,6 +285,21 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     return () => ipcRenderer.removeListener('agent:timeout', handler);
   },
   retryAgentInit: (terminalId: string, agentType: string) => ipcRenderer.invoke('retry-agent-init', terminalId, agentType),
+  verifyAgent: (agentType: string) => ipcRenderer.invoke('agent:verify', agentType),
+  armHandshake: (terminalId: string) => ipcRenderer.invoke('agent:arm-handshake', terminalId),
+  agentSend: (terminalId: string, data: string, agentType?: string) => ipcRenderer.invoke('agent:send', terminalId, data, agentType),
+  getAgentPhase: (terminalId: string) => ipcRenderer.invoke('agent:get-phase', terminalId),
+  retryAgentLaunch: (terminalId: string, agentType: string) => ipcRenderer.invoke('agent:retry-launch', terminalId, agentType),
+  onAgentIdle: (callback: (data: { terminalId: string; seq: number }) => void) => {
+    const handler = (_event: any, data: { terminalId: string; seq: number }) => callback(data);
+    ipcRenderer.on('agent:idle', handler);
+    return () => ipcRenderer.removeListener('agent:idle', handler);
+  },
+  onAgentInitError: (callback: (data: { terminalId: string; reason: string; detail: string; installHint: string }) => void) => {
+    const handler = (_event: any, data: { terminalId: string; reason: string; detail: string; installHint: string }) => callback(data);
+    ipcRenderer.on('agent:init-error', handler);
+    return () => ipcRenderer.removeListener('agent:init-error', handler);
+  },
 
   // ========== New Terminal API (node-pty based) ==========
   terminalAPI: {
@@ -274,6 +337,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   deleteTerminalSession: (sessionId: string) => ipcRenderer.invoke('delete-terminal-session', sessionId),
   getTerminalSessionResumeId: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-resume-id', sessionId),
   getTerminalSessionById: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-by-id', sessionId),
+  checkSessionExists: (sessionId: string) => ipcRenderer.invoke('check-session-exists', sessionId),
   getSessionMessages: (sessionId: string, agentType?: string) => ipcRenderer.invoke('get-session-messages', sessionId, agentType),
   summarizeSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke('summarize-session', sessionId, projectPath),
 
@@ -340,6 +404,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   startExternalSession: (activityId: string) => ipcRenderer.invoke('start-external-session', activityId),
   startAfkSession: () => ipcRenderer.invoke('start-afk-session'),
   stopAfkSession: (newActivityId?: string) => ipcRenderer.invoke('stop-afk-session', newActivityId),
+  reclassifyAfkSession: (sessionId: number, newActivityId: number) => ipcRenderer.invoke('reclassify-afk-session', sessionId, newActivityId),
+  debugSaveAfk: (data: { activityId: string; startedAt: string; endedAt: string }) => ipcRenderer.invoke('debug-save-afk', data),
+  batchSaveAfkSegments: (segments: Array<{ activityId: string; startedAt: string; endedAt: string }>) => ipcRenderer.invoke('batch-save-afk-segments', { segments }),
   stopExternalSession: (sessionId: string, endTime?: string, deviceOffToSleepSeconds?: number, wakeUpToAppSeconds?: number) => ipcRenderer.invoke('stop-external-session', sessionId, endTime, deviceOffToSleepSeconds, wakeUpToAppSeconds),
   updateExternalSession: (sessionId: string, updates: { duration_seconds?: number; started_at?: string; ended_at?: string }) => ipcRenderer.invoke('update-external-session', sessionId, updates),
   deleteExternalSession: (sessionId: string) => ipcRenderer.invoke('delete-external-session', sessionId),
@@ -354,11 +421,12 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   checkSleepDetection: () => ipcRenderer.invoke('check-sleep-detection'),
   confirmSleep: (sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds: number; wake_up_to_app_seconds: number }) => ipcRenderer.invoke('confirm-sleep', sleepData),
   dismissSleepDetection: () => ipcRenderer.invoke('dismiss-sleep-detection'),
-  addExternalTime: (activityId: string, durationMinutes: number) => ipcRenderer.invoke('add-external-time', { activityId, durationMinutes }),
-  getExternalStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-external-stats', period),
-  getComparisonStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-comparison-stats', period),
-  updateActivityChartPreference: (activityId: string, chartType: string) => ipcRenderer.invoke('update-activity-chart-preference', activityId, chartType),
-  getSleepTrends: (period: 'week' | 'month') => ipcRenderer.invoke('get-sleep-trends', period),
+  addExternalTime: (activityId: string, durationMinutes: number, started_at?: string, ended_at?: string) => ipcRenderer.invoke('add-external-time', { activityId, durationMinutes, started_at, ended_at }),
+   getExternalStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-external-stats', period),
+   getSleepDebug: (period: string = 'week', dateOffset = 0) => ipcRenderer.invoke('get-sleep-debug', period, dateOffset),
+   getComparisonStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-comparison-stats', period),
+   updateActivityChartPreference: (activityId: string, chartType: string) => ipcRenderer.invoke('update-activity-chart-preference', activityId, chartType),
+   getSleepTrends: (period: string, dateOffset = 0) => ipcRenderer.invoke('get-sleep-trends', period, dateOffset),
   getConsistencyScore: (period: 'week' | 'month') => ipcRenderer.invoke('get-consistency-score', period),
   getExternalSettings: (key: string) => ipcRenderer.invoke('get-external-settings', key),
   setExternalSettings: (key: string, value: string) => ipcRenderer.invoke('set-external-settings', key, value),
@@ -366,7 +434,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   setTrackingSetting: (key: string, value: string) => ipcRenderer.invoke('set-tracking-setting', key, value),
    getTypicalDay: (days?: number) => ipcRenderer.invoke('get-typical-day', days),
    getTypicalActivityAtTime: (timestamp: string) => ipcRenderer.invoke('get-typical-activity-at-time', timestamp),
-  getHourlyHeatmap: (days?: number) => ipcRenderer.invoke('get-hourly-heatmap', days),
+   detectUsageGaps: (options?: { period?: string; minGapMinutes?: number }) => ipcRenderer.invoke('detect-usage-gaps', options || {}),
+   getHourlyHeatmap: (days?: number) => ipcRenderer.invoke('get-hourly-heatmap', days),
   getBestDays: () => ipcRenderer.invoke('get-best-days'),
    getDayDetail: (date: string) => ipcRenderer.invoke('get-day-detail', date),
    getHourDetail: (date: string, hour: number) => ipcRenderer.invoke('get-hour-detail', date, hour),
@@ -393,6 +462,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   createProblem: (data: any) => ipcRenderer.invoke('create-problem', data),
   updateProblemStatus: (data: { problemId: string; status: string; projectId?: string; projectPath?: string }) =>
     ipcRenderer.invoke('update-problem-status', data),
+  updateProblem: (data: { id: string; user_notes?: string; terminal_id?: string; title?: string; priority?: string; category?: string; description?: string; projectId?: string; projectPath?: string }) =>
+    ipcRenderer.invoke('update-problem', data),
   deleteProblem: (problemId: string, projectId?: string) => ipcRenderer.invoke('delete-problem', { problemId, projectId }),
   assignProblemToTerminal: (data: {
     problemId: string;
@@ -408,20 +479,17 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   updateSkill: (data: { id: string; name: string; category: string; description: string; content: string; projectPath?: string }) => ipcRenderer.invoke('update-skill', data),
   syncProblemsMd: () => ipcRenderer.invoke('sync-problems-md'),
   trackerMindSetup: (step: string, projectId?: string, agentName?: string) => ipcRenderer.invoke('tracker-mind-setup', { step, projectId, agentName }),
+  onTrackerMindInitProgress: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('tracker-mind-init-progress', handler);
+    return () => { ipcRenderer.removeListener('tracker-mind-init-progress', handler); };
+  },
   logActivity: (data: { entityType: string; entityId: string; entityTitle?: string; action: string; actor: string; summary: string; details?: string }) =>
     ipcRenderer.invoke('log-activity', data),
   getActivityLog: (opts?: { entityType?: string; entityId?: string; limit?: number }) =>
     ipcRenderer.invoke('get-activity-log', opts),
   getAiContext: (opts?: { projectId?: string; since?: string; limit?: number }) =>
     ipcRenderer.invoke('get-ai-context', opts),
-  getChecklists: (projectId?: string, projectPath?: string) => ipcRenderer.invoke('get-checklists', { projectId, projectPath }),
-  createChecklistItem: (data: { parentType: 'problem' | 'request'; parentId: string; description: string; requiresHuman?: boolean; projectId?: string; projectPath?: string }) =>
-    ipcRenderer.invoke('create-checklist-item', data),
-  updateChecklistItem: (data: { id: string; updates: Record<string, any>; projectId?: string; projectPath?: string }) =>
-    ipcRenderer.invoke('update-checklist-item', data),
-  deleteChecklistItem: (data: { id: string; projectId?: string; projectPath?: string }) =>
-    ipcRenderer.invoke('delete-checklist-item', data),
-
   // ========= Tracker Mind - Requests =========
   getRequests: (projectId?: string) => ipcRenderer.invoke('get-requests', { projectId }),
 
@@ -507,4 +575,77 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.invoke('setup-actions-file-watcher', data),
   executeActionsFromFile: (data: { projectPath: string; terminalId: string }) =>
     ipcRenderer.invoke('execute-actions-from-file', data),
+
+  // ========== Model Improvement Dashboard ==========
+  getModelImprovementStats: (opts?: { terminalId?: string }) =>
+    ipcRenderer.invoke('get-model-improvement-stats', opts ?? {}),
+  setReinjectThreshold: (payload: { threshold: number }) =>
+    ipcRenderer.invoke('set-reinject-threshold', payload),
+  setModelDebug: (payload: { enabled: boolean }) =>
+    ipcRenderer.invoke('set-model-debug', payload),
+  readActionsErrorLog: () =>
+    ipcRenderer.invoke('read-actions-error-log'),
+
+  // ========== Auto-Assign Routing ==========
+  routePrompt: (request: { prompt: string; projectPath?: string }) =>
+    ipcRenderer.invoke('route-prompt', request),
+  updateSessionSummary: (request: { sessionId: string; force?: boolean }) =>
+    ipcRenderer.invoke('update-session-summary', request),
+  getRoutingCosts: () =>
+    ipcRenderer.invoke('get-routing-costs'),
+  resetRoutingCosts: () =>
+    ipcRenderer.invoke('reset-routing-costs'),
+  getAutoAssignConfig: () =>
+    ipcRenderer.invoke('get-auto-assign-config'),
+  saveAutoAssignConfig: (config: any) =>
+    ipcRenderer.invoke('save-auto-assign-config', config),
+
+  // ========== Cross-Session Sync Config ==========
+  getCrossSessionSyncConfig: () =>
+    ipcRenderer.invoke('get-cross-session-sync-config'),
+  setCrossSessionSyncConfig: (config: any) =>
+    ipcRenderer.invoke('set-cross-session-sync-config', config),
+
+  // ========== Cross-Session Sync ==========
+  lockFile: (filePath: string, terminalId: string, sessionId?: string | null, action?: string) =>
+    ipcRenderer.invoke('lock-file', filePath, terminalId, sessionId ?? null, action),
+  releaseFileLock: (filePath: string, terminalId: string) =>
+    ipcRenderer.invoke('release-file-lock', filePath, terminalId),
+  getFileLocks: () =>
+    ipcRenderer.invoke('get-file-locks'),
+  getLocksForTerminal: (terminalId: string) =>
+    ipcRenderer.invoke('get-locks-for-terminal', terminalId),
+  getTouchedFiles: (opts?: { terminalId?: string; filePath?: string; limit?: number }) =>
+    ipcRenderer.invoke('get-touched-files', opts),
+  compileSyncSummary: (terminalId: string) =>
+    ipcRenderer.invoke('compile-sync-summary', terminalId),
+  broadcastContextDelta: (data: { terminalId: string; type: string; payload: any }) =>
+    ipcRenderer.invoke('broadcast-context-delta', data),
+  onFileConflict: (callback: (data: { filePath: string; requestingTerminal: string; lockingTerminal: string; sessionId: string | null; timestamp: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on('file:conflict', handler);
+    return () => { ipcRenderer.removeListener('file:conflict', handler); };
+  },
+
+  // ========== Checklist Feedback ==========
+  addCheckFeedback: (data: {
+    parentId: string;
+    checkId: string;
+    parentType: 'problem' | 'request';
+    feedback: { type: 'approved' | 'rejected' | 'text'; value?: string; timestamp: string; session_id?: string; terminal_id?: string };
+  }) => ipcRenderer.invoke('add-check-feedback', data),
+
+  sendCheckFeedbackToTerminal: (data: {
+    terminalId: string;
+    checkId: string;
+    checkDescription: string;
+    feedback: { type: 'approved' | 'rejected' | 'text'; value?: string; timestamp: string };
+    sessionId?: string;
+  }) => ipcRenderer.invoke('send-check-feedback-to-terminal', data),
+
+  // ========== Session Compaction ==========
+  checkSessionCompaction: (data: { sessionId: string; messageThreshold?: number }) =>
+    ipcRenderer.invoke('check-session-compaction', data),
+  compactSession: (data: { sessionId: string; summaryPrompt?: string }) =>
+    ipcRenderer.invoke('compact-session', data),
 });

@@ -6,6 +6,7 @@ import {
   Thermometer, MessageSquare, Terminal, Wrench, HardDrive,
   Check, X, Bot, Brain,
 } from 'lucide-react';
+import { GlassCard } from './GlassCard';
 
 export const WORKSPACE_CONFIG_PREF_KEY = 'workspace-context-config';
 const MODEL_CONFIG_KEY = 'model-improvisation-config';
@@ -482,10 +483,10 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                 const sys = wsConfig.systems[card.key];
                 const isEnabled = sys?.enabled ?? false;
                 return (
-                  <div
+                  <GlassCard
                     key={card.key}
-                    className={`rounded-xl p-2.5 border transition-all duration-200 ${
-                      isEnabled ? 'bg-zinc-800/60 border-zinc-700/50' : 'bg-zinc-900/40 border-zinc-800/30 opacity-50'
+                    className={`p-2.5 transition-all duration-200 ${
+                      !isEnabled ? 'opacity-50' : ''
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -513,7 +514,7 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                         />
                       </div>
                     )}
-                  </div>
+                  </GlassCard>
                 );
               })}
 
@@ -544,10 +545,12 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
               transition={{ duration: 0.15 }}
               className="space-y-3"
             >
-              <div className={`rounded-xl p-3 border transition-all ${
-                (wsConfig.systems.design_skills as DesignSkillsConfig).enabled
-                  ? 'bg-pink-500/5 border-pink-500/20' : 'bg-zinc-900/40 border-zinc-800/30 opacity-50'
-              }`}>
+              <GlassCard
+                className={`p-3 transition-all ${
+                  (wsConfig.systems.design_skills as DesignSkillsConfig).enabled
+                    ? '' : 'opacity-50'
+                }`}
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Palette className="w-4 h-4 text-pink-400" />
@@ -560,11 +563,11 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                     })}
                   />
                 </div>
-              </div>
+              </GlassCard>
 
               {(wsConfig.systems.design_skills as DesignSkillsConfig).enabled && (
                 <>
-                  <div className="rounded-xl p-3 bg-zinc-800/40 border border-zinc-700/30">
+                  <GlassCard className="p-3">
                     <div className="text-[10px] text-pink-400 uppercase tracking-wider font-medium mb-3">Taste Knobs</div>
                     <div className="space-y-3">
                       {(Object.keys(KNOB_META) as (keyof DesignLevels)[]).map((key) => {
@@ -595,9 +598,9 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                         );
                       })}
                     </div>
-                  </div>
+                  </GlassCard>
 
-                  <div className="rounded-xl p-3 bg-zinc-800/40 border border-zinc-700/30">
+                  <GlassCard className="p-3">
                     <div className="text-[10px] text-pink-400 uppercase tracking-wider font-medium mb-2">Active Skills</div>
                     <div className="space-y-1">
                       {DESIGN_SKILL_OPTIONS.map((skill) => {
@@ -611,9 +614,9 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                         );
                       })}
                     </div>
-                  </div>
+                  </GlassCard>
 
-                  <div className="rounded-xl p-3 bg-zinc-800/40 border border-zinc-700/30 space-y-3">
+                  <GlassCard className="p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-[11px] text-zinc-400">Include References</div>
@@ -633,7 +636,7 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                       min={200} max={1200} step={50}
                       onChange={(v) => updateSystem('design_skills', { max_tokens: v })}
                     />
-                  </div>
+                  </GlassCard>
                 </>
               )}
             </motion.div>
@@ -648,15 +651,15 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
               transition={{ duration: 0.15 }}
               className="space-y-3"
             >
-              <div className="p-2 rounded-lg bg-zinc-900/40 border border-zinc-800/30">
+              <GlassCard className="p-2">
                 <div className="flex items-start gap-1.5">
                   <Info className="w-3 h-3 text-zinc-600 flex-shrink-0 mt-0.5" />
                   <p className="text-[10px] text-zinc-600 leading-relaxed">
                     Model parameters affect agent behavior. Applied when context is sent to the terminal. Stored locally.
                   </p>
                 </div>
-              </div>
-              <div className="rounded-xl p-3 bg-zinc-800/40 border border-zinc-700/30 space-y-1">
+              </GlassCard>
+              <GlassCard className="p-3 space-y-1">
                 <SliderRow label="Temperature" value={modelConfig.temperature} min={0.1} max={2.0} step={0.1}
                   onChange={(v) => setModelConfig((p) => ({ ...p, temperature: v }))} formatValue={(v) => v.toFixed(1)} />
                 <SliderRow label="Max Response Tokens" value={modelConfig.maxResponseTokens} min={256} max={8192} step={256}
@@ -667,7 +670,7 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                   onChange={(v) => setModelConfig((p) => ({ ...p, frequencyPenalty: v }))} formatValue={(v) => v.toFixed(1)} />
                 <SliderRow label="Presence Penalty" value={modelConfig.presencePenalty} min={-2.0} max={2.0} step={0.1}
                   onChange={(v) => setModelConfig((p) => ({ ...p, presencePenalty: v }))} formatValue={(v) => v.toFixed(1)} />
-              </div>
+              </GlassCard>
             </motion.div>
           )}
 
@@ -680,13 +683,13 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
               transition={{ duration: 0.15 }}
               className="space-y-2"
             >
-              <div className="p-2 rounded-lg bg-zinc-900/40 border border-zinc-800/30">
+              <GlassCard className="p-2">
                 <div className="flex items-start gap-1.5">
                   <Info className="w-3 h-3 text-zinc-600 flex-shrink-0 mt-0.5" />
                   <p className="text-[10px] text-zinc-600 leading-relaxed">Override default file locations. Use {'<project>'} and {'<agent>'} as placeholders.</p>
                 </div>
-              </div>
-              <div className="rounded-xl p-3 bg-zinc-800/40 border border-zinc-700/30 space-y-0.5">
+              </GlassCard>
+              <GlassCard className="p-3 space-y-0.5">
                 {([
                   { key: 'agentPath' as const, label: 'Agent Workspace', placeholder: '<project>/agent/' },
                   { key: 'skillsDir' as const, label: 'Skills Directory', placeholder: '<agent>/skills/' },
@@ -705,7 +708,7 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                     placeholder={item.placeholder} monospace
                   />
                 ))}
-              </div>
+              </GlassCard>
             </motion.div>
           )}
 
@@ -718,7 +721,7 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
               transition={{ duration: 0.15 }}
               className="space-y-3"
             >
-              <div className="rounded-xl p-3 bg-zinc-800/40 border border-zinc-700/30 space-y-1">
+              <GlassCard className="p-3 space-y-1">
                 <SelectInput label="Default Agent Type" value={termComm.defaultAgentType}
                   onChange={(v) => setTermComm((p) => ({ ...p, defaultAgentType: v }))}
                   options={[
@@ -745,8 +748,8 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                     { value: 'CR', label: 'CR (Mac)' },
                     { value: 'CRLF', label: 'CRLF (Windows)' },
                   ]} />
-              </div>
-              <div className="rounded-xl p-3 bg-zinc-800/40 border border-zinc-700/30 space-y-2">
+              </GlassCard>
+              <GlassCard className="p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-[11px] text-zinc-400">Context Sharing</div>
@@ -770,7 +773,7 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                     { value: 'detach', label: 'Detach' },
                     { value: 'ask', label: 'Ask each time' },
                   ]} />
-              </div>
+              </GlassCard>
             </motion.div>
           )}
 
@@ -783,7 +786,7 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
               transition={{ duration: 0.15 }}
               className="space-y-3"
             >
-              <div className="rounded-xl p-3 bg-zinc-800/40 border border-zinc-700/30 space-y-2">
+              <GlassCard className="p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-[11px] text-zinc-400">Auto-initialize on Open</div>
@@ -800,8 +803,8 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                   <Toggle on={wsDefaults.autoSaveContextOnClose}
                     onToggle={() => setWsDefaults((p) => ({ ...p, autoSaveContextOnClose: !p.autoSaveContextOnClose }))} />
                 </div>
-              </div>
-              <div className="rounded-xl p-3 bg-zinc-800/40 border border-zinc-700/30 space-y-1">
+              </GlassCard>
+              <GlassCard className="p-3 space-y-1">
                 <SelectInput label="Default Model Tier" value={wsDefaults.defaultModelTier}
                   onChange={(v) => setWsDefaults((p) => ({ ...p, defaultModelTier: v as any }))}
                   options={[
@@ -813,16 +816,16 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                   min={4000} max={20000} step={500}
                   onChange={(v) => setWsDefaults((p) => ({ ...p, defaultTokenBudget: v }))}
                   formatValue={(v) => v.toLocaleString()} />
-                <SelectInput label="Session Summary Frequency" value={String(wsDefaults.sessionSummaryFrequency)}
-                  onChange={(v) => setWsDefaults((p) => ({ ...p, sessionSummaryFrequency: parseInt(v) }))}
-                  options={[
-                    { value: '10', label: 'Every 10 messages' },
-                    { value: '25', label: 'Every 25 messages' },
-                    { value: '50', label: 'Every 50 messages' },
-                    { value: '100', label: 'Every 100 messages' },
-                    { value: '0', label: 'Never' },
-                  ]} />
-              </div>
+                  <SelectInput label="Session Summary Frequency" value={String(wsDefaults.sessionSummaryFrequency)}
+                    onChange={(v) => setWsDefaults((p) => ({ ...p, sessionSummaryFrequency: parseInt(v) }))}
+                    options={[
+                      { value: '10', label: 'Every 10 messages' },
+                      { value: '25', label: 'Every 25 messages' },
+                      { value: '50', label: 'Every 50 messages' },
+                      { value: '100', label: 'Every 100 messages' },
+                      { value: '0', label: 'Never' },
+                    ]} />
+              </GlassCard>
             </motion.div>
           )}
         </AnimatePresence>

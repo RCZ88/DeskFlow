@@ -1,8 +1,8 @@
-# PROBLEMS.md
+﻿# PROBLEMS.md
 
-> **Purpose:** Issue tracker for AI agents and humans — all known bugs, feature requests, and their resolution status.
-> **Last Updated:** 2026-05-22 (Bundle A — 8 Core Flow fixes)
-> **Total Issues:** 111
+> **Purpose:** Issue tracker for AI agents and humans ΓÇö all known bugs, feature requests, and their resolution status.
+> **Last Updated:** 2026-06-06 (AiPage fixes round 2: credit fallback, cache migration, visual polish)
+> **Total Issues:** 113
 > **Parse Priority:** High
 
 ---
@@ -34,7 +34,7 @@
 
 ---
 
-## 🚨 2026-05-22 — Bundle A: Terminal Core Flows (Applied)
+## ≡ƒÜ¿ 2026-05-22 ΓÇö Bundle A: Terminal Core Flows (Applied)
 
 ### Terminal Issues from 54-Item Overhaul (Steps 1-8)
 
@@ -45,13 +45,13 @@
 | Fix 5 | UI doesn't refresh on context changes | Fixed | Added onContextChanged refresh effect + fixed preload cleanup handlers |
 | Fix 3 | terminal:write IPC handler missing | Fixed | Added handler delegating to terminalManager.write |
 | Fix 4 | Problem prompt uses fragile 3000ms timeout | Fixed | Replaced with queueOrSend mechanism |
-| Fix 1.5 | Skills pipeline verification | Verified | End-to-end working (generatePrompt → onSend → queueOrSend) |
-| Fix 1.6 | FlowView audit | Noted | FlowView.tsx doesn't exist (stub) — no-op |
+| Fix 1.5 | Skills pipeline verification | Verified | End-to-end working (generatePrompt ΓåÆ onSend ΓåÆ queueOrSend) |
+| Fix 1.6 | FlowView audit | Noted | FlowView.tsx doesn't exist (stub) ΓÇö no-op |
 | Fix 1.7 | Status change terminal format | Fixed | Changed to `[SYSTEM: #id action "status"]` with per-action formatting |
 
 ---
 
-## 🚨 2026-05-12 SESSION — Solar System 3-in-1 Fix (Applied)
+## ≡ƒÜ¿ 2026-05-12 SESSION ΓÇö Solar System 3-in-1 Fix (Applied)
 
 ### Issue #094: Category Dropdown Doesn't Navigate to Solar System
 - Status: Fixed
@@ -76,7 +76,7 @@
 
 ---
 
-## 🚨 2026-05-12 SESSION — Terminal Phase 1 Implementation (Resolved)
+## ≡ƒÜ¿ 2026-05-12 SESSION ΓÇö Terminal Phase 1 Implementation (Resolved)
 
 ### Issue #075: Session Persistence Not Persisting to UI
 - Status: Fixed
@@ -112,13 +112,13 @@
 - User said: "Send button at bottom does nothing - text sent but not executed in terminal"
 - Files: src/preload.ts
 - Root Cause: `terminalWrite()` preload function sent `{ terminalId, text }` as ONE object arg, but `write-terminal` IPC handler expected TWO separate args `(terminalId, data)`. `data` was always `undefined`.
-- Fix: Changed `ipcRenderer.invoke('write-terminal', { terminalId, text })` → `ipcRenderer.invoke('write-terminal', terminalId, text)` to match handler signature.
+- Fix: Changed `ipcRenderer.invoke('write-terminal', { terminalId, text })` ΓåÆ `ipcRenderer.invoke('write-terminal', terminalId, text)` to match handler signature.
 
 ### Issue #079: Sidebar Width Unlimited (Not Limited to 600px)
 - Status: Fixed
 - User said: "Sidebar should resize freely with no max-width limit"
 - Files: src/pages/TerminalPage.tsx
-- Fix: Removed `Math.min(600, ...)` constraint — sidebar now limited only by min-width (200px)
+- Fix: Removed `Math.min(600, ...)` constraint ΓÇö sidebar now limited only by min-width (200px)
 
 ### Issue #080: Session Resume Incomplete
 - Status: Fixed
@@ -139,21 +139,21 @@
 - Files: src/pages/TerminalPage.tsx (sessions tab)
 - Fix: Added "New Session" button that opens AI agent selector dialog
 
-## 🚨 2026-05-12 SESSION — Terminal Architecture Fixes
+## ≡ƒÜ¿ 2026-05-12 SESSION ΓÇö Terminal Architecture Fixes
 
 ### Issue #087: TerminalLayout Prop Chain Broken (Root Cause of "Can't Create Terminals")
 - Status: Fixed
 - Root cause: TerminalPage's `terminalLayout` state (from `onLayoutChange` callback) was NEVER passed as `initialLayout` prop to TerminalLayout. The + button called `setTerminalLayout()` on a state that had zero effect.
 - Fix:
   1. Replaced broken prop-chain pattern with custom event system (`create-terminal`, `terminal-created`, `close-pane`)
-  2. TerminalLayout now manages its own internal layout state — TerminalPage no longer tries to set layout directly
+  2. TerminalLayout now manages its own internal layout state ΓÇö TerminalPage no longer tries to set layout directly
   3. Events dispatched from + button, New Session dialog, and close button
 - Files: src/pages/TerminalPage.tsx, src/components/TerminalWindow.tsx
 
 ### Issue #088: Double-Spawn Bug in Terminal Creation
 - Status: Fixed
 - Root cause: Both TerminalPage's `spawnTerminal()` call (from old + button code) AND `handleTerminalReady` in TerminalLayout tried to spawn the same terminal ID
-- Fix: Removed redundant `spawnTerminal()` from event handler — only TerminalLayout now spawns PTYs
+- Fix: Removed redundant `spawnTerminal()` from event handler ΓÇö only TerminalLayout now spawns PTYs
 - Files: src/pages/TerminalPage.tsx
 
 ### Issue #089: Errors Silently Swallowed via logOnce
@@ -176,14 +176,14 @@
 - Fix: Added `useEffect` that selects `projects[0].id` when `projects` loads and no project selected
 - Files: src/pages/TerminalPage.tsx
 
-## 🚨 2026-05-12 SESSION — Terminal UI Fixes (Phase 2)
+## ≡ƒÜ¿ 2026-05-12 SESSION ΓÇö Terminal UI Fixes (Phase 2)
 
 ### Issue #092: Terminal + Button Doesn't Show Tab (Tab Bar Stays Empty)
 - Status: Fixed
 - Root cause: Two bugs:
   1. `useTerminalLayout(initialLayout)` in TerminalWindow.tsx:193 passed a `PaneNode` object as `projectId` (string param). Object stringified to `"[object Object]"`, DB query returned nothing, layout stayed `null` forever.
-  2. `handleCreateTerminalEvent` had `setLayout(prev => prev ? insertIntoLayout(prev) : prev)` — when `prev` was `null` (always, due to bug #1), returned `null`. Panes never rendered.
-- Fix: Changed `useTerminalLayout(initialLayout)` → `useTerminalLayout(null, initialLayout || null)`. Added null-handling in `handleCreateTerminalEvent` to create root leaf when no layout exists.
+  2. `handleCreateTerminalEvent` had `setLayout(prev => prev ? insertIntoLayout(prev) : prev)` ΓÇö when `prev` was `null` (always, due to bug #1), returned `null`. Panes never rendered.
+- Fix: Changed `useTerminalLayout(initialLayout)` ΓåÆ `useTerminalLayout(null, initialLayout || null)`. Added null-handling in `handleCreateTerminalEvent` to create root leaf when no layout exists.
 - Also: + button now ALSO calls `setTerminalTabs()` directly before dispatching event. TerminalLayout's `handleCreateTerminalEvent` accepts `terminalId` from event detail.
 - Files: src/pages/TerminalPage.tsx, src/components/TerminalWindow.tsx
 
@@ -193,7 +193,7 @@
 - Fix: Replaced "Select a project above" message with a project dropdown select inside the tab. Also added `spawnTerminal`, `loadSessions` to useEffect deps to prevent stale closures.
 - Files: src/pages/TerminalPage.tsx
 
-### Issue #094: RequestsTab Doesn't Know Which Project — Always Uses userDataPath
+### Issue #094: RequestsTab Doesn't Know Which Project ΓÇö Always Uses userDataPath
 - Status: Fixed
 - Root cause: 
   1. `RequestsTab` had no inline project picker (was missing unlike FilesTab/ProblemsTab)
@@ -206,11 +206,11 @@
   4. Added `projects` + `onSelectProject` props to RequestsTab
 - Files: src/pages/TerminalPage.tsx, src/main.ts, src/preload.ts
 
-## 🚨 2026-05-12 SESSION — Found and Fixed 5 Runtime Bugs
+## ≡ƒÜ¿ 2026-05-12 SESSION ΓÇö Found and Fixed 5 Runtime Bugs
 
-### Issue #097: useTerminalLayout Wrong Args (CRITICAL — Everything Was Broken)
+### Issue #097: useTerminalLayout Wrong Args (CRITICAL ΓÇö Everything Was Broken)
 - Status: Fixed
-- Root cause: TerminalWindow.tsx line 193 called `useTerminalLayout(initialLayout)` where `initialLayout` is a PaneNode. The hook expects `(projectId: string | null, initialLayout: PaneNode | null)`. The PaneNode was passed as projectId → stringified to `"[object Object]"` → DB query failed → layout always `null`.
+- Root cause: TerminalWindow.tsx line 193 called `useTerminalLayout(initialLayout)` where `initialLayout` is a PaneNode. The hook expects `(projectId: string | null, initialLayout: PaneNode | null)`. The PaneNode was passed as projectId ΓåÆ stringified to `"[object Object]"` ΓåÆ DB query failed ΓåÆ layout always `null`.
 - Fix: `useTerminalLayout(null, initialLayout || null)`
 - Effect: TerminalLayout couldn't create any panes. + button created tabs but no terminal ever rendered.
 
@@ -221,7 +221,7 @@
 
 ### Issue #099: terminalWrite Preload Arg Mismatch (Send Button Broken)
 - Status: Fixed
-- Root cause: Preload `terminalWrite` called `ipcRenderer.invoke('write-terminal', { terminalId, text })` with ONE object arg. Handler `write-terminal` expected `(_event, terminalId: string, data: string)` — TWO separate args. `data` was always `undefined`, never written to PTY.
+- Root cause: Preload `terminalWrite` called `ipcRenderer.invoke('write-terminal', { terminalId, text })` with ONE object arg. Handler `write-terminal` expected `(_event, terminalId: string, data: string)` ΓÇö TWO separate args. `data` was always `undefined`, never written to PTY.
 - Fix: Changed to `ipcRenderer.invoke('write-terminal', terminalId, text)` to match handler signature.
 
 ### Issue #100: StuseEffect Missing Deps (Event Handlers Stale)
@@ -234,32 +234,32 @@
 - Root cause: `link-problem-to-request` IPC handler always created RequestsService with `userDataPath`. No `projectId` support in preload API.
 - Fix: Added `projectId` to IPC handler, preload, and RequestDetailModal. Handler now resolves via `getProjectPath()`.
 
-## 🚨 2026-05-12 SESSION — Terminal Workspace Critical UX Fixes
+## ≡ƒÜ¿ 2026-05-12 SESSION ΓÇö Terminal Workspace Critical UX Fixes
 
 ### Issue #102: FilesTab Shows Project Selector Despite Project Already Known from IDE Page
 - Status: AI Attempted Fix
 - User said: "WHY THE FUCK IS THERE A PROJECT SELECTION????? THE WORKSPACE IS ACCESSED FROM THE PROJECT IDE WHICH ALREADY HAVE THE PATH TO THE PROJECT DIRECTORY"
 - Root cause: FilesTab received only `projectId`, then looked up the project in the `projects` array. When opened from IDE page, `propProjectPath` is available but never passed to FilesTab. If `projects` array hadn't loaded, `projectPath` was empty and the project selector appeared.
 - Fix: Added `projectPath` prop to FilesTab. When opened from workspace modal, `propProjectPath` is passed directly. FilesTab uses it before falling back to projects array lookup.
-- Files: `src/pages/TerminalPage.tsx` — FilesTab component signature, projectPath derivation, and call site
+- Files: `src/pages/TerminalPage.tsx` ΓÇö FilesTab component signature, projectPath derivation, and call site
 
 ### Issue #103: + Button Hidden When No Terminals Exist (Can't Create First Terminal)
 - Status: AI Attempted Fix
 - User said: "NEW TERMINAL IS NOT THERE"
-- Root cause: The entire terminal tab bar (including the + button) was wrapped in `{Object.keys(terminalTabs).length > 0 && (` — when no terminals existed, the entire bar (including the + button) was hidden. User couldn't create the first terminal.
+- Root cause: The entire terminal tab bar (including the + button) was wrapped in `{Object.keys(terminalTabs).length > 0 && (` ΓÇö when no terminals existed, the entire bar (including the + button) was hidden. User couldn't create the first terminal.
 - Fix: Removed the conditional wrapper. Tab bar now always renders with the + button visible. Terminal tab entries are only rendered when they exist.
-- Files: `src/pages/TerminalPage.tsx` — Terminal tab bar conditional gate removed
+- Files: `src/pages/TerminalPage.tsx` ΓÇö Terminal tab bar conditional gate removed
 
 ### Issue #104: Save Button Hidden Inside Instruction Input Bar
 - Status: AI Attempted Fix
 - User said: "THE SAVE IS NOT THERE"
-- Root cause: The 💾 Save checkpoint button was only visible inside the instruction input bar, which appears only after clicking "Send". There was no visible save button in the default terminal header UI.
+- Root cause: The ≡ƒÆ╛ Save checkpoint button was only visible inside the instruction input bar, which appears only after clicking "Send". There was no visible save button in the default terminal header UI.
 - Fix: Extracted `handleSaveCheckpoint` callback. Added a Save button in the terminal header next to the Send button, always visible when a terminal is active. Also kept the Save button in the instruction input bar.
-- Files: `src/pages/TerminalPage.tsx` — Added `handleSaveCheckpoint` callback, added Save button to header
+- Files: `src/pages/TerminalPage.tsx` ΓÇö Added `handleSaveCheckpoint` callback, added Save button to header
 
 ---
 
-## 🚨 2026-05-13 SESSION — TERMINAL WORKSPACE COMPREHENSIVE FIX (All Issues Fixed)
+## ≡ƒÜ¿ 2026-05-13 SESSION ΓÇö TERMINAL WORKSPACE COMPREHENSIVE FIX (All Issues Fixed)
 
 **CRITICAL CONTEXT:** These issues were reported 5-10 times across multiple sessions. ALL HAVE BEEN FIXED in a single comprehensive overhaul.
 
@@ -322,14 +322,14 @@
 - Status: **FIXED** (likely caused by layout reset)
 - User said: "Creating a new terminal for some reason just opens a typed cloud in terminal and once I click enter in the terminal it the terminal just disappears."
 - Root Cause: Layout was being reset when tabs were clicked, and `handleTabSelect` was called with the new terminal ID, destroying any existing layout.
-- Fix: `handleTabSelect` no longer resets layout — just focuses the terminal.
+- Fix: `handleTabSelect` no longer resets layout ΓÇö just focuses the terminal.
 
 ### Issue #113: Terminal Sidebar Not Useful
 - Status: **FIXED**
 - User said: "The terminal sidebar is not showing anything useful. There's no sessions there."
 - Fix: Complete rewrite of TerminalsTab:
   1. Running Terminals section: shows each terminal, its session, session name, agent, date
-  2. Free terminals show "No session — ready to assign" with "New Session" button
+  2. Free terminals show "No session ΓÇö ready to assign" with "New Session" button
   3. Sessions section: shows ALL sessions with terminal status
   4. Running sessions show green dot + terminal name
   5. Closed sessions show grey dot + "Closed" label
@@ -354,7 +354,7 @@
   1. Terminal tab bar shows session name + agent + "S" badge if session exists
   2. Sessions tab: each session shows terminal name (green badge if running) or "Closed"
   3. Terminals tab: each terminal shows its session sub-section with name/agent/date
-  4. Clear visual hierarchy: Terminal → Session
+  4. Clear visual hierarchy: Terminal ΓåÆ Session
 
 ### Database Fixes
 - **FIXED:** Added missing `terminal_bindings` table creation in `initializeStorage()`
@@ -362,9 +362,9 @@
 - **FIXED:** Updated `save-terminal-session` IPC handler to store `terminal_id`
 
 ### Architecture Changes Summary
-1. **Terminal ≠ Session** - Creating a terminal does NOT auto-create a session
+1. **Terminal Γëá Session** - Creating a terminal does NOT auto-create a session
 2. **Explicit session creation** - New Session dialog requires terminal selection
-3. **Terminal↔Session mapping** - Sessions store `terminal_id`, visible in all UI
+3. **TerminalΓåöSession mapping** - Sessions store `terminal_id`, visible in all UI
 4. **Send routing** - Send instruction routed to correct session's terminal
 5. **Layout preservation** - Tab select no longer destroys split layouts
 6. **Session lifecycle** - Close terminal = close session (terminal_id = null)
@@ -374,14 +374,14 @@
 **Last Updated:** 2026-05-12
 **Next Step:** Restart DeskFlow to test all fixes
 
-## 🚨 2026-05-12 SESSION — Transient App Filter + Recent Sessions Fix
+## ≡ƒÜ¿ 2026-05-12 SESSION ΓÇö Transient App Filter + Recent Sessions Fix
 
 ### Issue #095: Windows Explorer disrupts stopwatch during Alt+Tab
 
 - Status: Fixed
 - User said: "switching apps turns the tracker into windows explorer" and "should not be distrpted by the windows explorer"
 - Root cause: `pollForeground()` unconditionally accepted foreground changes, including transient system windows like "Windows Explorer" that briefly appear during Alt+Tab. This triggered a `foreground-changed` event that disrupted the Dashboard stopwatch.
-- Fix: Added `TRANSIENT_APPS` filter — Windows Explorer, Task Switching, etc. are silently ignored in `pollForeground()`. No `currentApp` change, no `foreground-changed` event, no stopwatch disruption.
+- Fix: Added `TRANSIENT_APPS` filter ΓÇö Windows Explorer, Task Switching, etc. are silently ignored in `pollForeground()`. No `currentApp` change, no `foreground-changed` event, no stopwatch disruption.
 - Files: `src/main.ts`
 
 ### Issue #096: Recent Sessions flooded with "Website" entries
@@ -389,12 +389,12 @@
 - Status: Fixed
 - User said: "recent sessions always point towards the website"
 - Root cause: Activity feed initialization took the 20 most recent log entries, which were mostly browser periodic sync data (coming every ~30s vs. app log on app change).
-- Fix: Activity feed initialization now takes a balanced mix — up to 10 app logs + up to 5 browser logs, then sorted by recency.
+- Fix: Activity feed initialization now takes a balanced mix ΓÇö up to 10 app logs + up to 5 browser logs, then sorted by recency.
 - Files: `src/pages/DashboardPage.tsx`
 
 ---
 
-## 🚨 2026-05-13 SESSION — Path Resolution Fix + Setup Button Gating Fix
+## ≡ƒÜ¿ 2026-05-13 SESSION ΓÇö Path Resolution Fix + Setup Button Gating Fix
 
 ### Issue #116: PROBLEMS.md Reads from userDataPath Instead of Workspace Root
 
@@ -402,36 +402,36 @@
 - User said: "still not parse" (PROBLEMS.md) and "the same" (Requests page)
 - Root cause: `getProjectPath()` returned `userDataPath` (Electron app data dir) when project not found in DB. ProblemsService created/read PROBLEMS.md from `userDataPath/agent/PROBLEMS.md` instead of the workspace root, causing the UI to show an empty problem list. Same bug affected REQUESTS.md via `getRequestsService()`.
 - Fix:
-  1. `getProjectPath()` now returns `undefined` instead of `userDataPath` — lets ProblemsService/RequestsService fall through to `process.cwd()` (workspace root)
+  1. `getProjectPath()` now returns `undefined` instead of `userDataPath` ΓÇö lets ProblemsService/RequestsService fall through to `process.cwd()` (workspace root)
   2. `tracker-mind-setup` IPC handler changed from `userDataPath` to `process.cwd()` for default base dir
-  3. Setup/Init button moved outside `{projects.length > 0 && ...}` gate — always visible even with no projects
-  4. `handleInitSetup` no longer requires a selected project — works without `projId`/`projPath`
+  3. Setup/Init button moved outside `{projects.length > 0 && ...}` gate ΓÇö always visible even with no projects
+  4. `handleInitSetup` no longer requires a selected project ΓÇö works without `projId`/`projPath`
 - Files: `src/main.ts`, `src/pages/TerminalPage.tsx`
 
 ---
 
-## 🚨 2026-05-17 SESSION — AI Task Progress Tracking System
+## ≡ƒÜ¿ 2026-05-17 SESSION ΓÇö AI Task Progress Tracking System
 
 ### Issue #122: terminalTabs ReferenceError in TerminalWindow.tsx handleSplit
 - **Status:** Fixed
 - **Root cause:** `handleSplit` in TerminalWindow.tsx referenced `terminalTabs` but this variable only exists in TerminalPage.tsx. TerminalWindow never had access to it.
-- **Fix:** Changed to `localStorage.getItem('terminal-defaultAgent') || 'claude'` — same pattern used by `handleTerminalReady` and the "+" button in empty state. All three terminal creation paths now use the same agent source.
+- **Fix:** Changed to `localStorage.getItem('terminal-defaultAgent') || 'claude'` ΓÇö same pattern used by `handleTerminalReady` and the "+" button in empty state. All three terminal creation paths now use the same agent source.
 - **Files:** `src/components/TerminalWindow.tsx`
 
-### Issue #123: No Prompt Progress Tracking (pending→in_progress→completed)
+### Issue #123: No Prompt Progress Tracking (pendingΓåÆin_progressΓåÆcompleted)
 - **Status:** Fixed
 - **What's built:** Complete AI Task Progress Tracking System:
-  1. **PTY-based status detection** — `pendingCompletions` Set tracks when user input is sent, agent signature detection marks completion
-  2. **JSON file bridge** — `fs.watch` on `agent/ai-tasks.json` with 500ms debounce, pushes changes to renderer
-  3. **Status in DB** — `status` column on `terminal_messages`, updated via `markTaskCompleted()`
-  4. **Live UI** — PromptHistoryTab shows color-coded badges (gray Pending, cyan spinning Processing, green Completed)
-  5. **Send integration** — `sendInstruction` creates AI task via `ai-task:add` IPC
+  1. **PTY-based status detection** ΓÇö `pendingCompletions` Set tracks when user input is sent, agent signature detection marks completion
+  2. **JSON file bridge** ΓÇö `fs.watch` on `agent/ai-tasks.json` with 500ms debounce, pushes changes to renderer
+  3. **Status in DB** ΓÇö `status` column on `terminal_messages`, updated via `markTaskCompleted()`
+  4. **Live UI** ΓÇö PromptHistoryTab shows color-coded badges (gray Pending, cyan spinning Processing, green Completed)
+  5. **Send integration** ΓÇö `sendInstruction` creates AI task via `ai-task:add` IPC
 - **New IPC:** `get-prompt-status`, `ai-task:watch`/`stop-watch`, `ai-task:add`, `ai-task:updated`/`file-changed` events
 - **Files:** `src/main.ts`, `src/preload.ts`, `src/components/PromptHistoryTab.tsx`, `src/components/TerminalWindow.tsx`, `src/pages/TerminalPage.tsx`
 
 ---
 
-## 🚨 2026-05-15 SESSION — Browser Extension Background Tab Phantom Tracking
+## ≡ƒÜ¿ 2026-05-15 SESSION ΓÇö Browser Extension Background Tab Phantom Tracking
 
 ### Issue #121: Background tab events log websites when browser isn't focused
 
@@ -439,25 +439,25 @@
 - Priority: High
 - User said: "theres a commonly happening problem where the app still tracks a website even if the browser is not focused. browser with the extension."
 - Root cause (round 1): `logPreviousSession()` was called from tab events that fire even when the browser is backgrounded. Payload had no `is_browser_focused` field, so server guards never caught it.
-- Root cause (round 2 — final): `checkBrowserFocus()` checked if the foreground app matches ANY browser in a generic list (`['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera', 'comet', 'vivaldi', 'arc']`). When user switched to a different browser (e.g., Firefox while extension is in Chrome/Comet), it still considered the browser "focused" and continued tracking.
+- Root cause (round 2 ΓÇö final): `checkBrowserFocus()` checked if the foreground app matches ANY browser in a generic list (`['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera', 'comet', 'vivaldi', 'arc']`). When user switched to a different browser (e.g., Firefox while extension is in Chrome/Comet), it still considered the browser "focused" and continued tracking.
 - Fix (round 1):
   1. Added `force` parameter to `logPreviousSession(force = false)`
   2. Added early return guard if `!force && !state.isBrowserFocused`
   3. Added `is_browser_focused: state.isBrowserFocused` to the payload
-- Fix (round 2 — 2026-05-26):
+- Fix (round 2 ΓÇö 2026-05-26):
   4. Changed `checkBrowserFocus()` to compare against `BROWSER_NAME` (the specific browser detected via user agent at extension load time) instead of a generic list. Now only counts website time when the SPECIFIC browser with the extension is in the foreground.
   5. On `/foreground-app` fetch failure, `state.isBrowserFocused` now defaults to `false` instead of returning the stale previous state.
 - Files: `browser-extension/background.js`, `src/main.ts`
 - Human Testing:
-  1. Browse a site in Chrome/Comet, then Alt+Tab to another app — the final session should still be logged (captures time spent before switching)
-  2. Leave browser backgrounded for a while with sites auto-refreshing — no new website entries should appear
-  3. Switch to a DIFFERENT browser (e.g., Firefox) while extension is in Chrome/Comet — no website tracking should occur during this time
+  1. Browse a site in Chrome/Comet, then Alt+Tab to another app ΓÇö the final session should still be logged (captures time spent before switching)
+  2. Leave browser backgrounded for a while with sites auto-refreshing ΓÇö no new website entries should appear
+  3. Switch to a DIFFERENT browser (e.g., Firefox) while extension is in Chrome/Comet ΓÇö no website tracking should occur during this time
 
 ---
 
-## 🚨 2026-05-18 SESSION — Context Management System (Research + Design)
+## ≡ƒÜ¿ 2026-05-18 SESSION ΓÇö Context Management System (Research + Design)
 
-### Issue #124: Context Management — AI Agent Gets Stale Context Across Chats
+### Issue #124: Context Management ΓÇö AI Agent Gets Stale Context Across Chats
 
 - **Status:** Not Started
 - **Priority:** High
@@ -465,23 +465,23 @@
 - **Root Cause:** No layered context summarization system. AI gets no persistent cross-session memory. Context is rebuilt fresh each chat.
 - **Systems to integrate:** LLM Wiki, Obsidian Skills, Graphify, PARA, QMD, Automations
 - **Current Setup UI only covers:** QMD (templates) + Graphify (graph report). Missing: LLM Wiki, Obsidian Skills, PARA, Automations toggles.
-- **UI rename:** "Initialize" → "Setup" (button label + dialog title)
+- **UI rename:** "Initialize" ΓåÆ "Setup" (button label + dialog title)
 
 **Files to modify:**
-- `src/components/NewSessionDialog.tsx` — Rename Initialize→Setup, add system toggles
-- `src/pages/TerminalPage.tsx` — Rename button
-- `agent/docs/research-impl/` — Research prompt for context architecture
+- `src/components/NewSessionDialog.tsx` ΓÇö Rename InitializeΓåÆSetup, add system toggles
+- `src/pages/TerminalPage.tsx` ΓÇö Rename button
+- `agent/docs/research-impl/` ΓÇö Research prompt for context architecture
 
 **Knowledge systems inventory (what exists vs what's missing):**
 
 | System | Location | Status in Setup UI | Implementation |
 |--------|----------|-------------------|----------------|
-| LLM Wiki | `agent/*.md` (AI-optimized) | ❌ Not included | Full — files exist |
-| Obsidian Skills | `agent/skills/*/SKILL.md` | ❌ Not included | SkillsService reads them |
-| Graphify | `graphify-out/` | ✅ Included (toggle) | AST + LLM graph builder |
-| PARA | `CZVault/` | ❌ Not included | graphify_maintain.py syncs |
-| QMD | `agent/templates/*.qmd` | ✅ Included (toggle) | Template system exists |
-| Automations | `agent/automations/` | ❌ Not included | Not yet created |
+| LLM Wiki | `agent/*.md` (AI-optimized) | Γ¥î Not included | Full ΓÇö files exist |
+| Obsidian Skills | `agent/skills/*/SKILL.md` | Γ¥î Not included | SkillsService reads them |
+| Graphify | `graphify-out/` | Γ£à Included (toggle) | AST + LLM graph builder |
+| PARA | `CZVault/` | Γ¥î Not included | graphify_maintain.py syncs |
+| QMD | `agent/templates/*.qmd` | Γ£à Included (toggle) | Template system exists |
+| Automations | `agent/automations/` | Γ¥î Not included | Not yet created |
 
 **Research approach:** Use `agent/skills/generate-prompt/` skill to create research prompt covering:
 1. How to summarize chat history (efficient, not everything)
@@ -489,7 +489,7 @@
 3. How to visualize system connections in-app
 4. How automations can trigger context updates
 
-### Issue #125: Setup Dialog — Missing System Toggles
+### Issue #125: Setup Dialog ΓÇö Missing System Toggles
 
 - **Status:** Not Started
 - **Priority:** High
@@ -498,12 +498,12 @@
 - **Fix:** Add toggles for each system in the Setup dialog. Make it comprehensive.
 
 **What each system needs in the Setup UI:**
-- `includeLLMWiki` — Include agent markdown files (state.md, context.md, AGENTS.md, etc.) in context
-- `includeObsidianSkills` — Include skill files from agent/skills/ directory
-- `includePARA` — Sync graphify-out/ to CZVault/ and include PARA reference
-- `includeAutomations` — Include automation scripts (agent/automations/)
+- `includeLLMWiki` ΓÇö Include agent markdown files (state.md, context.md, AGENTS.md, etc.) in context
+- `includeObsidianSkills` ΓÇö Include skill files from agent/skills/ directory
+- `includePARA` ΓÇö Sync graphify-out/ to CZVault/ and include PARA reference
+- `includeAutomations` ΓÇö Include automation scripts (agent/automations/)
 
-### Issue #126: Context History — Efficient Summarization
+### Issue #126: Context History ΓÇö Efficient Summarization
 
 - **Status:** Not Started
 - **Priority:** High
@@ -511,7 +511,7 @@
 - **Root Cause:** No summarization pipeline. Every chat is treated as isolated.
 - **Solution:** Design a layered context system:
   - **Short-term:** Last N messages (keep full detail)
-  - **Medium-term:** Session summary (every 10 messages → 1-sentence summary)
+  - **Medium-term:** Session summary (every 10 messages ΓåÆ 1-sentence summary)
   - **Long-term:** Project-level context (read from LLM Wiki files)
   - **Deep memory:** Cross-session patterns stored in agent memory files
 
@@ -520,17 +520,17 @@
 - **Status:** Not Started
 - **Priority:** Medium
 - **User said:** "you can create an internal in the app, in the app, what is it called, in the app visualization of the thing, right."
-- **Root Cause:** No visual representation of how systems connect (Graphify → PARA → Obsidian, etc.)
+- **Root Cause:** No visual representation of how systems connect (Graphify ΓåÆ PARA ΓåÆ Obsidian, etc.)
 - **Solution:** Create a "Context Map" panel in the Setup dialog showing:
   - Which systems are active/linked
-  - Connection lines between systems (e.g., graphify→PARA, skills→LLM Wiki)
+  - Connection lines between systems (e.g., graphifyΓåÆPARA, skillsΓåÆLLM Wiki)
   - Last sync times, file counts
   - Quick enable/disable per system
-  3. Switch back to Chrome — tracking should resume correctly, no phantom deltas
+  3. Switch back to Chrome ΓÇö tracking should resume correctly, no phantom deltas
 
 ---
 
-## 🚨 2026-05-27 — AFK Prompt External Page Refresh + Stats Page Period Fixes
+## ≡ƒÜ¿ 2026-05-27 ΓÇö AFK Prompt External Page Refresh + Stats Page Period Fixes
 
 ### Issue #128: AFK Prompt Activity Selection Does Not Show on External Page
 
@@ -549,3 +549,203 @@
 - **Root Cause:** `dailyUsage` useMemo in `StatsPage.tsx` had handlers for `'today'`, `'week'`, `'month'`, and `'all'`, but **`'7day'` and `'30day'` were missing**. When selected, the code fell through to the `'all'` grouping (by month), showing monthly aggregates instead of daily bars.
 - **Fix:** Added dedicated iteration handlers for both `'7day'` (7 consecutive days, EEE labels) and `'30day'` (30 consecutive days, MMM dd labels). Also fixed the hardcoded subtitle label.
 - **Files:** `src/pages/StatsPage.tsx`
+
+
+### Issue #130: Sleep Chart Shows No Bars / Zero Sleep After Adding Sleep
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "no bars even after adding sleep"
+- **Root Cause:** `get-sleep-trends` handler in main.ts queried `started_at BETWEEN ? AND ?` window, started_at is bedtime which falls on the previous calendar day for late-night sleep. Weekly chart looked 7 days AHEAD of the actual sleep data.
+- **Fix:** Changed date window to cover both `started_at` and `ended_at` using `OR` logic: `WHERE (date(started_at) BETWEEN ? AND ?) OR (date(ended_at) BETWEEN ? AND ?)`.
+- **Files:** `src/main.ts`
+
+### Issue #131: 3+ Terminal Grouping Broken (insertIntoLayout Nests Instead of Flattening)
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "adding a third terminal groups it wrong — creates nested splits instead of equal thirds"
+- **Root Cause:** `insertIntoLayout` function recursively nested new panes instead of flattening. With 3+ terminals, the layout became deeply nested instead of equal-sized grid.
+- **Fix:** Rewrote `insertIntoLayout` to produce flat layouts for up to 4 terminals, with explicit 2x2 grid for 4 terminals.
+- **Files:** `src/components/TerminalWindow.tsx`
+
+### Issue #132: Dashboard Focus Sessions Always Show 0
+
+- **Status:** Fixed
+- **Priority:** Medium
+- **User said:** "focus sessions always show 0 even when timer is running"
+- **Root Cause:** Focus sessions data was derived from a separate heavy query that didn't account for in-progress sessions. Only completed (flushed) sessions appeared.
+- **Fix:** Added in-memory session check to include current active session in focus session count.
+- **Files:** `src/pages/DashboardPage.tsx`
+
+### Issue #133: Dashboard Stats Show 0m While Timer Runs
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "Productive: 0m, Total: 0m, % Productive: 0% — but timer shows 00:01:33"
+- **Root Cause:** `stats` useMemo (`DashboardPage.tsx:1859`) only read `dashboardData?.overview` which comes from the backend DB (saved sessions). The live timer accumulates time in `currentProductiveMs` (in-memory) but stats never included it. Until a session is flushed to DB (every 60s), stats showed all zeros.
+- **Fix:** Added `currentProductiveMs` to the `stats` computation. When a productive session is active, its live accumulated ms is added on top of DB data. Stats now reflect the ongoing session immediately. Added `currentProductiveMs`, `lastTier`, `isPaused` as dependencies.
+- **Files:** `src/pages/DashboardPage.tsx`
+
+### Issue #134: Dashboard Shows "Unknown" While Timer Is Actively Tracking
+
+- **Status:** Fixed
+- **Priority:** Medium
+- **User said:** "WHY IS IT TRAKCING UNKNOWN ... IT KEPS ON SAYING UNKNOWN"
+- **Root Cause:** The "Currently tracking" section checked `currentApp || currentWebsite || isInBrowser` to decide whether to show a live badge. When DeskFlow is open with `trackerAppMode='show-other'` and no prior app exists (`lnb = null`), the foreground handler returns early after `setCurrentApp(null)` but before `setLastTier(...)`. `lastTier` stays 'productive' (from previous session or a stale foreground event) while `currentApp` is null, causing the display to fall through to hardcoded "Unknown" — even though the timer IS actively accumulating productive time and shows "Productive: 00:01:33".
+- **Fix:** Changed the display condition to also check `currentProductiveMs > 0`. When the timer is running but no app name is available, shows the tier name (e.g., "Productive: Productive Session") instead of "Unknown".
+- **Files:** `src/pages/DashboardPage.tsx`
+
+### Issue #135: ProductivityPage Donut/Bar/Score/Line Graph All Show Wrong Values
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "productivity page shows wrong data"
+- **Root Cause:** Multiple aggregation queries in main.ts for the ProductivityPage used inconsistent date ranges and filtering logic, causing donut chart, bar chart, score card, and line graph to each display different (wrong) totals.
+- **Fix:** Standardized all four data sources to use the same `computePeriodRange()` function and consistent filtering. Removed ad-hoc date math from individual queries.
+- **Files:** `src/main.ts`
+
+### Issue #136: InitializeProgressModal Redesign Needs User Testing
+
+- **Status:** AI Attempted Fix
+- **Priority:** Medium
+- **User said:** "Initialize progress modal needs UX improvements"
+- **Root Cause:** The initial InitializeProgressModal had a flat list of files with no grouping, no expandable previews, and no error retry mechanism.
+- **Fix:** Redesigned with directory grouping headers, per-group progress counters, expandable file content previews, a "Workspace Ready" summary card on completion, and error retry buttons.
+- **Files:** `src/components/InitializeProgressModal.tsx`
+
+### Issue #137: Productivity Trend Chart Breaks When Switching to Previous Periods
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "trend chart breaks when you go back a week"
+- **Root Cause:** The trend chart data query used `dateOffset` but the data transformation didn't account for shifted date ranges, causing empty or overlapping data series.
+- **Fix:** Added `dateOffset` parameter propagation through the entire trend chart data pipeline. All date-range calculations now use `computePeriodRange()` consistently.
+- **Files:** `src/main.ts`, `src/pages/ProductivityPage.tsx`
+
+### Issue #138: ProductivityPage Freeze on "All Time"
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "all time freezes the app"
+- **Root Cause:** The all-time query had no row limit and no date bounds, loading ALL log entries into memory — causing the renderer to freeze from massive data.
+- **Fix:** Added LIMIT 5000 and a 730-day date window to the all-time query (same fix as the dashboard freeze fix).
+- **Files:** `src/main.ts`
+
+### Issue #139: BrowserActivityPage "All Time" Shows Only 90 Days
+
+- **Status:** Fixed
+- **Priority:** Medium
+- **User said:** "all time only shows 90 days"
+- **Root Cause:** The BrowserActivityPage used a hardcoded 90-day default range instead of querying all available data. The backend queries had LIMIT clauses that truncated older data.
+- **Fix:** Removed the hardcoded 90-day limit. All-time queries now use the full 730-day window (same as other pages).
+- **Files:** `src/main.ts`
+
+### Issue #140: Sleep Detection False Positives When User Is Actively Working
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "sleep detection pops up while I'm working"
+- **Root Cause:** The 45+ minute idle gap detection was too aggressive. Long-running tasks (compilation, rendering, large downloads, presentations) could trigger false sleep detection.
+- **Fix:** Added an "active work" check: before triggering sleep detection, check if there was meaningful keyboard/mouse activity or active foreground app changes within the gap window. Only trigger sleep if the user was truly AFK for the entire duration.
+- **Files:** `src/main.ts`, `src/App.tsx`
+
+### Issue #141: Focus Sessions Show Wrong Sort and Redundant App Name
+
+- **Status:** Fixed
+- **Priority:** Low
+- **User said:** "focus sessions are sorted wrong and show app name twice"
+- **Root Cause:** Focus sessions were sorted by `id DESC` (most recent first) but the UI expected chronological order. The app name was duplicated in the card title and body.
+- **Fix:** Changed sort to `start_time DESC` in backend query. Removed redundant app name display in the UI card.
+- **Files:** `src/main.ts`, `src/pages/DashboardPage.tsx`
+
+### Issue #142: Website Tracking Logs Browser as App When Not Focused
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "still tracking websites when browser isn't focused"
+- **Root Cause:** The `handleBrowserData()` function in main.ts checked `isBrowserWithExtension()` (whether the foreground app matches the extension host), but this only applies when the foreground is the browser itself. When the user switched to another app, the periodic sync from the browser extension continued creating log entries. The `isBrowserFocused` guard was missing from the periodic sync path.
+- **Fix:** Added `isBrowserFocused` guard (from extension handshake state) to the periodic sync handler. If the browser extension reports itself as not focused, periodic sync entries are dropped.
+- **Files:** `src/main.ts`
+
+### Issue #143: Charts Don't Update When Navigating to Previous Periods
+
+- **Status:** Fixed
+- **Priority:** Medium
+- **User said:** "charts stay the same when I go back a week"
+- **Root Cause:** The dashboard chart data was fetched once on mount and never re-fetched when `weekOffset` changed. The `useEffect` dependency array was missing `weekOffset`.
+- **Fix:** Added `weekOffset` to the data-fetch `useEffect` dependency array. Charts now re-fetch and update when navigating periods.
+- **Files:** `src/pages/DashboardPage.tsx`
+
+### Issue #144: All-Time View Freezes App
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "all time freezes the whole thing"
+- **Root Cause:** Several IPC endpoints (`get-dashboard-aggregates`, `getProductivityData`, `get-browser-activity`) had no LIMIT clause or date window for all-time queries, loading the entire log table into memory. Combined with ~50MB of JSON serialization/deserialization, this froze the renderer.
+- **Fix:** Added LIMIT 5000 and 730-day window to all data queries that lacked them. Also added query-level performance logging.
+- **Files:** `src/main.ts`
+
+### Issue #146: Chart Sleep Trends Timezone Shift — toLocalDate Miscomputes Date
+
+- **Status:** Fixed
+- **Priority:** High
+- **User said:** "sleep chart shows wrong dates / missing bars"
+- **Root Cause:** `new Date(iso).getDate()` in main.ts — `Date(iso)` parses the ISO string as UTC 00:00:00, but `.getDate()` returns the LOCAL timezone's date component. For UTC+ timezones at midnight, the local date matches UTC; for UTC- timezones, the local date is 1 day earlier.
+- **Fix:**
+  - Changed `toLocalDate` to extract directly from ISO string: `iso.split('T')[0]`
+  - Updated `get-sleep-for-date` SQL: `WHERE date(started_at) = ? OR date(ended_at) = ?`
+- **Files:** `src/main.ts`
+
+### Issue #145: Sleep Detection Race — AFK Entries Win Over Sleep Queue Clear
+
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User said:** "sleep detection and AFK prompt conflict — entries appear after sleeping"
+- **Description:** When sleep detection fires simultaneously with idle return, the AFK prompt queue shows entries despite sleep having cleared it. Root cause: `onSleepDetection` calls `setAfkPromptQueue([])` but the idle return handler's `setAfkPromptQueue(prev => [...prev, entry])` uses a functional updater that React applies AFTER the sleep clear, effectively undoing it.
+- **Root Cause:** `idleReturnFnRef.current` is async (contains `await` calls for `getActiveExternalSession`, `getTypicalActivityAtTime`). During the async gap, sleep detection fires and clears the queue. But the idle handler's functional updater (`prev => [...prev, entry]`) captures a snapshot of state from BEFORE the clear and wins over the sleep's `setAfkPromptQueue([])` due to React's batching.
+- **Fix:**
+  - Added `sleepActiveRef` (synchronous `useRef`) set to `true` immediately in `onSleepDetection` BEFORE any async operations
+  - `idleReturnFnRef.current` checks `sleepActiveRef.current` at TWO points: (1) at function start (before async), (2) after all `await` calls (after async)
+  - If `sleepActiveRef.current` is true at either point, calls `stopAfkSession()` and returns early without pushing to queue
+  - Reset to `false` in `dismissSleepDetection` and `confirmSleepDetection`
+- **Files:** `src/App.tsx`
+
+### Issue #147: Dashboard Stat Cards All Zeros
+
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User said:** "Productive 0m, Total 0m, % Productive 100%, Longest Focus 0m, Resets Today 0, Productive 00:00:05"
+- **Root Cause:** Two independent aggregation systems — trigger-updated `stats_daily`/`app_totals` and JS-updated `daily_aggregates`/`daily_stats`/`browser_sessions`. The `_backfill_complete` marker caused `stats_daily` to skip backfill if it ran when `logs` was empty. Dashboard reads `stats_daily` → returns empty → cards show 0. Live timer ticks independently via `currentProductiveMs`.
+- **Fix:**
+  1. **Backfill fix** (`backfillStatsTables` in main.ts): Replaced `_backfill_complete` marker with actual `SELECT COUNT(*)` checks on `stats_daily`/`stats_hourly`. Skips only if both tables have data. Drops legacy `_backfill_complete` table.
+  2. **Live fallback** (`getDashboardAggregates` handler): If `stats_daily` returns zero totalSeconds or empty rows, aggregates weekly heatmap, website stats, app stats, and overview totals directly from `logs` via SQL aggregations — works regardless of backfill state.
+- **Files:** `src/main.ts`
+
+---
+
+## 🚧 2026-06-05 — AiPage bug fixes (OpenRouter 402 + "e.match is not a function")
+
+### Issue #150: OpenRouter 402 Credit Error on Topic Digest Generation
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User reported behavior:** Topic digest generation fails silently on AiPage. OpenRouter returns 402 Payment Required when credits are low.
+- **Root Cause:** `AIService.ts:166` set `maxTokens: 400` for topic digest prompt. OpenRouter charges per-token; when account credits dip below the 400-token cost threshold, the API returns HTTP 402 instead of generating content. Topic digest (3-5 short research topic summaries) doesn't need 400 tokens — 200 is sufficient.
+- **Fix (round 1):** Reduced `maxTokens` from 400 to 200 in the topic digest generation parameters at `src/services/AIService.ts:166`.
+- **Fix (round 2):** Added automatic fallback to free model `meta-llama/llama-3.2-3b-instruct` in `main.ts:generateDailyBriefAndCache` when the primary model returns HTTP 402. The fallback uses the credit-free model so topic digest always generates regardless of account balance.
+- **Files:** `src/services/AIService.ts`, `src/main.ts`
+
+### Issue #151: "e.match is not a function" Crash on AiPage Load
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User reported behavior:** AiBriefCard crashes with "e.match is not a function" TypeError when AiPage loads.
+- **Root Cause:** Two bugs:
+   1. `main.ts:generateDailyBriefAndCache` stored `result.content` (already a parsed JSON object) inside `{ summary: result.content }`, creating `content.summary = { signal, metrics, ... }` — an object, not a string.
+   2. `AiBriefCard.tsx` called `content.summary.match(...)` assuming it's always a string, but after the storage bug, `content.summary` was the parsed object, which has no `.match()` method.
+- **Fix (round 1):**
+   1. `main.ts` — `generateDailyBriefAndCache` now stores `result.content` directly (the parsed object) instead of wrapping it in `{ summary: result.content }`.
+   2. `AiBriefCard.tsx` — Added `typeof content.summary === 'string'` guard before calling `.match()` for defense-in-depth.
+- **Fix (round 2):**
+   3. `main.ts` — Added old cache format migration on read: when loading a cached brief, detects `{ summary: object }` format and unwraps it automatically.
+   4. `AiPage.tsx` — `fallbackParseDailyBrief` now unwraps old `{ summary: object }` format for backward compatibility with stale cached data.
+- **Files:** `src/main.ts`, `src/components/AiBriefCard.tsx`, `src/pages/AiPage.tsx`

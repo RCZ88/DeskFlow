@@ -1,7 +1,7 @@
 ---
 id: design-taste
 name: Design Taste System
-version: 1.0.0
+version: 1.1.0
 category: design
 tags: [master, aggregator, design-system, configuration]
 ---
@@ -14,7 +14,7 @@ This is the **aggregated master design skill** for the DeskFlow agent workspace.
 
 ## Referenced Sub-Skills
 
-1. **frontend-design** — Core UI/UX principles, DeskFlow-specific conventions, component patterns
+1. **frontend-design** (v3.0.0) — Core UI/UX principles, DeskFlow-specific conventions, ALL page layouts (Dashboard, IDE, Terminal, External, Database, Insights, Stats, Browser, Settings, IDE Help), ALL component patterns (GlassCard 3 variants, TabBar, SectionHeader, StatCard, ChartContainer, Modal, StatusBadge, CategoryBadge, EmptyState, LoadingState), ALL architecture blueprints (Cross-Session Sync, Skill DSL, InitializeProgressModal, AnalyticsDashboard 3 variants, Context Management System, Session Categorization, Agent Readiness Protocol)
 2. **impeccable** — 7 domain references (typography, color, spatial, motion, interaction, responsive, UX writing), 23 commands, 27 anti-patterns
 3. **ui-ux-pro-max** — Industry-specific design rules, style library, color palettes, typography pairings
 4. **taste-skill** — Tunable knobs (variance, motion, density), aesthetic matrix, anti-repetition rules

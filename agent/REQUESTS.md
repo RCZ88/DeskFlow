@@ -2,7 +2,7 @@
 
 > **DO NOT EDIT MANUALLY** - This file is managed by Tracker Mind.
 
-> Last sync: 2026-05-21T15:51:46.702Z
+> Last sync: 2026-05-28T00:57:46.591Z
 
 ## 📝 How to Use This File
 
@@ -22,11 +22,11 @@
 
 ### Request #001 - External Activity Dashboard Integration
 
-**Status:** In Progress
+**Status:** Completed
 **Priority:** High
 **Category:** Feature
 **Created:** 2026-05-14T12:34:32.807Z
-**Updated:** 2026-05-21T15:51:46.701Z
+**Updated:** 2026-05-28T00:57:46.590Z
 
 **Request:** 
 Dashboard should sync with external activity - show active external activity on the stopwatch, log external activities, and resume external activity after internal activity ends.
@@ -697,41 +697,6 @@ Also: "WHY IS THE APP ECOSYSTEM NOT FOLLOWING THE FUCKING TOP NAV TIME SELECTION
 **Category:** UI/UX
 **Created:** 2026-05-14T12:34:32.807Z
 **Updated:** 2026-05-14T12:34:32.807Z
-
----
-
-### Request #048 - Replace Setup Popup with Context Sidebar
-
-**Status:** Pending
-**Priority:** P1
-**Category:** Feature
-
-**Request:**
-"Maybe we can remove the pop-up thing and create a sidebar for context management"
-
-**Details:**
-- Replace WorkspaceSettingsDialog (modal popup) with a proper sidebar tab in the IDE workspace
-- Unify context system toggles, token budgets, design skills, and ContextMaintenanceTab into one sidebar
-- Keep NewSessionDialog's pre-population from workspace-context-config preference
-- Add new settings: model improvisation, file locations, terminal communication, workspace defaults
-
----
-
-### Request #049 - Feature Tutorial / Onboarding Page
-
-**Status:** Pending
-**Priority:** P2
-**Category:** Feature
-
-**Request:**
-"I think i need a page specifically for showing the list of features with tutorial"
-
-**Details:**
-- New dedicated page/route for listing all app features with descriptions
-- Interactive tutorial walkthrough with focus overlay, instructions, and "Try it" navigation
-- Source feature list from agent/FEATURE_TRACKER.md
-- Optional first-launch welcome prompt
-- Progress tracking and completion state
 
 ---
 

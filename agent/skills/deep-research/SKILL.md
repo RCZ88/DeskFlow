@@ -6,6 +6,42 @@ applicable_to: [research, codebase-analysis]
 version: 1.0.0
 created: 2026-04-19
 tags: [research, investigation, analysis]
+inputs:
+  - name: Research Topic
+    type: text
+    description: The topic or question to research
+    required: true
+    source: user
+  - name: Depth Level
+    type: enum
+    description: How deep to investigate (surface, standard, deep)
+    required: false
+    source: user
+  - name: Existing Context
+    type: file
+    description: Prior research or context documents
+    required: false
+    source: system
+outputs:
+  - name: Research Report
+    type: markdown
+    description: Comprehensive research findings document
+  - name: Source List
+    type: list
+    description: Referenced sources, URLs, and citations
+  - name: Key Findings
+    type: list
+    description: Bullet-point summary of critical discoveries
+components:
+  - name: Search Strategy
+    description: Defines search terms, angles, and approach
+    source: agent
+  - name: Synthesis Engine
+    description: Combines findings into a coherent narrative
+    source: system
+  - name: Citation Tracker
+    description: Maintains source attribution throughout
+    source: agent
 ---
 
 # 🔍 Deep Research Agent

@@ -6,6 +6,31 @@ applicable_to: [graphify, markdown, obsidian]
 version: 2.0.0
 created: 2026-04-19
 tags: [maintenance, sync, graphify, obsidian]
+inputs:
+  - name: Session History
+    type: text
+    description: Recent conversation or session context
+    required: true
+    source: system
+  - name: State File
+    type: file
+    description: Current agent/state.md content
+    required: true
+    source: system
+outputs:
+  - name: Updated State
+    type: markdown
+    description: Revised state.md with current progress
+  - name: Context Summary
+    type: text
+    description: Compressed context for token efficiency
+components:
+  - name: State Tracker
+    description: Monitors what has changed since last update
+    source: system
+  - name: Context Compressor
+    description: Reduces token count while preserving key info
+    source: agent
 ---
 
 # Maintain-Context - Post-Task Knowledge Sync Skill

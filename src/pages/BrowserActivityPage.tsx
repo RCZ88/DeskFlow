@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react';
 import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronRight, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon } from 'lucide-react';
+import { PageShell } from '../components/PageShell';
+import { GlassCard } from '../components/GlassCard';
+import { SectionHeader } from '../components/SectionHeader';
+import { LoadingState } from '../components/LoadingState';
 import { format as dateFormat } from 'date-fns';
 import { Pie, Bar, Line } from 'react-chartjs-2';
 import { format } from 'date-fns';
@@ -155,6 +159,18 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
       }
     };
     init();
+  }, []);
+  
+  // Set page visibility for on-view recording mode
+  useEffect(() => {
+    if (window.deskflowAPI?.setPageVisibility) {
+      window.deskflowAPI.setPageVisibility('browser', true);
+    }
+    return () => {
+      if (window.deskflowAPI?.setPageVisibility) {
+        window.deskflowAPI.setPageVisibility('browser', false);
+      }
+    };
   }, []);
   
   // Ref to track if component is still mounted - prevents state updates after unmount
@@ -443,6 +459,23 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
       }));
     }
 
+    // For 'all', aggregate by month
+    if (selectedPeriod === 'all') {
+      const monthBuckets = new Map<string, number>();
+      for (const log of filteredLogs) {
+        const d = new Date(log.timestamp);
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        monthBuckets.set(monthKey, (monthBuckets.get(monthKey) || 0) + (log.duration_ms || 0));
+      }
+      return Array.from(monthBuckets.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([monthKey, ms]) => {
+          const [y, m] = monthKey.split('-');
+          const d = new Date(parseInt(y), parseInt(m) - 1);
+          return { label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), ms };
+        });
+    }
+
     const buckets = new Map<string, number>();
     for (const log of filteredLogs) {
       const dayStr = new Date(log.timestamp).toISOString().split('T')[0];
@@ -508,7 +541,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     scales: {
       x: {
         grid: { display: false },
-        ticks: { color: '#71717a', maxTicksLimit: selectedPeriod === 'today' ? 12 : selectedPeriod === 'week' ? 7 : 15 }
+        ticks: { color: '#71717a', maxTicksLimit: selectedPeriod === 'today' ? 12 : selectedPeriod === 'week' ? 7 : selectedPeriod === 'all' ? 24 : 15 }
       },
       y: {
         grid: { color: '#27272a' },
@@ -551,35 +584,21 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
   };
 
   if (loading) {
-    return (
-      <div
-        className="flex items-center justify-center h-96"
-      >
-        <div className="text-center">
-          <RefreshCw className="mx-auto w-12 h-12 mb-4 text-zinc-500 animate-spin" />
-          <div className="text-zinc-400">Loading browser activity...</div>
-        </div>
-      </div>
-    );
+    return <PageShell page="browser"><LoadingState variant="spinner" className="py-24" /></PageShell>;
   }
 
   if (error) {
     return (
-      <div
-        className="flex items-center justify-center h-96"
-      >
-        <div className="text-center">
-          <AlertCircle className="mx-auto w-12 h-12 mb-4 text-red-500" />
-          <div className="text-red-400 font-medium">Error loading browser data</div>
-          <div className="text-sm text-zinc-500 mt-2">{error}</div>
-          <button
-            onClick={fetchData}
-            className="mt-4 px-4 py-2 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-sm transition"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
+      <PageShell page="browser">
+        <GlassCard>
+          <div className="text-center py-8">
+            <AlertCircle className="mx-auto w-12 h-12 mb-4 text-red-500" />
+            <div className="text-red-400 font-medium">Error loading browser data</div>
+            <div className="text-sm text-zinc-500 mt-2">{error}</div>
+            <button onClick={fetchData} className="mt-4 px-4 py-2 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-sm transition">Retry</button>
+          </div>
+        </GlassCard>
+      </PageShell>
     );
   }
 
@@ -588,9 +607,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
   const totalSessions = domainStats.reduce((sum, d) => sum + d.sessions, 0);
 
   return (
-    <div
-      className="space-y-8"
-    >
+    <PageShell page="browser">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -609,7 +626,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
           </div>
 
           {/* Main Browser Config */}
-          <div className="glass rounded-2xl p-4 border border-zinc-800">
+              <GlassCard className="p-4">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-zinc-400" />
@@ -646,7 +663,8 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
                 {mainBrowser ? `Excludes ${mainBrowser.charAt(0).toUpperCase() + mainBrowser.slice(1)} browsing time from stats (tracked via extension instead)` : 'Loading...'}
               </span>
             </div>
-          </div>
+          </GlassCard>
+
           <button
             onClick={fetchData}
             className="px-4 py-2 bg-zinc-800 rounded-xl hover:bg-zinc-700 text-sm flex items-center gap-2 transition"
@@ -659,59 +677,49 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="glass rounded-3xl p-6 border border-zinc-800">
+        <GlassCard>
           <div className="flex items-center gap-3 mb-3">
             <Clock className="text-blue-500" size={20} />
             <span className="text-sm text-zinc-400">Total Browsing Time</span>
           </div>
           <div className="text-3xl font-bold font-mono">{formatDuration(totalBrowserTime)}</div>
           <div className="text-xs text-zinc-500 mt-1">Across all sessions</div>
-        </div>
+        </GlassCard>
 
-        <div className="glass rounded-3xl p-6 border border-zinc-800">
+        <GlassCard>
           <div className="flex items-center gap-3 mb-3">
             <Globe className="text-emerald-500" size={20} />
             <span className="text-sm text-zinc-400">Unique Domains</span>
           </div>
           <div className="text-3xl font-bold font-mono">{domainStats.length}</div>
           <div className="text-xs text-zinc-500 mt-1">Different websites visited</div>
-        </div>
+        </GlassCard>
 
-        <div className="glass rounded-3xl p-6 border border-zinc-800">
+        <GlassCard>
           <div className="flex items-center gap-3 mb-3">
             <TrendingUp className="text-purple-500" size={20} />
             <span className="text-sm text-zinc-400">Browsing Sessions</span>
           </div>
           <div className="text-3xl font-bold font-mono">{totalSessions}</div>
-        </div>
+        </GlassCard>
       </div>
 
        {/* Live Logs Panel */}
-       <div className="glass rounded-3xl p-6 border border-zinc-800">
-         <div className="flex items-center justify-between mb-4">
-           <div className="flex items-center gap-3">
-             <Terminal className="text-emerald-400" size={20} />
-             <span className="font-medium">Live Detection</span>
-           </div>
-           <div className="flex items-center gap-2">
-             <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
-             <button
-               onClick={handleSaveLogs}
-               disabled={liveLogs.length === 0}
-               className="px-3 py-1.5 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-xs flex items-center gap-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed"
-             >
-               <Save size={12} />
-               Save
-             </button>
-           </div>
-         </div>
+       <GlassCard>
+         <SectionHeader title="Live Detection" icon={<Terminal className="w-5 h-5" />}
+           action={
+             <div className="flex items-center gap-2">
+               <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
+               <button onClick={handleSaveLogs} disabled={liveLogs.length === 0}
+                 className="px-3 py-1.5 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-xs flex items-center gap-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                 <Save size={12} /> Save
+               </button>
+             </div>
+           } />
 
-         {/* Logs Display */}
          <div className="bg-zinc-950 rounded-xl border border-zinc-800/50 p-3 h-48 overflow-y-auto font-mono text-xs">
            {liveLogs.length === 0 ? (
-             <div className="text-zinc-500 text-center py-8">
-               Live detection paused
-             </div>
+             <div className="text-zinc-500 text-center py-8">Live detection paused</div>
            ) : (
              <div className="space-y-1">
                {liveLogs.slice().reverse().map((log) => (
@@ -733,95 +741,53 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
              </div>
            )}
          </div>
-       </div>
+       </GlassCard>
 
       {/* Hourly Activity Chart */}
-      <div className="glass rounded-3xl p-8">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            {hourlyChartMode === 'bar' ? (
-              <BarChart3 className="w-5 h-5 text-emerald-400" />
-            ) : (
-              <TrendingUpIcon className="w-5 h-5 text-indigo-400" />
-            )}
-            <div>
-              <div className="text-xl font-semibold">
-                {selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
-              </div>
-              <div className="text-sm text-zinc-500">
-                {selectedPeriod === 'today' ? 'Activity by hour of day' : `${selectedPeriod === 'week' ? '7 days' : selectedPeriod === 'month' ? '30 days' : '90 days'} of activity`}
-              </div>
+      <GlassCard>
+        <SectionHeader title={selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
+          icon={hourlyChartMode === 'bar' ? <BarChart3 className="w-5 h-5" /> : <TrendingUpIcon className="w-5 h-5" />}
+          action={
+            <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
+              <button onClick={() => setHourlyChartMode('bar')}
+                className={`p-2 rounded-md transition-colors duration-150 ${hourlyChartMode === 'bar' ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400 hover:text-white'}`}
+                title="Bar Chart"><BarChart3 className="w-4 h-4" /></button>
+              <button onClick={() => setHourlyChartMode('line')}
+                className={`p-2 rounded-md transition-colors duration-150 ${hourlyChartMode === 'line' ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:text-white'}`}
+                title="Line Chart"><TrendingUpIcon className="w-4 h-4" /></button>
             </div>
-          </div>
-          <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
-            <button
-              onClick={() => setHourlyChartMode('bar')}
-              className={`p-2 rounded-md transition-all ${
-                hourlyChartMode === 'bar'
-                  ? 'bg-emerald-500/20 text-emerald-400'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-              title="Bar Chart"
-            >
-              <BarChart3 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setHourlyChartMode('line')}
-              className={`p-2 rounded-md transition-all ${
-                hourlyChartMode === 'line'
-                  ? 'bg-indigo-500/20 text-indigo-400'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-              title="Line Chart"
-            >
-              <TrendingUpIcon className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+          } />
+        <p className="text-xs text-zinc-500 mb-4">
+          {selectedPeriod === 'today' ? 'Activity by hour of day' : selectedPeriod === 'all' ? 'All time activity by month' : `${selectedPeriod === 'week' ? '7 days' : selectedPeriod === 'month' ? '30 days' : '90 days'} of activity`}
+        </p>
         <div className="h-56">
-          {hourlyChartMode === 'bar' ? (
-            <Bar data={hourlyChartData} options={hourlyChartOptions} />
-          ) : (
-            <Line data={hourlyLineChartData} options={hourlyChartOptions} />
-          )}
+          {hourlyChartMode === 'bar' ? <Bar data={hourlyChartData} options={hourlyChartOptions} /> : <Line data={hourlyLineChartData} options={hourlyChartOptions} />}
         </div>
-      </div>
+      </GlassCard>
 
       {/* Charts Row */}
       {categoryStats.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Category Breakdown Pie */}
-          <div className="glass rounded-3xl p-6 border border-zinc-800">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <BarChart3 size={18} className="text-zinc-400" />
-              Time by Category
-            </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <GlassCard>
+            <SectionHeader title="Time by Category" icon={<BarChart3 className="w-5 h-5" />} />
             <div className="h-72">
               <Pie data={categoryChartData} options={categoryPieOptions} />
             </div>
-          </div>
+          </GlassCard>
 
-          {/* Top Domains Bar Chart */}
-          <div className="glass rounded-3xl p-6 border border-zinc-800">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <TrendingUp size={18} className="text-zinc-400" />
-              Top Domains
-            </h2>
+          <GlassCard>
+            <SectionHeader title="Top Domains" icon={<TrendingUp className="w-5 h-5" />} />
             <div className="h-72">
               <Bar data={domainChartData} options={domainBarOptions} />
             </div>
-          </div>
+          </GlassCard>
         </div>
       )}
 
       {/* Recent Activity - Aggregated by domain with dropdown */}
-      <div className="glass rounded-3xl p-6 border border-zinc-800">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Recent Activity</h2>
-          {aggregatedLogs.length > 0 && (
-            <span className="text-xs text-zinc-500">{aggregatedLogs.length} sites</span>
-          )}
-        </div>
+      <GlassCard>
+        <SectionHeader title="Recent Activity"
+          action={aggregatedLogs.length > 0 && <span className="text-xs text-zinc-500">{aggregatedLogs.length} sites</span>} />
         {aggregatedLogs.length === 0 ? (
           <div className="text-center py-4 text-zinc-500">
             No recent browsing activity
@@ -892,11 +858,11 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
             })}
           </div>
         )}
-      </div>
+      </GlassCard>
 
       {/* Domain Breakdown - Grid Layout */}
-      <div className="glass rounded-3xl p-6 border border-zinc-800">
-        <h2 className="text-lg font-semibold mb-4">Domain Breakdown</h2>
+      <GlassCard>
+                <SectionHeader title="Domain Breakdown" />
         {domainStats.length === 0 ? (
           <div className="text-center py-12 text-zinc-500">
             <Globe className="mx-auto w-12 h-12 mb-3 text-zinc-700" />
@@ -908,7 +874,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
             {domainStats.map((d, i) => (
               <div
                 key={d.domain}
-                className="bg-zinc-900/50 rounded-2xl p-4 border border-zinc-800/50 hover:border-zinc-700 cursor-pointer transition"
+                className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 hover:border-zinc-700 cursor-pointer transition"
                 onClick={() => setSelectedDomainDetail(d)}
               >
                 <div className="flex items-start justify-between mb-3">
@@ -943,23 +909,21 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
             ))}
           </div>
         )}
-      </div>
+      </GlassCard>
 
       {/* Domain Detail Modal */}
       {selectedDomainDetail && (
           <div
-            className="fixed inset-0 bg-black/70 backdrop-blur flex items-center justify-center z-50 p-8"
+            className="fixed inset-0 bg-black/70 backdrop-blur flex items-center justify-center z-50 p-5"
             onClick={() => setSelectedDomainDetail(null)}
           >
-            <div
-              className="glass rounded-3xl p-8 w-full max-w-3xl max-h-[85vh] overflow-y-auto"
-              onClick={e => e.stopPropagation()}
-            >
+            <GlassCard variant="elevated" className="w-full max-w-3xl max-h-[85vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}>
               {/* Header */}
               <div className="flex items-start justify-between mb-8">
                 <div className="flex items-center gap-4">
                   <div
-                    className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                    className="w-14 h-14 rounded-xl flex items-center justify-center"
                     style={{ backgroundColor: (CATEGORY_COLORS[selectedDomainDetail.category] || CATEGORY_COLORS['Other']) + '22' }}
                   >
                     <Globe
@@ -994,9 +958,9 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
                   </div>
                 ))}
               </div>
-            </div>
+            </GlassCard>
           </div>
         )}
-    </div>
+    </PageShell>
   );
 }

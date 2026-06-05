@@ -165,21 +165,18 @@ export function DayDetailPopup({ date, items, onClose, onDateChange }: DayDetail
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(8px)' }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="w-full h-full max-w-7xl overflow-y-auto"
-        style={{ backgroundColor: 'rgba(10, 10, 10, 0.98)' }}
+        className="w-full h-full max-w-7xl overflow-y-auto bg-zinc-950"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="sticky top-0 z-10 px-6 py-4 border-b flex items-center justify-between"
-          style={{ backgroundColor: 'rgba(10, 10, 10, 0.95)', borderColor: 'rgba(139, 92, 246, 0.2)' }}>
+        <div className="sticky top-0 z-10 px-6 py-4 border-b flex items-center justify-between bg-zinc-950/95 border-violet-500/20">
           <div className="flex items-center gap-4">
             <button
               onClick={onClose}
@@ -231,7 +228,7 @@ export function DayDetailPopup({ date, items, onClose, onDateChange }: DayDetail
           </div>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-5 space-y-6">
           {/* Stat Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard icon="⏱" label="Total Time" value={formatDuration(stats.total)} color="#8b5cf6" />

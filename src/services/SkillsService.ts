@@ -1,5 +1,43 @@
 import * as fs from 'fs';
 import * as path from 'path';
+const { enhanceSkillWithDSL } = require('./SkillDSLParser.cjs');
+
+export interface SkillIO {
+  name: string;
+  type: string;
+  description?: string;
+  required?: boolean;
+  source?: string;
+
+  // DSL extensions
+  widget?: 'select' | 'radio' | 'switch' | 'slider' | 'text' | 'textarea' | 'code' | 'file' | 'checkbox' | 'tags';
+  choices?: string[];
+  default?: string | number | boolean | string[];
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  validation?: string;
+  validationMessage?: string;
+  group?: string;
+  language?: string;
+}
+
+export interface SkillOutput {
+  name: string;
+  type: string;
+  description?: string;
+  source?: string;
+  preview?: boolean;
+}
+
+export interface SkillComponent {
+  name: string;
+  description?: string;
+  type?: string;
+  required?: boolean;
+  source?: string;
+}
 
 export interface Skill {
   id: string;
@@ -8,6 +46,9 @@ export interface Skill {
   category: string;
   content: string;
   filePath: string;
+  inputs?: SkillIO[];
+  outputs?: SkillOutput[];
+  components?: SkillComponent[];
 }
 
 export class SkillsService {
@@ -43,12 +84,12 @@ export class SkillsService {
       if (entry.isDirectory()) {
         const skillPath = path.join(this.skillsDir, entry.name, 'SKILL.md');
         if (fs.existsSync(skillPath)) {
-          const skill = this.loadSkillFromFile(entry.name, skillPath);
+          const skill = this.loadSkillFromFile(skillPath);
           if (skill) skills.push(skill);
         }
       } else if (entry.name.endsWith('.md') && entry.name !== 'README.md') {
         const skillPath = path.join(this.skillsDir, entry.name);
-        const skill = this.loadSkillFromFile(entry.name.replace('.md', ''), skillPath);
+        const skill = this.loadSkillFromFile(skillPath);
         if (skill) skills.push(skill);
       }
     }
@@ -56,33 +97,44 @@ export class SkillsService {
     return skills;
   }
 
-  private loadSkillFromFile(id: string, filePath: string): Skill | null {
+  private loadSkillFromFile(filePath: string): Skill | null {
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
-      
-      // Parse frontmatter if present
+
+      const frontmatterMatch = content.trimStart().match(/^---\n([\s\S]*?)\n---/);
+      const frontmatter = frontmatterMatch ? frontmatterMatch[1] : '';
+
+      let id = path.basename(path.dirname(filePath));
       let name = id.replace(/-/g, ' ').replace(/_/g, ' ');
       let description = '';
       let category = 'general';
 
-      // Try to extract from frontmatter or first lines
-      const nameMatch = content.match(/^#\s+(.+?)\n/m) || content.match(/^name:\s*(.+?)$/m);
+      const nameMatch = content.match(/^#\s+(.+?)\n/m) || frontmatter.match(/^name:\s*(.+?)$/m);
       if (nameMatch) name = nameMatch[1].trim();
 
-      const descMatch = content.match(/description:\s*(.+?)$/m);
+      const descMatch = frontmatter.match(/^description:\s*(.+?)$/m);
       if (descMatch) description = descMatch[1].trim();
 
-      const catMatch = content.match(/category:\s*(.+?)$/m);
+      const catMatch = frontmatter.match(/^category:\s*(.+?)$/m);
       if (catMatch) category = catMatch[1].trim();
 
-      return {
+      const inputs = parseFrontmatterList(frontmatter, 'inputs') as SkillIO[];
+      const outputs = parseFrontmatterList(frontmatter, 'outputs') as SkillIO[];
+      const components = parseFrontmatterList(frontmatter, 'components') as SkillComponent[];
+
+      const result: Skill = {
         id,
         name,
         description: description || this.generateDescription(content),
         category,
         content,
-        filePath
+        filePath,
+        inputs: inputs.length > 0 ? inputs : undefined,
+        outputs: outputs.length > 0 ? outputs : undefined,
+        components: components.length > 0 ? components : undefined,
       };
+
+      return enhanceSkillWithDSL(result);
     } catch (err) {
       console.error('[SkillsService] Failed to load skill:', filePath, err);
       return null;
@@ -133,4 +185,60 @@ export class SkillsService {
 
     return `[Skill: ${skill.name}]\n${contextLines.slice(0, 50).join('\n')}`;
   }
+}
+
+function parseFrontmatterList(frontmatter: string, key: string): any[] {
+  const lines = frontmatter.split('\n');
+  const results: any[] = [];
+  let inSection = false;
+  let currentItem: any = null;
+
+  for (const line of lines) {
+    if (line === `${key}:` || new RegExp(`^${key}:\\s*$`).test(line)) {
+      inSection = true;
+      continue;
+    }
+
+    if (inSection && /^\w[\w-]*:/.test(line) && !line.startsWith(' ')) {
+      if (currentItem && Object.keys(currentItem).length > 0) {
+        results.push(currentItem);
+      }
+      currentItem = null;
+      inSection = false;
+      continue;
+    }
+
+    if (!inSection) continue;
+    if (line.trim() === '') continue;
+
+    const newItemMatch = line.match(/^  - (\w+):\s*(.+)$/);
+    if (newItemMatch) {
+      if (currentItem && Object.keys(currentItem).length > 0) {
+        results.push(currentItem);
+      }
+      currentItem = {};
+      let val: any = newItemMatch[2].trim();
+      if (val === 'true') val = true;
+      else if (val === 'false') val = false;
+      currentItem[newItemMatch[1]] = val;
+      continue;
+    }
+
+    const propMatch = line.match(/^    (\w+):\s*(.+)$/);
+    if (propMatch && currentItem) {
+      let val: any = propMatch[2].trim();
+      if (val === 'true') val = true;
+      else if (val === 'false') val = false;
+      else if (val.startsWith('[') && val.endsWith(']')) {
+        val = val.slice(1, -1).split(',').map((s: string) => s.trim());
+      }
+      currentItem[propMatch[1]] = val;
+    }
+  }
+
+  if (currentItem && Object.keys(currentItem).length > 0) {
+    results.push(currentItem);
+  }
+
+  return results;
 }

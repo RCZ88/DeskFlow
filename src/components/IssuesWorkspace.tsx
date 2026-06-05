@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   AlertCircle, FileText, CheckCircle2, Plus, Terminal, Clock,
-  ArrowUp, ArrowDown, X, ExternalLink, Send, Link, Filter,
-  Bug, Lightbulb, ListChecks, RefreshCw
+  ArrowUp, ArrowDown, X, ExternalLink, Send, Link,
+  Bug, Lightbulb, ListChecks, RefreshCw, ChevronDown, ChevronRight, Eye, EyeOff
 } from 'lucide-react';
+import CheckFeedbackControls from './CheckFeedbackControls';
+import { sortAndGroupChecks, DEFAULT_CHECKLIST_CONFIG, ChecklistConfig } from '../lib/checklistAlgorithm';
+import { resolveSessionForCheck } from '../lib/sessionResolution';
 
 interface Problem {
   id: string; title: string; status: string; priority: string; category: string;
@@ -20,6 +23,8 @@ interface IssueWorkspaceProps {
   projectId?: string; projectPath?: string;
   projects?: { id: string; name: string; path: string }[];
   onSelectProject?: (id: string) => void;
+  activeTerminalId?: string | null;
+  sessions?: Array<{ id: string; terminal_id: string | null; status: string }>;
 }
 
 type SubTab = 'problems' | 'requests' | 'checklists';
@@ -51,7 +56,7 @@ const PRIORITY_CONFIG: Record<string, { color: string; border: string; icon: typ
 const SUB_TABS: { key: SubTab; label: string; icon: typeof Bug; color: string }[] = [
   { key: 'problems', label: 'Problems', icon: Bug, color: 'text-purple-400' },
   { key: 'requests', label: 'Requests', icon: Lightbulb, color: 'text-blue-400' },
-  { key: 'checklists', label: 'Checklists', icon: ListChecks, color: 'text-emerald-400' },
+  { key: 'checklists', label: 'Checklist', icon: ListChecks, color: 'text-emerald-400' },
 ];
 
 function formatRelative(dateStr: string): string {
@@ -84,13 +89,14 @@ function PriorityBadge({ priority }: { priority: string }) {
   );
 }
 
-export default function IssuesWorkspace({ projectId, projectPath, projects, onSelectProject }: IssueWorkspaceProps) {
+export default function IssuesWorkspace({ projectId, projectPath, projects, onSelectProject, activeTerminalId, sessions = [] }: IssueWorkspaceProps) {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('problems');
   const [problems, setProblems] = useState<Problem[]>([]);
   const [requests, setRequests] = useState<Request[]>([]);
   const [problemsLoading, setProblemsLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('active');
+  const [hideFinished, setHideFinished] = useState(true);
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   const [showNewProblem, setShowNewProblem] = useState(false);
@@ -116,12 +122,18 @@ export default function IssuesWorkspace({ projectId, projectPath, projects, onSe
   useEffect(() => { loadRequests(); const i = setInterval(loadRequests, 5000); return () => clearInterval(i); }, [loadRequests]);
 
   const filteredProblems = problems.filter(p => {
+    // Hide finished problems if toggle is on
+    if (hideFinished && ['Fixed', 'Irrelevant'].includes(p.status)) return false;
+    
     if (filterStatus === 'all') return true;
     if (filterStatus === 'active') return ['NEW', 'Not Started', 'In Progress', 'AI Attempted Fix', 'User Testing'].includes(p.status);
     return p.status === filterStatus;
   });
 
   const filteredRequests = requests.filter(r => {
+    // Hide finished requests if toggle is on
+    if (hideFinished && ['Completed', 'Cancelled'].includes(r.status)) return false;
+    
     if (filterStatus === 'all') return true;
     return r.status === filterStatus;
   });
@@ -159,7 +171,6 @@ export default function IssuesWorkspace({ projectId, projectPath, projects, onSe
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Filter className="w-3 h-3 text-zinc-500" />
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
@@ -171,6 +182,23 @@ export default function IssuesWorkspace({ projectId, projectPath, projects, onSe
               <option key={k} value={k}>{v.label}</option>
             ))}
           </select>
+          
+          <button
+            onClick={() => setHideFinished(!hideFinished)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all border ${
+              hideFinished
+                ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+                : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800'
+            }`}
+            title={hideFinished ? 'Showing active only' : 'Showing all including finished'}
+          >
+            {hideFinished ? (
+              <Eye className="w-3 h-3" />
+            ) : (
+              <EyeOff className="w-3 h-3" />
+            )}
+            <span>{hideFinished ? 'Active' : 'All'}</span>
+          </button>
         </div>
         <button
           onClick={() => activeSubTab === 'problems' ? setShowNewProblem(true) : setShowNewRequest(true)}
@@ -219,7 +247,12 @@ export default function IssuesWorkspace({ projectId, projectPath, projects, onSe
       )}
 
       {activeSubTab === 'checklists' && (
-        <ChecklistSubTab projectId={projectId} projectPath={projectPath} problems={problems} requests={requests} />
+        <CombinedChecklist
+          problems={problems}
+          requests={requests}
+          activeTerminalId={activeTerminalId ?? null}
+          sessions={sessions}
+        />
       )}
 
       {/* Problem Detail Modal */}
@@ -366,7 +399,7 @@ function ProblemDetailModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-2xl p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto shadow-2xl shadow-black/50" onClick={e => e.stopPropagation()}>
+      <div className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-purple-500/15 flex items-center justify-center">
@@ -508,7 +541,7 @@ function RequestDetailModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-2xl p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto shadow-2xl shadow-black/50" onClick={e => e.stopPropagation()}>
+      <div className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-blue-500/15 flex items-center justify-center">
@@ -626,7 +659,7 @@ function NewProblemDialog({ onClose, onCreate, projectId, projectPath }: {
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-2xl p-5 w-full max-w-sm shadow-2xl shadow-black/50" onClick={e => e.stopPropagation()}>
+      <div className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
         <h2 className="text-sm font-semibold text-zinc-100 mb-4">New Problem</h2>
         <div className="space-y-3">
           <input
@@ -679,7 +712,7 @@ function NewRequestDialog({ onClose, onCreate, projectId }: {
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-2xl p-5 w-full max-w-sm shadow-2xl shadow-black/50" onClick={e => e.stopPropagation()}>
+      <div className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
         <h2 className="text-sm font-semibold text-zinc-100 mb-4">New Request</h2>
         <div className="space-y-3">
           <input
@@ -710,154 +743,338 @@ function NewRequestDialog({ onClose, onCreate, projectId }: {
   );
 }
 
-// ── Checklists Sub-Tab ──
+// ── Combined Checklist (algorithmic view — grouped by parent, sortable, with feedback) ──
 
-function ChecklistSubTab({ projectId, projectPath, problems, requests }: {
-  projectId?: string; projectPath?: string; problems: Problem[]; requests: Request[];
+function CombinedChecklist({
+  problems,
+  requests,
+  activeTerminalId,
+  sessions,
+}: {
+  problems: any[];
+  requests: any[];
+  activeTerminalId: string | null;
+  sessions: Array<{ id: string; terminal_id: string | null; status: string }>;
 }) {
-  const [checklists, setChecklists] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState<'all' | 'problem' | 'request'>('all');
-  const [filterSub, setFilterSub] = useState('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'active' | 'completed'>('active');
+  const [sortBy, setSortBy] = useState<'priority' | 'recent'>('priority');
+  const [groupByParent, setGroupByParent] = useState(true);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [expandedChecks, setExpandedChecks] = useState<Set<string>>(new Set());
+  const [checklistConfig, setChecklistConfig] = useState<ChecklistConfig>(DEFAULT_CHECKLIST_CONFIG);
+  const [showChecklistSettings, setShowChecklistSettings] = useState(false);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
     try {
-      const r = await window.deskflowAPI?.getChecklists?.(projectId, projectPath);
-      if (r?.success) setChecklists(r.data || []);
-    } catch (e) { console.error('[ChecklistSubTab] load', e); }
-    finally { setLoading(false); }
-  }, [projectId, projectPath]);
+      const saved = localStorage.getItem('checklist-config');
+      if (saved) setChecklistConfig({ ...DEFAULT_CHECKLIST_CONFIG, ...JSON.parse(saved) });
+    } catch {}
+  }, []);
 
-  useEffect(() => { load(); const i = setInterval(load, 5000); return () => clearInterval(i); }, [load]);
+  const saveConfig = (updates: Partial<ChecklistConfig>) => {
+    const newConfig = { ...checklistConfig, ...updates };
+    setChecklistConfig(newConfig);
+    localStorage.setItem('checklist-config', JSON.stringify(newConfig));
+  };
 
-  const items = checklists.filter((c: any) => {
-    if (filterType !== 'all' && c.parentType !== filterType) return false;
-    if (filterSub === 'all') return true;
-    return c.status === filterSub;
-  });
+  const result = useMemo(() =>
+    sortAndGroupChecks(problems, requests, {
+      ...checklistConfig,
+      autoSortByPriority: sortBy === 'priority',
+      groupByParent,
+      defaultFilterMode: filterMode,
+    }),
+    [problems, requests, sortBy, groupByParent, filterMode, checklistConfig]
+  );
 
-  const grouped = items.reduce((acc: any, c: any) => {
-    const key = `${c.parentType}:${c.parentId}`;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(c);
-    return acc;
-  }, {} as Record<string, any[]>);
+  const toggleGroup = (id: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleCheck = (id: string) => {
+    setExpandedChecks(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const priorityColor: Record<string, string> = {
+    critical: 'text-red-400 bg-red-500/10 border-red-500/20',
+    high: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+    medium: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    low: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20',
+  };
 
   return (
-    <div className="flex-1 overflow-y-auto space-y-2">
-      <div className="flex items-center gap-2 mb-2">
-        <select value={filterType} onChange={e => setFilterType(e.target.value as any)}
-          className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 focus:outline-none">
-          <option value="all">All Types</option>
-          <option value="problem">Problems</option>
-          <option value="request">Requests</option>
-        </select>
-        <select value={filterSub} onChange={e => setFilterSub(e.target.value)}
-          className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 focus:outline-none">
-          <option value="all">All Status</option>
-          <option value="pending">Pending</option>
-          <option value="in_progress">In Progress</option>
-          <option value="completed">Completed</option>
-        </select>
+    <div className="space-y-3">
+      {/* ── Config bar ── */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <select
+            value={filterMode}
+            onChange={e => setFilterMode(e.target.value as any)}
+            className="text-[10px] bg-zinc-900/70 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300"
+          >
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="completed">Completed</option>
+          </select>
+
+          <div className="flex rounded border border-zinc-700/50 overflow-hidden">
+            <button
+              onClick={() => setSortBy('priority')}
+              className={`text-[10px] px-2 py-0.5 ${sortBy === 'priority' ? 'bg-cyan-500/15 text-cyan-400' : 'bg-zinc-900/70 text-zinc-500'}`}
+            >
+              Priority
+            </button>
+            <button
+              onClick={() => setSortBy('recent')}
+              className={`text-[10px] px-2 py-0.5 ${sortBy === 'recent' ? 'bg-cyan-500/15 text-cyan-400' : 'bg-zinc-900/70 text-zinc-500'}`}
+            >
+              Recent
+            </button>
+          </div>
+
+          <button
+            onClick={() => setGroupByParent(!groupByParent)}
+            className={`text-[10px] px-2 py-0.5 rounded border ${groupByParent ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20' : 'bg-zinc-900/70 text-zinc-500 border-zinc-700/50'}`}
+          >
+            {groupByParent ? 'Grouped' : 'Flat'}
+          </button>
+
+          <button
+            onClick={() => setShowChecklistSettings(!showChecklistSettings)}
+            className={`text-[10px] px-2 py-0.5 rounded border ${showChecklistSettings ? 'bg-zinc-800 text-zinc-300 border-zinc-600/50' : 'bg-zinc-900/70 text-zinc-500 border-zinc-700/50'}`}
+          >
+            Settings
+          </button>
+        </div>
+
+        <span className="text-[10px] text-zinc-500 font-mono">
+          {result.completedCount}/{result.totalCount} done
+        </span>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-8 text-zinc-500">
-          <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-          <span className="text-[11px]">Loading...</span>
+      {/* ── Settings panel ── */}
+      {showChecklistSettings && (
+        <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/50 p-3 space-y-2.5">
+          <h4 className="text-[11px] font-semibold text-zinc-400">Checklist Settings</h4>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-zinc-500">Auto-sort by priority</span>
+            <button
+              onClick={() => saveConfig({ autoSortByPriority: !checklistConfig.autoSortByPriority })}
+              className={`relative w-7 h-4 rounded-full transition-colors ${checklistConfig.autoSortByPriority ? 'bg-cyan-500/30 border border-cyan-500/40' : 'bg-zinc-700 border border-zinc-600'}`}
+            >
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-transform ${checklistConfig.autoSortByPriority ? 'translate-x-3 bg-cyan-400' : 'translate-x-0.5 bg-zinc-400'}`} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-zinc-500">Group by parent</span>
+            <button
+              onClick={() => { setGroupByParent(!groupByParent); saveConfig({ groupByParent: !groupByParent }); }}
+              className={`relative w-7 h-4 rounded-full transition-colors ${checklistConfig.groupByParent ? 'bg-cyan-500/30 border border-cyan-500/40' : 'bg-zinc-700 border border-zinc-600'}`}
+            >
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-transform ${checklistConfig.groupByParent ? 'translate-x-3 bg-cyan-400' : 'translate-x-0.5 bg-zinc-400'}`} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-zinc-500">Default filter</span>
+            <select
+              value={checklistConfig.defaultFilterMode}
+              onChange={e => saveConfig({ defaultFilterMode: e.target.value as any })}
+              className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-1.5 py-0.5 text-zinc-300"
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-zinc-500">Feedback mode</span>
+            <select
+              value={checklistConfig.feedbackMode}
+              onChange={e => saveConfig({ feedbackMode: e.target.value as any })}
+              className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-1.5 py-0.5 text-zinc-300"
+            >
+              <option value="simple">Simple</option>
+              <option value="simple+text">Simple + Text</option>
+              <option value="rich">Rich</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-zinc-500">Max checks shown</span>
+            <input
+              type="number"
+              value={checklistConfig.maxChecksShown}
+              onChange={e => saveConfig({ maxChecksShown: parseInt(e.target.value) || 50 })}
+              className="w-14 text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-1.5 py-0.5 text-zinc-300 text-center"
+              min={10}
+              max={200}
+            />
+          </div>
         </div>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-10 text-zinc-600">
-          <ListChecks className="w-8 h-8 mb-2 opacity-30" />
-          <p className="text-[11px]">No checklist items yet</p>
+      )}
+
+      {/* ── Empty state ── */}
+      {result.groups.length === 0 && (
+        <div className="text-center py-8">
+          <ListChecks className="w-6 h-6 text-zinc-700 mx-auto mb-2" />
+          <p className="text-xs text-zinc-500">No checks yet</p>
+          <p className="text-[10px] text-zinc-600 mt-1">
+            AI can add them with <code className="text-zinc-400">[add-check]</code> actions
+          </p>
         </div>
-      ) : (
-        Object.entries(grouped).map(([key, groupItems]: [string, any[]]) => {
-          const [parentType, parentId] = key.split(':');
-          const parent = parentType === 'problem'
-            ? problems.find(p => p.id === parentId)
-            : requests.find(r => r.id === parentId);
-          const done = groupItems.filter((i: any) => i.status === 'completed').length;
-          const awaiting = groupItems.filter((i: any) => i.requiresHuman && !i.humanApproved).length;
-          return (
-            <div key={key} className="bg-zinc-900/40 backdrop-blur-sm border border-zinc-800/50 rounded-xl overflow-hidden">
-              <div className="px-3 py-2 bg-zinc-800/40 border-b border-zinc-800/50 flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`w-1.5 h-1.5 rounded-full ${parentType === 'problem' ? 'bg-purple-500' : 'bg-blue-500'}`} />
-                  <span className="text-[10px] font-medium text-zinc-400 truncate">{parent?.title || parentId}</span>
-                  <span className="text-[9px] text-zinc-600">({parentId})</span>
+      )}
+
+      {/* ── Groups ── */}
+      {result.groups.map(group => {
+        const isExpanded = expandedGroups.has(group.parentId);
+        const typeColor = group.parentType === 'problem' ? 'bg-purple-500' : 'bg-blue-500';
+        const typeLabel = group.parentType === 'problem' ? 'P' : 'R';
+
+        return (
+          <div
+            key={group.parentId}
+            className="bg-zinc-900/40 rounded-lg border border-zinc-800/50 overflow-hidden"
+          >
+            {/* Group header */}
+            <div
+              className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-zinc-800/30 transition-colors"
+              onClick={() => toggleGroup(group.parentId)}
+            >
+              <button className="shrink-0">
+                {isExpanded ? (
+                  <ChevronDown className="w-3 h-3 text-zinc-500" />
+                ) : (
+                  <ChevronRight className="w-3 h-3 text-zinc-500" />
+                )}
+              </button>
+
+              <div className={`w-2 h-2 rounded-full ${typeColor} shrink-0`} />
+
+              <span className="text-xs text-zinc-200 truncate flex-1">
+                {group.parentTitle}
+              </span>
+
+              <span className={`text-[9px] px-1.5 py-0.5 rounded border ${priorityColor[group.parentPriority] || priorityColor.low}`}>
+                {group.parentPriority}
+              </span>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="w-16 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500/60 rounded-full transition-all duration-300"
+                    style={{ width: `${group.progress.percent}%` }}
+                  />
                 </div>
-                <div className="flex items-center gap-2">
-                  {awaiting > 0 && <span className="text-[9px] text-amber-400">{awaiting} awaiting</span>}
-                  <span className="text-[9px] text-zinc-500">{done}/{groupItems.length}</span>
-                </div>
-              </div>
-              <div className="divide-y divide-zinc-800/30">
-                {groupItems.map((item: any) => (
-                  <ChecklistRow key={item.id} item={item} onUpdate={load} />
-                ))}
+                <span className="text-[9px] text-zinc-600 font-mono w-8 text-right">
+                  {group.progress.done}/{group.progress.total}
+                </span>
               </div>
             </div>
-          );
-        })
-      )}
-    </div>
-  );
-}
 
-function ChecklistRow({ item, onUpdate }: { item: any; onUpdate: () => void }) {
-  const statusCycle: Record<string, string> = { pending: 'in_progress', in_progress: 'completed', completed: 'pending' };
-  const statusColors: Record<string, string> = {
-    pending: 'border-zinc-700 bg-zinc-800',
-    in_progress: 'border-blue-500/50 bg-blue-500/20',
-    completed: 'border-emerald-500/50 bg-emerald-500/20',
-  };
-  const statusDots: Record<string, string> = {
-    pending: 'bg-zinc-500',
-    in_progress: 'bg-blue-500',
-    completed: 'bg-emerald-500',
-  };
+            {/* Checks list */}
+            {isExpanded && (
+              <div className="border-t border-zinc-800/30 px-3 py-2 space-y-1">
+                {group.checks.map(check => {
+                  const isCheckExpanded = expandedChecks.has(check.checkId);
+                  const statusIcon = check.checkStatus === 'completed' ? '\u2713' :
+                    check.checkStatus === 'in_progress' ? '\u25C9' : '\u25CB';
+                  const statusColor = check.checkStatus === 'completed' ? 'text-emerald-400' :
+                    check.checkStatus === 'in_progress' ? 'text-amber-400' : 'text-zinc-600';
 
-  const handleToggle = async () => {
-    const next = statusCycle[item.status] || 'pending';
-    await window.deskflowAPI?.updateChecklistItem?.({ id: item.id, status: next });
-    onUpdate();
-  };
+                  const resolved = resolveSessionForCheck(
+                    check,
+                    { session_id: group.parentSessionId, terminal_id: group.parentTerminalId },
+                    activeTerminalId,
+                    sessions,
+                  );
 
-  const handleApprove = async () => {
-    await window.deskflowAPI?.updateChecklistItem?.({ id: item.id, humanApproved: !item.humanApproved });
-    onUpdate();
-  };
+                  return (
+                    <div
+                      key={check.checkId}
+                      className="rounded border border-zinc-800/30 bg-zinc-950/40"
+                    >
+                      <div
+                        className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer hover:bg-zinc-800/20 transition-colors"
+                        onClick={() => toggleCheck(check.checkId)}
+                      >
+                        <span className={`text-xs ${statusColor}`}>{statusIcon}</span>
+                        <span className={`text-[11px] flex-1 ${check.checkStatus === 'completed' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                          {check.description}
+                        </span>
+                        <span className="text-[9px] text-zinc-700 font-mono">
+                          {check.checkId.split('-').slice(-2).join('-')}
+                        </span>
+                      </div>
 
-  return (
-    <div className="flex items-start gap-2 px-3 py-2 hover:bg-zinc-800/20 transition-colors">
-      <button
-        onClick={handleToggle}
-        className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${statusColors[item.status] || statusColors.pending}`}
-      >
-        {item.status === 'completed' && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
-      </button>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className={`text-[10px] font-medium ${item.status === 'completed' ? 'text-zinc-600 line-through' : 'text-zinc-300'}`}>
-            Step {item.step}: {item.description}
-          </span>
-        </div>
-        {item.notes && <div className="text-[9px] text-zinc-500 mt-0.5">{item.notes}</div>}
-        {item.requiresHuman && (
-          <button
-            onClick={handleApprove}
-            className={`mt-1 px-2 py-0.5 rounded text-[9px] border transition-all ${
-              item.humanApproved
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                : 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
-            }`}
-          >
-            {item.humanApproved ? 'Approved' : 'Awaiting Approval'}
-          </button>
-        )}
-      </div>
-      <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${statusDots[item.status] || 'bg-zinc-500'}`} />
+                      {isCheckExpanded && (
+                        <div className="px-2.5 pb-2 pt-1 border-t border-zinc-800/20">
+                          <p className="text-[10px] text-zinc-500 mb-2">
+                            <span className="text-zinc-600">How to verify:</span> {check.instruction}
+                          </p>
+
+                          {resolved.terminalId && (
+                            <p className="text-[9px] text-zinc-600 mb-1.5">
+                              Session: {resolved.sessionId?.substring(0, 12) || '\u2014'} \u2022
+                              Terminal: {resolved.terminalId.substring(0, 12)}
+                              {resolved.source === 'active' && ' (active)'}
+                            </p>
+                          )}
+
+                          {check.checkStatus !== 'completed' && (
+                            <CheckFeedbackControls
+                              checkId={check.checkId}
+                              checkDescription={check.description}
+                              parentType={group.parentType}
+                              parentId={group.parentId}
+                              parentSessionId={resolved.sessionId}
+                              parentTerminalId={resolved.terminalId}
+                              feedbackMode={checklistConfig.feedbackMode}
+                              onFeedbackSent={() => {
+                                window.dispatchEvent(new CustomEvent('check-feedback-sent'));
+                              }}
+                            />
+                          )}
+
+                          {check.feedback && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="text-[10px]">
+                                {check.feedback.type === 'approved' ? '\u2705' :
+                                 check.feedback.type === 'rejected' ? '\u274C' : '\uD83D\uDCAC'}
+                              </span>
+                              <span className="text-[10px] text-zinc-500">
+                                {check.feedback.type === 'approved' ? 'Works' :
+                                 check.feedback.type === 'rejected' ? "Doesn't work" :
+                                 check.feedback.value?.substring(0, 80)}
+                              </span>
+                              {resolved.source === 'none' && (
+                                <span className="text-[9px] text-amber-600">
+                                  (no terminal connected)
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

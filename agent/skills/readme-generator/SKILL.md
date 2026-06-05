@@ -1,4 +1,3 @@
-
 ---
 id: readme-generator
 name: README Generator
@@ -7,6 +6,33 @@ applicable_to: [readme, documentation]
 version: 1.0.0
 created: 2026-04-19
 tags: [documentation, readme, markdown]
+inputs:
+  - name: Project Path
+    type: file
+    description: Root directory of the project
+    required: true
+    source: user
+  - name: Package JSON
+    type: file
+    description: package.json for dependency and script info
+    required: true
+    source: system
+  - name: Style Preference
+    type: enum
+    description: Output style (minimal, standard, comprehensive)
+    required: false
+    source: user
+outputs:
+  - name: README Content
+    type: markdown
+    description: Generated README.md file content
+components:
+  - name: Project Scanner
+    description: Analyzes project structure and key files
+    source: system
+  - name: Template Engine
+    description: Fills README template with project data
+    source: system
 ---
 
 # README Generator Skill

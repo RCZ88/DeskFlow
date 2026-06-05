@@ -6,6 +6,39 @@ applicable_to: [problems, bugs]
 version: 1.0.0
 created: 2026-04-19
 tags: [debug, fix, problems, testing]
+inputs:
+  - name: Problem Description
+    type: text
+    description: The bug or issue to fix
+    required: true
+    source: user
+  - name: Error Logs
+    type: text
+    description: Relevant error messages and stack traces
+    required: false
+    source: system
+  - name: Codebase Context
+    type: file
+    description: Related source files and architecture docs
+    required: false
+    source: system
+outputs:
+  - name: Fix Patch
+    type: code
+    description: Code changes that resolve the problem
+  - name: Explanation
+    type: markdown
+    description: Root cause analysis and fix rationale
+components:
+  - name: Root Cause Analysis
+    description: Identifies the underlying cause of the issue
+    source: agent
+  - name: Verification Steps
+    description: Steps to confirm the fix resolves the problem
+    source: agent
+  - name: Regression Check
+    description: Ensures fix doesn't introduce new issues
+    source: agent
 ---
 
 # 🔧 Fix Problems Recursively

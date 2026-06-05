@@ -4,6 +4,28 @@
 
 ### Commit Message
 ```
+fix: Compose panel sends full prompts via agentSend with pendingWrites flush
+```
+
+### Detailed Changes
+
+#### main.ts
+- **pendingWrites flush** — When agent transitions `launching` → `ready` in both `terminal:create` and `spawn-terminal` data handlers, queued prompts (`st.pendingWrites`) are now flushed to the PTY
+- **agent:send DB recording** — Added `terminal_messages` DB insertion + `ai-task:updated` broadcast (≥20 char prompts) so compose prompts are tracked like `terminal:write-old-format` did
+
+#### TerminalPage.tsx
+- **handleInstructionPanelSend** — Changed from `terminalWrite` to `agentSend(resolvedTargetId, prompt, agentType)`, which correctly queues prompts during `launching` and sets phase to `busy` on send
+
+#### agent/state.md
+- Updated to v4.23 with compose panel fix entries
+
+#### Other files
+- Bulk of pre-existing uncommitted changes from prior sessions (tracking system overhaul, dashboard features, IDE page, AI systems, terminal features, component library additions, skill definitions, session configs, vault graph updates)
+
+### Previous Commit
+
+### Commit Message
+```
 feat: Dashboard redesign - stats cards, pinned activities, activity feed
 ```
 

@@ -1,5 +1,3 @@
-
-
 ---
 id: recursive-playwright
 name: Recursive Playwright
@@ -8,6 +6,39 @@ applicable_to: [testing, frontend, e2e]
 version: 1.0.0
 created: 2026-04-19
 tags: [testing, playwright, e2e, automation]
+inputs:
+  - name: Target URL
+    type: text
+    description: URL of the application to test
+    required: true
+    source: user
+  - name: Test Scope
+    type: enum
+    description: Breadth of testing (smoke, functional, full)
+    required: false
+    source: user
+  - name: Auth Credentials
+    type: text
+    description: Login credentials if app requires authentication
+    required: false
+    source: user
+outputs:
+  - name: Test Results
+    type: markdown
+    description: Detailed test execution results and findings
+  - name: Bug Reports
+    type: list
+    description: Discovered issues with reproduction steps
+components:
+  - name: Playwright Runner
+    description: Executes browser automation scripts
+    source: system
+  - name: Recursive Explorer
+    description: Discovers and traverses application routes
+    source: agent
+  - name: Result Analyzer
+    description: Interprets test outcomes and flags failures
+    source: agent
 ---
 
 # 🚀 Recursive Playwright: Super Mode + Recursion

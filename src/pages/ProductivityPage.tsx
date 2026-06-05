@@ -9,6 +9,9 @@ import { Pie, Bar, Line } from 'react-chartjs-2';
 import { format, eachDayOfInterval, startOfDay, isToday } from 'date-fns';
 import { getDateRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
+import { PageShell } from '../components/PageShell';
+import { GlassCard } from '../components/GlassCard';
+import { SectionHeader } from '../components/SectionHeader';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -70,6 +73,17 @@ interface BrowserStat {
   sessions: number;
 }
 
+interface ExternalSession {
+  id: number;
+  activity_id: number;
+  started_at: string;
+  ended_at: string;
+  duration_seconds: number;
+  activity_name: string;
+  type: string;
+  color: string;
+}
+
 interface ProductivityPageProps {
   appStats?: AppStat[];
   browserStats?: BrowserStat[];
@@ -81,6 +95,8 @@ interface ProductivityPageProps {
   onDateOffsetChange?: (offset: number) => void;
   domainKeywordRules?: Record<string, string[]>;
   timeMode?: 'focus' | 'total';
+  externalActivities?: { id: number; name: string; type: string; is_productive: boolean }[];
+  externalActivityTiers?: Record<number, string>;
 }
 
 interface AppStat {
@@ -140,7 +156,9 @@ export default function ProductivityPage({
   dateOffset = 0,
   onDateOffsetChange,
   domainKeywordRules = {},
-  timeMode = 'total'
+  timeMode = 'total',
+  externalActivities = [],
+  externalActivityTiers = {}
 }: ProductivityPageProps) {
   // Cleanup Chart.js instances on unmount to prevent memory leaks
   useEffect(() => {
@@ -164,6 +182,31 @@ export default function ProductivityPage({
   
   // Tier filter state - to show apps/websites by productivity category
   const [tierFilter, setTierFilter] = useState<'all' | 'productive' | 'neutral' | 'distracting'>('all');
+
+  // External sessions state
+  const [allExternalSessions, setAllExternalSessions] = useState<ExternalSession[]>([]);
+
+  useEffect(() => {
+    if (window.deskflowAPI?.getExternalSessions) {
+      window.deskflowAPI.getExternalSessions('all').then(setAllExternalSessions);
+    }
+    const handleRefresh = () => {
+      if (window.deskflowAPI?.getExternalSessions) {
+        window.deskflowAPI.getExternalSessions('all').then(setAllExternalSessions);
+      }
+    };
+    window.addEventListener('external-data-changed', handleRefresh);
+    return () => window.removeEventListener('external-data-changed', handleRefresh);
+  }, []);
+
+  // Map external activity id → configured tier (productive/neutral/distracting)
+  const externalTierMap = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const act of externalActivities) {
+      map[act.id] = externalActivityTiers[act.id] || (act.is_productive ? 'productive' : 'neutral');
+    }
+    return map;
+  }, [externalActivities, externalActivityTiers]);
 
   const toggleDomain = (domain: string) => {
     setExpandedDomains(prev => {
@@ -295,8 +338,24 @@ export default function ProductivityPage({
       name, category: WEBSITE_CATEGORY_MAP[data.category] || 'Other', originalCategory: data.category, type: 'website' as const, duration_sec: data.total_ms / 1000
     }));
 
+    // Compute external items from filtered external sessions
+    const filteredExtSessions = (allExternalSessions || []).filter((session: any) => {
+      const t = new Date(session.started_at).getTime();
+      return t >= range.start.getTime() && t < range.end.getTime();
+    });
+
+    const externalItems = filteredExtSessions.map((session: any) => {
+      return {
+        name: session.activity_name || 'Unknown',
+        category: 'Other',
+        type: 'external' as const,
+        activity_id: session.activity_id,
+        duration_sec: session.duration_seconds || 0,
+      };
+    });
+
     // Combine all items - ALWAYS include both apps and websites
-    const allItems = [...appItems, ...browserItems];
+    const allItems = [...appItems, ...browserItems, ...externalItems];
 
     // Calculate totals by tier
     const tierTotals = {
@@ -308,14 +367,15 @@ export default function ProductivityPage({
     for (const item of allItems) {
       let assignedTier: 'productive' | 'neutral' | 'distracting' | null = null;
 
-      if (tierAssignments.productive.includes(item.category)) {
+      if (item.type === 'external') {
+        assignedTier = (externalTierMap[(item as any).activity_id] || 'neutral') as 'productive' | 'neutral' | 'distracting';
+      } else if (tierAssignments.productive.includes(item.category)) {
         assignedTier = 'productive';
       } else if (tierAssignments.neutral.includes(item.category)) {
         assignedTier = 'neutral';
       } else if (tierAssignments.distracting.includes(item.category)) {
         assignedTier = 'distracting';
       } else {
-        // Default to neutral if category not found
         assignedTier = 'neutral';
       }
 
@@ -388,12 +448,30 @@ export default function ProductivityPage({
       topDistracting,
       items: allItems
     };
-  }, [logs, browserLogsProp, selectedPeriod, dateOffset, tierAssignments]);
+  }, [logs, browserLogsProp, selectedPeriod, dateOffset, tierAssignments, allExternalSessions, externalTierMap]);
 
   // Calculate daily trend data
   const dailyTrend = useMemo(() => {
     const now = new Date();
     const range = getDateRange(selectedPeriod, dateOffset);
+
+    // Convert external sessions to log-like objects for trend processing
+    const externalTrendLogs = (allExternalSessions || [])
+      .filter((s: any) => {
+        const t = new Date(s.started_at).getTime();
+        return t >= range.start.getTime() && t < range.end.getTime();
+      })
+      .map((s: any) => {
+        const tier = externalTierMap[s.activity_id] || 'neutral';
+        const category = tier === 'productive' ? 'Productivity' : tier === 'distracting' ? 'Entertainment' : 'Other';
+        return {
+          timestamp: s.started_at,
+          start_time: s.started_at,
+          duration: s.duration_seconds || 0,
+          duration_ms: (s.duration_seconds || 0) * 1000,
+          category,
+        };
+      });
 
     // For 'today', show hourly breakdown with 24 separate hour columns
     if (selectedPeriod === 'today') {
@@ -401,7 +479,7 @@ export default function ProductivityPage({
         const hourStart = new Date(range.start.getFullYear(), range.start.getMonth(), range.start.getDate(), hour);
         const hourEnd = new Date(hourStart.getTime() + 60 * 60 * 1000);
         
-        const hourLogs = [...(logs as any[]), ...(browserLogsProp as any[])].filter(log => {
+        const hourLogs = [...(logs as any[]), ...(browserLogsProp as any[]), ...externalTrendLogs].filter(log => {
           const logTime = new Date(log.timestamp || log.start_time);
           return logTime >= hourStart && logTime < hourEnd;
         });
@@ -422,7 +500,7 @@ export default function ProductivityPage({
             const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
             
             if (segmentSeconds > 0 && currentHour === hour) {
-              const category = log.category || WEBSITE_CATEGORY_MAP[log.category] || 'Other';
+              const category = WEBSITE_CATEGORY_MAP[log.category] || log.category || 'Other';
               if (tierAssignments.productive.includes(category)) {
                 productive += segmentSeconds;
               } else if (tierAssignments.distracting.includes(category)) {
@@ -457,7 +535,45 @@ export default function ProductivityPage({
       return hourBuckets;
     }
     
-    // For week/month/all, show daily breakdown using shared date range
+    // For 'all', aggregate by month to avoid freeze and show readable chart
+    if (selectedPeriod === 'all') {
+      const allLogs = [...(logs as any[]), ...(browserLogsProp as any[]), ...externalTrendLogs];
+      if (allLogs.length === 0) return [];
+
+      // Single-pass month bucketing
+      const monthMap: Record<string, { productive: number; neutral: number; distracting: number }> = {};
+      for (const log of allLogs) {
+        const logTime = new Date(log.timestamp || log.start_time);
+        const monthKey = `${logTime.getFullYear()}-${String(logTime.getMonth() + 1).padStart(2, '0')}`;
+        if (!monthMap[monthKey]) monthMap[monthKey] = { productive: 0, neutral: 0, distracting: 0 };
+        const duration_sec = log.duration_ms ? log.duration_ms / 1000 : (log.duration || 0);
+        const category = WEBSITE_CATEGORY_MAP[log.category] || log.category || 'Other';
+        if (tierAssignments.productive.includes(category)) monthMap[monthKey].productive += duration_sec;
+        else if (tierAssignments.distracting.includes(category)) monthMap[monthKey].distracting += duration_sec;
+        else monthMap[monthKey].neutral += duration_sec;
+      }
+
+      return Object.entries(monthMap).sort(([a], [b]) => a.localeCompare(b)).map(([monthKey, data]) => {
+        const total = data.productive + data.neutral + data.distracting;
+        const weighted = data.productive + (data.neutral * 0.5);
+        const score = total > 0 ? (weighted / total) * 100 : 0;
+        const [year, month] = monthKey.split('-');
+        const date = new Date(parseInt(year), parseInt(month) - 1);
+        return {
+          date: monthKey,
+          label: format(date, 'MMM yyyy'),
+          score: Math.round(score),
+          productive: Math.round(data.productive),
+          neutral: Math.round(data.neutral),
+          distracting: Math.round(data.distracting),
+          total: Math.round(total),
+          isToday: false,
+          isCurrentHour: false,
+        };
+      });
+    }
+
+    // For week/month, show daily breakdown
     const endDate = new Date(range.end);
     endDate.setDate(endDate.getDate() - 1);
     const dayStartDate = new Date(range.start);
@@ -467,27 +583,18 @@ export default function ProductivityPage({
       const dayStart = startOfDay(day);
       const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
-      // Filter logs for this day
-      const dayLogs = [...(logs as any[]), ...(browserLogsProp as any[])].filter(log => {
+      const dayLogs = [...(logs as any[]), ...(browserLogsProp as any[]), ...externalTrendLogs].filter(log => {
         const logTime = new Date(log.timestamp || log.start_time);
         return logTime >= dayStart && logTime < dayEnd;
       });
 
-      // Calculate productivity for this day
       let productive = 0, neutral = 0, distracting = 0;
-      
       for (const log of dayLogs) {
-        // Handle both duration (seconds) and duration_ms (milliseconds)
         const duration_sec = log.duration_ms ? log.duration_ms / 1000 : (log.duration || 0);
-        const category = log.category || WEBSITE_CATEGORY_MAP[log.category] || 'Other';
-        
-        if (tierAssignments.productive.includes(category)) {
-          productive += duration_sec;
-        } else if (tierAssignments.distracting.includes(category)) {
-          distracting += duration_sec;
-        } else {
-          neutral += duration_sec;
-        }
+        const category = WEBSITE_CATEGORY_MAP[log.category] || log.category || 'Other';
+        if (tierAssignments.productive.includes(category)) productive += duration_sec;
+        else if (tierAssignments.distracting.includes(category)) distracting += duration_sec;
+        else neutral += duration_sec;
       }
 
       const total = productive + neutral + distracting;
@@ -503,16 +610,22 @@ export default function ProductivityPage({
         distracting: Math.round(distracting),
         total: Math.round(total),
         isToday: isToday(day),
-        isCurrentHour: false
+        isCurrentHour: false,
       };
     });
-  }, [logs, browserLogsProp, selectedPeriod, tierAssignments, dateOffset]);
+  }, [logs, browserLogsProp, selectedPeriod, tierAssignments, dateOffset, allExternalSessions, externalTierMap]);
+
+  // Average of daily trend scores (matches what the trend line shows)
+  const trendAverageScore = useMemo(() => {
+    if (dailyTrend.length === 0) return 0;
+    return Math.round(dailyTrend.reduce((sum, d) => sum + d.score, 0) / dailyTrend.length);
+  }, [dailyTrend]);
 
   // Calculate comparison with previous period
   const comparison = useMemo(() => {
     if (dailyTrend.length < 2) return null;
     
-    const currentScore = productivityData.score;
+    const currentScore = trendAverageScore;
     const previousTrend = dailyTrend.slice(0, -1);
     const previousAvg = previousTrend.length > 0 
       ? previousTrend.reduce((sum, d) => sum + d.score, 0) / previousTrend.length 
@@ -527,7 +640,7 @@ export default function ProductivityPage({
       diff: Math.abs(diff),
       direction
     };
-  }, [dailyTrend, productivityData.score]);
+  }, [dailyTrend, trendAverageScore]);
 
   // Peak hours calculation (average across all days in period)
   const peakHours = useMemo(() => {
@@ -708,7 +821,7 @@ export default function ProductivityPage({
   }, [logs, browserLogsProp, selectedPeriod, dateOffset, tierAssignments]);
 
   return (
-    <div className="space-y-6">
+    <PageShell page="productivity">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -726,10 +839,10 @@ export default function ProductivityPage({
       </div>
 
       {/* Main Score Card */}
-      <div className="glass rounded-3xl p-8">
+      <GlassCard>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/30">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-emerald-500/30">
               <span className="text-3xl font-bold text-white">{Math.round(productivityData.score)}</span>
             </div>
             <div>
@@ -757,7 +870,6 @@ export default function ProductivityPage({
 
         {/* Time Breakdown - based on tierFilter */}
         {(() => {
-          // Get the correct items based on tierFilter
           let filteredItems = productivityData.items;
           if (tierFilter !== 'all') {
             filteredItems = productivityData.items.filter(item => {
@@ -767,7 +879,6 @@ export default function ProductivityPage({
             });
           }
           
-          // Calculate totals from filtered items
           const filteredProductiveSec = filteredItems.filter(i => tierAssignments.productive.includes(i.category)).reduce((s, i) => s + i.duration_sec, 0);
           const filteredNeutralSec = filteredItems.filter(i => tierAssignments.neutral.includes(i.category)).reduce((s, i) => s + i.duration_sec, 0);
           const filteredDistractingSec = filteredItems.filter(i => tierAssignments.distracting.includes(i.category)).reduce((s, i) => s + i.duration_sec, 0);
@@ -777,7 +888,7 @@ export default function ProductivityPage({
           
           return (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-zinc-900/50 rounded-2xl p-4 border border-emerald-500/20">
+              <div className="bg-zinc-900/50 rounded-xl p-4 border border-emerald-500/20">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-3 h-3 rounded-full bg-emerald-400" />
                   <span className="text-sm text-zinc-400">Productive</span>
@@ -790,7 +901,7 @@ export default function ProductivityPage({
                 </div>
               </div>
 
-              <div className="bg-zinc-900/50 rounded-2xl p-4 border border-blue-500/20">
+              <div className="bg-zinc-900/50 rounded-xl p-4 border border-blue-500/20">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-3 h-3 rounded-full bg-blue-400" />
                   <span className="text-sm text-zinc-400">Neutral</span>
@@ -803,7 +914,7 @@ export default function ProductivityPage({
                 </div>
               </div>
 
-              <div className="bg-zinc-900/50 rounded-2xl p-4 border border-red-500/20">
+              <div className="bg-zinc-900/50 rounded-xl p-4 border border-red-500/20">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-3 h-3 rounded-full bg-red-400" />
                   <span className="text-sm text-zinc-400">Distracting</span>
@@ -816,7 +927,7 @@ export default function ProductivityPage({
                 </div>
               </div>
 
-              <div className="bg-zinc-900/50 rounded-2xl p-4 border border-purple-500/20">
+              <div className="bg-zinc-900/50 rounded-xl p-4 border border-purple-500/20">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-3 h-3 rounded-full bg-purple-400" />
                   <span className="text-sm text-zinc-400">Total Time</span>
@@ -832,7 +943,7 @@ export default function ProductivityPage({
 
         {/* Apps vs Websites Comparison */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-          <div className="bg-zinc-900/50 rounded-2xl p-4 border border-indigo-500/20">
+          <div className="bg-zinc-900/50 rounded-xl p-4 border border-indigo-500/20">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Monitor className="w-4 h-4 text-indigo-400" />
@@ -846,21 +957,21 @@ export default function ProductivityPage({
                 <span className="text-zinc-400">{formatDuration(productivityData.appVsWeb.app.productiveSec)}</span>
               </div>
               <div className="w-full bg-zinc-800 rounded-full h-2">
-                <div className="bg-emerald-400 h-2 rounded-full transition-all" style={{ width: `${productivityData.appVsWeb.app.totalSec > 0 ? (productivityData.appVsWeb.app.productiveSec / productivityData.appVsWeb.app.totalSec) * 100 : 0}%` }} />
+                <div className="bg-emerald-400 h-2 rounded-full transition-colors duration-150" style={{ width: `${productivityData.appVsWeb.app.totalSec > 0 ? (productivityData.appVsWeb.app.productiveSec / productivityData.appVsWeb.app.totalSec) * 100 : 0}%` }} />
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-blue-400">Neutral</span>
                 <span className="text-zinc-400">{formatDuration(productivityData.appVsWeb.app.neutralSec)}</span>
               </div>
               <div className="w-full bg-zinc-800 rounded-full h-2">
-                <div className="bg-blue-400 h-2 rounded-full transition-all" style={{ width: `${productivityData.appVsWeb.app.totalSec > 0 ? (productivityData.appVsWeb.app.neutralSec / productivityData.appVsWeb.app.totalSec) * 100 : 0}%` }} />
+                <div className="bg-blue-400 h-2 rounded-full transition-colors duration-150" style={{ width: `${productivityData.appVsWeb.app.totalSec > 0 ? (productivityData.appVsWeb.app.neutralSec / productivityData.appVsWeb.app.totalSec) * 100 : 0}%` }} />
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-red-400">Distracting</span>
                 <span className="text-zinc-400">{formatDuration(productivityData.appVsWeb.app.distractingSec)}</span>
               </div>
               <div className="w-full bg-zinc-800 rounded-full h-2">
-                <div className="bg-red-400 h-2 rounded-full transition-all" style={{ width: `${productivityData.appVsWeb.app.totalSec > 0 ? (productivityData.appVsWeb.app.distractingSec / productivityData.appVsWeb.app.totalSec) * 100 : 0}%` }} />
+                <div className="bg-red-400 h-2 rounded-full transition-colors duration-150" style={{ width: `${productivityData.appVsWeb.app.totalSec > 0 ? (productivityData.appVsWeb.app.distractingSec / productivityData.appVsWeb.app.totalSec) * 100 : 0}%` }} />
               </div>
               <div className="pt-1 border-t border-zinc-800 flex justify-between text-xs">
                 <span className="text-zinc-500">Total</span>
@@ -869,7 +980,7 @@ export default function ProductivityPage({
             </div>
           </div>
 
-          <div className="bg-zinc-900/50 rounded-2xl p-4 border border-cyan-500/20">
+          <div className="bg-zinc-900/50 rounded-xl p-4 border border-cyan-500/20">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-cyan-400" />
@@ -883,21 +994,21 @@ export default function ProductivityPage({
                 <span className="text-zinc-400">{formatDuration(productivityData.appVsWeb.web.productiveSec)}</span>
               </div>
               <div className="w-full bg-zinc-800 rounded-full h-2">
-                <div className="bg-emerald-400 h-2 rounded-full transition-all" style={{ width: `${productivityData.appVsWeb.web.totalSec > 0 ? (productivityData.appVsWeb.web.productiveSec / productivityData.appVsWeb.web.totalSec) * 100 : 0}%` }} />
+                <div className="bg-emerald-400 h-2 rounded-full transition-colors duration-150" style={{ width: `${productivityData.appVsWeb.web.totalSec > 0 ? (productivityData.appVsWeb.web.productiveSec / productivityData.appVsWeb.web.totalSec) * 100 : 0}%` }} />
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-blue-400">Neutral</span>
                 <span className="text-zinc-400">{formatDuration(productivityData.appVsWeb.web.neutralSec)}</span>
               </div>
               <div className="w-full bg-zinc-800 rounded-full h-2">
-                <div className="bg-blue-400 h-2 rounded-full transition-all" style={{ width: `${productivityData.appVsWeb.web.totalSec > 0 ? (productivityData.appVsWeb.web.neutralSec / productivityData.appVsWeb.web.totalSec) * 100 : 0}%` }} />
+                <div className="bg-blue-400 h-2 rounded-full transition-colors duration-150" style={{ width: `${productivityData.appVsWeb.web.totalSec > 0 ? (productivityData.appVsWeb.web.neutralSec / productivityData.appVsWeb.web.totalSec) * 100 : 0}%` }} />
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-red-400">Distracting</span>
                 <span className="text-zinc-400">{formatDuration(productivityData.appVsWeb.web.distractingSec)}</span>
               </div>
               <div className="w-full bg-zinc-800 rounded-full h-2">
-                <div className="bg-red-400 h-2 rounded-full transition-all" style={{ width: `${productivityData.appVsWeb.web.totalSec > 0 ? (productivityData.appVsWeb.web.distractingSec / productivityData.appVsWeb.web.totalSec) * 100 : 0}%` }} />
+                <div className="bg-red-400 h-2 rounded-full transition-colors duration-150" style={{ width: `${productivityData.appVsWeb.web.totalSec > 0 ? (productivityData.appVsWeb.web.distractingSec / productivityData.appVsWeb.web.totalSec) * 100 : 0}%` }} />
               </div>
               <div className="pt-1 border-t border-zinc-800 flex justify-between text-xs">
                 <span className="text-zinc-500">Total</span>
@@ -906,18 +1017,13 @@ export default function ProductivityPage({
             </div>
           </div>
         </div>
-      </div>
+      </GlassCard>
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Productivity Trend */}
-        <div className="glass rounded-3xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-emerald-400" />
-              Productivity Trend
-            </h2>
-          </div>
+        <GlassCard>
+          <SectionHeader title="Productivity Trend" icon={<TrendingUp className="w-5 h-5" />} />
           <div className="h-64">
             <Line 
               data={trendChartData}
@@ -957,16 +1063,11 @@ export default function ProductivityPage({
               }}
             />
           </div>
-        </div>
+        </GlassCard>
 
         {/* Time Distribution */}
-        <div className="glass rounded-3xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <PieChartIcon className="w-5 h-5 text-emerald-400" />
-              Time Distribution
-            </h2>
-          </div>
+        <GlassCard>
+          <SectionHeader title="Time Distribution" icon={<PieChartIcon className="w-5 h-5" />} />
           <div className="h-80 flex items-center justify-center">
             <Pie 
               data={distributionData}
@@ -997,52 +1098,36 @@ export default function ProductivityPage({
               }}
             />
           </div>
-        </div>
+        </GlassCard>
       </div>
 
-      {/* Horizontal Tier Filter - All buttons in one row */}
-      <div className="glass rounded-3xl p-4">
+      {/* Horizontal Tier Filter */}
+      <GlassCard>
         <div className="flex items-center gap-2">
-          {/* Productive */}
-          <button
-            onClick={() => setTierFilter('productive')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+          <button onClick={() => setTierFilter('productive')}
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 flex items-center gap-2 ${
               tierFilter === 'productive'
                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                 : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800'
-            }`}
-          >
-            <div className="w-2 h-2 rounded-full bg-emerald-400" />
-            Productive
+            }`}>
+            <div className="w-2 h-2 rounded-full bg-emerald-400" /> Productive
           </button>
-          
-          {/* Neutral */}
-          <button
-            onClick={() => setTierFilter('neutral')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+          <button onClick={() => setTierFilter('neutral')}
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 flex items-center gap-2 ${
               tierFilter === 'neutral'
                 ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
                 : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800'
-            }`}
-          >
-            <div className="w-2 h-2 rounded-full bg-blue-400" />
-            Neutral
+            }`}>
+            <div className="w-2 h-2 rounded-full bg-blue-400" /> Neutral
           </button>
-          
-          {/* Distracting */}
-          <button
-            onClick={() => setTierFilter('distracting')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+          <button onClick={() => setTierFilter('distracting')}
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 flex items-center gap-2 ${
               tierFilter === 'distracting'
                 ? 'bg-red-500/20 text-red-400 border border-red-500/40'
                 : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800'
-            }`}
-          >
-            <div className="w-2 h-2 rounded-full bg-red-400" />
-            Distracting
+            }`}>
+            <div className="w-2 h-2 rounded-full bg-red-400" /> Distracting
           </button>
-          
-          {/* Stats for current filter */}
           {(() => {
             let totalItems = productivityData.items;
             if (tierFilter !== 'all') {
@@ -1064,18 +1149,14 @@ export default function ProductivityPage({
             );
           })()}
         </div>
-      </div>
+      </GlassCard>
 
       {/* Apps vs Websites Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Apps Breakdown */}
-        <div className="glass rounded-3xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <Monitor className="w-5 h-5 text-indigo-400" />
-              Desktop Apps
-            </h2>
-            {(() => {
+        <GlassCard>
+          <SectionHeader title="Desktop Apps" icon={<Monitor className="w-5 h-5" />}
+            action={(() => {
               let sourceArray = productivityData.topProductive;
               if (tierFilter === 'neutral') sourceArray = productivityData.topNeutral;
               else if (tierFilter === 'distracting') sourceArray = productivityData.topDistracting;
@@ -1091,8 +1172,7 @@ export default function ProductivityPage({
                   {formatDuration(totalSec)} ({filteredTotal > 0 ? Math.round((totalSec / filteredTotal) * 100) : 0}% of {tierFilter === 'all' ? 'total' : tierFilter})
                 </div>
               );
-            })()}
-          </div>
+            })()} />
           
           <div className="space-y-3">
             {(() => {
@@ -1127,10 +1207,10 @@ export default function ProductivityPage({
               );
             })()}
           </div>
-        </div>
+        </GlassCard>
 
         {/* Websites Breakdown */}
-        <div className="glass rounded-3xl p-6">
+        <GlassCard>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Globe className="w-5 h-5 text-cyan-400" />
@@ -1152,7 +1232,7 @@ export default function ProductivityPage({
                     {/* Domain Header Row */}
                     <button
                       onClick={() => toggleDomain(domainData.domain)}
-                      className="w-full flex items-center justify-between p-3 bg-zinc-900/50 hover:bg-zinc-800/70 transition-all rounded-xl"
+                      className="w-full flex items-center justify-between p-3 bg-zinc-900/50 hover:bg-zinc-800/70 transition-colors duration-150 rounded-xl"
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         {isExpanded ? (
@@ -1191,7 +1271,7 @@ export default function ProductivityPage({
                           return (
                             <div 
                               key={idx} 
-                              className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-zinc-800/30 transition-all"
+                              className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-zinc-800/30 transition-colors duration-150"
                             >
                               <div className="flex items-center gap-2 flex-1 min-w-0">
                                 <div 
@@ -1230,17 +1310,12 @@ export default function ProductivityPage({
               </div>
             )}
           </div>
-        </div>
+        </GlassCard>
       </div>
 
       {/* Daily Stacked Bar Chart */}
-      <div className="glass rounded-3xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-emerald-400" />
-            Daily Activity Breakdown
-          </h2>
-        </div>
+      <GlassCard>
+        <SectionHeader title="Daily Activity Breakdown" icon={<BarChart3 className="w-5 h-5" />} />
         <div className="h-64">
           <Bar 
             data={timeBreakdownData}
@@ -1286,20 +1361,13 @@ export default function ProductivityPage({
             }}
           />
         </div>
-      </div>
+      </GlassCard>
 
       {/* Top Distracting */}
       {productivityData.topDistracting.length > 0 && (
-        <div className="glass rounded-3xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <TrendingDown className="w-5 h-5 text-red-400" />
-              Areas to Improve
-            </h2>
-            <div className="text-sm text-zinc-500">
-              Distracting activities that reduced your score
-            </div>
-          </div>
+        <GlassCard>
+          <SectionHeader title="Areas to Improve" icon={<TrendingDown className="w-5 h-5" />}
+            action={<span className="text-sm text-zinc-500">Distracting activities that reduced your score</span>} />
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {productivityData.topDistracting.map((item, idx) => (
@@ -1328,23 +1396,18 @@ export default function ProductivityPage({
               </div>
             ))}
           </div>
-        </div>
+        </GlassCard>
       )}
 
       {/* Peak Productivity Hours */}
       {peakHours && (
-        <div className="glass rounded-3xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <Clock className="w-5 h-5 text-emerald-400" />
-              Peak Productivity Hours
-            </h2>
-            <span className="text-xs text-zinc-500">Average across period</span>
-          </div>
+        <GlassCard>
+          <SectionHeader title="Peak Productivity Hours" icon={<Clock className="w-5 h-5" />}
+            action={<span className="text-xs text-zinc-500">Average across period</span>} />
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             {/* Most Productive Hour */}
-            <div className="bg-emerald-500/10 rounded-2xl p-4 border border-emerald-500/30">
+            <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/30">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
                 <span className="text-sm text-zinc-400">Most Productive</span>
@@ -1359,7 +1422,7 @@ export default function ProductivityPage({
             </div>
             
             {/* Least Productive Hour */}
-            <div className="bg-red-500/10 rounded-2xl p-4 border border-red-500/30">
+            <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/30">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingDown className="w-4 h-4 text-red-400" />
                 <span className="text-sm text-zinc-400">Least Productive</span>
@@ -1404,17 +1467,12 @@ export default function ProductivityPage({
               }}
             />
           </div>
-        </div>
+        </GlassCard>
       )}
 
       {/* Insights Card */}
-      <div className="glass rounded-3xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <Info className="w-5 h-5 text-emerald-400" />
-            Insights
-          </h2>
-        </div>
+      <GlassCard>
+        <SectionHeader title="Insights" icon={<Info className="w-5 h-5" />} />
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 bg-zinc-900/50 rounded-xl">
@@ -1433,13 +1491,13 @@ export default function ProductivityPage({
           <div className="p-4 bg-zinc-900/50 rounded-xl">
             <div className="flex items-center gap-2 mb-2">
               <Award className="w-4 h-4 text-purple-400" />
-              <span className="text-sm font-medium text-zinc-400">Weighted Score</span>
+              <span className="text-sm font-medium text-zinc-400">Avg Trend Score</span>
             </div>
             <div className="text-2xl font-semibold text-white">
-              {Math.round(productivityData.score)}%
+              {trendAverageScore}%
             </div>
             <div className="text-xs text-zinc-500 mt-1">
-              Productive + 50% Neutral
+              Average of daily trend scores
             </div>
           </div>
 
@@ -1482,10 +1540,10 @@ export default function ProductivityPage({
             </div>
           </div>
         </div>
-      </div>
+      </GlassCard>
 
       {/* Calculation Explanation */}
-      <details className="glass rounded-3xl p-6">
+      <details className="rounded-xl p-5 bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60">
         <summary className="cursor-pointer text-sm text-zinc-400 hover:text-white">
           How is productivity calculated?
         </summary>
@@ -1508,6 +1566,6 @@ export default function ProductivityPage({
           </ul>
         </div>
       </details>
-    </div>
+    </PageShell>
   );
 }

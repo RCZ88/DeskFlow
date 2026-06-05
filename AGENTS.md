@@ -135,16 +135,22 @@ All markdown files in the `agent/` directory. Organized by category.
 | `agent/skills/README.md` | Skills directory README | When skills structure changes |
 | `agent/skills/agent-reflect/` | Agent reflection skill | When reflection patterns change |
 | `agent/skills/commit/` | Commit skill | When commit process changes |
+| `agent/skills/cross-session-sync/` | Multi-agent conflict detection & sync | When sync logic changes |
 | `agent/skills/deep-research/` | Deep research skill | When research methods change |
 | `agent/skills/deep-research-prompt/` | Deep research prompt skill | When prompts change |
+| `agent/skills/design-taste/` | Master aggregator design skill (variance/motion/density knobs) | When design config changes |
 | `agent/skills/fix-problems/` | Fix problems skill | When fix procedures change |
-| `agent/skills/frontend-design/` | Frontend design skill | When design process changes |
+| `agent/skills/frontend-design/` | Core UI/UX principles, DeskFlow conventions | When design process changes |
 | `agent/skills/generate-problem/` | Generate problem skill | When problem generation changes |
 | `agent/skills/generate-prompt/` | Generate prompt skill | When prompt generation changes |
 | `agent/skills/google-stitch/` | Google Stitch skill | When Stitch integration changes |
+| `agent/skills/impeccable/` | 7 design domains, 23 commands, 27 anti-patterns | When design rules change |
 | `agent/skills/maintain-context/` | Maintain context skill | When context maintenance changes |
 | `agent/skills/readme-generator/` | README generator skill | When generator changes |
 | `agent/skills/recursive-playwright/` | Recursive Playwright skill | When testing approach changes |
+| `agent/skills/sqlite-js-migration/` | SQLite migration with sql.js | When migration strategy changes |
+| `agent/skills/taste-skill/` | Tunable knobs (variance, motion, density), aesthetic matrix | When taste config changes |
+| `agent/skills/ui-ux-pro-max/` | Industry-specific design rules, style library, color palettes | When design rules change |
 
 ### Other Files
 
@@ -174,8 +180,12 @@ When changes require user testing, add an entry to `agent/PROBLEMS.md` AND link 
 | Sleep chart respects period | 1. Select different periods on External 2. Check Sleep Trends chart | Shows correct number of days (1/7/30/90) | Issue #55 |
 | Weekly Overview styling | 1. Look at Weekly Overview chart | Rounded bar corners, total hours below chart | Issue #56 |
 | Always-visible timer | 1. Go to /external when no activity running | Shows "00:00:00" with "Click to start tracking" | New feature |
-| Setup vs Initialize buttons | 1. Open IDE page 2. Click green "Initialize" button | Shows InitializeProgressModal with 16-step animation | New feature |
-| Initialize progress modal | 1. Click Initialize 2. Watch steps animate 3. Wait for completion | All 16 steps turn green (checkmark), "Workspace Ready" summary card appears | New feature |
+| Setup vs Initialize buttons | 1. Open IDE page 2. Click green "Initialize" button | Shows InitializeProgressModal with grouped directory layout (agent/, agent/skills/, graphify-out/) | #136 |
+| Initialize progress modal — groups & paths | 1. Click Initialize 2. Verify 3 group headers with per-group counters (13/13, 2/2, 1/1) 3. Check each item shows its full path like `agent/AGENTS.md` | Items organized under directory headers, monospace path column visible per row | #136 |
+| Initialize progress modal — expandable previews | 1. Click any done file row 2. Verify it expands to show file content 3. Click again to collapse | File content preview appears below row with AnimatePresence animation | #136 |
+| Initialize progress modal — Workspace Ready | 1. Wait for all steps to complete 2. Verify green summary card appears | "Workspace Ready" card shows total file count and directory count | #136 |
+| Initialize progress modal — error retry | 1. Force an error (delete agent/ dir mid-init) 2. Verify retry button appears | Error message shown, Retry button restarts from scratch | #136 |
+| Initialize progress modal — re-init safety | 1. Complete init 2. Close 3. Open IDE page 4. Click Initialize again 5. Verify it starts fresh (no stale state from previous run) | Modal resets fully, all steps show pending before progressing | #136 |
 | Setup workspace settings | 1. Click amber "Setup" button 2. Toggle systems 3. Adjust sliders 4. Click Save | WorkspaceSettingsDialog opens, settings persist after reopen | New feature |
 | New Agent button | 1. Click "New Agent" button 2. Verify NewSessionDialog opens | NewSessionDialog pre-populates from workspace settings | New feature |
 | NewSessionDialog defaults | 1. Set some systems OFF in Setup 2. Save 3. Click New Agent | NewSessionDialog shows saved config (not all defaults) | New feature |

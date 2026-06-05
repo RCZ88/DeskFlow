@@ -6,14 +6,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"The dropdown of selecting a category in the application doesn't work. It doesn't bring me to the solar system.\"",
     "fix_description": "Added `viewMode = 'solarSystem'` and `animateCamera` to zoom toward the category's sun",
     "files": [
       "src/components/OrbitSystem.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "095",
@@ -22,14 +24,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"When I select an app, it directs me to the planet but doesn't lock the camera. The planet is far away from the orbit and the camera is too late.\"",
     "fix_description": "Use `planetPositionsRef` for real-time position, added `PlanetTracker` component that continuously updates OrbitControls target via `useFrame`",
     "files": [
       "src/components/OrbitSystem.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "096",
@@ -38,14 +42,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"The website solar system only has three categories. There needs to be a timeline switch in the solar system UI because the tab navigation is inaccessible in fullscreen/popup.\"",
     "fix_description": "Added `selectedPeriod` state and period selector UI inside OrbitSystem. Both apps and websites now filter by this internal period.",
     "files": [
       "src/components/OrbitSystem.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "075",
@@ -54,14 +60,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"Sessions save to DB but don't appear in Sessions tab until page refresh\"",
     "fix_description": "1. Added `loadSessions()` call after `saveTerminalSession()`\n  2. Sessions now refresh immediately when new terminal created\n  3. UI updates in real-time instead of requiring refresh",
     "files": [
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "076",
@@ -70,6 +78,8 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"No delete button for sessions, no way to remove old sessions\"",
     "fix_description": "1. Added `delete-terminal-session` IPC handler in main.ts\n  2. Exposed `deleteTerminalSession()` in preload.ts\n  3. Added delete button to sessions tab UI (appears on hover)\n  4. Delete button triggers confirmation and refreshes session list",
@@ -78,8 +88,8 @@
       "src/main.ts",
       "src/preload.ts"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "077",
@@ -88,14 +98,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": null,
     "files": [
       "src/pages/TerminalPage.tsx (sessions tab)"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "078",
@@ -104,14 +116,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"Send button at bottom does nothing - text sent but not executed in terminal\"",
     "fix_description": "Changed `ipcRenderer.invoke('write-terminal', { terminalId, text })` → `ipcRenderer.invoke('write-terminal', terminalId, text)` to match handler signature.",
     "files": [
       "src/preload.ts"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "079",
@@ -120,14 +134,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"Sidebar should resize freely with no max-width limit\"",
     "fix_description": "Removed `Math.min(600, ...)` constraint — sidebar now limited only by min-width (200px)",
     "files": [
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "080",
@@ -136,14 +152,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"Resume button tries to send command but doesn't reconnect to terminal\"",
     "fix_description": "Added `activeTerminalId`, `loadSessions` to effect deps. Handle no-active-terminal case with error toast.",
     "files": [
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "081",
@@ -152,14 +170,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"Terminal tab shows 'Cloud' but I'm using OpenCode - should show actual agent\"",
     "fix_description": "Terminal tabs now lookup session agent type from `sessions` array instead of hardcoding 'Cloud'",
     "files": [
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "082",
@@ -168,14 +188,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"Should be able to start new session from Sessions tab, not just via + button\"",
     "fix_description": "Added \"New Session\" button that opens AI agent selector dialog",
     "files": [
       "src/pages/TerminalPage.tsx (sessions tab)"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "087",
@@ -184,6 +206,8 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "1. Replaced broken prop-chain pattern with custom event system (`create-terminal`, `terminal-created`, `close-pane`)\n  2. TerminalLayout now manages its own internal layout state — TerminalPage no longer tries to set layout directly\n  3. Events dispatched from + button, New Session dialog, and close button",
@@ -191,8 +215,8 @@
       "src/pages/TerminalPage.tsx",
       "src/components/TerminalWindow.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "088",
@@ -201,14 +225,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Removed redundant `spawnTerminal()` from event handler — only TerminalLayout now spawns PTYs",
     "files": [
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "089",
@@ -217,14 +243,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Replaced with `showError()` toast that displays error in UI and auto-clears after 8 seconds",
     "files": [
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "090",
@@ -233,6 +261,8 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Changed trigger to `activeTab === 'analytics'`\n- Also added `'day'` period support to IPC handler (was only handling `'week'`/`'month'`)\n- Also parameterized SQL query to fix injection",
@@ -241,8 +271,8 @@
       "src/main.ts",
       "src/preload.ts"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "091",
@@ -251,14 +281,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Added `useEffect` that selects `projects[0].id` when `projects` loads and no project selected",
     "files": [
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "092",
@@ -267,6 +299,8 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Changed `useTerminalLayout(initialLayout)` → `useTerminalLayout(null, initialLayout || null)`. Added null-handling in `handleCreateTerminalEvent` to create root leaf when no layout exists.\n- Also: + button now ALSO calls `setTerminalTabs()` directly before dispatching event. TerminalLayout's `handleCreateTerminalEvent` accepts `terminalId` from event detail.",
@@ -274,8 +308,8 @@
       "src/pages/TerminalPage.tsx",
       "src/components/TerminalWindow.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "093",
@@ -284,14 +318,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Replaced \"Select a project above\" message with a project dropdown select inside the tab. Also added `spawnTerminal`, `loadSessions` to useEffect deps to prevent stale closures.",
     "files": [
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "097",
@@ -300,12 +336,14 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "`useTerminalLayout(null, initialLayout || null)`\n- Effect: TerminalLayout couldn't create any panes. + button created tabs but no terminal ever rendered.",
     "files": [],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "098",
@@ -314,12 +352,14 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Added null-handling to create root leaf pane when layout doesn't exist.",
     "files": [],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "099",
@@ -328,12 +368,14 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Changed to `ipcRenderer.invoke('write-terminal', terminalId, text)` to match handler signature.",
     "files": [],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "100",
@@ -342,12 +384,14 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Added all missing deps.",
     "files": [],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "101",
@@ -356,12 +400,14 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": null,
     "fix_description": "Added `projectId` to IPC handler, preload, and RequestDetailModal. Handler now resolves via `getProjectPath()`.",
     "files": [],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "102",
@@ -370,6 +416,8 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"WHY THE FUCK IS THERE A PROJECT SELECTION????? THE WORKSPACE IS ACCESSED FROM THE PROJECT IDE WHICH ALREADY HAVE THE PATH TO THE PROJECT DIRECTORY\"",
     "fix_description": "Added `projectPath` prop to FilesTab. When opened from workspace modal, `propProjectPath` is passed directly. FilesTab uses it before falling back to projects array lookup.",
@@ -378,8 +426,8 @@
       "projectPath derivation",
       "and call site"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "103",
@@ -388,14 +436,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"NEW TERMINAL IS NOT THERE\"",
     "fix_description": "Removed the conditional wrapper. Tab bar now always renders with the + button visible. Terminal tab entries are only rendered when they exist.",
     "files": [
       "src/pages/TerminalPage.tsx — Terminal tab bar conditional gate removed"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "104",
@@ -404,6 +454,8 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"THE SAVE IS NOT THERE\"",
     "fix_description": "Extracted `handleSaveCheckpoint` callback. Added a Save button in the terminal header next to the Send button, always visible when a terminal is active. Also kept the Save button in the instruction input bar.",
@@ -411,8 +463,8 @@
       "src/pages/TerminalPage.tsx — Added handleSaveCheckpoint callback",
       "added Save button to header"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-12T00:00:00.000Z",
+    "updated_at": "2026-05-12T00:00:00.000Z"
   },
   {
     "id": "105",
@@ -421,14 +473,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"Adding a new terminal automatically adds a session. It shouldn't.\"",
     "fix_description": "Removed auto-save from `handleTerminalCreated`. Sessions are ONLY created explicitly via the \"New Session\" dialog.",
     "files": [
       "src/pages/TerminalPage.tsx (handleTerminalCreated handler)"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "106",
@@ -437,14 +491,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"When you create a new session, the menu should prompt the user to select a terminal (create new terminal now or select an existing open terminal that is free)\"",
     "fix_description": "Complete redesign of the New Session dialog with:\n  1. Session name input\n  2. AI Agent dropdown (Claude/OpenCode)\n  3. Terminal selection radio: \"Create new terminal\" vs \"Use existing terminal\"\n  4. If \"Use existing\": dropdown of free terminals (shows which have sessions, which are free)\n  5. Clicking \"Start Session\" creates the session in the selected terminal",
     "files": [
       "src/pages/TerminalPage.tsx (New Session dialog)"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "107",
@@ -453,6 +509,8 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"There's no way for me to open the session again. No way to restore every session.\"",
     "fix_description": "Every session now shows:\n  1. Running indicator (green dot + terminal name) if session is active\n  2. \"Closed\" badge if session has no terminal\n  3. \"Focus\" button for running sessions (focuses terminal)\n  4. \"Open\" button for closed sessions (opens in existing or new terminal)\n  5. Messages and Delete buttons preserved",
@@ -460,8 +518,8 @@
       "src/pages/TerminalPage.tsx (sessions tab",
       "handleResumeSession)"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "108",
@@ -470,14 +528,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"The save button is not working.\"",
     "fix_description": "Added prompt dialog for session name, proper session saving with terminal binding, loadSessions refresh after save, visible success/error feedback",
     "files": [
       "src/pages/TerminalPage.tsx (handleSaveCheckpoint)"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "109",
@@ -486,14 +546,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"The markdown is not being able to parse the thing properly right.\"",
     "fix_description": "Rewrote `generateMarkdown()` to output `### Issue #XXX:` format (Pattern 4 compatible). Updated Pattern 4 regex to also handle dotted IDs like `#96.1`. Updated initial PROBLEMS.md creation format. Parse/generate cycle is now idempotent.",
     "files": [
       "src/services/ProblemsService.ts"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "110",
@@ -502,14 +564,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"The initialize button is under file right? It's on the file page which doesn't make any sense.\"",
     "fix_description": "Moved Setup/Initialize button from FilesTab (sidebar) to TerminalPage header, next to Open Terminal / Send / Save buttons. Always accessible regardless of which sidebar tab is active. FilesTab keeps a read-only status indicator.",
     "files": [
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "111",
@@ -518,14 +582,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"The split thing is not working properly at all. The split drag panes doesn't work.\"",
     "fix_description": "`handleTabSelect` now only sets `activeTerminalId` without modifying the layout. Split buttons on TerminalPane hover still work.",
     "files": [
       "src/pages/TerminalPage.tsx (handleTabSelect)"
     ],
-    "created_at": "2026-05-14T12:34:27.580Z",
-    "updated_at": "2026-05-14T12:34:27.580Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "112",
@@ -534,12 +600,14 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"Creating a new terminal for some reason just opens a typed cloud in terminal and once I click enter in the terminal it the terminal just disappears.\"",
     "fix_description": "`handleTabSelect` no longer resets layout — just focuses the terminal.",
     "files": [],
-    "created_at": "2026-05-14T12:34:27.581Z",
-    "updated_at": "2026-05-14T12:34:27.581Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "113",
@@ -548,14 +616,16 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"The terminal sidebar is not showing anything useful. There's no sessions there.\"",
     "fix_description": "Complete rewrite of TerminalsTab:\n  1. Running Terminals section: shows each terminal, its session, session name, agent, date\n  2. Free terminals show \"No session — ready to assign\" with \"New Session\" button\n  3. Sessions section: shows ALL sessions with terminal status\n  4. Running sessions show green dot + terminal name\n  5. Closed sessions show grey dot + \"Closed\" label\n  6. Focus/Open button on hover",
     "files": [
       "src/pages/TerminalPage.tsx (TerminalsTab component)"
     ],
-    "created_at": "2026-05-14T12:34:27.581Z",
-    "updated_at": "2026-05-14T12:34:27.581Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "114",
@@ -564,6 +634,8 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"The send feature can automatically assign to a proper session. So it needs to be categorized properly.\"",
     "fix_description": "1. Added session dropdown selector in instruction input bar\n  2. Dropdown shows \"Active Terminal\" (default) or any running session with terminal name\n  3. Auto-selects the active terminal's session\n  4. Send routes to correct terminal based on selected session\n  5. Falls back to active terminal if no session selected",
@@ -571,8 +643,8 @@
       "src/pages/TerminalPage.tsx (sendInstruction",
       "instruction input bar)"
     ],
-    "created_at": "2026-05-14T12:34:27.581Z",
-    "updated_at": "2026-05-14T12:34:27.581Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "115",
@@ -581,12 +653,14 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"I need to see the title of the terminal, the title of the session which terminal responds to which session.\"",
     "fix_description": "1. Terminal tab bar shows session name + agent + \"S\" badge if session exists\n  2. Sessions tab: each session shows terminal name (green badge if running) or \"Closed\"\n  3. Terminals tab: each terminal shows its session sub-section with name/agent/date\n  4. Clear visual hierarchy: Terminal → Session",
     "files": [],
-    "created_at": "2026-05-14T12:34:27.581Z",
-    "updated_at": "2026-05-14T12:34:27.581Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
   },
   {
     "id": "116",
@@ -595,6 +669,8 @@
     "priority": "medium",
     "category": "other",
     "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
     "skill_used": null,
     "user_notes": "\"still not parse\" (PROBLEMS.md) and \"the same\" (Requests page)",
     "fix_description": "1. `getProjectPath()` now returns `undefined` instead of `userDataPath` — lets ProblemsService/RequestsService fall through to `process.cwd()` (workspace root)\n  2. `tracker-mind-setup` IPC handler changed from `userDataPath` to `process.cwd()` for default base dir\n  3. Setup/Init button moved outside `{projects.length > 0 && ...}` gate — always visible even with no projects\n  4. `handleInitSetup` no longer requires a selected project — works without `projId`/`projPath`",
@@ -602,7 +678,253 @@
       "src/main.ts",
       "src/pages/TerminalPage.tsx"
     ],
-    "created_at": "2026-05-14T12:34:27.581Z",
-    "updated_at": "2026-05-14T12:34:27.581Z"
+    "created_at": "2026-05-13T00:00:00.000Z",
+    "updated_at": "2026-05-13T00:00:00.000Z"
+  },
+  {
+    "id": "122",
+    "title": "terminalTabs ReferenceError in TerminalWindow.tsx handleSplit",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-17T00:00:00.000Z",
+    "updated_at": "2026-05-17T00:00:00.000Z"
+  },
+  {
+    "id": "123",
+    "title": "No Prompt Progress Tracking (pending→in_progress→completed)",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-17T00:00:00.000Z",
+    "updated_at": "2026-05-17T00:00:00.000Z"
+  },
+  {
+    "id": "121",
+    "title": "Background tab events log websites when browser isn't focused",
+    "status": "Fixed (2026-05-26)",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": "\"theres a commonly happening problem where the app still tracks a website even if the browser is not focused. browser with the extension.\"",
+    "fix_description": null,
+    "files": [
+      "browser-extension/background.js",
+      "src/main.ts"
+    ],
+    "created_at": "2026-05-15T00:00:00.000Z",
+    "updated_at": "2026-05-15T00:00:00.000Z"
+  },
+  {
+    "id": "130",
+    "title": "Sleep chart shows no bars / zero sleep after adding sleep",
+    "status": "Fixed (2026-05-28)",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": "\"the sleep patterns isn't showing the graphs properly. it doesn't show the added sleep whether it is automatic or not. the chart is not displaying it properly both in text and in bar.\"",
+    "fix_description": "1. `ExternalPage.tsx:2353`: Removed `fellAsleepDate.setDate(fellAsleepDate.getDate() + 1)` from the first midnight-crossing check. Only advance `wakeupDate` and `deviceOnDate` (they're on the next morning). The second check `if (fellAsleepDate <= deviceOffDate)` still correctly handles the case where fell-asleep time crossed midnight.\n  2. `App.tsx:779`: Same fix in `confirmSleepDetection` for the auto-sleep detection path.",
+    "files": [
+      "src/pages/ExternalPage.tsx",
+      "src/App.tsx"
+    ],
+    "created_at": "2026-05-15T00:00:00.000Z",
+    "updated_at": "2026-05-15T00:00:00.000Z"
+  },
+  {
+    "id": "124",
+    "title": "Context Management — AI Agent Gets Stale Context Across Chats",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-18T00:00:00.000Z",
+    "updated_at": "2026-05-18T00:00:00.000Z"
+  },
+  {
+    "id": "125",
+    "title": "Setup Dialog — Missing System Toggles",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-18T00:00:00.000Z",
+    "updated_at": "2026-05-18T00:00:00.000Z"
+  },
+  {
+    "id": "126",
+    "title": "Context History — Efficient Summarization",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-18T00:00:00.000Z",
+    "updated_at": "2026-05-18T00:00:00.000Z"
+  },
+  {
+    "id": "127",
+    "title": "In-App Context Visualization",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-18T00:00:00.000Z",
+    "updated_at": "2026-05-18T00:00:00.000Z"
+  },
+  {
+    "id": "128",
+    "title": "AFK Prompt Activity Selection Does Not Show on External Page",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-27T00:00:00.000Z",
+    "updated_at": "2026-05-27T00:00:00.000Z"
+  },
+  {
+    "id": "131",
+    "title": "3+ Terminal Grouping Broken (insertIntoLayout Nests Instead of Flattening)",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-27T00:00:00.000Z",
+    "updated_at": "2026-05-27T00:00:00.000Z"
+  },
+  {
+    "id": "129",
+    "title": "App Stats Page Missing 7day/30day Chart Handlers",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-27T00:00:00.000Z",
+    "updated_at": "2026-05-27T00:00:00.000Z"
+  },
+  {
+    "id": "132",
+    "title": "Dashboard Focus Sessions Always Show 0",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-27T00:00:00.000Z",
+    "updated_at": "2026-05-27T00:00:00.000Z"
+  },
+  {
+    "id": "133",
+    "title": "Dashboard Stats Show 0m While Timer Runs",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-27T00:00:00.000Z",
+    "updated_at": "2026-05-27T00:00:00.000Z"
+  },
+  {
+    "id": "134",
+    "title": "Dashboard Shows \"Unknown\" While Timer Is Actively Tracking",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-27T00:00:00.000Z",
+    "updated_at": "2026-05-27T00:00:00.000Z"
+  },
+  {
+    "id": "135",
+    "title": "ProductivityPage Donut/Bar/Score/Line Graph All Show Wrong Values",
+    "status": "NEW",
+    "priority": "medium",
+    "category": "other",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": null,
+    "fix_description": null,
+    "files": [],
+    "created_at": "2026-05-27T00:00:00.000Z",
+    "updated_at": "2026-05-27T00:00:00.000Z"
   }
 ]

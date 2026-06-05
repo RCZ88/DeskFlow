@@ -26,6 +26,12 @@ import { DurationPicker, LatencyPicker } from '../components/DurationPicker';
 import { getDateRange, isInRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
 
+import { PageShell } from '../components/PageShell';
+import { GlassCard } from '../components/GlassCard';
+import { SectionHeader } from '../components/SectionHeader';
+import { LoadingState } from '../components/LoadingState';
+import { EmptyState } from '../components/EmptyState';
+
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler);
 
 interface ExternalActivity {
@@ -205,6 +211,13 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [addActivityError, setAddActivityError] = useState<string | null>(null);
   const [addActivitySuccess, setAddActivitySuccess] = useState(false);
+  const [manualSessionActivity, setManualSessionActivity] = useState<ExternalActivity | null>(null);
+  const [manualSessionHours, setManualSessionHours] = useState(0);
+  const [manualSessionMinutes, setManualSessionMinutes] = useState(30);
+  const [manualSessionDate, setManualSessionDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; });
+  const [manualSessionStartHours, setManualSessionStartHours] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getHours(); });
+  const [manualSessionStartMinutes, setManualSessionStartMinutes] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getMinutes(); });
+  const [sleepDebugData, setSleepDebugData] = useState<any>(null);
 
   // Sync timer state to the shared deskflow-timer-state so Dashboard picks it up
   const syncTimerStateToDashboard = useCallback((running: boolean, activity?: ExternalActivity | null, startTime?: Date | null) => {
@@ -237,7 +250,9 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   const [pastFellAsleepAt, setPastFellAsleepAt] = useState({ hours: 22, minutes: 30 });
   const [pastSleepError, setPastSleepError] = useState<string | null>(null);
   const [pastSleepSuccess, setPastSleepSuccess] = useState(false);
-  const [pastSleepDate, setPastSleepDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const localDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const [pastSleepDate, setPastSleepDate] = useState(() => localDateStr(new Date()));
+  const [pastWakeupDate, setPastWakeupDate] = useState<string | null>(null);
   const [pastSleepSessionId, setPastSleepSessionId] = useState<string | null>(null);
   const [showMorningPrompt, setShowMorningPrompt] = useState(false);
   const [morningPromptData, setMorningPromptData] = useState<{ lastCloseTime: number; lastCloseType: string } | null>(null);
@@ -262,12 +277,14 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
           // device on = wake up + post-wake latency
           const onAt = new Date(endD.getTime() + (existing.wake_up_to_app_seconds || 0) * 1000);
           setPastDeviceOn({ hours: onAt.getHours(), minutes: onAt.getMinutes() });
+          setPastWakeupDate(localDateStr(endD));
         } else {
           setPastSleepSessionId(null);
           setPastDeviceOff({ hours: 22, minutes: 0 });
           setPastFellAsleepAt({ hours: 22, minutes: 30 });
           setPastWakeupTime({ hours: 7, minutes: 0 });
           setPastDeviceOn({ hours: 7, minutes: 30 });
+          setPastWakeupDate(null);
         }
       } catch {}
     })();
@@ -387,12 +404,12 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
       window.deskflowAPI.getExternalSessions('all').then(setAllSessions);
     }
     if (window.deskflowAPI?.getConsistencyScore) {
-      window.deskflowAPI.getConsistencyScore(selectedPeriod === 'week' ? 'week' : 'month').then(setConsistency);
+      window.deskflowAPI.getConsistencyScore(selectedPeriod === 'week' || selectedPeriod === '7day' || selectedPeriod === 'today' ? 'week' : 'month').then(setConsistency);
     }
     if (window.deskflowAPI?.getSleepTrends) {
-      window.deskflowAPI.getSleepTrends(selectedPeriod === 'week' ? 'week' : 'month').then(setSleepTrends);
+      window.deskflowAPI.getSleepTrends(selectedPeriod, dateOffset).then(setSleepTrends);
     }
-  }, [selectedPeriod]);
+  }, [selectedPeriod, dateOffset]);
 
   // Load ALL sessions for the viewing activity (client-side period/offset filtering)
   useEffect(() => {
@@ -494,19 +511,21 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   }, []);
 
   const refreshStats = useCallback(() => {
+    const p = selectedPeriod;
+    const off = dateOffset;
     if (window.deskflowAPI?.getExternalStats) {
-      window.deskflowAPI.getExternalStats(selectedPeriod).then(setStats);
+      window.deskflowAPI.getExternalStats(p).then(setStats);
     }
     if (window.deskflowAPI?.getExternalSessions) {
-      window.deskflowAPI.getExternalSessions(selectedPeriod).then(setAllSessions);
+      window.deskflowAPI.getExternalSessions('all').then(setAllSessions);
     }
     if (window.deskflowAPI?.getConsistencyScore) {
-      window.deskflowAPI.getConsistencyScore(selectedPeriod === 'week' ? 'week' : 'month').then(setConsistency);
+      window.deskflowAPI.getConsistencyScore(p === 'week' || p === '7day' || p === 'today' ? 'week' : 'month').then(setConsistency);
     }
     if (window.deskflowAPI?.getSleepTrends) {
-      window.deskflowAPI.getSleepTrends(selectedPeriod === 'week' ? 'week' : 'month').then(setSleepTrends);
+      window.deskflowAPI.getSleepTrends(p, off).then(setSleepTrends);
     }
-  }, [selectedPeriod]);
+  }, [selectedPeriod, dateOffset]);
 
   // Listen for sleep-confirmed event from Sleep Detection modal
   useEffect(() => {
@@ -701,7 +720,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
         });
         bars.push({ label: `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`, hours: sec / 3600 });
       }
-    } else if (selectedPeriod === 'week') {
+    } else if (selectedPeriod === 'week' || selectedPeriod === '7day') {
       for (let i = 0; i < 7; i++) {
         const d = new Date(range.start);
         d.setDate(d.getDate() + i);
@@ -711,7 +730,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
           .reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0);
         bars.push({ label: dayNames[d.getDay()], hours: daySec / 3600 });
       }
-    } else if (selectedPeriod === 'month') {
+    } else if (selectedPeriod === 'month' || selectedPeriod === '30day') {
       const daysInRange = Math.round((range.end.getTime() - range.start.getTime()) / 86400000);
       for (let i = 0; i < daysInRange; i++) {
         const d = new Date(range.start.getTime() + i * 86400000);
@@ -752,19 +771,21 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   }, [selectedPeriod]);
 
   return (
-    <div className="flex flex-col h-full">
+    <PageShell page="external" variant="sticky-header">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold text-zinc-100">External Tracker</h1>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => window.dispatchEvent(new Event('open-gap-panel'))} className="px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 transition">Gaps</button>
+          <button onClick={() => window.dispatchEvent(new Event('trigger-afk-debug'))} className="px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 transition">🐛 AFK</button>
           <button onClick={() => setShowPastSleepModal(true)} className="px-3 py-1.5 rounded-lg text-sm text-amber-400 hover:text-amber-300 transition">+ Sleep</button>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-5">
         {/* Active Timer View */}
         <AnimatePresence>
           {activeSession && (
@@ -774,74 +795,126 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
               exit={{ opacity: 0, scale: 0.95 }}
               className="mb-8"
             >
-              <div
-                className="rounded-2xl p-8 flex flex-col items-center justify-center"
-                style={{ backgroundColor: activeSession.activity.color + '20', border: `2px solid ${activeSession.activity.color}` }}
-              >
-                <div className="text-center mb-6">
+              <div className="relative overflow-hidden rounded-xl">
+                <div className="absolute -inset-1 opacity-15 blur-2xl rounded-xl" style={{ background: `radial-gradient(ellipse at center, ${activeSession.activity.color} 0%, transparent 70%)` }} />
+                <div className="relative rounded-xl bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/50 p-5 flex flex-col items-center">
                   {activeSession.activity.type === 'sleep' ? (
-                    <>
+                    <div className="text-center">
                       <div className="text-6xl mb-4">😴</div>
                       <div className="text-2xl font-bold text-zinc-100 mb-2">Sleeping</div>
                       <div className="text-xl text-zinc-300">Since {formatBedtime(activeSession.startTime)}</div>
                       
-                      {/* Sleep Stats */}
-                      <div className="mt-4 grid grid-cols-2 gap-4">
-                        <div className="bg-zinc-800/50 rounded-lg p-3 text-center">
+                      <div className="mt-6 grid grid-cols-2 gap-4">
+                        <div className="bg-zinc-800/50 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-3 text-center">
                           <div className="text-xs text-zinc-400">Bedtime</div>
                           <div className="text-lg font-bold text-amber-400">{formatBedtime(activeSession.startTime)}</div>
                         </div>
-                        <div className="bg-zinc-800/50 rounded-lg p-3 text-center">
+                        <div className="bg-zinc-800/50 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-3 text-center">
                           <div className="text-xs text-zinc-400">Elapsed</div>
                           <div className="text-lg font-bold text-zinc-100">{formatDuration(elapsedSeconds)}</div>
                         </div>
                       </div>
                       
-                      {/* Sleep Goal */}
-                      <div className="mt-3 text-sm text-zinc-400">
+                      <div className="mt-4 text-sm text-zinc-500">
                         Target: 8h • {Math.round(elapsedSeconds / 3600 * 10) / 10}h logged
                       </div>
-                    </>
+                    </div>
                   ) : (
-                    <>
-                      <div className="flex items-center justify-center gap-2 mb-2">
-                        <span className="relative flex h-2.5 w-2.5">
-                          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isPaused ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                          <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isPaused ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                        </span>
-                        <span className="text-xs font-semibold tracking-[0.15em] uppercase text-zinc-500">{isPaused ? 'Paused' : 'Tracking'}</span>
+                    <div className="flex flex-col items-center w-full">
+                      <div className="flex items-center gap-3 mb-2 self-start">
+                        <div className="w-10 h-10 rounded-xl bg-zinc-800/80 border border-zinc-700/50 flex items-center justify-center">
+                          {(() => { const Icon = getIcon(activeSession.activity.icon); return <Icon className="w-5 h-5" style={{ color: activeSession.activity.color }} />; })()}
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-zinc-100">{activeSession.activity.name}</div>
+                          {isPaused ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 mt-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                              Paused
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mt-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              Tracking
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-6xl font-mono font-bold tracking-widest bg-gradient-to-b from-white via-zinc-100 to-zinc-400 bg-clip-text text-transparent">
-                        {formatDuration(elapsedSeconds)}
+
+                      <div className="my-8">
+                        {(() => {
+                          const h = Math.floor(elapsedSeconds / 3600);
+                          const m = Math.floor((elapsedSeconds % 3600) / 60);
+                          const s = elapsedSeconds % 60;
+                          const pad = (n: number) => String(n).padStart(2, '0');
+                          return (
+                            <div className="flex items-center justify-center gap-2">
+                              <div className="flex flex-col items-center min-w-[76px]">
+                                <div className="text-6xl font-mono font-bold tracking-tight text-white tabular-nums leading-none">
+                                  {pad(h)}
+                                </div>
+                                <span className="text-[9px] uppercase tracking-[0.25em] text-zinc-600 mt-2 font-medium">HR</span>
+                              </div>
+                              <span className="text-4xl font-light text-zinc-700 mt-4">:</span>
+                              <div className="flex flex-col items-center min-w-[76px]">
+                                <div className="text-6xl font-mono font-bold tracking-tight text-white tabular-nums leading-none">
+                                  {pad(m)}
+                                </div>
+                                <span className="text-[9px] uppercase tracking-[0.25em] text-zinc-600 mt-2 font-medium">MIN</span>
+                              </div>
+                              <span className="text-4xl font-light text-zinc-700 mt-4">:</span>
+                              <div className="flex flex-col items-center min-w-[76px]">
+                                <div className="text-6xl font-mono font-bold tracking-tight text-white tabular-nums leading-none">
+                                  {pad(s)}
+                                </div>
+                                <span className="text-[9px] uppercase tracking-[0.25em] text-zinc-600 mt-2 font-medium">SEC</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
-                      <div className="text-base text-zinc-500 mt-2 font-medium">{activeSession.activity.name}</div>
-                      <div className="flex items-center justify-center gap-3 mt-6">
+
+                      <div className="flex items-center gap-1.5 text-xs text-zinc-500 mb-8">
+                        <Clock className="w-3 h-3 text-zinc-600" />
+                        Started {formatBedtime(activeSession.startTime)}
+                      </div>
+
+                      <div className="flex items-center gap-3">
                         {isPaused ? (
-                          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                             onClick={resumeActivity}
-                            className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all border bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20"
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium
+                                       bg-emerald-500/10 text-emerald-400 border border-emerald-500/25
+                                       hover:bg-emerald-500/20 hover:border-emerald-400/40
+                                       transition-colors duration-150 duration-200"
                           >
                             <Play className="w-4 h-4" />
                             Resume
                           </motion.button>
                         ) : (
-                          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                             onClick={pauseActivity}
-                            className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all border bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20"
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium
+                                       bg-amber-500/10 text-amber-400 border border-amber-500/25
+                                       hover:bg-amber-500/20 hover:border-amber-400/40
+                                       transition-colors duration-150 duration-200"
                           >
                             <Pause className="w-4 h-4" />
                             Pause
                           </motion.button>
                         )}
-                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                           onClick={stopActivity}
-                          className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all border bg-red-500/10 text-red-300 border-red-500/30 hover:bg-red-500/20"
+                          className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium
+                                     bg-red-500/10 text-red-400 border border-red-500/25
+                                     hover:bg-red-500/20 hover:border-red-400/40
+                                     transition-colors duration-150 duration-200"
                         >
                           <Square className="w-4 h-4" />
                           Stop
                         </motion.button>
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>
@@ -851,7 +924,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
 
         {/* Inline Activity Detail View */}
         {viewingActivity && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-3xl p-8 mb-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-xl p-5 mb-6">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: viewingActivity.color }}>{(() => { const Icon = getIcon(viewingActivity.icon); return <Icon className="w-6 h-6 text-white" />; })()}</div>
@@ -910,7 +983,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                   <div className="flex-1 min-w-0 pr-2">
                     <div className="flex items-end justify-between mb-1">
                       <div className="text-sm font-medium text-zinc-400">
-                        {selectedPeriod === 'today' ? 'Hourly Activity' : selectedPeriod === 'week' ? 'Daily Activity' : selectedPeriod === 'month' ? 'Daily Activity' : 'Monthly Activity'}
+                        {selectedPeriod === 'today' ? 'Hourly Activity' : selectedPeriod === 'week' || selectedPeriod === '7day' ? 'Daily Activity' : selectedPeriod === 'month' || selectedPeriod === '30day' ? 'Daily Activity' : 'Monthly Activity'}
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -940,7 +1013,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                                 bars.push(sec);
                               }
                               return bars;
-                            } else if (selectedPeriod === 'week') {
+                            } else if (selectedPeriod === 'week' || selectedPeriod === '7day') {
                               const now = new Date();
                               const weekStart = new Date(now);
                               weekStart.setDate(weekStart.getDate() - weekStart.getDay() - dateOffset * 7);
@@ -953,7 +1026,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                                 bars.push(filtered.filter((s: any) => s.started_at?.split('T')[0] === dateStr).reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0));
                               }
                               return bars;
-                            } else if (selectedPeriod === 'month') {
+                            } else if (selectedPeriod === 'month' || selectedPeriod === '30day') {
                               const targetMonth = new Date(new Date().getFullYear(), new Date().getMonth() - dateOffset, 1);
                               const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
                               const bars: number[] = [];
@@ -1013,7 +1086,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                                 });
                                 bars.push({ label: `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`, seconds: sec });
                               }
-                            } else if (selectedPeriod === 'week') {
+                            } else if (selectedPeriod === 'week' || selectedPeriod === '7day') {
                               const now = new Date();
                               const weekStart = new Date(now);
                               weekStart.setDate(weekStart.getDate() - weekStart.getDay() - dateOffset * 7);
@@ -1024,7 +1097,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                                 const dateStr = d.toISOString().split('T')[0];
                                 bars.push({ label: dayNames[d.getDay()], seconds: filtered.filter((s: any) => s.started_at?.split('T')[0] === dateStr).reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0) });
                               }
-                            } else if (selectedPeriod === 'month') {
+                            } else if (selectedPeriod === 'month' || selectedPeriod === '30day') {
                               const targetMonth = new Date(new Date().getFullYear(), new Date().getMonth() - dateOffset, 1);
                               const daysInMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
                               for (let day = 1; day <= daysInMonth; day++) {
@@ -1050,16 +1123,16 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                             return bars.map((bar, idx) => {
                               const h = (bar.seconds / (niceMax * 3600)) * barChartMaxHeight;
                               return (
-                                <div key={idx} className="flex-1 flex flex-col items-center gap-0.5 group relative" style={{ minWidth: selectedPeriod === 'month' ? '16px' : selectedPeriod === 'week' ? '28px' : '20px' }}>
+                                <div key={idx} className="flex-1 flex flex-col items-center gap-0.5 group relative" style={{ minWidth: selectedPeriod === 'month' || selectedPeriod === '30day' ? '16px' : selectedPeriod === 'week' || selectedPeriod === '7day' ? '28px' : '20px' }}>
                                   {/* Tooltip */}
-                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-zinc-900/95 border border-zinc-700 rounded-lg px-2 py-1 text-[10px] text-zinc-300 whitespace-nowrap z-20 shadow-xl backdrop-blur-sm pointer-events-none">
+                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-zinc-900/95 border border-zinc-700 rounded-lg px-2 py-1 text-[10px] text-zinc-300 whitespace-nowrap z-20 backdrop-blur-sm pointer-events-none">
                                     {bar.label}: {formatHours(bar.seconds)}
                                   </div>
                                   {/* Bar */}
                                   {bar.seconds > 0 ? (
                                     <div className="w-full flex flex-col justify-end" style={{ height: `${barChartMaxHeight}px` }}>
                                       <div
-                                        className="w-full rounded-t transition-all duration-300 ease-out"
+                                        className="w-full rounded-t transition-colors duration-150 duration-300 ease-out"
                                         style={{
                                           height: `${Math.max(2, h)}px`,
                                           background: h > 16
@@ -1118,13 +1191,13 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                             return (
                               <div key={h} className="flex-1 flex flex-col items-center group relative">
                                 {/* Tooltip */}
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-zinc-900/95 border border-zinc-700 rounded px-1.5 py-0.5 text-[9px] text-zinc-300 whitespace-nowrap z-20 shadow-lg pointer-events-none">
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-zinc-900/95 border border-zinc-700 rounded px-1.5 py-0.5 text-[9px] text-zinc-300 whitespace-nowrap z-20 pointer-events-none">
                                   {h % 12 || 12}{h < 12 ? 'a' : 'p'}: {formatHours(sec)}
                                 </div>
                                 {sec > 0 ? (
                                   <div className="w-full flex flex-col justify-end" style={{ height: `${hourChartMaxHeight}px` }}>
                                     <div
-                                      className="w-full rounded-t transition-all duration-300 ease-out"
+                                      className="w-full rounded-t transition-colors duration-150 duration-300 ease-out"
                                       style={{
                                         height: `${Math.max(1, height)}px`,
                                         background: height > 12 ? `linear-gradient(to top, ${viewingActivity.color}bb, ${viewingActivity.color})` : viewingActivity.color,
@@ -1241,7 +1314,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                                     ended_at: s.ended_at ? toLocal(s.ended_at) : toLocal(new Date().toISOString()),
                                   });
                                 }}
-                                className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-zinc-700 transition-all"
+                                className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-zinc-700 transition-colors duration-150"
                               >
                                 <Pencil className="w-3 h-3 text-zinc-500" />
                               </button>
@@ -1255,7 +1328,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                                     }
                                   }
                                 }}
-                                className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-900/50 transition-all"
+                                className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-900/50 transition-colors duration-150"
                               >
                                 <Trash2 className="w-3 h-3 text-red-400" />
                               </button>
@@ -1284,7 +1357,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                 const totalSeconds = actStats?.total_seconds || 0;
                 return (
                   <div key={activity.id} className="relative group" data-activity-card>
-                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-all hover:ring-2 w-full h-[140px] ${selectedActivity?.id === activity.id ? 'ring-2' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
+                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-colors duration-150 hover:ring-2 w-full h-[140px] ${selectedActivity?.id === activity.id ? 'ring-2' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
                       <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: activity.color }}><Icon className="w-6 h-6 text-white" /></div>
                       <div className="text-center min-w-0"><div className="font-medium text-zinc-100 text-sm leading-tight truncate">{activity.name}</div><div className="text-xs text-zinc-400 mt-0.5">{formatHours(totalSeconds)}</div></div>
                       <div className="w-full h-8 flex items-end gap-[2px] px-1">
@@ -1321,30 +1394,132 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
         {selectedActivity && !activeSession && (
           <>
             <div id="activity-selection-overlay" className="fixed inset-0 z-40" onClick={handleOverlayClick} />
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: -10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: -10 }} className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-zinc-800 rounded-2xl p-6 shadow-2xl border border-zinc-700 min-w-72" style={{ borderColor: selectedActivity.color + '60' }}>
-              <div className="text-center mb-4">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: selectedActivity.color }}>{(() => { const Icon = getIcon(selectedActivity.icon); return <Icon className="w-8 h-8 text-white" />; })()}</div>
-                <div className="text-lg font-semibold text-zinc-100">{selectedActivity.name}</div>
-                <div className="text-sm text-zinc-400 mt-1">Ready to start</div>
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: -10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: -10 }} className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 min-w-80" style={{ perspective: '1000px' }}>
+              <div className="relative overflow-hidden rounded-xl bg-zinc-900/90 backdrop-blur-xl p-5 shadow-black/50 border" style={{ borderColor: selectedActivity.color + '40' }}>
+                <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full opacity-20 blur-2xl" style={{ backgroundColor: selectedActivity.color }} />
+                <div className="text-center mb-5">
+                  <div className="relative w-16 h-16 mx-auto mb-3">
+                    <div className="absolute inset-0 rounded-full opacity-30 blur-lg" style={{ backgroundColor: selectedActivity.color }} />
+                    <div className="relative w-16 h-16 rounded-full flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5 ring-1 ring-white/10" style={{ boxShadow: `0 0 20px ${selectedActivity.color}40` }}>{(() => { const Icon = getIcon(selectedActivity.icon); return <Icon className="w-8 h-8" style={{ color: selectedActivity.color }} />; })()}</div>
+                  </div>
+                  <div className="text-xl font-bold text-zinc-100">{selectedActivity.name}</div>
+                  <div className="text-sm text-zinc-500 mt-1">Ready to start</div>
+                </div>
+                <div className="flex flex-col gap-2.5">
+                  <button onClick={() => { handleLoadViewingActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm font-medium flex items-center justify-center gap-2.5 text-zinc-300 hover:text-white bg-zinc-800/50 hover:bg-zinc-700/60 border border-zinc-700/50 hover:border-zinc-600/60"><BarChart3 className="w-4 h-4" />View Data & Charts</button>
+                  <button onClick={() => { startActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm font-medium flex items-center justify-center gap-2.5 text-white" style={{ background: `linear-gradient(135deg, ${selectedActivity.color}, ${selectedActivity.color}dd)`, boxShadow: `0 4px 15px ${selectedActivity.color}40` }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.filter = 'brightness(1.15)' }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.filter = 'brightness(1)' }}><Play className="w-4 h-4" />Start</button>
+                  <button onClick={() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); setManualSessionHours(0); setManualSessionMinutes(30); const d2 = new Date(); setManualSessionDate(`${d2.getFullYear()}-${String(d2.getMonth()+1).padStart(2,'0')}-${String(d2.getDate()).padStart(2,'0')}`); setManualSessionStartHours(n.getHours()); setManualSessionStartMinutes(n.getMinutes()); setManualSessionActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm font-medium flex items-center justify-center gap-2.5 text-zinc-300 hover:text-white bg-zinc-800/50 hover:bg-zinc-700/60 border border-zinc-700/50 hover:border-zinc-600/60"><Clock className="w-4 h-4" />Add Session</button>
+                  <button onClick={() => setSelectedActivity(null)} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30">Cancel</button>
+                </div>
+                <div className="text-[11px] text-zinc-600 mt-4 text-center tracking-wide uppercase">Press ESC to close</div>
               </div>
-              <div className="flex flex-col gap-2">
-                <button onClick={() => { handleLoadViewingActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-2.5 bg-zinc-600 hover:bg-zinc-500 rounded-xl transition-colors text-white font-medium flex items-center justify-center gap-2"><BarChart3 className="w-4 h-4" />View Data & Charts</button>
-                <button onClick={() => { startActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl transition-colors text-white font-medium flex items-center justify-center gap-2"><Play className="w-4 h-4" />Start</button>
-                <button onClick={() => setSelectedActivity(null)} className="w-full px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 rounded-xl transition-colors text-zinc-300">Cancel</button>
-              </div>
-              <div className="text-xs text-zinc-500 mt-3 text-center">Press ESC to close</div>
             </motion.div>
           </>
         )}
 
+        {/* Manual Session Modal */}
+        <AnimatePresence>
+          {manualSessionActivity && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setManualSessionActivity(null)} />
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-zinc-800 rounded-xl p-5 border border-zinc-700 min-w-72" style={{ borderColor: manualSessionActivity.color + '60' }}>
+                <div className="text-center mb-5">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: manualSessionActivity.color }}>{(() => { const Icon = getIcon(manualSessionActivity.icon); return <Icon className="w-6 h-6 text-white" />; })()}</div>
+                  <div className="text-lg font-semibold text-zinc-100">{manualSessionActivity.name}</div>
+                  <div className="text-sm text-zinc-400 mt-1">Log a past session</div>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-xs text-zinc-500 mb-1.5 text-center">Date</label>
+                  <input
+                    type="date"
+                    value={manualSessionDate}
+                    onChange={(e) => setManualSessionDate(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 text-center"
+                  />
+                </div>
+                <div className="flex items-center justify-center gap-6 mb-5">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1.5 text-center">Start Time</label>
+                    <DurationPicker
+                      hours={manualSessionStartHours}
+                      minutes={manualSessionStartMinutes}
+                      onHoursChange={setManualSessionStartHours}
+                      onMinutesChange={setManualSessionStartMinutes}
+                      maxHours={23}
+                      hourLabel="Hr"
+                      minuteLabel="Min"
+                      wrap={true}
+                    />
+                  </div>
+                  <div className="text-zinc-500 text-lg pt-6">→</div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1.5 text-center">Duration <span className="text-zinc-600">(not end time)</span></label>
+                    <DurationPicker
+                      hours={manualSessionHours}
+                      minutes={manualSessionMinutes}
+                      onHoursChange={setManualSessionHours}
+                      onMinutesChange={setManualSessionMinutes}
+                      maxHours={23}
+                      hourLabel="Hr"
+                      minuteLabel="Min"
+                    />
+                  </div>
+                </div>
+                <div className="text-center text-xs text-zinc-500 mb-5">
+                  Session: <span className="text-zinc-300 font-mono">
+                    {String(manualSessionStartHours).padStart(2,'0')}:{String(manualSessionStartMinutes).padStart(2,'0')}
+                  </span>
+                  {' → '}
+                  <span className="text-zinc-300 font-mono">
+                    {(() => {
+                      const totalMin = manualSessionHours * 60 + manualSessionMinutes;
+                      if (totalMin <= 0) return '--:--';
+                      const endH = (manualSessionStartHours + manualSessionHours + Math.floor((manualSessionStartMinutes + manualSessionMinutes) / 60)) % 24;
+                      const endM = (manualSessionStartMinutes + manualSessionMinutes) % 60;
+                      return `${String(endH).padStart(2,'0')}:${String(endM).padStart(2,'0')}`;
+                    })()}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={async () => {
+                      const totalMinutes = manualSessionHours * 60 + manualSessionMinutes;
+                      if (totalMinutes <= 0) return;
+                      if (window.deskflowAPI?.addExternalTime) {
+                        const baseDate = new Date(manualSessionDate + 'T00:00:00');
+                        const startedAt = new Date(baseDate);
+                        startedAt.setHours(manualSessionStartHours, manualSessionStartMinutes, 0, 0);
+                        const endedAt = new Date(startedAt.getTime() + totalMinutes * 60 * 1000);
+                        const r = await window.deskflowAPI.addExternalTime(
+                          manualSessionActivity.id.toString(),
+                          totalMinutes,
+                          startedAt.toISOString(),
+                          endedAt.toISOString()
+                        );
+                        if (r?.success) {
+                          setManualSessionActivity(null);
+                          refreshStats();
+                          if (window.deskflowAPI?.getExternalActivities) {
+                            window.deskflowAPI.getExternalActivities().then(setActivities);
+                          }
+                        }
+                      }
+                    }}
+                    className="w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl transition-colors text-white font-medium"
+                  >
+                    Save Session
+                  </button>
+                  <button onClick={() => setManualSessionActivity(null)} className="w-full px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 rounded-xl transition-colors text-zinc-300">Cancel</button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
 {/* Sleep Trends - Time-based chart */}
-        {sleepTrends.daily.length > 0 && (
-          <div className="glass rounded-3xl p-6 mb-8">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-200">Sleep Patterns</h3>
-                <p className="text-xs text-zinc-500 mt-0.5">App Exit → Wake time (with pre-sleep/post-wake segments)</p>
-              </div>
+{sleepTrends.daily.length > 0 && (
+          <GlassCard className="mb-8">
+            <SectionHeader title="Sleep Patterns" action={
               <div className="flex items-center gap-4 text-xs">
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full bg-amber-500" />
@@ -1359,7 +1534,8 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                   <span className="text-zinc-500">Post-wake delay</span>
                 </div>
               </div>
-            </div>
+            } />
+            <p className="text-[10px] text-zinc-600 -mt-2 mb-3">Each bar = one night's sleep. Date = evening you went to bed. Bar spans into next morning (wake-up day separate). Hover a bar or click to edit.</p>
             
             <div className="flex">
               {/* Y-axis: Time labels (6PM→6PM) */}
@@ -1399,7 +1575,9 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                     const hasPostWake = postWakeMin > 0;
                     
                     const dateObj = new Date(day.date + 'T00:00:00');
-                    const isToday = day.date === new Date().toISOString().split('T')[0];
+                    const nowLocal = new Date();
+                    const todayLocal = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+                    const isToday = day.date === todayLocal;
                     
                     const mapTime = (mins: number) => {
                       const normalized = ((mins - 1080) % 1440 + 1440) % 1440;
@@ -1427,18 +1605,26 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                       const rounding = topRound && bottomRound ? 'rounded-md' : topRound ? 'rounded-t-md' : bottomRound ? 'rounded-b-md' : '';
                       if (crosses) {
                         return (<>
-                          <div className={`absolute left-1 right-1 ${topRound ? 'rounded-t-md' : ''} transition-all duration-300`} style={{ top: `${t}%`, bottom: 0, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />
-                          <div className={`absolute left-1 right-1 ${bottomRound ? 'rounded-b-md' : ''} transition-all duration-300`} style={{ top: 0, bottom: `${100 - b}%`, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />
+                          <div className={`absolute left-1 right-1 ${topRound ? 'rounded-t-md' : ''} transition-colors duration-150 duration-300`} style={{ top: `${t}%`, bottom: 0, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />
+                          <div className={`absolute left-1 right-1 ${bottomRound ? 'rounded-b-md' : ''} transition-colors duration-150 duration-300`} style={{ top: 0, bottom: `${100 - b}%`, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />
                         </>);
                       }
-                      return <div className={`absolute left-1 right-1 ${rounding} transition-all duration-300`} style={{ top: `${t}%`, bottom: `${100 - b}%`, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />;
+                      return <div className={`absolute left-1 right-1 ${rounding} transition-colors duration-150 duration-300`} style={{ top: `${t}%`, bottom: `${100 - b}%`, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />;
                     };
                     
                     return (
                       <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px] cursor-pointer" onClick={() => { setPastSleepDate(day.date); setShowPastSleepModal(true); }}>
                         {/* Tooltip */}
-                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 text-[10px] text-zinc-300 whitespace-nowrap z-20 shadow-xl pointer-events-none">
-                          <div className="font-medium text-white text-center mb-1">{dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 text-[10px] text-zinc-300 whitespace-nowrap z-20 pointer-events-none">
+                          <div className="font-medium text-white text-center mb-1">
+                            🛏️ {dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            <span className="text-zinc-500"> → </span>
+                            🌅 {(() => {
+                              const wakeD = new Date(day.date + 'T00:00:00');
+                              if (wakeMin <= appExitMin) wakeD.setDate(wakeD.getDate() + 1);
+                              return wakeD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            })()}
+                          </div>
                           <div className="flex items-center gap-2">
                             <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                             <span>App Exit: {formatTime(appExitMin)}</span>
@@ -1503,14 +1689,61 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                 <div className="text-lg font-semibold text-indigo-400">{formatHours(Math.round(sleepTrends.average_sleep_duration || 0))}</div>
               </div>
             </div>
-          </div>
+          </GlassCard>
         )}
+
+        {/* Sleep Debug */}
+        <div className="mb-4">
+          <button onClick={async () => {
+            if (sleepDebugData) { setSleepDebugData(null); return; }
+            const data = await window.deskflowAPI?.getSleepDebug?.(selectedPeriod, dateOffset);
+            setSleepDebugData(data || null);
+          }} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition font-mono">
+            {sleepDebugData ? 'Hide Sleep Debug' : 'Sleep Debug'}
+          </button>
+          {sleepDebugData && (
+            <div className="text-[10px] font-mono text-zinc-500 bg-zinc-900/50 rounded-xl p-4 mt-1 overflow-auto max-h-96 space-y-2">
+              <div className="font-semibold text-zinc-400">Query Filter: {sleepDebugData.queryRange?.dateFilter || 'none'}</div>
+              <div className="font-semibold text-zinc-400">All Sleep Sessions ({sleepDebugData.sessions?.length || 0})</div>
+              {sleepDebugData.sessions?.map((s: any) => (
+                <div key={s.id} className="border-l-2 border-zinc-700 pl-2 py-1">
+                  <div>ID: {s.id} | Activity: {s.name} ({s.type})</div>
+                  <div>Started: {s.started_at}</div>
+                  <div>Ended: {s.ended_at || 'NULL'}</div>
+                  <div>Duration: {s.duration_seconds}s ({Math.round((s.duration_seconds||0)/3600*10)/10}h)</div>
+                  <div>device_off_to_sleep: {s.device_off_to_sleep_seconds}s | wake_up_to_app: {s.wake_up_to_app_seconds}s</div>
+                  {(() => {
+                    const start = new Date(s.started_at);
+                    const end = s.ended_at ? new Date(s.ended_at) : null;
+                    const bedMin = start.getHours() * 60 + start.getMinutes();
+                    const wakeMin = end ? end.getHours() * 60 + end.getMinutes() : 0;
+                    const preSleep = s.device_off_to_sleep_seconds || 0;
+                    const actualSleepSec = Math.max(0, (s.duration_seconds||0) - preSleep);
+                    return (
+                      <div>
+                        <div>Bedtime: {Math.floor(bedMin/60)}:{String(bedMin%60).padStart(2,'0')} | Waketime: {Math.floor(wakeMin/60)}:{String(wakeMin%60).padStart(2,'0')}</div>
+                        <div>preSleep: {preSleep}s | actualSleep: {actualSleepSec}s ({Math.round(actualSleepSec/36)/100}h)</div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ))}
+              <div className="font-semibold text-zinc-400 mt-3">Trends Raw Sessions ({sleepDebugData.trendsRaw?.length || 0}) — feeds getSleepTrends</div>
+              {sleepDebugData.trendsRaw?.map((s: any) => (
+                <div key={s.id} className="border-l-2 border-indigo-700/50 pl-2 py-1">
+                  <div>ID: {s.id} | {s.started_at} → {s.ended_at}</div>
+                  <div>Duration: {s.duration_seconds}s | preSleep: {s.device_off_to_sleep_seconds}s | postWake: {s.wake_up_to_app_seconds}s</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Charts Section - 3 Glass-Styled Charts */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {/* Daily Usage Trend */}
-            <div className="glass rounded-3xl p-6">
-              <h3 className="text-sm font-medium text-zinc-400 mb-4">Daily Usage Trend</h3>
+            <GlassCard>
+              <SectionHeader title="Daily Usage Trend" />
               <div className="h-48">
                 {breakdownData.labels.length > 0 ? (
                   <Bar data={{
@@ -1522,14 +1755,14 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                     scales: { x: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
                   }} />
                 ) : (
-                  <div className="h-full flex items-center justify-center text-zinc-500">No data yet</div>
+                  <EmptyState title="No data yet" />
                 )}
               </div>
-            </div>
+            </GlassCard>
 
             {/* Activity Distribution (Conic Doughnut) */}
-            <div className="glass rounded-3xl p-6">
-              <h3 className="text-sm font-medium text-zinc-400 mb-4 text-center">Activity Distribution</h3>
+            <GlassCard>
+              <SectionHeader title="Activity Distribution" />
               <div className="flex items-center justify-center h-36">
                 {breakdownData.labels.length > 0 ? (() => {
                   const total = breakdownData.data.reduce((a, b) => a + b, 0);
@@ -1553,7 +1786,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                     </div>
                   );
                 })() : (
-                  <div className="text-zinc-500">No data yet</div>
+                  <EmptyState title="No data yet" />
                 )}
               </div>
               <div className="flex flex-wrap gap-x-3 gap-y-1 mt-4 justify-center">
@@ -1564,13 +1797,11 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                   </div>
                 ))}
               </div>
-            </div>
+            </GlassCard>
 
             {/* Usage Trend */}
-            <div className="glass rounded-3xl p-6">
-              <h3 className="text-sm font-medium text-zinc-400 mb-4">
-                {selectedPeriod === 'today' ? 'Hourly Trend' : selectedPeriod === 'week' ? 'Weekly Trend' : selectedPeriod === 'month' ? 'Monthly Trend' : 'All Time Trend'}
-              </h3>
+            <GlassCard>
+              <SectionHeader title={selectedPeriod === 'today' ? 'Hourly Trend' : selectedPeriod === 'week' || selectedPeriod === '7day' ? 'Weekly Trend' : selectedPeriod === 'month' || selectedPeriod === '30day' ? 'Monthly Trend' : 'All Time Trend'} />
               <div className="h-48">
                 {trendChartData.labels.length > 0 ? (
                   <Bar data={{
@@ -1582,10 +1813,10 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                     scales: { x: { grid: { display: false }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
                   }} />
                 ) : (
-                  <div className="h-full flex items-center justify-center text-zinc-500">No data yet</div>
+                  <EmptyState title="No data yet" />
                 )}
               </div>
-            </div>
+            </GlassCard>
           </div>
       </div>
 
@@ -1602,7 +1833,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.95 }}
-              className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4"
+              className="bg-zinc-900 rounded-xl p-5 max-w-md w-full mx-4"
             >
               <div className="text-center mb-6">
                 {recoverySession.activity.type === 'sleep' ? (
@@ -1664,7 +1895,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.95 }}
-              className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4"
+              className="bg-zinc-900 rounded-xl p-5 max-w-md w-full mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="text-center mb-6">
@@ -1733,7 +1964,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.95 }}
-              className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4"
+              className="bg-zinc-900 rounded-xl p-5 max-w-md w-full mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-6">
@@ -1875,7 +2106,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.95 }}
-              className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4"
+              className="bg-zinc-900 rounded-xl p-5 max-w-md w-full mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-6">
@@ -2002,7 +2233,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.95 }}
-              className="bg-zinc-900 rounded-2xl p-6 max-w-sm w-full mx-4"
+              className="bg-zinc-900 rounded-xl p-5 max-w-sm w-full mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="text-center mb-5">
@@ -2064,7 +2295,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.95 }}
-              className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4"
+              className="bg-zinc-900 rounded-xl p-5 max-w-md w-full mx-4"
             >
               <div className="text-center mb-6">
                 <div className="text-6xl mb-4">🌤️</div>
@@ -2145,7 +2376,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.95 }}
-              className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4"
+              className="bg-zinc-900 rounded-xl p-5 max-w-md w-full mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-2">
@@ -2175,15 +2406,49 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                 </div>
               )}
 
+              {/* Sleep period banner — shown when existing data loaded */}
+              {pastWakeupDate && pastSleepSessionId && (
+                <div className="bg-zinc-800/50 rounded-xl px-4 py-3 mb-4">
+                  <div className="flex items-center justify-center gap-3 text-sm">
+                    <div className="text-center">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wider">🛏️ Bedtime</div>
+                      <div className="font-medium text-zinc-200">{(() => {
+                        const d = new Date(pastSleepDate + 'T00:00:00');
+                        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      })()}</div>
+                      <div className="text-[11px] text-zinc-400">{((h) => { const ampm = h.hours >= 12 ? 'PM' : 'AM'; const h12 = h.hours === 0 ? 12 : h.hours > 12 ? h.hours - 12 : h.hours; return `${h12}:${String(h.minutes).padStart(2, '0')} ${ampm}`; })(pastDeviceOff)}</div>
+                    </div>
+                    <div className="text-zinc-700 text-lg">→</div>
+                    <div className="text-center">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wider">🌅 Wake-up</div>
+                      <div className="font-medium text-zinc-200">{(() => {
+                        const d = new Date(pastWakeupDate + 'T00:00:00');
+                        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      })()}</div>
+                      <div className="text-[11px] text-zinc-400">{((h) => { const ampm = h.hours >= 12 ? 'PM' : 'AM'; const h12 = h.hours === 0 ? 12 : h.hours > 12 ? h.hours - 12 : h.hours; return `${h12}:${String(h.minutes).padStart(2, '0')} ${ampm}`; })(pastWakeupTime)}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* No-data banner */}
+              {!pastSleepSessionId && pastWakeupDate === null && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 mb-4 text-center">
+                  <p className="text-xs text-amber-400">No sleep data for this date</p>
+                  <p className="text-[10px] text-zinc-500 mt-1">Search by bedtime evening or wake-up morning to find your sleep</p>
+                </div>
+              )}
+
               {/* Date selector with day navigation */}
               <div className="mb-4">
-                <label className="block text-sm text-zinc-400 mb-2 text-center">Date</label>
+                <label className="block text-sm text-zinc-400 mb-1 text-center">Search by date</label>
+                <p className="text-[10px] text-zinc-600 text-center mb-2">Works for both bedtime and wake-up dates</p>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       const d = new Date(pastSleepDate + 'T00:00:00');
                       d.setDate(d.getDate() - 1);
-                      setPastSleepDate(d.toISOString().split('T')[0]);
+                      setPastSleepDate(localDateStr(d));
                     }}
                     className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200"
                   >
@@ -2199,9 +2464,9 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                     onClick={() => {
                       const d = new Date(pastSleepDate + 'T00:00:00');
                       d.setDate(d.getDate() + 1);
-                      setPastSleepDate(d.toISOString().split('T')[0]);
+                      setPastSleepDate(localDateStr(d));
                     }}
-                    disabled={pastSleepDate === new Date().toISOString().split('T')[0]}
+                    disabled={pastSleepDate === localDateStr(new Date())}
                     className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800"
                   >
                     <ChevronRight className="w-4 h-4" />
@@ -2349,14 +2614,23 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                       deviceOnDate.setHours(pastDeviceOn.hours, pastDeviceOn.minutes, 0, 0);
 
                       // If wakeup is before device off, it's next day
+                      // DO NOT advance fellAsleepDate here — it's typically on the SAME evening
+                      // as device off (e.g., device off 23:00, fell asleep 23:30).
+                      // Advancing it would create a 24h+ device_off_to_sleep_seconds delta,
+                      // making actualSleepSeconds compute to 0 in get-sleep-trends.
                       if (wakeupDate <= deviceOffDate) {
-                        fellAsleepDate.setDate(fellAsleepDate.getDate() + 1);
                         wakeupDate.setDate(wakeupDate.getDate() + 1);
                         deviceOnDate.setDate(deviceOnDate.getDate() + 1);
                       }
-                      // If fellAsleep is before device off, it's same day adjust
+                      // If fellAsleep is before device off by 10+ hours, it crossed midnight
+                      // (e.g., device off 23:00, fell asleep 01:00 next day)
+                      // If the gap is small (e.g., 22:00 vs 23:00), user fell asleep before device off — same day
                       if (fellAsleepDate <= deviceOffDate) {
-                        fellAsleepDate.setDate(fellAsleepDate.getDate() + 1);
+                        const offMin = deviceOffDate.getHours() * 60 + deviceOffDate.getMinutes();
+                        const sleepMin = fellAsleepDate.getHours() * 60 + fellAsleepDate.getMinutes();
+                        if (offMin - sleepMin >= 600) {
+                          fellAsleepDate.setDate(fellAsleepDate.getDate() + 1);
+                        }
                       }
                       // If device on is before wakeup, it's same day as wakeup
                       if (deviceOnDate <= wakeupDate) {
@@ -2390,7 +2664,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                           setPastFellAsleepAt({ hours: 22, minutes: 30 });
                           setPastWakeupTime({ hours: 7, minutes: 0 });
                           setPastDeviceOn({ hours: 7, minutes: 30 });
-                          setPastSleepDate(new Date().toISOString().split('T')[0]);
+                          setPastSleepDate(localDateStr(new Date()));
                           refreshStats();
                           setTimeout(() => setShowPastSleepModal(false), 1500);
                         } else {
@@ -2412,6 +2686,6 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </PageShell>
   );
 }

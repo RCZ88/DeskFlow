@@ -1,11 +1,58 @@
 # Human Testing Checklist
 
-**Last Updated:** 2026-05-12
+**Last Updated:** 2026-06-05
+
+## SECTION 5: Sidebar Scroll Fix (2026-06-05)
+
+**Fix:** Two-level wrapper pattern (outer `flex-1 min-h-0` + inner `h-full overflow-y-auto`). Same pattern as TabPanel.
+
+| Feature | Test Steps | Expected | Pass/Fail |
+|---------|-----------|----------|-----------|
+| Main sidebar scrolls | 1. Open app 2. Collapse window very short (~500px) 3. Scroll sidebar nav with mouse wheel AND drag scrollbar thumb | All 11 nav items visible via scroll, nothing cut off at bottom | ⏳ |
+| TerminalPage workspace sidebar tabs | 4. Go to Workspace 5. Open workspace 6. Click any tab (Sessions/Map/Analytics/etc.) 7. Shrink window | Tab content scrolls vertically with both wheel and scrollbar | ⏳ |
+| Main page content scrolls | 8. Navigate to Dashboard/Stats with tall content 9. Shrink window | Page content scrolls with mouse wheel | ⏳ |
+
+## SECTION 4: AFK Confirm Save Fix (2026-06-04)
+
+| Feature | Test Steps | Expected | Pass/Fail |
+|---------|-----------|----------|-----------|
+| Debug trigger manual AFK | 1. Press `Ctrl+Shift+Alt+A` anywhere in the app | AFK prompt modal appears with a suggested activity (or fallback "No activities") and a live elapsed timer | ⏳ |
+| Debug AFK — confirm saves | 2. In the AFK prompt, click an activity | Modal closes; navigate to External page → click that activity's "View Data & Charts" | The session appears with correct duration matching the live elapsed timer shown | ⏳ |
+| Debug AFK — re-trigger test | 3. Press `Ctrl+Shift+Alt+A` again, pick a different activity | New session saved under that activity; External page shows both sessions across different activities | ⏳ |
+| Debug AFK — dismiss works | 4. Press `Ctrl+Shift+Alt+A`, click "Nothing special — just AFK" | Modal closes; External page can show "AFK" activity sessions if filtered | ⏳ |
 
 ---
 
-## SECTION 1: Dashboard & Tracking Phases
 
+### TerminalPage Analytics — Project-Specific Only
+
+| Feature | Test Steps | Expected | Pass/Fail |
+|---------|-----------|----------|-----------|
+| Terminal Analytics tab | 1. Open workspace with a project selected | Shows only Sessions count stat + Sessions by Agent pie + Session Status doughnut | ⏳ |
+| No global data in sidebar | 2. Click Analytics tab in Terminal sidebar | No AI Usage Summary, no Problems/Requests charts, no Daily Activity Trend | ⏳ |
+| Period filter works | 3. Toggle 7d / 30d / All Time | Session data filters accordingly | ⏳ |
+
+### IDEProjectsPage — New Analytics Tab
+
+| Feature | Test Steps | Expected | Pass/Fail |
+|---------|-----------|----------|-----------|
+| Analytics tab visible | 1. Go to IDE Projects page | "Analytics" tab button visible in tab bar | ⏳ |
+| Workspace analytics loads | 2. Click Analytics tab | Shows AI Usage stat cards (Tokens, Cost, Sessions, Problems, Requests) | ⏳ |
+| Charts render | 3. Wait for data | Token Distribution pie, Cost Distribution doughnut, Problems/Requests by Status charts visible | ⏳ |
+| AI Usage Summary table | 4. Scroll down | Table shows per-tool breakdown (Tool, Tokens, Cost, Sessions) | ⏳ |
+| Problems/Requests progress | 5. Check bottom of page | Problems Progress + Requests Progress bars visible | ⏳ |
+| Tab persists on reload | 6. Click other tab, click back to Analytics | Analytics tab re-fetches data fresh | ⏳ |
+
+### InsightsPage — New Charts on Activities Tab
+
+| Feature | Test Steps | Expected | Pass/Fail |
+|---------|-----------|----------|-----------|
+| Daily Activity Trend chart | 1. Go to Insights → Activities tab | Bar chart visible at top showing hours per day | ⏳ |
+| Activity by Category chart | 2. Check next to trend chart | Doughnut chart showing time breakdown by category | ⏳ |
+| Charts match period | 3. Toggle Week / Month period selector | Charts update to show correct date range | ⏳ |
+| Existing content preserved | 4. Scroll below charts | External Activity Breakdown + App/Least Used lists still present | ⏳ |
+
+---
 | Phase | Feature | Status | File |
 |-------|---------|--------|------|
 | 1 | Tracking on startup | ⏳ Test | main.ts line 2147 |

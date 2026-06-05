@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Send, X, FileText, Folder, Copy, Check, ChevronDown } from 'lucide-react';
+import { Send, X, FileText, Folder, Copy, Check, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import SkillDynamicForm from './SkillDynamicForm';
 
 interface Problem {
   id: string;
@@ -18,18 +19,6 @@ interface Request {
   priority: string;
 }
 
-interface ChecklistItem {
-  id: string;
-  parentType: 'problem' | 'request';
-  parentId: string;
-  step: number;
-  description: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  requiresHuman: boolean;
-  humanApproved: boolean;
-  notes: string;
-}
-
 interface Skill {
   id: string;
   name: string;
@@ -43,6 +32,13 @@ interface InstructionConfig {
   skill?: string;
   instruction: string;
   prompt: string;
+  systemPromptIncluded?: boolean;
+}
+
+interface SystemPromptLayer {
+  label: string;
+  content: string;
+  color: string;
 }
 
 interface InstructionPanelProps {
@@ -57,6 +53,7 @@ interface InstructionPanelProps {
   sessionId?: string;
   activeTerminalId?: string | null;
   isAgentReady?: boolean;
+  systemPromptLayers?: SystemPromptLayer[];
 }
 
 function renderMarkdown(text: string): { __html: string } {
@@ -88,6 +85,7 @@ export function InstructionPanel({
   sessionId,
   activeTerminalId,
   isAgentReady,
+  systemPromptLayers,
 }: InstructionPanelProps) {
   const storageKey = sessionId ? `compose-${sessionId}` : 'compose-instruction';
   const [selectedProblems, setSelectedProblems] = useState<string[]>([]);
@@ -95,13 +93,16 @@ export function InstructionPanel({
   const [selectedSkill, setSelectedSkill] = useState<string | undefined>(defaultSkill);
   const [customInstruction, setCustomInstruction] = useState('');
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [skillConfigValues, setSkillConfigValues] = useState<Record<string, any>>({});
   const [agentFiles, setAgentFiles] = useState<{ name: string; path: string }[]>([]);
   const [selectedAgentFiles, setSelectedAgentFiles] = useState<string[]>([]);
   const [showFilePicker, setShowFilePicker] = useState(false);
   const [agentFileContents, setAgentFileContents] = useState<Record<string, string>>({});
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [systemPromptExpanded, setSystemPromptExpanded] = useState(false);
+  const [systemPromptIncluded, setSystemPromptIncluded] = useState(true);
+  const [layerToggles, setLayerToggles] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     const saved = localStorage.getItem(storageKey);
@@ -153,9 +154,16 @@ export function InstructionPanel({
 
   useEffect(() => {
     window.deskflowAPI?.getSkills?.().then(result => {
-      if (result?.success) setSkills(result.data || []);
+      if (result?.success) {
+        setSkills(result.data || []);
+        setSkillConfigValues({});
+      }
     });
   }, []);
+
+  useEffect(() => {
+    setSkillConfigValues({});
+  }, [selectedSkill]);
 
   useEffect(() => {
     if (!projectPath || !window.deskflowAPI) return;
@@ -163,12 +171,6 @@ export function InstructionPanel({
       if (result?.success) setAgentFiles(result.data || []);
     });
   }, [projectPath]);
-
-  useEffect(() => {
-    (window as any).deskflowAPI?.getChecklists?.().then((result: any) => {
-      if (result?.success) setChecklistItems(result.data || []);
-    });
-  }, []);
 
   const loadAgentFileContent = async (filename: string) => {
     if (!projectPath || agentFileContents[filename]) return;
@@ -183,12 +185,37 @@ export function InstructionPanel({
   const generatePrompt = (): string => {
     const parts: string[] = [];
 
+    // ═══ NEW: System prompt layers ═══
+    if (systemPromptIncluded && systemPromptLayers && systemPromptLayers.length > 0) {
+        const includedContent = systemPromptLayers
+            .map((layer, i) => {
+                const toggled = layerToggles[i];
+                // Default to included unless explicitly toggled off
+                if (toggled === false) return '';
+                return layer.content?.trim() || '';
+            })
+            .filter(c => c.length > 0)
+            .join('\n\n---\n\n');
+
+        if (includedContent) {
+            parts.push(includedContent);
+        }
+    }
+
     if (selectedSkill) {
       const skill = skills.find(s => s.id === selectedSkill);
       if (skill) {
         parts.push(`## Skill: ${skill.name}\n${skill.description ? `> ${skill.description}\n` : ''}`);
         if (skill.content) parts.push(`${skill.content}\n`);
       }
+    }
+
+    const configLines = Object.entries(skillConfigValues)
+      .filter(([_, v]) => v !== '' && v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0))
+      .map(([key, val]) => `- ${key}: ${Array.isArray(val) ? val.join(', ') : val}`)
+      .join('\n');
+    if (configLines) {
+      parts.push(`## Skill Configuration\n\n${configLines}`);
     }
 
     if (selectedProblems.length > 0) {
@@ -218,31 +245,6 @@ export function InstructionPanel({
         }
       }
       parts.push(lines.join('\n'));
-    }
-
-    if (selectedProblems.length > 0 || selectedRequests.length > 0) {
-      const relatedChecklists = checklistItems.filter(i =>
-        (i.parentType === 'problem' && selectedProblems.includes(i.parentId)) ||
-        (i.parentType === 'request' && selectedRequests.includes(i.parentId))
-      );
-      if (relatedChecklists.length > 0) {
-        const grouped = relatedChecklists.reduce<Record<string, ChecklistItem[]>>((acc, item) => {
-          const key = `${item.parentType}-${item.parentId}`;
-          if (!acc[key]) acc[key] = [];
-          acc[key].push(item);
-          return acc;
-        }, {});
-        const clines: string[] = ['## Human Checklist Progress\n'];
-        for (const [, group] of Object.entries(grouped)) {
-          for (const item of group) {
-            const mark = item.status === 'completed' ? 'x' : ' ';
-            const approved = item.humanApproved ? ' (approved ✓)' : item.status === 'completed' ? ' (awaiting your approval)' : '';
-            const note = item.notes ? ` — User note: "${item.notes}"` : '';
-            clines.push(`- [${mark}] Step ${item.step}: ${item.description}${approved}${note}`);
-          }
-        }
-        parts.push(clines.join('\n'));
-      }
     }
 
     if (selectedAgentFiles.length > 0) {
@@ -297,6 +299,83 @@ export function InstructionPanel({
             Target: <span className="text-zinc-300 font-mono">{activeTerminalId}</span>
             {isAgentReady ? ' (ready)' : ' (spawning...)'}
           </span>
+        </div>
+      )}
+
+      {/* ── System Prompt Layers ────────────────────────────────── */}
+      {systemPromptLayers && systemPromptLayers.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <button
+              type="button"
+              onClick={() => setSystemPromptExpanded(!systemPromptExpanded)}
+              className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+            >
+              {systemPromptExpanded ? (
+                <ChevronDown className="w-3 h-3" />
+              ) : (
+                <ChevronRight className="w-3 h-3" />
+              )}
+              System Prompt
+              <span className="text-[10px] text-zinc-600">
+                ({systemPromptLayers.filter(l => l.content?.trim()).length} layers)
+              </span>
+            </button>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <span className="text-[10px] text-zinc-500">Include</span>
+              <input
+                type="checkbox"
+                checked={systemPromptIncluded}
+                onChange={(e) => setSystemPromptIncluded(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 text-cyan-500 focus:ring-cyan-500/30 cursor-pointer"
+              />
+            </label>
+          </div>
+
+          {!systemPromptIncluded && (
+            <p className="text-[10px] text-zinc-600 pl-4">
+              System prompt will not be sent to terminal
+            </p>
+          )}
+
+          {systemPromptExpanded && systemPromptIncluded && (
+            <div className="space-y-1 pl-2 mt-1">
+              {systemPromptLayers.map((layer, i) => {
+                if (!layer.content?.trim()) return null;
+                const isOn = layerToggles[i] !== false;
+                return (
+                  <div
+                    key={i}
+                    className={`bg-zinc-900/50 rounded border border-zinc-800/50 overflow-hidden ${!isOn ? 'opacity-40' : ''}`}
+                  >
+                    <div className="flex items-center justify-between px-2 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-medium ${layer.color}`}>
+                          {layer.label}
+                        </span>
+                        <span className="text-[9px] text-zinc-600">
+                          {layer.content.length.toLocaleString()} chars
+                        </span>
+                      </div>
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isOn}
+                          onChange={(e) => setLayerToggles(prev => ({ ...prev, [i]: e.target.checked }))}
+                          className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 text-cyan-500 cursor-pointer"
+                        />
+                      </label>
+                    </div>
+                    <div className="px-2 pb-1.5">
+                      <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap break-words max-h-20 overflow-y-auto font-mono leading-tight">
+                        {layer.content.substring(0, 300)}{layer.content.length > 300 ? '...' : ''}
+                      </pre>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -379,6 +458,29 @@ export function InstructionPanel({
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
+          {selectedSkill && (
+            <div className="mt-1.5 flex items-center gap-1.5 bg-indigo-500/15 border border-indigo-500/30 rounded px-2 py-1">
+              <Sparkles className="w-3 h-3 text-indigo-400" />
+              <span className="text-[11px] text-indigo-300 flex-1">{skills.find(s => s.id === selectedSkill)?.name}</span>
+              <button
+                onClick={() => setSelectedSkill(undefined)}
+                className="text-indigo-400/60 hover:text-indigo-300 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {selectedSkill && skills.find(s => s.id === selectedSkill)?.inputs && (
+            <div className="mt-3">
+              <SkillDynamicForm
+                inputs={skills.find(s => s.id === selectedSkill)!.inputs!}
+                values={skillConfigValues}
+                onChange={setSkillConfigValues}
+                compact
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex-1">
@@ -508,7 +610,8 @@ export function InstructionPanel({
             requests: selectedRequests,
             skill: selectedSkill,
             instruction: customInstruction,
-            prompt: generatePrompt()
+            prompt: generatePrompt(),
+            systemPromptIncluded: systemPromptIncluded,
           })}
           disabled={!hasSelection || isSending}
           className="flex-1 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white text-xs rounded flex items-center justify-center gap-1.5 transition-all"

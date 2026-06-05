@@ -4,6 +4,7 @@ import { MessageSquare, Search, Bug, Sparkles, Terminal, Clock, ChevronDown, Che
 interface PromptEntry {
   id: number;
   session_id: string;
+  role?: string;
   prompt: string;
   sent_at: string;
   status?: string;
@@ -202,7 +203,7 @@ const PromptHistoryTab: React.FC<{
   }, [entries]);
 
   const filtered = useMemo(() => {
-    let result = entries;
+    let result = entries.filter(e => e.role !== 'assistant');
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(e =>

@@ -57,7 +57,7 @@ export default function TutorialOverlay({
             className={`absolute ${positionClasses[step.position] || positionClasses.center} w-full max-w-sm`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="bg-zinc-800 rounded-xl border border-zinc-700 shadow-2xl overflow-hidden">
+            <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
               <div className="flex items-center justify-between px-4 pt-4 pb-2">
                 <div>
                   <div className="text-[10px] text-amber-400 uppercase tracking-wider font-medium">

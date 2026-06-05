@@ -1,12 +1,163 @@
-
 ---
 id: generate-prompt
 name: Generate Prompt
 category: design
 applicable_to: [prompts, design-specs]
-version: 1.2.0
+version: 2.0.0
 created: 2026-04-19
-tags: [prompts, design, engineering]
+updated: 2026-06-02
+tags: [prompts, design, engineering, dsl-test]
+inputs:
+  - name: Prompt Type
+    type: enum
+    choices: [design, engineering, architecture, research, planning, bug-fix, refactor]
+    default: design
+    required: true
+    description: Category of prompt to generate
+    source: user
+    group: Basic
+
+  - name: Output Format
+    type: enum
+    choices: [full-prompt, system-prompt, user-prompt, prompt-template]
+    default: full-prompt
+    description: How the prompt should be structured
+    source: user
+    group: Basic
+
+  - name: User Request
+    type: textarea
+    required: true
+    description: The user's original verbatim request — copied exactly
+    source: user
+    placeholder: Paste the user's exact words here, word for word...
+    group: Content
+
+  - name: Context Bundle
+    type: file
+    description: CONTEXT_BUNDLE.md reference document (auto-generated or existing)
+    source: system
+    group: Content
+
+  - name: Additional Instructions
+    type: textarea
+    required: false
+    description: Extra context, preferences, or constraints from the user
+    source: user
+    placeholder: Any specific requirements not covered above...
+    group: Content
+
+  - name: Target AI
+    type: enum
+    choices: [claude, gpt-4, gemini-2.5, deepseek, custom]
+    default: claude
+    description: Which AI model will receive the generated prompt
+    source: user
+    group: Advanced
+
+  - name: Detail Level
+    type: number
+    min: 1
+    max: 10
+    step: 1
+    default: 7
+    widget: slider
+    description: How detailed the prompt should be (1=concise, 10=exhaustive)
+    source: user
+    group: Advanced
+
+  - name: Creativity
+    type: number
+    min: 0
+    max: 100
+    step: 5
+    default: 20
+    widget: slider
+    description: How much creative freedom the target AI gets (0=precise, 100=creative)
+    source: user
+    group: Advanced
+
+  - name: Include Sections
+    type: multienum
+    choices: [context, requirements, constraints, examples, output-format, edge-cases, faq]
+    default: [context, requirements, constraints, output-format]
+    description: Sections to include in the generated prompt
+    source: user
+    group: Advanced
+
+  - name: Context Sources
+    type: multienum
+    choices: [state.md, context.md, codebase, design-system, data-layer, ipc-endpoints]
+    description: Sources to auto-gather context from
+    source: system
+    widget: checkbox
+    group: Advanced
+
+  - name: Auto-Generate Context Bundle
+    type: boolean
+    default: true
+    description: Automatically create CONTEXT_BUNDLE.md from selected sources
+    source: system
+    group: Advanced
+
+  - name: Max Tokens
+    type: number
+    min: 500
+    max: 8000
+    step: 500
+    default: 4000
+    widget: slider
+    description: Maximum token length for the generated prompt
+    source: user
+    group: Advanced
+
+  - name: Response Format
+    type: enum
+    choices: [markdown, json, yaml, plain-text]
+    default: markdown
+    widget: radio
+    description: Expected output format from the target AI
+    source: user
+    group: Advanced
+
+  - name: Use Legacy Mode
+    type: boolean
+    default: false
+    widget: checkbox
+    description: Skip context bundle creation, use legacy prompt format
+    source: user
+    group: Advanced
+
+outputs:
+  - name: Design Prompt
+    type: markdown
+    description: High-fidelity design specification prompt
+    preview: true
+  - name: Component Breakdown
+    type: list
+    description: Identified UI components and their relationships
+    preview: false
+  - name: Context Bundle
+    type: file
+    description: Generated CONTEXT_BUNDLE.md with gathered code context
+    preview: true
+
+components:
+  - name: Raw Request Block
+    description: User's verbatim request section (always included)
+    source: user
+  - name: Context Reference
+    description: CONTEXT_BUNDLE.md as source of truth for code structure
+    source: system
+  - name: Prompt Template
+    description: Base prompt structure with variable slots for each section
+    source: system
+  - name: Section Assembler
+    description: Combines selected sections (from Include Sections) into final prompt
+    source: system
+  - name: Format Transformer
+    description: Converts prompt to selected Response Format
+    source: system
 ---
 
 # 📝 Generate Prompt for High-Fidelity Solutions

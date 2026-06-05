@@ -9,6 +9,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, RefreshCw, Settings } from 'lucide-react';
+import { GlassCard } from './GlassCard';
+import { LoadingState } from './LoadingState';
 
 import type {
   ContextMaintenanceTabProps,
@@ -235,47 +237,43 @@ const [searchResults, setSearchResults] = useState<any[]>([]);
   // ──────────────────────────────────────────────────────────────
 
   const renderHeader = () => (
-    <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
-      <div className="flex items-center gap-2">
-        <h2 className="text-base font-semibold text-white">Context Maintenance</h2>
-      </div>
-
+    <div className="flex items-center justify-between px-2 py-2 border-b border-zinc-800/70">
+      <h2 className="text-xs font-semibold text-white tracking-wide">Context Maintenance</h2>
       <button
         onClick={handleRefresh}
         disabled={loading}
-        className="p-1.5 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+        className="p-1 hover:bg-zinc-700/50 rounded transition-colors disabled:opacity-50"
         title="Refresh context data"
       >
-        <RefreshCw
-          size={16}
-          className={`text-gray-300 ${loading ? 'animate-spin' : ''}`}
-        />
+        <RefreshCw size={14} className={`text-zinc-500 ${loading ? 'animate-spin' : ''}`} />
       </button>
     </div>
   );
 
   const renderTabs = () => (
-    <div className="flex gap-1 border-b border-gray-700 px-4 py-2 overflow-x-auto">
-      {[
-        { id: 'overview', label: 'Overview' },
-        { id: 'contexts', label: 'Contexts' },
-        { id: 'history', label: 'History' },
-        { id: 'compactions', label: 'Compactions' },
-        { id: 'search', label: 'Search' },
-        { id: 'settings', label: 'Settings' },
-      ].map(tab => (
-        <button
-          key={tab.id}
-          onClick={() => setActiveSection(tab.id as any)}
-          className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap rounded-t transition-colors ${
-            activeSection === tab.id
-              ? 'bg-emerald-500/20 text-emerald-400 border-b-2 border-emerald-500'
-              : 'text-gray-400 hover:text-gray-300'
-          }`}
-        >
-          {tab.label}
-        </button>
-      ))}
+    <div className="px-2 py-2 border-b border-zinc-800/70">
+      <div className="flex gap-1 overflow-x-auto">
+        {[
+          { id: 'overview', label: 'Overview' },
+          { id: 'contexts', label: 'Contexts' },
+          { id: 'history', label: 'History' },
+          { id: 'compactions', label: 'Compactions' },
+          { id: 'search', label: 'Search' },
+          { id: 'settings', label: 'Settings' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveSection(tab.id as any)}
+            className={`px-2.5 py-1 text-[10px] font-medium whitespace-nowrap rounded-md transition-colors ${
+              activeSection === tab.id
+                ? 'bg-violet-500/20 text-violet-300'
+                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 
@@ -283,10 +281,10 @@ const [searchResults, setSearchResults] = useState<any[]>([]);
     if (!error) return null;
 
     return (
-      <div className="mx-4 mt-4 p-3 rounded bg-red-900/30 border border-red-700 flex gap-2 items-start">
-        <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+      <div className="mx-2 mt-2 p-2 rounded bg-red-900/40 border border-red-700/50 flex gap-2 items-start">
+        <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
         <div className="flex-1">
-          <p className="text-xs text-red-200">{error}</p>
+          <p className="text-[10px] text-red-200">{error}</p>
         </div>
       </div>
     );
@@ -294,14 +292,7 @@ const [searchResults, setSearchResults] = useState<any[]>([]);
 
   const renderContent = () => {
     if (loading) {
-      return (
-        <div className="flex items-center justify-center h-80 text-gray-400">
-          <div className="text-center">
-            <RefreshCw size={32} className="animate-spin mx-auto mb-2 opacity-50" />
-            <p className="text-xs">Loading context data...</p>
-          </div>
-        </div>
-      );
+      return <LoadingState variant="spinner" className="py-8" />;
     }
 
     switch (activeSection) {
@@ -323,28 +314,28 @@ const [searchResults, setSearchResults] = useState<any[]>([]);
   };
 
   const renderOverview = () => (
-    <div className="p-4 space-y-4">
+    <div className="p-2 space-y-2">
       <MemoryStatusCard
         projectContextUsage={projectContextUsage}
         sessionContextUsage={sessionContextUsage}
         ragIndexStats={ragIndexStats}
       />
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
-          <p className="text-xs text-gray-400 mb-1">Enabled Contexts</p>
-          <p className="text-lg font-semibold text-emerald-400">{contexts.length}</p>
-        </div>
-        <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
-          <p className="text-xs text-gray-400 mb-1">Recent Messages</p>
-          <p className="text-lg font-semibold text-indigo-400">{recentMessages.length}</p>
-        </div>
+      <div className="grid grid-cols-2 gap-2">
+        <GlassCard className="p-2">
+          <p className="text-[10px] text-zinc-500 mb-0.5">Enabled Contexts</p>
+          <p className="text-sm font-semibold text-violet-400">{contexts.length}</p>
+        </GlassCard>
+        <GlassCard className="p-2">
+          <p className="text-[10px] text-zinc-500 mb-0.5">Recent Messages</p>
+          <p className="text-sm font-semibold text-indigo-400">{recentMessages.length}</p>
+        </GlassCard>
       </div>
     </div>
   );
 
   const renderContextsSection = () => (
-    <div className="p-4">
-      <p className="text-xs text-gray-400 mb-3">Active project contexts available to this session</p>
+    <div className="p-2">
+      <p className="text-[10px] text-zinc-500 mb-2">Active project contexts available to this session</p>
       <ActiveContextsList
         contexts={contexts}
         onToggle={handleToggleContext}
@@ -355,8 +346,8 @@ const [searchResults, setSearchResults] = useState<any[]>([]);
   );
 
   const renderHistorySection = () => (
-    <div className="p-4">
-      <p className="text-xs text-gray-400 mb-3">Last 5 messages from this session</p>
+    <div className="p-2">
+      <p className="text-[10px] text-zinc-500 mb-2">Last 5 messages from this session</p>
       <RecentChatHistory
         messages={recentMessages}
         limit={5}
@@ -367,8 +358,8 @@ const [searchResults, setSearchResults] = useState<any[]>([]);
   );
 
   const renderCompactionsSection = () => (
-    <div className="p-4">
-      <p className="text-xs text-gray-400 mb-3">Monthly message compaction summaries</p>
+    <div className="p-2">
+      <p className="text-[10px] text-zinc-500 mb-2">Monthly message compaction summaries</p>
       <CompactionsPanel
         compactions={compactions}
         onExpandSummary={(id) => console.log('Expand summary:', id)}
@@ -378,8 +369,8 @@ const [searchResults, setSearchResults] = useState<any[]>([]);
   );
 
   const renderSearchSection = () => (
-    <div className="p-4">
-      <p className="text-xs text-gray-400 mb-3">Search context history (semantic + full-text)</p>
+    <div className="p-2">
+      <p className="text-[10px] text-zinc-500 mb-2">Search context history (semantic + full-text)</p>
       <ContextSearchBar
         onSemanticSearch={async (query) => { console.log('Semantic search:', query); return []; }}
         onFullTextSearch={async (query) => { console.log('Full-text search:', query); return []; }}
@@ -389,8 +380,8 @@ const [searchResults, setSearchResults] = useState<any[]>([]);
   );
 
   const renderSettingsSection = () => (
-    <div className="p-4">
-      <p className="text-xs text-gray-400 mb-3">Context maintenance settings</p>
+    <div className="p-2">
+      <p className="text-[10px] text-zinc-500 mb-2">Context maintenance settings</p>
       <SettingsPanel
         config={config}
         onSave={async (newConfig) => {
@@ -405,7 +396,7 @@ const [searchResults, setSearchResults] = useState<any[]>([]);
   // ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full bg-gray-900">
+    <div className="flex flex-col h-full">
       {renderHeader()}
       {renderTabs()}
       {renderErrorAlert()}

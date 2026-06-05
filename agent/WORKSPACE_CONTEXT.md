@@ -86,20 +86,15 @@ const availableAgents = [
 4. "Start New Chat" in Sessions tab uses selected agent
 5. Presets execute in active terminal (respects agent context)
 
-### Starting an AI Chat:
-```typescript
-// TerminalPage.tsx ~line 370-380
-const startChat = useCallback(async (terminalId: string) => {
-  const agent = availableAgents.find(a => a.id === selectedAgent);
-  if (!agent) return;
-  
-  const result = await window.deskflowAPI?.terminalWrite(
-    terminalId,
-    `${agent.command}\n`
-  );
-  // ...
-}, [selectedAgent]);
-```
+### Starting / Resuming an AI Chat:
+
+The system uses two distinct paths:
+
+**Quick Session** (`handleCreateNewSession` ~line 932): Spawns PTY → `registerTerminal` → `initializeTerminal` → writes prompt via `agentSend`. Used from the sidebar "New Session" button.
+
+**Full Dialog** (`NewSessionDialog` onCreate ~line 3620): Used for Initialize/New Agent/Setup modes. Handles terminal selection (create new or reuse existing), init content from INITIALIZE.md/problems/requests, and system prompts.
+
+**Resuming a session:** The dialog accepts a `resumeId` (opencode session ID). The terminal launch command for resuming is `{agent} -s {resumeId}` — set in `initializeTerminal` (TerminalPage.tsx:603). Init content is **skipped** when `resumeId` is present (line 3630). The `resumeId` is saved to `terminal_sessions` and `session_config` for persistence.
 
 ---
 

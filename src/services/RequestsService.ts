@@ -1,6 +1,25 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+export interface CheckFeedback {
+  type: 'approved' | 'rejected' | 'text';
+  value?: string;
+  timestamp: string;
+  session_id?: string;
+  terminal_id?: string;
+}
+
+export interface CheckItem {
+  id: string;
+  description: string;
+  instruction: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  feedback?: CheckFeedback;
+  session_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Request {
   id: string;
   title: string;
@@ -11,6 +30,7 @@ export interface Request {
   linked_problems: string[];
   session_id: string | null;
   session_name: string | null;
+  checks: CheckItem[];
   created_at: string;
   updated_at: string;
 }
@@ -147,6 +167,64 @@ export class RequestsService {
     return requests.find(r => r.id === id) || null;
   }
 
+  addCheck(requestId: string, description: string, instruction: string): CheckItem | null {
+    const requests = this.getRequests();
+    const idx = requests.findIndex(r => r.id === requestId);
+    if (idx === -1) return null;
+    const checks = requests[idx].checks || [];
+    const checkNum = checks.length + 1;
+    const now = new Date().toISOString();
+    const check: CheckItem = {
+      id: `${requestId}-check-${checkNum}`,
+      description,
+      instruction,
+      status: 'pending',
+      created_at: now,
+      updated_at: now,
+    };
+    checks.push(check);
+    requests[idx].checks = checks;
+    requests[idx].updated_at = now;
+    this.writeJson(requests);
+    this.writeMarkdown(requests);
+    return check;
+  }
+
+  updateCheck(requestId: string, checkId: string, updates: Partial<Pick<CheckItem, 'status' | 'description' | 'instruction'>>): boolean {
+    const requests = this.getRequests();
+    const rIdx = requests.findIndex(r => r.id === requestId);
+    if (rIdx === -1) return false;
+    const checks = requests[rIdx].checks || [];
+    const cIdx = checks.findIndex(c => c.id === checkId);
+    if (cIdx === -1) return false;
+    checks[cIdx] = { ...checks[cIdx], ...updates, updated_at: new Date().toISOString() };
+    requests[rIdx].checks = checks;
+    requests[rIdx].updated_at = new Date().toISOString();
+    this.writeJson(requests);
+    this.writeMarkdown(requests);
+    return true;
+  }
+
+  completeCheck(requestId: string, checkId: string): boolean {
+    return this.updateCheck(requestId, checkId, { status: 'completed' });
+  }
+
+  addCheckFeedback(requestId: string, checkId: string, feedback: CheckFeedback): CheckItem | null {
+    const requests = this.getRequests();
+    const request = requests.find(r => r.id === requestId);
+    if (!request?.checks) return null;
+
+    const check = request.checks.find(c => c.id === checkId);
+    if (!check) return null;
+
+    check.feedback = feedback;
+    check.updated_at = new Date().toISOString();
+
+    this.writeJson(requests);
+    this.writeMarkdown(requests);
+    return check;
+  }
+
   createRequest(data: CreateRequestData): Request {
     this.ensureAgentDir();
 
@@ -165,6 +243,7 @@ export class RequestsService {
       linked_problems: [],
       session_id: data.sessionId || null,
       session_name: data.sessionName || null,
+      checks: [],
       created_at: now,
       updated_at: now
     };
@@ -259,6 +338,7 @@ export class RequestsService {
         linked_problems: [],
         session_id: null,
         session_name: null,
+        checks: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });

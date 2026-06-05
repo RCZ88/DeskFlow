@@ -1,57 +1,84 @@
 {
   "communities": {
     "0": [
-      "app_handletimersync",
-      "app_loadoverrides",
       "dist_electron_main_js",
+      "main_acquirelock",
+      "main_addgap",
       "main_addide",
       "main_addlog",
+      "main_backfillstatstables",
+      "main_broadcast",
+      "main_build",
+      "main_buildhourlyheatmap",
+      "main_buildweeklyheatmap",
       "main_calculatecost",
       "main_calculateproductivityscore",
+      "main_callopenrouter",
       "main_categorizeapp",
       "main_categorizedomain",
       "main_checkmorningprompt",
       "main_clearagenttimeout",
       "main_computebrowserdaterange",
+      "main_computecost",
+      "main_computeelapsed",
+      "main_computeperiodrange",
+      "main_computeroutingcost",
+      "main_computeweekrange",
       "main_createtray",
       "main_createwindow",
       "main_detectagentprompt",
+      "main_detecteditsinoutput",
       "main_detectsleepgap",
+      "main_diagnoseagentfailure",
       "main_emptytypicaldaygrid",
       "main_execasync",
       "main_execpromise",
       "main_execsyncsafe",
-      "main_executeactionsfromfile",
       "main_expandpath",
-      "main_extractjsonfromresponse",
       "main_findexe",
+      "main_formatdatestr",
+      "main_formatlocaldate",
+      "main_generatedailybriefandcache",
+      "main_generatesessionname",
+      "main_generateweeklyreviewandcache",
+      "main_getagentconfig",
+      "main_getalllocks",
       "main_getbrowsercategorystats",
       "main_getbrowserdomainstats",
       "main_getbrowserlogs",
-      "main_getchecklistservice",
+      "main_getbrowserprocessnames",
       "main_getdirdatasignature",
+      "main_getforegroundviapowershell",
+      "main_getlocksforfile",
       "main_getmodelpricing",
+      "main_getmondayofweek",
       "main_getopenrouterapikey",
-      "main_getproblemsservice",
-      "main_getprojectpath",
-      "main_getrequestsservice",
       "main_getsessionagent",
+      "main_getsleepgroupdate",
       "main_getstats",
       "main_gettierforcategory",
+      "main_gettiermap",
+      "main_gettodaystr",
       "main_getweeknumber",
+      "main_getyesterdaystr",
       "main_handlebrowserdata",
       "main_haschatssubdir",
       "main_initializestorage",
+      "main_invalidatetiermapcache",
+      "main_isappmatchingbrowser",
+      "main_isbrowserwithextension",
       "main_iswithinsleephours",
       "main_loadaisyncstate",
       "main_loadcategoryconfig",
-      "main_loadpreferences",
       "main_loadsleeppatterns",
-      "main_loadsleepstate",
-      "main_logactivity",
+      "main_logroutingcost",
+      "main_lookslikeshell",
       "main_marktaskcompleted",
       "main_maybereinjectrules",
-      "main_parseandexecuteactions",
+      "main_mtimeof",
+      "main_newestindir",
+      "main_newestrecursive",
+      "main_newestskillmd",
       "main_parsemessagecontent",
       "main_parsesessionmetadata",
       "main_parsesimplefrontmatter",
@@ -59,46 +86,316 @@
       "main_pathexists",
       "main_pollforeground",
       "main_readdir",
+      "main_releasealllocksforterminal",
+      "main_releaselock",
       "main_roundduration",
       "main_roundtoseconds",
       "main_saveaisyncstate",
+      "main_saveautoassignconfigfile",
       "main_savecategoryconfig",
       "main_savejsonlogs",
       "main_savepreferences",
       "main_savesleeppattern",
       "main_savesleepstate",
-      "main_scanprojecttools",
       "main_setupactionsfilewatcher",
       "main_startagenttimeout",
       "main_startbrowsersessionflushtimer",
       "main_startbrowsertrackingserver",
       "main_stopbrowsersessionflushtimer",
+      "main_stripansi",
       "main_syncallaiagents",
+      "main_toiso",
+      "main_tolocaldate",
+      "main_trackfeatureusage",
       "main_updateaggregates",
       "main_updateallaggregates",
+      "main_verifyagent",
       "main_walkdir",
+      "main_whichone",
       "main_yieldtoeventloop",
-      "problemsparser_problemsparser_parse",
       "settingspage_fetchdomainstats",
-      "src_components_workspacesettingsdialog_tsx",
-      "src_main_ts",
-      "workspacesettingsdialog_deepmerge"
+      "src_main_ts"
     ],
     "1": [
+      "agent_backups_terminalpage_2026_06_05_010713_tsx",
+      "generalistdialog_hasconfig",
+      "generalistdialog_loadskills",
+      "src_components_generalistdialog_tsx",
+      "src_pages_terminalpage_tsx",
+      "terminalpage_2026_06_05_010713_addleaftogroup",
+      "terminalpage_2026_06_05_010713_async",
+      "terminalpage_2026_06_05_010713_categorybadge",
+      "terminalpage_2026_06_05_010713_check",
+      "terminalpage_2026_06_05_010713_collectleafids",
+      "terminalpage_2026_06_05_010713_extractgroups",
+      "terminalpage_2026_06_05_010713_featuresdialog",
+      "terminalpage_2026_06_05_010713_findleafintree",
+      "terminalpage_2026_06_05_010713_generateterminalid",
+      "terminalpage_2026_06_05_010713_handleclosepane",
+      "terminalpage_2026_06_05_010713_handlecloseworkspacedialog",
+      "terminalpage_2026_06_05_010713_handlecreate",
+      "terminalpage_2026_06_05_010713_handlecreateterminal",
+      "terminalpage_2026_06_05_010713_handlecreateterminalforproblem",
+      "terminalpage_2026_06_05_010713_handledelete",
+      "terminalpage_2026_06_05_010713_handlefocusterminal",
+      "terminalpage_2026_06_05_010713_handlegrouplayoutchange",
+      "terminalpage_2026_06_05_010713_handlelinkproblem",
+      "terminalpage_2026_06_05_010713_handleopennewagent",
+      "terminalpage_2026_06_05_010713_handleopennewsessionforterminal",
+      "terminalpage_2026_06_05_010713_handlestatuschange",
+      "terminalpage_2026_06_05_010713_handlesubmit",
+      "terminalpage_2026_06_05_010713_handleswitchsidebartab",
+      "terminalpage_2026_06_05_010713_handleterminalcreated",
+      "terminalpage_2026_06_05_010713_handletriggerprovision",
+      "terminalpage_2026_06_05_010713_handleupdate",
+      "terminalpage_2026_06_05_010713_handleuse",
+      "terminalpage_2026_06_05_010713_if",
+      "terminalpage_2026_06_05_010713_logonce",
+      "terminalpage_2026_06_05_010713_openeditor",
+      "terminalpage_2026_06_05_010713_refresh",
+      "terminalpage_2026_06_05_010713_removeleaffromtree",
+      "terminalpage_2026_06_05_010713_sessionintab",
+      "terminalpage_2026_06_05_010713_shownotify",
+      "terminalpage_2026_06_05_010713_statusdot",
+      "terminalpage_2026_06_05_010713_togglepanedirection",
+      "terminalpage_addleaftogroup",
+      "terminalpage_async",
+      "terminalpage_categorybadge",
+      "terminalpage_check",
+      "terminalpage_collectleafids",
+      "terminalpage_extractgroups",
+      "terminalpage_featuresdialog",
+      "terminalpage_findleafintree",
+      "terminalpage_generateterminalid",
+      "terminalpage_handleclosepane",
+      "terminalpage_handlecloseworkspacedialog",
+      "terminalpage_handlecreate",
+      "terminalpage_handlecreateterminal",
+      "terminalpage_handlecreateterminalforproblem",
+      "terminalpage_handledelete",
+      "terminalpage_handlefocusterminal",
+      "terminalpage_handlegrouplayoutchange",
+      "terminalpage_handlelinkproblem",
+      "terminalpage_handleopennewagent",
+      "terminalpage_handleopennewsessionforterminal",
+      "terminalpage_handlestatuschange",
+      "terminalpage_handlesubmit",
+      "terminalpage_handleswitchsidebartab",
+      "terminalpage_handleterminalcreated",
+      "terminalpage_handletriggerprovision",
+      "terminalpage_handleupdate",
+      "terminalpage_handleuse",
+      "terminalpage_if",
+      "terminalpage_logonce",
+      "terminalpage_modal",
+      "terminalpage_openeditor",
+      "terminalpage_pill",
+      "terminalpage_refresh",
+      "terminalpage_removeleaffromtree",
+      "terminalpage_sectioncard",
+      "terminalpage_sessionintab",
+      "terminalpage_shownotify",
+      "terminalpage_statusdot",
+      "terminalpage_tabpanel",
+      "terminalpage_toggle",
+      "terminalpage_togglepanedirection",
+      "terminalpage_wsemptystate"
+    ],
+    "2": [
+      "agent_ai_cli_js",
+      "ai_cli_main",
+      "ai_cli_parseargs",
+      "ai_cli_readactions",
+      "ai_cli_writeactions",
+      "app_checksleepdetect",
+      "app_cleancorrupteddata",
+      "app_cleardata",
+      "app_cleartoday",
+      "app_confirmsleepdetection",
+      "app_customdurationminutes",
+      "app_dismisssleepdetection",
+      "app_exportdata",
+      "app_formatduration",
+      "app_formattime",
+      "app_generateaisummary",
+      "app_generatedistinctcolors",
+      "app_getappdistribution",
+      "app_handleactivity",
+      "app_handleafkdebugkey",
+      "app_handlefocus",
+      "app_handler",
+      "app_handlestorage",
+      "app_handlestoragechange",
+      "app_handletimersync",
+      "app_handlevisibilitychange",
+      "app_hsltohex",
+      "app_isappmatchingbrowserrenderer",
+      "app_loaddata",
+      "app_loaddbtables",
+      "app_loadoverrides",
+      "app_loadtrackingbrowser",
+      "app_opengaphandler",
+      "app_refreshactivities",
+      "app_reloadoverrides",
+      "app_switchapp",
+      "app_toggletracking",
+      "app_triggerafkhandler",
+      "main_extractjsonfromresponse",
+      "main_getlogs",
+      "main_loadautoassignconfig",
+      "main_loadpreferences",
+      "main_loadsleepstate",
+      "main_scanprojecttools",
+      "problemsparser_problemsparser_parse",
+      "settingspage_async",
+      "settingspage_handleclickoutside",
+      "settingspage_handleesc",
+      "settingspage_if",
+      "settingspage_load",
+      "settingspage_loadoverrides",
+      "settingspage_loadprompts",
+      "settingspage_loadtrackingsettings",
+      "settingspage_setappcolors",
+      "settingspage_seteditingkeywordsets",
+      "settingspage_setlocalappcolors",
+      "src_app_tsx",
+      "src_components_workspacesettingsdialog_tsx",
+      "src_main_tsx",
+      "src_pages_settingspage_tsx",
+      "src_pages_tutorialpage_tsx",
+      "tutorialpage_loadprogress",
+      "tutorialpage_saveprogress",
+      "workspacesettingsdialog_deepmerge"
+    ],
+    "3": [
+      "compactionservice_compactionservice",
+      "compactionservice_compactionservice_compact",
+      "compactionservice_compactionservice_constructor",
+      "compactionservice_compactionservice_createsummarizationprompt",
+      "compactionservice_compactionservice_formatsummarymarkdown",
+      "compactionservice_compactionservice_parsecompactionresponse",
+      "compactionservice_compactionservice_shouldcompact",
+      "compactionservice_compactionservice_summarizemessages",
+      "compactionservice_createcompactionservice",
+      "compactionservice_defaultllmprovider",
+      "compactionservice_defaultllmprovider_extractivefallback",
+      "compactionservice_defaultllmprovider_summarize",
+      "contextassemblyservice_contextassemblyservice",
+      "contextassemblyservice_contextassemblyservice_assemblecontext",
+      "contextassemblyservice_contextassemblyservice_constructor",
+      "contextassemblyservice_contextassemblyservice_estimatetokens",
+      "contextassemblyservice_contextassemblyservice_formatcontextforprompt",
+      "contextassemblyservice_contextassemblyservice_getassemblystats",
+      "contextassemblyservice_createcontextassemblyservice",
+      "projectcontextservice_createprojectcontextservice",
+      "projectcontextservice_projectcontextservice",
+      "projectcontextservice_projectcontextservice_addcompaction",
+      "projectcontextservice_projectcontextservice_calculateenabledtokens",
+      "projectcontextservice_projectcontextservice_constructor",
+      "projectcontextservice_projectcontextservice_getenabledcontexts",
+      "projectcontextservice_projectcontextservice_getragindexstats",
+      "projectcontextservice_projectcontextservice_getrecentcompactions",
+      "projectcontextservice_projectcontextservice_loadprojectcontextmanifest",
+      "projectcontextservice_projectcontextservice_registercontext",
+      "projectcontextservice_projectcontextservice_saveprojectcontextmanifest",
+      "projectcontextservice_projectcontextservice_togglecontext",
+      "projectcontextservice_projectcontextservice_tracksessioncontext",
+      "projectcontextservice_projectcontextservice_updateragmessagecount",
+      "ragservice_getragservice",
+      "ragservice_initializeragservice",
+      "ragservice_ragservice",
+      "ragservice_ragservice_close",
+      "ragservice_ragservice_computevectornorm",
+      "ragservice_ragservice_constructor",
+      "ragservice_ragservice_cosinesimilarity",
+      "ragservice_ragservice_createsession",
+      "ragservice_ragservice_deletemessages",
+      "ragservice_ragservice_estimatetokens",
+      "ragservice_ragservice_fulltextsearch",
+      "ragservice_ragservice_getmessage",
+      "ragservice_ragservice_getoldmessages",
+      "ragservice_ragservice_getsessionstats",
+      "ragservice_ragservice_initialize",
+      "ragservice_ragservice_querymessages",
+      "ragservice_ragservice_rowtomessage",
+      "ragservice_ragservice_savemessage",
+      "ragservice_ragservice_semanticsearch",
+      "ragservice_ragservice_updatesessionstats",
+      "src_services_compactionservice_ts",
+      "src_services_contextassemblyservice_ts",
+      "src_services_projectcontextservice_ts",
+      "src_services_ragservice_ts"
+    ],
+    "4": [
+      "checkfeedbackcontrols_sendfeedback",
+      "dist_electron_services_requestsservice_js",
+      "issuesworkspace_formatrelative",
+      "issuesworkspace_handlelink",
+      "issuesworkspace_handleproblemstatus",
+      "issuesworkspace_handlerequeststatus",
+      "issuesworkspace_handlesavedesc",
+      "issuesworkspace_handlesavenotes",
+      "issuesworkspace_handlesend",
+      "issuesworkspace_handlesubmit",
+      "issuesworkspace_saveconfig",
+      "issuesworkspace_togglecheck",
+      "issuesworkspace_togglegroup",
+      "main_executeactionsfromfile",
+      "main_getproblemsservice",
+      "main_getprojectpath",
+      "main_getrequestsservice",
+      "main_logactivity",
+      "main_parseandexecuteactions",
+      "problemssyncservice_problemssyncservice",
+      "problemssyncservice_problemssyncservice_constructor",
+      "problemssyncservice_problemssyncservice_createproblem",
+      "problemssyncservice_problemssyncservice_syncfrommarkdown",
+      "problemssyncservice_problemssyncservice_synctomarkdown",
+      "problemssyncservice_problemssyncservice_updateproblem",
+      "requestsservice_requestsservice",
+      "requestsservice_requestsservice_addcheck",
+      "requestsservice_requestsservice_addcheckfeedback",
+      "requestsservice_requestsservice_completecheck",
+      "requestsservice_requestsservice_constructor",
+      "requestsservice_requestsservice_createrequest",
+      "requestsservice_requestsservice_deleterequest",
+      "requestsservice_requestsservice_ensureagentdir",
+      "requestsservice_requestsservice_getdefaultbasedir",
+      "requestsservice_requestsservice_getrequest",
+      "requestsservice_requestsservice_getrequests",
+      "requestsservice_requestsservice_linkproblem",
+      "requestsservice_requestsservice_migratefrommd",
+      "requestsservice_requestsservice_parserequestslegacy",
+      "requestsservice_requestsservice_unlinkproblem",
+      "requestsservice_requestsservice_updatecheck",
+      "requestsservice_requestsservice_updatestatus",
+      "requestsservice_requestsservice_writejson",
+      "requestsservice_requestsservice_writemarkdown",
+      "src_components_checkfeedbackcontrols_tsx",
+      "src_components_issuesworkspace_tsx",
+      "src_services_problemssyncservice_ts",
+      "src_services_requestsservice_ts",
+      "terminalpage_2026_06_05_010713_handlecreateproblem",
+      "terminalpage_handlecreateproblem"
+    ],
+    "5": [
       "app_formattimefromhours",
       "app_gettotaltime",
+      "dashboardpage_aggregatehourlyfordate",
+      "dashboardpage_async",
       "dashboardpage_computechartdaterange",
       "dashboardpage_fmtsec",
       "dashboardpage_formatduration",
       "dashboardpage_getheatcolor",
-      "dashboardpage_getheatmapcolor",
       "dashboardpage_getpersistedactivityfeed",
       "dashboardpage_getpersistedtimerstate",
-      "dashboardpage_getproductivetier",
+      "dashboardpage_gettier",
       "dashboardpage_gettierfromcategory",
       "dashboardpage_handledayclick",
       "dashboardpage_handleinteraction",
       "dashboardpage_handlekeydown",
+      "dashboardpage_handler",
+      "dashboardpage_isappmatchingbrowserdashboard",
       "dashboardpage_loadexternaldata",
       "dashboardpage_rank",
       "dashboardpage_update",
@@ -116,19 +413,20 @@
       "durationpicker_setminutes",
       "durationpicker_starthold",
       "durationpicker_stophold",
-      "externalpage_async",
       "main_computedaterange",
+      "main_getweekkey",
       "productivitypage_formatduration",
       "productivitypage_formathours",
       "productivitypage_getcategorycolor",
       "productivitypage_getviewlabel",
+      "productivitypage_handlerefresh",
       "productivitypage_toggledomain",
       "src_components_durationpicker_tsx",
       "src_lib_daterange_ts",
       "src_pages_dashboardpage_tsx",
       "src_pages_productivitypage_tsx"
     ],
-    "2": [
+    "6": [
       "orbitsystem_adjustcolor",
       "orbitsystem_animatecamera",
       "orbitsystem_calculateangularspeed",
@@ -164,133 +462,90 @@
       "orbitsystem_switchtogalaxy",
       "src_components_orbitsystem_tsx"
     ],
-    "3": [
-      "src_pages_terminalpage_tsx",
-      "terminalpage_addleaftogroup",
-      "terminalpage_async",
-      "terminalpage_categorybadge",
-      "terminalpage_collectleafids",
-      "terminalpage_extractgroups",
-      "terminalpage_findleafintree",
-      "terminalpage_generateterminalid",
-      "terminalpage_handleclosepane",
-      "terminalpage_handlecloseworkspacedialog",
-      "terminalpage_handlecreate",
-      "terminalpage_handlecreateterminal",
-      "terminalpage_handlecreateterminalforproblem",
-      "terminalpage_handledelete",
-      "terminalpage_handlefocusterminal",
-      "terminalpage_handlelinkproblem",
-      "terminalpage_handleopennewagent",
-      "terminalpage_handleopennewsessionforterminal",
-      "terminalpage_handlestatuschange",
-      "terminalpage_handlesubmit",
-      "terminalpage_handleswitchsidebartab",
-      "terminalpage_handleterminalcreated",
-      "terminalpage_handletriggerprovision",
-      "terminalpage_handleupdate",
-      "terminalpage_handleuse",
-      "terminalpage_if",
-      "terminalpage_logonce",
-      "terminalpage_openeditor",
-      "terminalpage_removeleaffromtree",
-      "terminalpage_shownotify",
-      "terminalpage_statusdot",
-      "terminalpage_togglepanedirection"
-    ],
-    "4": [
-      "compactionservice_compactionservice",
-      "compactionservice_compactionservice_compact",
-      "compactionservice_compactionservice_constructor",
-      "compactionservice_compactionservice_createsummarizationprompt",
-      "compactionservice_compactionservice_formatsummarymarkdown",
-      "compactionservice_compactionservice_parsecompactionresponse",
-      "compactionservice_compactionservice_shouldcompact",
-      "compactionservice_compactionservice_summarizemessages",
-      "compactionservice_createcompactionservice",
-      "compactionservice_defaultllmprovider",
-      "compactionservice_defaultllmprovider_extractivefallback",
-      "compactionservice_defaultllmprovider_summarize",
-      "projectcontextservice_createprojectcontextservice",
-      "projectcontextservice_projectcontextservice",
-      "projectcontextservice_projectcontextservice_addcompaction",
-      "projectcontextservice_projectcontextservice_calculateenabledtokens",
-      "projectcontextservice_projectcontextservice_constructor",
-      "projectcontextservice_projectcontextservice_getenabledcontexts",
-      "projectcontextservice_projectcontextservice_getragindexstats",
-      "projectcontextservice_projectcontextservice_getrecentcompactions",
-      "projectcontextservice_projectcontextservice_loadprojectcontextmanifest",
-      "projectcontextservice_projectcontextservice_registercontext",
-      "projectcontextservice_projectcontextservice_saveprojectcontextmanifest",
-      "projectcontextservice_projectcontextservice_togglecontext",
-      "projectcontextservice_projectcontextservice_tracksessioncontext",
-      "projectcontextservice_projectcontextservice_updateragmessagecount",
-      "ragservice_ragservice_deletemessages",
-      "ragservice_ragservice_getoldmessages",
-      "src_services_compactionservice_ts",
-      "src_services_projectcontextservice_ts"
-    ],
-    "5": [
-      "app_checksleepdetect",
-      "app_cleancorrupteddata",
-      "app_cleardata",
-      "app_cleartoday",
-      "app_confirmsleepdetection",
-      "app_customdurationminutes",
-      "app_dismisssleepdetection",
-      "app_exportdata",
-      "app_formatduration",
-      "app_formattime",
-      "app_generateaisummary",
-      "app_generatedistinctcolors",
-      "app_getappdistribution",
-      "app_handleactivity",
-      "app_handlefocus",
-      "app_handler",
-      "app_handlestorage",
-      "app_handlestoragechange",
-      "app_handlevisibilitychange",
-      "app_hsltohex",
-      "app_loaddata",
-      "app_loaddbtables",
-      "app_loadtrackingbrowser",
-      "app_reloadoverrides",
-      "app_switchapp",
-      "app_toggletracking",
-      "main_getlogs",
-      "src_app_tsx",
-      "src_main_tsx"
-    ],
-    "6": [
-      "contextassemblyservice_contextassemblyservice",
-      "contextassemblyservice_contextassemblyservice_assemblecontext",
-      "contextassemblyservice_contextassemblyservice_constructor",
-      "contextassemblyservice_contextassemblyservice_estimatetokens",
-      "contextassemblyservice_contextassemblyservice_formatcontextforprompt",
-      "contextassemblyservice_contextassemblyservice_getassemblystats",
-      "contextassemblyservice_createcontextassemblyservice",
-      "ragservice_getragservice",
-      "ragservice_initializeragservice",
-      "ragservice_ragservice",
-      "ragservice_ragservice_close",
-      "ragservice_ragservice_computevectornorm",
-      "ragservice_ragservice_constructor",
-      "ragservice_ragservice_cosinesimilarity",
-      "ragservice_ragservice_createsession",
-      "ragservice_ragservice_estimatetokens",
-      "ragservice_ragservice_fulltextsearch",
-      "ragservice_ragservice_getmessage",
-      "ragservice_ragservice_getsessionstats",
-      "ragservice_ragservice_initialize",
-      "ragservice_ragservice_querymessages",
-      "ragservice_ragservice_rowtomessage",
-      "ragservice_ragservice_savemessage",
-      "ragservice_ragservice_semanticsearch",
-      "ragservice_ragservice_updatesessionstats",
-      "src_services_contextassemblyservice_ts",
-      "src_services_ragservice_ts"
-    ],
     "7": [
+      "ideprojectspage_formatcurrency",
+      "ideprojectspage_formattokens",
+      "ideprojectspage_getmetricvalue",
+      "ideprojectspage_grouptoolsbycategory",
+      "ideprojectspage_handleaddproject",
+      "ideprojectspage_handleclickoutside",
+      "ideprojectspage_handleconfirmdelete",
+      "ideprojectspage_handledebugagents",
+      "ideprojectspage_handledeleteclick",
+      "ideprojectspage_handledetectlanguage",
+      "ideprojectspage_handleeditprojectclick",
+      "ideprojectspage_handlelanguageselect",
+      "ideprojectspage_handleopenproject",
+      "ideprojectspage_handlepermanentdelete",
+      "ideprojectspage_handler",
+      "ideprojectspage_handleremoveproject",
+      "ideprojectspage_handlerestoreproject",
+      "ideprojectspage_handlescan",
+      "ideprojectspage_handlesyncai",
+      "ideprojectspage_handlesyncgit",
+      "ideprojectspage_handleupdateproject",
+      "ideprojectspage_loadgitdata",
+      "ideprojectspage_loadoverview",
+      "ideprojectspage_loadtrashprojects",
+      "ideprojectspage_togglecategory",
+      "ideprojectspage_toggleprojectexpand",
+      "src_pages_ideprojectspage_tsx"
+    ],
+    "8": [
+      "dist_electron_services_problemsservice_js",
+      "main_runinitall",
+      "problemsservice_problemsservice",
+      "problemsservice_problemsservice_addcheck",
+      "problemsservice_problemsservice_addcheckfeedback",
+      "problemsservice_problemsservice_completecheck",
+      "problemsservice_problemsservice_constructor",
+      "problemsservice_problemsservice_createproblem",
+      "problemsservice_problemsservice_deleteproblem",
+      "problemsservice_problemsservice_ensureagentdir",
+      "problemsservice_problemsservice_getdefaultbasedir",
+      "problemsservice_problemsservice_getnextissuenumber",
+      "problemsservice_problemsservice_getproblem",
+      "problemsservice_problemsservice_getproblems",
+      "problemsservice_problemsservice_getprojectid",
+      "problemsservice_problemsservice_getprojectpath",
+      "problemsservice_problemsservice_migratefrommd",
+      "problemsservice_problemsservice_parseproblemslegacy",
+      "problemsservice_problemsservice_setprojectid",
+      "problemsservice_problemsservice_updatecheck",
+      "problemsservice_problemsservice_updateproblem",
+      "problemsservice_problemsservice_updatestatus",
+      "problemsservice_problemsservice_writejson",
+      "problemsservice_problemsservice_writemarkdown",
+      "src_services_problemsservice_ts"
+    ],
+    "9": [
+      "agent_docs_externalpage_insights_ideas_27042026_externalpage_tsx",
+      "externalpage_async",
+      "externalpage_calculatesleepduration",
+      "externalpage_formatbedtime",
+      "externalpage_formatduration",
+      "externalpage_formathours",
+      "externalpage_formattime",
+      "externalpage_gethex",
+      "externalpage_geticon",
+      "externalpage_getnicemax",
+      "externalpage_gettailwind",
+      "externalpage_handleexternaldatachanged",
+      "externalpage_handlekeydown",
+      "externalpage_handleoverlayclick",
+      "externalpage_handlerestoresession",
+      "externalpage_handlesleepconfirmed",
+      "externalpage_localdatestr",
+      "externalpage_maptime",
+      "externalpage_pad",
+      "externalpage_tolocal",
+      "src_pages_externalpage_tsx",
+      "src_pages_statspage_tsx",
+      "statspage_formatduration",
+      "statspage_handlescroll",
+      "statspage_tolocal"
+    ],
+    "10": [
       "src_services_workspaceregistry_ts",
       "workspaceregistry_workspaceregistryservice",
       "workspaceregistry_workspaceregistryservice_addplugin",
@@ -316,31 +571,31 @@
       "workspaceregistry_workspaceregistryservice_unregister",
       "workspaceregistry_workspaceregistryservice_unregistercomposecontext"
     ],
-    "8": [
-      "agent_docs_frontend_design_skills_25052026_ui_ux_workspace_infrastructure_src_newsessiondialog_tsx",
-      "dist_electron_services_skillsservice_js",
-      "newsessiondialog_buildpreview",
-      "newsessiondialog_checkinfra",
-      "newsessiondialog_checkinit",
-      "newsessiondialog_estimatetokens",
-      "newsessiondialog_formatreltime",
-      "newsessiondialog_handlecreate",
-      "newsessiondialog_loadagentscontext",
-      "newsessiondialog_loadinitfiles",
-      "newsessiondialog_systemtogglecard",
-      "skillsservice_skillsservice",
-      "skillsservice_skillsservice_constructor",
-      "skillsservice_skillsservice_ensureskillsdir",
-      "skillsservice_skillsservice_generatedescription",
-      "skillsservice_skillsservice_getdefaultbasedir",
-      "skillsservice_skillsservice_getskillbyid",
-      "skillsservice_skillsservice_getskillcontext",
-      "skillsservice_skillsservice_getskills",
-      "skillsservice_skillsservice_loadskillfromfile",
-      "src_components_newsessiondialog_tsx",
-      "src_services_skillsservice_ts"
+    "11": [
+      "aipage_errorblock",
+      "aipage_handlesendchat",
+      "aipage_loadjson",
+      "aipage_savejson",
+      "aipage_sectionheader",
+      "aiservice_aiservice",
+      "aiservice_aiservice_analyzepatterns",
+      "aiservice_aiservice_analyzesleep",
+      "aiservice_aiservice_checkanomalies",
+      "aiservice_aiservice_datachatquery",
+      "aiservice_aiservice_generatedailybrief",
+      "aiservice_aiservice_generatetopicdigest",
+      "aiservice_aiservice_generateweeklyreview",
+      "aiservice_callopenrouter",
+      "aiservice_cleanaijson",
+      "aiservice_fallbackparsedailybrief",
+      "aiservice_fallbackparsepatternanalysis",
+      "aiservice_fallbackparsesleepanalysis",
+      "aiservice_parseaijson",
+      "dist_electron_services_aiservice_js",
+      "src_pages_aipage_tsx",
+      "src_services_aiservice_ts"
     ],
-    "9": [
+    "12": [
       "agent_skills_maintain_context_graphify_maintain_py",
       "graphify_maintain_ensure_para_structure",
       "graphify_maintain_parse_problems",
@@ -362,29 +617,7 @@
       "problemsparser_problemsparser_parseissueblock",
       "src_services_problemsparser_ts"
     ],
-    "10": [
-      "dist_electron_services_problemsservice_js",
-      "problemsservice_problemsservice",
-      "problemsservice_problemsservice_constructor",
-      "problemsservice_problemsservice_createproblem",
-      "problemsservice_problemsservice_deleteproblem",
-      "problemsservice_problemsservice_ensureagentdir",
-      "problemsservice_problemsservice_getdefaultbasedir",
-      "problemsservice_problemsservice_getnextissuenumber",
-      "problemsservice_problemsservice_getproblem",
-      "problemsservice_problemsservice_getproblems",
-      "problemsservice_problemsservice_getprojectid",
-      "problemsservice_problemsservice_getprojectpath",
-      "problemsservice_problemsservice_migratefrommd",
-      "problemsservice_problemsservice_parseproblemslegacy",
-      "problemsservice_problemsservice_setprojectid",
-      "problemsservice_problemsservice_updateproblem",
-      "problemsservice_problemsservice_updatestatus",
-      "problemsservice_problemsservice_writejson",
-      "problemsservice_problemsservice_writemarkdown",
-      "src_services_problemsservice_ts"
-    ],
-    "11": [
+    "13": [
       "agent_docs_frontend_design_skills_25052026_ui_ux_workspace_infrastructure_src_contextservice_ts",
       "contextservice_assemblecontext",
       "contextservice_buildautomationscontext",
@@ -406,67 +639,47 @@
       "contextservice_truncatetotokens",
       "src_services_contextservice_ts"
     ],
-    "12": [
-      "issuesworkspace_formatrelative",
-      "issuesworkspace_handleapprove",
-      "issuesworkspace_handlelink",
-      "issuesworkspace_handleproblemstatus",
-      "issuesworkspace_handlerequeststatus",
-      "issuesworkspace_handlesavedesc",
-      "issuesworkspace_handlesavenotes",
-      "issuesworkspace_handlesend",
-      "issuesworkspace_handlesubmit",
-      "issuesworkspace_handletoggle",
-      "problemssyncservice_problemssyncservice",
-      "problemssyncservice_problemssyncservice_constructor",
-      "problemssyncservice_problemssyncservice_createproblem",
-      "problemssyncservice_problemssyncservice_syncfrommarkdown",
-      "problemssyncservice_problemssyncservice_synctomarkdown",
-      "problemssyncservice_problemssyncservice_updateproblem",
-      "src_components_issuesworkspace_tsx",
-      "src_services_problemssyncservice_ts",
-      "terminalpage_handlecreateproblem"
-    ],
-    "13": [
-      "agent_docs_externalpage_insights_ideas_27042026_externalpage_tsx",
-      "externalpage_calculatesleepduration",
-      "externalpage_formatbedtime",
-      "externalpage_formatduration",
-      "externalpage_formathours",
-      "externalpage_formattime",
-      "externalpage_gethex",
-      "externalpage_geticon",
-      "externalpage_getnicemax",
-      "externalpage_gettailwind",
-      "externalpage_handleexternaldatachanged",
-      "externalpage_handlekeydown",
-      "externalpage_handleoverlayclick",
-      "externalpage_handlerestoresession",
-      "externalpage_handlesleepconfirmed",
-      "externalpage_maptime",
-      "externalpage_tolocal",
-      "src_pages_externalpage_tsx"
-    ],
     "14": [
-      "dist_electron_services_requestsservice_js",
-      "requestsservice_requestsservice",
-      "requestsservice_requestsservice_constructor",
-      "requestsservice_requestsservice_createrequest",
-      "requestsservice_requestsservice_deleterequest",
-      "requestsservice_requestsservice_ensureagentdir",
-      "requestsservice_requestsservice_getdefaultbasedir",
-      "requestsservice_requestsservice_getrequest",
-      "requestsservice_requestsservice_getrequests",
-      "requestsservice_requestsservice_linkproblem",
-      "requestsservice_requestsservice_migratefrommd",
-      "requestsservice_requestsservice_parserequestslegacy",
-      "requestsservice_requestsservice_unlinkproblem",
-      "requestsservice_requestsservice_updatestatus",
-      "requestsservice_requestsservice_writejson",
-      "requestsservice_requestsservice_writemarkdown",
-      "src_services_requestsservice_ts"
+      "dist_electron_services_skilldslparser_js",
+      "dist_electron_services_skillsservice_js",
+      "skilldslparser_coercevalue",
+      "skilldslparser_enhanceskillwithdsl",
+      "skilldslparser_inferwidget",
+      "skilldslparser_parsefrontmattersection",
+      "skilldslparser_parseskilldsl",
+      "skillsservice_parsefrontmatterlist",
+      "skillsservice_skillsservice",
+      "skillsservice_skillsservice_constructor",
+      "skillsservice_skillsservice_ensureskillsdir",
+      "skillsservice_skillsservice_generatedescription",
+      "skillsservice_skillsservice_getdefaultbasedir",
+      "skillsservice_skillsservice_getskillbyid",
+      "skillsservice_skillsservice_getskillcontext",
+      "skillsservice_skillsservice_getskills",
+      "skillsservice_skillsservice_loadskillfromfile",
+      "src_services_skilldslparser_ts",
+      "src_services_skillsservice_ts"
     ],
     "15": [
+      "background_checkbrowserfocus",
+      "background_detectbrowsername",
+      "background_extractdomain",
+      "background_getbrowserprocessnames",
+      "background_healthcheck",
+      "background_identifybrowser",
+      "background_loadstate",
+      "background_logprevioussession",
+      "background_onstartup",
+      "background_periodicsync",
+      "background_sanitizeurl",
+      "background_savestate",
+      "background_sendtodeskflow",
+      "background_shouldexclude",
+      "background_startfocuscheckpolling",
+      "background_updateactivetab",
+      "browser_extension_background_js"
+    ],
+    "16": [
       "browseractivitypage_formatduration",
       "browseractivitypage_getviewlabel",
       "browseractivitypage_handlecategorychange",
@@ -484,54 +697,7 @@
       "complete_speak",
       "src_pages_browseractivitypage_tsx"
     ],
-    "16": [
-      "background_checkbrowserfocus",
-      "background_detectbrowsername",
-      "background_extractdomain",
-      "background_healthcheck",
-      "background_identifybrowser",
-      "background_loadstate",
-      "background_logprevioussession",
-      "background_onstartup",
-      "background_periodicsync",
-      "background_sanitizeurl",
-      "background_savestate",
-      "background_sendtodeskflow",
-      "background_shouldexclude",
-      "background_startfocuscheckpolling",
-      "background_updateactivetab",
-      "browser_extension_background_js"
-    ],
     "17": [
-      "checklistservice_checklistservice",
-      "checklistservice_checklistservice_constructor",
-      "checklistservice_checklistservice_createitem",
-      "checklistservice_checklistservice_deletechecklistforparent",
-      "checklistservice_checklistservice_deleteitem",
-      "checklistservice_checklistservice_ensureagentdir",
-      "checklistservice_checklistservice_getchecklistforparent",
-      "checklistservice_checklistservice_getchecklists",
-      "checklistservice_checklistservice_getdefaultbasedir",
-      "checklistservice_checklistservice_updateitem",
-      "checklistservice_checklistservice_writejson",
-      "dist_electron_services_checklistservice_js",
-      "src_services_checklistservice_ts"
-    ],
-    "18": [
-      "settingspage_activeid",
-      "settingspage_async",
-      "settingspage_handleclickoutside",
-      "settingspage_handleesc",
-      "settingspage_if",
-      "settingspage_loadoverrides",
-      "settingspage_loadprompts",
-      "settingspage_loadtrackingsettings",
-      "settingspage_setappcolors",
-      "settingspage_seteditingkeywordsets",
-      "settingspage_setlocalappcolors",
-      "src_pages_settingspage_tsx"
-    ],
-    "19": [
       "agent_docs_externalpage_insights_ideas_27042026_insightspage_tsx",
       "insightspage_cellbg",
       "insightspage_circulargauge",
@@ -544,7 +710,20 @@
       "insightspage_statuslabel",
       "src_pages_insightspage_tsx"
     ],
-    "20": [
+    "18": [
+      "src_components_terminalwindow_tsx",
+      "terminalwindow_findfirstleaf",
+      "terminalwindow_findleafbyid",
+      "terminalwindow_handlecleanup",
+      "terminalwindow_handlemarkspawned",
+      "terminalwindow_handlemousedown",
+      "terminalwindow_handlemousemove",
+      "terminalwindow_handlemouseup",
+      "terminalwindow_handleresize",
+      "terminalwindow_replaceleafterminalid",
+      "terminalwindow_tryfit"
+    ],
+    "19": [
       "contextmaintenancetab_async",
       "contextmaintenancetab_handleconfigsave",
       "contextmaintenancetab_handlerefresh",
@@ -556,7 +735,7 @@
       "contextmaintenancetab_renderheader",
       "src_components_contextmaintenancetab_tsx"
     ],
-    "21": [
+    "20": [
       "prompthistorytab_formattime",
       "prompthistorytab_getstatus",
       "prompthistorytab_handledelete",
@@ -567,37 +746,24 @@
       "prompthistorytab_truncate",
       "src_components_prompthistorytab_tsx"
     ],
+    "21": [
+      "analyticsdashboard_fmtcost",
+      "analyticsdashboard_fmtnum",
+      "analyticsdashboard_fmtsec",
+      "analyticsdashboard_getstatusborder",
+      "analyticsdashboard_getstatuscolor",
+      "analyticsdashboard_statcard",
+      "src_components_analyticsdashboard_tsx"
+    ],
     "22": [
-      "src_components_terminalwindow_tsx",
-      "terminalwindow_findfirstleaf",
-      "terminalwindow_findleafbyid",
-      "terminalwindow_handlecleanup",
-      "terminalwindow_handlemousedown",
-      "terminalwindow_handlemousemove",
-      "terminalwindow_handlemouseup",
-      "terminalwindow_handleresize",
-      "terminalwindow_replaceleafterminalid"
+      "agent_docs_model_improvements_verification_modelimprovementdashboard_tsx",
+      "modelimprovementdashboard_animatednumber",
+      "modelimprovementdashboard_handledebugchange",
+      "modelimprovementdashboard_handlesave",
+      "modelimprovementdashboard_handlethresholdchange",
+      "modelimprovementdashboard_handletierchange"
     ],
     "23": [
-      "databasepage_fmtcost",
-      "databasepage_fmtms",
-      "databasepage_fmtnum",
-      "databasepage_fmtsec",
-      "databasepage_getstatusborder",
-      "databasepage_getstatuscolor",
-      "databasepage_statcard",
-      "src_pages_databasepage_tsx"
-    ],
-    "24": [
-      "checklistpanel_getparenttitle",
-      "checklistpanel_handleapprove",
-      "checklistpanel_handledelete",
-      "checklistpanel_handlesavenotes",
-      "checklistpanel_handlestarteditnotes",
-      "checklistpanel_handlestatuschange",
-      "src_components_checklistpanel_tsx"
-    ],
-    "25": [
       "daydetailpopup_adddays",
       "daydetailpopup_daydetailpopup",
       "daydetailpopup_formatduration",
@@ -605,283 +771,413 @@
       "daydetailpopup_formathour",
       "src_components_daydetailpopup_tsx"
     ],
+    "24": [
+      "agent_docs_frontend_design_skills_25052026_ui_ux_workspace_infrastructure_src_newsessiondialog_tsx",
+      "newsessiondialog_checkinit",
+      "newsessiondialog_estimatetokens",
+      "newsessiondialog_formatreltime",
+      "newsessiondialog_systemtogglecard"
+    ],
+    "25": [
+      "gappanel_formatdate",
+      "gappanel_formatelapsed",
+      "gappanel_formattime",
+      "gappanel_gappanel",
+      "src_components_gappanel_tsx"
+    ],
     "26": [
+      "importsessionsdialog_formatdate",
+      "importsessionsdialog_handleimport",
+      "importsessionsdialog_parseopencodesessions",
+      "importsessionsdialog_toggleidx",
+      "src_components_importsessionsdialog_tsx"
+    ],
+    "27": [
+      "instructionpanel_generateprompt",
+      "instructionpanel_handlekeydown",
+      "instructionpanel_loadagentfilecontent",
+      "instructionpanel_rendermarkdown",
+      "src_components_instructionpanel_tsx"
+    ],
+    "28": [
       "mapeditor_createsplitfromdrag",
       "mapeditor_flattenpanes",
       "mapeditor_replaceleafintree",
       "mapeditor_swapleavesintree",
       "src_components_mapeditor_tsx"
     ],
-    "27": [
+    "29": [
+      "sessioneditdialog_addtag",
+      "sessioneditdialog_handlesave",
+      "sessioneditdialog_handletagkeydown",
+      "sessioneditdialog_removetag",
+      "src_components_sessioneditdialog_tsx"
+    ],
+    "30": [
       "colorpicker_handleadd",
       "colorpicker_handlekeydown",
       "colorpicker_handleremove",
       "colorpicker_isvalidhex",
       "src_components_workspace_colorpicker_tsx"
     ],
-    "28": [
+    "31": [
       "designworkspacepage_buildcolorschemexml",
       "designworkspacepage_buildfullcontext",
       "designworkspacepage_designworkspacepage",
       "designworkspacepage_readfilecontent",
       "src_pages_designworkspacepage_tsx"
     ],
-    "29": [
-      "agent_ai_cli_js",
-      "ai_cli_main",
-      "ai_cli_parseargs",
-      "ai_cli_readactions",
-      "ai_cli_writeactions"
-    ],
-    "30": [
+    "32": [
       "agent_docs_externalpage_insights_ideas_27042026_demo_data_ts",
       "demo_data_generatedailydata",
       "demo_data_generateheatmapdata",
       "demo_data_getactivitystats"
     ],
-    "31": [
+    "33": [
+      "afkpromptmodal_afkpromptmodal",
+      "afkpromptmodal_formatelapsed",
+      "afkpromptmodal_formattime",
+      "src_components_afkpromptmodal_tsx"
+    ],
+    "34": [
       "dayganttchart_formatduration",
       "dayganttchart_getcategorycolor",
       "dayganttchart_getcategoryicon",
       "src_components_dayganttchart_tsx"
     ],
-    "32": [
+    "35": [
+      "newsessiondialog_async",
+      "newsessiondialog_derivehealth",
+      "newsessiondialog_staleclass",
+      "src_components_newsessiondialog_tsx"
+    ],
+    "36": [
       "promptdesigndialog_handlecopy",
       "promptdesigndialog_handlesave",
       "promptdesigndialog_load",
       "src_components_promptdesigndialog_tsx"
     ],
-    "33": [
+    "37": [
       "activecontextslist_gettypecolor",
       "activecontextslist_handlerefresh",
       "activecontextslist_handletoggle",
       "src_components_context_ui_activecontextslist_tsx"
     ],
-    "34": [
+    "38": [
       "settingspanel_handlereset",
       "settingspanel_handlesave",
       "settingspanel_updateconfig",
       "src_components_context_ui_settingspanel_tsx"
     ],
-    "35": [
+    "39": [
       "src_components_workspace_tasteknobs_tsx",
       "tasteknobs_getaesthetic",
       "tasteknobs_sliderrow",
       "tasteknobs_tasteknobs"
     ],
-    "36": [
+    "40": [
       "src_hooks_usestablememo_ts",
       "usestablememo_deepequal",
       "usestablememo_shallowequal",
       "usestablememo_usestablememo"
     ],
-    "37": [
+    "41": [
       "sessioncontextservice_sessioncontextservice",
       "sessioncontextservice_sessioncontextservice_extractcontext",
       "sessioncontextservice_sessioncontextservice_generatebriefcontext",
       "src_services_sessioncontextservice_ts"
     ],
-    "38": [
+    "42": [
       "agent_docs_feature_inventory_py",
       "feature_inventory_print_summary",
       "feature_inventory_rationale_656"
     ],
-    "39": [
+    "43": [
       "agent_docs_restoration_plan_py",
       "restoration_plan_print_plan",
       "restoration_plan_rationale_254"
     ],
-    "40": [
+    "44": [
       "dist_electron_preload_js",
       "preload_handler",
       "src_preload_ts"
     ],
-    "41": [
-      "afkpromptmodal_afkpromptmodal",
-      "afkpromptmodal_formatelapsed",
-      "src_components_afkpromptmodal_tsx"
+    "45": [
+      "dslgenerationmodal_buildprompt",
+      "dslgenerationmodal_handlesend",
+      "src_components_dslgenerationmodal_tsx"
     ],
-    "42": [
-      "initializeprogressmodal_freshsteps",
+    "46": [
+      "initializeprogressmodal_groupsteps",
       "initializeprogressmodal_initializeprogressmodal",
       "src_components_initializeprogressmodal_tsx"
     ],
-    "43": [
-      "instructionpanel_instructionpanel",
-      "instructionpanel_rendermarkdown",
-      "src_components_instructionpanel_tsx"
+    "47": [
+      "patterncard_patternrow",
+      "patterncard_scorebar",
+      "src_components_patterncard_tsx"
     ],
-    "44": [
+    "48": [
       "memorystatuscard_getprogresscolor",
       "memorystatuscard_getusagecolor",
       "src_components_context_ui_memorystatuscard_tsx"
     ],
-    "45": [
+    "49": [
       "recentchathistory_handlecopy",
       "recentchathistory_handledelete",
       "src_components_context_ui_recentchathistory_tsx"
     ],
-    "46": [
+    "50": [
       "src_components_workspace_stylereferences_tsx",
       "stylereferences_handlepreview",
       "stylereferences_handletoggle"
     ],
-    "47": [
+    "51": [
+      "checklistalgorithm_applyfilter",
+      "checklistalgorithm_sortandgroupchecks",
+      "src_lib_checklistalgorithm_ts"
+    ],
+    "52": [
       "defaults_getdefaultagent",
       "defaults_setdefaultagent",
       "src_lib_defaults_ts"
     ],
-    "48": [
-      "ideprojectspage_getmetricvalue",
-      "ideprojectspage_ideprojectspage",
-      "src_pages_ideprojectspage_tsx"
-    ],
-    "49": [
-      "src_pages_statspage_tsx",
-      "statspage_formatduration",
-      "statspage_statspage"
-    ],
-    "50": [
-      "src_pages_tutorialpage_tsx",
-      "tutorialpage_loadprogress",
-      "tutorialpage_saveprogress"
-    ],
-    "51": [
+    "53": [
       "agent_docs_graphify_graphify_pipeline_py",
       "graphify_pipeline_rationale_1"
     ],
-    "52": [
+    "54": [
+      "anomalybadge_anomalybadge",
+      "src_components_anomalybadge_tsx"
+    ],
+    "55": [
       "basicmarkdownviewer_basicmarkdownviewer",
       "src_components_basicmarkdownviewer_tsx"
     ],
-    "53": [
+    "56": [
+      "categorycolors_getcategorystyle",
+      "src_components_categorycolors_tsx"
+    ],
+    "57": [
+      "chartcontainer_chartcontainer",
+      "src_components_chartcontainer_tsx"
+    ],
+    "58": [
+      "confirmdialog_confirmdialog",
+      "src_components_confirmdialog_tsx"
+    ],
+    "59": [
+      "glasscard_glasscard",
+      "src_components_glasscard_tsx"
+    ],
+    "60": [
+      "knobslider_knobslider",
+      "src_components_knobslider_tsx"
+    ],
+    "61": [
+      "loadingstate_loadingstate",
+      "src_components_loadingstate_tsx"
+    ],
+    "62": [
+      "modaloverlay_modaloverlay",
+      "src_components_modaloverlay_tsx"
+    ],
+    "63": [
+      "pageshell_pageshell",
+      "src_components_pageshell_tsx"
+    ],
+    "64": [
+      "routingtoast_routingtoast",
+      "src_components_routingtoast_tsx"
+    ],
+    "65": [
+      "sessioncard_sessioncard",
+      "src_components_sessioncard_tsx"
+    ],
+    "66": [
+      "skilldynamicform_togglegroup",
+      "src_components_skilldynamicform_tsx"
+    ],
+    "67": [
+      "sleepcard_scorebar",
+      "src_components_sleepcard_tsx"
+    ],
+    "68": [
+      "src_components_stickyheader_tsx",
+      "stickyheader_stickyheader"
+    ],
+    "69": [
+      "src_components_systemcard_tsx",
+      "systemcard_systemcard"
+    ],
+    "70": [
+      "src_components_tabbar_tsx",
+      "tabbar_tabbar"
+    ],
+    "71": [
       "src_components_terminalminimap_tsx",
       "terminalminimap_flattenlayout"
     ],
-    "54": [
+    "72": [
+      "src_components_terminaltab_tsx",
+      "terminaltab_terminaltab"
+    ],
+    "73": [
+      "src_components_weeklyreviewcard_tsx",
+      "weeklyreviewcard_weeklyreviewcard"
+    ],
+    "74": [
       "designcomposeoutlet_handlecopy",
       "src_components_workspace_designcomposeoutlet_tsx"
     ],
-    "55": [
+    "75": [
       "src_hooks_useterminallayout_ts",
       "useterminallayout_useterminallayout"
     ],
-    "56": [
+    "76": [
+      "sessionresolution_resolvesessionforcheck",
+      "src_lib_sessionresolution_ts"
+    ],
+    "77": [
       "idehelppage_handlekeydown",
       "src_pages_idehelppage_tsx"
     ],
-    "57": [
+    "78": [
       "check_db_js"
     ],
-    "58": [
+    "79": [
       "electron_vite_config_ts"
     ],
-    "59": [
+    "80": [
       "eslint_config_js"
     ],
-    "60": [
+    "81": [
       "migrate_fixed_mjs"
     ],
-    "61": [
+    "82": [
       "migrate_sqlite_to_json_sqljs_mjs"
     ],
-    "62": [
+    "83": [
       "migrate_sqlite_to_json_js"
     ],
-    "63": [
+    "84": [
       "migrate_sqlite_to_json_mjs"
     ],
-    "64": [
+    "85": [
       "vite_config_ts"
     ],
-    "65": [
+    "86": [
       "agent_docs_externalpage_insights_ideas_27042026_types_ts"
     ],
-    "66": [
+    "87": [
       "agent_docs_frontend_design_skills_25052026_ui_ux_workspace_infrastructure_src_contextconfig_ts"
     ],
-    "67": [
+    "88": [
+      "agent_docs_model_improvements_verification_model_dashboard_ipc_additions_ts"
+    ],
+    "89": [
       "src_node_pty_d_ts"
     ],
-    "68": [
+    "90": [
+      "src_components_aibriefcard_tsx"
+    ],
+    "91": [
       "src_components_contextsidebar_tsx"
     ],
-    "69": [
+    "92": [
+      "src_components_emptystate_tsx"
+    ],
+    "93": [
+      "src_components_routingdisambiguationdialog_tsx"
+    ],
+    "94": [
+      "src_components_sectionheader_tsx"
+    ],
+    "95": [
+      "src_components_statcard_tsx"
+    ],
+    "96": [
+      "src_components_topicdigestcard_tsx"
+    ],
+    "97": [
       "src_components_tutorialoverlay_tsx"
     ],
-    "70": [
+    "98": [
       "src_components_context_ui_compactionspanel_tsx"
     ],
-    "71": [
+    "99": [
       "src_components_context_ui_contextsearchbar_tsx"
     ],
-    "72": [
+    "100": [
       "src_components_workspace_styledescription_tsx"
     ],
-    "73": [
+    "101": [
+      "src_pages_databasepage_tsx"
+    ],
+    "102": [
       "src_services_contextconfig_ts"
     ],
-    "74": [
+    "103": [
       "src_types_context_ts"
     ],
-    "75": [
+    "104": [
       "src_types_skillplugin_ts"
     ]
   },
   "cohesion": {
-    "0": 0.06,
-    "1": 0.05,
-    "2": 0.08,
-    "3": 0.07,
-    "4": 0.12,
-    "5": 0.08,
-    "6": 0.09,
-    "7": 0.13,
-    "8": 0.13,
-    "9": 0.13,
-    "10": 0.22,
-    "11": 0.38,
-    "12": 0.12,
-    "13": 0.12,
-    "14": 0.3,
-    "15": 0.14,
-    "16": 0.28,
-    "17": 0.33,
+    "0": 0.04,
+    "1": 0.03,
+    "2": 0.04,
+    "3": 0.05,
+    "4": 0.08,
+    "5": 0.05,
+    "6": 0.08,
+    "7": 0.11,
+    "8": 0.2,
+    "9": 0.09,
+    "10": 0.13,
+    "11": 0.19,
+    "12": 0.13,
+    "13": 0.38,
+    "14": 0.19,
+    "15": 0.27,
+    "16": 0.14,
+    "17": 0.18,
     "18": 0.18,
-    "19": 0.18,
-    "20": 0.27,
-    "21": 0.22,
-    "22": 0.22,
-    "23": 0.32,
-    "24": 0.29,
-    "25": 0.33,
-    "26": 0.5,
-    "27": 0.6,
-    "28": 0.6,
-    "29": 0.7,
-    "30": 0.5,
-    "31": 0.5,
+    "19": 0.27,
+    "20": 0.22,
+    "21": 0.33,
+    "22": 0.33,
+    "23": 0.33,
+    "24": 0.5,
+    "25": 0.4,
+    "26": 0.4,
+    "27": 0.4,
+    "28": 0.5,
+    "29": 0.5,
+    "30": 0.6,
+    "31": 0.6,
     "32": 0.5,
-    "33": 0.5,
+    "33": 0.67,
     "34": 0.5,
-    "35": 0.67,
-    "36": 0.67,
+    "35": 0.5,
+    "36": 0.5,
     "37": 0.5,
-    "38": 0.67,
+    "38": 0.5,
     "39": 0.67,
     "40": 0.67,
-    "41": 0.67,
+    "41": 0.5,
     "42": 0.67,
     "43": 0.67,
     "44": 0.67,
-    "45": 0.67,
-    "46": 0.67,
+    "45": 1.0,
+    "46": 1.0,
     "47": 0.67,
     "48": 0.67,
     "49": 0.67,
     "50": 0.67,
     "51": 1.0,
-    "52": 1.0,
+    "52": 0.67,
     "53": 1.0,
     "54": 1.0,
     "55": 1.0,
@@ -904,18 +1200,52 @@
     "72": 1.0,
     "73": 1.0,
     "74": 1.0,
-    "75": 1.0
+    "75": 1.0,
+    "76": 1.0,
+    "77": 1.0,
+    "78": 1.0,
+    "79": 1.0,
+    "80": 1.0,
+    "81": 1.0,
+    "82": 1.0,
+    "83": 1.0,
+    "84": 1.0,
+    "85": 1.0,
+    "86": 1.0,
+    "87": 1.0,
+    "88": 1.0,
+    "89": 1.0,
+    "90": 1.0,
+    "91": 1.0,
+    "92": 1.0,
+    "93": 1.0,
+    "94": 1.0,
+    "95": 1.0,
+    "96": 1.0,
+    "97": 1.0,
+    "98": 1.0,
+    "99": 1.0,
+    "100": 1.0,
+    "101": 1.0,
+    "102": 1.0,
+    "103": 1.0,
+    "104": 1.0
   },
   "gods": [
+    {
+      "id": "problemsservice_problemsservice",
+      "label": "ProblemsService",
+      "degree": 23
+    },
     {
       "id": "workspaceregistry_workspaceregistryservice",
       "label": "WorkspaceRegistryService",
       "degree": 23
     },
     {
-      "id": "problemsservice_problemsservice",
-      "label": "ProblemsService",
-      "degree": 19
+      "id": "requestsservice_requestsservice",
+      "label": "RequestsService",
+      "degree": 20
     },
     {
       "id": "ragservice_ragservice",
@@ -925,12 +1255,7 @@
     {
       "id": "contextservice_assemblecontext",
       "label": "assembleContext()",
-      "degree": 16
-    },
-    {
-      "id": "requestsservice_requestsservice",
-      "label": "RequestsService",
-      "degree": 16
+      "degree": 15
     },
     {
       "id": "contextservice_readfile",
@@ -948,28 +1273,17 @@
       "degree": 13
     },
     {
-      "id": "checklistservice_checklistservice",
-      "label": "ChecklistService",
+      "id": "main_parseandexecuteactions",
+      "label": "parseAndExecuteActions()",
       "degree": 12
     },
     {
-      "id": "skillsservice_skillsservice",
-      "label": "SkillsService",
-      "degree": 10
+      "id": "durationpicker_sethours",
+      "label": "setHours()",
+      "degree": 11
     }
   ],
   "surprises": [
-    {
-      "source": "buildPreview()",
-      "target": "assembleContext()",
-      "source_files": [
-        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\components\\NewSessionDialog.tsx",
-        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\services\\ContextService.ts"
-      ],
-      "confidence": "INFERRED",
-      "relation": "calls",
-      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities; peripheral node `buildPreview()` unexpectedly reaches hub `assembleContext()`"
-    },
     {
       "source": "loadData()",
       "target": "getLogs()",
@@ -1002,6 +1316,17 @@
       "confidence": "INFERRED",
       "relation": "calls",
       "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; peripheral node `cleanCorruptedData()` unexpectedly reaches hub `getLogs()`"
+    },
+    {
+      "source": "buildHourlyHeatmap()",
+      "target": "setHours()",
+      "source_files": [
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\main.ts",
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\components\\DurationPicker.tsx"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
     },
     {
       "source": "computeBrowserDateRange()",

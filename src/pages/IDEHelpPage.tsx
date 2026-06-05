@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Monitor,
@@ -52,6 +52,9 @@ import {
   ChevronLeft,
   Keyboard,
 } from 'lucide-react';
+import { PageShell } from '../components/PageShell';
+import { GlassCard } from '../components/GlassCard';
+import { SectionHeader } from '../components/SectionHeader';
 
 interface HelpItem {
   id: string;
@@ -223,18 +226,10 @@ export default function IDEHelpPage() {
     : HELP_ITEMS;
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="glass rounded-3xl p-6 mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <BookOpen className="w-6 h-6 text-indigo-400" />
-          <h2 className="text-xl font-semibold">IDE Projects Help</h2>
-        </div>
-        <p className="text-zinc-400 text-sm">
-          Learn how to use IDE Projects, track AI agents, and monitor your development workflow.
-        </p>
-      </div>
+    <PageShell page="ide" variant="default">
+      <SectionHeader title="IDE Projects Help" icon={<BookOpen className="w-5 h-5" />} />
 
-      <div className="flex gap-4 mb-6">
+      <div className="flex gap-4 mb-6 flex-wrap">
         <button
           onClick={() => setSelectedCategory(null)}
           className={`px-4 py-2 rounded-xl text-sm transition ${
@@ -263,52 +258,52 @@ export default function IDEHelpPage() {
 
       <div className="flex-1 overflow-auto space-y-3">
         {filteredItems.map((item) => (
-          <motion.div
-            key={item.id}
-            className="glass rounded-2xl overflow-hidden"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <button
-              onClick={() => setExpandedItem(expandedItem === item.id ? null : item.id)}
-              className="w-full p-4 flex items-start gap-4 text-left hover:bg-zinc-800/30 transition"
+          <GlassCard key={item.id} variant="interactive" className="overflow-hidden p-0">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
             >
-              <div className={`p-2 rounded-lg bg-zinc-800 ${item.category === 'ai' ? 'text-cyan-400' : item.category === 'troubleshooting' ? 'text-red-400' : 'text-indigo-400'}`}>
-                <item.icon className="w-5 h-5" />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-medium">{item.title}</h3>
-                  {expandedItem === item.id ? (
-                    <ChevronDown className="w-4 h-4 text-zinc-500" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 text-zinc-500" />
-                  )}
+              <button
+                onClick={() => setExpandedItem(expandedItem === item.id ? null : item.id)}
+                className="w-full p-4 flex items-start gap-4 text-left hover:bg-zinc-800/30 transition-colors"
+              >
+                <div className={`p-2 rounded-lg bg-zinc-800 ${item.category === 'ai' ? 'text-cyan-400' : item.category === 'troubleshooting' ? 'text-red-400' : 'text-indigo-400'}`}>
+                  <item.icon className="w-5 h-5" />
                 </div>
-                <p className="text-zinc-400 text-sm">{item.description}</p>
-              </div>
-            </button>
-            
-            <AnimatePresence>
-              {expandedItem === item.id && item.details && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="border-t border-zinc-800"
-                >
-                  <div className="p-4 pt-2 space-y-2">
-                    {item.details.map((detail, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-sm">
-                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-600 mt-1.5 flex-shrink-0" />
-                        <span className="text-zinc-300">{detail}</span>
-                      </div>
-                    ))}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="font-medium">{item.title}</h3>
+                    {expandedItem === item.id ? (
+                      <ChevronDown className="w-4 h-4 text-zinc-500" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-zinc-500" />
+                    )}
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
+                  <p className="text-zinc-400 text-sm">{item.description}</p>
+                </div>
+              </button>
+
+              <AnimatePresence>
+                {expandedItem === item.id && item.details && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="border-t border-zinc-800"
+                  >
+                    <div className="p-4 pt-2 space-y-2">
+                      {item.details.map((detail, idx) => (
+                        <div key={idx} className="flex items-start gap-2 text-sm">
+                          <div className="w-1.5 h-1.5 rounded-full bg-zinc-600 mt-1.5 flex-shrink-0" />
+                          <span className="text-zinc-300">{detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          </GlassCard>
         ))}
       </div>
 
@@ -318,6 +313,6 @@ export default function IDEHelpPage() {
           <span>Press Esc to close this help panel</span>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

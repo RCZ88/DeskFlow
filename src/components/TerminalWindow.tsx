@@ -34,7 +34,7 @@ export interface PaneNode {
   terminalId?: string;
   direction?: 'horizontal' | 'vertical';
   splitRatio?: number;
-  children?: [PaneNode, PaneNode];
+  children?: PaneNode[];
 }
 
 interface TerminalPaneProps {
@@ -69,10 +69,7 @@ export function replaceLeafTerminalId(node: PaneNode, targetId: string, newId: s
   }
   return {
     ...node,
-    children: [
-      replaceLeafTerminalId(node.children![0], targetId, newId),
-      replaceLeafTerminalId(node.children![1], targetId, newId),
-    ],
+    children: node.children!.map(c => replaceLeafTerminalId(c, targetId, newId)),
   };
 }
 
@@ -81,13 +78,20 @@ export function findLeafById(node: PaneNode | null, id: string | null): PaneNode
   if (node.type === 'leaf') {
     return node.terminalId === id ? node : null;
   }
-  const [left, right] = node.children!;
-  return findLeafById(left, id) || findLeafById(right, id);
+  for (const child of node.children!) {
+    const found = findLeafById(child, id);
+    if (found) return found;
+  }
+  return null;
 }
 
 function findFirstLeaf(node: PaneNode): PaneNode | null {
   if (node.type === 'leaf') return node;
-  return findFirstLeaf(node.children![0]) || findFirstLeaf(node.children![1]);
+  for (const child of node.children!) {
+    const found = findFirstLeaf(child);
+    if (found) return found;
+  }
+  return null;
 }
 
 function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose, onFocus, agentStatus, onRetryInit }: TerminalPaneProps) {
@@ -126,13 +130,26 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
       fontFamily: 'Consolas, "Courier New", monospace',
       fontSize: 14,
       cursorBlink: true,
+      scrollback: 5000,
+      cursorStyle: 'bar',
     });
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
     terminal.open(containerRef.current);
-    requestAnimationFrame(() => fitAddon.fit());
+
+    const tryFit = () => {
+      if (containerRef.current && containerRef.current.clientWidth > 0 && containerRef.current.clientHeight > 0) {
+        fitAddon.fit();
+      } else {
+        requestAnimationFrame(tryFit);
+      }
+    };
+    requestAnimationFrame(tryFit);
+    setTimeout(() => {
+      if (fitAddonRef.current) fitAddonRef.current.fit();
+    }, 300);
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -247,8 +264,9 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={() => onFocus(terminalId)}
+      data-terminal-id={terminalId}
     >
-      <style>{`.xterm-helper-textarea { display: none !important; }`}</style>
+      <style>{`.xterm-helper-textarea { position: absolute !important; top: -9999px !important; left: -9999px !important; opacity: 0 !important; width: 1px !important; height: 1px !important; overflow: hidden !important; z-index: -1 !important; }`}</style>
       {isHovered && (
         <div className="absolute top-2 right-2 flex gap-1 z-10">
           <button
@@ -333,8 +351,8 @@ function SplitHandle({ direction, onDrag }: { direction: 'horizontal' | 'vertica
 
 export function getLeafIds(node: PaneNode): string[] {
   if (node.type === 'leaf') return node.terminalId ? [node.terminalId] : [];
-  if (!node.children || node.children.length < 2) return [];
-  return [...getLeafIds(node.children[0]), ...getLeafIds(node.children[1])];
+  if (!node.children || node.children.length === 0) return [];
+  return node.children.flatMap(getLeafIds);
 }
 
 function PaneRenderer({
@@ -376,40 +394,30 @@ function PaneRenderer({
   }
 
   const dir = node.direction || 'vertical';
-  const ratio = node.splitRatio || 0.5;
   const flexDir = dir === 'horizontal' ? 'flex-row' : 'flex-col';
+  const children = node.children || [];
 
   return (
     <div className={`flex ${flexDir} w-full h-full`}>
-      <div style={{ flex: ratio }}>
-        <PaneRenderer
-          node={node.children![0]}
-          activeTerminalId={activeTerminalId}
-          onTerminalReady={onTerminalReady}
-          onSplit={onSplit}
-          onClose={onClose}
-          onFocus={onFocus}
-          onDragHandle={onDragHandle}
-          path={[...path, 0]}
-          agentStatuses={agentStatuses}
-          onRetryInit={onRetryInit}
-        />
-      </div>
-      <SplitHandle direction={dir} onDrag={(delta) => onDragHandle(path, delta)} />
-      <div style={{ flex: 1 - ratio }}>
-        <PaneRenderer
-          node={node.children![1]}
-          activeTerminalId={activeTerminalId}
-          onTerminalReady={onTerminalReady}
-          onSplit={onSplit}
-          onClose={onClose}
-          onFocus={onFocus}
-          onDragHandle={onDragHandle}
-          path={[...path, 1]}
-          agentStatuses={agentStatuses}
-          onRetryInit={onRetryInit}
-        />
-      </div>
+      {children.map((child, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <SplitHandle direction={dir} onDrag={(delta) => onDragHandle(path, delta)} />}
+          <div className="min-h-0 overflow-hidden" style={{ flex: 1 }}>
+            <PaneRenderer
+              node={child}
+              activeTerminalId={activeTerminalId}
+              onTerminalReady={onTerminalReady}
+              onSplit={onSplit}
+              onClose={onClose}
+              onFocus={onFocus}
+              onDragHandle={onDragHandle}
+              path={[...path, i]}
+              agentStatuses={agentStatuses}
+              onRetryInit={onRetryInit}
+            />
+          </div>
+        </React.Fragment>
+      ))}
     </div>
   );
 }
@@ -432,9 +440,17 @@ export function TerminalLayout({
       const { terminalId } = e.detail as { terminalId: string };
       spawnedTerminalsRef.current.delete(terminalId);
     };
+    const handleMarkSpawned = (e: CustomEvent) => {
+      const { terminalId } = e.detail as { terminalId: string };
+      if (terminalId) spawnedTerminalsRef.current.add(terminalId);
+    };
 
     window.addEventListener('terminal-cleanup', handleCleanup as EventListener);
-    return () => window.removeEventListener('terminal-cleanup', handleCleanup as EventListener);
+    window.addEventListener('terminal:mark-spawned', handleMarkSpawned as EventListener);
+    return () => {
+      window.removeEventListener('terminal-cleanup', handleCleanup as EventListener);
+      window.removeEventListener('terminal:mark-spawned', handleMarkSpawned as EventListener);
+    };
   }, []);
 
   const handleSplit = useCallback((terminalId: string, direction: 'horizontal' | 'vertical') => {
@@ -512,16 +528,14 @@ export function TerminalLayout({
   );
 }
 
-export function removePane(layout: PaneNode, terminalId: string): PaneNode {
+export function removePane(layout: PaneNode, terminalId: string): PaneNode | null {
   if (layout.type === 'leaf') {
-    return layout.terminalId === terminalId ? null! : layout;
+    return layout.terminalId === terminalId ? null : layout;
   }
-  const [left, right] = layout.children!;
-  const newLeft = removePane(left, terminalId);
-  const newRight = removePane(right, terminalId);
-  if (!newLeft) return newRight;
-  if (!newRight) return newLeft;
-  return { ...layout, children: [newLeft, newRight] };
+  const newChildren = layout.children!.map(c => removePane(c, terminalId)).filter((c): c is PaneNode => c !== null);
+  if (newChildren.length === 0) return null;
+  if (newChildren.length === 1) return newChildren[0];
+  return { ...layout, children: newChildren };
 }
 
 export function splitPane(layout: PaneNode, targetId: string, newTerminalId: string, direction: 'horizontal' | 'vertical'): PaneNode {
@@ -531,8 +545,7 @@ export function splitPane(layout: PaneNode, targetId: string, newTerminalId: str
     }
     return layout;
   }
-  const [left, right] = layout.children!;
-  return { ...layout, children: [splitPane(left, targetId, newTerminalId, direction), splitPane(right, targetId, newTerminalId, direction)] };
+  return { ...layout, children: layout.children!.map(c => splitPane(c, targetId, newTerminalId, direction)) };
 }
 
 export function findGroupIndex(layouts: PaneNode[], terminalId: string): number {
@@ -556,15 +569,40 @@ export function removeFromLayouts(layouts: PaneNode[], terminalId: string): Pane
     .filter((l): l is PaneNode => l !== null);
 }
 
-export function insertIntoLayout(layout: PaneNode | null, newTerminalId: string, targetId?: string): PaneNode {
+export function insertIntoLayout(layout: PaneNode | null, newTerminalId: string): PaneNode {
   if (!layout) {
     return { type: 'leaf', terminalId: newTerminalId };
   }
-  const target = targetId || findFirstLeaf(layout)?.terminalId;
-  if (target) {
-    return splitPane(layout, target, newTerminalId, 'vertical');
+  if (layout.type === 'split') {
+    return {
+      ...layout,
+      children: [...layout.children!, { type: 'leaf', terminalId: newTerminalId }]
+    };
   }
-  return { type: 'leaf', terminalId: newTerminalId };
+  return {
+    type: 'split',
+    direction: 'vertical',
+    splitRatio: 0.5,
+    children: [layout, { type: 'leaf', terminalId: newTerminalId }]
+  };
+}
+
+export function getGroupTrees(layout: PaneNode | null): PaneNode[] {
+  if (!layout) return [];
+  if (layout.type === 'leaf') return [layout];
+  return layout.children!;
+}
+
+export function updateGroupTree(layout: PaneNode, groupIndex: number, newGroupTree: PaneNode): PaneNode {
+  if (layout.type === 'leaf' && groupIndex === 0) return newGroupTree;
+  if (layout.type === 'split' && layout.children) {
+    const children = [...layout.children];
+    if (groupIndex < children.length) {
+      children[groupIndex] = newGroupTree;
+    }
+    return { ...layout, children };
+  }
+  return layout;
 }
 
 export function toggleSplitDirection(node: PaneNode, path: number[]): PaneNode {
@@ -575,12 +613,10 @@ export function toggleSplitDirection(node: PaneNode, path: number[]): PaneNode {
     return node;
   }
   if (node.type === 'split' && node.children) {
+    const idx = path[0];
     return {
       ...node,
-      children: [
-        path[0] === 0 ? toggleSplitDirection(node.children[0], path.slice(1)) : node.children[0],
-        path[0] === 1 ? toggleSplitDirection(node.children[1], path.slice(1)) : node.children[1],
-      ],
+      children: node.children.map((c, i) => i === idx ? toggleSplitDirection(c, path.slice(1)) : c),
     };
   }
   return node;
@@ -593,14 +629,10 @@ function adjustSplitRatio(layout: PaneNode, path: number[], delta: number): Pane
     const adjustment = delta * 0.001;
     return { ...layout, splitRatio: Math.max(0.1, Math.min(0.9, currentRatio + adjustment)) };
   }
-  const [left, right] = layout.children!;
-  const nextIndex = path[0];
+  const idx = path[0];
   return {
     ...layout,
-    children: [
-      nextIndex === 0 ? adjustSplitRatio(left, path.slice(1), delta) : left,
-      nextIndex === 1 ? adjustSplitRatio(right, path.slice(1), delta) : right,
-    ],
+    children: layout.children!.map((c, i) => i === idx ? adjustSplitRatio(c, path.slice(1), delta) : c),
   };
 }
 

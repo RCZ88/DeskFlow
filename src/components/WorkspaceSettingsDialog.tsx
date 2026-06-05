@@ -503,7 +503,7 @@ export default function WorkspaceSettingsDialog({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ duration: 0.2 }}
-        className="bg-zinc-800 rounded-xl border border-zinc-700 shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col"
+        className="bg-zinc-800 rounded-xl border border-zinc-700 w-full max-w-lg max-h-[85vh] flex flex-col"
       >
         <div className="flex-shrink-0 flex items-center justify-between p-5 pb-3 border-b border-zinc-700/50">
           <div className="flex items-center gap-2.5">

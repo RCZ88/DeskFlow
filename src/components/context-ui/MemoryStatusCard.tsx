@@ -11,6 +11,7 @@
 
 import React from 'react';
 import { TrendingUp } from 'lucide-react';
+import { GlassCard } from '../GlassCard';
 
 import type { MemoryStatusCardProps } from '@/types/context';
 
@@ -40,61 +41,61 @@ export const MemoryStatusCard: React.FC<MemoryStatusCardProps> = ({
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 space-y-4">
+    <GlassCard className="p-2 space-y-2">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-gray-300 uppercase">Memory Status</h3>
-        <TrendingUp size={14} className="text-gray-500" />
+        <h3 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Memory Status</h3>
+        <TrendingUp size={12} className="text-zinc-600" />
       </div>
 
       {/* Project Context Usage */}
-      <div className="space-y-2">
+      <div className="space-y-1">
         <div className="flex justify-between items-baseline">
-          <span className="text-xs text-gray-400">Project Context</span>
-          <div className={`px-2 py-0.5 rounded text-xs font-mono ${getUsageColor(projectPercent)}`}>
+          <span className="text-[10px] text-zinc-500">Project Context</span>
+          <div className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${getUsageColor(projectPercent)}`}>
             {projectContextUsage.tokens} / {projectContextUsage.max}
           </div>
         </div>
-        <div className="w-full bg-gray-700 rounded-full h-2.5">
+        <div className="w-full bg-zinc-800 rounded-full h-1.5">
           <div
-            className={`${getProgressColor(projectPercent)} h-2.5 rounded-full transition-all duration-300`}
+            className={`${getProgressColor(projectPercent)} h-1.5 rounded-full transition-all duration-300`}
             style={{ width: `${Math.min(projectPercent, 100)}%` }}
           />
         </div>
-        <p className="text-xs text-gray-500">{projectPercent.toFixed(0)}% utilized</p>
+        <p className="text-[10px] text-zinc-600">{projectPercent.toFixed(0)}% utilized</p>
       </div>
 
       {/* Session Context Usage */}
-      <div className="space-y-2">
+      <div className="space-y-1">
         <div className="flex justify-between items-baseline">
-          <span className="text-xs text-gray-400">Session Context</span>
-          <div className={`px-2 py-0.5 rounded text-xs font-mono ${getUsageColor(sessionPercent)}`}>
+          <span className="text-[10px] text-zinc-500">Session Context</span>
+          <div className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${getUsageColor(sessionPercent)}`}>
             {sessionContextUsage.tokens} / {sessionContextUsage.max}
           </div>
         </div>
-        <div className="w-full bg-gray-700 rounded-full h-2.5">
+        <div className="w-full bg-zinc-800 rounded-full h-1.5">
           <div
-            className={`${getProgressColor(sessionPercent)} h-2.5 rounded-full transition-all duration-300`}
+            className={`${getProgressColor(sessionPercent)} h-1.5 rounded-full transition-all duration-300`}
             style={{ width: `${Math.min(sessionPercent, 100)}%` }}
           />
         </div>
-        <p className="text-xs text-gray-500">{sessionPercent.toFixed(0)}% utilized</p>
+        <p className="text-[10px] text-zinc-600">{sessionPercent.toFixed(0)}% utilized</p>
       </div>
 
       {/* RAG Index Stats */}
-      <div className="pt-3 border-t border-gray-700 grid grid-cols-2 gap-3">
+      <div className="pt-2 border-t border-zinc-700/50 grid grid-cols-2 gap-2">
         <div>
-          <p className="text-xs text-gray-400 mb-1">Total Messages</p>
-          <p className="text-lg font-semibold text-indigo-400">{ragIndexStats.totalMessages}</p>
+          <p className="text-[10px] text-zinc-600 mb-0.5">Total Messages</p>
+          <p className="text-sm font-semibold text-violet-400">{ragIndexStats.totalMessages}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-400 mb-1">Last Updated</p>
-          <p className="text-xs text-gray-300 font-mono">
+          <p className="text-[10px] text-zinc-600 mb-0.5">Last Updated</p>
+          <p className="text-[10px] text-zinc-400 font-mono">
             {ragIndexStats.lastUpdated.toLocaleTimeString()}
           </p>
         </div>
       </div>
-    </div>
+    </GlassCard>
   );
 };
 
