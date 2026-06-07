@@ -1,0 +1,98 @@
+feat: AiPage revamp with planning.md integration, context management, checklist parsing; design library integration; IDE projects; external providers
+
+## AiPage — Multi-Provider AI Continuation (v4.40)
+
+- **Cleanup:** Deleted AiBriefCard, WeeklyReviewCard, PatternCard, SleepCard components. Removed 6 dead AI methods from AIService.ts (`generateDailyBrief`, `generateWeeklyReview`, `checkAnomalies`, `analyzePatterns`, `analyzeSleep`, `dataChatQuery`) and their main.ts handlers + 7 preload bridges + App.tsx types. Fixed GlassCard accent API (`'pink' | 'amber' | 'none'`, top stripe, p-4). Fixed `suggest-goals` fallback with direct OpenRouter call (`src/services/AIService.ts`, `src/main.ts`, `src/preload.ts`, `src/App.tsx`, `src/components/GlassCard.tsx`)
+
+- **AiPage revamp:** Created MarkdownPreview.tsx (regex markdown renderer). Rewrote DailyPlanCard.tsx (props-driven morning/in-progress/review mode state machine, Accept/Dismiss suggestions, toggle completion, feedback input, GlassCard accent="pink"). Rewrote GoalHistoryCard.tsx (expanding rows, accent="pink"). Restyled TopicDigestCard.tsx (pink stripe, removed inline rgba). Created ContextSummaryCard.tsx. Rewrote AiPage.tsx (three-column grid: LEFT: DailyPlanCard + TopicDigestCard, RIGHT: MyPlanCard + GoalHistoryCard + ContextSummaryCard; mode detection, goal loading, context assembly) (`src/pages/AiPage.tsx`, `src/components/DailyPlanCard.tsx`, `src/components/GoalHistoryCard.tsx`, `src/components/TopicDigestCard.tsx`, `src/components/ContextSummaryCard.tsx`, `src/components/MarkdownPreview.tsx`)
+
+- **planning.md integration:** Added `read-planning-md` and `write-planning-md` IPC handlers + preload bridges + App.tsx types. Created MyPlanCard.tsx (edit/preview toggle, 1s debounce auto-save with "Saved"/"Saving…"/"Unsaved changes" indicator, GlassCard accent="amber"). Extended `suggest-goals` and `review-goals` handlers to accept optional `GoalPromptContext` with planning content + stats context (`src/main.ts`, `src/preload.ts`, `src/App.tsx`, `src/components/MyPlanCard.tsx`)
+
+- **Context management:** Extended GoalStore.ts (`GoalDayContext`, `unfinishedFromYesterday`, `recentlyCompletedTitles`, `saveGoal`). Added `get-goal-context` IPC handler + preload bridge. Wired context assembly in AiPage's handleSuggest (`src/services/GoalStore.ts`, `src/main.ts`, `src/preload.ts`, `src/pages/AiPage.tsx`)
+
+- **Checklist parsing & feedback loop:** Created `src/services/planningParser.ts` (`parseChecklist` — parses `- [ ]`/`- [x]` markdown checklists with optional time estimates). Added `parse-goal-feedback` IPC handler + preload bridge + App.tsx type. Wired checklist parsing: AiPage parses planning.md on mount, passes `planGoals` to DailyPlanCard which renders "From your plan" section in morning mode (`src/services/planningParser.ts`, `src/main.ts`, `src/preload.ts`, `src/App.tsx`, `src/pages/AiPage.tsx`, `src/components/DailyPlanCard.tsx`)
+
+## Design Library Integration (v4.36-v4.39)
+
+- **MCP JSON-RPC protocol** — Full bidirectional stdio protocol: initialize handshake, tools/list, tools/call, stdout parsing, error handling, 30s timeout (`src/main.ts`)
+- **8 new IPC endpoints** — mcp-server-status, fetch-refero-catalog, fetch-refero-system, search-refero-systems, get/set-design-library-config, get-design-cached-data, test-design-library-connection
+- **3 new components** — DesignLibrarySources.tsx (3 source cards with status, Connect/Disconnect, 3-dot dropdown), ComponentBrowserModal.tsx (search/browse/add with category pills, detail fetch), LibraryConfigModal.tsx (all-3-sources config with IPC persistence, API keys, MCP command, live start/stop/status)
+- **Color scheme presets** — 6 built-in schemes (Galaxy Dark, Cyberpunk, Warm Earth, Ocean, Minimal Light, Sunset) with visual color swatches + JSON import panel (`src/components/workspace/ColorPicker.tsx`)
+- **Style description presets** — 12 categorized presets in 4 groups (Dark, Light, Vibrant, Minimal) + "Suggestions" toggle panel (`src/components/workspace/StyleDescription.tsx`)
+- **Wire fixes** — Configure button actually opens modal, config persistence via IPC, all-3-sources config modal, detail fetch on component expand, periodic status polling every 10s (`src/pages/DesignWorkspacePage.tsx`)
+- **DesignComposeOutlet** — Source attribution badges + imported count badge
+- **Color theme presets modal** + **KnobSlider** + **GeneralistDialog** — UI polish for design workspace
+
+## IDE Projects Revamp
+
+- **Initialize flow** — InitializeProgressModal with grouped directory layout (agent/, agent/skills/, graphify-out/), per-group counters, expandable file previews with AnimatePresence, "Workspace Ready" green summary card, error retry
+- **Setup workspace settings** — WorkspaceSettingsDialog with system toggles and sliders, persists across sessions
+- **New Agent button** — Opens NewSessionDialog pre-populated from workspace settings
+- **IDEProjectsPage** — Full rewrite with project cards, direct connection/disconnect, directory scanning, skill management
+
+## External Page & External Provider Research
+
+- **External page period selector** — today/week/month/all controls stats and charts
+- **Sleep chart respects period** — Shows correct number of days (1/7/30/90) for Sleep Trends
+- **Weekly Overview styling** — Rounded bar corners, total hours below chart
+- **Always-visible timer** — Shows "00:00:00" with "Click to start tracking" when no activity running
+- **External provider research** — Documentation for integrating external time tracking providers
+
+## Terminal & Insights
+
+- **Compose panel fix** — pendingWrites flush when agent transitions launching → ready, agent:send DB recording with terminal_messages + ai-task:updated broadcast
+- **Instruction panel** — handleInstructionPanelSend uses agentSend instead of terminalWrite, queues during launching, sets busy phase
+- **Insights typical day** — Respects selected period & dateOffset, fixed tooltip hover position, sleep trend labels respect dateOffset
+- **Settings page** — Category items centered in External/Applications/Websites
+- **Dashboard** — Stats cards, pinned activities, activity feed
+- **Performance** — Covering composite indexes for stats_hourly/stats_daily, get-daily-aggregates LIMIT 3650, allLogs fingerprint guard
+
+## Multi-Provider AI System
+
+- **Multi-provider architecture** — Provider chain with fallback routing, OpenRouter integration, provider config UI
+- **New services** — callProvider.ts, router.ts, templates.ts, types.ts
+- **AI config/sync** — get/set-ai-config, get-ai-providers, sync-ai-usage, test-ai-provider, test-openrouter-key IPC endpoints
+
+## Other Changes
+
+- **Graphify** — Rebuilt knowledge graph with updated community structure and analysis
+- **Agent docs** — New research/implementation docs for all major features
+- **opencode.json** — Updated agent configuration
+- **package.json** — Updated dependencies
+- **fix-cjs-requires.cjs** — Utility for fixing CJS require paths in compiled output
+- **agent/skills/commit/SKILL.md** — Updated commit workflow
+- **agent/state.md** — Updated with all changes through v4.40
+- **agent/data.md** — Updated IPC endpoint reference
+- **agent/debugging.md** — Added new debugging patterns
+- **agent/PROBLEMS.md** — Updated issue tracker
+
+## "All Time" Fixes & Detail Popup Period Controls
+
+- **getLogs limit** — 5000→100000 rows, removed 730-day window. Fixes apps "all time" showing ~72h instead of ~224h (`src/main.ts`)
+- **getBrowserLogs LIMIT 200 removed** — All rows returned for proper monthly chart aggregation (`src/main.ts`)
+- **BrowserActivityPage auto-refresh** — Skipped for 'all' period to prevent 10s re-fetches (`src/pages/BrowserActivityPage.tsx`)
+- **StatsPage detail popup** — `allLogs` prop, independent `detailPeriod`/`detailDateOffset` state, period selector + prev/next arrows, detail-local daily/hourly charts (`src/pages/StatsPage.tsx`, `src/App.tsx`)
+- **BrowserActivityPage detail popup** — `allLogs` prop, independent `detailPeriod`/`detailDateOffset` state, period selector + prev/next arrows, daily usage bar chart (`src/pages/BrowserActivityPage.tsx`, `src/App.tsx`)
+- **ProductivityPage** — `segmentHourStart` uses `range.start` instead of `now` (`src/pages/ProductivityPage.tsx`)
+- **agent/state.md** — Updated with v4.40 entry
+
+## Insights Time Distribution Revamp
+
+- **Split bar** — Cyan/purple → teal/violet gradients, framer-motion animated width (0→target, 0.8s), glass texture overlay with repeating-linear-gradient, backdrop-blur-sm, shadow-inner container, glow-shadowed legend
+- **Stat cards** — backdrop-blur-xl glass morphism, gradient icon containers with shadow-lg, hover border highlight, animated entry (opacity/y), mini progress bars with percentage labels
+- **Productivity gauge** — Flat score bar replaced with circular SVG gauge (rose→amber→emerald gradient ring, animated strokeDashoffset 1.2s), compact tier list with glow-dot indicators and percentage labels
+
+## Sleep Chart Date Fixes & AFK Popup Improvements
+
+- **Sleep detection on startup** — Extracted `checkSleepGap()` at `src/main.ts`, called explicitly after window creation (not dependent on `focus` event which never fires if window already focused). Fixes sleep popup never appearing on cold start.
+- **Sleep detection guards** — Added 16-hour max gap limit (prevents multi-day non-use from false detection). Fixed condition to accept gaps where either end falls within sleep hours (21:00-10:00), reverting over-strict `bothNearSleep` check that rejected 20:00→08:00 gaps.
+- **Fixed `waketime_minutes is not defined`** in `ExternalPage.tsx:1609` — tooltip used undefined variables instead of local `wakeMin`/`appExitMin`.
+- **Add Session modal confusion** — Duration picker sat on right side of `→` arrow, looking like an end time field. Added live end time preview (`Session: 17:00 → 19:00`), label changed to `Duration (not end time)`.
+- **`manualSessionDate` UTC bug** — `new Date().toISOString().split('T')[0]` gave UTC date. Changed to local date via `getFullYear()/getMonth()/getDate()`. Fixes "Add Session" showing wrong date near midnight.
+- **`toLocalDate` in `get-sleep-trends`** — Changed from `iso.split('T')[0]` (UTC date) to `new Date(iso).getFullYear()/getMonth()/getDate()` (local date). Fixes chart bars labeled with UTC date instead of local bedtime date.
+- **Chart subtitle** — Updated to "Each bar = one night's sleep. Date = evening you went to bed."
+- **Sleep date shift (AM → previous day)** — `getSleepGroupDate` shifts bedtime after midnight to the previous evening's bar. Wake-up date tooltip logic updated: if bedtime is AM (<720min), wake-up always shows `day.date + 1` since the group was shifted.
+- **Removed debug AFK button** — Deleted `triggerAfkDebug` callback, ref, `trigger-afk-debug` event listener, `Ctrl+Shift+Alt+A` keyboard shortcut, and 🐛 AFK button from ExternalPage header.
+- **AFK popup UI** — Wider (`max-w-sm` → `max-w-xl`), responsive height (`max-h-[min(640px,85vh)]`), edge times row positioned at each divider below timeline bar (shows actual clock times at segment boundaries), segment list taller (`max-h-52` → `max-h-72`), activity picker taller (`max-h-36` → `max-h-48`).
+- **Activity reorder by drag** — Added `GripVertical` drag handles (hover-visible dots) on each activity card in External Tracker grid. HTML5 native drag-and-drop reorder. New `reorderExternalActivities` IPC handler + preload bridge batch-updates `sort_order` in a SQLite transaction. Order persists across page reloads.
+- **External activities Settings UI** — Redesigned from stacked per-row buttons to carousel grid pattern matching Apps/Websites: 5-column grid with left/right arrows, show more/less, click-to-expand tier selection panel with Done button (`src/pages/SettingsPage.tsx`)

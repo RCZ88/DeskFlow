@@ -107,6 +107,12 @@
 | `showAdvanced` | NewSessionDialog.tsx | Whether Advanced Configuration is expanded |
 | `allRequests` | TerminalPage.tsx (ProblemDetailModal) | All requests loaded for bidirectional linking |
 
+### Browser App
+- **Setting Location:** Settings → Browser Activity → "Browser with Extension" dropdown
+- **What it is:** The browser that has the DeskFlow extension installed (e.g., Comet, Chrome)
+- **How it works:** When the browser app is the foreground window, the extension sends website data that gets logged to the database. When the user switches to a non-browser app, the extension data is blocked by the foreground app check in `handleBrowserData()` (main.ts:10643).
+- **Key constraint:** Browser website data is ONLY persisted when the browser app is the active foreground window. This prevents phantom entries from background browser tabs.
+
 ### Flow: How Tracking Works
 
 1. **App active** → `onForegroundChange` fires → check if tracking browser

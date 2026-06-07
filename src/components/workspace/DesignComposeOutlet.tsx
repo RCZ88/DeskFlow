@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { Send, Check, Copy, FileText, Sparkles } from 'lucide-react';
 
+interface SourceCount {
+  source: string;
+  count: number;
+  accentColor: string;
+}
+
 interface DesignComposeOutletProps {
   contextSnippet: string;
   onSend: () => void;
@@ -8,9 +14,20 @@ interface DesignComposeOutletProps {
   isSending?: boolean;
   lastSent?: string | null;
   terminalMissing?: boolean;
+  importedCounts?: SourceCount[];
+  totalImported?: number;
 }
 
-export function DesignComposeOutlet({ contextSnippet, onSend, onCopy, isSending, lastSent, terminalMissing }: DesignComposeOutletProps) {
+export function DesignComposeOutlet({
+  contextSnippet,
+  onSend,
+  onCopy,
+  isSending,
+  lastSent,
+  terminalMissing,
+  importedCounts = [],
+  totalImported = 0,
+}: DesignComposeOutletProps) {
   const [expanded, setExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
 
@@ -19,6 +36,8 @@ export function DesignComposeOutlet({ contextSnippet, onSend, onCopy, isSending,
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
+  const hasImportedItems = totalImported > 0;
 
   return (
     <div className="p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-lg">
@@ -48,6 +67,23 @@ export function DesignComposeOutlet({ contextSnippet, onSend, onCopy, isSending,
             </div>
           )}
 
+          {/* Source attribution badges */}
+          {hasImportedItems && (
+            <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+              <span>Sources:</span>
+              {importedCounts.map(({ source, count, accentColor }) => count > 0 && (
+                <span
+                  key={source}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5
+                    rounded bg-zinc-800/60 text-zinc-400 text-[10px]"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: accentColor }} />
+                  {source} ({count})
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className="bg-zinc-950 rounded border border-zinc-800/50 overflow-hidden">
             <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900/60 border-b border-zinc-800/30">
               <div className="flex items-center gap-1.5">
@@ -73,18 +109,29 @@ export function DesignComposeOutlet({ contextSnippet, onSend, onCopy, isSending,
             </div>
           )}
 
-          <button
-            onClick={onSend}
-            disabled={isSending || !contextSnippet || terminalMissing}
-            className="w-full px-3 py-2 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white text-[10px] rounded flex items-center justify-center gap-1.5 transition-all"
-          >
-            {isSending ? (
-              <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
-            ) : (
-              <Send className="w-3 h-3" />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onSend}
+              disabled={isSending || !contextSnippet || terminalMissing}
+              className="flex-1 px-3 py-2 bg-gradient-to-r from-pink-600 to-rose-600
+                hover:from-pink-500 hover:to-rose-500
+                disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500
+                text-white text-[10px] rounded flex items-center justify-center gap-1.5
+                transition-all"
+            >
+              {isSending ? (
+                <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
+              ) : (
+                <Send className="w-3 h-3" />
+              )}
+              {isSending ? 'Sending...' : 'Send Design Context to Terminal'}
+            </button>
+            {hasImportedItems && (
+              <span className="px-2 py-0.5 rounded-full bg-cyan-400/15 text-cyan-400 text-xs font-medium">
+                +{totalImported} added
+              </span>
             )}
-            {isSending ? 'Sending...' : 'Send Design Context to Terminal'}
-          </button>
+          </div>
         </div>
       )}
     </div>

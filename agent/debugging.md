@@ -38,6 +38,23 @@
 
 **Related:** `agent/skills/agent-reflect/logs/2026-05-30_session_id_hardcode.md`
 
+## Workspace sidebar/tab content won't scroll despite `overflow-y-auto`
+
+**Root cause:** The sidebar container is missing `flex flex-col`. The content div has `flex-1` but it only works inside a flex container. Without `flex-col` on the sidebar wrapper, the content div's `flex-1` resolves to auto (block flow), so no definite height reaches the inner scrollable panels, and the scroll chain collapses.
+
+**Scroll chain for a flex-child to work:**
+```
+flex-parent (definite height) → min-h-0 → flex-child → overflow-y-auto
+```
+
+Every link in the chain must be present. `flex-1` does NOT make its parent a flex container.
+
+**Fix:** Add `flex flex-col` to the sidebar wrapper element.
+
+**Related:** `agent/skills/agent-reflect/logs/2026-06-06_idiot_trigger.md`
+
+---
+
 ## `toISOString().split('T')[0]` returns UTC date, not local date
 
 **Root cause:** Using `.toISOString().split('T')[0]` to get "today's date" gives the **UTC date**, but this disagrees with the user's **local date** when their timezone offset causes the UTC date to be 1 day off. For users in UTC+5:30 (India), at 2:00 AM local the UTC date is still the *previous* day.
@@ -1053,3 +1070,32 @@ async () => {
 
 **Added:** 2026-06-04
 **Fixed in:** `src/App.tsx` — `sleepActiveRef` pattern in `onSleepDetection`/`idleReturnFnRef`
+
+---
+
+## Never hardcode model names — retry with reduced maxTokens instead
+
+**Symptoms:**
+- Topic digest generates 429 rate-limit errors after a "fix" for 402 credit errors
+- User's configured model is silently overridden by a hardcoded fallback
+- Switching models introduces new failure modes (rate limits, different behavior)
+
+**Root cause:**
+- Assumption that "any free model is better than a credit error"
+- Hardcoding `meta-llama/llama-3.2-3b-instruct:free` as fallback without checking user's configured model
+- Not understanding that the user deliberately chose their model in settings
+
+**Fix:**
+- On OpenRouter 402 credit errors, retry the **same model** with reduced maxTokens (200→100→50)
+- `generateTopicDigest` accepts optional `maxTokens` parameter for retry calls
+- Never substitute a different model — the user configured theirs for a reason
+
+**Prevention:**
+- Never hardcode model names — always use the user's configured model from settings
+- If retrying on credit errors, reduce maxTokens on the SAME model — never switch to a different model
+- Before implementing any AI feature fix, check the user's actual settings values first
+- 402/credit error → retry same model with reduced maxTokens
+- 429/rate-limit → surface the error, let user retry
+
+**Added:** 2026-06-06
+**Fixed in:** `src/main.ts:9926-9940`, `src/services/AIService.ts:517`

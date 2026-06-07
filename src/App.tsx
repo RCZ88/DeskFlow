@@ -7,7 +7,7 @@ import {
   Download, Trash2, Award, Zap, Users, Info, Database, CheckCircle, XCircle, AlertTriangle,
   Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard, Target,
   ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
-  X, FolderTree, Bot, Minus, HelpCircle, Settings2
+  X, FolderTree, Bot, Minus, HelpCircle, Settings2, Moon
 } from 'lucide-react';
 import { format as dateFormat } from 'date-fns';
 import SettingsPage from './pages/SettingsPage';
@@ -127,12 +127,14 @@ declare global {
         excludedDomains: string[];
       }>;
       setBrowserExcludedDomains: (domains: string[]) => Promise<boolean>;
-      setRecordingMode: (type: 'browser', mode: 'always' | 'on-view') => Promise<boolean>;
+      setRecordingMode: (type: 'browser' | 'app', mode: 'always' | 'on-view') => Promise<boolean>;
       getRecordingModes: () => Promise<{
         browser: string;
+        app: string;
         browserPageVisible: boolean;
+        dashboardPageVisible: boolean;
       }>;
-      setPageVisibility: (page: 'browser', visible: boolean) => Promise<boolean>;
+      setPageVisibility: (page: 'browser' | 'dashboard', visible: boolean) => Promise<boolean>;
       // Productivity tracking
       getDailyProductivity: (date: string) => Promise<any>;
       getProductivityRange: (startDate: string, endDate: string) => Promise<any[]>;
@@ -252,20 +254,34 @@ declare global {
       getCrossSessionSyncConfig: () => Promise<{ enabled: boolean; lockTTL: number; contextBroadcast: boolean; conflictWarningMode: string; syncCommand: boolean }>;
       setCrossSessionSyncConfig: (config: any) => Promise<{ success: boolean }>;
       executeCommand: (command: string, cwd?: string) => Promise<{ stdout: string; stderr: string; error?: string }>;
-      // AI Daily News & Updates
-      getAiBrief: (params: { type: string }) => Promise<{ success: boolean; content?: any; error?: string }>;
-      regenerateAiBrief: (params: { type: string }) => Promise<{ success: boolean; content?: any; error?: string }>;
+      // AI Digest & Config
       getTopicDigest: () => Promise<{ success: boolean; topics?: any[]; error?: string }>;
-      checkAnomalies: () => Promise<{ success: boolean; anomalies?: any[]; error?: string }>;
-      analyzePatterns: () => Promise<{ success: boolean; content: any; error?: string }>;
-      analyzeSleep: () => Promise<{ success: boolean; content: any; error?: string }>;
-      dataChatQuery: (params: { query: string; history: Array<{ role: string; content: string }> }) => Promise<{ success: boolean; content: string; error?: string }>;
       saveAiConfig: (config: any) => Promise<{ success: boolean }>;
       getAiConfig: () => Promise<any>;
       getInterestTopics: () => Promise<string[]>;
       addInterestTopic: (topic: string) => Promise<{ success: boolean }>;
       removeInterestTopic: (topic: string) => Promise<{ success: boolean }>;
-      onAiBriefReady: (callback: (data: any) => void) => () => void;
+      // Planning.md
+      readPlanningMd: () => Promise<{ content: string; error?: string }>;
+      writePlanningMd: (content: string) => Promise<{ success: boolean; error?: string }>;
+      getGoalContext: () => Promise<{ success: boolean; last7dByCategory?: any[]; yesterday?: any; error?: string }>;
+      parseGoalFeedback: (data: { message: string; goals: string[] }) => Promise<{ completed: string[]; added: any[]; note: string }>;
+      // Design Library Integration
+      mcpListTools: (serverId: string) => Promise<{ success: boolean; tools: any[]; error?: string }>;
+      mcpCallTool: (serverId: string, toolName: string, args: Record<string, any>) => Promise<{ success: boolean; result: any; error?: string }>;
+      mcpServerStatus: (serverId: string) => Promise<{ status: string; toolCount?: number; uptime?: number }>;
+      mcpStartServer: (serverId: string) => Promise<{ success: boolean; tools?: any[]; error?: string }>;
+      mcpStopServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
+      aceternityFetchRegistry: () => Promise<{ success: boolean; components: any[]; total: number; error?: string }>;
+      aceternityFetchComponent: (slug: string) => Promise<{ success: boolean; component?: any; error?: string }>;
+      aceternityInstallComponent: (slug: string, cwd: string) => Promise<{ success: boolean; filesWritten?: string[]; error?: string }>;
+      fetchReferoCatalog: (forceRefresh?: boolean, query?: string) => Promise<{ success: boolean; systems: any[]; total: number; error?: string }>;
+      fetchReferoSystem: (slug: string) => Promise<{ success: boolean; system?: any; error?: string }>;
+      searchReferoSystems: (query: string) => Promise<{ success: boolean; systems: any[]; total: number; error?: string }>;
+      getDesignLibraryConfig: () => Promise<any>;
+      setDesignLibraryConfig: (config: any) => Promise<{ success: boolean; error?: string }>;
+      getDesignCachedData: (key: string) => Promise<{ success: boolean; data?: any; timestamp?: number; stale?: boolean }>;
+      testDesignLibraryConnection: (serverId: string) => Promise<{ success: boolean; latency?: number; toolCount?: number; error?: string }>;
     };
   }
 }
@@ -562,17 +578,6 @@ function App() {
         setAutoStartEnabled(enabled);
         console.log('[DeskFlow] Auto-start status:', enabled);
       }).catch(err => console.warn('[DeskFlow] Failed to get auto-start status:', err));
-    }
-  }, []);
-
-  // Auto-generate daily brief on mount (only if API key is actually configured)
-  useEffect(() => {
-    if (window.deskflowAPI?.getAiConfig) {
-      window.deskflowAPI.getAiConfig().then((config: any) => {
-        if (config?.autoGenerateBrief !== false && config?.hasApiKey) {
-          window.deskflowAPI.regenerateAiBrief({ type: 'daily' }).catch(() => {});
-        }
-      }).catch(() => {});
     }
   }, []);
 
@@ -1110,7 +1115,6 @@ function App() {
     // Group by app
     const grouped: Record<string, { total_ms: number; sessions: number; first_seen: string; last_seen: string; category: string }> = {};
     for (const log of appLogs) {
-      if (log.is_browser_tracking) continue;
       const app = log.app;
       const category = getCategory(app, log.category || 'Other');
       if (!grouped[app]) {
@@ -1238,7 +1242,7 @@ function App() {
   const afkPromptShownRef = useRef(false);
   const sleepDetectionPendingRef = useRef(false);
   const sleepActiveRef = useRef(false);
-  const triggerAfkDebugRef = useRef<() => void>(() => {});
+
   const [autoExport, setAutoExport] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   const [externalActivities, setExternalActivities] = useState<any[]>([]);
@@ -1351,32 +1355,6 @@ function App() {
     }
   }, []);
 
-  // Debug: manually trigger AFK prompt (for testing the popup without waiting for idle detection)
-  const triggerAfkDebug = useCallback(async () => {
-    console.log('[DeskFlow] ðŸ› Debug: manually triggering AFK prompt');
-    // Self-contained â€” no dependency on startAfkSession or active session lookup
-    const nowMs = Date.now();
-    const startedAt = new Date(nowMs - 90000).toISOString(); // pretend 90s ago
-    console.log('[DeskFlow] ðŸ› startedAt:', startedAt, 'returnMs:', nowMs);
-    // Get a suggested activity based on current time
-    let guess: { id: number; name: string; color: string } | null = null;
-    try {
-      guess = await window.deskflowAPI?.getTypicalActivityAtTime?.(new Date().toISOString());
-    } catch {}
-    const entry: AfkPromptEntry = {
-      id: afkQueueIdRef.current++,
-      suggested: guess,
-      duration: '1m 30s',
-      startedAt,
-      idleStartMs: nowMs - 90000,
-      returnMs: nowMs,
-      sessionId: null,
-    };
-    console.log('[DeskFlow] ðŸ› pushing AFK entry:', JSON.stringify(entry));
-    setAfkPromptQueue(prev => [...prev, entry]);
-  }, []);
-  triggerAfkDebugRef.current = triggerAfkDebug;
-
   // Listen for gap-fill events from GapPanel
   useEffect(() => {
     const handler = (e: CustomEvent) => {
@@ -1398,16 +1376,11 @@ function App() {
     return () => window.removeEventListener('fill-time-gap', handler as EventListener);
   }, []);
 
-  // Listen for debug/gap events from External page
+  // Listen for gap-panel open event from External page
   useEffect(() => {
-    const triggerAfkHandler = () => triggerAfkDebugRef.current();
     const openGapHandler = () => setShowGapPanel(true);
-    window.addEventListener('trigger-afk-debug', triggerAfkHandler);
     window.addEventListener('open-gap-panel', openGapHandler);
-    return () => {
-      window.removeEventListener('trigger-afk-debug', triggerAfkHandler);
-      window.removeEventListener('open-gap-panel', openGapHandler);
-    };
+    return () => window.removeEventListener('open-gap-panel', openGapHandler);
   }, []);
   
   const [foregroundApps, setForegroundApps] = useState<string[]>([]);
@@ -1739,15 +1712,6 @@ function App() {
       }
     };
 
-    // Debug: Ctrl+Shift+Alt+A to manually trigger AFK prompt
-    const handleAfkDebugKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.altKey && e.key === 'a') {
-        e.preventDefault();
-        triggerAfkDebugRef.current();
-      }
-    };
-    document.addEventListener('keydown', handleAfkDebugKey);
-
     window.addEventListener('focus', handleFocus);
     window.addEventListener('visibilitychange', handleVisibilityChange);
 
@@ -1759,7 +1723,6 @@ function App() {
       window.removeEventListener('touchstart', handleActivity, { capture: true });
       window.removeEventListener('scroll', handleActivity, { capture: true });
       window.removeEventListener('wheel', handleActivity, { capture: true });
-      document.removeEventListener('keydown', handleAfkDebugKey);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       isMountedRef.current = false;
@@ -2215,18 +2178,18 @@ function App() {
     const summary = `Stats DeskFlow AI Analysis for ${format(new Date(), 'MMMM dd')}
 
 Hot Focus Summary: ${Math.floor(totalMin / 60)}h ${totalMin % 60}m tracked today
-   â€¢ Coding: ${codingPct}% (${codingTime}min) â€” Top Project: ${topProject}
-   â€¢ AI Tools: ${aiPct}% (${aiTime}min) â€” Smart prompting on Claude & ChatGPT
-   â€¢ Distractions: ${distPct}% â€” Minimal YouTube/Entertainment
+   • Coding: ${codingPct}% (${codingTime}min) — Top Project: ${topProject}
+   • AI Tools: ${aiPct}% (${aiTime}min) — Smart prompting on Claude & ChatGPT
+   • Distractions: ${distPct}% — Minimal YouTube/Entertainment
 
-â° Peak Productivity Window: ${peakHour}
+⏰ Peak Productivity Window: ${peakHour}
    You averaged 92% focus during this window.
 
 Tip Insights:
-   â€¢ 87% of IDE time spent on actual editing (vs. idle)
-   â€¢ You completed 3 major tasks in PyCharm
-   â€¢ Browser time was 68% productive (docs, GitHub)
-   â€¢ Productivity Score: ${Math.floor(Math.random() * 15) + 83}/100
+   • 87% of IDE time spent on actual editing (vs. idle)
+   • You completed 3 major tasks in PyCharm
+   • Browser time was 68% productive (docs, GitHub)
+   • Productivity Score: ${Math.floor(Math.random() * 15) + 83}/100
 
 Trend: +14% vs. yesterday. Keep it up!`;
 
@@ -2424,29 +2387,31 @@ Trend: +14% vs. yesterday. Keep it up!`;
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 max-h-full">
-          <div className="h-full overflow-y-auto px-3 py-4 space-y-1.5">
-          {sidebarItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <motion.button
-                key={item.path}
-                onClick={() => handleSidebarNavigation(item.path)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-colors duration-150 ${isActive
-                  ? 'bg-zinc-800 text-white'
-                  : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
-                  }`}
-              >
-                <item.icon className="w-4 h-4 shrink-0" />
-                {item.label}
-              </motion.button>
-            );
-          })}
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 flex flex-col">
+            <div className="flex flex-col gap-2">
+            {sidebarItems.map((item) => {
+              const isActive = location.pathname === item.path;
+              return (
+                <motion.button
+                  key={item.path}
+                  onClick={() => handleSidebarNavigation(item.path)}
+                  className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm transition-colors duration-150 ${isActive
+                    ? 'bg-zinc-800 text-white'
+                    : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
+                    }`}
+                >
+                  <item.icon className="w-4 h-4 shrink-0" />
+                  {item.label}
+                </motion.button>
+              );
+            })}
+            </div>
           </div>
         </div>
 
-        <div className="px-5 py-2 border-t border-zinc-800 flex items-center justify-between shrink-0">
-          <span className="text-[10px] text-zinc-500">Local SQLite â€¢ Zero Cloud â€¢ Privacy-First</span>
+        <div className="px-5 py-3 border-t border-zinc-800 flex items-center justify-between shrink-0">
+          <span className="text-[10px] text-zinc-500">Local SQLite • Zero Cloud • Privacy-First</span>
           <span className="text-[10px] text-zinc-600">DeskFlow v3.85</span>
         </div>
       </div>
@@ -2694,11 +2659,11 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 />
               } />
               {/* Stats Page */}
-              <Route path="/stats" element={<StatsPage key={selectedPeriod} logs={filteredLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} liveActivityLogs={liveActivityLogs} />} />
+              <Route path="/stats" element={<StatsPage key={selectedPeriod} logs={filteredLogs} allLogs={allLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} liveActivityLogs={liveActivityLogs} />} />
               {/* Productivity Page */}
               <Route path="/productivity" element={<ProductivityPage logs={allLogs} browserLogs={browserLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} domainKeywordRules={domainKeywordRules} timeMode={timeMode} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} />} />
               {/* Browser Page */}
-              <Route path="/browser" element={<BrowserActivityPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
+              <Route path="/browser" element={<BrowserActivityPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} allLogs={allLogs} />} />
               {/* IDE Page */}
               <Route path="/ide" element={<IDEProjectsPage />} />
 
@@ -2718,6 +2683,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 browserLogs={browserLogs}
                 appStats={appStats}
                 selectedPeriod={selectedPeriod}
+                dateOffset={dateOffset}
+                onDateOffsetChange={setDateOffset}
                 tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS}
               />} />
               {/* Database Page */}
@@ -2729,7 +2696,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             </Routes>
           </AnimatePresence>
 
-          {/* â”€â”€ Unsaved Changes Warning Modal â”€â”€ */}
+          {/* ── Unsaved Changes Warning Modal ── */}
           <AnimatePresence>
             {showUnsavedWarning && (
               <div className="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center z-[65]" onClick={() => setShowUnsavedWarning(false)}>
@@ -2751,8 +2718,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   </div>
 
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 mb-6 space-y-1">
-                    <p>â€¢ Your category assignments and color customizations</p>
-                    <p>â€¢ will be lost if you navigate away without saving</p>
+                    <p>• Your category assignments and color customizations</p>
+                    <p>• will be lost if you navigate away without saving</p>
                   </div>
 
                   <div className="flex flex-col gap-2">
@@ -2780,7 +2747,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             )}
           </AnimatePresence>
 
-          {/* â”€â”€ Sleep Detection Modal â”€â”€ */}
+          {/* ── Sleep Detection Modal ── */}
           <AnimatePresence>
             {showSleepDetection && sleepDetectionData && (
               <motion.div
@@ -2798,7 +2765,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   onClick={e => e.stopPropagation()}
                 >
                   <div className="text-center mb-6">
-                    <div className="text-5xl mb-3">ðŸ˜´</div>
+                    <div className="flex justify-center mb-3"><Moon className="w-10 h-10 text-indigo-400" /></div>
                     <h2 className="text-xl font-semibold text-zinc-100">Were you sleeping?</h2>
                     <p className="text-zinc-400 mt-2">
                       App was inactive for <span className="text-zinc-200 font-medium">{customDurationMinutes()} minutes</span>
@@ -2958,9 +2925,9 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   </div>
 
                   <div className="p-3 rounded-xl bg-zinc-900/50 border border-zinc-700 text-xs text-zinc-400 mb-6">
-                    <p>â€¢ {logs.length} activity records will be exported</p>
-                    <p>â€¢ File format: <span className="text-zinc-200 uppercase">{showConfirmExport}</span></p>
-                    <p>â€¢ File stays on your device</p>
+                    <p>• {logs.length} activity records will be exported</p>
+                    <p>• File format: <span className="text-zinc-200 uppercase">{showConfirmExport}</span></p>
+                    <p>• File stays on your device</p>
                   </div>
 
                   <div className="flex gap-3">
@@ -3003,10 +2970,10 @@ Trend: +14% vs. yesterday. Keep it up!`;
                       </div>
                       <div>
                         <div className="font-semibold text-xl">SQLite Activity Logs</div>
-                        <div className="text-xs text-zinc-500">TABLE: activity_logs â€¢ {allLogs.length} rows â€¢ SQLite database</div>
+                        <div className="text-xs text-zinc-500">TABLE: activity_logs • {allLogs.length} rows • SQLite database</div>
                       </div>
                     </div>
-                    <button onClick={() => setShowDatabase(false)} className="text-zinc-400 hover:text-white text-xl">âœ•</button>
+                    <button onClick={() => setShowDatabase(false)} className="text-zinc-400 hover:text-white text-xl">✕</button>
                   </div>
 
                   {/* Schema Info */}
@@ -3058,8 +3025,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                                 </span>
                               </td>
                               <td className="px-4 py-3 tabular-nums text-white">{log.duration} min</td>
-                              <td className="px-4 py-3 text-zinc-400">{log.project || 'â€”'}</td>
-                              <td className="px-4 py-3 text-zinc-400 truncate max-w-[200px]">{log.title || 'â€”'}</td>
+                              <td className="px-4 py-3 text-zinc-400">{log.project || '—'}</td>
+                              <td className="px-4 py-3 text-zinc-400 truncate max-w-[200px]">{log.title || '—'}</td>
                             </tr>
                           ))
                         )}
@@ -3068,7 +3035,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   </div>
 
                   <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
-                    <div>Showing {Math.min(50, allLogs.length)} of {allLogs.length} records â€¢ Data persists in SQLite database</div>
+                    <div>Showing {Math.min(50, allLogs.length)} of {allLogs.length} records • Data persists in SQLite database</div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
@@ -3113,7 +3080,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                         <div className="text-xs text-emerald-400">Generated using local heuristics</div>
                       </div>
                     </div>
-                    <button onClick={() => setShowSummary(false)} className="text-zinc-400">âœ•</button>
+                    <button onClick={() => setShowSummary(false)} className="text-zinc-400">✕</button>
                   </div>
 
                   <div className="font-mono text-sm whitespace-pre-wrap bg-zinc-950 p-6 rounded-2xl leading-relaxed border border-zinc-800">
@@ -3142,7 +3109,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             )}
           </AnimatePresence>
 
-          {/* â”€â”€ AFK Activity Prompt â”€â”€ */}
+          {/* ── AFK Activity Prompt ── */}
           {afkPromptQueue.length > 0 && (() => {
             const entry = afkPromptQueue[0];
             const periodStart = entry.startedAt || (entry.idleStartMs ? new Date(entry.idleStartMs).toISOString() : new Date(entry.returnMs - 90000).toISOString());

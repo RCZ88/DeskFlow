@@ -1,562 +1,290 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import {
-  Sun, BarChart3, Newspaper, TrendingUp, Moon, MessageCircle,
-  AlertTriangle, Sparkles, Send, RefreshCw, X, Loader2,
-} from 'lucide-react';
-import { BriefCard } from '../components/AiBriefCard';
-import { PatternCard } from '../components/PatternCard';
-import { SleepCard } from '../components/SleepCard';
-import { WeeklyReviewCard } from '../components/WeeklyReviewCard';
+import { Sparkles, FileText, RefreshCw } from 'lucide-react';
 import { TopicDigestCard } from '../components/TopicDigestCard';
-import { GlassCard } from '../components/GlassCard';
-import { LoadingState } from '../components/LoadingState';
-import type { ParsedDailyBrief, ParsedPatternResponse, ParsedSleepResponse } from '../services/AIService';
-import { fallbackParseDailyBrief, fallbackParsePatternAnalysis, fallbackParseSleepAnalysis } from '../services/AIService';
+import { DailyPlanCard } from '../components/DailyPlanCard';
+import { GoalHistoryCard } from '../components/GoalHistoryCard';
+import { ContextSummaryCard } from '../components/ContextSummaryCard';
+import { MyPlanCard } from '../components/MyPlanCard';
+import { parseChecklist } from '../services/planningParser';
 
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
+type GoalCategory = 'work' | 'personal' | 'health' | 'learning';
+type Mode = 'morning' | 'in-progress' | 'review';
+
+interface GoalTarget {
+  type: 'time' | 'completion';
+  targetSeconds?: number;
+  matchCategory?: string;
+  done?: boolean;
 }
 
-const QUICK_PROMPTS = [
-  'How much YouTube this week?',
-  'What is my top app?',
-  'Analyze sleep patterns',
-];
-
-const STORAGE_KEYS = {
-  patterns: 'ai_patterns',
-  sleep: 'ai_sleep',
-  dailyBrief: 'ai_daily_brief',
-} as const;
-
-function loadJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
+interface Goal {
+  id: string;
+  title: string;
+  description?: string;
+  category: GoalCategory;
+  target: GoalTarget;
+  period: string;
+  status: string;
+  date: string;
+  source: string;
+  links: { label: string; url: string }[];
+  progressSeconds?: number;
+  createdAt: string;
+  completedAt?: string;
 }
 
-function saveJson(key: string, data: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch {}
+interface GoalDay {
+  date: string;
+  goals: Goal[];
+  reviewSummary?: string;
 }
 
-function SectionHeader({ icon: Icon, accent, title, description, action }: {
-  icon: any; accent: string; title: string; description: string; action?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start justify-between mb-5">
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${accent}1F` }}>
-          <Icon className="w-4.5 h-4.5" style={{ color: accent }} />
-        </div>
-        <div>
-          <h3 className="text-sm font-semibold text-white">{title}</h3>
-          <p className="text-xs text-zinc-500">{description}</p>
-        </div>
-      </div>
-      {action}
-    </div>
-  );
+function getToday() {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function ErrorBlock({ message }: { message: string }) {
-  return (
-    <div className="p-4 rounded-lg text-sm bg-red-400/8 border border-red-400/20">
-      <p className="text-red-400">{message}</p>
-    </div>
-  );
+function determineMode(goals: Goal[]): Mode {
+  if (goals.length === 0) return 'morning';
+  const now = new Date();
+  const hour = now.getHours();
+  if (hour >= 20) return 'review';
+  const allDone = goals.every(g => g.status === 'completed' || g.status === 'dismissed');
+  if (allDone && goals.length > 0) return 'review';
+  return 'in-progress';
 }
 
 export function AiPage() {
-  const [briefContent, setBriefContent] = useState<any>(null);
-  const [parsedBriefContent, setParsedBriefContent] = useState<ParsedDailyBrief | null>(null);
-  const [briefLoading, setBriefLoading] = useState(true);
-  const [briefError, setBriefError] = useState<string | null>(null);
-  const [briefCollapsed, setBriefCollapsed] = useState(false);
+  const today = getToday();
 
-  const [weeklyContent, setWeeklyContent] = useState<any>(null);
-  const [weeklyLoading, setWeeklyLoading] = useState(false);
-  const [weeklyError, setWeeklyError] = useState<string | null>(null);
-  const [weeklyDismissed, setWeeklyDismissed] = useState(false);
+  // Goals state
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [review, setReview] = useState<string | null>(null);
+  const [goalsLoading, setGoalsLoading] = useState(true);
+  const [goalsError, setGoalsError] = useState<string | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [savingGoal, setSavingGoal] = useState(false);
+  // Suggestions state
+  const [suggestions, setSuggestions] = useState<Array<{ title: string; category: GoalCategory }>>([]);
+  const [planGoals, setPlanGoals] = useState<Array<{ title: string; targetSeconds?: number }>>([]);
 
+  // Digest state
   const [digestTopics, setDigestTopics] = useState<any[]>([]);
   const [digestLoading, setDigestLoading] = useState(true);
   const [digestError, setDigestError] = useState<string | null>(null);
 
-  const [parsedPatternContent, setParsedPatternContent] = useState<ParsedPatternResponse | null>(null);
-  const [patternLoading, setPatternLoading] = useState(false);
-  const [patternError, setPatternError] = useState<string | null>(null);
+  // Context state
+  const [unfinishedCount, setUnfinishedCount] = useState(0);
+  const [completedThisWeek, setCompletedThisWeek] = useState(0);
 
-  const [parsedSleepContent, setParsedSleepContent] = useState<ParsedSleepResponse | null>(null);
-  const [sleepLoading, setSleepLoading] = useState(false);
-  const [sleepError, setSleepError] = useState<string | null>(null);
+  const mode = determineMode(goals);
 
-  const [chatMessages, setChatMessages] = useState<Message[]>([
-    { role: 'assistant', content: 'Hi! Ask me anything about your tracked activity.' },
-  ]);
-  const [chatInput, setChatInput] = useState('');
-  const [chatLoading, setChatLoading] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
-  const [anomalies, setAnomalies] = useState<any[]>([]);
-  const [anomaliesLoading, setAnomaliesLoading] = useState(false);
-
-  useEffect(() => {
-    const cachedBrief = loadJson<ParsedDailyBrief | null>(STORAGE_KEYS.dailyBrief, null);
-    const cachedPatterns = loadJson<ParsedPatternResponse | null>(STORAGE_KEYS.patterns, null);
-    const cachedSleep = loadJson<ParsedSleepResponse | null>(STORAGE_KEYS.sleep, null);
-    if (cachedBrief) setParsedBriefContent(cachedBrief);
-    if (cachedPatterns) setParsedPatternContent(cachedPatterns);
-    if (cachedSleep) setParsedSleepContent(cachedSleep);
-
-    let cancelled = false;
-    (async () => {
-      if (!cachedBrief) setBriefLoading(true);
-      try {
-        const result = await window.deskflowAPI.getAiBrief({ type: 'daily' });
-        if (cancelled) return;
-        if (result.success && result.content) {
-          if (typeof result.content === 'object' && 'signal' in result.content) {
-            setParsedBriefContent(result.content as ParsedDailyBrief);
-            saveJson(STORAGE_KEYS.dailyBrief, result.content);
-          } else if (result.content.summary) {
-            if (typeof result.content.summary === 'object') {
-              setParsedBriefContent(result.content.summary as ParsedDailyBrief);
-              saveJson(STORAGE_KEYS.dailyBrief, result.content.summary);
-            } else {
-              const parsed = fallbackParseDailyBrief(result.content.summary);
-              setParsedBriefContent(parsed);
-              saveJson(STORAGE_KEYS.dailyBrief, parsed);
-            }
-          } else {
-            setBriefContent(result.content);
-          }
-          setBriefError(null);
-        } else if (!result.success) {
-          setBriefError(result.error || 'Failed to generate brief');
-        }
-      } catch (err: any) { if (!cancelled) setBriefError(err.message); }
-      finally { if (!cancelled) setBriefLoading(false); }
-
-      if (new Date().getDay() === 1) {
-        setWeeklyLoading(true);
-        try {
-          const r = await window.deskflowAPI.getAiBrief({ type: 'weekly' });
-          if (cancelled) return;
-          if (r.success && r.content) { setWeeklyContent(r.content); setWeeklyError(null); }
-        } catch (err: any) { if (!cancelled) setWeeklyError(err.message); }
-        finally { if (!cancelled) setWeeklyLoading(false); }
-      }
-
-      setAnomaliesLoading(true);
-      try {
-        const r = await window.deskflowAPI.checkAnomalies();
-        if (cancelled) return;
-        if (r.success && r.anomalies?.length > 0) setAnomalies(r.anomalies);
-      } catch {} finally { if (!cancelled) setAnomaliesLoading(false); }
-
-      setDigestLoading(true); setDigestError(null);
-      try {
-        const r = await window.deskflowAPI.getTopicDigest();
-        if (cancelled) return;
-        if (r.success && r.topics?.length > 0) { setDigestTopics(r.topics); setDigestError(null); }
-        else if (!r.success) { setDigestError(r.error || 'Failed to load digests'); }
-      } catch (err: any) { if (!cancelled) setDigestError(err.message); }
-      finally { if (!cancelled) setDigestLoading(false); }
-
-      if (!cancelled && !cachedPatterns && !cachedSleep) {
-        setPatternLoading(true); setSleepLoading(true);
-        try {
-          const [pR, sR] = await Promise.all([
-            window.deskflowAPI.analyzePatterns(),
-            window.deskflowAPI.analyzeSleep(),
-          ]);
-          if (cancelled) return;
-          if (pR.success && pR.content) {
-            if (typeof pR.content === 'object' && 'score' in pR.content) {
-              setParsedPatternContent(pR.content as ParsedPatternResponse);
-              saveJson(STORAGE_KEYS.patterns, pR.content);
-            } else {
-              const parsed = fallbackParsePatternAnalysis(pR.content as string);
-              setParsedPatternContent(parsed);
-              saveJson(STORAGE_KEYS.patterns, parsed);
-            }
-          } else { setPatternError(pR.error || 'Failed to analyze'); }
-          if (sR.success && sR.content) {
-            if (typeof sR.content === 'object' && 'score' in sR.content) {
-              setParsedSleepContent(sR.content as ParsedSleepResponse);
-              saveJson(STORAGE_KEYS.sleep, sR.content);
-            } else {
-              const parsed = fallbackParseSleepAnalysis(sR.content as string);
-              setParsedSleepContent(parsed);
-              saveJson(STORAGE_KEYS.sleep, parsed);
-            }
-          } else { setSleepError(sR.error || 'Failed to analyze'); }
-        } catch (err: any) {
-          if (!cancelled) { setPatternError(err.message); setSleepError(err.message); }
-        } finally {
-          if (!cancelled) { setPatternLoading(false); setSleepLoading(false); }
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    const cleanup = window.deskflowAPI.onAiBriefReady?.((data: any) => {
-      if (data.type === 'daily') {
-        if (typeof data.content === 'object' && 'signal' in data.content) {
-          setParsedBriefContent(data.content as ParsedDailyBrief);
-          saveJson(STORAGE_KEYS.dailyBrief, data.content);
-        } else {
-          setBriefContent(data.content);
-        }
-        setBriefLoading(false); setBriefError(null);
-      } else if (data.type === 'weekly') {
-        setWeeklyContent(data.content); setWeeklyLoading(false); setWeeklyError(null);
-      }
-    });
-    return () => cleanup?.();
-  }, []);
-
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
-
-  const handleSendChat = async () => {
-    if (!chatInput.trim() || chatLoading) return;
-    const userMsg = chatInput.trim();
-    setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-    setChatLoading(true);
+  // Load goals
+  const loadGoals = useCallback(async () => {
+    setGoalsLoading(true);
+    setGoalsError(null);
     try {
-      const history = chatMessages.slice(1).map(m => ({ role: m.role, content: m.content }));
-      const result = await window.deskflowAPI.dataChatQuery({ query: userMsg, history });
-      if (result.success && result.content) {
-        setChatMessages(prev => [...prev, { role: 'assistant', content: result.content }]);
-      } else {
-        setChatMessages(prev => [...prev, { role: 'assistant', content: result.error || 'Sorry, I could not process that.' }]);
-      }
+      const day: GoalDay = await window.deskflowAPI!.getGoals(today);
+      setGoals(day.goals || []);
+      setReview(day.reviewSummary || null);
     } catch (err: any) {
-      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Error: ' + err.message }]);
-    } finally {
-      setChatLoading(false);
+      setGoalsError(err.message || 'Failed to load goals');
     }
-  };
+    setGoalsLoading(false);
+  }, [today]);
+
+  // Load digest
+  const loadDigest = useCallback(async (showLoader = true) => {
+    if (showLoader) setDigestLoading(true);
+    setDigestError(null);
+    try {
+      const r = await window.deskflowAPI!.getTopicDigest();
+      if (r.success) { setDigestTopics(r.topics || []); }
+      else { setDigestError(r.error || 'Failed to load digests'); }
+    } catch (err: any) { setDigestError(err.message); }
+    finally { if (showLoader) setDigestLoading(false); }
+  }, []);
+
+  // Load context
+  const loadContext = useCallback(async () => {
+    try {
+      const sevenDays: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        sevenDays.push(d.toISOString().slice(0, 10));
+      }
+      let completed = 0;
+      let unfinished = 0;
+      for (const date of sevenDays) {
+        const day: GoalDay = await window.deskflowAPI!.getGoals(date);
+        if (day.goals) {
+          completed += day.goals.filter(g => g.status === 'completed').length;
+          if (date === today) {
+            unfinished = day.goals.filter(g => g.status !== 'completed' && g.status !== 'dismissed').length;
+          }
+        }
+      }
+      setCompletedThisWeek(completed);
+      setUnfinishedCount(unfinished);
+    } catch {}
+  }, [today]);
+
+  useEffect(() => { loadGoals(); loadDigest(); loadContext(); loadPlanGoals(); }, [loadGoals, loadDigest, loadContext]);
+
+  async function loadPlanGoals() {
+    try {
+      const r = await window.deskflowAPI!.readPlanningMd();
+      if (r.content) {
+        const items = parseChecklist(r.content).filter(i => !i.checked);
+        setPlanGoals(items.map(i => ({ title: i.title, targetSeconds: i.targetSeconds })));
+      }
+    } catch {}
+  }
+
+  // Suggest goals (with planning context)
+  async function handleSuggest() {
+    setSuggesting(true);
+    try {
+      const [plan, contextStats] = await Promise.all([
+        window.deskflowAPI!.readPlanningMd(),
+        window.deskflowAPI!.getGoalContext(),
+      ]);
+      const ctx: Record<string, any> = {};
+      if (plan.content) ctx.planningContent = plan.content;
+      if (contextStats?.success) ctx.stats = { last7dByCategory: contextStats.last7dByCategory };
+      const r = await window.deskflowAPI!.suggestGoals(today, ctx);
+      if (r.success && r.suggestions?.length > 0) {
+        setSuggestions(r.suggestions);
+      }
+    } catch {}
+    setSuggesting(false);
+  }
+
+  function handlePlanningSaved() {
+    loadContext();
+    loadPlanGoals();
+  }
+
+  // Accept suggestion
+  async function handleAccept(suggestion: { title: string; category: GoalCategory }) {
+    setSavingGoal(true);
+    try {
+      const goal: Goal = {
+        id: crypto.randomUUID(),
+        title: suggestion.title,
+        category: suggestion.category,
+        target: { type: 'completion' },
+        status: 'pending',
+        period: 'daily',
+        date: today,
+        source: 'ai',
+        links: [],
+        createdAt: new Date().toISOString(),
+      };
+      await window.deskflowAPI!.saveGoal(today, goal);
+      setSuggestions(prev => prev.filter(s => s.title !== suggestion.title));
+      await loadGoals();
+    } catch {}
+    setSavingGoal(false);
+  }
+
+  // Dismiss suggestion
+  function handleDismiss(suggestion: { title: string; category: GoalCategory }) {
+    setSuggestions(prev => prev.filter(s => s.title !== suggestion.title));
+  }
+
+  // Toggle goal completion
+  async function handleToggle(goal: Goal) {
+    setSavingGoal(true);
+    try {
+      const updated = {
+        ...goal,
+        status: goal.status === 'completed' ? 'pending' : 'completed',
+        completedAt: goal.status === 'completed' ? null : new Date().toISOString(),
+      };
+      await window.deskflowAPI!.saveGoal(today, updated);
+      await loadGoals();
+    } catch {}
+    setSavingGoal(false);
+  }
+
+  // Feedback
+  async function handleFeedback(message: string) {
+    setSavingGoal(true);
+    try {
+      const r = await window.deskflowAPI!.saveGoalReview(today, message);
+      if (r.success) setReview(message);
+    } catch {}
+    setSavingGoal(false);
+  }
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center shrink-0">
-          <Sparkles className="w-4.5 h-4.5 text-white" />
-        </div>
-        <div>
-          <h1 className="text-xl font-bold text-white tracking-tight">AI Assistant</h1>
-          <p className="text-xs text-zinc-500">Intelligence for your productivity data</p>
-        </div>
-      </div>
-
-      {/* Anomaly Banner */}
-      {anomalies.length > 0 && (
-        <div
-          className="flex items-center justify-between px-4 py-2.5 rounded-lg text-xs"
-          style={{
-            backgroundColor: anomalies.some(a => a.severity === 'high') ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-            border: `1px solid ${anomalies.some(a => a.severity === 'high') ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)'}`,
-            color: anomalies.some(a => a.severity === 'high') ? '#ef4444' : '#f59e0b',
-          }}
-        >
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>{anomalies.length} anomaly{anomalies.length !== 1 ? 'ies' : ''} detected — check Alerts section below</span>
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <header className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center shadow-lg shadow-pink-500/20">
+            <Sparkles className="h-5 w-5 text-white" />
           </div>
-          <button onClick={() => setAnomalies([])} className="underline opacity-70 hover:opacity-100">Dismiss</button>
+          <div>
+            <h1 className="text-xl font-semibold text-zinc-100 leading-tight">AI Assistant</h1>
+            <p className="text-sm text-zinc-400">Plan with purpose</p>
+          </div>
         </div>
-      )}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-medium px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            {mode === 'review' ? 'Evening Review' : mode === 'morning' ? 'Morning Planning' : 'Active'}
+          </span>
+        </div>
+      </header>
 
-      {/* Grid Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-
-        {/* 1. Research Digest — premier, full width, top of page */}
-        <div className="col-span-1 md:col-span-2 lg:col-span-3">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* LEFT COLUMN */}
+        <div className="lg:col-span-2 space-y-5">
           <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
+            <DailyPlanCard
+              goals={goals}
+              mode={mode}
+              suggestions={suggestions}
+              planGoals={planGoals}
+              review={review}
+              loading={goalsLoading}
+              suggesting={suggesting}
+              saving={savingGoal}
+              error={goalsError}
+              onToggle={handleToggle}
+              onSuggest={handleSuggest}
+              onAccept={handleAccept}
+              onDismiss={handleDismiss}
+              onFeedback={handleFeedback}
+            />
+          </motion.div>
+          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
             <TopicDigestCard
               topics={digestTopics}
               loading={digestLoading}
               error={digestError || undefined}
-              onRefresh={async () => {
-                setDigestLoading(true); setDigestError(null);
-                try {
-                  const r = await window.deskflowAPI.getTopicDigest();
-                  if (r.success) { setDigestTopics(r.topics || []); setDigestError(null); }
-                  else { setDigestError(r.error || 'Failed to refresh'); }
-                } catch (err: any) { setDigestError(err.message); }
-                finally { setDigestLoading(false); }
-              }}
+              onRefresh={() => loadDigest(true)}
             />
           </motion.div>
         </div>
 
-        {/* 2. Daily Brief — full width */}
-        <div className="col-span-1 md:col-span-2 lg:col-span-3">
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            <BriefCard
-              content={parsedBriefContent || briefContent}
-              loading={briefLoading}
-              error={briefError || undefined}
-              onRegenerate={async () => {
-                setBriefLoading(true); setBriefError(null);
-                try {
-                  const r = await window.deskflowAPI.regenerateAiBrief({ type: 'daily' });
-                  if (r.success && r.content) {
-                    if (typeof r.content === 'object' && 'signal' in r.content) {
-                      setParsedBriefContent(r.content as ParsedDailyBrief);
-                      saveJson(STORAGE_KEYS.dailyBrief, r.content);
-                    } else {
-                      setBriefContent(r.content);
-                    }
-                  } else { setBriefError(r.error || 'Failed to regenerate'); }
-                } catch (err: any) { setBriefError(err.message); }
-                finally { setBriefLoading(false); }
-              }}
-              onDismiss={() => { setParsedBriefContent(null); setBriefContent(null); }}
-              collapsed={briefCollapsed}
-              onToggle={() => setBriefCollapsed(!briefCollapsed)}
-            />
-          </motion.div>
-        </div>
-
-        {/* 3. Weekly Review — full width (if Monday) */}
-        <div className="col-span-1 md:col-span-2 lg:col-span-3">
+        {/* RIGHT COLUMN */}
+        <div className="lg:col-span-1 space-y-5">
           <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            {new Date().getDay() === 1 && !weeklyDismissed ? (
-              <WeeklyReviewCard
-                content={weeklyContent}
-                loading={weeklyLoading}
-                error={weeklyError || undefined}
-                onRegenerate={async () => {
-                  setWeeklyLoading(true); setWeeklyError(null);
-                  try {
-                    const r = await window.deskflowAPI.regenerateAiBrief({ type: 'weekly' });
-                    if (r.success && r.content) setWeeklyContent(r.content);
-                    else setWeeklyError(r.error || 'Failed to regenerate');
-                  } catch (err: any) { setWeeklyError(err.message); }
-                  finally { setWeeklyLoading(false); }
-                }}
-                onDismiss={() => setWeeklyDismissed(true)}
-              />
-            ) : (
-              <GlassCard>
-                <div className="flex flex-col items-center justify-center py-14 text-center">
-                  <BarChart3 className="w-10 h-10 text-zinc-700 mb-4" />
-                  <p className="text-sm text-zinc-400 font-medium">No Weekly Review Yet</p>
-                  <p className="text-xs text-zinc-600 mt-2 max-w-md">
-                    {new Date().getDay() !== 1
-                      ? 'Weekly reviews are generated every Monday morning.'
-                      : 'The weekly review was dismissed.'}
-                  </p>
-                </div>
-              </GlassCard>
-            )}
+            <MyPlanCard onPlanningSaved={handlePlanningSaved} />
           </motion.div>
-        </div>
-
-        {/* 4. Pattern Analyst — 1 column */}
-        <div className="col-span-1">
           <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            <PatternCard
-              data={parsedPatternContent}
-              loading={patternLoading}
-              error={patternError || undefined}
-              onAnalyze={async () => {
-                setPatternLoading(true); setPatternError(null);
-                try {
-                  const r = await window.deskflowAPI.analyzePatterns();
-                  if (r.success && r.content) {
-                    if (typeof r.content === 'object' && 'score' in r.content) {
-                      setParsedPatternContent(r.content as ParsedPatternResponse);
-                      saveJson(STORAGE_KEYS.patterns, r.content);
-                    } else {
-                      const parsed = fallbackParsePatternAnalysis(r.content as string);
-                      setParsedPatternContent(parsed);
-                      saveJson(STORAGE_KEYS.patterns, parsed);
-                    }
-                  } else { setPatternError(r.error || 'Failed to analyze'); }
-                } catch (err: any) { setPatternError(err.message); }
-                finally { setPatternLoading(false); }
-              }}
-            />
+            <GoalHistoryCard />
           </motion.div>
-        </div>
-
-        {/* 5. Sleep Optimizer — 1 column */}
-        <div className="col-span-1">
           <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            <SleepCard
-              data={parsedSleepContent}
-              loading={sleepLoading}
-              error={sleepError || undefined}
-              onAnalyze={async () => {
-                setSleepLoading(true); setSleepError(null);
-                try {
-                  const r = await window.deskflowAPI.analyzeSleep();
-                  if (r.success && r.content) {
-                    if (typeof r.content === 'object' && 'score' in r.content) {
-                      setParsedSleepContent(r.content as ParsedSleepResponse);
-                      saveJson(STORAGE_KEYS.sleep, r.content);
-                    } else {
-                      const parsed = fallbackParseSleepAnalysis(r.content as string);
-                      setParsedSleepContent(parsed);
-                      saveJson(STORAGE_KEYS.sleep, parsed);
-                    }
-                  } else { setSleepError(r.error || 'Failed to analyze'); }
-                } catch (err: any) { setSleepError(err.message); }
-                finally { setSleepLoading(false); }
-              }}
+            <ContextSummaryCard
+              unfinishedCount={unfinishedCount}
+              completedThisWeek={completedThisWeek}
+              onRefresh={loadContext}
             />
           </motion.div>
         </div>
-
-        {/* 6. Anomalies — 1 column */}
-        <div className="col-span-1">
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            <GlassCard accent accentColor="#ef4444">
-              <SectionHeader
-                icon={AlertTriangle}
-                accent="#ef4444"
-                title="Activity Alerts"
-                description="Unusual patterns in your tracked activity"
-                action={anomalies.length > 0 ? (
-                  <button
-                    onClick={() => setAnomalies([])}
-                    className="text-sm px-4 py-2 rounded-lg transition-colors duration-150 bg-red-400/10 text-red-400 border border-red-400/20"
-                  >
-                    Dismiss All
-                  </button>
-                ) : undefined}
-              />
-
-              {anomaliesLoading && (
-                <div className="flex items-center justify-center py-12">
-                  <div className="w-5 h-5 border-2 border-zinc-700 border-t-red-400 rounded-full animate-spin" />
-                </div>
-              )}
-
-              {!anomaliesLoading && anomalies.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-14 text-center">
-                  <AlertTriangle className="w-10 h-10 text-zinc-700 mb-4" />
-                  <p className="text-sm text-zinc-400 font-medium">All Clear</p>
-                  <p className="text-xs text-zinc-600 mt-2">No anomalies detected.</p>
-                </div>
-              )}
-
-              {anomalies.length > 0 && (
-                <div className="space-y-3">
-                  {anomalies.map((a, i) => (
-                    <div key={i} className="p-4 rounded-xl flex items-start gap-3 bg-red-400/4 border border-red-400/15">
-                      <AlertTriangle className={`w-5 h-5 mt-0.5 shrink-0 ${a.severity === 'high' ? 'text-red-400' : 'text-amber-400'}`} />
-                      <div>
-                        <p className="text-sm text-zinc-300 leading-relaxed">{a.detail}</p>
-                        <span className="text-xs uppercase tracking-wider mt-1 inline-block font-medium" style={{ color: a.severity === 'high' ? '#ef4444' : '#f59e0b' }}>
-                          {a.severity} severity
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </GlassCard>
-          </motion.div>
-        </div>
-
-        {/* 7. Chat — full width */}
-        <div className="col-span-1 md:col-span-2 lg:col-span-3">
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            <div className="rounded-xl p-5 border flex flex-col bg-amber-400/3 border-amber-400/15">
-              <div className="flex items-center gap-3 pb-4 mb-4 border-b border-zinc-800">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-amber-400/12">
-                  <MessageCircle className="w-4.5 h-4.5 text-amber-400" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-white">Ask Your Stats</h3>
-                  <p className="text-xs text-zinc-500">Ask questions about your tracked data</p>
-                </div>
-                <button
-                  onClick={() => setChatMessages([{ role: 'assistant', content: 'Hi! Ask me anything about your tracked activity.' }])}
-                  className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                  title="Clear chat"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="space-y-3 min-h-[200px] max-h-[360px] overflow-y-auto mb-4 pr-1">
-                {chatMessages.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                        msg.role === 'user' ? 'text-zinc-900 font-medium' : 'text-zinc-300'
-                      }`}
-                      style={msg.role === 'user' ? { backgroundColor: '#f59e0b' } : { backgroundColor: 'rgba(63, 63, 70, 0.4)' }}
-                    >
-                      {msg.content}
-                    </div>
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div className="flex justify-start">
-                    <div className="px-4 py-2.5 rounded-2xl text-sm" style={{ backgroundColor: 'rgba(63, 63, 70, 0.4)' }}>
-                      <div className="flex items-center gap-2 text-zinc-400">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Thinking...</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-
-              {chatMessages.length === 1 && !chatLoading && (
-                <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
-                  {QUICK_PROMPTS.map(text => (
-                    <button
-                      key={text}
-                      onClick={() => setChatInput(text)}
-                      className="h-7 px-3 rounded-md text-xs font-medium transition-colors duration-150 bg-amber-400/8 text-[#d4a047] border border-amber-400/15"
-                    >
-                      {text}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
-                  placeholder="e.g. How much YouTube this week?"
-                  className="flex-1 px-4 py-2.5 rounded-xl text-sm bg-zinc-900/80 border border-zinc-700/60 text-white placeholder-zinc-500 outline-none focus:border-amber-600/50 transition-colors"
-                  disabled={chatLoading}
-                />
-                <button
-                  onClick={handleSendChat}
-                  disabled={!chatInput.trim() || chatLoading}
-                  className="px-4 py-2.5 rounded-xl transition-colors duration-150 disabled:opacity-30 bg-amber-400 text-[#0a0a0a]"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-
       </div>
     </div>
   );

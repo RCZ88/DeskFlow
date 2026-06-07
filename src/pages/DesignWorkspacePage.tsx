@@ -1,10 +1,32 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Palette } from 'lucide-react';
+import { Package, Grid, Zap } from 'lucide-react';
 import { TasteKnobs, type TasteKnobValues } from '../components/workspace/TasteKnobs';
+import DesignLibrarySources from '../components/workspace/DesignLibrarySources';
 import { StyleReferences } from '../components/workspace/StyleReferences';
 import { DesignComposeOutlet } from '../components/workspace/DesignComposeOutlet';
 import { StyleDescription } from '../components/workspace/StyleDescription';
-import { ColorPicker, type ColorEntry } from '../components/workspace/ColorPicker';
+import ComponentBrowserModal from '../components/workspace/ComponentBrowserModal';
+import LibraryConfigModal from '../components/workspace/LibraryConfigModal';
+import { ColorPicker } from '../components/workspace/ColorPicker';
+
+type LibraryId = '21st-dev' | 'aceternity' | 'refero';
+
+interface ImportedComponent {
+  slug: string;
+  name: string;
+  source: '21st-dev' | 'aceternity' | 'refero';
+  category: string;
+  code?: string;
+  tokens?: Record<string, any>;
+  addedAt: string;
+}
+
+interface ColorEntry {
+  role: string;
+  color: string;
+  label: string;
+}
 
 interface DesignWorkspacePageProps {
   projectPath?: string;
@@ -41,12 +63,61 @@ function buildColorSchemeXml(colors: ColorEntry[]): string {
   return lines.join('\n');
 }
 
+function buildImportedComponentsXml(components: ImportedComponent[]): string {
+  if (components.length === 0) return '';
+  const lines: string[] = ['  <imported_components>'];
+  for (const comp of components) {
+    lines.push(`    <component name="${comp.name}" source="${comp.source}" slug="${comp.slug}" category="${comp.category}">`);
+    if (comp.code) {
+      lines.push(`      <description>${comp.name}</description>`);
+      lines.push(`      <code><![CDATA[${comp.code}]]></code>`);
+    }
+    if (comp.tokens) {
+      lines.push(`      <tokens>`);
+      for (const [key, value] of Object.entries(comp.tokens)) {
+        if (typeof value === 'string') {
+          lines.push(`        <${key} value="${value}" />`);
+        }
+      }
+      lines.push(`      </tokens>`);
+    }
+    lines.push(`    </component>`);
+  }
+  lines.push('  </imported_components>');
+  return lines.join('\n');
+}
+
+function buildDesignLibraryAccessXml(enabledLibraries: { id: string; label: string }[]): string {
+  if (enabledLibraries.length === 0) return '';
+  const parts: string[] = ['  <design_library_access>'];
+  parts.push('    Available design libraries (ask the user to browse and add more from the Design tab):');
+  for (const lib of enabledLibraries) {
+    let description = '';
+    switch (lib.id) {
+      case '21st-dev':
+        description = 'Search and generate React components (search_components, get_component, generate_component, search_logos)';
+        break;
+      case 'aceternity':
+        description = '200+ Tailwind CSS + Framer Motion components (hero sections, cards, backgrounds, animations)';
+        break;
+      case 'refero':
+        description = '2000+ design systems with structured tokens (colors, typography, spacing, border-radius)';
+        break;
+    }
+    parts.push(`    - ${lib.label}: ${description}`);
+  }
+  parts.push('  </design_library_access>');
+  return parts.join('\n');
+}
+
 async function buildFullContext(
   taste: TasteKnobValues,
   selectedRefs: string[],
   projectPath?: string,
   styleDescription?: string,
   colors?: ColorEntry[],
+  importedComponents?: ImportedComponent[],
+  enabledLibraries?: { id: string; label: string }[],
 ): Promise<string> {
   const parts: string[] = [];
   parts.push(`<design_taste>`);
@@ -94,6 +165,16 @@ async function buildFullContext(
     parts.push('</design_references>');
   }
 
+  if (importedComponents && importedComponents.length > 0) {
+    parts.push(buildImportedComponentsXml(importedComponents));
+    parts.push('');
+  }
+
+  if (enabledLibraries && enabledLibraries.length > 0) {
+    parts.push(buildDesignLibraryAccessXml(enabledLibraries));
+    parts.push('');
+  }
+
   parts.push('[END DESIGN CONTEXT]');
   return parts.join('\n');
 }
@@ -105,21 +186,155 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
   const [colors, setColors] = useState<ColorEntry[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [lastSent, setLastSent] = useState<string | null>(null);
-  const [preview, setPreview] = useState<string>('Loading design context...');
+  const [libraries, setLibraries] = useState([
+    {
+      id: '21st-dev' as const,
+      label: '21st.dev',
+      description: 'Search and generate React components via MCP',
+      enabled: true,
+      icon: Package,
+      status: 'idle' as 'idle' | 'connecting' | 'connected' | 'error',
+      itemCount: 0,
+      accentColor: '#22d3ee',
+    },
+    {
+      id: 'aceternity' as const,
+      label: 'Aceternity UI',
+      description: 'Browse and install UI components from Aceternity',
+      enabled: true,
+      icon: Grid,
+      status: 'idle' as 'idle' | 'connecting' | 'connected' | 'error',
+      itemCount: 0,
+      accentColor: '#a78bfa',
+    },
+    {
+      id: 'refero' as const,
+      label: 'Refero',
+      description: 'Design system components via MCP',
+      enabled: false,
+      icon: Zap,
+      status: 'idle' as 'idle' | 'connecting' | 'connected' | 'error',
+      itemCount: 0,
+      accentColor: '#34d399',
+    },
+  ]);
+  
   const [loadingContext, setLoadingContext] = useState(true);
+  const [preview, setPreview] = useState<string>('');
+  const [activeBrowseLibrary, setActiveBrowseLibrary] = useState<LibraryId | null>(null);
+  const [activeConfigLibrary, setActiveConfigLibrary] = useState<LibraryId | null>(null);
+  const [importedComponents, setImportedComponents] = useState<ImportedComponent[]>([]);
+
+  const openBrowse = (id: LibraryId) => setActiveBrowseLibrary(id);
+  const closeBrowse = () => setActiveBrowseLibrary(null);
+  const openConfig = (id: LibraryId) => setActiveConfigLibrary(id);
+  const closeConfig = () => setActiveConfigLibrary(null);
+
+  const handleToggle = (libraryId: LibraryId, enabled: boolean) => {
+    setLibraries(prev => prev.map(lib => 
+      lib.id === libraryId ? { ...lib, enabled } : lib
+    ));
+  };
+
+  const handleAddComponent = (component: any) => {
+    const newComponent: ImportedComponent = {
+      slug: component.slug || component.id,
+      name: component.name,
+      source: component.source,
+      category: component.category || 'General',
+      code: component.code,
+      tokens: component.tokens,
+      addedAt: new Date().toISOString(),
+    };
+    setImportedComponents(prev => [...prev, newComponent]);
+    closeBrowse();
+  };
+
+  const handleRemoveComponent = (slug: string) => {
+    setImportedComponents(prev => prev.filter(c => c.slug !== slug));
+  };
+
+  const handleStartServer = async (id: LibraryId) => {
+    setLibraries(prev => prev.map(l => l.id === id ? { ...l, status: 'connecting' as const } : l));
+    const dapi = (window as any).deskflowAPI;
+    try {
+      let result;
+      if (id === 'aceternity') {
+        result = await dapi?.aceternityFetchRegistry?.();
+        if (result?.success) {
+          setLibraries(prev => prev.map(l =>
+            l.id === id ? { ...l, status: 'connected' as const, itemCount: result.total || 0 } : l
+          ));
+          return;
+        }
+      } else {
+        result = await dapi?.mcpStartServer?.(id);
+        if (result?.success) {
+          const status = await dapi?.mcpServerStatus?.(id);
+          if (status?.status === 'running') {
+            setLibraries(prev => prev.map(l =>
+              l.id === id ? { ...l, status: 'connected' as const, itemCount: status.toolCount || 0 } : l
+            ));
+            return;
+          }
+        }
+      }
+      setLibraries(prev => prev.map(l =>
+        l.id === id ? { ...l, status: 'error' as const } : l
+      ));
+    } catch {
+      setLibraries(prev => prev.map(l =>
+        l.id === id ? { ...l, status: 'error' as const } : l
+      ));
+    }
+  };
+
+  const handleStopServer = async (id: LibraryId) => {
+    const dapi = (window as any).deskflowAPI;
+    try {
+      if (id !== 'aceternity') {
+        await dapi?.mcpStopServer?.(id);
+      }
+    } catch {}
+    setLibraries(prev => prev.map(l =>
+      l.id === id ? { ...l, status: 'idle' as const, itemCount: 0 } : l
+    ));
+  };
+
+  const handleSaveConfig = async (cfg: any) => {
+    if (cfg?.sources) {
+      Object.entries(cfg.sources).forEach(([id, src]: [string, any]) => {
+        setLibraries(prev => prev.map(lib =>
+          lib.id === id ? { ...lib, enabled: src.enabled ?? lib.enabled } : lib
+        ));
+      });
+    }
+    const dapi = (window as any).deskflowAPI;
+    try {
+      await dapi?.setDesignLibraryConfig?.(cfg);
+    } catch {}
+    // Re-check statuses after save
+    checkLibraryStatuses();
+  };
 
   const refreshPreview = useCallback(async () => {
     setLoadingContext(true);
-    const ctx = await buildFullContext(taste, selectedRefs, projectPath, styleDescription, colors);
+    const enabledLibs = libraries.filter(lib => lib.enabled);
+    const ctx = await buildFullContext(
+      taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs
+    );
     setPreview(ctx);
     setLoadingContext(false);
-  }, [taste, selectedRefs, styleDescription, colors, projectPath]);
+  }, [taste, selectedRefs, styleDescription, colors, projectPath, importedComponents, libraries]);
 
   const handleSend = async () => {
     if (!activeTerminalId) return;
     setIsSending(true);
     try {
-      const ctx = await buildFullContext(taste, selectedRefs, projectPath, styleDescription, colors);
+      const enabledLibs = libraries.filter(lib => lib.enabled);
+      const ctx = await buildFullContext(
+        taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs
+      );
       const dapi = (window as any).deskflowAPI;
       await dapi?.terminalWrite?.(activeTerminalId, ctx + '\n');
       await dapi?.saveTerminalBinding?.({
@@ -132,6 +347,7 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
           style_references: selectedRefs,
           style_description: styleDescription,
           color_scheme: colors,
+          imported_components: importedComponents,
         }),
         status: 'active',
       });
@@ -143,11 +359,66 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
   };
 
   const handleCopy = async () => {
-    const ctx = await buildFullContext(taste, selectedRefs, projectPath, styleDescription, colors);
+    const enabledLibs = libraries.filter(lib => lib.enabled);
+    const ctx = await buildFullContext(
+      taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs
+    );
     navigator.clipboard?.writeText(ctx);
   };
 
-  useEffect(() => { refreshPreview(); }, []);
+  const checkLibraryStatuses = useCallback(async () => {
+    const dapi = (window as any).deskflowAPI;
+    for (const id of ['21st-dev', 'refero'] as LibraryId[]) {
+      try {
+        const status = await dapi?.mcpServerStatus?.(id);
+        if (status?.status === 'running') {
+          setLibraries(prev => prev.map(l =>
+            l.id === id ? { ...l, status: 'connected' as const, itemCount: status.toolCount || 0 } : l
+          ));
+        } else if (status?.status === 'error') {
+          setLibraries(prev => prev.map(l => l.id === id ? { ...l, status: 'error' as const } : l));
+        }
+      } catch {}
+    }
+    try {
+      const reg = await dapi?.aceternityFetchRegistry?.();
+      if (reg?.success) {
+        setLibraries(prev => prev.map(l =>
+          l.id === 'aceternity' ? { ...l, status: 'connected' as const, itemCount: reg.total } : l
+        ));
+      }
+    } catch {}
+  }, []);
+
+  // On mount, check MCP server status, load config, and start polling
+  useEffect(() => {
+    checkLibraryStatuses();
+    const interval = setInterval(checkLibraryStatuses, 10000);
+    return () => clearInterval(interval);
+    (async () => {
+      const dapi = (window as any).deskflowAPI;
+      try {
+        const saved = await dapi?.getDesignLibraryConfig?.();
+        if (saved?.sources) {
+          Object.entries(saved.sources).forEach(([id, cfg]: [string, any]) => {
+            setLibraries(prev => prev.map(l =>
+              l.id === id ? { ...l, enabled: cfg.enabled ?? l.enabled } : l
+            ));
+          });
+        }
+      } catch {}
+    })();
+    refreshPreview();
+  }, []);
+
+  // Compute imported counts for the DesignComposeOutlet
+  const importedCounts = libraries
+    .filter(lib => importedComponents.some(c => c.source === lib.id))
+    .map(lib => ({
+      source: lib.label,
+      count: importedComponents.filter(c => c.source === lib.id).length,
+      accentColor: lib.accentColor,
+    }));
 
   return (
     <div className="space-y-4">
@@ -170,6 +441,15 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
         />
       </div>
 
+      <DesignLibrarySources
+        libraries={libraries}
+        onBrowse={openBrowse}
+        onToggle={handleToggle}
+        onConfigure={openConfig}
+        onStartServer={handleStartServer}
+        onStopServer={handleStopServer}
+      />
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <StyleDescription value={styleDescription} onChange={(v) => { setStyleDescription(v); refreshPreview(); }} />
         <ColorPicker colors={colors} onChange={(c) => { setColors(c); refreshPreview(); }} />
@@ -182,6 +462,33 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
         isSending={isSending}
         lastSent={lastSent}
         terminalMissing={!activeTerminalId}
+        importedCounts={importedCounts}
+        totalImported={importedComponents.length}
+      />
+
+      <ComponentBrowserModal
+        open={!!activeBrowseLibrary}
+        onClose={closeBrowse}
+        libraryId={activeBrowseLibrary as LibraryId}
+        onAddComponent={handleAddComponent}
+      />
+
+      <LibraryConfigModal
+        open={!!activeConfigLibrary}
+        onClose={closeConfig}
+        config={{
+          version: 1,
+          sources: Object.fromEntries(libraries.map(l => [l.id, {
+            enabled: l.enabled,
+            autoStart: false,
+          }])),
+        }}
+        onSave={handleSaveConfig}
+        onConnectionChanged={(id, status, itemCount) => {
+          setLibraries(prev => prev.map(l =>
+            l.id === id ? { ...l, status: status as any, itemCount: itemCount ?? l.itemCount } : l
+          ));
+        }}
       />
     </div>
   );

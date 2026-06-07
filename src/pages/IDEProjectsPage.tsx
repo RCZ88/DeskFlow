@@ -45,6 +45,9 @@ import {
   FolderTree,
   Bot,
   Settings2,
+  LayoutDashboard,
+  FolderGit2,
+  Archive,
 } from 'lucide-react';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import {
@@ -144,6 +147,31 @@ const AGENT_CONFIG: Record<string, { name: string; icon: string; color: string }
   'copilot': { name: 'GitHub Copilot', icon: 'copilot', color: '#6366f1' },
 };
 
+type TabKey = 'overview' | 'projects' | 'ai' | 'git' | 'environment' | 'analytics' | 'backup';
+
+const TAB_KEYS: TabKey[] = ['overview', 'projects', 'ai', 'git', 'environment', 'analytics', 'backup'];
+
+const TAB_HOVER = { scale: 1.02 };
+const TAB_TAP = { scale: 0.98 };
+const TAB_LAYOUT_SPRING = { type: 'spring' as const, stiffness: 380, damping: 30 };
+
+const TABS: Array<{ key: TabKey; label: string; icon: any }> = [
+  { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { key: 'projects', label: 'Projects', icon: FolderGit2 },
+  { key: 'ai', label: 'AI Tools', icon: Bot },
+  { key: 'git', label: 'Git', icon: GitBranch },
+  { key: 'environment', label: 'Environment', icon: Boxes },
+  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { key: 'backup', label: 'Backup', icon: Archive },
+];
+
+// Back-compat: retired keys map to their new home.
+const TAB_MIGRATION: Record<string, TabKey> = {
+  ides: 'environment',
+  tools: 'environment',
+  trash: 'backup',
+};
+
 export default function IDEProjectsPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -155,9 +183,10 @@ export default function IDEProjectsPage() {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showAddProject, setShowAddProject] = useState(false);
   const [newProject, setNewProject] = useState({ name: '', path: '', repositoryUrl: '', defaultIde: '' });
-  const [activeTab, setActiveTab] = useState<'overview' | 'ides' | 'tools' | 'projects' | 'ai' | 'git' | 'analytics' | 'trash'>(() => {
-    const saved = localStorage.getItem('ide-projects-activeTab');
-    return (saved as any) || 'overview';
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    const saved = localStorage.getItem('ide-projects-activeTab') || '';
+    const resolved = (TAB_MIGRATION[saved] ?? saved) as TabKey;
+    return TAB_KEYS.includes(resolved) ? resolved : 'overview';
   });
   const commitHistoryRef = useRef<any[]>([]);
   const [commitHistory, setCommitHistory] = useState<any[]>([]);
@@ -190,6 +219,21 @@ export default function IDEProjectsPage() {
   const [addingProject, setAddingProject] = useState(false);
   const [quickAddProjects, setQuickAddProjects] = useState<{ ide: string; projects: { name: string; path: string }[] }[]>([]);
   const [loadingQuickAdd, setLoadingQuickAdd] = useState(false);
+  const [savedCustomDirs, setSavedCustomDirs] = useState<string[]>(() => {
+    try {
+      const multi = localStorage.getItem('customScanDirs');
+      if (multi) return JSON.parse(multi);
+      const old = localStorage.getItem('customScanPath');
+      if (old) {
+        localStorage.setItem('customScanDirs', JSON.stringify([old]));
+        localStorage.removeItem('customScanPath');
+        return [old];
+      }
+      return [];
+    } catch { return []; }
+  });
+  const [customDirResults, setCustomDirResults] = useState<Record<string, { name: string; path: string; languages: string[]; fileCount: number }[]>>({});
+  const [scanningDirs, setScanningDirs] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('ide-projects-expandedProjects');
@@ -331,18 +375,6 @@ export default function IDEProjectsPage() {
       console.error('Failed to load IDE projects overview:', err);
     }
     setLoading(false);
-  };
-
-  const handleScan = async () => {
-    setScanning(true);
-    try {
-      await window.deskflowAPI!.detectIDEs();
-      await window.deskflowAPI!.scanTools();
-      await loadOverview();
-    } catch (err) {
-      console.error('Scan failed:', err);
-    }
-    setScanning(false);
   };
 
   const handleSyncAI = async () => {
@@ -812,30 +844,6 @@ export default function IDEProjectsPage() {
           <p className="text-zinc-500 mt-1">Track your development environment, AI tools, and project metrics</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleSyncAI}
-              disabled={syncingAI}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors duration-150 disabled:opacity-50"
-              title="Import AI usage data"
-            >
-              <Sparkles className={`w-4 h-4 ${syncingAI ? 'animate-spin' : ''}`} />
-              {syncingAI ? 'Syncing...' : 'Sync AI'}
-            </button>
-            {aiLastSyncAt && !syncingAI && (
-              <span className="text-xs text-zinc-500 hidden sm:inline">
-                Last: {(() => {
-                  const diff = Date.now() - new Date(aiLastSyncAt).getTime();
-                  const mins = Math.floor(diff / 60000);
-                  if (mins < 1) return 'just now';
-                  if (mins < 60) return `${mins}m ago`;
-                  const hours = Math.floor(mins / 60);
-                  if (hours < 24) return `${hours}h ago`;
-                  return formatDistanceToNow(new Date(aiLastSyncAt), { addSuffix: true });
-                })()}
-              </span>
-            )}
-          </div>
           <button
             onClick={() => setShowSetupModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors duration-150"
@@ -844,32 +852,6 @@ export default function IDEProjectsPage() {
             <HelpCircle className="w-4 h-4" />
             Guide
           </button>
-
-          {/* Tools Tab: Scan Tools button - only visible on tools tab */}
-          {activeTab === 'tools' && (
-            <button
-              onClick={handleScan}
-              disabled={scanning}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors duration-150 disabled:opacity-50"
-              title="Scan for tools"
-            >
-              <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
-              {scanning ? 'Scanning...' : 'Scan Tools'}
-            </button>
-          )}
-
-          {/* IDEs Tab: Detect IDEs button - only visible on ides tab */}
-          {activeTab === 'ides' && (
-            <button
-              onClick={handleScan}
-              disabled={scanning}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors duration-150 disabled:opacity-50"
-              title="Detect IDEs"
-            >
-              <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
-              {scanning ? 'Scanning...' : 'Scan IDEs'}
-            </button>
-          )}
         </div>
       </div>
 
@@ -899,43 +881,52 @@ export default function IDEProjectsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-zinc-900/50 rounded-xl w-fit">
-        {(['overview', 'ides', 'tools', 'projects', 'ai', 'git', 'analytics', 'trash'] as const).map((tab) => (
-          <motion.button
-            key={tab}
-            onClick={() => {
-              setActiveTab(tab);
-              if (tab === 'trash') loadTrashProjects();
-            }}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-150 ${
-              activeTab === tab
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            {tab === 'ai' ? 'AI Tools' : tab === 'git' ? 'Git' : tab === 'analytics' ? 'Analytics' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </motion.button>
-        ))}
+        {TABS.map(({ key, label, icon: Icon }) => {
+          const isActive = activeTab === key;
+          return (
+            <motion.button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              whileHover={TAB_HOVER}
+              whileTap={TAB_TAP}
+              className={`relative flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-150 ${
+                isActive ? 'text-white' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              {isActive && (
+                <motion.span
+                  layoutId="ide-tab-active"
+                  className="absolute inset-0 bg-zinc-800 rounded-xl"
+                  transition={TAB_LAYOUT_SPRING}
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-2">
+                <Icon className="w-4 h-4" />
+                {label}
+              </span>
+            </motion.button>
+          );
+        })}
       </div>
 
       {/* Overview Tab */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          {/* Metric Cards */}
+          {/* Metric Cards (clickable → navigate to tab) */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
-              { label: 'IDEs Detected', value: overview?.ides?.length || 0, icon: Monitor, color: '#3b82f6', bg: 'bg-blue-500/10' },
-              { label: 'Tools Found', value: overview?.tools?.length || 0, icon: Package, color: '#10b981', bg: 'bg-emerald-500/10' },
-              { label: 'AI Tokens', value: formatTokens(overview?.aiUsage?.totalTokens || 0), subValue: formatCurrency(overview?.aiUsage?.totalCost || 0), icon: Sparkles, color: '#a855f7', bg: 'bg-violet-500/10' },
-              { label: 'Commits', value: overview?.commits?.totalCommits || 0, subValue: `+${overview?.commits?.totalAdditions || 0} / -${overview?.commits?.totalDeletions || 0}`, icon: GitCommit, color: '#f59e0b', bg: 'bg-amber-500/10' },
+              { label: 'Environment', value: (overview?.ides?.length || 0) + (overview?.tools?.length || 0), subValue: `${overview?.ides?.length || 0} IDEs · ${overview?.tools?.length || 0} tools`, icon: Boxes, color: '#3b82f6', bg: 'bg-blue-500/10', tab: 'environment' as TabKey },
+              { label: 'AI Usage', value: formatTokens(overview?.aiUsage?.totalTokens || 0), subValue: formatCurrency(overview?.aiUsage?.totalCost || 0), icon: Sparkles, color: '#a855f7', bg: 'bg-violet-500/10', tab: 'ai' as TabKey },
+              { label: 'Commits', value: overview?.commits?.totalCommits || 0, subValue: `+${overview?.commits?.totalAdditions || 0} / -${overview?.commits?.totalDeletions || 0}`, icon: GitCommit, color: '#f59e0b', bg: 'bg-amber-500/10', tab: 'git' as TabKey },
+              { label: 'Last Backup', value: '—', subValue: 'Not configured', icon: Archive, color: '#10b981', bg: 'bg-emerald-500/10', tab: 'backup' as TabKey },
             ].map((stat, idx) => (
-              <motion.div
+              <motion.button
                 key={idx}
+                onClick={() => setActiveTab(stat.tab)}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.05 }}
-                className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5"
+                className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5 text-left hover:bg-zinc-900/60 transition-colors"
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className={`w-10 h-10 rounded-xl ${stat.bg} flex items-center justify-center`}>
@@ -948,7 +939,7 @@ export default function IDEProjectsPage() {
                 </div>
                 <div className="text-sm text-zinc-400 mt-1">{stat.label}</div>
                 {stat.subValue && <div className="text-xs text-zinc-500 mt-1">{stat.subValue}</div>}
-              </motion.div>
+              </motion.button>
             ))}
           </div>
 
@@ -1114,157 +1105,116 @@ export default function IDEProjectsPage() {
         </div>
       )}
 
-      {/* IDEs Tab */}
-      {activeTab === 'ides' && (
+      {/* Environment Tab (merges IDEs + Tools) */}
+      {activeTab === 'environment' && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="space-y-4"
+          className="space-y-6"
         >
-          {overview?.ides && overview.ides.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {overview.ides.map((ide: any, idx: number) => (
-                <motion.div
-                  key={ide.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="glass rounded-xl p-5"
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                        <Monitor className="w-6 h-6 text-blue-400" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">{ide.name}</h3>
-                        {ide.version && <p className="text-sm text-zinc-500">v{ide.version}</p>}
-                      </div>
-                    </div>
-                    <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs rounded-lg font-medium">Active</span>
-                  </div>
-                  {ide.installPath && (
-                    <p className="text-xs text-zinc-500 font-mono truncate">{ide.installPath}</p>
-                  )}
-                  {ide.extensionCount && (
-                    <div className="mt-4 pt-4 border-t border-zinc-800 flex items-center gap-2">
-                      <Package className="w-4 h-4 text-zinc-500" />
-                      <span className="text-sm text-zinc-400">{ide.extensionCount} extensions</span>
-                    </div>
-                  )}
-                </motion.div>
-              ))}
-            </div>
-          ) : (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="glass rounded-xl"
-            >
-              <EmptyState
-                icon={<Monitor className="w-16 h-16" />}
-                title="No IDEs detected"
-                description='Click "Scan" to detect your development environments'
-              />
-            </motion.div>
-          )}
-        </motion.div>
-      )}
-
-      {/* Tools Tab */}
-      {activeTab === 'tools' && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-3"
-        >
+          {/* Toolbar */}
           <div className="flex items-center gap-2">
             <button
               onClick={async () => {
-                const result = await window.deskflowAPI!.resetTools();
-                if (result.success) {
+                setScanning(true);
+                try {
+                  await window.deskflowAPI!.detectIDEs();
+                  await window.deskflowAPI!.scanTools();
                   await loadOverview();
+                } catch (err) {
+                  console.error('Scan failed:', err);
                 }
+                setScanning(false);
               }}
-              className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg text-sm transition"
-              title="Clear all tools and re-scan fresh"
+              disabled={scanning}
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
+              {scanning ? 'Scanning...' : 'Scan Environment'}
+            </button>
+            <button
+              onClick={async () => {
+                const result = await window.deskflowAPI!.resetTools();
+                if (result.success) await loadOverview();
+              }}
+              className="flex items-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg text-sm transition"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Reset Tools
             </button>
           </div>
-          {Object.entries(groupToolsByCategory()).map(([category, tools], idx) => {
-            const Icon = CATEGORY_ICONS[category] || Package;
-            const label = CATEGORY_LABELS[category] || category;
-            const isExpanded = expandedCategories.has(category);
 
-            return (
-              <motion.div
-                key={category}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.03 }}
-                className="glass rounded-xl overflow-hidden"
-              >
-                <button
-                  onClick={() => toggleCategory(category)}
-                  className="w-full flex items-center justify-between p-5 hover:bg-zinc-900/30 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-zinc-800/50 flex items-center justify-center">
-                      <Icon className="w-5 h-5 text-zinc-400" />
-                    </div>
-                    <span className="text-white font-medium">{label}</span>
-                    <span className="px-2 py-0.5 bg-zinc-800 text-zinc-400 text-xs rounded-lg">{(tools as any[]).length}</span>
-                  </div>
-                  <motion.div
-                    animate={{ rotate: isExpanded ? 180 : 0 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    <ChevronDown className="w-5 h-5 text-zinc-400" />
-                  </motion.div>
-                </button>
-                <AnimatePresence>
-                  {isExpanded && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="p-5 pt-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {(tools as any[]).map((tool: any) => (
-                          <div
-                            key={tool.id}
-                            className="flex items-center justify-between p-3 bg-zinc-900/30 rounded-xl hover:bg-zinc-900/50 transition-colors"
-                          >
-                            <span className="text-sm text-zinc-300">{tool.name}</span>
-                            {tool.version && (
-                              <span className="text-xs text-zinc-500 font-mono">v{tool.version}</span>
-                            )}
-                          </div>
-                        ))}
+          {/* IDEs section */}
+          <div>
+            <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+              <Monitor className="w-5 h-5 text-blue-400" />
+              IDEs
+            </h3>
+            {overview?.ides && overview.ides.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {overview.ides.map((ide: any, idx: number) => (
+                  <div key={ide.id} className="glass rounded-xl p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                        <Monitor className="w-5 h-5 text-blue-400" />
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            );
-          })}
+                      <div>
+                        <div className="text-white font-medium">{ide.name}</div>
+                        {ide.version && <div className="text-xs text-zinc-500">v{ide.version}</div>}
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-lg">Active</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-500">No IDEs detected. Click "Scan Environment" above.</p>
+            )}
+          </div>
 
-          {(!overview?.tools || overview.tools.length === 0) && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="glass rounded-xl"
-            >
-              <EmptyState
-                icon={<Package className="w-16 h-16" />}
-                title="No tools detected"
-                description='Click "Scan" to detect your development environment'
-              />
-            </motion.div>
-          )}
+          {/* Tools section (health-oriented) */}
+          <div>
+            <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+              <Package className="w-5 h-5 text-emerald-400" />
+              Dev Tools
+            </h3>
+            {overview?.tools && overview.tools.length > 0 ? (
+              <div className="space-y-2">
+                {Object.entries(groupToolsByCategory()).map(([category, tools], idx) => {
+                  const Icon = CATEGORY_ICONS[category] || Package;
+                  const label = CATEGORY_LABELS[category] || category;
+                  const isExpanded = expandedCategories.has(category);
+                  return (
+                    <div key={category} className="glass rounded-xl overflow-hidden">
+                      <button
+                        onClick={() => toggleCategory(category)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-zinc-900/30 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Icon className="w-5 h-5 text-zinc-400" />
+                          <span className="text-white font-medium">{label}</span>
+                          <span className="px-2 py-0.5 bg-zinc-800 text-zinc-400 text-xs rounded-lg">{(tools as any[]).length}</span>
+                        </div>
+                        <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                          {(tools as any[]).map((tool: any) => (
+                            <div key={tool.id} className="flex items-center justify-between p-2.5 bg-zinc-900/30 rounded-xl">
+                              <span className="text-sm text-zinc-300">{tool.name}</span>
+                              {tool.version && <span className="text-xs text-zinc-500 font-mono">v{tool.version}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-500">No tools detected. Click "Scan Environment" above.</p>
+            )}
+          </div>
         </motion.div>
       )}
 
@@ -1279,13 +1229,27 @@ export default function IDEProjectsPage() {
             onClick={async () => {
               const next = !showAddProject;
               setShowAddProject(next);
-              if (next && window.deskflowAPI?.scanIdeDefaultProjects) {
-                setLoadingQuickAdd(true);
-                try {
-                  const result = await window.deskflowAPI.scanIdeDefaultProjects();
-                  setQuickAddProjects(result);
-                } catch {}
-                setLoadingQuickAdd(false);
+              if (next) {
+                if (window.deskflowAPI?.scanIdeDefaultProjects) {
+                  setLoadingQuickAdd(true);
+                  try {
+                    const result = await window.deskflowAPI.scanIdeDefaultProjects();
+                    setQuickAddProjects(result);
+                  } catch {}
+                  setLoadingQuickAdd(false);
+                }
+                if (savedCustomDirs.length > 0 && window.deskflowAPI?.scanCustomDirectory) {
+                  setScanningDirs(true);
+                  const results: Record<string, any[]> = {};
+                  for (const dir of savedCustomDirs) {
+                    try {
+                      const r = await window.deskflowAPI.scanCustomDirectory(dir);
+                      if (r.success) results[dir] = r.projects;
+                    } catch {}
+                  }
+                  setCustomDirResults(results);
+                  setScanningDirs(false);
+                }
               }
             }}
             whileHover={{ scale: 1.02 }}
@@ -1567,22 +1531,48 @@ export default function IDEProjectsPage() {
                 <span className="text-zinc-500 ml-2">{aiAgents.filter(a => a.status !== 'inactive').length} active</span>
               </div>
             </div>
-            <div className="flex items-center gap-5 text-sm">
+            <div className="flex items-center gap-3 text-sm">
               <div>
-                <span className="text-zinc-500">Total Tokens: </span>
+                <span className="text-zinc-500">Tokens: </span>
                 <span className="text-violet-400 font-medium">{formatTokens(overview?.aiUsage?.totalTokens || 0)}</span>
               </div>
+              <div className="text-zinc-700">|</div>
               <div>
-                <span className="text-zinc-500">Total Messages: </span>
+                <span className="text-zinc-500">Messages: </span>
                 <span className="text-blue-400 font-medium">{(overview?.aiUsage?.totalMessages || 0).toLocaleString()}</span>
               </div>
+              <div className="text-zinc-700">|</div>
               <div>
-                <span className="text-zinc-500">Total Cost: </span>
+                <span className="text-zinc-500">Cost: </span>
                 <span className="text-emerald-400 font-medium">{formatCurrency(overview?.aiUsage?.totalCost || 0)}</span>
               </div>
+              <div className="w-px h-6 bg-zinc-700" />
+              <button
+                onClick={handleSyncAI}
+                disabled={syncingAI}
+                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs disabled:opacity-50 transition-colors"
+                title="Import AI usage data"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${syncingAI ? 'animate-spin' : ''}`} />
+                {syncingAI ? 'Syncing...' : 'Sync AI'}
+              </button>
+              {aiLastSyncAt && !syncingAI && (
+                <span className="text-[11px] text-zinc-500">
+                  Last: {(() => {
+                    const diff = Date.now() - new Date(aiLastSyncAt).getTime();
+                    const mins = Math.floor(diff / 60000);
+                    if (mins < 1) return 'just now';
+                    if (mins < 60) return `${mins}m ago`;
+                    const hours = Math.floor(mins / 60);
+                    if (hours < 24) return `${hours}h ago`;
+                    return formatDistanceToNow(new Date(aiLastSyncAt), { addSuffix: true });
+                  })()}
+                </span>
+              )}
+              <div className="w-px h-6 bg-zinc-700" />
               <button
                 onClick={handleDebugAgents}
-                className="px-3 py-1 text-xs text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
               >
                 {showAgentDebug ? 'Hide Details' : 'Show Details'}
               </button>
@@ -2732,8 +2722,8 @@ export default function IDEProjectsPage() {
         </motion.div>
       )}
 
-      {/* Trash Tab - Deleted Projects */}
-      {activeTab === 'trash' && (
+      {/* Backup Tab (replaces Trash) */}
+      {activeTab === 'backup' && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -2741,50 +2731,18 @@ export default function IDEProjectsPage() {
         >
           <GlassCard>
             <div className="flex items-center gap-3 mb-4">
-              <Trash2 className="w-6 h-6 text-zinc-400" />
+              <Archive className="w-6 h-6 text-zinc-400" />
               <div>
-                <h2 className="text-xl font-semibold text-white">Trash</h2>
-                <p className="text-sm text-zinc-400">Restore or permanently delete projects</p>
+                <h2 className="text-xl font-semibold text-white">Backup</h2>
+                <p className="text-sm text-zinc-400">Backup snapshots for AI coding changes — coming soon</p>
               </div>
             </div>
 
-            {trashProjects.length === 0 ? (
-              <EmptyState
-                icon={<Trash2 className="w-8 h-8" />}
-                title="Trash is empty"
-                description="Deleted projects will appear here"
-              />
-            ) : (
-              <div className="space-y-3">
-                {trashProjects.map((project: any) => (
-                  <div key={project.id} className="flex items-center justify-between p-4 bg-zinc-900/50 rounded-xl">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-white font-medium truncate">{project.name}</h3>
-                      <p className="text-sm text-zinc-500 font-mono truncate">{project.path}</p>
-                      <p className="text-xs text-zinc-600 mt-1">
-                        Deleted: {project.deleted_at ? new Date(project.deleted_at).toLocaleDateString() : 'Unknown'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 ml-4">
-                      <button
-                        onClick={() => handleRestoreProject(project.id)}
-                        className="flex items-center gap-2 px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-400 rounded-lg transition-colors"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        Restore
-                      </button>
-                      <button
-                        onClick={() => handlePermanentDelete(project.id)}
-                        className="flex items-center gap-2 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-400 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Delete Forever
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <EmptyState
+              icon={<Archive className="w-8 h-8" />}
+              title="Backup system not yet active"
+              description="Create a backup before your next AI coding session to enable file-level restore"
+            />
           </GlassCard>
         </motion.div>
       )}
@@ -3491,114 +3449,209 @@ export default function IDEProjectsPage() {
                   Add New Project
                 </h3>
                 <button
-                  onClick={() => { setShowAddProject(false); setAddProjectError(null); }}
-                  className="p-1 text-zinc-400 hover:text-white transition"
-                >
-                  <X className="w-5 h-5" />
+onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDirResults({}); }}
+  className="p-1 text-zinc-400 hover:text-white transition"
+>
+  <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {addProjectError && (
-                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-                  {addProjectError}
-                </div>
-              )}
-
-              {loadingQuickAdd ? (
-                <div className="mb-4 flex items-center gap-2 text-zinc-400 text-sm">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Scanning IDE default directories...
-                </div>
-              ) : quickAddProjects.length > 0 && (
-                <div className="mb-4">
-                  <label className="block text-xs text-zinc-500 mb-2 uppercase tracking-wider">Quick Add from IDE Directories</label>
-                  <div className="flex flex-col gap-2">
-                    {quickAddProjects.map(group => (
-                      <div key={group.ide}>
-                        <div className="text-xs text-zinc-500 mb-1 ml-1">{group.ide}</div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {group.projects.map(p => (
-                            <button
-                              key={p.path}
-                              onClick={() => {
-                                setNewProject({ name: p.name, path: p.path, repositoryUrl: '', defaultIde: '' });
-                              }}
-                              className="flex items-center gap-2 px-3 py-2 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg border border-zinc-700 hover:border-indigo-500/50 transition text-sm"
-                            >
-                              <FolderOpen className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                              <span className="truncate max-w-[200px]">{p.name}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+              <div className="max-h-[60vh] overflow-y-auto space-y-3 pr-1 ws-scroll">
+                {addProjectError && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                    {addProjectError}
                   </div>
-                </div>
-              )}
+                )}
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm text-zinc-400 mb-2">Project Name *</label>
-                  <input
-                    type="text"
-                    value={newProject.name}
-                    onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                    placeholder="My Project"
-                    className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-zinc-400 mb-2">Project Path *</label>
-                  <div className="flex gap-2">
+                {loadingQuickAdd ? (
+                  <div className="flex items-center gap-2 text-zinc-400 text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Scanning IDE default directories...
+                  </div>
+                ) : quickAddProjects.length > 0 && (
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2 uppercase tracking-wider">Quick Add from IDE Directories</label>
+                    <div className="flex flex-col gap-2">
+                      {quickAddProjects.map(group => (
+                        <div key={group.ide}>
+                          <div className="text-xs text-zinc-500 mb-1 ml-1">{group.ide}</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {group.projects.map(p => (
+                              <button
+                                key={p.path}
+                                onClick={() => {
+                                  setNewProject({ name: p.name, path: p.path, repositoryUrl: '', defaultIde: '' });
+                                }}
+                                className="flex items-center gap-2 px-3 py-2 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg border border-zinc-700 hover:border-indigo-500/50 transition text-sm"
+                              >
+                                <FolderOpen className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                <span className="truncate max-w-[200px]">{p.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Saved Custom Directories */}
+                {savedCustomDirs.length > 0 && (
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2 uppercase tracking-wider">Saved Directories</label>
+                    <div className="space-y-2">
+                      {savedCustomDirs.map(dir => {
+                        const dirResults = customDirResults[dir];
+                        const isLoading = scanningDirs;
+                        return (
+                          <div key={dir} className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-2">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-xs text-zinc-400 truncate flex-1 font-mono">{dir}</span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {isLoading && !dirResults && (
+                                  <Loader2 className="w-3 h-3 animate-spin text-zinc-500" />
+                                )}
+                                {dirResults && (
+                                  <span className="text-[10px] text-zinc-500">{dirResults.length} project{dirResults.length !== 1 ? 's' : ''}</span>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    const next = savedCustomDirs.filter(d => d !== dir);
+                                    setSavedCustomDirs(next);
+                                    localStorage.setItem('customScanDirs', JSON.stringify(next));
+                                    const r = { ...customDirResults };
+                                    delete r[dir];
+                                    setCustomDirResults(r);
+                                  }}
+                                  className="p-0.5 text-zinc-500 hover:text-red-400 transition"
+                                  title="Remove directory"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            {isLoading && !dirResults ? (
+                              <div className="flex items-center gap-1.5 text-zinc-500 text-xs">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                Scanning...
+                              </div>
+                            ) : dirResults && dirResults.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5 mt-1">
+                                {dirResults.map(p => (
+                                  <button
+                                    key={p.path}
+                                    onClick={() => setNewProject({ name: p.name, path: p.path, repositoryUrl: '', defaultIde: '' })}
+                                    className="flex flex-col items-start gap-0.5 px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg border border-zinc-700 hover:border-indigo-500/50 transition text-xs"
+                                  >
+                                    <span className="truncate max-w-[180px]">{p.name}</span>
+                                    <span className="text-[10px] text-zinc-500 flex flex-wrap gap-1">
+                                      {p.languages.slice(0, 3).map(lang => (
+                                        <span key={lang} className="px-1 py-0.5 bg-zinc-900 rounded text-zinc-400 border border-zinc-700">{lang}</span>
+                                      ))}
+                                      {p.languages.length > 3 && <span className="text-zinc-600">+{p.languages.length - 3}</span>}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-zinc-600 mt-0.5">No coding projects found</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Add Directory Button */}
+                <button
+                  onClick={async () => {
+                    const result = await window.deskflowAPI!.pickFolder();
+                    if (result.success && result.path) {
+                      if (savedCustomDirs.includes(result.path)) return;
+                      const next = [...savedCustomDirs, result.path];
+                      setSavedCustomDirs(next);
+                      localStorage.setItem('customScanDirs', JSON.stringify(next));
+                      setScanningDirs(true);
+                      try {
+                        const scan = await window.deskflowAPI!.scanCustomDirectory(result.path);
+                        if (scan.success) {
+                          setCustomDirResults(prev => ({ ...prev, [result.path]: scan.projects }));
+                        }
+                      } catch {}
+                      setScanningDirs(false);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg border border-dashed border-zinc-700 hover:border-indigo-500/50 transition text-sm w-full justify-center"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                  Add Directory
+                </button>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Project Name *</label>
                     <input
                       type="text"
-                      value={newProject.path}
-                      onChange={(e) => setNewProject({ ...newProject, path: e.target.value })}
-                      placeholder="C:\Projects\my-project"
-                      className="flex-1 px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
+                      value={newProject.name}
+                      onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+                      placeholder="My Project"
+                      className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
                     />
-                    <button
-                      onClick={async () => {
-                        const result = await window.deskflowAPI!.pickFolder();
-                        if (result.success && result.path) {
-                          setNewProject({ ...newProject, path: result.path });
-                        }
-                      }}
-                      className="px-4 py-3 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg border border-zinc-600 transition"
-                      title="Browse for folder"
-                    >
-                      <FolderOpen className="w-5 h-5" />
-                    </button>
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm text-zinc-400 mb-2">Repository URL (optional)</label>
-                  <input
-                    type="text"
-                    value={newProject.repositoryUrl}
-                    onChange={(e) => setNewProject({ ...newProject, repositoryUrl: e.target.value })}
-                    placeholder="https://github.com/user/repo"
-                    className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-zinc-400 mb-2">Default IDE (optional)</label>
-                  <select
-                    value={newProject.defaultIde}
-                    onChange={(e) => setNewProject({ ...newProject, defaultIde: e.target.value })}
-                    className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
-                  >
-                    <option value="">Select an IDE...</option>
-                    {overview?.ides?.map((ide: any) => (
-                      <option key={ide.id} value={ide.id}>{ide.name}</option>
-                    ))}
-                  </select>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Project Path *</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newProject.path}
+                        onChange={(e) => setNewProject({ ...newProject, path: e.target.value })}
+                        placeholder="C:\Projects\my-project"
+                        className="flex-1 px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
+                      />
+                      <button
+                        onClick={async () => {
+                          const result = await window.deskflowAPI!.pickFolder();
+                          if (result.success && result.path) {
+                            setNewProject({ ...newProject, path: result.path });
+                          }
+                        }}
+                        className="px-4 py-3 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg border border-zinc-600 transition"
+                        title="Browse for folder"
+                      >
+                        <FolderOpen className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Repository URL (optional)</label>
+                    <input
+                      type="text"
+                      value={newProject.repositoryUrl}
+                      onChange={(e) => setNewProject({ ...newProject, repositoryUrl: e.target.value })}
+                      placeholder="https://github.com/user/repo"
+                      className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Default IDE (optional)</label>
+                    <select
+                      value={newProject.defaultIde}
+                      onChange={(e) => setNewProject({ ...newProject, defaultIde: e.target.value })}
+                      className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
+                    >
+                      <option value="">Select an IDE...</option>
+                      {overview?.ides?.map((ide: any) => (
+                        <option key={ide.id} value={ide.id}>{ide.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-zinc-800">
+              <div className="flex justify-end gap-3 pt-4 border-t border-zinc-800">
                 <button
-                  onClick={() => { setShowAddProject(false); setAddProjectError(null); }}
+                  onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDirResults({}); }}
                   className="px-4 py-2 text-zinc-400 hover:text-white transition"
                 >
                   Cancel
@@ -3925,6 +3978,7 @@ export default function IDEProjectsPage() {
               }}
               onComplete={() => setProvisionStatus('provisioned')}
               projectId={selectedProject || undefined}
+              projectPath={workspaceProject?.path}
               isReinit={provisionStatus === 'provisioned'}
             />
 

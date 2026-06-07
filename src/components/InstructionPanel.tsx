@@ -29,7 +29,7 @@ interface Skill {
 interface InstructionConfig {
   problems: string[];
   requests: string[];
-  skill?: string;
+  skills?: string[];
   instruction: string;
   prompt: string;
   systemPromptIncluded?: boolean;
@@ -49,11 +49,12 @@ interface InstructionPanelProps {
   onCancel?: () => void;
   isSending?: boolean;
   projectPath?: string;
-  defaultSkill?: string;
+  defaultSkills?: string[];
   sessionId?: string;
   activeTerminalId?: string | null;
   isAgentReady?: boolean;
   systemPromptLayers?: SystemPromptLayer[];
+  onComposeSkillsChange?: (skills: string[]) => void;
 }
 
 function renderMarkdown(text: string): { __html: string } {
@@ -81,16 +82,17 @@ export function InstructionPanel({
   onCancel,
   isSending,
   projectPath,
-  defaultSkill,
+  defaultSkills,
   sessionId,
   activeTerminalId,
   isAgentReady,
   systemPromptLayers,
+  onComposeSkillsChange,
 }: InstructionPanelProps) {
   const storageKey = sessionId ? `compose-${sessionId}` : 'compose-instruction';
   const [selectedProblems, setSelectedProblems] = useState<string[]>([]);
   const [selectedRequests, setSelectedRequests] = useState<string[]>([]);
-  const [selectedSkill, setSelectedSkill] = useState<string | undefined>(defaultSkill);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(defaultSkills || []);
   const [customInstruction, setCustomInstruction] = useState('');
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillConfigValues, setSkillConfigValues] = useState<Record<string, any>>({});
@@ -111,7 +113,7 @@ export function InstructionPanel({
         const parsed = JSON.parse(saved);
         setSelectedProblems(parsed.selectedProblems || []);
         setSelectedRequests(parsed.selectedRequests || []);
-        setSelectedSkill(parsed.selectedSkill || defaultSkill || undefined);
+        setSelectedSkills(parsed.selectedSkills || defaultSkills || []);
         setCustomInstruction(parsed.customInstruction || '');
         setSelectedAgentFiles(parsed.selectedAgentFiles || []);
       } catch {}
@@ -122,11 +124,11 @@ export function InstructionPanel({
     localStorage.setItem(storageKey, JSON.stringify({
       selectedProblems,
       selectedRequests,
-      selectedSkill,
+      selectedSkills,
       customInstruction,
       selectedAgentFiles,
     }));
-  }, [storageKey, selectedProblems, selectedRequests, selectedSkill, customInstruction, selectedAgentFiles]);
+  }, [storageKey, selectedProblems, selectedRequests, selectedSkills, customInstruction, selectedAgentFiles]);
 
   useEffect(() => { persistState(); }, [persistState]);
 
@@ -163,7 +165,12 @@ export function InstructionPanel({
 
   useEffect(() => {
     setSkillConfigValues({});
-  }, [selectedSkill]);
+  }, [selectedSkills]);
+
+  // Sync with external composeSkills changes
+  useEffect(() => {
+    if (defaultSkills) setSelectedSkills(defaultSkills);
+  }, [defaultSkills?.join(',')]);
 
   useEffect(() => {
     if (!projectPath || !window.deskflowAPI) return;
@@ -202,8 +209,8 @@ export function InstructionPanel({
         }
     }
 
-    if (selectedSkill) {
-      const skill = skills.find(s => s.id === selectedSkill);
+    for (const skillId of selectedSkills) {
+      const skill = skills.find(s => s.id === skillId);
       if (skill) {
         parts.push(`## Skill: ${skill.name}\n${skill.description ? `> ${skill.description}\n` : ''}`);
         if (skill.content) parts.push(`${skill.content}\n`);
@@ -268,7 +275,7 @@ export function InstructionPanel({
   const activeProblems = problems.filter(p => p.status !== 'Fixed' && p.status !== 'Irrelevant');
   const activeRequests = requests.filter(r => r.status !== 'Completed' && r.status !== 'Cancelled');
 
-  const hasSelection = selectedProblems.length > 0 || selectedRequests.length > 0 || !!customInstruction;
+  const hasSelection = selectedProblems.length > 0 || selectedRequests.length > 0 || selectedSkills.length > 0 || !!customInstruction;
 
   return (
 <div className="px-4 py-3 bg-gradient-to-r from-zinc-800/95 to-zinc-900/90 border-b border-zinc-700/60 backdrop-blur-sm">
@@ -447,40 +454,73 @@ export function InstructionPanel({
 
       <div className="flex gap-3 mb-3">
         <div className="flex-1">
-          <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Skill</label>
-          <select
-            value={selectedSkill || ''}
-            onChange={(e) => setSelectedSkill(e.target.value || undefined)}
-            className="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300"
-          >
-            <option value="">No skill (custom instruction)</option>
-            {skills.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-          {selectedSkill && (
-            <div className="mt-1.5 flex items-center gap-1.5 bg-indigo-500/15 border border-indigo-500/30 rounded px-2 py-1">
-              <Sparkles className="w-3 h-3 text-indigo-400" />
-              <span className="text-[11px] text-indigo-300 flex-1">{skills.find(s => s.id === selectedSkill)?.name}</span>
-              <button
-                onClick={() => setSelectedSkill(undefined)}
-                className="text-indigo-400/60 hover:text-indigo-300 transition-colors"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          )}
-
-          {selectedSkill && skills.find(s => s.id === selectedSkill)?.inputs && (
-            <div className="mt-3">
-              <SkillDynamicForm
-                inputs={skills.find(s => s.id === selectedSkill)!.inputs!}
-                values={skillConfigValues}
-                onChange={setSkillConfigValues}
-                compact
-              />
-            </div>
-          )}
+          <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Skills ({selectedSkills.length})</label>
+          <div className="mt-1 space-y-1">
+            {/* Add skill button */}
+            {skills.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-1.5">
+                {skills
+                  .filter(s => !selectedSkills.includes(s.id))
+                  .slice(0, 5)
+                  .map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        const next = [...selectedSkills, s.id];
+                        setSelectedSkills(next);
+                        onComposeSkillsChange?.(next);
+                      }}
+                      className="px-2 py-0.5 bg-zinc-800 hover:bg-indigo-600/30 text-zinc-400 hover:text-indigo-300 text-[10px] rounded border border-zinc-700 hover:border-indigo-500/50 transition-colors"
+                    >
+                      + {s.name}
+                    </button>
+                  ))}
+                {skills.filter(s => !selectedSkills.includes(s.id)).length > 5 && (
+                  <span className="text-[9px] text-zinc-600 self-center">+{skills.filter(s => !selectedSkills.includes(s.id)).length - 5} more</span>
+                )}
+              </div>
+            )}
+            {/* Selected skill chips */}
+            {selectedSkills.length > 0 ? (
+              <div className="space-y-1.5">
+                {selectedSkills.map(skillId => {
+                  const skill = skills.find(s => s.id === skillId);
+                  return (
+                    <div key={skillId} className="bg-indigo-500/15 border border-indigo-500/30 rounded px-2 py-1">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
+                        <span className="text-[11px] text-indigo-300 flex-1 truncate">{skill?.name || skillId}</span>
+                        <button
+                          onClick={() => {
+                            const next = selectedSkills.filter(x => x !== skillId);
+                            setSelectedSkills(next);
+                            onComposeSkillsChange?.(next);
+                          }}
+                          className="text-indigo-400/60 hover:text-indigo-300 transition-colors shrink-0"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      {skill?.inputs && (
+                        <div className="mt-1 pl-4">
+                          <SkillDynamicForm
+                            inputs={skill.inputs}
+                            values={skillConfigValues}
+                            onChange={setSkillConfigValues}
+                            compact
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-[10px] text-zinc-500 px-1 py-2 text-center border border-dashed border-zinc-700/50 rounded">
+                No skills selected. Click a skill above or pick from the Skills tab.
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex-1">
@@ -594,25 +634,29 @@ export function InstructionPanel({
         >
           Clear
         </button>
-        {selectedSkill && (
+        {selectedSkills.length > 0 && (
           <button
-            onClick={() => setSelectedSkill(undefined)}
+            onClick={() => { setSelectedSkills([]); onComposeSkillsChange?.([]); }}
             className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400/80 text-xs rounded transition-colors flex items-center gap-1"
-            title="Cancel skill selection"
+            title="Clear all skills"
           >
             <X className="w-3 h-3" />
-            Cancel Skill
+            Clear Skills
           </button>
         )}
         <button
-          onClick={() => onSend({
-            problems: selectedProblems,
-            requests: selectedRequests,
-            skill: selectedSkill,
-            instruction: customInstruction,
-            prompt: generatePrompt(),
-            systemPromptIncluded: systemPromptIncluded,
-          })}
+          onClick={() => {
+            onSend({
+              problems: selectedProblems,
+              requests: selectedRequests,
+              skills: selectedSkills,
+              instruction: customInstruction,
+              prompt: generatePrompt(),
+              systemPromptIncluded: systemPromptIncluded,
+            });
+            setSelectedSkills([]);
+            onComposeSkillsChange?.([]);
+          }}
           disabled={!hasSelection || isSending}
           className="flex-1 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white text-xs rounded flex items-center justify-center gap-1.5 transition-all"
         >

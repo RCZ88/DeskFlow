@@ -98,9 +98,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   setBrowserTracking: (enabled: boolean) => ipcRenderer.invoke('set-browser-tracking', enabled),
   getBrowserTrackingStatus: () => ipcRenderer.invoke('get-browser-tracking-status'),
   setBrowserExcludedDomains: (domains: string[]) => ipcRenderer.invoke('set-browser-excluded-domains', domains),
-  setRecordingMode: (type: 'browser', mode: 'always' | 'on-view') => ipcRenderer.invoke('set-recording-mode', { type, mode }),
+  setRecordingMode: (type: 'browser' | 'app', mode: 'always' | 'on-view') => ipcRenderer.invoke('set-recording-mode', { type, mode }),
   getRecordingModes: () => ipcRenderer.invoke('get-recording-modes'),
-  setPageVisibility: (page: 'browser', visible: boolean) => ipcRenderer.invoke('set-page-visibility', { page, visible }),
+  setPageVisibility: (page: 'browser' | 'dashboard', visible: boolean) => ipcRenderer.invoke('set-page-visibility', { page, visible }),
   setBrowserWithExtension: (browser: string) => ipcRenderer.invoke('set-browser-with-extension', browser),
 
   // Get tracked browsers (apps categorized as Browser)
@@ -171,31 +171,43 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   summarizeWithLLM: (prompt: string, options?: { maxTokens?: number; model?: string }) =>
     ipcRenderer.invoke('summarize-with-llm', prompt, options),
 
-  // AI Briefing & News Features
-  getAiBrief: (params: { type: 'daily' | 'weekly' }) => ipcRenderer.invoke('get-ai-brief', params),
-  regenerateAiBrief: (params: { type: 'daily' | 'weekly' }) => ipcRenderer.invoke('regenerate-ai-brief', params),
+  // AI Digest & Config Features
   getTopicDigest: () => ipcRenderer.invoke('get-topic-digest'),
-  checkAnomalies: () => ipcRenderer.invoke('check-anomalies'),
-  analyzePatterns: () => ipcRenderer.invoke('analyze-patterns'),
-  analyzeSleep: () => ipcRenderer.invoke('analyze-sleep'),
-  dataChatQuery: (params: { query: string; history: Array<{ role: string; content: string }> }) => ipcRenderer.invoke('data-chat-query', params),
   getAiConfig: () => ipcRenderer.invoke('get-ai-config'),
   saveAiConfig: (config: { apiKey?: string; enabled?: boolean; briefModel?: string; weeklyModel?: string; digestModel?: string; anomalyModel?: string; autoGenerateBrief?: boolean }) => ipcRenderer.invoke('save-ai-config', config),
   getInterestTopics: () => ipcRenderer.invoke('get-interest-topics'),
   addInterestTopic: (topic: string) => ipcRenderer.invoke('add-interest-topic', topic),
   removeInterestTopic: (topic: string) => ipcRenderer.invoke('remove-interest-topic', topic),
-  onAiBriefReady: (callback: (data: { type: string; content: any }) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
-    ipcRenderer.on('ai-brief-ready', handler);
-    return () => { ipcRenderer.removeListener('ai-brief-ready', handler); };
-  },
 
   // File operations
   saveFile: (options: { content: string; filename: string; fileType: string }) => ipcRenderer.invoke('save-file', options),
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
   showOpenDialog: (options: any) => ipcRenderer.invoke('show-open-dialog', options),
 
-  // ========== IDE Projects ==========
+  // MCP library integration
+  mcpListTools: (serverId: string) => ipcRenderer.invoke('mcp-list-tools', serverId),
+  mcpCallTool: (serverId: string, toolName: string, args: Record<string, any>) =>
+    ipcRenderer.invoke('mcp-call-tool', serverId, toolName, args),
+  mcpStartServer: (serverId: string) => ipcRenderer.invoke('mcp-start-server', serverId),
+  mcpStopServer: (serverId: string) => ipcRenderer.invoke('mcp-stop-server', serverId),
+  // Aceternity UI registry
+  aceternityFetchRegistry: () => ipcRenderer.invoke('aceternity-fetch-registry'),
+  aceternityFetchComponent: (slug: string) => ipcRenderer.invoke('aceternity-fetch-component', { slug }),
+  aceternityInstallComponent: (slug: string, cwd: string) => ipcRenderer.invoke('aceternity-install-component', slug, cwd),
+
+  // MCP server status
+  mcpServerStatus: (serverId: string) => ipcRenderer.invoke('mcp-server-status', serverId),
+  // Refero design system library
+  fetchReferoCatalog: (forceRefresh?: boolean, query?: string) =>
+    ipcRenderer.invoke('fetch-refero-catalog', { forceRefresh, query }),
+  fetchReferoSystem: (slug: string) => ipcRenderer.invoke('fetch-refero-system', { slug }),
+  searchReferoSystems: (query: string) => ipcRenderer.invoke('search-refero-systems', { query }),
+  // Design library config & cache
+  getDesignLibraryConfig: () => ipcRenderer.invoke('get-design-library-config'),
+  setDesignLibraryConfig: (config: any) => ipcRenderer.invoke('set-design-library-config', config),
+  getDesignCachedData: (key: string) => ipcRenderer.invoke('get-design-cached-data', { key }),
+  testDesignLibraryConnection: (serverId: string) => ipcRenderer.invoke('test-design-library-connection', { serverId }),
+
   // IDE Detection
   detectIDEs: () => ipcRenderer.invoke('detect-ides'),
   getIDEs: () => ipcRenderer.invoke('get-ides'),
@@ -220,6 +232,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   openProject: (projectId: string, ideId?: string) => ipcRenderer.invoke('open-project', projectId, ideId),
   detectProjectLanguage: (projectPath: string) => ipcRenderer.invoke('detect-project-language', projectPath),
   scanIdeDefaultProjects: () => ipcRenderer.invoke('scan-ide-default-projects'),
+  scanCustomDirectory: (rootDir: string) => ipcRenderer.invoke('scan-custom-directory', rootDir),
 
   // AI & Git Metrics
   getAIUsageSummary: (period?: 'day' | 'week' | 'month') => ipcRenderer.invoke('get-ai-usage-summary', period),
@@ -399,6 +412,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   updateExternalActivity: (id: string, updates: { name?: string; type?: string; color?: string; icon?: string; default_duration?: number; is_visible?: boolean; is_default?: boolean }) =>
     ipcRenderer.invoke('update-external-activity', id, updates),
   deleteExternalActivity: (id: string) => ipcRenderer.invoke('delete-external-activity', id),
+  reorderExternalActivities: (ordered: Array<{ id: number; sort_order: number }>) => ipcRenderer.invoke('reorder-external-activities', ordered),
 
   // External Sessions
   startExternalSession: (activityId: string) => ipcRenderer.invoke('start-external-session', activityId),
@@ -432,7 +446,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   setExternalSettings: (key: string, value: string) => ipcRenderer.invoke('set-external-settings', key, value),
   getTrackingSettings: () => ipcRenderer.invoke('get-tracking-settings'),
   setTrackingSetting: (key: string, value: string) => ipcRenderer.invoke('set-tracking-setting', key, value),
-   getTypicalDay: (days?: number) => ipcRenderer.invoke('get-typical-day', days),
+   getTypicalDay: (days?: number, dateOffset?: number) => ipcRenderer.invoke('get-typical-day', days, dateOffset),
    getTypicalActivityAtTime: (timestamp: string) => ipcRenderer.invoke('get-typical-activity-at-time', timestamp),
    detectUsageGaps: (options?: { period?: string; minGapMinutes?: number }) => ipcRenderer.invoke('detect-usage-gaps', options || {}),
    getHourlyHeatmap: (days?: number) => ipcRenderer.invoke('get-hourly-heatmap', days),
@@ -474,6 +488,12 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   }) => ipcRenderer.invoke('assign-problem-to-terminal', data),
   getTerminalBindings: () => ipcRenderer.invoke('get-terminal-bindings'),
   getSkills: (projectPath?: string) => ipcRenderer.invoke('get-skills', { projectPath }),
+  getAppSkills: () => ipcRenderer.invoke('get-app-skills'),
+  addSkillToProject: (data: { skillId: string; projectPath: string }) => ipcRenderer.invoke('add-skill-to-project', data),
+  seedWorkspaceSkills: (data: { sourceDir: string }) => ipcRenderer.invoke('seed-workspace-skills', data),
+  getSavedSkills: () => ipcRenderer.invoke('get-saved-skills'),
+  saveWorkspaceSkill: (data: { skillId: string }) => ipcRenderer.invoke('save-workspace-skill', data),
+  unsaveWorkspaceSkill: (data: { skillId: string }) => ipcRenderer.invoke('unsave-workspace-skill', data),
   getWorkspaceSkills: (projectPath?: string) => ipcRenderer.invoke('get-workspace-skills', { projectPath }),
   createSkill: (data: { name: string; category: string; description: string; content: string; projectPath?: string }) => ipcRenderer.invoke('create-skill', data),
   updateSkill: (data: { id: string; name: string; category: string; description: string; content: string; projectPath?: string }) => ipcRenderer.invoke('update-skill', data),
@@ -648,4 +668,20 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.invoke('check-session-compaction', data),
   compactSession: (data: { sessionId: string; summaryPrompt?: string }) =>
     ipcRenderer.invoke('compact-session', data),
+
+  // ========== Multi‑Provider AI / Goal Features ==========
+  getAiProviders: () => ipcRenderer.invoke('get-ai-providers'),
+  saveAiProviders: (state: any) => ipcRenderer.invoke('save-ai-providers', state),
+  testAiProvider: (providerId: string) => ipcRenderer.invoke('test-ai-provider', providerId),
+  getGoals: (date: string) => ipcRenderer.invoke('get-goals', date),
+  saveGoal: (date: string, goal: any) => ipcRenderer.invoke('save-goal', date, goal),
+  saveGoalReview: (date: string, reviewSummary: string) => ipcRenderer.invoke('save-goal-review', date, reviewSummary),
+  getGoalContext: () => ipcRenderer.invoke('get-goal-context'),
+  parseGoalFeedback: (data: { message: string; goals: string[] }) => ipcRenderer.invoke('parse-goal-feedback', data),
+  suggestGoals: (date: string, ctx?: any) => ipcRenderer.invoke('suggest-goals', date, ctx),
+  reviewGoals: (date: string) => ipcRenderer.invoke('review-goals', date),
+
+  // Planning.md
+  readPlanningMd: () => ipcRenderer.invoke('read-planning-md'),
+  writePlanningMd: (content: string) => ipcRenderer.invoke('write-planning-md', content),
 });

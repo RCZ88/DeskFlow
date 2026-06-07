@@ -30,16 +30,19 @@ interface InitializeProgressModalProps {
   onClose: () => void;
   onComplete?: () => void;
   projectId?: string;
+  projectPath?: string;
   isReinit?: boolean;
+  onSeedWithAgent?: (config: { agent: string; prompt: string; projectPath?: string }) => Promise<{ success: boolean; terminalId?: string; error?: string }>;
 }
 
 const GROUP_LABELS: Record<string, string> = {
   agent: 'agent/',
   skills: 'agent/skills/',
+  docs: 'agent/docs/',
   graphify: 'graphify-out/',
 };
 
-const GROUP_ORDER = ['agent', 'skills', 'graphify'];
+const GROUP_ORDER = ['agent', 'skills', 'docs', 'graphify'];
 
 function groupSteps(steps: InitStep[]): Array<{ group: string; steps: InitStep[] }> {
   const groups: Record<string, InitStep[]> = {};
@@ -53,12 +56,36 @@ function groupSteps(steps: InitStep[]): Array<{ group: string; steps: InitStep[]
     .map(g => ({ group: g, steps: groups[g] }));
 }
 
+const SUPPORTED_AGENTS = [
+  { id: 'claude', name: 'Claude Code' },
+  { id: 'opencode', name: 'OpenCode' },
+  { id: 'aider', name: 'Aider' },
+  { id: 'codex', name: 'Codex CLI' },
+  { id: 'gemini', name: 'Gemini CLI' },
+];
+
+const DEFAULT_SEED_PROMPT = `You are initializing this project's AI workspace. Your task is to:
+
+1. Analyze the project's codebase, structure, and configuration
+2. Populate the agent/ markdown files with real, project-specific content:
+   - PROBLEMS.md: Document actual bugs, technical debt, and improvement opportunities found in the code
+   - FEATURE_TRACKER.md: Inventory all existing features and pages
+   - WORKSPACE_CONTEXT.md: Document the project's tech stack, architecture, build setup, and IDE configuration
+   - state.md: Record the current state of the project
+   - COMMITS.md: Analyze git history and document commit patterns
+   - HUMAN_TEST_CHECKLIST.md: Create a testing checklist specific to this project's features
+3. Use 'opencode --init' or the appropriate command for your agent to process the initialized files
+
+Focus on accuracy. Read actual source files, configuration files, and git history. Do not guess or make things up.`;
+
 export default function InitializeProgressModal({
   isOpen,
   onClose,
   onComplete,
   projectId,
+  projectPath,
   isReinit = false,
+  onSeedWithAgent,
 }: InitializeProgressModalProps) {
   const [steps, setSteps] = useState<InitStep[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -66,6 +93,11 @@ export default function InitializeProgressModal({
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
+  const [projectType, setProjectType] = useState<'new' | 'existing'>('new');
+  const [seedAgent, setSeedAgent] = useState('opencode');
+  const [seedPrompt, setSeedPrompt] = useState(DEFAULT_SEED_PROMPT);
+  const [agentPhase, setAgentPhase] = useState<'idle' | 'launching' | 'running' | 'done' | 'error'>('idle');
+  const [agentTerminalId, setAgentTerminalId] = useState<string | null>(null);
   const cancelledRef = useRef(false);
   const cleanupRef = useRef<(() => void) | null>(null);
   const onCompleteRef = useRef(onComplete);
@@ -79,6 +111,8 @@ export default function InitializeProgressModal({
     setHasError(false);
     setErrorMessage('');
     setExpandedStep(null);
+    setAgentPhase('idle');
+    setAgentTerminalId(null);
 
     const api = (window as any).deskflowAPI;
     const agent = localStorage.getItem('terminal-defaultAgent') || 'claude';
@@ -105,9 +139,52 @@ export default function InitializeProgressModal({
       }
 
       if (data.type === 'complete') {
-        setIsComplete(true);
-        setIsRunning(false);
-        onCompleteRef.current?.();
+        if (projectType === 'existing' && onSeedWithAgent && !cancelledRef.current) {
+          setAgentPhase('launching');
+          setSteps(prev => [...prev, {
+            id: 'seed-agent',
+            label: 'Seed files with AI agent',
+            type: 'file',
+            status: 'creating',
+            group: 'agent',
+          }]);
+          onSeedWithAgent({ agent: seedAgent, prompt: seedPrompt, projectPath })
+            .then(res => {
+              if (cancelledRef.current) return;
+              if (res.success) {
+                setAgentPhase('done');
+                setAgentTerminalId(res.terminalId || null);
+                setSteps(prev => prev.map(s =>
+                  s.id === 'seed-agent' ? { ...s, status: 'done', content: `Launched ${seedAgent} in terminal ${res.terminalId || 'unknown'}` } : s
+                ));
+                setIsComplete(true);
+                setIsRunning(false);
+                onCompleteRef.current?.();
+              } else {
+                setAgentPhase('error');
+                setSteps(prev => prev.map(s =>
+                  s.id === 'seed-agent' ? { ...s, status: 'error' } : s
+                ));
+                setHasError(true);
+                setErrorMessage(res.error || 'Failed to launch AI agent');
+                setIsRunning(false);
+              }
+            })
+            .catch((e: any) => {
+              if (cancelledRef.current) return;
+              setAgentPhase('error');
+              setSteps(prev => prev.map(s =>
+                s.id === 'seed-agent' ? { ...s, status: 'error' } : s
+              ));
+              setHasError(true);
+              setErrorMessage(e?.message || 'Failed to launch AI agent');
+              setIsRunning(false);
+            });
+        } else {
+          setIsComplete(true);
+          setIsRunning(false);
+          onCompleteRef.current?.();
+        }
       }
 
       if (data.type === 'error') {
@@ -153,21 +230,21 @@ export default function InitializeProgressModal({
           }))
         );
       });
-  }, [projectId]);
+  }, [projectId, projectType, seedAgent, seedPrompt, projectPath, onSeedWithAgent]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) {
+      cancelledRef.current = true;
+      cleanupRef.current?.();
+    } else if (isReinit) {
       const t = setTimeout(runInit, 400);
       return () => {
         clearTimeout(t);
         cancelledRef.current = true;
         cleanupRef.current?.();
       };
-    } else {
-      cancelledRef.current = true;
-      cleanupRef.current?.();
     }
-  }, [isOpen, runInit]);
+  }, [isOpen, runInit, isReinit]);
 
   const doneCount = steps.filter(s => s.status === 'done').length;
   const totalCount = steps.length;
@@ -198,6 +275,86 @@ export default function InitializeProgressModal({
         className="bg-zinc-800 rounded-xl border border-zinc-700 w-full max-w-lg flex flex-col"
         style={{ maxHeight: '85vh' }}
       >
+        {/* ── Configuration Panel (shown before init starts) ── */}
+        {!isRunning && steps.length === 0 && !isComplete && !hasError ? (
+          <>
+            <div className="p-5 pb-0 flex-shrink-0">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-9 h-9 rounded-xl bg-green-500/10 flex items-center justify-center">
+                  <FolderTree className="w-4.5 h-4.5 text-green-400" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Initialize Workspace</h2>
+                  <p className="text-[11px] text-zinc-500">Configure initialization options</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-5 overflow-y-auto flex-1 space-y-4 mb-4">
+              <div>
+                <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider mb-2 block">Project Type</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setProjectType('new')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      projectType === 'new'
+                        ? 'bg-green-600/20 border border-green-500/40 text-green-300'
+                        : 'bg-zinc-900/50 border border-zinc-700/50 text-zinc-500 hover:bg-zinc-800/50'
+                    }`}
+                  >
+                    <div className="font-semibold mb-0.5">New Project</div>
+                    <div className="text-[10px] opacity-70">Create template files only</div>
+                  </button>
+                  <button
+                    onClick={() => setProjectType('existing')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      projectType === 'existing'
+                        ? 'bg-amber-600/20 border border-amber-500/40 text-amber-300'
+                        : 'bg-zinc-900/50 border border-zinc-700/50 text-zinc-500 hover:bg-zinc-800/50'
+                    }`}
+                  >
+                    <div className="font-semibold mb-0.5">Existing Project</div>
+                    <div className="text-[10px] opacity-70">Seed files via AI agent</div>
+                  </button>
+                </div>
+              </div>
+
+              {projectType === 'existing' && (
+                <>
+                  <div>
+                    <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider mb-2 block">AI Agent</label>
+                    <select
+                      value={seedAgent}
+                      onChange={e => setSeedAgent(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200"
+                    >
+                      {SUPPORTED_AGENTS.map(a => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider mb-2 block">Seed Prompt</label>
+                    <textarea
+                      value={seedPrompt}
+                      onChange={e => setSeedPrompt(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded px-2.5 py-2 text-xs text-zinc-200 min-h-[120px] resize-y font-mono"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="px-5 pb-5 flex-shrink-0 flex items-center justify-end gap-2">
+              <button onClick={onClose} className="px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 transition-colors">Cancel</button>
+              <button
+                onClick={runInit}
+                className="px-4 py-1.5 rounded-lg text-xs font-medium bg-green-600 hover:bg-green-500 text-white transition-colors"
+              >
+                {projectType === 'existing' ? 'Initialize & Seed' : 'Initialize'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
         <div className="p-5 pb-0 flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2.5">
@@ -233,6 +390,10 @@ export default function InitializeProgressModal({
                     ? 'Some steps failed'
                     : isComplete
                     ? `${doneCount} items ready`
+                    : agentPhase === 'running'
+                    ? 'AI agent is populating files...'
+                    : agentPhase === 'launching'
+                    ? 'Launching agent...'
                     : totalCount > 0
                     ? `${doneCount} / ${totalCount} — ${progressPct}%`
                     : 'Preparing...'}
@@ -475,6 +636,8 @@ export default function InitializeProgressModal({
             </button>
           </div>
         </div>
+      </>
+      )}
       </motion.div>
     </motion.div>
   );

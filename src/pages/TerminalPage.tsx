@@ -376,6 +376,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [showInstructionInput, setShowInstructionInput] = useState(false);
   const [showInstructionPanel, setShowInstructionPanel] = useState(false);
+  const [composeSkills, setComposeSkills] = useState<string[]>([]);
   const [instructionText, setInstructionText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [terminalError, setTerminalError] = useState<string | null>(null);
@@ -795,7 +796,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const handleInstructionPanelSend = useCallback(async (config: {
     problems: string[];
     requests: string[];
-    skill?: string;
+    skills?: string[];
     instruction: string;
     prompt: string;
     systemPromptIncluded?: boolean;
@@ -842,12 +843,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         const parts: string[] = [];
         if (config.problems.length > 0) parts.push(`${config.problems.length}p`);
         if (config.requests.length > 0) parts.push(`${config.requests.length}r`);
-        if (config.skill) parts.push(config.skill);
+        if (config.skills && config.skills.length > 0) parts.push(`${config.skills.length}s`);
         topic = parts.length > 0 ? `Instruction: ${parts.join(' ')}` : 'Quick instruction';
       }
 
       // ── 3. Generate session ID ──────────────────────────────
       const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const sesResumeId = `ses_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       // ── 4. Save session BEFORE terminal write ───────────────
       const existingSession = sessions.find(s => s.terminal_id === resolvedTargetId || s.id === resolvedTargetId);
@@ -855,6 +857,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         id: existingSession?.id || sessionId,
         projectId: selectedProject,
         agent: existingSession?.agent || 'claude',
+        resumeId: sesResumeId,
         terminalId: resolvedTargetId,
         topic,
         workingDirectory: cwd || '',
@@ -890,7 +893,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             session_context: JSON.stringify({
               problems: config.problems,
               requests: config.requests,
-              skill: config.skill,
+              skills: config.skills,
               systemPromptIncluded: config.systemPromptIncluded,
             }),
           },
@@ -2429,7 +2432,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       {/* Sidebar */}
       {sidebarOpen && (
         <div 
-          className="relative h-full shrink-0 bg-zinc-950 ws-sidebar-edge"
+          className="relative h-full shrink-0 bg-zinc-950 ws-sidebar-edge flex flex-col"
           style={{ width: sidebarWidth }}
         >
           {/* Resize Handle */}
@@ -2722,6 +2725,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                   ) : (
                                     <button onClick={() => handleResumeSession(session)} className="px-3 py-1.5 bg-green-600/80 hover:bg-green-500 text-green-50 text-xs font-medium rounded-lg transition-colors duration-150 hover:shadow-[0_0_8px_rgba(34,197,94,0.3)] active:scale-95">Open in Terminal</button>
                                   )}
+                                  <button onClick={() => setSessionToEdit(session)} className="px-3 py-1.5 bg-zinc-600/80 hover:bg-zinc-500 text-zinc-200 text-xs font-medium rounded-lg transition-colors duration-150 active:scale-95">Edit</button>
                                 </div>
                               </div>
                                <div className="p-3 bg-zinc-800 rounded-lg">
@@ -3093,11 +3097,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
              {activeTab === 'skills' && (
               <TabPanel accent="indigo">
-               <SkillsTab
-                 projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
-                 terminalTabs={terminalTabs}
-                 activeTerminalId={activeTerminalId}
-               />
+                <SkillsTab
+                  projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
+                  terminalTabs={terminalTabs}
+                  activeTerminalId={activeTerminalId}
+                  onAddToCompose={(skillId) => {
+                    setComposeSkills(prev => prev.includes(skillId) ? prev : [...prev, skillId]);
+                    setShowInstructionPanel(true);
+                  }}
+                />
               </TabPanel>
              )}
 
@@ -3735,10 +3743,12 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   }
                 }
 
+                const sesResumeId = config.resumeId || `ses_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const sessionResult = await window.deskflowAPI?.saveTerminalSession?.({
                   id: config.id,
                   projectId: selectedProject,
                   agent,
+                  resumeId: sesResumeId,
                   terminalId: targetTerminalId,
                   topic: sessionName,
                   workingDirectory: proj?.path || '',
@@ -3831,7 +3841,27 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               }}
               onComplete={() => setInitStatus('init-ok')}
               projectId={selectedProject || propProjectId || undefined}
+              projectPath={propProjectPath || projects.find(p => p.id === (selectedProject || propProjectId))?.path}
               isReinit={initStatus === 'init-ok'}
+              onSeedWithAgent={async ({ agent, prompt, projectPath: seedPath }) => {
+                const terminalId = `seed-${Date.now()}`;
+                const cwd = seedPath || propProjectPath || '';
+                try {
+                  const spawnRes = await window.deskflowAPI?.spawnTerminal?.(terminalId, cwd);
+                  if (!spawnRes?.success) {
+                    return { success: false, error: spawnRes?.error || 'Failed to spawn terminal' };
+                  }
+                  await new Promise(r => setTimeout(r, 1000));
+                  const cdCmd = cwd ? `cd "${cwd}"\r\n` : '';
+                  const launchCmd = `${cdCmd}${agent}\r\n`;
+                  await window.deskflowAPI?.terminalWrite?.(terminalId, launchCmd);
+                  await new Promise(r => setTimeout(r, 5000));
+                  await window.deskflowAPI?.terminalWrite?.(terminalId, prompt + '\r\n');
+                  return { success: true, terminalId };
+                } catch (e: any) {
+                  return { success: false, error: e?.message || 'Unknown error' };
+                }
+              }}
             />
 
             {showMessagesViewer && (
@@ -4511,7 +4541,9 @@ interface Skill {
   filePath: string;
 }
 
-const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, TerminalTabInfo>; activeTerminalId?: string | null; }> = ({ projectPath, terminalTabs = {}, activeTerminalId }) => {
+type SkillsTabView = 'project' | 'browse' | 'saved';
+
+const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, TerminalTabInfo>; activeTerminalId?: string | null; onAddToCompose?: (skillId: string) => void; }> = ({ projectPath, terminalTabs = {}, activeTerminalId, onAddToCompose }) => {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -4522,6 +4554,12 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
   const [skillFormValues, setSkillFormValues] = useState<Record<string, any>>({});
   const [targetTerminal, setTargetTerminal] = useState('');
   const [dslSkill, setDslSkill] = useState<Skill | null>(null);
+  const [activeView, setActiveView] = useState<SkillsTabView>(projectPath ? 'project' : 'browse');
+  const [appSkills, setAppSkills] = useState<Skill[]>([]);
+  const [savedSkillIds, setSavedSkillIds] = useState<string[]>([]);
+  const [addingToProject, setAddingToProject] = useState<string | null>(null);
+  const [savingSkill, setSavingSkill] = useState<string | null>(null);
+  const [seedingWorkspace, setSeedingWorkspace] = useState(false);
 
   useEffect(() => {
     if (runningSkill?.inputs && runningSkill.inputs.length > 0) {
@@ -4560,8 +4598,14 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
   const loadSkills = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await window.deskflowAPI?.getSkills?.(projectPath);
-      if (result?.success) setSkills(result.data || []);
+      const [projectResult, appResult, savedResult] = await Promise.all([
+        window.deskflowAPI?.getSkills?.(projectPath),
+        window.deskflowAPI?.getAppSkills?.(),
+        window.deskflowAPI?.getSavedSkills?.(),
+      ]);
+      if (projectResult?.success) setSkills(projectResult.data || []);
+      if (appResult?.success) setAppSkills(appResult.data || []);
+      if (savedResult?.success) setSavedSkillIds(savedResult.data || []);
     } catch (e) {
       console.error('[SkillsTab] Failed to load skills:', e);
     } finally {
@@ -4575,16 +4619,29 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
     return () => clearInterval(interval);
   }, [loadSkills]);
 
-  const categories = ['all', ...new Set(skills.map(s => s.category || 'general'))];
+  const categories = ['all', ...new Set(
+    (activeView === 'project' ? skills : activeView === 'saved' ? appSkills.filter(a => savedSkillIds.includes(a.id)) : appSkills)
+      .map(s => s.category || 'general')
+  )];
 
-  const filteredSkills = skills.filter(s => {
-    if (categoryFilter !== 'all' && s.category !== categoryFilter) return false;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.content.toLowerCase().includes(q);
+  const filteredSkills = (() => {
+    let source: Skill[];
+    if (activeView === 'project') {
+      source = skills;
+    } else if (activeView === 'saved') {
+      source = appSkills.filter(a => savedSkillIds.includes(a.id));
+    } else {
+      source = appSkills;
     }
-    return true;
-  });
+    return source.filter(s => {
+      if (categoryFilter !== 'all' && s.category !== categoryFilter) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.content.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  })();
 
   const showNotify = (message: string, type: 'success' | 'error') => {
     setNotification({ message, type });
@@ -4638,7 +4695,6 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
   };
 
   const handleDelete = async (skill: Skill) => {
-    // Use IPC to delete (by writing empty file or removing) — rely on main process
     try {
       const result = await window.deskflowAPI?.updateSkill?.({
         id: skill.id,
@@ -4654,6 +4710,75 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
       }
     } catch (e) {
       showNotify('Failed to delete skill', 'error');
+    }
+  };
+
+  const handleAddToProject = async (skillId: string) => {
+    if (!projectPath) {
+      showNotify('No project selected', 'error');
+      return;
+    }
+    setAddingToProject(skillId);
+    try {
+      const result = await window.deskflowAPI?.addSkillToProject?.({ skillId, projectPath });
+      if (result?.success) {
+        showNotify('Skill added to project', 'success');
+        loadSkills();
+      } else {
+        showNotify(result?.error || 'Failed to add skill to project', 'error');
+      }
+    } catch (e) {
+      showNotify('Failed to add skill to project', 'error');
+    } finally {
+      setAddingToProject(null);
+    }
+  };
+
+  const handleSave = async (skillId: string) => {
+    setSavingSkill(skillId);
+    try {
+      const result = await window.deskflowAPI?.saveWorkspaceSkill?.({ skillId });
+      if (result?.success) {
+        setSavedSkillIds(result.data || []);
+        showNotify('Skill saved', 'success');
+      }
+    } catch (e) {
+      showNotify('Failed to save skill', 'error');
+    } finally {
+      setSavingSkill(null);
+    }
+  };
+
+  const handleUnsave = async (skillId: string) => {
+    setSavingSkill(skillId);
+    try {
+      const result = await window.deskflowAPI?.unsaveWorkspaceSkill?.({ skillId });
+      if (result?.success) {
+        setSavedSkillIds(result.data || []);
+        showNotify('Skill removed from saved', 'success');
+      }
+    } catch (e) {
+      showNotify('Failed to unsave skill', 'error');
+    } finally {
+      setSavingSkill(null);
+    }
+  };
+
+  const handleSeedWorkspace = async () => {
+    if (!projectPath) { showNotify('No project selected', 'error'); return; }
+    setSeedingWorkspace(true);
+    try {
+      const result = await window.deskflowAPI?.seedWorkspaceSkills?.({ sourceDir: projectPath });
+      if (result?.success) {
+        showNotify(`Synced ${result.data?.copied || 0} skills to workspace`, 'success');
+        loadSkills();
+      } else {
+        showNotify(result?.error || 'Failed to sync skills', 'error');
+      }
+    } catch (e) {
+      showNotify('Failed to sync skills', 'error');
+    } finally {
+      setSeedingWorkspace(false);
     }
   };
 
@@ -4692,6 +4817,103 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
     setEditContent(skill.content);
   };
 
+  const renderSkillCard = (skill: Skill, showProjectActions: boolean) => {
+    const isSaved = savedSkillIds.includes(skill.id);
+    const inProject = skills.some(s => s.id === skill.id);
+    return (
+      <div key={skill.id} className="bg-zinc-800/50 border border-zinc-700/50 rounded overflow-hidden">
+        <div className="px-2 py-2 flex items-start justify-between cursor-pointer hover:bg-zinc-800/80" onClick={() => setExpandedId(expandedId === skill.id ? null : skill.id)}>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-medium text-zinc-200">{skill.name}</span>
+              <span className="text-[9px] px-1.5 py-0.5 bg-indigo-500/20 text-indigo-300 rounded">{skill.category || 'general'}</span>
+              {isSaved && (
+                <span className="text-[9px] px-1.5 py-0.5 bg-amber-500/20 text-amber-300 rounded">Saved</span>
+              )}
+              {inProject && (
+                <span className="text-[9px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded">In Project</span>
+              )}
+            </div>
+            {skill.description && (
+              <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-1">{skill.description}</p>
+            )}
+          </div>
+          <div className="flex gap-1 ml-2 flex-shrink-0">
+            {onAddToCompose && projectPath && inProject && (
+              <button
+                onClick={e => { e.stopPropagation(); onAddToCompose(skill.id); }}
+                className="px-2 py-0.5 bg-cyan-600 hover:bg-cyan-500 text-cyan-100 text-[10px] rounded"
+                title="Add skill to compose"
+              >
+                Use
+              </button>
+            )}
+            {activeView !== 'project' && (
+              isSaved ? (
+                <button
+                  onClick={e => { e.stopPropagation(); handleUnsave(skill.id); }}
+                  disabled={savingSkill === skill.id}
+                  className="px-2 py-0.5 bg-amber-600/50 hover:bg-amber-500 text-amber-200 text-[10px] rounded disabled:opacity-50"
+                  title="Remove from saved"
+                >
+                  {savingSkill === skill.id ? '...' : 'Unsave'}
+                </button>
+              ) : (
+                <button
+                  onClick={e => { e.stopPropagation(); handleSave(skill.id); }}
+                  disabled={savingSkill === skill.id}
+                  className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded disabled:opacity-50"
+                  title="Save to workspace"
+                >
+                  {savingSkill === skill.id ? '...' : 'Save'}
+                </button>
+              )
+            )}
+            {showProjectActions && projectPath && !inProject && activeView !== 'project' && (
+              <button
+                onClick={e => { e.stopPropagation(); handleAddToProject(skill.id); }}
+                disabled={addingToProject === skill.id}
+                className="px-2 py-0.5 bg-indigo-600/50 hover:bg-indigo-500 text-indigo-200 text-[10px] rounded disabled:opacity-50"
+                title="Add to current project"
+              >
+                {addingToProject === skill.id ? '...' : '+ Project'}
+              </button>
+            )}
+            <button
+              onClick={e => { e.stopPropagation(); setDslSkill(skill); }}
+              className="px-2 py-0.5 bg-amber-600 hover:bg-amber-500 text-amber-100 text-[10px] rounded"
+              title="Generate DSL frontmatter"
+            >
+              DSL
+            </button>
+            {activeView === 'project' && (
+              <button
+                onClick={e => { e.stopPropagation(); openEditor(skill); }}
+                className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded"
+                title="Edit skill"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+        </div>
+        {expandedId === skill.id && (
+          <div className="px-2 pb-2 border-t border-zinc-700/30">
+            <pre className="mt-2 p-2 bg-zinc-900 rounded text-[10px] text-zinc-400 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap font-mono">
+              {skill.content}
+            </pre>
+            <div className="flex gap-2 mt-2">
+              <span className="text-[10px] text-zinc-600">Path: {skill.filePath}</span>
+              {activeView === 'project' && (
+                <button onClick={() => handleDelete(skill)} className="ml-auto px-2 py-0.5 bg-red-600/30 hover:bg-red-600/50 text-red-300 text-[10px] rounded">Delete</button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div>
       {/* Notification Toast */}
@@ -4703,9 +4925,41 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
         </div>
       )}
 
+      {/* Tabs */}
+      <div className="flex gap-0.5 mb-2.5 bg-zinc-900/50 rounded p-0.5 border border-zinc-700/40">
+        <button
+          onClick={() => setActiveView('project')}
+          className={`flex-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+            activeView === 'project' ? 'bg-indigo-600/30 text-indigo-300' : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          Project ({skills.length})
+        </button>
+        <button
+          onClick={() => setActiveView('browse')}
+          className={`flex-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+            activeView === 'browse' ? 'bg-indigo-600/30 text-indigo-300' : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          Browse ({appSkills.length})
+        </button>
+        <button
+          onClick={() => setActiveView('saved')}
+          className={`flex-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+            activeView === 'saved' ? 'bg-indigo-600/30 text-indigo-300' : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          Saved ({savedSkillIds.length})
+        </button>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-zinc-400">{skills.length} skill{skills.length !== 1 ? 's' : ''}</span>
+        <span className="text-xs text-zinc-400">
+          {activeView === 'project' ? `${skills.length} project skill${skills.length !== 1 ? 's' : ''}` :
+           activeView === 'saved' ? `${savedSkillIds.length} saved` :
+           `${appSkills.length} available`}
+        </span>
         <button
           onClick={() => setShowNewForm(true)}
           className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded flex items-center gap-1 transition-colors duration-150 active:scale-95"
@@ -4714,6 +4968,20 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
           Create Skill
         </button>
       </div>
+
+      {/* Seed workspace banner */}
+      {activeView !== 'project' && appSkills.length === 0 && projectPath && (
+        <div className="mb-3 px-2.5 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+          <p className="text-[11px] text-amber-300 mb-2">No skills in workspace library yet.</p>
+          <button
+            onClick={handleSeedWorkspace}
+            disabled={seedingWorkspace}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-amber-100 text-[10px] rounded disabled:opacity-50"
+          >
+            {seedingWorkspace ? 'Syncing...' : 'Sync skills from this project'}
+          </button>
+        </div>
+      )}
 
       {/* Search */}
       <input
@@ -4751,76 +5019,21 @@ const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, 
         <div className="px-2 py-6 bg-indigo-500/5 border border-indigo-500/20 rounded text-center">
           <Sparkles className="w-6 h-6 text-indigo-400/50 mx-auto mb-2" />
           <p className="text-xs text-zinc-500 mb-3">
-            {skills.length === 0 ? 'No skills found. Create one to get started.' : 'No skills match your search.'}
+            {activeView === 'project'
+              ? (skills.length === 0 ? 'No project skills. Add from Browse or create one.' : 'No skills match your search.')
+              : activeView === 'saved'
+              ? 'No saved skills. Browse and save skills you use often.'
+              : appSkills.length === 0
+              ? 'Workspace library is empty. Sync skills from a project.'
+              : 'No skills match your search.'}
           </p>
-          {skills.length === 0 && (
-            <button
-              onClick={() => setShowNewForm(true)}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded"
-            >
-              Create First Skill
-            </button>
-          )}
         </div>
       )}
 
       {/* Skill List */}
       {filteredSkills.length > 0 && (
         <div className="space-y-2">
-          {filteredSkills.map(skill => (
-            <div key={skill.id} className="bg-zinc-800/50 border border-zinc-700/50 rounded overflow-hidden">
-              <div className="px-2 py-2 flex items-start justify-between cursor-pointer hover:bg-zinc-800/80" onClick={() => setExpandedId(expandedId === skill.id ? null : skill.id)}>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-xs font-medium text-zinc-200">{skill.name}</span>
-                    <span className="text-[9px] px-1.5 py-0.5 bg-indigo-500/20 text-indigo-300 rounded">{skill.category || 'general'}</span>
-                  </div>
-                  {skill.description && (
-                    <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-1">{skill.description}</p>
-                  )}
-                </div>
-                <div className="flex gap-1 ml-2 flex-shrink-0">
-                  <button
-                    onClick={e => { e.stopPropagation(); setRunningSkill(skill); setTargetTerminal(''); setSkillPrompt(''); }}
-                    className="px-2 py-0.5 bg-cyan-600 hover:bg-cyan-500 text-cyan-100 text-[10px] rounded"
-                    title="Use skill"
-                  >
-                    Use
-                  </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); setDslSkill(skill); }}
-                    className="px-2 py-0.5 bg-amber-600 hover:bg-amber-500 text-amber-100 text-[10px] rounded"
-                    title="Generate DSL frontmatter via terminal agent"
-                  >
-                    DSL
-                  </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); openEditor(skill); }}
-                    className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded"
-                    title="Edit skill"
-                  >
-                    Edit
-                  </button>
-                </div>
-              </div>
-              {expandedId === skill.id && (
-                <div className="px-2 pb-2 border-t border-zinc-700/30">
-                  <pre className="mt-2 p-2 bg-zinc-900 rounded text-[10px] text-zinc-400 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap font-mono">
-                    {skill.content}
-                  </pre>
-                  <div className="flex gap-2 mt-2">
-                    <span className="text-[10px] text-zinc-600">Path: {skill.filePath}</span>
-                    <button
-                      onClick={() => handleDelete(skill)}
-                      className="ml-auto px-2 py-0.5 bg-red-600/30 hover:bg-red-600/50 text-red-300 text-[10px] rounded"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+          {filteredSkills.map(skill => renderSkillCard(skill, activeView !== 'project'))}
         </div>
       )}
 

@@ -732,8 +732,10 @@
 - **User reported behavior:** Topic digest generation fails silently on AiPage. OpenRouter returns 402 Payment Required when credits are low.
 - **Root Cause:** `AIService.ts:166` set `maxTokens: 400` for topic digest prompt. OpenRouter charges per-token; when account credits dip below the 400-token cost threshold, the API returns HTTP 402 instead of generating content. Topic digest (3-5 short research topic summaries) doesn't need 400 tokens — 200 is sufficient.
 - **Fix (round 1):** Reduced `maxTokens` from 400 to 200 in the topic digest generation parameters at `src/services/AIService.ts:166`.
-- **Fix (round 2):** Added automatic fallback to free model `meta-llama/llama-3.2-3b-instruct` in `main.ts:generateDailyBriefAndCache` when the primary model returns HTTP 402. The fallback uses the credit-free model so topic digest always generates regardless of account balance.
+- **Fix (round 2 — REVERTED):** Added automatic fallback to free model `meta-llama/llama-3.2-3b-instruct` — **this was wrong.** Hardcoded model ignored user's configured model, caused 429 rate-limit errors on an unwanted model.
+- **Fix (round 3 — CURRENT):** Topic digest now retries with reduced maxTokens (200→100→50) on the **same model** instead of switching to a hardcoded fallback. `generateTopicDigest` accepts optional `maxTokens` parameter for retry calls.
 - **Files:** `src/services/AIService.ts`, `src/main.ts`
+- **Lesson:** Never hardcode model names. Retry with reduced token budget on the same model instead.
 
 ### Issue #151: "e.match is not a function" Crash on AiPage Load
 - **Status:** AI Attempted Fix

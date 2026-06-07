@@ -3,7 +3,7 @@
 **Purpose:** Document data storage, schemas, and recent changes to database/information.
 
 **Created:** 2026-04-13
-**Last Updated:** 2026-06-05
+**Last Updated:** 2026-06-07
 
 ---
 
@@ -86,6 +86,22 @@
 | `set-recording-mode` | Set recording mode for browser or app tracking. Accepts `{ type: 'browser' | 'app', mode: 'always' | 'on-view' }`. When `on-view`, data only persists while the corresponding page is visible. |
 | `get-recording-modes` | Returns current recording modes: `{ browser: 'always' | 'on-view', app: 'always' | 'on-view', browserPageVisible: boolean, dashboardPageVisible: boolean }`. |
 | `set-page-visibility` | Notify backend that a page became visible/hidden. Accepts `{ page: 'browser' | 'dashboard', visible: boolean }`. Used by on-view recording mode to gate DB writes. |
+| `scan-ide-default-projects` | Scan hardcoded IDE directories (PyCharm, IntelliJ, etc.) for quick-add project suggestions. Returns array of `{ ide, projects: [{ name, path }] }`. |
+| `scan-custom-directory` | Scan a user-specified root directory for subdirectories containing code files. Accepts `(rootDir: string)`. Returns `{ success, projects: [{ name, path, languages: string[], fileCount: number }] }`. Filters out directories with no recognized source file extensions. Depth-2 scan, max 200 files per directory. |
+| `pick-folder` | Opens a native folder selection dialog. Returns `{ success: boolean, path: string | null }`. |
+
+### Design Library IPC (added 2026-06-07)
+
+| Endpoint | Description |
+|----------|-------------|
+| `mcp-server-status` | Get MCP server status (running/stopped) for a given source. Accepts `{ source: '21st-dev' \| 'refero' }`. Returns `{ running: boolean }`. |
+| `fetch-refero-catalog` | Fetch Aceternity UI registry catalog. Returns component list from registry JSON. |
+| `fetch-refero-system` | Fetch a specific Aceternity UI component system details. Accepts `(systemKey: string)`. Returns component code and metadata. |
+| `search-refero-systems` | Search Aceternity UI components. Accepts `(query: string)`. Returns filtered system list. |
+| `get-design-library-config` | Get design library configuration (enabled sources, API keys, settings). Returns `DesignLibraryConfig`. |
+| `set-design-library-config` | Save design library configuration. Accepts `DesignLibraryConfig`. Returns `{ success }`. |
+| `get-design-cached-data` | Get cached design library data by key. Accepts `(cacheKey: string)`. Returns cached data or null. |
+| `test-design-library-connection` | Test connection to a design library source. Accepts `{ source: '21st-dev' \| 'aceternity' \| 'refero' }`. Returns `{ success, latencyMs? }`. |
 
 ### AI Features IPC (added 2026-06-04)
 
@@ -125,6 +141,7 @@
 - **Investigation:** Checking getAppStats query in main.ts
 - **Possible causes:** Period filtering logic, aggregation query bugs
 
+
 ---
 
-**Last Updated:** 2026-06-05
+**Last Updated:** 2026-06-06

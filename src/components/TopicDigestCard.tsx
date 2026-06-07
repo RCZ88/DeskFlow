@@ -27,11 +27,10 @@ export function TopicDigestCard({ topics, loading, error, onRefresh }: TopicDige
   const [expandedTopic, setExpandedTopic] = useState<string | null>(null);
 
   return (
-    <GlassCard className="relative overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, #06b6d4, #8b5cf6, #ec4899)' }} />
+    <GlassCard accent="pink" className="relative overflow-hidden">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(6, 182, 212, 0.15)' }}>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-cyan-500/15">
             <Newspaper className="w-3.5 h-3.5 text-cyan-400" />
           </div>
           <div>
@@ -58,7 +57,7 @@ export function TopicDigestCard({ topics, loading, error, onRefresh }: TopicDige
       )}
 
       {error && (
-        <div className="p-3 rounded-lg" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 mb-3">
           <p className="text-xs text-red-400">{error}</p>
         </div>
       )}
@@ -74,7 +73,7 @@ export function TopicDigestCard({ topics, loading, error, onRefresh }: TopicDige
       {!loading && topics.length > 0 && (
         <div className="space-y-2">
           {topics.map((item, i) => (
-            <div key={i} className="rounded-lg overflow-hidden" style={{ backgroundColor: 'rgba(107, 114, 128, 0.05)' }}>
+            <div key={i} className="rounded-lg overflow-hidden bg-zinc-800/10">
               <button
                 onClick={() => setExpandedTopic(expandedTopic === item.topic ? null : item.topic)}
                 className="w-full flex items-center justify-between p-3 text-left hover:bg-zinc-800/30 transition-colors"

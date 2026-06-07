@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react';
-import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronRight, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon } from 'lucide-react';
+import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronLeft, ChevronRight, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
@@ -61,9 +61,10 @@ interface BrowserActivityPageProps {
   onDateOffsetChange?: (offset: number) => void;
   timeMode?: 'focus' | 'total';
   tierAssignments?: { productive: string[]; neutral: string[]; distracting: string[] };
+  allLogs?: unknown[];
 }
 
-export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments: tierAssignmentsProp }: BrowserActivityPageProps) {
+export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments: tierAssignmentsProp, allLogs }: BrowserActivityPageProps) {
   const [domainStats, setDomainStats] = useState<any[]>([]);
   const [categoryStats, setCategoryStats] = useState<any[]>([]);
   const [browserLogs, setBrowserLogs] = useState<any[]>([]);
@@ -72,6 +73,8 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
   const [editingDomain, setEditingDomain] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedDomainDetail, setSelectedDomainDetail] = useState<any>(null);
+  const [detailPeriod, setDetailPeriod] = useState<Period>('week');
+  const [detailDateOffset, setDetailDateOffset] = useState(0);
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
   const [liveLogs, setLiveLogs] = useState<Array<{id: string; timestamp: number; domain: string; url?: string; title?: string; type: string; level?: string}>>([]);
   const [isLiveMode, setIsLiveMode] = useState(true);
@@ -289,9 +292,9 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     isMountedRef.current = true;
     fetchData();
     
-    // Auto-refresh every 10 seconds
+    // Auto-refresh every 10 seconds (skip for 'all' to avoid heavy re-fetches)
     const interval = setInterval(() => {
-      if (isMountedRef.current && !loading) {
+      if (isMountedRef.current && !loading && selectedPeriod !== 'all') {
         fetchData();
       }
     }, 10000);
@@ -300,7 +303,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
       isMountedRef.current = false;
       clearInterval(interval);
     };
-  }, [fetchData]);
+  }, [fetchData, selectedPeriod]);
 
   const handleCategoryChange = async (domain: string, category: string) => {
     try {
@@ -605,6 +608,82 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
   // Total browser time
   const totalBrowserTime = domainStats.reduce((sum, d) => sum + d.total_ms, 0);
   const totalSessions = domainStats.reduce((sum, d) => sum + d.sessions, 0);
+
+  // Detail daily breakdown for selected domain
+  const selectedDomainName = selectedDomainDetail?.domain || '';
+  const detailDomainLogs = useMemo(() => {
+    if (!selectedDomainName) return [];
+    const source = (allLogs as any[]) || [];
+    const range = getDateRange(detailPeriod, detailDateOffset);
+    return source
+      .filter((log: any) => {
+        const name = log.app || log.domain || log.title || '';
+        return name.toLowerCase().includes(selectedDomainName.toLowerCase())
+          && log.timestamp >= range.start && log.timestamp < range.end;
+      })
+      .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [selectedDomainName, detailPeriod, detailDateOffset, allLogs]);
+
+  const detailDailyChart = useMemo(() => {
+    if (!selectedDomainName || detailDomainLogs.length === 0) return null;
+    const logsByDate = new Map<string, number>();
+    for (const log of detailDomainLogs) {
+      const key = format(new Date(log.timestamp), 'yyyy-MM-dd');
+      logsByDate.set(key, (logsByDate.get(key) || 0) + (log.duration || 0));
+    }
+
+    if (detailPeriod === 'all') {
+      const monthMap = new Map<string, number>();
+      for (const log of detailDomainLogs) {
+        const key = format(new Date(log.timestamp), 'yyyy-MM');
+        monthMap.set(key, (monthMap.get(key) || 0) + (log.duration || 0));
+      }
+      const sorted = Array.from(monthMap.entries()).sort(([a], [b]) => a.localeCompare(b));
+      return { labels: sorted.map(([k]) => format(new Date(k + '-01'), 'MMM yy')), data: sorted.map(([, v]) => v * 1000) };
+    }
+
+    if (detailPeriod === 'today') {
+      const hourBuckets = Array.from({ length: 24 }, () => 0);
+      for (const log of detailDomainLogs) {
+        const sessionStart = new Date(log.timestamp).getTime();
+        const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
+        let currentMs = sessionStart;
+        while (currentMs < sessionEnd) {
+          const hourStart = Math.floor(currentMs / 3600000) * 3600000;
+          const hourEnd = hourStart + 3600000;
+          const currentHour = new Date(hourStart).getHours();
+          const segStart = Math.max(currentMs, hourStart);
+          const segEnd = Math.min(sessionEnd, hourEnd);
+          if (segEnd > segStart && currentHour >= 0 && currentHour < 24) {
+            hourBuckets[currentHour] += (segEnd - segStart);
+          }
+          currentMs = hourEnd;
+        }
+      }
+      return { labels: hourBuckets.map((_, i) => `${i.toString().padStart(2, '0')}:00`), data: hourBuckets };
+    }
+
+    const range = getDateRange(detailPeriod, detailDateOffset);
+    const labels: string[] = [];
+    const data: number[] = [];
+    const cursor = new Date(range.start);
+    while (cursor < range.end) {
+      const dayStr = format(cursor, 'yyyy-MM-dd');
+      labels.push(detailPeriod === 'week' || detailPeriod === '7day' ? format(cursor, 'EEE') : format(cursor, 'MMM dd'));
+      data.push((logsByDate.get(dayStr) || 0) * 1000);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return { labels, data };
+  }, [selectedDomainName, detailDomainLogs, detailPeriod, detailDateOffset]);
+
+  const PERIOD_OPTIONS: { key: Period; label: string }[] = [
+    { key: 'today', label: 'Today' },
+    { key: 'week', label: 'Week' },
+    { key: '7day', label: '7 Day' },
+    { key: 'month', label: 'Month' },
+    { key: '30day', label: '30 Day' },
+    { key: 'all', label: 'All' },
+  ];
 
   return (
     <PageShell page="browser">
@@ -958,6 +1037,87 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
                   </div>
                 ))}
               </div>
+
+              {/* Period selector + daily chart */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setDetailDateOffset(d => d - 1)}
+                    className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="flex gap-1">
+                    {PERIOD_OPTIONS.map(opt => (
+                      <button
+                        key={opt.key}
+                        onClick={() => { setDetailPeriod(opt.key); setDetailDateOffset(0); }}
+                        className={`px-2.5 py-1 text-xs rounded-lg transition-all ${
+                          detailPeriod === opt.key
+                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                            : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setDetailDateOffset(d => d + 1)}
+                    className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {detailDailyChart && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold mb-4">Daily Usage</h3>
+                  <div className="h-48">
+                    <Bar
+                      data={{
+                        labels: detailDailyChart.labels,
+                        datasets: [{
+                          label: 'Duration',
+                          data: detailDailyChart.data,
+                          backgroundColor: (CATEGORY_COLORS[selectedDomainDetail.category] || '#6366f1') + '88',
+                          borderColor: CATEGORY_COLORS[selectedDomainDetail.category] || '#6366f1',
+                          borderWidth: 1,
+                          borderRadius: 4,
+                        }]
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: { display: false },
+                          tooltip: {
+                            backgroundColor: '#18181b',
+                            borderColor: '#3f3f46',
+                            borderWidth: 1,
+                            titleColor: '#e4e4e7',
+                            bodyColor: '#a1a1aa',
+                            padding: 10,
+                            cornerRadius: 8,
+                            callbacks: {
+                              label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}`,
+                            }
+                          }
+                        },
+                        scales: {
+                          x: { grid: { display: false }, ticks: { color: '#71717a', maxTicksLimit: 10 } },
+                          y: {
+                            grid: { color: '#27272a' },
+                            ticks: { color: '#71717a', callback: (v: any) => formatDuration(v) },
+                            beginAtZero: true
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
             </GlassCard>
           </div>
         )}

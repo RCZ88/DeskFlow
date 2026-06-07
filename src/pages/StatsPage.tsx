@@ -22,7 +22,7 @@ import {
   Filler
 } from 'chart.js';
 import { Bar, Line, Pie } from 'react-chartjs-2';
-import { format, subDays, eachDayOfInterval } from 'date-fns';
+import { format, subDays, eachDayOfInterval, startOfWeek, addWeeks } from 'date-fns';
 import { getDateRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
 
@@ -41,6 +41,7 @@ interface AppStat {
 interface StatsPageProps {
   appStats: AppStat[];
   logs: unknown[];
+  allLogs?: unknown[];
   dailyStats?: unknown[];
   selectedPeriod?: Period;
   dateOffset?: number;
@@ -77,8 +78,10 @@ function formatDuration(seconds: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments, liveActivityLogs }: StatsPageProps) {
+export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments, liveActivityLogs }: StatsPageProps) {
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
+  const [detailPeriod, setDetailPeriod] = useState<Period>('week');
+  const [detailDateOffset, setDetailDateOffset] = useState(0);
   const [hourlyChartMode, setHourlyChartMode] = useState<'bar' | 'line'>('bar');
   const [editingAppLogId, setEditingAppLogId] = useState<number | null>(null);
   const [editingAppLogTimes, setEditingAppLogTimes] = useState({ started_at: '', ended_at: '' });
@@ -396,6 +399,106 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
       totalSessions: appLogs.length,
     };
   }, [selectedApp, appStats, filteredLogs]);
+
+  // Detail view — app logs filtered by detail period/offset (independent of parent)
+  const detailAppLogs = useMemo(() => {
+    if (!selectedApp) return [];
+    const sourceLogs = (allLogs || filteredLogs) as any[];
+    const range = getDateRange(detailPeriod, detailDateOffset);
+    return sourceLogs
+      .filter(log => log.app === selectedApp && log.timestamp >= range.start && log.timestamp < range.end)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [selectedApp, detailPeriod, detailDateOffset, allLogs, filteredLogs]);
+
+  // Detail daily breakdown based on detail period
+  const detailDailyBreakdown = useMemo(() => {
+    if (detailPeriod === 'today') {
+      const hourBuckets = Array.from({ length: 24 }, () => 0);
+      for (const log of detailAppLogs) {
+        const sessionStart = new Date(log.timestamp).getTime();
+        const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
+        let currentMs = sessionStart;
+        while (currentMs < sessionEnd) {
+          const hourStart = Math.floor(currentMs / 3600000) * 3600000;
+          const hourEnd = hourStart + 3600000;
+          const currentHour = new Date(hourStart).getHours();
+          const segmentStart = Math.max(currentMs, hourStart);
+          const segmentEnd = Math.min(sessionEnd, hourEnd);
+          if (segmentEnd > segmentStart && currentHour >= 0 && currentHour < 24) {
+            hourBuckets[currentHour] += (segmentEnd - segmentStart) / 1000;
+          }
+          currentMs = hourEnd;
+        }
+      }
+      return hourBuckets.map((seconds, i) => ({
+        label: `${i.toString().padStart(2, '0')}:00`,
+        seconds
+      }));
+    }
+
+    const logsByDate = new Map<string, number>();
+    for (const log of detailAppLogs) {
+      const key = format(new Date(log.timestamp), 'yyyy-MM-dd');
+      logsByDate.set(key, (logsByDate.get(key) || 0) + (log.duration || 0));
+    }
+
+    if (detailPeriod === 'all') {
+      const monthMap = new Map<string, number>();
+      for (const log of detailAppLogs) {
+        const key = format(new Date(log.timestamp), 'yyyy-MM');
+        monthMap.set(key, (monthMap.get(key) || 0) + (log.duration || 0));
+      }
+      return Array.from(monthMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, seconds]) => ({
+          label: format(new Date(key + '-01'), 'MMM yy'),
+          seconds
+        }));
+    }
+
+    const range = getDateRange(detailPeriod, detailDateOffset);
+    const days: { label: string; seconds: number }[] = [];
+    const cursor = new Date(range.start);
+    while (cursor < range.end) {
+      const dayStr = format(cursor, 'yyyy-MM-dd');
+      const fmt = detailPeriod === 'week' || detailPeriod === '7day' ? 'EEE' : detailPeriod === 'month' ? `${cursor.getDate()}` : 'MMM dd';
+      days.push({ label: format(cursor, fmt), seconds: logsByDate.get(dayStr) || 0 });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return days;
+  }, [detailAppLogs, detailPeriod, detailDateOffset]);
+
+  const detailHourlyDist = useMemo(() => {
+    const buckets = Array.from({ length: 24 }, (_, i) => ({ hour: i, seconds: 0, sessions: 0 }));
+    for (const log of detailAppLogs) {
+      const sessionStart = new Date(log.timestamp).getTime();
+      const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
+      let currentMs = sessionStart;
+      while (currentMs < sessionEnd) {
+        const hourStart = Math.floor(currentMs / 3600000) * 3600000;
+        const hourEnd = hourStart + 3600000;
+        const currentHour = new Date(hourStart).getHours();
+        const segmentStart = Math.max(currentMs, hourStart);
+        const segmentEnd = Math.min(sessionEnd, hourEnd);
+        const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
+        if (segmentSeconds > 0 && currentHour >= 0 && currentHour < 24) {
+          buckets[currentHour].seconds += segmentSeconds;
+        }
+        currentMs = hourEnd;
+      }
+      buckets[new Date(log.timestamp).getHours()].sessions += 1;
+    }
+    return buckets;
+  }, [detailAppLogs]);
+
+  const PERIOD_OPTIONS: { key: Period; label: string }[] = [
+    { key: 'today', label: 'Today' },
+    { key: 'week', label: 'Week' },
+    { key: '7day', label: '7 Day' },
+    { key: 'month', label: 'Month' },
+    { key: '30day', label: '30 Day' },
+    { key: 'all', label: 'All' },
+  ];
 
   // Sync localAppLogs when selected app changes
   useEffect(() => {
@@ -998,16 +1101,49 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
                 ))}
               </div>
 
+              {/* Period selector for detail popup */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { const r = getDateRange(detailPeriod, detailDateOffset - 1); setDetailDateOffset(d => d - 1); }}
+                    className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="flex gap-1">
+                    {PERIOD_OPTIONS.map(opt => (
+                      <button
+                        key={opt.key}
+                        onClick={() => { setDetailPeriod(opt.key); setDetailDateOffset(0); }}
+                        className={`px-2.5 py-1 text-xs rounded-lg transition-all ${
+                          detailPeriod === opt.key
+                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                            : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setDetailDateOffset(d => d + 1)}
+                    className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
               {/* Daily Trend for This App */}
               <div className="mb-8">
                 <h3 className="text-lg font-semibold mb-4">Daily Usage</h3>
                 <div className="h-48">
                   <Bar
                     data={{
-                      labels: selectedAppData.dailyBreakdown.map(d => d.label),
+                      labels: detailDailyBreakdown.map(d => d.label),
                       datasets: [{
                         label: 'Duration',
-                        data: selectedAppData.dailyBreakdown.map(d => d.seconds),
+                        data: detailDailyBreakdown.map(d => d.seconds),
                         backgroundColor: (CATEGORY_COLORS[selectedAppData.stat.category] || '#6366f1') + '88',
                         borderColor: CATEGORY_COLORS[selectedAppData.stat.category] || '#6366f1',
                         borderWidth: 1,
@@ -1054,11 +1190,11 @@ export default function StatsPage({ appStats, logs, selectedPeriod = 'week', dat
                 <div className="h-40">
                   <Bar
                     data={{
-                      labels: selectedAppData.hourlyDist.map(h => `${h.hour.toString().padStart(2, '0')}:00`),
+                      labels: detailHourlyDist.map(h => `${h.hour.toString().padStart(2, '0')}:00`),
                       datasets: [{
                         label: 'Duration',
-                        data: selectedAppData.hourlyDist.map(h => h.seconds),
-                        backgroundColor: selectedAppData.hourlyDist.map((h, i) => {
+                        data: detailHourlyDist.map(h => h.seconds),
+                        backgroundColor: detailHourlyDist.map((h, i) => {
                           const currentHour = new Date().getHours();
                           return i === currentHour
                             ? (CATEGORY_COLORS[selectedAppData.stat.category] || '#10b981')

@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__importDefault) ? mod : { "default": mod };
 };
@@ -155,7 +155,7 @@ function checkMorningPrompt() {
     const wasSleepTime = lastCloseHour >= 22 || lastCloseHour <= 3;
     
     if (isMorning && hoursSinceClose >= 4 && wasSleepTime) {
-        console.log('[DeskFlow] ðŸŒ¤ï¸ Morning prompt conditions met:', {
+        console.log('[DeskFlow] 🌤️ Morning prompt conditions met:', {
             hoursSinceClose: hoursSinceClose.toFixed(1),
             lastCloseHour,
             currentHour
@@ -1089,7 +1089,7 @@ const AI_AGENT_PLUGINS: AIAgentPlugin[] = [
 const yieldToEventLoop = () => new Promise<void>(resolve => setImmediate(resolve));
 
 // Recursively scan a directory for relevant AI agent data files and return
-// the count and latest mtime. Used for accurate cache invalidation â€” directories
+// the count and latest mtime. Used for accurate cache invalidation — directories
 // alone don't update their mtime when files inside subdirectories change.
 function getDirDataSignature(dirPath: string): { fileCount: number; latestMtime: number } {
     let fileCount = 0;
@@ -1347,7 +1347,7 @@ function loadCategoryConfig() {
                 domainDefaultCategories: loaded?.domainDefaultCategories || {},
                 customCategories: loaded?.customCategories || []
             };
-            console.log('[DeskFlow] âœ… Loaded category config');
+            console.log('[DeskFlow] ✅ Loaded category config');
         }
         else {
             // Initialize with defaults on first run
@@ -1355,7 +1355,7 @@ function loadCategoryConfig() {
             categoryConfig.domainDefaultCategories = {};
             categoryConfig.customCategories = [];
             saveCategoryConfig();
-            console.log('[DeskFlow] âœ… Created default category config');
+            console.log('[DeskFlow] ✅ Created default category config');
         }
     }
     catch (err) {
@@ -1797,7 +1797,7 @@ function initializeStorage() {
             )
         `);
 
-        // Terminal bindings (terminal â†’ project/agent/problem association)
+        // Terminal bindings (terminal → project/agent/problem association)
         db.exec(`
             CREATE TABLE IF NOT EXISTS terminal_bindings (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1924,9 +1924,9 @@ function initializeStorage() {
         try { db.exec('CREATE INDEX IF NOT EXISTS idx_activity_log_entity ON activity_log(entity_type, entity_id)'); } catch {}
         try { db.exec('CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at)'); } catch {}
 
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // ═══════════════════════════════════════════════════════════════════════
         // PRE-AGGREGATED STATS TABLES (Performance optimization)
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // ═══════════════════════════════════════════════════════════════════════
 
         db.exec(`
           CREATE TABLE IF NOT EXISTS stats_hourly (
@@ -1981,6 +1981,39 @@ function initializeStorage() {
           )
         `);
         db.exec('CREATE INDEX IF NOT EXISTS idx_routing_costs_timestamp ON routing_costs(timestamp)');
+
+        // Goals table (AI goal tracking)
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS goals (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            category TEXT NOT NULL DEFAULT 'work',
+            target_type TEXT NOT NULL DEFAULT 'time',
+            target_seconds INTEGER,
+            match_category TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            period TEXT NOT NULL DEFAULT 'daily',
+            source TEXT NOT NULL DEFAULT 'manual',
+            links TEXT DEFAULT '[]',
+            progress_seconds INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            completed_at TEXT
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_goals_date ON goals(date)');
+
+        // Goal reviews table
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS goal_reviews (
+            date TEXT PRIMARY KEY,
+            review_summary TEXT,
+            suggestions TEXT DEFAULT '[]',
+            created_at TEXT DEFAULT (datetime('now'))
+          )
+        `);
+
         db.exec(`
           CREATE TABLE IF NOT EXISTS touched_files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2089,10 +2122,10 @@ function initializeStorage() {
           for (const act of defaultActivities) {
             insertStmt.run(act.name, act.type, act.color, act.icon, act.default_duration || 30, act.sort_order);
           }
-          console.log('[DeskFlow] âœ… Seeded', defaultActivities.length, 'default external activities');
+          console.log('[DeskFlow] ✅ Seeded', defaultActivities.length, 'default external activities');
         }
 
-        console.log('[DeskFlow] âœ… SQLite database initialized at', dbPath);
+        console.log('[DeskFlow] ✅ SQLite database initialized at', dbPath);
 
         // Backfill stats tables from existing logs (runs once)
         backfillStatsTables(db);
@@ -2100,7 +2133,7 @@ function initializeStorage() {
         storageError = null;
     }
     catch (err) {
-        console.warn('[DeskFlow] âš ï¸ SQLite failed, falling back to JSON:', err.message);
+        console.warn('[DeskFlow] ⚠️ SQLite failed, falling back to JSON:', err.message);
         storageError = `SQLite error: ${err.message}. Using JSON fallback.`;
         useJson = true;
         // Initialize JSON storage
@@ -2108,17 +2141,17 @@ function initializeStorage() {
             if (fs_1.default.existsSync(jsonPath)) {
                 const data = fs_1.default.readFileSync(jsonPath, 'utf-8');
                 jsonLogs = JSON.parse(data);
-                console.log('[DeskFlow] ðŸ“„ Loaded', jsonLogs.length, 'logs from JSON');
+                console.log('[DeskFlow] 📄 Loaded', jsonLogs.length, 'logs from JSON');
             }
             else {
                 // Create fresh JSON file
                 jsonLogs = [];
                 fs_1.default.writeFileSync(jsonPath, JSON.stringify([], null, 2));
-                console.log('[DeskFlow] ðŸ“„ Created new JSON storage file');
+                console.log('[DeskFlow] 📄 Created new JSON storage file');
             }
         }
         catch (e) {
-            console.error('[DeskFlow] âŒ Failed to initialize JSON storage:', e.message);
+            console.error('[DeskFlow] ❌ Failed to initialize JSON storage:', e.message);
             storageError = `JSON storage error: ${e.message}. Data will NOT persist!`;
             jsonLogs = [];
         }
@@ -2137,49 +2170,56 @@ function saveJsonLogs() {
 // --- Helper functions ---
 function backfillStatsTables(db: any) {
     try {
-        // Drop legacy _backfill_complete marker
-        db.exec("DROP TABLE IF EXISTS _backfill_complete");
-        const daily = db.prepare("SELECT COUNT(*) as cnt FROM stats_daily").get() as any;
-        const hourly = db.prepare("SELECT COUNT(*) as cnt FROM stats_hourly").get() as any;
         const logCount = db.prepare("SELECT COUNT(*) as cnt FROM logs WHERE duration_ms > 0").get() as any;
-        if (daily.cnt > 0 && hourly.cnt > 0) {
-            console.log('[Backfill] stats tables already populated, skipping.');
-            return;
-        }
         if (logCount.cnt === 0) {
             console.log('[Backfill] No logs to backfill from, skipping.');
             return;
         }
-        console.log(`[Backfill] Populating stats_hourly and stats_daily from ${logCount.cnt} logs...`);
-        if (hourly.cnt === 0) {
+        console.log(`[Backfill] Rebuilding stats_daily and stats_hourly from ${logCount.cnt} logs...`);
+        db.exec("DELETE FROM stats_daily");
+        db.exec("DELETE FROM stats_hourly");
+        db.exec(`
+            INSERT INTO stats_hourly (date, hour, app_name, app_type, category, total_seconds, session_count)
+            SELECT 
+                DATE(timestamp),
+                CAST(STRFTIME('%H', timestamp) AS INTEGER),
+                COALESCE(domain, app),
+                CASE WHEN domain IS NOT NULL THEN 'domain' ELSE 'app' END,
+                category,
+                SUM(CAST(duration_ms AS REAL) / 1000.0),
+                COUNT(*)
+            FROM logs
+            WHERE duration_ms > 0
+            GROUP BY DATE(timestamp), CAST(STRFTIME('%H', timestamp) AS INTEGER), COALESCE(domain, app)
+        `);
+        db.exec(`
+            INSERT INTO stats_daily (date, app_name, app_type, category, total_seconds, session_count)
+            SELECT 
+                DATE(timestamp),
+                COALESCE(domain, app),
+                CASE WHEN domain IS NOT NULL THEN 'domain' ELSE 'app' END,
+                category,
+                SUM(CAST(duration_ms AS REAL) / 1000.0),
+                COUNT(*)
+            FROM logs
+            WHERE duration_ms > 0
+            GROUP BY DATE(timestamp), COALESCE(domain, app)
+        `);
+        // Aggregate per-day totals for the configured browser app (synthetic entry)
+        if (userPreferences?.browserWithExtension) {
+            const browserApp = userPreferences.browserWithExtension.replace(/'/g, "''"); // escape single quotes
             db.exec(`
-                INSERT OR REPLACE INTO stats_hourly (date, hour, app_name, app_type, category, total_seconds, session_count)
+                INSERT INTO stats_daily (date, app_name, app_type, category, total_seconds, session_count)
                 SELECT 
-                    DATE(timestamp),
-                    CAST(STRFTIME('%H', timestamp) AS INTEGER),
-                    COALESCE(domain, app),
-                    CASE WHEN domain IS NOT NULL THEN 'domain' ELSE 'app' END,
-                    category,
-                    SUM(CAST(duration_ms AS REAL) / 1000.0),
-                    COUNT(*)
+                    DATE(timestamp) as date,
+                    '${browserApp}' as app_name,
+                    'app' as app_type,
+                    'Browser' as category,
+                    SUM(CAST(duration_ms AS REAL) / 1000.0) as total_seconds,
+                    COUNT(*) as session_count
                 FROM logs
-                WHERE duration_ms > 0
-                GROUP BY DATE(timestamp), CAST(STRFTIME('%H', timestamp) AS INTEGER), COALESCE(domain, app)
-            `);
-        }
-        if (daily.cnt === 0) {
-            db.exec(`
-                INSERT OR REPLACE INTO stats_daily (date, app_name, app_type, category, total_seconds, session_count)
-                SELECT 
-                    DATE(timestamp),
-                    COALESCE(domain, app),
-                    CASE WHEN domain IS NOT NULL THEN 'domain' ELSE 'app' END,
-                    category,
-                    SUM(CAST(duration_ms AS REAL) / 1000.0),
-                    COUNT(*)
-                FROM logs
-                WHERE duration_ms > 0
-                GROUP BY DATE(timestamp), COALESCE(domain, app)
+                WHERE is_browser_tracking = 1 AND domain IS NOT NULL AND duration_ms > 0
+                GROUP BY DATE(timestamp)
             `);
         }
         console.log('[Backfill] Complete.');
@@ -2190,24 +2230,17 @@ function backfillStatsTables(db: any) {
 }
 
 function addLog(timestamp, app, category, duration_ms, title, project, url?, domain?, tab_id?, is_browser_tracking?) {
-    // Caps browser-looking entries to 30s when extension is active (prevents double-tracking)
     let effectiveBrowserTracking = is_browser_tracking;
     let safeDuration = Math.min(duration_ms, MAX_LOGGED_SESSION_MS);
-    if (!is_browser_tracking && isBrowserTrackingEnabled && isAppMatchingBrowser(app, userPreferences?.browserWithExtension || '')) {
-        safeDuration = Math.min(safeDuration, 30000);
-        if (duration_ms > 30000) {
-            console.log(`[DeskFlow] ✂️ Browser safety net: ${app} capped from ${Math.round(duration_ms/1000)}s to 30s`);
-        }
-    }
 
     // Skip logging browser entries without valid domains (prevents "browser" app in stats)
     if (effectiveBrowserTracking && (!domain || domain.trim() === '')) {
-        console.log(`[DeskFlow] 🔒 Skipped logging browser entry without domain for app: ${app}`);
+        console.log(`[DeskFlow] ?? Skipped logging browser entry without domain for app: ${app}`);
         return;
     }
 
-    // On-view mode guard: skip persistence when browser page isn't visible
-    if (is_browser_tracking && browserRecordingMode === 'on-view' && !browserPageVisible) {
+    // On-view mode guard: skip app entry persistence when dashboard isn't visible
+    if (!is_browser_tracking && appRecordingMode === 'on-view' && !dashboardPageVisible) {
         return;
     }
 
@@ -2229,7 +2262,7 @@ function addLog(timestamp, app, category, duration_ms, title, project, url?, dom
         if (jsonLogs.length > 50000)
             jsonLogs = jsonLogs.slice(0, 50000); // Increased from 1000 to 50000
         saveJsonLogs();
-        console.log(`[DeskFlow] âœ… Logged: ${app} â†’ ${Math.floor(safeDuration / 1000)}s`);
+        console.log(`[DeskFlow] ✅ Logged: ${app} → ${Math.floor(safeDuration / 1000)}s`);
     }
     else {
         try {
@@ -2238,7 +2271,7 @@ function addLog(timestamp, app, category, duration_ms, title, project, url?, dom
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
             stmt.run(timestamp, app, category, safeDuration, title, project, url || null, domain || null, tab_id || null, is_browser_tracking ? 1 : 0);
-            console.log(`[DeskFlow] âœ… Logged: ${app} â†’ ${Math.floor(safeDuration / 1000)}s`);
+            console.log(`[DeskFlow] ✅ Logged: ${app} → ${Math.floor(safeDuration / 1000)}s`);
         }
         catch (err) {
             console.error('[DeskFlow] SQLite insert failed:', err);
@@ -2294,7 +2327,28 @@ function updateAggregates(timestamp, app, category, duration_ms, domain, is_brow
                     .run(date, domain, category, duration_sec);
             }
         }
-        console.log('[DeskFlow] âœ… Aggregates updated for', app);
+        // Update stats_daily (used by Dashboard get-dashboard-aggregates)
+        const statsName = domain || app;
+        const statsType = domain ? 'domain' : 'app';
+        db.prepare(`
+            INSERT INTO stats_daily (date, app_name, app_type, category, total_seconds, session_count)
+            VALUES (?, ?, ?, ?, ?, 1)
+            ON CONFLICT(date, app_name) DO UPDATE SET
+                total_seconds = total_seconds + ?,
+                session_count = session_count + 1
+        `).run(date, statsName, statsType, category, duration_sec, duration_sec);
+        // Add synthetic browser-app entry when logging a domain (browser tracking)
+        if (is_browser_tracking && userPreferences?.browserWithExtension) {
+            const browserAppName = userPreferences.browserWithExtension;
+            db.prepare(`
+                INSERT INTO stats_daily (date, app_name, app_type, category, total_seconds, session_count)
+                VALUES (?, ?, 'app', 'Browser', ?, 1)
+                ON CONFLICT(date, app_name) DO UPDATE SET
+                    total_seconds = total_seconds + ?,
+                    session_count = session_count + 1
+            `).run(date, browserAppName, duration_sec, duration_sec);
+        }
+        console.log('[DeskFlow] ✅ Aggregates updated for', app);
     }
     catch (err) {
         console.error('[DeskFlow] Aggregate update failed:', err);
@@ -2313,8 +2367,8 @@ function getLogs(limit?: number): any[] {
             console.log('[DeskFlow getLogs] SQLite with limit:', results.length);
             return results;
         }
-        // Cap at 5000 rows AND limit to last 730 days to prevent frontend freeze on 'all' period
-        const stmt = db.prepare("SELECT * FROM logs WHERE timestamp >= datetime('now', '-730 days') ORDER BY id DESC LIMIT 5000");
+        // Return up to 100k rows — enough for years of tracking data without frontend freeze
+        const stmt = db.prepare("SELECT * FROM logs ORDER BY id DESC LIMIT 100000");
         const results = stmt.all();
         console.log('[DeskFlow getLogs] SQLite capped to 5000 rows (730 day window):', results.length);
         return results;
@@ -2367,13 +2421,13 @@ let trackingInterval = null;
 let isTracking = true;
 let lastPollTime = Date.now();
 let consecutiveNullPolls = 0;
-let MAX_SESSION_MS = 120 * 60 * 1000; // 120 minutes â€” cap for long sessions (was 30min)
+let MAX_SESSION_MS = 120 * 60 * 1000; // 120 minutes — cap for long sessions (was 30min)
 const MAX_LOGGED_SESSION_MS = 3600000; // 1 hour - cap logged sessions to prevent heatmap inflation
-let SLEEP_GAP_MS = 30000; // 30 seconds â€” gap threshold to detect system sleep (was 10s)
-const BROWSER_MAX_DELTA_MS = 10 * 60 * 1000; // 10 minutes â€” separate cap for browser delta (extension sends ~5s normally)
-const IDLE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes â€” OS-level idle before pausing tracking
+let SLEEP_GAP_MS = 30000; // 30 seconds — gap threshold to detect system sleep (was 10s)
+const BROWSER_MAX_DELTA_MS = 10 * 60 * 1000; // 10 minutes — separate cap for browser delta (extension sends ~5s normally)
+const IDLE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes — OS-level idle before pausing tracking
 let lastCheckpointTime = Date.now();
-const CHECKPOINT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes â€” checkpoint interval for long sessions (was 5min)
+const CHECKPOINT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes — checkpoint interval for long sessions (was 5min)
 const TRANSIENT_APPS = [
     'explorer', 'task switching', 'taskbar', 'start menu',
     'system', 'shellexperiencehost', 'searchui', 'peopleexperiencehost',
@@ -2385,7 +2439,9 @@ let browserServer = null;
 let browserServerPort = 54321;
 let isBrowserTrackingEnabled = true;
 let browserRecordingMode = 'always'; // 'always' | 'on-view'
+let appRecordingMode = 'always'; // 'always' | 'on-view'
 let browserPageVisible = false;
+let dashboardPageVisible = false;
 // FIX 1: Use a Map keyed by domain to track all active browser sessions (not just one)
 let activeBrowserSessions = new Map();
 let browserExcludedDomains = [];
@@ -2538,7 +2594,7 @@ function categorizeDomain(domain, title, url) {
         }
     }
     
-    // 5. Last resort â€” treat unknown domains as Entertainment (distracting)
+    // 5. Last resort — treat unknown domains as Entertainment (distracting)
     // instead of Uncategorized (neutral), so they don't inflate the score
     console.log('[DeskFlow] categorizeDomain result (truly uncategorized):', 'Entertainment');
     return 'Entertainment';
@@ -2547,7 +2603,7 @@ function categorizeDomain(domain, title, url) {
 // Fallback: Use PowerShell to get foreground window when active-win returns null
 // Captures games in exclusive fullscreen that active-win can't detect
 function getForegroundViaPowerShell() {
-    // Method 1: Win32 API (GetForegroundWindow) â€” works for most fullscreen apps,
+    // Method 1: Win32 API (GetForegroundWindow) — works for most fullscreen apps,
     // but blocked by anti-cheat (Vanguard blocks it for VALORANT)
     try {
         const result = (0, child_process_1.execSync)(`
@@ -2585,7 +2641,7 @@ function getForegroundViaPowerShell() {
     }
     catch { }
 
-    // Method 2: Process enumeration â€” works when GetForegroundWindow is blocked (anti-cheat).
+    // Method 2: Process enumeration — works when GetForegroundWindow is blocked (anti-cheat).
     // Lists all processes with visible windows, sorts by most recently started.
     // Not 100% accurate for the actual foreground but better than tracking nothing.
     try {
@@ -2664,7 +2720,7 @@ async function pollForeground() {
                         consecutiveNullPolls = 0;
                         return;
                     }
-                    console.log(`[DeskFlow] ðŸŽ® Fallback detected: ${appName} (${windowTitle})`);
+                    console.log(`[DeskFlow] 🎮 Fallback detected: ${appName} (${windowTitle})`);
                     consecutiveNullPolls = 0;
                     // Process like a normal active-win result
                     const appLower = appName.toLowerCase();
@@ -2686,10 +2742,10 @@ async function pollForeground() {
                     }
                     if (appName !== currentApp) {
                         const rawDuration = now - sessionStart;
-                        if (currentApp && rawDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron' && !isBrowserWithExtension(currentApp)) {
+                        if (currentApp && rawDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
                             const duration = Math.min(rawDuration, MAX_SESSION_MS);
                             if (rawDuration > MAX_SESSION_MS) {
-                                console.log(`[DeskFlow] âš ï¸ Session capped: ${currentApp} had ${Math.round(rawDuration / 1000)}s, capped to ${Math.round(duration / 1000)}s (likely sleep artifact)`);
+                                console.log(`[DeskFlow] ⚠️ Session capped: ${currentApp} had ${Math.round(rawDuration / 1000)}s, capped to ${Math.round(duration / 1000)}s (likely sleep artifact)`);
                             }
                             const category = categorizeApp(currentApp);
                             addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
@@ -2708,7 +2764,7 @@ async function pollForeground() {
                     // Periodic checkpointing for fallback-detected apps
                     if (currentApp && (now - lastCheckpointTime > CHECKPOINT_INTERVAL_MS)) {
                         const checkpointDuration = now - sessionStart;
-                        if (checkpointDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron' && !isBrowserWithExtension(currentApp)) {
+                        if (checkpointDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
                             const duration = Math.min(checkpointDuration, MAX_SESSION_MS);
                             const category = categorizeApp(currentApp);
                             addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
@@ -2747,7 +2803,7 @@ async function pollForeground() {
                         }
                         return;
                     }
-                    // Normal apps — existing logic
+                    // Normal apps � existing logic
                     const knownDuration = (now - timeSinceLastPoll) - sessionStart;
                     if (knownDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
                         const duration = Math.min(knownDuration, MAX_SESSION_MS);
@@ -2763,10 +2819,10 @@ async function pollForeground() {
         }
         // If we get a result after a gap, check if the gap was large enough to indicate sleep
         if (timeSinceLastPoll > SLEEP_GAP_MS) {
-            console.log(`[DeskFlow] ðŸ’¤ Sleep gap detected (${Math.round(timeSinceLastPoll / 1000)}s). Resetting session.`);
+            console.log(`[DeskFlow] 💤 Sleep gap detected (${Math.round(timeSinceLastPoll / 1000)}s). Resetting session.`);
             // Log accumulated time up to the last known good poll before resetting
             // (not including the gap itself, which might be sleep)
-            if (currentApp && currentApp !== 'DeskFlow' && currentApp !== 'Electron' && !isBrowserWithExtension(currentApp)) {
+            if (currentApp && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
                 const previousPollTime = now - timeSinceLastPoll;
                 const knownDuration = previousPollTime - sessionStart;
                 if (knownDuration > 5000) {
@@ -2780,7 +2836,7 @@ async function pollForeground() {
             consecutiveNullPolls = 0;
             return;
         }
-          // Successful poll â€” reset counter
+          // Successful poll — reset counter
           consecutiveNullPolls = 0;
           const appName = result.owner?.name || '';
           const windowTitle = result.title || '';
@@ -2817,13 +2873,13 @@ async function pollForeground() {
                 // Log previous session if it was > 5 seconds AND within reasonable bounds
                 // BUT: Filter out Electron/DeskFlow app (don't track the app itself)
                 // ALSO: Skip known browser when website tracking is active (extension handles websites)
-                if (currentApp && rawDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron' && !isBrowserWithExtension(currentApp)) {
+                if (currentApp && rawDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
                   // Cap duration to prevent sleep-time inflation from creating bogus multi-hour sessions
                   const duration = Math.min(rawDuration, MAX_SESSION_MS);
                   // If the raw duration was much larger than the cap, the system was likely asleep
                   // Only log up to the cap and warn
                   if (rawDuration > MAX_SESSION_MS) {
-                      console.log(`[DeskFlow] âš ï¸ Session capped: ${currentApp} had ${Math.round(rawDuration / 1000)}s, capped to ${Math.round(duration / 1000)}s (likely sleep artifact)`);
+                      console.log(`[DeskFlow] ⚠️ Session capped: ${currentApp} had ${Math.round(rawDuration / 1000)}s, capped to ${Math.round(duration / 1000)}s (likely sleep artifact)`);
                   }
                   const category = categorizeApp(currentApp);
                   addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
@@ -2848,11 +2904,11 @@ async function pollForeground() {
           // Prevents data loss when user stays on the same app for hours (no app change to trigger log)
            if (currentApp && (now - lastCheckpointTime > CHECKPOINT_INTERVAL_MS)) {
                 const checkpointDuration = now - sessionStart;
-                if (checkpointDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron' && !isBrowserWithExtension(currentApp)) {
+                if (checkpointDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
                   const duration = Math.min(checkpointDuration, MAX_SESSION_MS);
                   const category = categorizeApp(currentApp);
                   addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
-                  console.log(`[DeskFlow] ðŸ“ Checkpoint: ${currentApp} â†’ ${Math.round(duration / 1000)}s`);
+                  console.log(`[DeskFlow] 📝 Checkpoint: ${currentApp} → ${Math.round(duration / 1000)}s`);
                   sessionStart = now;
               }
               lastCheckpointTime = now;
@@ -2943,7 +2999,7 @@ function createTray() {
             mainWindow.focus();
         }
     });
-    console.log('[DeskFlow] âœ… System tray created');
+    console.log('[DeskFlow] ✅ System tray created');
 }
 function createWindow() {
     electron_1.Menu.setApplicationMenu(null);
@@ -3020,25 +3076,25 @@ function createWindow() {
         if (gapMs < SLEEP_DETECTION_MIN_GAP_MS) return;
         // Max reasonable sleep: 16 hours. Longer gaps = user just didn't open app for a while
         if (gapMs > 16 * 60 * 60 * 1000) {
-            console.log(`[DeskFlow] Skipping sleep detection â€” gap ${gapMinutes}min exceeds 16h max`);
+            console.log(`[DeskFlow] Skipping sleep detection — gap ${gapMinutes}min exceeds 16h max`);
             return;
         }
         // Require at least one end to be within sleep hours (21:00-10:00)
-        // e.g., 20:00â†’08:00 passes (end is in sleep hours), 14:00â†’16:00 fails (neither is)
+        // e.g., 20:00→08:00 passes (end is in sleep hours), 14:00→16:00 fails (neither is)
         if (!isWithinSleepHours(gapStart) && !isWithinSleepHours(gapEnd)) {
-            console.log(`[DeskFlow] Skipping sleep detection â€” neither gap end is within sleep hours (start=${new Date(gapStart).getHours()}:${new Date(gapStart).getMinutes()}, end=${new Date(gapEnd).getHours()}:${new Date(gapEnd).getMinutes()})`);
+            console.log(`[DeskFlow] Skipping sleep detection — neither gap end is within sleep hours (start=${new Date(gapStart).getHours()}:${new Date(gapStart).getMinutes()}, end=${new Date(gapEnd).getHours()}:${new Date(gapEnd).getMinutes()})`);
             return;
         }
         // Check OS-level idle time to prevent false positives for short gaps
-        // For very large gaps (> 2h), skip idle check â€” user was clearly not at computer
+        // For very large gaps (> 2h), skip idle check — user was clearly not at computer
         if (gapMs < 120 * 60 * 1000) {
             const systemIdleSec = electron_1.powerMonitor.getSystemIdleTime();
             if (systemIdleSec < 300) {
-                console.log(`[DeskFlow] Skipping sleep detection â€” system idle only ${systemIdleSec}s (user actively using other apps)`);
+                console.log(`[DeskFlow] Skipping sleep detection — system idle only ${systemIdleSec}s (user actively using other apps)`);
                 return;
             }
         }
-        console.log(`[DeskFlow] ðŸ’¤ Potential sleep gap detected: ${gapMinutes}min since last focus`);
+        console.log(`[DeskFlow] 💤 Potential sleep gap detected: ${gapMinutes}min since last focus`);
         try {
             fs_1.default.writeFileSync(
                 path_1.default.join(userDataPath, 'deskflow-sleep-detection.json'),
@@ -3218,7 +3274,7 @@ electron_1.ipcMain.handle('migrate-to-aggregates', () => {
         total_sec = excluded.total_sec,
         session_count = excluded.session_count
     `).run();
-        console.log('[DeskFlow] âœ… Migration complete:', result.changes, 'aggregates updated');
+        console.log('[DeskFlow] ✅ Migration complete:', result.changes, 'aggregates updated');
         return {
             success: true,
             aggregatesUpdated: result.changes,
@@ -3448,7 +3504,7 @@ const BROWSER_PROCESS_NAMES: Record<string, string[]> = {
 
 // Set of known game process names (lowercase, without .exe).
 // When a known game is the last currentApp and null polls start,
-// we never assume sleep — fullscreen games don't report windows.
+// we never assume sleep � fullscreen games don't report windows.
 const KNOWN_GAME_APPS = new Set<string>([
     'minecraft',
     'minecraft-windows',
@@ -3490,7 +3546,7 @@ function loadPreferences() {
         if (fs_1.default.existsSync(prefsPath)) {
             const data = fs_1.default.readFileSync(prefsPath, 'utf-8');
             userPreferences = JSON.parse(data);
-            console.log('[DeskFlow] ðŸ“„ Loaded preferences');
+            console.log('[DeskFlow] 📄 Loaded preferences');
         }
     }
     catch (err) {
@@ -3741,15 +3797,15 @@ function updateAllAggregates() {
             }
         }
         
-        console.log('[DeskFlow] âœ… All aggregate tables rebuilt');
+        console.log('[DeskFlow] ✅ All aggregate tables rebuilt');
     } catch (err) {
         console.error('[DeskFlow] Error rebuilding aggregates:', err);
     }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════
 // DURATION ROUNDING & DATE HELPERS (Performance & Consistency)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════
 
 function roundDuration(seconds) {
     return Math.round(seconds * 100) / 100;
@@ -3793,9 +3849,9 @@ function computeDateRange(period, dateOffset = 0) {
     };
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════
 // DASHBOARD DATA IPC HANDLER - Single call replaces multiple fetches
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════
 
 electron_1.ipcMain.handle('get-dashboard-data', async (_, { period, dateOffset = 0 }) => {
     if (useJson) {
@@ -3881,7 +3937,7 @@ electron_1.ipcMain.handle('get-dashboard-data', async (_, { period, dateOffset =
     }
 });
 
-// â”€â”€ Helpers for dashboard aggregation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers for dashboard aggregation ──────────────────────────────
 
 function formatLocalDate(d: Date): string {
     return d.getFullYear() + '-' +
@@ -4041,7 +4097,7 @@ function getTierMap(db: any): Map<string, string> {
         const tierAssignments = (categoryConfig?.tierAssignments && typeof categoryConfig.tierAssignments === 'object' && Object.keys(categoryConfig.tierAssignments).length > 0)
             ? categoryConfig.tierAssignments
             : DEFAULT_TIER_ASSIGNMENTS;
-        // Build reverse lookup: category â†’ tier
+        // Build reverse lookup: category → tier
         const catTier = new Map<string, string>();
         for (const t of ['productive', 'neutral', 'distracting'] as const) {
             if (Array.isArray(tierAssignments[t])) {
@@ -4183,7 +4239,7 @@ function buildHourlyHeatmap(logs: any[], tierMap: Map<string, string>, weekRange
     return grid;
 }
 
-// â”€â”€ IPC: get-dashboard-aggregates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── IPC: get-dashboard-aggregates ───────────────────────────────────
 electron_1.ipcMain.handle('get-dashboard-aggregates', async (_, request: { period: string; dateOffset?: number; weekOffset?: number }) => {
     try {
         const { period, dateOffset = 0, weekOffset = 0 } = request;
@@ -4340,7 +4396,7 @@ electron_1.ipcMain.handle('get-dashboard-aggregates', async (_, request: { perio
     }
 });
 
-// â”€â”€ IPC: get-app-stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── IPC: get-app-stats ──────────────────────────────────────────────
 electron_1.ipcMain.handle('get-app-stats', async (_, request: { period: string; dateOffset?: number }) => {
     try {
         const { period, dateOffset = 0 } = request;
@@ -4363,9 +4419,9 @@ electron_1.ipcMain.handle('get-app-stats', async (_, request: { period: string; 
     }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════
 // PAGE STATS IPC HANDLER - Pre-computed stats per page
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════
 
 electron_1.ipcMain.handle('get-page-stats', async (_, { page, period, dateOffset = 0 }) => {
     if (useJson) {
@@ -4460,9 +4516,9 @@ electron_1.ipcMain.handle('get-page-stats', async (_, { page, period, dateOffset
     }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════
 // BACKFILL AGGREGATIONS - For existing data migration
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════
 
 electron_1.ipcMain.handle('backfill-aggregations', async () => {
     if (useJson) {
@@ -4874,7 +4930,7 @@ electron_1.ipcMain.handle('set-browser-tracking', (event, enabled) => {
         browserServer.close();
         browserServer = null;
         stopBrowserSessionFlushTimer(); // FIX 2: Stop the flush timer too
-        console.log('[DeskFlow] ðŸš« Browser tracking server stopped');
+        console.log('[DeskFlow] 🚫 Browser tracking server stopped');
     }
     return enabled;
 });
@@ -4890,19 +4946,27 @@ electron_1.ipcMain.handle('set-recording-mode', (event, { type, mode }) => {
     if (type === 'browser') {
         browserRecordingMode = mode;
         userPreferences.browserRecordingMode = mode;
+    } else if (type === 'app') {
+        appRecordingMode = mode;
+        userPreferences.appRecordingMode = mode;
     }
     savePreferences();
-    console.log(`[DeskFlow] Browser recording mode: ${mode}`);
+    console.log(`[DeskFlow] ${type} recording mode: ${mode}`);
     return true;
 });
 electron_1.ipcMain.handle('get-recording-modes', () => ({
     browser: browserRecordingMode,
-    browserPageVisible
+    app: appRecordingMode,
+    browserPageVisible,
+    dashboardPageVisible
 }));
 electron_1.ipcMain.handle('set-page-visibility', (event, { page, visible }) => {
     if (page === 'browser') {
         browserPageVisible = visible;
         console.log(`[DeskFlow] Browser page visibility: ${visible ? 'VISIBLE' : 'HIDDEN'}`);
+    } else if (page === 'dashboard') {
+        dashboardPageVisible = visible;
+        console.log(`[DeskFlow] Dashboard page visibility: ${visible ? 'VISIBLE' : 'HIDDEN'}`);
     }
     return true;
 });
@@ -4945,7 +5009,7 @@ electron_1.ipcMain.handle('clean-corrupted-data', () => {
             });
             deletedCount = beforeCount - jsonLogs.length;
             saveJsonLogs();
-            console.log(`[DeskFlow] ðŸ§¹ Cleaned ${deletedCount} corrupted entries from JSON`);
+            console.log(`[DeskFlow] 🧹 Cleaned ${deletedCount} corrupted entries from JSON`);
         }
         else {
             // For SQLite: delete entries with multiple criteria
@@ -4961,7 +5025,7 @@ electron_1.ipcMain.handle('clean-corrupted-data', () => {
             // Also clean the new aggregate tables
             const aggResult = db.prepare(`DELETE FROM daily_aggregates WHERE total_sec > 86400`).run(); // > 24 hours
             const browserResult = db.prepare(`DELETE FROM browser_sessions WHERE total_sec > 86400`).run();
-            console.log(`[DeskFlow] ðŸ§¹ Cleaned ${deletedCount} corrupted entries from SQLite`);
+            console.log(`[DeskFlow] 🧹 Cleaned ${deletedCount} corrupted entries from SQLite`);
         }
         return { success: true, deletedCount };
     }
@@ -4985,7 +5049,7 @@ electron_1.ipcMain.handle('deep-clean-and-rebuild', () => {
         const sessionsCleared = db.prepare(`DELETE FROM sessions`).run();
         // Reset auto-increment counters
         db.exec(`DELETE FROM sqlite_sequence WHERE name IN ('logs', 'daily_aggregates', 'browser_sessions', 'sessions')`);
-        console.log(`[DeskFlow] ðŸ”¥ Deep clean complete: ${logsCleared.changes} logs, ${aggCleared.changes} aggregates cleared`);
+        console.log(`[DeskFlow] 🔥 Deep clean complete: ${logsCleared.changes} logs, ${aggCleared.changes} aggregates cleared`);
         return {
             success: true,
             logsCleared: logsCleared.changes,
@@ -5527,15 +5591,541 @@ electron_1.ipcMain.handle('get-tools', (event, category) => {
     }
 });
 
-// Get tool categories
-electron_1.ipcMain.handle('get-tool-categories', () => {
-    if (useJson) return [];
+// ---- MCP & Design Library IPC Handlers ----
+// Full JSON-RPC MCP protocol implementation
+
+interface MCPServerInstance {
+  proc: any;
+  status: 'starting' | 'running' | 'error' | 'stopped';
+  tools: any[];
+  requestCounter: number;
+  buffer: string;
+  initPromise: Promise<void>;
+  initResolve: (() => void) | null;
+  pendingRequests: Map<number, { resolve: (v: any) => void; reject: (e: any) => void; timeout: NodeJS.Timeout }>;
+  startTime: number;
+}
+
+const mcpServers = new Map<string, MCPServerInstance>();
+
+function sendMCPRequest(serverId: string, method: string, params?: any): Promise<any> {
+  const server = mcpServers.get(serverId);
+  if (!server || server.status !== 'running') {
+    return Promise.reject(new Error('Server not running'));
+  }
+  const id = ++server.requestCounter;
+  const request = { jsonrpc: '2.0', id, method, params: params || {} };
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      server.pendingRequests.delete(id);
+      reject(new Error('MCP request timeout'));
+    }, 30000);
+    server.pendingRequests.set(id, { resolve, reject, timeout });
+    server.proc.stdin.write(JSON.stringify(request) + '\n');
+  });
+}
+
+function handleMCPStdout(serverId: string, data: Buffer) {
+  const server = mcpServers.get(serverId);
+  if (!server) return;
+  server.buffer += data.toString();
+  const lines = server.buffer.split('\n');
+  server.buffer = lines.pop() || '';
+  for (const line of lines) {
+    if (!line.trim()) continue;
     try {
-        return db.prepare('SELECT DISTINCT category FROM tools ORDER BY category').all();
-    } catch {
-        return [];
+      const msg = JSON.parse(line);
+      if (msg.id !== undefined && server.pendingRequests.has(msg.id)) {
+        const pending = server.pendingRequests.get(msg.id)!;
+        clearTimeout(pending.timeout);
+        server.pendingRequests.delete(msg.id);
+        if (msg.error) {
+          pending.reject(new Error(msg.error.message || 'MCP error'));
+        } else {
+          pending.resolve(msg.result);
+        }
+      }
+    } catch (e) {
+      console.error(`[MCP:${serverId}] Failed to parse response:`, line);
     }
+  }
+}
+
+electron_1.ipcMain.handle('mcp-start-server', async (_, serverId: string) => {
+  if (mcpServers.has(serverId)) {
+    const existing = mcpServers.get(serverId)!;
+    if (existing.status === 'running') return { success: true, status: 'already_running' };
+    existing.proc.kill();
+    mcpServers.delete(serverId);
+  }
+  try {
+    const configPath = path_1.default.join(__dirname, '..', 'opencode.json');
+    let serverCfg: any = null;
+    try {
+      const config = JSON.parse(require('fs').readFileSync(configPath, 'utf8'));
+      serverCfg = config.mcp?.[serverId];
+    } catch { /* opencode.json may not exist */ }
+    
+    // Fallback default configs
+    if (!serverCfg) {
+      const defaultConfigs: Record<string, { command: string[] }> = {
+        '21st-dev': { command: ['npx', '-y', '@21st-dev/magic@latest'] },
+        'aceternity': { command: ['npx', '-y', '@aceternity-ui/mcp@latest'] },
+        'refero': { command: ['npx', '-y', '@refero/mcp@latest'] },
+      };
+      const dc = defaultConfigs[serverId];
+      if (!dc) return { success: false, error: `No config found for server: ${serverId}` };
+      serverCfg = { command: dc.command, environment: {} };
+    }
+
+    let initResolve: (() => void) | null = null;
+    const initPromise = new Promise<void>(resolve => { initResolve = resolve; });
+
+    const instance: MCPServerInstance = {
+      proc: null,
+      status: 'starting',
+      tools: [],
+      requestCounter: 0,
+      buffer: '',
+      initPromise,
+      initResolve,
+      pendingRequests: new Map(),
+      startTime: Date.now(),
+    };
+    
+    mcpServers.set(serverId, instance);
+    
+    const proc = child_process_1.spawn(serverCfg.command[0], serverCfg.command.slice(1), {
+      env: { ...process.env, ...serverCfg.environment },
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    instance.proc = proc;
+
+    proc.stdout.on('data', (data: Buffer) => handleMCPStdout(serverId, data));
+    
+    proc.stderr.on('data', (data: Buffer) => {
+      console.error(`[MCP:${serverId}] stderr:`, data.toString());
+    });
+
+    proc.on('exit', (code: number) => {
+      console.error(`[MCP:${serverId}] exited with code ${code}`);
+      const entry = mcpServers.get(serverId);
+      if (entry) {
+        entry.status = 'stopped';
+        // Reject all pending requests
+        for (const [id, pending] of entry.pendingRequests) {
+          clearTimeout(pending.timeout);
+          pending.reject(new Error('Server process exited'));
+        }
+        entry.pendingRequests.clear();
+      }
+    });
+
+    proc.on('error', (err: Error) => {
+      console.error(`[MCP:${serverId}] error:`, err.message);
+      const entry = mcpServers.get(serverId);
+      if (entry) entry.status = 'error';
+    });
+
+    // Send JSON-RPC initialize
+    const initMsg = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        clientInfo: { name: 'deskflow', version: '1.0.0' }
+      }
+    };
+    
+    // Setup one-time handler for init response
+    const initId = 1;
+    const initTimeout = setTimeout(() => {
+      instance.status = 'error';
+      if (instance.initResolve) instance.initResolve();
+    }, 15000);
+    
+    instance.pendingRequests.set(initId, {
+      resolve: () => { clearTimeout(initTimeout); },
+      reject: () => { clearTimeout(initTimeout); instance.status = 'error'; },
+      timeout: initTimeout,
+    });
+    
+    proc.stdin.write(JSON.stringify(initMsg) + '\n');
+    
+    // Wait for handshake
+    await new Promise<void>((resolve, reject) => {
+      const checkServer = setInterval(() => {
+        const entry = mcpServers.get(serverId);
+        if (entry?.status === 'running' || entry?.status === 'error') {
+          clearInterval(checkServer);
+          if (entry.status === 'running') resolve();
+          else reject(new Error('Server failed to start'));
+        }
+      }, 100);
+      setTimeout(() => { clearInterval(checkServer); reject(new Error('Server start timeout')); }, 20000);
+    });
+
+    // Send initialized notification
+    proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+    
+    // Discover tools
+    try {
+      const toolsResult = await sendMCPRequest(serverId, 'tools/list');
+      instance.tools = toolsResult?.tools || [];
+    } catch (e) {
+      console.error(`[MCP:${serverId}] tools/list failed:`, e);
+      instance.tools = [];
+    }
+    
+    return { success: true, tools: instance.tools };
+  } catch (e) {
+    console.error('[MCP] start error', e);
+    const entry = mcpServers.get(serverId);
+    if (entry) entry.status = 'error';
+    return { success: false, error: String(e) };
+  }
 });
+
+electron_1.ipcMain.handle('mcp-server-status', async (_, data: { serverId: string }) => {
+  const serverId = typeof data === 'string' ? data : data?.serverId;
+  const entry = mcpServers.get(serverId);
+  if (!entry) return { status: 'stopped' };
+  return {
+    status: entry.status,
+    toolCount: entry.tools.length,
+    uptime: Date.now() - entry.startTime,
+  };
+});
+
+electron_1.ipcMain.handle('mcp-stop-server', async (_, serverId: string) => {
+  const entry = mcpServers.get(serverId);
+  if (entry) {
+    entry.proc.kill();
+    for (const [id, pending] of entry.pendingRequests) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error('Server stopped'));
+    }
+    entry.pendingRequests.clear();
+    mcpServers.delete(serverId);
+    return { success: true };
+  }
+  return { success: false, error: 'Server not running' };
+});
+
+electron_1.ipcMain.handle('mcp-list-tools', async (_, serverId: string) => {
+  const entry = mcpServers.get(serverId);
+  if (!entry) return { success: false, error: 'Server not started' };
+  if (entry.status !== 'running') return { success: false, error: `Server status: ${entry.status}` };
+  return { success: true, tools: entry.tools };
+});
+
+electron_1.ipcMain.handle('mcp-call-tool', async (_, serverId: string, toolName: string, args: any) => {
+  const entry = mcpServers.get(serverId);
+  if (!entry) return { success: false, error: 'Server not started' };
+  if (entry.status !== 'running') return { success: false, error: `Server status: ${entry.status}` };
+  try {
+    const result = await sendMCPRequest(serverId, 'tools/call', { name: toolName, arguments: args });
+    return { success: true, result };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+});
+
+// Aceternity UI registry fetch
+electron_1.ipcMain.handle('aceternity-fetch-registry', async () => {
+  try {
+    const https = require('https');
+    const urls = [
+      'https://ui.aceternity.com/registry.json',
+      'https://aceternityui.com/registry.json',
+    ];
+    for (const url of urls) {
+      try {
+        const data = await new Promise<string>((resolve, reject) => {
+          https.get(url, (res: any) => {
+            let d = '';
+            res.on('data', (chunk: any) => (d += chunk));
+            res.on('end', () => resolve(d));
+          }).on('error', reject);
+        });
+        const parsed = JSON.parse(data);
+        const components = (parsed.components || parsed).map((c: any) => ({
+          slug: c.slug || c.name,
+          name: c.name,
+          description: c.description || '',
+          category: c.category || 'General',
+          tags: c.tags || [],
+          dependencyCount: (c.dependencies || []).length,
+          source: 'aceternity',
+        }));
+        return { success: true, components, total: components.length };
+      } catch { continue; }
+    }
+    return { success: false, components: [], total: 0, error: 'Failed to fetch from all registry URLs' };
+  } catch (e) {
+    console.error('[Aceternity] fetch error', e);
+    return { success: false, components: [], total: 0, error: String(e) };
+  }
+});
+
+// Aceternity UI: fetch individual component detail
+electron_1.ipcMain.handle('aceternity-fetch-component', async (_, params: { slug: string }) => {
+  try {
+    const https = require('https');
+    const urls = [
+      `https://ui.aceternity.com/registry/${params.slug}.json`,
+      `https://aceternityui.com/registry/${params.slug}.json`,
+    ];
+    for (const url of urls) {
+      try {
+        const data = await new Promise<string>((resolve, reject) => {
+          https.get(url, (res: any) => {
+            let d = '';
+            res.on('data', (chunk: any) => (d += chunk));
+            res.on('end', () => resolve(d));
+          }).on('error', reject);
+        });
+        const parsed = JSON.parse(data);
+        const component = {
+          slug: parsed.slug || params.slug,
+          name: parsed.name,
+          description: parsed.description || '',
+          category: parsed.category || 'General',
+          tags: parsed.tags || [],
+          code: parsed.files?.[0]?.content || '',
+          dependencies: parsed.dependencies || [],
+          files: parsed.files || [],
+          source: 'aceternity',
+        };
+        return { success: true, component };
+      } catch { continue; }
+    }
+    return { success: false, error: `Component ${params.slug} not found in any registry` };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+});
+
+// Aceternity UI component install via CLI
+electron_1.ipcMain.handle('aceternity-install-component', async (_, slug: string, cwd: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const cmds = [`npx -y aceternity-ui install ${slug}`, `npx -y aceternity-ui@latest add ${slug}`];
+    let lastError: any = null;
+    for (const cmd of cmds) {
+      try {
+        const output = execSync(cmd, { cwd, stdio: 'pipe', encoding: 'utf-8' });
+        const filesWritten = (output.match(/created.*?:?\s*(.+)/gi) || []).map((m: string) => m.replace(/created.*?:?\s*/i, '').trim());
+        return { success: true, filesWritten };
+      } catch (e) { lastError = e; continue; }
+    }
+    throw lastError || new Error('All install methods failed');
+  } catch (e) {
+    console.error('[Aceternity] install error', e);
+    return { success: false, error: String(e) };
+  }
+});
+
+// Refero: fetch catalog (MCP first, then HTTP fallback)
+electron_1.ipcMain.handle('fetch-refero-catalog', async (_, params: { forceRefresh?: boolean; query?: string }) => {
+  try {
+    // Try MCP first
+    const referoServer = mcpServers.get('refero');
+    if (referoServer && referoServer.status === 'running') {
+      try {
+        const result = await sendMCPRequest('refero', 'list_design_systems', { category: params?.query || undefined });
+        const systems = (result?.systems || result?.content?.[0]?.text ? JSON.parse(result.content[0].text) : []).map((s: any) => ({
+          slug: s.slug || s.id,
+          name: s.name,
+          description: s.description || '',
+          category: s.category || 'General',
+          tags: s.tags || [],
+          componentCount: s.componentCount || 0,
+          source: 'refero',
+        }));
+        return { success: true, systems, total: systems.length };
+      } catch { /* fall through to HTTP */ }
+    }
+    // HTTP fallback
+    const https = require('https');
+    const urls = [
+      'https://styles.refero.design/api/v1/systems',
+      'https://refero.design/api/systems',
+    ];
+    for (const url of urls) {
+      try {
+        const data = await new Promise<string>((resolve, reject) => {
+          https.get(url, (res: any) => {
+            let d = '';
+            res.on('data', (chunk: any) => (d += chunk));
+            res.on('end', () => resolve(d));
+          }).on('error', reject);
+        });
+        const parsed = JSON.parse(data);
+        const items = parsed.systems || parsed.data || parsed || [];
+        const systems = (Array.isArray(items) ? items : []).map((s: any) => ({
+          slug: s.slug || s.id,
+          name: s.name,
+          description: s.description || '',
+          category: s.category || 'General',
+          tags: s.tags || [],
+          componentCount: s.componentCount || 0,
+          source: 'refero',
+        }));
+        return { success: true, systems, total: systems.length };
+      } catch { continue; }
+    }
+    return { success: false, systems: [], total: 0, error: 'Refero catalog unavailable' };
+  } catch (e) {
+    return { success: false, systems: [], total: 0, error: String(e) };
+  }
+});
+
+// Refero: fetch individual system detail
+electron_1.ipcMain.handle('fetch-refero-system', async (_, params: { slug: string }) => {
+  try {
+    const referoServer = mcpServers.get('refero');
+    if (referoServer && referoServer.status === 'running') {
+      try {
+        const result = await sendMCPRequest('refero', 'get_design_system', { slug: params.slug });
+        const text = result?.content?.[0]?.text;
+        if (text) {
+          const parsed = JSON.parse(text);
+          return { success: true, system: { ...parsed, source: 'refero' } };
+        }
+      } catch { /* fall through */ }
+    }
+    return { success: false, error: 'Refero system detail unavailable' };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+});
+
+// Refero: search systems
+electron_1.ipcMain.handle('search-refero-systems', async (_, params: { query: string }) => {
+  try {
+    const referoServer = mcpServers.get('refero');
+    if (referoServer && referoServer.status === 'running') {
+      try {
+        const result = await sendMCPRequest('refero', 'search_design_systems', { query: params.query });
+        const text = result?.content?.[0]?.text;
+        if (text) {
+          const parsed = JSON.parse(text);
+          const systems = (parsed.systems || parsed).map((s: any) => ({
+            slug: s.slug || s.id,
+            name: s.name,
+            description: s.description || '',
+            category: s.category || 'General',
+            tags: s.tags || [],
+            componentCount: s.componentCount || 0,
+            source: 'refero',
+          }));
+          return { success: true, systems, total: systems.length };
+        }
+      } catch { /* fall through */ }
+    }
+    return { success: false, systems: [], total: 0, error: 'Search unavailable' };
+  } catch (e) {
+    return { success: false, systems: [], total: 0, error: String(e) };
+  }
+});
+
+// Design library config storage
+electron_1.ipcMain.handle('get-design-library-config', async () => {
+  try {
+    const configPath = path_1.default.join(require('os').homedir(), '.deskflow', 'design-library-config.json');
+    if (fs_1.default.existsSync(configPath)) {
+      return JSON.parse(fs_1.default.readFileSync(configPath, 'utf-8'));
+    }
+  } catch (e) {
+    console.error('[DesignConfig] read error', e);
+  }
+  // Return default config
+  return {
+    version: 1,
+    sources: {
+      '21st-dev': { enabled: true, autoStart: true },
+      aceternity: { enabled: true, registryUrl: 'https://ui.aceternity.com/registry', mcpEnabled: false },
+      refero: { enabled: false, autoStart: false },
+    },
+  };
+});
+
+electron_1.ipcMain.handle('set-design-library-config', async (_, config: any) => {
+  try {
+    const configDir = path_1.default.join(require('os').homedir(), '.deskflow');
+    if (!fs_1.default.existsSync(configDir)) fs_1.default.mkdirSync(configDir, { recursive: true });
+    const configPath = path_1.default.join(configDir, 'design-library-config.json');
+    fs_1.default.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    return { success: true };
+  } catch (e) {
+    console.error('[DesignConfig] write error', e);
+    return { success: false, error: String(e) };
+  }
+});
+
+// Design cache service
+const DESIGN_CACHE_DIR = path_1.default.join(require('os').homedir(), '.deskflow', 'design-caches');
+
+function ensureCacheDir() {
+  if (!fs_1.default.existsSync(DESIGN_CACHE_DIR)) {
+    fs_1.default.mkdirSync(DESIGN_CACHE_DIR, { recursive: true });
+  }
+}
+
+electron_1.ipcMain.handle('get-design-cached-data', async (_, params: { key: string }) => {
+  try {
+    ensureCacheDir();
+    const filePath = path_1.default.join(DESIGN_CACHE_DIR, `${params.key}.json`);
+    if (!fs_1.default.existsSync(filePath)) {
+      return { success: false, stale: true };
+    }
+    const raw = fs_1.default.readFileSync(filePath, 'utf-8');
+    const entry = JSON.parse(raw);
+    const stale = Date.now() - entry.timestamp > entry.ttl;
+    return { success: true, data: entry.data, timestamp: entry.timestamp, stale };
+  } catch {
+    return { success: false };
+  }
+});
+
+// Test design library connection
+electron_1.ipcMain.handle('test-design-library-connection', async (_, params: { serverId: string }) => {
+  const start = Date.now();
+  try {
+    // Check if already running
+    const existing = mcpServers.get(params.serverId);
+    if (existing && existing.status === 'running') {
+      return {
+        success: true,
+        latency: Date.now() - start,
+        toolCount: existing.tools.length,
+      };
+    }
+    // Start the server
+    const configPath = path_1.default.join(__dirname, '..', 'opencode.json');
+    let serverCfg: any = null;
+    try {
+      const config = JSON.parse(require('fs').readFileSync(configPath, 'utf8'));
+      serverCfg = config.mcp?.[params.serverId];
+    } catch { /* ignore */ }
+    if (!serverCfg) {
+      return { success: false, error: `No config found for ${params.serverId}` };
+    }
+    const proc = child_process_1.spawn(serverCfg.command[0], serverCfg.command.slice(1), {
+      env: { ...process.env, ...serverCfg.environment },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    // Kill the test server after a brief check
+    setTimeout(() => { try { proc.kill(); } catch {} }, 5000);
+    return { success: true, latency: Date.now() - start, toolCount: 0 };
+  } catch (e) {
+    return { success: false, error: String(e), latency: Date.now() - start };
+  }
+});
+
 
 // Scan common IDE default project directories for quick-add
 electron_1.ipcMain.handle('scan-ide-default-projects', async () => {
@@ -5569,6 +6159,87 @@ electron_1.ipcMain.handle('scan-ide-default-projects', async () => {
     }
 
     return results;
+});
+
+// Scan a user-specified custom directory for project folders containing code files
+electron_1.ipcMain.handle('scan-custom-directory', async (_, rootDir) => {
+    const EXT_TO_LANG_SCAN = {
+        '.ts': 'TypeScript', '.tsx': 'TypeScript', '.js': 'JavaScript', '.jsx': 'JavaScript',
+        '.mjs': 'JavaScript', '.cjs': 'JavaScript', '.py': 'Python', '.rs': 'Rust',
+        '.go': 'Go', '.java': 'Java', '.kt': 'Kotlin', '.kts': 'Kotlin',
+        '.swift': 'Swift', '.rb': 'Ruby', '.php': 'PHP', '.c': 'C', '.h': 'C',
+        '.cpp': 'C++', '.hpp': 'C++', '.cc': 'C++', '.cxx': 'C++',
+        '.cs': 'C#', '.scala': 'Scala', '.r': 'R', '.dart': 'Dart',
+        '.sh': 'Shell', '.bash': 'Shell', '.zsh': 'Shell', '.ps1': 'PowerShell',
+        '.lua': 'Lua', '.pl': 'Perl', '.pm': 'Perl', '.hs': 'Haskell',
+        '.elm': 'Elm', '.clj': 'Clojure', '.cljs': 'Clojure', '.erl': 'Erlang',
+        '.ex': 'Elixir', '.exs': 'Elixir', '.vue': 'Vue', '.svelte': 'Svelte',
+        '.astro': 'Astro', '.css': 'CSS', '.scss': 'Sass/SCSS', '.less': 'Less',
+        '.html': 'HTML', '.sql': 'SQL', '.graphql': 'GraphQL', '.gql': 'GraphQL',
+        '.yaml': 'YAML', '.yml': 'YAML', '.json': 'JSON', '.xml': 'XML',
+        '.toml': 'TOML', '.md': 'Markdown', '.zig': 'Zig', '.nim': 'Nim',
+        '.cr': 'Crystal', '.coffee': 'CoffeeScript', '.d': 'D',
+        '.f': 'Fortran', '.f90': 'Fortran', '.v': 'V',
+    };
+    const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', 'dist', 'build',
+        '.next', '.nuxt', 'out', 'target', 'bin', 'obj', 'venv', '.venv',
+        '__pycache__', '.cache', 'vendor', 'bower_components', 'tmp', 'coverage',
+        '.nyc_output', '.svelte-kit', '.vercel', '.netlify']);
+
+    if (!fs_1.default.existsSync(rootDir)) return { success: false, message: 'Directory does not exist' };
+
+    try {
+        const entries = fs_1.default.readdirSync(rootDir, { withFileTypes: true });
+        const results = [];
+
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            if (SKIP_DIRS.has(entry.name)) continue;
+
+            const dirPath = path_1.default.join(rootDir, entry.name);
+            const foundLangs = new Set();
+            let scannedFiles = 0;
+            let foundAny = false;
+
+            function quickScan(dirPathInner, depth = 0) {
+                if (depth > 2 || scannedFiles > 200) return;
+                try {
+                    const items = fs_1.default.readdirSync(dirPathInner, { withFileTypes: true });
+                    for (const item of items) {
+                        if (scannedFiles > 200) return;
+                        const fullPath = path_1.default.join(dirPathInner, item.name);
+                        if (item.isDirectory()) {
+                            if (!SKIP_DIRS.has(item.name)) {
+                                quickScan(fullPath, depth + 1);
+                            }
+                        } else if (item.isFile()) {
+                            scannedFiles++;
+                            const ext = path_1.default.extname(item.name).toLowerCase();
+                            if (ext && EXT_TO_LANG_SCAN[ext]) {
+                                foundLangs.add(EXT_TO_LANG_SCAN[ext]);
+                                foundAny = true;
+                            }
+                        }
+                    }
+                } catch { }
+            }
+
+            quickScan(dirPath);
+
+            if (foundAny) {
+                results.push({
+                    name: entry.name,
+                    path: dirPath,
+                    languages: Array.from(foundLangs),
+                    fileCount: scannedFiles,
+                });
+            }
+        }
+
+        return { success: true, projects: results };
+    } catch (err) {
+        return { success: false, message: 'Error scanning directory' };
+    }
 });
 
 // Add a project to track
@@ -5971,7 +6642,7 @@ electron_1.ipcMain.handle('calculate-project-health', (event, projectId) => {
             WHERE project_id = ? AND date >= datetime('now', '-7 days')
         `).get(projectId);
 
-        // Match ai_usage by project_path (from JSONL) â€” project_id is often NULL
+        // Match ai_usage by project_path (from JSONL) — project_id is often NULL
         // since sync stores project_path from JSONL cwd data
         let aiCount = 0;
         if (projectPath) {
@@ -6250,8 +6921,7 @@ electron_1.ipcMain.handle('get-commit-stats', (event, projectId, period = 'week'
 // Open folder picker dialog
 electron_1.ipcMain.handle('pick-folder', async () => {
     return new Promise((resolve) => {
-        const dialog = require('@electron/dialog');
-        dialog.showOpenDialog({
+        electron_1.dialog.showOpenDialog({
             properties: ['openDirectory'],
             title: 'Select Project Folder'
         }).then((result: any) => {
@@ -6269,9 +6939,8 @@ electron_1.ipcMain.handle('pick-folder', async () => {
 
 // Open file dialog (for skill file widget)
 electron_1.ipcMain.handle('show-open-dialog', async (_event, options: any) => {
-    const dialog = require('@electron/dialog');
     try {
-        const result = await dialog.showOpenDialog(options);
+        const result = await electron_1.dialog.showOpenDialog(options);
         return { canceled: result.canceled, filePaths: result.filePaths };
     } catch (err) {
         console.error('[DeskFlow] Open dialog error:', err);
@@ -6553,10 +7222,10 @@ electron_1.ipcMain.handle('save-terminal-preset', async (_event, data: any) => {
     }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════
 // Foundation: AGENT_CONFIGS, ANSI stripping, prompt detection,
 // state machine, launch verification, error diagnosis
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════
 
 interface AgentConfig {
   binaryCandidates: string[];
@@ -6602,7 +7271,7 @@ function stripAnsi(s: string): string {
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
 }
 
-// Shell prompt patterns â€” these must NEVER trigger agent:ready
+// Shell prompt patterns — these must NEVER trigger agent:ready
 const SHELL_PROMPT_REGEXES: RegExp[] = [
   /^PS\s+.*>\s*$/,
   /^[A-Za-z]:\\.*>\s*$/,
@@ -6613,7 +7282,7 @@ function looksLikeShell(line: string): boolean {
   return SHELL_PROMPT_REGEXES.some((re) => re.test(line));
 }
 
-// Agent prompt detection â€” checks the last non-empty line of accumulated output
+// Agent prompt detection — checks the last non-empty line of accumulated output
 // against the per-agent ready regex. Strips ANSI, rejects shell prompts.
 function detectAgentPrompt(buffer: string, agentType?: string): boolean {
   const clean = stripAnsi(buffer);
@@ -6627,7 +7296,7 @@ function detectAgentPrompt(buffer: string, agentType?: string): boolean {
   return false;
 }
 
-// Agent launch verification â€” out-of-band PATH check
+// Agent launch verification — out-of-band PATH check
 
 interface AgentVerifyResult {
   found: boolean;
@@ -6719,7 +7388,7 @@ function startAgentTimeout(id: string, agentType: string) {
   st.timeoutHandle = timer;
 }
 
-// Broadcast helper â€” send to all windows with disposal-safe pattern
+// Broadcast helper — send to all windows with disposal-safe pattern
 function broadcast(event: string, ...args: any[]) {
   for (const win of electron_1.BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
@@ -6728,7 +7397,7 @@ function broadcast(event: string, ...args: any[]) {
   }
 }
 
-// Retry agent init â€” re-sends agent:ready for a terminal that timed out
+// Retry agent init — re-sends agent:ready for a terminal that timed out
 electron_1.ipcMain.handle('retry-agent-init', async (_event, terminalId: string, agentType: string) => {
   try {
     const { BrowserWindow } = require('electron');
@@ -6773,7 +7442,7 @@ function parseTerminalOutput(terminalId: string, output: string) {
 
             // Validate: emit feedback if critical fields missing
             if (missingFields.length > 0) {
-                const feedback = `[SYSTEM: Session metadata incomplete â€” missing: ${missingFields.join(', ')}. Expected format: title, status, category, productArea, description. Please re-emit the block with all fields.]`;
+                const feedback = `[SYSTEM: Session metadata incomplete — missing: ${missingFields.join(', ')}. Expected format: title, status, category, productArea, description. Please re-emit the block with all fields.]`;
                 try { terminalManager.write(terminalId, feedback + '\r\n'); } catch {}
             }
             if (meta.category) { updates.push('category_confirmed = 1'); }
@@ -6804,7 +7473,7 @@ function parseTerminalOutput(terminalId: string, output: string) {
     }
 }
 
-// â”€â”€ AI Task Completion Tracking â”€â”€
+// ── AI Task Completion Tracking ──
 const pendingCompletions = new Set<string>();
 
 function markTaskCompleted(terminalId: string) {
@@ -6877,7 +7546,7 @@ const terminalManager = {
   }
 };
 
-// â”€â”€ File Lock Manager (cross-session conflict detection) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── File Lock Manager (cross-session conflict detection) ─────────
 const LOCK_TTL_MS = 60000;
 const fileLocks = new Map<string, { terminalId: string; sessionId: string | null; timestamp: number; action: string }>();
 
@@ -6935,7 +7604,7 @@ setInterval(() => {
   }
 }, LOCK_TTL_MS);
 
-// â”€â”€ File edit detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── File edit detection ──────────────────────────────────────────
 function detectEditsInOutput(terminalId: string, output: string) {
   if (!output || output.trim().length < 20) return;
 
@@ -7220,7 +7889,7 @@ electron_1.ipcMain.handle('terminal:write-raw', async (_event, terminalId: strin
 });
 
 electron_1.ipcMain.handle('write-terminal', async (_event, terminalId: string, data: string) => {
-    // T1.4-A: Auto re-injection â€” prepend rules reminder every N user messages
+    // T1.4-A: Auto re-injection — prepend rules reminder every N user messages
     if (data && data.trim()) {
       const count = (terminalMessageCounts.get(terminalId) || 0) + 1;
       terminalMessageCounts.set(terminalId, count);
@@ -7341,7 +8010,7 @@ electron_1.ipcMain.handle('save-terminal-session', async (_event, session: any) 
     try {
         const id = session.id || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         // Generate a resume ID if this is a new session and one wasn't provided
-        const resumeId = session.resumeId || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const resumeId = session.resumeId || `ses_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         console.log('[HealthDebug] save-terminal-session called:', { id, projectId: session.projectId, agent: session.agent, topic: session.topic, resumeId });
         const existing = db.prepare('SELECT created_at FROM terminal_sessions WHERE id = ?').get(id);
         const cat = session.category || 'other';
@@ -7379,7 +8048,7 @@ electron_1.ipcMain.handle('save-terminal-session', async (_event, session: any) 
     }
 });
 
-// â•â•â• Model Improvement Dashboard IPC handlers â•â•â•
+// ═══ Model Improvement Dashboard IPC handlers ═══
 
 electron_1.ipcMain.handle('get-model-improvement-stats', async (_event, { terminalId }: { terminalId?: string } = {}) => {
   try {
@@ -7405,7 +8074,7 @@ electron_1.ipcMain.handle('get-model-improvement-stats', async (_event, { termin
 electron_1.ipcMain.handle('set-reinject-threshold', async (_event, { threshold }: { threshold: number }) => {
   try {
     if (typeof threshold !== 'number' || threshold < 1 || threshold > 100) {
-      return { success: false, error: 'threshold must be 1â€“100' };
+      return { success: false, error: 'threshold must be 1–100' };
     }
     runtimeReinjectThreshold = threshold;
     if (modelDebugMode) {
@@ -7447,9 +8116,9 @@ electron_1.ipcMain.handle('read-actions-error-log', async (_event) => {
   }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════
 // Cross-Session Sync Config
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════
 
 let crossSessionSyncRuntimeConfig = {
   enabled: true,
@@ -7518,7 +8187,7 @@ electron_1.ipcMain.handle('delete-terminal-session', async (_event, sessionId: s
     }
 });
 
-// â”€â”€ Session Categorization IPC â”€â”€
+// ── Session Categorization IPC ──
 
 electron_1.ipcMain.handle('update-session-category', async (_event, data: {
     sessionId: string; topic?: string; category?: string; productArea?: string; description?: string; status?: string; tags?: string[]; categoryConfirmed?: boolean;
@@ -7625,7 +8294,7 @@ electron_1.ipcMain.handle('analyze-session-category', async (_event, sessionId: 
     }
 });
 
-// â”€â”€ Session Config Save/Load â”€â”€
+// ── Session Config Save/Load ──
 
 electron_1.ipcMain.handle('save-session-config', async (_, { sessionId, config, projectPath }: { sessionId: string; config: any; projectPath?: string }) => {
   try {
@@ -7662,7 +8331,7 @@ electron_1.ipcMain.handle('load-session-config', async (_, { sessionId, projectP
 electron_1.ipcMain.handle('list-init-files', async (_, { projectPath }: { projectPath?: string } = {}) => {
   try {
     const fileSet = new Set<string>();
-    // ONLY use projectPath/agent/ â€” NOT userDataPath
+    // ONLY use projectPath/agent/ — NOT userDataPath
     if (projectPath) {
       const projAgentDir = path_1.default.join(projectPath, 'agent');
       if (fs_1.default.existsSync(projAgentDir)) {
@@ -7681,7 +8350,7 @@ electron_1.ipcMain.handle('list-init-files', async (_, { projectPath }: { projec
 electron_1.ipcMain.handle('read-init-file', async (_, { filename, projectPath }: { filename: string; projectPath?: string }) => {
   try {
     if (!filename) return { success: false, error: 'No filename provided' };
-    // ONLY use projectPath/agent/ â€” NOT userDataPath
+    // ONLY use projectPath/agent/ — NOT userDataPath
     if (projectPath) {
       const projectFile = path_1.default.join(projectPath, 'agent', filename);
       if (fs_1.default.existsSync(projectFile)) {
@@ -7694,7 +8363,7 @@ electron_1.ipcMain.handle('read-init-file', async (_, { filename, projectPath }:
   }
 });
 
-// â”€â”€ @mention Routing â”€â”€
+// ── @mention Routing ──
 
 electron_1.ipcMain.handle('resolve-at-mention', async (_event, data: { input: string; terminalTabs: Array<{ id: string; name: string }> }) => {
     try {
@@ -7750,7 +8419,7 @@ electron_1.ipcMain.handle('set-active-terminal-layout', async (_event, layoutId:
     }
 });
 
-// â”€â”€ Workspace State Persistence â”€â”€
+// ── Workspace State Persistence ──
 
 electron_1.ipcMain.handle('workspace:save', async (_event, data: {
     projectId: string;
@@ -7800,7 +8469,7 @@ electron_1.ipcMain.handle('workspace:load', async (_event, data: { projectId: st
     }
 });
 
-// â”€â”€ Terminal Messages (Chat Persistence) â”€â”€
+// ── Terminal Messages (Chat Persistence) ──
 
 // Parse session metadata from AI output
 function parseSessionMetadata(content: string): {
@@ -7886,7 +8555,7 @@ function parseAndExecuteActions(content: string, sessionId: string, actor: strin
               const ps2 = getProblemsService(sessionRow.project_id);
               ps2.updateProblem(p.id, { status });
             }
-            logActivity({ entityType: 'problem', entityId: String(p.id), entityTitle: p.title, action: 'status_changed', actor, summary: `AI updated status: ${p.title} â†’ ${status}` });
+            logActivity({ entityType: 'problem', entityId: String(p.id), entityTitle: p.title, action: 'status_changed', actor, summary: `AI updated status: ${p.title} → ${status}` });
           } else { failCount++; errors.push(`update_problem: "${problemId}" not found`); }
         } catch (e: any) { failCount++; errors.push(`update_problem: ${e.message}`); }
       } else { failCount++; errors.push('update_problem: missing status'); }
@@ -7995,7 +8664,7 @@ function parseMessageContent(content: string): Array<{ item_type: string; conten
   return items;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• actions.json file bridge â€” AI writes actions, system executes â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════ actions.json file bridge — AI writes actions, system executes ═══════════════════
 
 // Parse and execute actions from agent/actions.json format:
 // { "actions": [{ "type": "create_problem", "title": "...", "priority": "...", ... }] }
@@ -8014,7 +8683,7 @@ function executeActionsFromFile(projectPath: string, terminalId: string) {
       const timestamp = new Date().toISOString();
       const logEntry = `[${timestamp}] JSON parse error: ${parseErr.message}\nRaw content:\n${raw}\n---\n`;
       fs_1.default.appendFileSync(errorLogPath, logEntry);
-      const feedback = `[SYSTEM] actions.json parse error â€” ${parseErr.message}. Raw saved to agent/actions_error.log. Please re-emit valid actions.json.`;
+      const feedback = `[SYSTEM] actions.json parse error — ${parseErr.message}. Raw saved to agent/actions_error.log. Please re-emit valid actions.json.`;
       try { terminalManager.write(terminalId, feedback + '\r\n'); } catch {}
       console.error('[ActionsJSON] Parse error:', parseErr.message);
       return;
@@ -8053,7 +8722,7 @@ function executeActionsFromFile(projectPath: string, terminalId: string) {
           const p = all.find((x: any) => x.id === action.id || x.title === action.id);
           if (p) {
             ps.updateProblem(p.id, { status: action.status });
-            logActivity({ entityType: 'problem', entityId: String(p.id), entityTitle: p.title, action: 'status_changed', actor, summary: `AI updated: ${p.title} â†’ ${action.status}` });
+            logActivity({ entityType: 'problem', entityId: String(p.id), entityTitle: p.title, action: 'status_changed', actor, summary: `AI updated: ${p.title} → ${action.status}` });
             mainWindow?.webContents?.send('context-changed', { type: 'problem', action: 'updated', entity: { id: p.id, title: p.title, status: action.status } });
             successCount++;
           } else {
@@ -8104,10 +8773,10 @@ function executeActionsFromFile(projectPath: string, terminalId: string) {
             failCount++;
           }
         } else if (type === 'complete_checklist' && action.id) {
-          // Legacy compatibility â€” silently accept, no-op
+          // Legacy compatibility — silently accept, no-op
           successCount++;
         } else if (type === 'add_step' || type === 'complete_step') {
-          // No longer supported â€” steps are algorithmic view, not AI-managed
+          // No longer supported — steps are algorithmic view, not AI-managed
           successCount++;
         } else if (type === 'update_request' && action.id && action.status) {
           const rs = getRequestsService(undefined, projectPath);
@@ -8115,7 +8784,7 @@ function executeActionsFromFile(projectPath: string, terminalId: string) {
           const r = all.find((x: any) => x.id === action.id || x.title === action.id);
           if (r) {
             rs.updateStatus(r.id, action.status);
-            logActivity({ entityType: 'request', entityId: String(r.id), entityTitle: r.title, action: 'status_changed', actor, summary: `AI updated: ${r.title} â†’ ${action.status}` });
+            logActivity({ entityType: 'request', entityId: String(r.id), entityTitle: r.title, action: 'status_changed', actor, summary: `AI updated: ${r.title} → ${action.status}` });
             mainWindow?.webContents?.send('context-changed', { type: 'request', action: 'updated', entity: { id: r.id, title: r.title, status: action.status } });
             successCount++;
           } else {
@@ -8499,7 +9168,7 @@ electron_1.ipcMain.handle('get-context-systems', async (_event, projectPath?: st
             if (!fs.existsSync(graphFile)) return MISSING;
             let nodeCount = 0, edgeCount = 0;
             try { const g = JSON.parse(fs.readFileSync(graphFile, 'utf-8')); nodeCount = g.nodes?.length || 0; edgeCount = g.edges?.length || 0; } catch {}
-            return { itemCount: nodeCount, itemLabel: `nodes Â· ${edgeCount} edges`, available: true, lastBuiltMs: mtimeOf(graphFile) };
+            return { itemCount: nodeCount, itemLabel: `nodes · ${edgeCount} edges`, available: true, lastBuiltMs: mtimeOf(graphFile) };
         }),
         build('para', 'PARA', () => {
             const paraDir = path.join(projPath, 'CZVault');
@@ -8748,7 +9417,7 @@ electron_1.ipcMain.handle('debug-ai-agents', async () => {
                 };
 
                 if (hasChatsSubdir(p)) {
-                    // Nested structure: project dirs â†’ chats â†’ files
+                    // Nested structure: project dirs → chats → files
                     const projectDirs = fs_1.default.readdirSync(p);
                     let displayCount = 0;
                     for (const projectDir of projectDirs) {
@@ -9539,7 +10208,7 @@ electron_1.ipcMain.handle('test-openrouter-key', async () => {
     }
 });
 
-// â”€â”€â”€ LLM Summarization via OpenRouter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── LLM Summarization via OpenRouter ─────────────────────
 electron_1.ipcMain.handle('summarize-with-llm', async (_event, prompt, options) => {
     const apiKey = getOpenRouterApiKey();
     if (!apiKey) {
@@ -9597,6 +10266,8 @@ Use headers (##) and bullet points. Be factual and precise. Do not fabricate inf
 // ========== AI Daily Briefing & News Features ==========
 const AIServiceModule = require("./services/AIService.cjs");
 const AIService = AIServiceModule.AIService || AIServiceModule;
+const { buildChain, runWithFallback } = require("./services/providers/router.cjs");
+const { PROVIDER_TEMPLATES } = require("./services/providers/templates.cjs");
 
 // Compute weekly quarter (ISO week string YYYY-WXX)
 function getWeekKey(date: Date): string {
@@ -9652,174 +10323,14 @@ function computeCost(model: string, inputTokens: number, outputTokens: number): 
   return ((inputTokens + outputTokens) / 1_000_000) * rate;
 }
 
-// â”€â”€â”€ Shared Brief Generation (used by both fetch and regenerate) â”€â”€
-async function generateDailyBriefAndCache(_event: any, key: string, apiKey: string): Promise<any> {
-  const yesterday = getYesterdayStr();
-  const stats = db!.prepare(`SELECT app as app_name, total_sec as total_seconds, category FROM daily_stats WHERE date = ? ORDER BY total_sec DESC LIMIT 8`).all(yesterday) as any[];
-  const sleep = db!.prepare(`SELECT es.started_at, es.ended_at FROM external_sessions es JOIN external_activities ea ON es.activity_id = ea.id WHERE ea.type = 'sleep' AND date(es.started_at) = ? LIMIT 1`).get(yesterday) as any;
-  const weekStats = db!.prepare(`SELECT date, SUM(total_sec) as total FROM daily_stats WHERE date >= ? AND date <= ? GROUP BY date`).all(
-    formatDateStr(new Date(Date.now() - 7 * 86400000)), yesterday
-  ) as any[];
-
-  const totalHours = stats.length ? (stats.reduce((s: number, r: any) => s + r.total_seconds, 0) / 3600).toFixed(1) : '0';
-  const topApps = stats.slice(0, 4).map((r: any) => `${r.app_name}(${(r.total_seconds / 3600).toFixed(1)}h)`).join(', ');
-  const { tierAssignments: ta } = categoryConfig;
-  const productiveSec = stats.filter((r: any) => {
-    const tier = ta?.productive || ['IDE', 'AI Tools', 'Developer Tools', 'Education', 'Productivity', 'Tools'];
-    return tier.includes(r.category);
-  }).reduce((s: number, r: any) => s + r.total_seconds, 0);
-  const productivePct = totalHours !== '0' ? ((productiveSec / 3600 / parseFloat(totalHours)) * 100).toFixed(0) : '0';
-  const disturbingSec = stats.filter((r: any) => {
-    const distracting = ta?.distracting || ['Entertainment', 'Social Media', 'Shopping', 'Gaming'];
-    return distracting.includes(r.category);
-  }).reduce((s: number, r: any) => s + r.total_seconds, 0);
-  const distractingPct = totalHours !== '0' ? ((disturbingSec / 3600 / parseFloat(totalHours)) * 100).toFixed(0) : '0';
-  const sleepHours = sleep ? ((new Date(sleep.ended_at).getTime() - new Date(sleep.started_at).getTime()) / 3600000).toFixed(1) : null;
-  const weekTotalHours = weekStats.length ? (weekStats.reduce((s: number, r: any) => s + r.total, 0) / 3600 / weekStats.length).toFixed(1) : '0';
-
-  const trendDescription = weekStats.length >= 2 ? (
-    parseFloat(weekStats[weekStats.length - 1]?.total || '0') > parseFloat(weekStats[0]?.total || '0') ? 'trending up' : 'trending down'
-  ) : 'stable';
-
-  const p = userPreferences || {};
-  const briefModel = p.ai_briefModel || 'google/gemini-2.0-flash-001';
-
-  const result = await AIService.generateDailyBrief(apiKey, {
-    totalHours, topApps, productivePct,
-    productiveHours: (productiveSec / 3600).toFixed(1),
-    distractingPct, sleepHours,
-    sleepAvg: weekStats.length ? weekTotalHours : null,
-    trendDescription,
-  }, briefModel);
-
-  const content = { ...result.content, type: 'daily' };
-  db!.prepare('INSERT OR REPLACE INTO ai_briefs (type, date, content, model_used, tokens_used, created_at) VALUES (?, ?, ?, ?, ?, datetime(\'now\'))')
-    .run('daily', key, JSON.stringify(content), briefModel, 0);
-
-  const inputTokens = result.usage?.prompt_tokens || 0;
-  const outputTokens = result.usage?.completion_tokens || 0;
-  trackFeatureUsage('briefing', briefModel, inputTokens, outputTokens, computeCost(briefModel, inputTokens, outputTokens), true);
-
-  try { _event.sender.send('ai-brief-ready', { type: 'daily', content }); } catch {}
-
-  return { success: true, content, cached: false, createdAt: new Date().toISOString() };
-}
-
-async function generateWeeklyReviewAndCache(_event: any, key: string, apiKey: string): Promise<any> {
-  const monday = getMondayOfWeek(new Date());
-  const sunday = new Date(monday);
-  sunday.setDate(sunday.getDate() + 6);
-  const weekStart = formatDateStr(monday);
-  const weekEnd = formatDateStr(sunday);
-
-  const weekStats = db!.prepare(`SELECT date, app as app_name, total_sec as total_seconds, category FROM daily_stats WHERE date >= ? AND date <= ? ORDER BY total_sec DESC`).all(weekStart, weekEnd) as any[];
-  const dailyAggs = db!.prepare(`SELECT date, SUM(total_sec) as total FROM daily_stats WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date`).all(weekStart, weekEnd) as any[];
-
-  const { tierAssignments: ta } = categoryConfig;
-  const totalProd = weekStats.filter((r: any) => {
-    const tier = ta?.productive || ['IDE', 'AI Tools', 'Developer Tools', 'Education', 'Productivity', 'Tools'];
-    return tier.includes(r.category);
-  }).reduce((s: number, r: any) => s + r.total_seconds, 0);
-  const topAppsList = weekStats.slice(0, 5).map((r: any) => `${r.app_name}(${(r.total_seconds / 3600).toFixed(1)}h)`).join(', ');
-  const totalHours = weekStats.reduce((s: number, r: any) => s + r.total_seconds, 0) / 3600;
-  const distractionSec = weekStats.filter((r: any) => {
-    const distracting = ta?.distracting || ['Entertainment', 'Social Media', 'Shopping', 'Gaming'];
-    return distracting.includes(r.category);
-  }).reduce((s: number, r: any) => s + r.total_seconds, 0);
-
-  const bestDay = dailyAggs.reduce((best: any, r: any) => (!best || r.total > best.total) ? r : best, null);
-  const worstDay = dailyAggs.reduce((worst: any, r: any) => (!worst || r.total < worst.total) ? r : worst, null);
-
-  const p = userPreferences || {};
-  const weeklyModel = p.ai_weeklyModel || 'google/gemini-2.0-flash-001';
-
-  const result = await AIService.generateWeeklyReview(apiKey, {
-    weekStart, weekEnd,
-    totalProductiveHours: (totalProd / 3600).toFixed(1),
-    topApps: topAppsList,
-    avgFocusScore: totalHours > 0 ? ((totalProd / totalHours) * 100).toFixed(0) : '0',
-    bestDay: bestDay?.date || 'N/A',
-    worstDay: worstDay?.date || 'N/A',
-    distractionPct: totalHours > 0 ? ((distractionSec / 3600 / totalHours) * 100).toFixed(0) : '0',
-    goalProgress: 'No goals configured',
-  }, weeklyModel);
-
-  const content = { ...result.content, type: 'weekly', weekStart, weekEnd, modelUsed: weeklyModel };
-  db!.prepare('INSERT OR REPLACE INTO ai_briefs (type, date, content, model_used, tokens_used, created_at) VALUES (?, ?, ?, ?, ?, datetime(\'now\'))')
-    .run('weekly', key, JSON.stringify(content), weeklyModel, 0);
-
-  const inputTokens = result.usage?.prompt_tokens || 0;
-  const outputTokens = result.usage?.completion_tokens || 0;
-  trackFeatureUsage('weekly', weeklyModel, inputTokens, outputTokens, computeCost(weeklyModel, inputTokens, outputTokens), true);
-
-  try { _event.sender.send('ai-brief-ready', { type: 'weekly', content }); } catch {}
-
-  return { success: true, content, cached: false, createdAt: new Date().toISOString() };
-}
-
-// â”€â”€â”€ Daily Brief IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-electron_1.ipcMain.handle('get-ai-brief', async (_event, params: { type: 'daily' | 'weekly' }) => {
-  const apiKey = getOpenRouterApiKey();
-  if (!apiKey) return { success: false, error: 'No API key configured', content: null, cached: false };
-
-  try {
-    const today = getTodayStr();
-    const key = params.type === 'daily' ? today : getWeekKey(new Date());
-
-    // Check cache
-    const cached = db!.prepare('SELECT content, model_used, created_at FROM ai_briefs WHERE type = ? AND date = ?').get(params.type, key) as any;
-    if (cached) {
-      let content = JSON.parse(cached.content);
-      if (typeof content === 'object' && content !== null) {
-        // Migrate old format: { summary: {signal,...}, type, modelUsed } → { signal,..., type }
-        if (params.type === 'daily' && content.summary && typeof content.summary === 'object') {
-          content = { ...content.summary, type: content.type };
-        }
-        content.modelUsed = cached.model_used || null;
-      }
-      return { success: true, content, cached: true, createdAt: cached.created_at };
-    }
-
-    if (params.type === 'daily') {
-      return await generateDailyBriefAndCache(_event, key, apiKey);
-    } else {
-      return await generateWeeklyReviewAndCache(_event, key, apiKey);
-    }
-  } catch (err: any) {
-    console.error('[AIBrief] Error:', err.message);
-    return { success: false, error: err.message, content: null, cached: false };
-  }
-});
-
-// â”€â”€â”€ Regenerate Brief IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-electron_1.ipcMain.handle('regenerate-ai-brief', async (_event, params: { type: 'daily' | 'weekly' }) => {
-  const apiKey = getOpenRouterApiKey();
-  if (!apiKey) return { success: false, error: 'No API key configured' };
-  try {
-    const key = params.type === 'daily' ? getTodayStr() : getWeekKey(new Date());
-    db!.prepare('DELETE FROM ai_briefs WHERE type = ? AND date = ?').run(params.type, key);
-    if (params.type === 'daily') {
-      return await generateDailyBriefAndCache(_event, key, apiKey);
-    } else {
-      return await generateWeeklyReviewAndCache(_event, key, apiKey);
-    }
-  } catch (err: any) {
-    console.error('[AIBrief] Error:', err.message);
-    return { success: false, error: err.message };
-  }
-});
-
-// â”€â”€â”€ Topic Digest IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Shared Brief Generation (used by both fetch and regenerate) ──
+// ─── Topic Digest IPC ────────────────────────
 electron_1.ipcMain.handle('get-topic-digest', async (_event) => {
-  const apiKey = getOpenRouterApiKey();
-  if (!apiKey) return { success: false, error: 'No API key configured', topics: [] };
-
   try {
     const topics = db!.prepare('SELECT topic FROM ai_interests WHERE enabled = 1 ORDER BY created_at DESC').all() as any[];
     const topicNames = topics.map((t: any) => t.topic);
     if (topicNames.length === 0) return { success: true, topics: [] };
 
-    // Check cache â€” only use if non-empty
     const today = getTodayStr();
     const cached = db!.prepare('SELECT content FROM ai_briefs WHERE type = ? AND date = ?').get('topic', today) as any;
     if (cached) {
@@ -9833,220 +10344,67 @@ electron_1.ipcMain.handle('get-topic-digest', async (_event) => {
     const p = userPreferences || {};
     const digestModel = p.ai_digestModel || 'google/gemini-2.0-flash-001';
 
-    let result;
-    try {
-      result = await AIService.generateTopicDigest(apiKey, { topics: topicNames, today }, digestModel);
-    } catch (err: any) {
-      if (err.message?.includes('402') || err.message?.includes('credits') || err.message?.includes('insufficient')) {
-        const freeModel = 'meta-llama/llama-3.3-70b-instruct:free';
-        console.warn(`[TopicDigest] credit error on ${digestModel}, retrying with free model ${freeModel}`);
-        result = await AIService.generateTopicDigest(apiKey, { topics: topicNames, today }, freeModel);
-      } else {
-        throw err;
+    interface TopicItem { topic: string; summary?: string };
+    const topicItems: TopicItem[] = topicNames.map((t: string) => ({ topic: t }));
+    const systemPrompt = `You are an AI research assistant. For each topic provided, write 1-2 paragraphs of current-state research. Format as a JSON array of { topic, summary }. Max 200 tokens. Today is ${today}.`;
+    const userMsg = `Topics: ${topicItems.map(t => t.topic).join(', ')}`;
+
+    let result: { content: string; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null = null;
+
+    const pState = p.aiProviders ? JSON.parse(p.aiProviders) : null;
+    if (pState && pState.providers && pState.providers.some((pr: any) => pr.enabled)) {
+      try {
+        const chain = buildChain(pState, 'researchDigest');
+        const { result: r } = await runWithFallback(chain, {
+          systemPrompt,
+          messages: [{ role: 'user', content: userMsg }],
+          maxTokens: 200,
+          temperature: 0.4,
+        });
+        result = r;
+      } catch (chainErr: any) {
+        console.warn('[TopicDigest] Provider chain failed, falling back to legacy:', chainErr.message);
       }
     }
 
-    if (!result.content || result.content.length === 0) {
-      return { success: false, error: 'Topic digest generation returned no content — check your API key and model', topics: [] };
+    if (!result) {
+      const apiKey = getOpenRouterApiKey();
+      if (!apiKey) return { success: false, error: 'No API key configured', topics: [] };
+
+      const tokenTiers = [200, 100, 50, 40];
+      for (let i = 0; i < tokenTiers.length; i++) {
+        try {
+          result = await AIService.generateTopicDigest(apiKey, { topics: topicNames, today }, digestModel, tokenTiers[i]);
+          break;
+        } catch (err: any) {
+          const isCreditError = err.message?.includes('402') || err.message?.includes('credits') || err.message?.includes('insufficient');
+          if (isCreditError && i < tokenTiers.length - 1) {
+            console.warn(`[TopicDigest] credit error at ${tokenTiers[i]} maxTokens, retrying at ${tokenTiers[i + 1]}`);
+            continue;
+          }
+          throw err;
+        }
+      }
+    }
+
+    let parsedContent: any[];
+    try { parsedContent = JSON.parse(result!.content); } catch { parsedContent = [{ topic: 'digest', summary: result!.content }]; }
+
+    if (!result || !result.content) {
+      return { success: false, error: 'Topic digest generation returned no content', topics: [] };
     }
 
     db!.prepare('INSERT OR REPLACE INTO ai_briefs (type, date, content, model_used, tokens_used, created_at) VALUES (?, ?, ?, ?, ?, datetime(\'now\'))')
-      .run('topic', today, JSON.stringify(result.content), digestModel, 0);
+      .run('topic', today, JSON.stringify(parsedContent), digestModel, 0);
 
-    const inputTokens = result.usage?.prompt_tokens || 0;
-    const outputTokens = result.usage?.completion_tokens || 0;
-    trackFeatureUsage('topic', digestModel, inputTokens, outputTokens, computeCost(digestModel, inputTokens, outputTokens), true);
-
-    return { success: true, topics: result.content };
+    return { success: true, topics: parsedContent };
   } catch (err: any) {
     console.error('[TopicDigest] Error:', err.message);
     return { success: false, error: err.message, topics: [] };
   }
 });
 
-// â”€â”€â”€ Anomaly Check IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-electron_1.ipcMain.handle('check-anomalies', async (_event) => {
-  const apiKey = getOpenRouterApiKey();
-  if (!apiKey) return { success: false, error: 'No API key configured', anomalies: [] };
-
-  try {
-    const today = getTodayStr();
-    const yesterday = getYesterdayStr();
-    const thirtyDaysAgo = formatDateStr(new Date(Date.now() - 30 * 86400000));
-
-    const todayStats = db!.prepare(`SELECT app as app_name, total_sec as total_seconds, category FROM daily_stats WHERE date = ? ORDER BY total_sec DESC`).all(today) as any[];
-    const weekStats = db!.prepare(`SELECT date, SUM(total_sec) as total FROM daily_stats WHERE date >= ? AND date <= ? GROUP BY date`).all(
-      formatDateStr(new Date(Date.now() - 7 * 86400000)), yesterday
-    ) as any[];
-    const thirtyDayStats = db!.prepare(`SELECT date, SUM(total_sec) as total FROM daily_stats WHERE date >= ? AND date <= ? GROUP BY date`).all(thirtyDaysAgo, yesterday) as any[];
-
-    if (todayStats.length === 0) return { success: true, anomalies: [] };
-
-    const { tierAssignments: ta } = categoryConfig;
-    const todayTotalSec = todayStats.reduce((s: number, r: any) => s + r.total_seconds, 0);
-    const prodTier = ta?.productive || ['IDE', 'AI Tools', 'Developer Tools', 'Education', 'Productivity', 'Tools'];
-    const todayProductiveSec = todayStats.filter((r: any) => prodTier.includes(r.category)).reduce((s: number, r: any) => s + r.total_seconds, 0);
-    const todayTopApps = todayStats.slice(0, 4).map((r: any) => `${r.app_name}(${(r.total_seconds / 3600).toFixed(1)}h)`).join(', ');
-
-    const weekAvgTotal = weekStats.length ? weekStats.reduce((s: number, r: any) => s + r.total, 0) / weekStats.length : todayTotalSec;
-    const weekAvgProductive = weekStats.length ? weekStats.reduce((s: number, r: any) => s + r.total, 0) / weekStats.length * (todayProductiveSec / todayTotalSec || 0) : todayProductiveSec;
-    const thirtyDayAvgTotal = thirtyDayStats.length ? thirtyDayStats.reduce((s: number, r: any) => s + r.total, 0) / thirtyDayStats.length : todayTotalSec;
-
-    const discordSec = todayStats.find((r: any) => r.app_name?.toLowerCase().includes('discord'))?.total_seconds || null;
-    const gamesSec = todayStats.filter((r: any) => {
-      const distracting = ta?.distracting || ['Entertainment', 'Social Media', 'Shopping', 'Gaming'];
-      return distracting.includes(r.category);
-    }).reduce((s: number, r: any) => s + r.total_seconds, 0);
-
-    const p = userPreferences || {};
-    const anomalyModel = p.ai_anomalyModel || 'google/gemini-2.0-flash-001';
-
-    const result = await AIService.checkAnomalies(apiKey, {
-      todayTotalSec, todayProductiveSec, todayTopApps,
-      weekAvgTotalSec: weekAvgTotal,
-      weekAvgProductiveSec: weekAvgProductive,
-      weekAvgDistractingPct: weekAvgTotal > 0 ? ((weekAvgTotal - weekAvgProductive) / weekAvgTotal * 100).toFixed(0) : '0',
-      thirtyDayAvgTotalSec: thirtyDayAvgTotal,
-      discordTimeSec: discordSec,
-      gamesTimeSec: gamesSec,
-    }, anomalyModel);
-
-    const inputTokens = result.usage?.prompt_tokens || 0;
-    const outputTokens = result.usage?.completion_tokens || 0;
-    trackFeatureUsage('anomaly', anomalyModel, inputTokens, outputTokens, computeCost(anomalyModel, inputTokens, outputTokens), true);
-
-    return { success: true, anomalies: result.content.anomalies || [] };
-  } catch (err: any) {
-    console.error('[Anomaly] Error:', err.message);
-    return { success: false, error: err.message, anomalies: [] };
-  }
-});
-
-// â”€â”€â”€ Analyze Patterns IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-electron_1.ipcMain.handle('analyze-patterns', async (_event) => {
-  const apiKey = getOpenRouterApiKey();
-  if (!apiKey) return { success: false, error: 'No API key configured' };
-  try {
-    const thirtyDaysAgo = formatDateStr(new Date(Date.now() - 30 * 86400000));
-    const yesterday = getYesterdayStr();
-
-    const days = db!.prepare(`SELECT date, SUM(total_sec) as total_sec FROM daily_stats WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date DESC`).all(thirtyDaysAgo, yesterday) as any[];
-
-    const topApps = db!.prepare(`SELECT date, app as app_name, total_sec as total_seconds, category FROM daily_stats WHERE date >= ? AND date <= ? ORDER BY date DESC, total_sec DESC`).all(thirtyDaysAgo, yesterday) as any[];
-
-    const { tierAssignments: ta } = categoryConfig;
-    const prodTier = ta?.productive || DEFAULT_TIER_ASSIGNMENTS.productive;
-    const distTier = ta?.distracting || DEFAULT_TIER_ASSIGNMENTS.distracting;
-
-    const daySummaries = days.map(d => {
-      const dayApps = topApps.filter(a => a.date === d.date).slice(0, 5);
-      const prodSec = dayApps.filter(a => prodTier.includes(a.category)).reduce((s: number, r: any) => s + r.total_seconds, 0);
-      const distSec = dayApps.filter(a => distTier.includes(a.category)).reduce((s: number, r: any) => s + r.total_seconds, 0);
-      const apps = dayApps.map(a => `${a.app_name}(${(a.total_seconds / 60).toFixed(0)}m)`).join(', ');
-      return `${d.date}: ${(d.total_sec / 3600).toFixed(1)}h total, ${(prodSec / 60).toFixed(0)}m productive, ${(distSec / 60).toFixed(0)}m distracting. Apps: ${apps}`;
-    }).join('\n');
-
-    const p = userPreferences || {};
-    const model = p.ai_briefModel || 'google/gemini-2.0-flash-001';
-
-    const result = await AIService.analyzePatterns(apiKey, { dailySummary: daySummaries }, model);
-
-    const inputTokens = result.usage?.prompt_tokens || 0;
-    const outputTokens = result.usage?.completion_tokens || 0;
-    trackFeatureUsage('pattern_analysis', model, inputTokens, outputTokens, computeCost(model, inputTokens, outputTokens), true);
-
-    return { success: true, content: result.content };
-  } catch (err: any) {
-    console.error('[Patterns] Error:', err.message);
-    return { success: false, error: err.message };
-  }
-});
-
-// â”€â”€â”€ Analyze Sleep IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-electron_1.ipcMain.handle('analyze-sleep', async (_event) => {
-  const apiKey = getOpenRouterApiKey();
-  if (!apiKey) return { success: false, error: 'No API key configured' };
-  try {
-    const thirtyDaysAgo = formatDateStr(new Date(Date.now() - 30 * 86400000));
-    const yesterday = getYesterdayStr();
-
-    const sleepRecords = db!.prepare(`SELECT es.started_at, es.ended_at, date(es.started_at) as sleep_date FROM external_sessions es JOIN external_activities ea ON es.activity_id = ea.id WHERE ea.type = 'sleep' AND date(es.started_at) >= ? ORDER BY es.started_at DESC`).all(thirtyDaysAgo) as any[];
-
-    const prodByDay = db!.prepare(`SELECT date, SUM(total_sec) as total, SUM(CASE WHEN category IN ('IDE','AI Tools','Developer Tools','Education','Productivity','Tools') THEN total_sec ELSE 0 END) as productive FROM daily_stats WHERE date >= ? AND date <= ? GROUP BY date`).all(thirtyDaysAgo, yesterday) as any[];
-
-    const sleepSummary = sleepRecords.map(s => {
-      const start = new Date(s.started_at);
-      const end = new Date(s.ended_at);
-      const hours = ((end.getTime() - start.getTime()) / 3600000).toFixed(1);
-      return `${s.sleep_date}: fell asleep ${start.getHours()}:${String(start.getMinutes()).padStart(2,'0')}, woke ${end.getHours()}:${String(end.getMinutes()).padStart(2,'0')}, ${hours}h sleep`;
-    }).join('\n');
-
-    const prodSummary = prodByDay.map(d => {
-      const prodPct = d.total > 0 ? ((d.productive / d.total) * 100).toFixed(0) : '0';
-      return `${d.date}: ${(d.total / 3600).toFixed(1)}h tracked, ${prodPct}% productive`;
-    }).join('\n');
-
-    const p = userPreferences || {};
-    const model = p.ai_briefModel || 'google/gemini-2.0-flash-001';
-
-    const result = await AIService.analyzeSleep(apiKey, { sleepSummary, productivitySummary: prodSummary }, model);
-
-    const inputTokens = result.usage?.prompt_tokens || 0;
-    const outputTokens = result.usage?.completion_tokens || 0;
-    trackFeatureUsage('sleep_analysis', model, inputTokens, outputTokens, computeCost(model, inputTokens, outputTokens), true);
-
-    return { success: true, content: result.content };
-  } catch (err: any) {
-    console.error('[Sleep] Error:', err.message);
-    return { success: false, error: err.message };
-  }
-});
-
-// â”€â”€â”€ Data Chat IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-electron_1.ipcMain.handle('data-chat-query', async (_event, params: { query: string; history: Array<{ role: string; content: string }> }) => {
-  const apiKey = getOpenRouterApiKey();
-  if (!apiKey) return { success: false, error: 'No API key configured' };
-  try {
-    const yesterday = getYesterdayStr();
-    const sevenDaysAgo = formatDateStr(new Date(Date.now() - 7 * 86400000));
-
-    const weekStats = db!.prepare(`SELECT date, app as app_name, total_sec as total_seconds, category FROM daily_stats WHERE date >= ? AND date <= ? ORDER BY date DESC, total_sec DESC`).all(sevenDaysAgo, yesterday) as any[];
-
-    const { tierAssignments: ta } = categoryConfig;
-    const prodTier = ta?.productive || DEFAULT_TIER_ASSIGNMENTS.productive;
-
-    const days = [...new Set(weekStats.map((r: any) => r.date))].slice(0, 7);
-    const daySummaries = days.map(date => {
-      const dayApps = weekStats.filter((a: any) => a.date === date).slice(0, 5);
-      const totalSec = dayApps.reduce((s: number, r: any) => s + r.total_seconds, 0);
-      const prodSec = dayApps.filter((a: any) => prodTier.includes(a.category)).reduce((s: number, r: any) => s + r.total_seconds, 0);
-      const apps = dayApps.map((a: any) => `${a.app_name}(${(a.total_seconds / 60).toFixed(0)}m)`).join(', ');
-      return `${date}: ${(totalSec / 3600).toFixed(1)}h total, ${(prodSec / 3600).toFixed(1)}h productive. Apps: ${apps}`;
-    }).join('\n');
-
-    const context = `Last 7 days of tracked activity:\n${daySummaries}`;
-
-    const p = userPreferences || {};
-    const model = p.ai_briefModel || 'google/gemini-2.0-flash-001';
-
-    const result = await AIService.dataChatQuery(apiKey, {
-      query: params.query,
-      context,
-      history: params.history || [],
-    }, model);
-
-    const inputTokens = result.usage?.prompt_tokens || 0;
-    const outputTokens = result.usage?.completion_tokens || 0;
-    trackFeatureUsage('data_chat', model, inputTokens, outputTokens, computeCost(model, inputTokens, outputTokens), true);
-
-    return { success: true, content: result.content };
-  } catch (err: any) {
-    console.error('[DataChat] Error:', err.message);
-    return { success: false, error: err.message };
-  }
-});
-
-// â”€â”€â”€ Interest Topics CRUD IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Interest Topics CRUD IPC ────────────────
 electron_1.ipcMain.handle('get-interest-topics', async () => {
   try {
     const rows = db!.prepare('SELECT topic FROM ai_interests WHERE enabled = 1 ORDER BY created_at DESC').all() as any[];
@@ -10074,7 +10432,7 @@ electron_1.ipcMain.handle('remove-interest-topic', async (_event, topic: string)
   }
 });
 
-// â”€â”€â”€ AI Config IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── AI Config IPC ───────────────────────────
 electron_1.ipcMain.handle('get-ai-config', async () => {
   const apiKey = getOpenRouterApiKey();
   const p = userPreferences || {};
@@ -10112,7 +10470,7 @@ electron_1.ipcMain.handle('save-ai-config', async (_event, config: any) => {
 
 // ========== Auto-Assign Routing IPC ==========
 
-// 3a. route-prompt â€” core routing: match prompt to session
+// 3a. route-prompt — core routing: match prompt to session
 electron_1.ipcMain.handle('route-prompt', async (_event, request: { prompt: string; projectPath?: string }) => {
     const { prompt } = request;
     const config = loadAutoAssignConfig();
@@ -10142,7 +10500,7 @@ electron_1.ipcMain.handle('route-prompt', async (_event, request: { prompt: stri
 RULES:
 - Match based on topic similarity, ongoing work, and context overlap
 - If the prompt is unrelated to ALL existing sessions, respond with action: "create_new"
-- Be decisive â€” avoid "create_new" if any session is a reasonable match
+- Be decisive — avoid "create_new" if any session is a reasonable match
 - Confidence is 0.0-1.0: how certain you are that this session is the right target
 
 RESPOND WITH EXACTLY THIS JSON FORMAT, NOTHING ELSE:
@@ -10200,7 +10558,7 @@ RESPOND WITH EXACTLY THIS JSON FORMAT, NOTHING ELSE:
     }
 });
 
-// 3b. update-session-summary â€” async summary + optional rename
+// 3b. update-session-summary — async summary + optional rename
 electron_1.ipcMain.handle('update-session-summary', async (_event, request: { sessionId: string; force?: boolean }) => {
     const { sessionId, force = false } = request;
     const config = loadAutoAssignConfig();
@@ -10275,7 +10633,7 @@ electron_1.ipcMain.handle('update-session-summary', async (_event, request: { se
     }
 });
 
-// 3c. get-routing-costs â€” aggregation queries
+// 3c. get-routing-costs — aggregation queries
 electron_1.ipcMain.handle('get-routing-costs', async (_event) => {
     if (!db) return { today: null, week: null, month: null, total: null, byType: [] };
     try {
@@ -10296,7 +10654,7 @@ electron_1.ipcMain.handle('get-routing-costs', async (_event) => {
     }
 });
 
-// 3d. reset-routing-costs â€” clear all
+// 3d. reset-routing-costs — clear all
 electron_1.ipcMain.handle('reset-routing-costs', async (_event) => {
     if (!db) return { success: false };
     try { db.prepare('DELETE FROM routing_costs').run(); return { success: true }; }
@@ -10384,10 +10742,257 @@ Example format: [{"name": "app1", "category": "Productivity"}, {"name": "app2", 
     }
 });
 
+// ========== Multi‑Provider AI / Goal Features ==========
+electron_1.ipcMain.handle('get-ai-providers', async () => {
+  const p = userPreferences || {};
+  try {
+    return JSON.parse(p.aiProviders || 'null') || {
+      providers: [
+        { id: 'openrouter', templateId: 'openrouter', label: 'OpenRouter', enabled: true, apiKey: getOpenRouterApiKey(), baseUrl: '', models: ['google/gemini-2.0-flash-001'], priority: 0 },
+        { id: 'cloudflayer', templateId: 'cloudflayer', label: 'CloudFlayer', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 1 },
+        { id: 'invilier', templateId: 'invilier', label: 'Invilier', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 2 },
+        { id: 'olamah', templateId: 'olamah', label: 'Olamah', enabled: false, apiKey: '', baseUrl: '', models: ['llama3.1'], priority: 3 },
+        { id: 'custom', templateId: 'custom', label: 'Custom OpenAI-compatible', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 4 },
+      ],
+      routing: {
+        default: { providerId: 'openrouter', model: 'google/gemini-2.0-flash-001' },
+        researchDigest: null,
+        goalAssistant: null,
+      },
+    };
+  } catch {
+    return null;
+  }
+});
+
+electron_1.ipcMain.handle('save-ai-providers', async (_event, state: any) => {
+  userPreferences = userPreferences || {};
+  userPreferences.aiProviders = JSON.stringify(state);
+  savePreferences();
+  return { success: true };
+});
+
+electron_1.ipcMain.handle('test-ai-provider', async (_event, providerId: string) => {
+  try {
+    const p = userPreferences || {};
+    const pState = JSON.parse(p.aiProviders || 'null');
+    if (!pState) return { success: false, error: 'No provider config' };
+    const cfg = pState.providers.find((pr: any) => pr.id === providerId);
+    if (!cfg) return { success: false, error: 'Provider not found' };
+    const template = PROVIDER_TEMPLATES[cfg.templateId];
+    if (!template) return { success: false, error: 'Unknown template' };
+    const { callProvider: call } = require('./services/providers/callProvider.cjs');
+    const result = await call(
+      { config: cfg, template },
+      { model: cfg.models[0] || 'gpt-3.5-turbo', systemPrompt: 'Reply with exactly: OK', messages: [{ role: 'user', content: 'Ping' }], maxTokens: 10 },
+    );
+    return { success: true, content: result.content };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('get-goals', async (_event, date: string) => {
+  try {
+    const rows = db!.prepare('SELECT * FROM goals WHERE date = ? ORDER BY created_at ASC').all(date) as any[];
+    const reviewRow = db!.prepare('SELECT review_summary FROM goal_reviews WHERE date = ?').get(date) as any;
+    return {
+      date,
+      reviewSummary: reviewRow?.review_summary,
+      goals: rows.map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        category: r.category,
+        target: { type: r.target_type, targetSeconds: r.target_seconds, matchCategory: r.match_category },
+        period: r.period,
+        status: r.status,
+        date: r.date,
+        source: r.source,
+        links: JSON.parse(r.links || '[]'),
+        progressSeconds: r.progress_seconds,
+        createdAt: r.created_at,
+        completedAt: r.completed_at,
+      })),
+    };
+  } catch (err: any) {
+    return { date, goals: [], error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('save-goal', async (_event, date: string, goal: any) => {
+  try {
+    db!.prepare(`
+      INSERT OR REPLACE INTO goals (id, date, title, description, category, target_type, target_seconds, match_category, status, period, source, links, progress_seconds, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      goal.id, date, goal.title, goal.description || null,
+      goal.category || 'work', goal.target?.type || 'time', goal.target?.targetSeconds || null, goal.target?.matchCategory || null,
+      goal.status || 'pending', goal.period || 'daily', goal.source || 'manual',
+      JSON.stringify(goal.links || []), goal.progressSeconds || 0, goal.completedAt || null,
+    );
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('save-goal-review', async (_event, date: string, reviewSummary: string) => {
+  try {
+    db!.prepare('UPDATE goals SET reviewSummary = ? WHERE date = ? AND reviewSummary IS NULL').run(reviewSummary, date);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ─── Planning.md Helpers ──────────────────────
+function planningPath() {
+  return path_1.default.join(userDataPath, 'DeskFlow', 'planning.md');
+}
+
+interface GoalPromptContext {
+  planningContent?: string;
+  unfinished?: Array<{ title: string; category: string; progress?: number }>;
+  recentlyCompleted?: string[];
+  stats?: Record<string, any>;
+}
+
+electron_1.ipcMain.handle('read-planning-md', async () => {
+  try {
+    const fpath = planningPath();
+    if (!fs_1.default.existsSync(fpath)) return { content: '' };
+    return { content: fs_1.default.readFileSync(fpath, 'utf-8') };
+  } catch (err: any) {
+    return { content: '', error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('write-planning-md', async (_event, content: string) => {
+  try {
+    const fpath = planningPath();
+    const dir = path_1.default.dirname(fpath);
+    if (!fs_1.default.existsSync(dir)) fs_1.default.mkdirSync(dir, { recursive: true });
+    fs_1.default.writeFileSync(fpath, content, 'utf-8');
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('get-goal-context', async (_event, date: string) => {
+  try {
+    const sevenDaysAgo = formatDateStr(new Date(Date.now() - 7 * 86400000));
+    const weekStats = db!.prepare(`SELECT category, SUM(total_sec) as total FROM daily_stats WHERE date >= ? AND date <= ? GROUP BY category ORDER BY total DESC`).all(sevenDaysAgo, date) as any[];
+    const yesterday = db!.prepare(`SELECT app as app_name, total_sec as total_seconds, category FROM daily_stats WHERE date = ? ORDER BY total_sec DESC LIMIT 5`).get(formatDateStr(new Date(Date.now() - 86400000))) as any;
+    return { success: true, last7dByCategory: weekStats, yesterday: yesterday || null };
+  } catch (err: any) {
+    return { success: false, error: err.message, last7dByCategory: [], yesterday: null };
+  }
+});
+
+electron_1.ipcMain.handle('suggest-goals', async (_event, date: string, ctx?: GoalPromptContext) => {
+  try {
+    const p = userPreferences || {};
+    const pState = p.aiProviders ? JSON.parse(p.aiProviders) : null;
+    const chain = pState ? buildChain(pState, 'goalAssistant') : [];
+    let systemPrompt = `You are a daily goal planner. Based on the user's activity data, suggest 3-5 SMART goals for today (${date}). Return ONLY a JSON array of objects with keys: title (string), category ("work"|"personal"|"health"|"learning"), target ({type:"time", targetSeconds?: number} or {type:"completion", done: false}).`;
+    const userParts: string[] = ['Suggest daily goals for today.'];
+
+    if (ctx?.planningContent) {
+      systemPrompt += `\n\nThe user has the following plan:\n${ctx.planningContent}\n\nPrefer goals that align with their plan.`;
+    }
+    if (ctx?.unfinished?.length) {
+      userParts.push(`Unfinished from yesterday: ${ctx.unfinished.map(u => u.title).join(', ')}`);
+    }
+    if (ctx?.recentlyCompleted?.length) {
+      userParts.push(`Already completed recently (do NOT re-suggest): ${ctx.recentlyCompleted.join(', ')}`);
+    }
+    const userMsg = userParts.join('\n');
+
+    if (chain.length > 0) {
+      const { result } = await runWithFallback(chain, { systemPrompt, messages: [{ role: 'user', content: userMsg }], maxTokens: 500, temperature: 0.7 });
+      const parsed = JSON.parse(result.content);
+      return { success: true, suggestions: Array.isArray(parsed) ? parsed : [] };
+    }
+
+    const apiKey = getOpenRouterApiKey();
+    if (!apiKey) return { success: false, error: 'No AI providers configured', suggestions: [] };
+    const model = p.ai_briefModel || 'google/gemini-2.0-flash-001';
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }], max_tokens: 500 }),
+    });
+    const data = await response.json();
+    const parsed = JSON.parse(data.choices?.[0]?.message?.content || '[]');
+    return { success: true, suggestions: Array.isArray(parsed) ? parsed : [] };
+  } catch (err: any) {
+    return { success: false, error: err.message, suggestions: [] };
+  }
+});
+
+electron_1.ipcMain.handle('review-goals', async (_event, date: string, ctx?: GoalPromptContext) => {
+  try {
+    const rows = db!.prepare('SELECT * FROM goals WHERE date = ? ORDER BY created_at ASC').all(date) as any[];
+    const pending = rows.filter((g: any) => g.status !== 'completed' && g.status !== 'dismissed');
+    if (pending.length === 0) return { success: true, review: 'All goals completed or dismissed today.' };
+
+    const p = userPreferences || {};
+    const pState = p.aiProviders ? JSON.parse(p.aiProviders) : null;
+    const chain = pState ? buildChain(pState, 'goalAssistant') : [];
+    let systemPrompt = `You are a goal review assistant. Review these goals for ${date}. For each incomplete goal, suggest: slip (move to tomorrow), dismiss, or reprioritize. Return a JSON object with keys: reviewSummary (string), suggestions (array of {goalId, action: "slip"|"dismiss"|"reprioritize", reason}).`;
+    const userMsg = `Pending goals: ${JSON.stringify(pending.map((g: any) => ({ id: g.id, title: g.title, status: g.status })))}`;
+
+    if (ctx?.planningContent) {
+      systemPrompt += `\n\nUser's plan context:\n${ctx.planningContent}`;
+    }
+
+    if (chain.length > 0) {
+      const { result } = await runWithFallback(chain, { systemPrompt, messages: [{ role: 'user', content: userMsg }], maxTokens: 300, temperature: 0.5 });
+      const parsed = JSON.parse(result.content);
+      const reviewSummary = parsed.reviewSummary || result.content;
+      const suggestions = parsed.suggestions || [];
+      // Save review
+      db!.prepare('INSERT OR REPLACE INTO goal_reviews (date, review_summary, suggestions, created_at) VALUES (?, ?, ?, datetime(\'now\'))')
+        .run(date, reviewSummary, JSON.stringify(suggestions));
+      return { success: true, review: reviewSummary, suggestions };
+    }
+    return { success: true, review: 'No AI provider configured for review.', suggestions: [] };
+  } catch (err: any) {
+    return { success: false, error: err.message, review: '', suggestions: [] };
+  }
+});
+
+// ─── Parse Goal Feedback ─────────────────────
+const GOAL_FEEDBACK_SYSTEM = `You are a goal feedback parser. Given a user's message about their daily goals, extract:
+- completed: which goals they finished (match by title or paraphrase)
+- note: a short 1-sentence summary of their reflection
+Return ONLY JSON: { completed: string[], note: string }`;
+
+electron_1.ipcMain.handle('parse-goal-feedback', async (_event, params: { message: string; goals: string[] }) => {
+  const p = userPreferences || {};
+  const pState = p.aiProviders ? JSON.parse(p.aiProviders) : null;
+  const chain = pState ? buildChain(pState, 'goalAssistant') : [];
+  const userMsg = `User says: "${params.message}". Their goals: ${params.goals.join(', ')}`;
+
+  if (chain.length > 0) {
+    try {
+      const { result } = await runWithFallback(chain, { systemPrompt: GOAL_FEEDBACK_SYSTEM, messages: [{ role: 'user', content: userMsg }], maxTokens: 150 });
+      const parsed = JSON.parse(result.content);
+      return { completed: parsed.completed || [], added: [], note: parsed.note || '' };
+    } catch {
+      return { completed: [], added: [], note: '' };
+    }
+  }
+
+  return { completed: [], added: [], note: '' };
+});
+
 // --- Browser Tracking HTTP Server ---
 function startBrowserTrackingServer() {
     if (!isBrowserTrackingEnabled) {
-        console.log('[DeskFlow] ðŸš« Browser tracking disabled, server not started');
+        console.log('[DeskFlow] 🚫 Browser tracking disabled, server not started');
         return;
     }
     const server = http_1.default.createServer((req, res) => {
@@ -10403,7 +11008,7 @@ function startBrowserTrackingServer() {
                     // Block ALL browser data when not focused to prevent
                     // stale website events appearing after switching to a desktop app
                     if (data.is_browser_focused === false) {
-                        console.log('[DeskFlow] â¸ï¸ Browser data skipped - browser not focused:', data.domain);
+                        console.log('[DeskFlow] ⏸️ Browser data skipped - browser not focused:', data.domain);
                     } else {
                         handleBrowserData(data);
                         // Always stream to renderer - let renderer filter
@@ -10421,7 +11026,7 @@ function startBrowserTrackingServer() {
                                     timestamp: Date.now()
                                 });
                             } catch (_err) {
-                                // Render frame disposed before send â€” window closing, ignore
+                                // Render frame disposed before send — window closing, ignore
                             }
                         }
                     }
@@ -10461,7 +11066,7 @@ function startBrowserTrackingServer() {
                         // Store process names from extension if provided, else derive from mapping
                         userPreferences.browserProcessNames = data.processNames || getBrowserProcessNames(data.browser);
                         savePreferences();
-                        console.log(`[DeskFlow] ðŸ·ï¸ Browser extension identified as: ${data.browser} (processes: ${userPreferences.browserProcessNames.join(', ')})`);
+                        console.log(`[DeskFlow] 🏷️ Browser extension identified as: ${data.browser} (processes: ${userPreferences.browserProcessNames.join(', ')})`);
                     }
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ status: 'ok', browser: data.browser }));
@@ -10479,7 +11084,7 @@ function startBrowserTrackingServer() {
             req.on('end', () => {
                 try {
                     const log = JSON.parse(logBody);
-                    // Check if browser is focused â€” prevents stale live-logs
+                    // Check if browser is focused — prevents stale live-logs
                     // from being processed after user switches to desktop apps
                     const browserFocused = !!currentApp && !!userPreferences?.browserWithExtension &&
                         isAppMatchingBrowser(currentApp, userPreferences.browserWithExtension);
@@ -10499,10 +11104,10 @@ function startBrowserTrackingServer() {
                                 timestamp: log.timestamp || Date.now()
                             });
                         } catch (_err) {
-                            // Render frame disposed before send â€” ignore
+                            // Render frame disposed before send — ignore
                         }
                     } else if (mainWindow && !mainWindow.isDestroyed() && !browserFocused) {
-                        console.log('[DeskFlow] â¸ï¸ Live-log skipped - browser not focused');
+                        console.log('[DeskFlow] ⏸️ Live-log skipped - browser not focused');
                     }
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ status: browserFocused ? 'ok' : 'skipped' }));
@@ -10519,11 +11124,11 @@ function startBrowserTrackingServer() {
         }
     });
     server.listen(browserServerPort, () => {
-        console.log(`[DeskFlow] ðŸŒ Browser tracking server started on port ${browserServerPort}`);
+        console.log(`[DeskFlow] 🌐 Browser tracking server started on port ${browserServerPort}`);
     });
     server.on('error', (err) => {
         if (err.code === 'EADDRINUSE') {
-            console.warn(`[DeskFlow] âš ï¸ Port ${browserServerPort} already in use, browser tracking unavailable`);
+            console.warn(`[DeskFlow] ⚠️ Port ${browserServerPort} already in use, browser tracking unavailable`);
         }
         else {
             console.error('[DeskFlow] Browser server error:', err.message);
@@ -10539,28 +11144,22 @@ function startBrowserTrackingServer() {
 function handleBrowserData(data) {
     if (!isBrowserTrackingEnabled)
         return;
-    if (browserRecordingMode === 'on-view' && !browserPageVisible) {
-        console.log('[DeskFlow] â¸ï¸ Browser data skipped - on-view mode, page not visible:', data.domain);
-        return;
-    }
     if (!data.domain || !data.url)
         return;
     // Block all browser data when unfocused (phantom deltas from background tabs)
     if (data.is_browser_focused === false) {
-        console.log('[DeskFlow] â¸ï¸ Browser data skipped - browser not focused:', data.domain);
+        console.log('[DeskFlow] ⏸️ Browser data skipped - browser not focused:', data.domain);
         return;
     }
-    // Independent server-side check: verify the current foreground app matches the configured browser
-    // This provides defense-in-depth beyond the extension's is_browser_focused flag
-    const browserAppMatch = !!currentApp && !!userPreferences?.browserWithExtension &&
-        isAppMatchingBrowser(currentApp, userPreferences.browserWithExtension);
-    if (!browserAppMatch) {
-        console.log('[DeskFlow] â¸ï¸ Browser data skipped - foreground app does not match configured browser:', data.domain, '(current:', currentApp, ')');
-        return;
-    }
+// Ensure we are on the configured browser before accepting any browser logs.
+// Skip if the foreground app does not match the user-configured browser.
+if (!currentApp || !userPreferences?.browserWithExtension || !isAppMatchingBrowser(currentApp, userPreferences.browserWithExtension)) {
+    console.log('[DeskFlow] ? Browser data skipped � foreground app does not match configured browser:', data.domain, '(current:', currentApp, ')');
+    return;
+}
     // Check if domain is excluded
     if (categorizeDomain(data.domain, data.title, data.url) === 'Excluded') {
-        console.log('[DeskFlow] ðŸš« Excluded domain skipped:', data.domain);
+        console.log('[DeskFlow] 🚫 Excluded domain skipped:', data.domain);
         return;
     }
     const sessionDuration = data.active_duration_ms || 0;
@@ -10574,7 +11173,7 @@ function handleBrowserData(data) {
         const timeSinceLastActive = dataTimestamp - lastActiveBrowserTimestamp;
         // If the last active was within last 30 seconds and this is a different domain, skip
         if (timeSinceLastActive < 30000) {
-            console.log(`[DeskFlow] â­ï¸ Skipped non-active browser tab: ${data.domain} (active: ${lastActiveBrowserDomain})`);
+            console.log(`[DeskFlow] ⏭️ Skipped non-active browser tab: ${data.domain} (active: ${lastActiveBrowserDomain})`);
             return;
         }
     }
@@ -10589,7 +11188,7 @@ function handleBrowserData(data) {
         if (data.is_periodic && data.delta_ms) {
             // New behavior: extension sends explicit delta (time since last sync)
             safeDelta = Math.min(data.delta_ms, BROWSER_MAX_DELTA_MS);
-            console.log(`[DeskFlow] ðŸ”„ Periodic update for ${data.domain}: +${Math.floor(safeDelta / 1000)}s (delta)`);
+            console.log(`[DeskFlow] 🔄 Periodic update for ${data.domain}: +${Math.floor(safeDelta / 1000)}s (delta)`);
         }
         else {
             // Legacy behavior: calculate delta from total duration
@@ -10623,7 +11222,7 @@ function handleBrowserData(data) {
                     saveJsonLogs();
                 }
             }
-            console.log(`[DeskFlow] ðŸ”„ Updated browser session: ${data.domain} â†’ ${Math.floor(existingSession.duration_ms / 1000)}s (+${Math.floor(safeDelta / 1000)}s)`);
+            console.log(`[DeskFlow] 🔄 Updated browser session: ${data.domain} → ${Math.floor(existingSession.duration_ms / 1000)}s (+${Math.floor(safeDelta / 1000)}s)`);
             // Update browser_sessions aggregate table with the delta
             if (!useJson && safeDelta > 0) {
                 updateAggregates(existingSession.timestamp, existingSession.app, existingSession.category, safeDelta, data.domain, true);
@@ -10656,7 +11255,7 @@ function handleBrowserData(data) {
                     categorizeDomain(data.domain, data.title, data.url),
                     recentBrowserApp.id
                 );
-                console.log(`[DeskFlow] ðŸ”— Deduplicated browser entry: ${recentBrowserApp.app} â†’ ${data.domain}`);
+                console.log(`[DeskFlow] 🔗 Deduplicated browser entry: ${recentBrowserApp.app} → ${data.domain}`);
                 // Still create in-memory session for delta tracking
                 activeBrowserSessions.set(data.domain, {
                     id: recentBrowserApp.id,
@@ -10671,15 +11270,15 @@ function handleBrowserData(data) {
                 return;
             }
         }
-        // No active session for this domain â€” create new one
+        // No active session for this domain — create new one
         let newSessionDuration;
         if (data.is_periodic) {
             newSessionDuration = Math.min(data.delta_ms || data.active_duration_ms, MAX_LOGGED_SESSION_MS);
-            console.log(`[DeskFlow] ðŸ“ First sync for ${data.domain}: creating new session with ${Math.floor((newSessionDuration || 0) / 1000)}s`);
+            console.log(`[DeskFlow] 📝 First sync for ${data.domain}: creating new session with ${Math.floor((newSessionDuration || 0) / 1000)}s`);
         }
         newSessionDuration = Math.min(sessionDuration, MAX_LOGGED_SESSION_MS);
         if (sessionDuration > MAX_LOGGED_SESSION_MS) {
-            console.warn(`[DeskFlow] âš ï¸ Suspicious duration ${Math.floor(sessionDuration / 1000)}s for new session ${data.domain}, capping to 1 hour`);
+            console.warn(`[DeskFlow] ⚠️ Suspicious duration ${Math.floor(sessionDuration / 1000)}s for new session ${data.domain}, capping to 1 hour`);
         }
         const entry = {
             id: Date.now(),
@@ -10715,7 +11314,7 @@ function handleBrowserData(data) {
         }
         updateAggregates(entry.timestamp, entry.app, entry.category, entry.duration_ms, entry.domain, true);
         activeBrowserSessions.set(data.domain, entry);
-        console.log(`[DeskFlow] âœ… Browser logged: ${data.domain} â†’ ${Math.floor(sessionDuration / 1000)}s`);
+        console.log(`[DeskFlow] ✅ Browser logged: ${data.domain} → ${Math.floor(sessionDuration / 1000)}s`);
     }
 }
 // FIX 2: Periodic flush of stale browser sessions (handles MV3 onSuspend unreliability)
@@ -10731,9 +11330,9 @@ function startBrowserSessionFlushTimer() {
             // Check if this session is stale by comparing its timestamp
             const sessionAge = now - new Date(session.timestamp).getTime();
             if (sessionAge > STALE_THRESHOLD_MS) {
-                // Session is stale â€” remove from active map (it's already persisted in SQLite)
+                // Session is stale — remove from active map (it's already persisted in SQLite)
                 activeBrowserSessions.delete(domain);
-                console.log(`[DeskFlow] ðŸ§¹ Flushed stale browser session: ${domain} (${Math.floor(session.duration_ms / 1000)}s)`);
+                console.log(`[DeskFlow] 🧹 Flushed stale browser session: ${domain} (${Math.floor(session.duration_ms / 1000)}s)`);
             }
         }
     }, 30000); // Check every 30 seconds
@@ -10807,7 +11406,8 @@ function getBrowserLogs(period, dateOffset = 0) {
             query += ` AND timestamp <= ?`;
             params.push(endDate);
         }
-        query += ` ORDER BY id DESC LIMIT 200`;
+        // No limit — frontend needs all matching rows for daily/monthly chart aggregation
+        query += ` ORDER BY id DESC`;
         const stmt = db.prepare(query);
         return stmt.all(...params);
     }
@@ -10917,9 +11517,9 @@ electron_1.app.whenReady().then(() => {
     try {
       const problemsService = getProblemsService();
       const problems = problemsService.getProblems();
-      console.log(`[Tracker Mind] âœ… Loaded ${problems.length} problems from PROBLEMS.md`);
+      console.log(`[Tracker Mind] ✅ Loaded ${problems.length} problems from PROBLEMS.md`);
     } catch (e) {
-      console.error('[Tracker Mind] âš ï¸ Failed to load problems:', e);
+      console.error('[Tracker Mind] ⚠️ Failed to load problems:', e);
     }
     
     // Check if we should show morning prompt
@@ -10936,7 +11536,7 @@ electron_1.app.whenReady().then(() => {
         createWindow();
     } else {
         // In background mode, just start tracking - no window needed yet
-        console.log('[DeskFlow] ðŸ”„ Running in background (minimized)');
+        console.log('[DeskFlow] 🔄 Running in background (minimized)');
     }
     
     startBrowserTrackingServer();
@@ -10957,9 +11557,81 @@ electron_1.app.whenReady().then(() => {
     if (userPreferences.browserRecordingMode) {
         browserRecordingMode = userPreferences.browserRecordingMode;
     }
-    console.log('[DeskFlow] âœ… Real window tracking started with active-win');
-    console.log(`[DeskFlow] âœ… Browser tracking: ${isBrowserTrackingEnabled ? 'ON' : 'OFF'}`);
-    console.log(`[DeskFlow] âœ… Auto-start: ${electron_1.app.getLoginItemSettings().openAtLogin ? 'enabled' : 'disabled'}`);
+    if (userPreferences.appRecordingMode) {
+        appRecordingMode = userPreferences.appRecordingMode;
+    }
+
+    // Create design caches directory
+    try {
+      if (!fs_1.default.existsSync(DESIGN_CACHE_DIR)) {
+        fs_1.default.mkdirSync(DESIGN_CACHE_DIR, { recursive: true });
+        fs_1.default.mkdirSync(path_1.default.join(DESIGN_CACHE_DIR, 'aceternity', 'components'), { recursive: true });
+        fs_1.default.mkdirSync(path_1.default.join(DESIGN_CACHE_DIR, 'refero', 'systems'), { recursive: true });
+        fs_1.default.mkdirSync(path_1.default.join(DESIGN_CACHE_DIR, '21st-dev', 'search-cache'), { recursive: true });
+        const metaPath = path_1.default.join(DESIGN_CACHE_DIR, 'meta.json');
+        fs_1.default.writeFileSync(metaPath, JSON.stringify({ version: 1, lastCleanup: new Date().toISOString() }));
+      }
+    } catch (e) {
+      console.error('[DesignCache] Failed to create cache directory:', e);
+    }
+
+    // Auto-start 21st-dev MCP server if enabled in config
+    try {
+      const configPath = path_1.default.join(__dirname, '..', 'opencode.json');
+      if (fs_1.default.existsSync(configPath)) {
+        const opencodeConfig = JSON.parse(fs_1.default.readFileSync(configPath, 'utf8'));
+        const mcpConfig = opencodeConfig.mcp?.['21st-dev'];
+        if (mcpConfig) {
+          const proc = child_process_1.spawn(mcpConfig.command[0], mcpConfig.command.slice(1), {
+            env: { ...process.env, ...mcpConfig.environment },
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+          proc.stdout.on('data', (data: Buffer) => handleMCPStdout('21st-dev', data));
+          proc.stderr.on('data', (data: Buffer) => console.error('[MCP:21st-dev] stderr:', data.toString()));
+          proc.on('exit', (code: number) => {
+            const entry = mcpServers.get('21st-dev');
+            if (entry) entry.status = 'stopped';
+          });
+          proc.on('error', (err: Error) => {
+            console.error('[MCP:21st-dev] error:', err.message);
+            const entry = mcpServers.get('21st-dev');
+            if (entry) entry.status = 'error';
+          });
+          const instance = {
+            proc,
+            status: 'starting',
+            tools: [],
+            requestCounter: 0,
+            buffer: '',
+            initPromise: Promise.resolve(),
+            initResolve: null as (() => void) | null,
+            pendingRequests: new Map(),
+            startTime: Date.now(),
+          };
+          mcpServers.set('21st-dev', instance as any);
+          proc.stdin.write(JSON.stringify({
+            jsonrpc: '2.0', id: 1, method: 'initialize',
+            params: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, clientInfo: { name: 'deskflow', version: '1.0.0' } }
+          }) + '\\n');
+          setTimeout(() => {
+            const entry = mcpServers.get('21st-dev');
+            if (entry && entry.status === 'starting') {
+              entry.status = 'running';
+              proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\\n');
+              sendMCPRequest('21st-dev', 'tools/list').then(r => {
+                entry.tools = r?.['tools'] || []
+              }).catch(() => {});
+            }
+          }, 3000);
+        }
+      }
+    } catch (e) {
+      console.error('[MCP] Auto-start failed:', e);
+    }
+
+    console.log('[DeskFlow] ✅ Real window tracking started with active-win');
+    console.log(`[DeskFlow] ✅ Browser tracking: ${isBrowserTrackingEnabled ? 'ON' : 'OFF'}`);
+    console.log(`[DeskFlow] ✅ Auto-start: ${electron_1.app.getLoginItemSettings().openAtLogin ? 'enabled' : 'disabled'}`);
 });
 
 // ========== External Activities IPC Handlers ==========
@@ -11005,6 +11677,21 @@ electron_1.ipcMain.handle('update-external-activity', (event, id, updates) => {
         return true;
     } catch (err) {
         console.error('[DeskFlow] Failed to update external activity:', err);
+        return false;
+    }
+});
+
+electron_1.ipcMain.handle('reorder-external-activities', (event, ordered) => {
+    if (useJson) return false;
+    try {
+        const stmt = db.prepare('UPDATE external_activities SET sort_order = ? WHERE id = ?');
+        const tx = db.transaction((items: Array<{ id: number; sort_order: number }>) => {
+            for (const item of items) stmt.run(item.sort_order, item.id);
+        });
+        tx(ordered);
+        return true;
+    } catch (err) {
+        console.error('[DeskFlow] Failed to reorder activities:', err);
         return false;
     }
 });
@@ -11139,7 +11826,7 @@ electron_1.ipcMain.handle('reclassify-afk-session', async (event, sessionId: num
     }
 });
 
-// Dead-simple direct insert for AFK debug flow â€” bypasses all session-finding complexity
+// Dead-simple direct insert for AFK debug flow — bypasses all session-finding complexity
 electron_1.ipcMain.handle('debug-save-afk', async (event, { activityId, startedAt, endedAt }) => {
     if (useJson) return { success: false };
     try {
@@ -11159,7 +11846,7 @@ electron_1.ipcMain.handle('debug-save-afk', async (event, { activityId, startedA
     }
 });
 
-// Batch multi-segment save â€” inserts multiple external sessions in one transaction (no session-finding)
+// Batch multi-segment save — inserts multiple external sessions in one transaction (no session-finding)
 electron_1.ipcMain.handle('batch-save-afk-segments', async (event, { segments }) => {
     if (useJson) return { success: false, sessionIds: [] };
     try {
@@ -11498,7 +12185,7 @@ electron_1.ipcMain.handle('dismiss-morning-prompt', (event) => {
     }
 });
 
-// â”€â”€ Sleep Detection IPC â”€â”€
+// ── Sleep Detection IPC ──
 electron_1.ipcMain.handle('check-sleep-detection', (event) => {
     try {
         const detPath = path_1.default.join(userDataPath, 'deskflow-sleep-detection.json');
@@ -11809,7 +12496,7 @@ electron_1.ipcMain.handle('get-activity-stats', (event, activityId: string) => {
     }
 });
 
-// Get current foreground app (for Dashboard mount â€” foreground-changed only fires on change)
+// Get current foreground app (for Dashboard mount — foreground-changed only fires on change)
 electron_1.ipcMain.handle('get-current-foreground', () => {
     if (useJson) return null;
     try {
@@ -11971,12 +12658,14 @@ function emptyTypicalDayGrid(days: number) {
     };
 }
 
-electron_1.ipcMain.handle('get-typical-day', (event, days = 30) => {
+electron_1.ipcMain.handle('get-typical-day', (event, days = 30, dateOffset = 0) => {
     if (useJson) return emptyTypicalDayGrid(days);
     try {
         const now = new Date();
-        const startStr = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        const endStr = now.toISOString().split('T')[0];
+        const offsetMs = dateOffset * days * 24 * 60 * 60 * 1000;
+        const endDate = new Date(now.getTime() - offsetMs);
+        const startStr = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const endStr = endDate.toISOString().split('T')[0];
         const grid: any[][] = Array.from({ length: 7 }, () =>
             Array.from({ length: 24 }, () => ({
                 activities: [], totalSeconds: 0, dominantActivity: 'none', hasExternal: false, hasDevice: false
@@ -12421,7 +13110,7 @@ electron_1.app.on('before-quit', () => {
          const duration = Date.now() - sessionStart;
          const category = categorizeApp(currentApp);
          addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
-         console.log('[DeskFlow] âœ… Logged final session before quit:', currentApp);
+         console.log('[DeskFlow] ✅ Logged final session before quit:', currentApp);
      }
     // Auto-stop active external sessions before quit
     try {
@@ -12445,7 +13134,7 @@ electron_1.app.on('before-quit', () => {
                 SET ended_at = ?, duration_seconds = ?
                 WHERE id = ?
             `).run(now.toISOString(), durationSeconds, activeSession.id);
-            console.log('[DeskFlow] âœ… Auto-stopped external session:', activeSession.id, 'Duration:', durationSeconds, 's');
+            console.log('[DeskFlow] ✅ Auto-stopped external session:', activeSession.id, 'Duration:', durationSeconds, 's');
         }
     } catch (err) {
         console.error('[DeskFlow] Failed to auto-stop external session:', err);
@@ -12453,27 +13142,27 @@ electron_1.app.on('before-quit', () => {
     // Ensure JSON data is flushed
     if (useJson) {
         saveJsonLogs();
-        console.log('[DeskFlow] âœ… JSON data flushed to disk');
+        console.log('[DeskFlow] ✅ JSON data flushed to disk');
     }
     // Close browser tracking server
     if (browserServer) {
         browserServer.close();
-        console.log('[DeskFlow] âœ… Browser tracking server closed');
+        console.log('[DeskFlow] ✅ Browser tracking server closed');
     }
     // Unregister global shortcuts
     globalShortcut.unregisterAll();
-    console.log('[DeskFlow] âœ… Global shortcuts unregistered');
+    console.log('[DeskFlow] ✅ Global shortcuts unregistered');
     // Close SQLite connection
     if (db) {
         db.close();
-        console.log('[DeskFlow] âœ… SQLite database closed');
+        console.log('[DeskFlow] ✅ SQLite database closed');
     }
-    console.log('[DeskFlow] ðŸ‘‹ App quit gracefully');
+    console.log('[DeskFlow] 👋 App quit gracefully');
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════
 // TRACKER MIND - TERMINAL BINDING MANAGEMENT
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════
 
 function getProjectPath(projectId: string | undefined): string | undefined {
   if (!projectId) return undefined;
@@ -12507,7 +13196,7 @@ function getRequestsService(projectId?: string, projectPath?: string): any {
   return new RequestsService(resolvedPath);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• File-backed Problems IPC (JSON source of truth, no DB) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════ File-backed Problems IPC (JSON source of truth, no DB) ═══════════════════
 
 electron_1.ipcMain.handle('get-problems', async (_, opts?: { projectId?: string; projectPath?: string }) => {
   try {
@@ -12520,7 +13209,7 @@ electron_1.ipcMain.handle('get-problems', async (_, opts?: { projectId?: string;
   }
 });
 
-// â”€â”€ Activity Log â”€â”€
+// ── Activity Log ──
 
 function logActivity(params: {
   entityType: string; entityId: string; entityTitle?: string;
@@ -12617,7 +13306,7 @@ electron_1.ipcMain.handle('update-problem-status', async (_, { problemId, status
     if (!p) return { success: false, error: 'Problem not found' };
     const oldStatus = p?.status || '?';
     const success = ps.updateProblem(problemId, { status });
-    if (success) logActivity({ entityType: 'problem', entityId: String(problemId), entityTitle: p.title, action: 'status_changed', actor: actor || 'user', summary: `Status: ${oldStatus} â†’ ${status}` });
+    if (success) logActivity({ entityType: 'problem', entityId: String(problemId), entityTitle: p.title, action: 'status_changed', actor: actor || 'user', summary: `Status: ${oldStatus} → ${status}` });
     if (success) mainWindow?.webContents?.send('context-changed', { type: 'problem', action: 'updated', entity: { id: problemId, title: p.title, status } });
     return { success };
   } catch (error: any) {
@@ -12750,7 +13439,7 @@ electron_1.ipcMain.handle('get-skills', async (_, { projectPath }: { projectPath
   }
 });
 
-// â”€â”€â”€ Workspace Skills IPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Workspace Skills IPC ──────────────────────────────────
 
 electron_1.ipcMain.handle('get-workspace-skills', async (_event, args) => {
   try {
@@ -12835,11 +13524,11 @@ electron_1.ipcMain.handle('get-workspace-skills', async (_event, args) => {
   }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 // Previously dead IPC handlers (preload bridges existed but no main handlers)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 
-// â”€â”€â”€ Prompt Templates (real implementation) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Prompt Templates (real implementation) ────────────────
 electron_1.ipcMain.handle('get-prompt-templates', async (_event, projectId) => {
     try {
         const key = projectId ? `prompt-templates-${projectId}` : 'prompt-templates-global';
@@ -12896,7 +13585,7 @@ electron_1.ipcMain.handle('update-activity-chart-preference', async (_event, act
     }
 });
 
-// â”€â”€â”€ Stub Handlers (planned features, clear error messages) â”€â”€
+// ─── Stub Handlers (planned features, clear error messages) ──
 electron_1.ipcMain.handle('add-external-time', async (event, { activityId, durationMinutes, started_at, ended_at }) => {
     if (useJson) return { success: false };
     try {
@@ -12915,23 +13604,23 @@ electron_1.ipcMain.handle('add-external-time', async (event, { activityId, durat
     }
 });
 electron_1.ipcMain.handle('get-hour-detail', async () => {
-    console.warn('[IPC] get-hour-detail called â€” not yet implemented');
+    console.warn('[IPC] get-hour-detail called — not yet implemented');
     return { success: false, error: 'Not implemented: get-hour-detail. This feature is planned for a future release.', data: [] };
 });
 electron_1.ipcMain.handle('get-workspace-todos', async () => {
-    console.warn('[IPC] get-workspace-todos called â€” not yet implemented');
+    console.warn('[IPC] get-workspace-todos called — not yet implemented');
     return { success: false, error: 'Not implemented: get-workspace-todos. Workspace todos are planned for a future release.', data: [] };
 });
 electron_1.ipcMain.handle('add-workspace-todo', async () => {
-    console.warn('[IPC] add-workspace-todo called â€” not yet implemented');
+    console.warn('[IPC] add-workspace-todo called — not yet implemented');
     return { success: false, error: 'Not implemented: add-workspace-todo. Workspace todos are planned for a future release.' };
 });
 electron_1.ipcMain.handle('toggle-workspace-todo', async () => {
-    console.warn('[IPC] toggle-workspace-todo called â€” not yet implemented');
+    console.warn('[IPC] toggle-workspace-todo called — not yet implemented');
     return { success: false, error: 'Not implemented: toggle-workspace-todo. Workspace todos are planned for a future release.' };
 });
 electron_1.ipcMain.handle('delete-workspace-todo', async () => {
-    console.warn('[IPC] delete-workspace-todo called â€” not yet implemented');
+    console.warn('[IPC] delete-workspace-todo called — not yet implemented');
     return { success: false, error: 'Not implemented: delete-workspace-todo. Workspace todos are planned for a future release.' };
 });
 
@@ -12994,7 +13683,178 @@ electron_1.ipcMain.handle('update-skill', async (_, data: { id: string; name: st
 });
 
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• File-backed Requests IPC (JSON source of truth, no DB) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════ File-backed Requests IPC (JSON source of truth, no DB) ═══════════════════
+
+electron_1.ipcMain.handle('get-app-skills', async () => {
+  try {
+    const ss = new SkillsService(userDataPath);
+    const skills = ss.getSkills();
+    return { success: true, data: skills };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('add-skill-to-project', async (_, data: { skillId: string; projectPath: string }) => {
+  try {
+    const appSs = new SkillsService(userDataPath);
+    const appSkill = appSs.getSkillById(data.skillId);
+    if (!appSkill) return { success: false, error: 'Skill not found in app library' };
+    const srcPath = appSkill.filePath;
+    const destSkillsDir = path_1.default.join(data.projectPath, 'agent', 'skills');
+    if (!fs_1.default.existsSync(destSkillsDir)) {
+      fs_1.default.mkdirSync(destSkillsDir, { recursive: true });
+    }
+    // Determine if source is directory-based (SKILL.md inside folder) or flat file
+    const srcParsed = path_1.default.parse(srcPath);
+    const parentDir = path_1.default.basename(srcParsed.dir);
+    const appSkillsDir = path_1.default.join(userDataPath, 'agent', 'skills');
+    const isDirBased = srcParsed.base === 'SKILL.md' && parentDir !== 'skills' && path_1.default.dirname(srcPath) !== appSkillsDir;
+    let destPath;
+    if (isDirBased) {
+      // Directory-based: create <project>/agent/skills/<name>/SKILL.md
+      const skillDir = path_1.default.join(destSkillsDir, parentDir);
+      if (fs_1.default.existsSync(skillDir)) {
+        return { success: false, error: 'Skill already exists in project' };
+      }
+      fs_1.default.mkdirSync(skillDir, { recursive: true });
+      destPath = path_1.default.join(skillDir, 'SKILL.md');
+      // Also copy any companion files in the source directory
+      const srcDir = path_1.default.dirname(srcPath);
+      try {
+        const companions = fs_1.default.readdirSync(srcDir).filter(f => f !== 'SKILL.md');
+        for (const comp of companions) {
+          const compSrc = path_1.default.join(srcDir, comp);
+          const compDest = path_1.default.join(skillDir, comp);
+          if (fs_1.default.statSync(compSrc).isFile()) {
+            fs_1.default.copyFileSync(compSrc, compDest);
+          }
+        }
+      } catch {}
+    } else {
+      // Flat file: copy as-is
+      destPath = path_1.default.join(destSkillsDir, path_1.default.basename(srcPath));
+      if (fs_1.default.existsSync(destPath)) {
+        return { success: false, error: 'Skill already exists in project' };
+      }
+    }
+    const content = fs_1.default.readFileSync(srcPath, 'utf-8');
+    const parentDestDir = path_1.default.dirname(destPath);
+    if (!fs_1.default.existsSync(parentDestDir)) {
+      fs_1.default.mkdirSync(parentDestDir, { recursive: true });
+    }
+    fs_1.default.writeFileSync(destPath, content, 'utf-8');
+    return { success: true, data: { id: appSkill.id, name: appSkill.name, filePath: destPath } };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+// -- Saved/Favorite skills tracking --
+const SAVED_SKILLS_PATH = path_1.default.join(userDataPath, 'agent', 'saved-skills.json');
+
+function getSavedSkillIds(): string[] {
+  try {
+    if (fs_1.default.existsSync(SAVED_SKILLS_PATH)) {
+      return JSON.parse(fs_1.default.readFileSync(SAVED_SKILLS_PATH, 'utf-8'));
+    }
+  } catch {}
+  return [];
+}
+
+function saveSavedSkillIds(ids: string[]): void {
+  const dir = path_1.default.dirname(SAVED_SKILLS_PATH);
+  if (!fs_1.default.existsSync(dir)) fs_1.default.mkdirSync(dir, { recursive: true });
+  fs_1.default.writeFileSync(SAVED_SKILLS_PATH, JSON.stringify(ids, null, 2), 'utf-8');
+}
+
+electron_1.ipcMain.handle('get-saved-skills', async () => {
+  try {
+    const ids = getSavedSkillIds();
+    return { success: true, data: ids };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('save-workspace-skill', async (_, { skillId }: { skillId: string }) => {
+  try {
+    const ids = getSavedSkillIds();
+    if (!ids.includes(skillId)) {
+      ids.push(skillId);
+      saveSavedSkillIds(ids);
+    }
+    return { success: true, data: ids };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('unsave-workspace-skill', async (_, { skillId }: { skillId: string }) => {
+  try {
+    const ids = getSavedSkillIds().filter(id => id !== skillId);
+    saveSavedSkillIds(ids);
+    return { success: true, data: ids };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+// -- Seed workspace skills from a project --
+electron_1.ipcMain.handle('seed-workspace-skills', async (_, { sourceDir }: { sourceDir: string }) => {
+  try {
+    const sourceSkillsDir = path_1.default.join(sourceDir, 'agent', 'skills');
+    if (!fs_1.default.existsSync(sourceSkillsDir)) {
+      return { success: false, error: 'Source project has no agent/skills/ directory' };
+    }
+    const destSkillsDir = path_1.default.join(userDataPath, 'agent', 'skills');
+    if (!fs_1.default.existsSync(destSkillsDir)) {
+      fs_1.default.mkdirSync(destSkillsDir, { recursive: true });
+    }
+    const entries = fs_1.default.readdirSync(sourceSkillsDir, { withFileTypes: true });
+    let copied = 0;
+    let skipped = 0;
+    for (const entry of entries) {
+      const srcPath = path_1.default.join(sourceSkillsDir, entry.name);
+      if (entry.isDirectory()) {
+        // Directory-based skill: copy whole directory
+        const destPath = path_1.default.join(destSkillsDir, entry.name);
+        if (!fs_1.default.existsSync(destPath)) {
+          copyDirSync(srcPath, destPath);
+          copied++;
+        } else {
+          skipped++;
+        }
+      } else if (entry.name.endsWith('.md') && entry.name !== 'README.md') {
+        // Flat file skill
+        const destPath = path_1.default.join(destSkillsDir, entry.name);
+        if (!fs_1.default.existsSync(destPath)) {
+          fs_1.default.copyFileSync(srcPath, destPath);
+          copied++;
+        } else {
+          skipped++;
+        }
+      }
+    }
+    return { success: true, data: { copied, skipped } };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+function copyDirSync(src: string, dest: string): void {
+  fs_1.default.mkdirSync(dest, { recursive: true });
+  const entries = fs_1.default.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path_1.default.join(src, entry.name);
+    const destPath = path_1.default.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath);
+    } else {
+      fs_1.default.copyFileSync(srcPath, destPath);
+    }
+  }
+}
 
 electron_1.ipcMain.handle('get-requests', async (_, { projectId }: { projectId?: string } = {}) => {
   try {
@@ -13040,7 +13900,7 @@ electron_1.ipcMain.handle('update-request-status', async (_, { requestId, status
     if (!r) return { success: false, error: 'Request not found' };
     const oldStatus = r?.status || '?';
     const success = rs.updateStatus(requestId, status);
-    if (success) logActivity({ entityType: 'request', entityId: String(requestId), entityTitle: r.title, action: 'status_changed', actor: actor || 'user', summary: `Status: ${oldStatus} â†’ ${status}` });
+    if (success) logActivity({ entityType: 'request', entityId: String(requestId), entityTitle: r.title, action: 'status_changed', actor: actor || 'user', summary: `Status: ${oldStatus} → ${status}` });
     if (success) mainWindow?.webContents?.send('context-changed', { type: 'request', action: 'updated', entity: { id: requestId, title: r.title, status } });
     return { success };
   } catch (error: any) {
@@ -13220,7 +14080,7 @@ electron_1.ipcMain.handle('sync-problems-md', async (_, { projectId, projectPath
   }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Checklist Feedback IPC â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════ Checklist Feedback IPC ═══════════════════
 
 electron_1.ipcMain.handle('add-check-feedback', async (_event, data: {
   parentId: string;
@@ -13285,7 +14145,7 @@ electron_1.ipcMain.handle('send-check-feedback-to-terminal', async (_event, data
   return { success: !!term, message };
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Session Compaction IPC â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════ Session Compaction IPC ═══════════════════
 
 electron_1.ipcMain.handle('check-session-compaction', async (_event, data: {
   sessionId: string;
@@ -13373,8 +14233,10 @@ async function runInitAll(baseDir: string, agent: string, projectId: string | un
   const graphifyDir = path_1.default.join(baseDir, 'graphify-out');
 
   const steps = [
+    // -- agent/ directory --
     { id: 'agent-dir', label: 'agent/', type: 'folder', group: 'agent', path: 'agent/' },
     { id: 'agents-md', label: 'AGENTS.md', type: 'file', group: 'agent', path: 'agent/AGENTS.md' },
+    { id: 'agents-lower', label: 'agents.md', type: 'file', group: 'agent', path: 'agent/agents.md' },
     { id: 'initialize-md', label: 'INITIALIZE.md', type: 'file', group: 'agent', path: 'agent/INITIALIZE.md' },
     { id: 'problems-md', label: 'PROBLEMS.md', type: 'file', group: 'agent', path: 'agent/PROBLEMS.md' },
     { id: 'requests-md', label: 'REQUESTS.md', type: 'file', group: 'agent', path: 'agent/REQUESTS.md' },
@@ -13386,8 +14248,51 @@ async function runInitAll(baseDir: string, agent: string, projectId: string | un
     { id: 'feature-tracker', label: 'FEATURE_TRACKER.md', type: 'file', group: 'agent', path: 'agent/FEATURE_TRACKER.md' },
     { id: 'workspace-context', label: 'WORKSPACE_CONTEXT.md', type: 'file', group: 'agent', path: 'agent/WORKSPACE_CONTEXT.md' },
     { id: 'human-test', label: 'HUMAN_TEST_CHECKLIST.md', type: 'file', group: 'agent', path: 'agent/HUMAN_TEST_CHECKLIST.md' },
+    { id: 'context-md', label: 'context.md', type: 'file', group: 'agent', path: 'agent/context.md' },
+    { id: 'constraints-md', label: 'constraints.md', type: 'file', group: 'agent', path: 'agent/constraints.md' },
+    { id: 'patterns-md', label: 'patterns.md', type: 'file', group: 'agent', path: 'agent/patterns.md' },
+    { id: 'glossary-md', label: 'glossary.md', type: 'file', group: 'agent', path: 'agent/glossary.md' },
+    { id: 'data-md', label: 'data.md', type: 'file', group: 'agent', path: 'agent/data.md' },
+    { id: 'debugging-md', label: 'debugging.md', type: 'file', group: 'agent', path: 'agent/debugging.md' },
+    { id: 'skills-md', label: 'skills.md', type: 'file', group: 'agent', path: 'agent/skills.md' },
+    { id: 'prompt-md', label: 'prompt.md', type: 'file', group: 'agent', path: 'agent/prompt.md' },
+    { id: 'prompts-md', label: 'prompts.md', type: 'file', group: 'agent', path: 'agent/prompts.md' },
+    { id: 'readme-md', label: 'README.md', type: 'file', group: 'agent', path: 'agent/README.md' },
+    { id: 'generic-agent', label: 'GENERIC_AGENT.md', type: 'file', group: 'agent', path: 'agent/GENERIC_AGENT.md' },
+    { id: 'qwen-md', label: 'qwen.md', type: 'file', group: 'agent', path: 'agent/qwen.md' },
+    { id: 'dictionary', label: 'dictionary.md', type: 'file', group: 'agent', path: 'agent/dictionary.md' },
+    { id: 'actions-schema', label: 'ACTIONS_SCHEMA.md', type: 'file', group: 'agent', path: 'agent/ACTIONS_SCHEMA.md' },
+    { id: 'default-system-prompt', label: 'DEFAULT_SYSTEM_PROMPT.md', type: 'file', group: 'agent', path: 'agent/DEFAULT_SYSTEM_PROMPT.md' },
+    { id: 'rules-compact', label: 'RULES_COMPACT.md', type: 'file', group: 'agent', path: 'agent/RULES_COMPACT.md' },
+    { id: 'terminal-sidebar-ref', label: 'TERMINAL_SIDEBAR_REFERENCE.md', type: 'file', group: 'agent', path: 'agent/TERMINAL_SIDEBAR_REFERENCE.md' },
+    { id: 'tracker-mind-checklist', label: 'TRACKER_MIND_CHECKLIST.md', type: 'file', group: 'agent', path: 'agent/TRACKER_MIND_CHECKLIST.md' },
+    // -- agent/docs/ subdirectories --
+    { id: 'docs-dir', label: 'agent/docs/', type: 'folder', group: 'docs', path: 'agent/docs/' },
+    { id: 'templates-dir', label: 'agent/templates/', type: 'folder', group: 'docs', path: 'agent/templates/' },
+    { id: 'core-dir', label: 'agent/core/', type: 'folder', group: 'docs', path: 'agent/core/' },
+    { id: 'context-dir', label: 'agent/context/', type: 'folder', group: 'docs', path: 'agent/context/' },
+    // -- agent/skills/ --
     { id: 'skills-dir', label: 'agent/skills/', type: 'folder', group: 'skills', path: 'agent/skills/' },
     { id: 'skill-templates', label: 'fix-problems.md', type: 'file', group: 'skills', path: 'agent/skills/fix-problems.md' },
+    { id: 'skill-agent-reflect', label: 'agent-reflect/', type: 'folder', group: 'skills', path: 'agent/skills/agent-reflect/' },
+    { id: 'skill-commit', label: 'commit/', type: 'folder', group: 'skills', path: 'agent/skills/commit/' },
+    { id: 'skill-deep-research', label: 'deep-research/', type: 'folder', group: 'skills', path: 'agent/skills/deep-research/' },
+    { id: 'skill-deep-research-prompt', label: 'deep-research-prompt/', type: 'folder', group: 'skills', path: 'agent/skills/deep-research-prompt/' },
+    { id: 'skill-design-taste', label: 'design-taste/', type: 'folder', group: 'skills', path: 'agent/skills/design-taste/' },
+    { id: 'skill-fix-problems', label: 'fix-problems/', type: 'folder', group: 'skills', path: 'agent/skills/fix-problems/' },
+    { id: 'skill-frontend-design', label: 'frontend-design/', type: 'folder', group: 'skills', path: 'agent/skills/frontend-design/' },
+    { id: 'skill-generate-problem', label: 'generate-problem/', type: 'folder', group: 'skills', path: 'agent/skills/generate-problem/' },
+    { id: 'skill-generate-prompt', label: 'generate-prompt/', type: 'folder', group: 'skills', path: 'agent/skills/generate-prompt/' },
+    { id: 'skill-google-stitch', label: 'google-stitch/', type: 'folder', group: 'skills', path: 'agent/skills/google-stitch/' },
+    { id: 'skill-impeccable', label: 'impeccable/', type: 'folder', group: 'skills', path: 'agent/skills/impeccable/' },
+    { id: 'skill-maintain-context', label: 'maintain-context/', type: 'folder', group: 'skills', path: 'agent/skills/maintain-context/' },
+    { id: 'skill-readme-generator', label: 'readme-generator/', type: 'folder', group: 'skills', path: 'agent/skills/readme-generator/' },
+    { id: 'skill-recursive-playwright', label: 'recursive-playwright/', type: 'folder', group: 'skills', path: 'agent/skills/recursive-playwright/' },
+    { id: 'skill-sqlite-js-migration', label: 'sqlite-js-migration/', type: 'folder', group: 'skills', path: 'agent/skills/sqlite-js-migration/' },
+    { id: 'skill-taste-skill', label: 'taste-skill/', type: 'folder', group: 'skills', path: 'agent/skills/taste-skill/' },
+    { id: 'skill-terminal-agent', label: 'terminal-agent/', type: 'folder', group: 'skills', path: 'agent/skills/terminal-agent/' },
+    { id: 'skill-ui-ux-pro-max', label: 'ui-ux-pro-max/', type: 'folder', group: 'skills', path: 'agent/skills/ui-ux-pro-max/' },
+    // -- graphify-out/ --
     { id: 'graphify-dir', label: 'graphify-out/', type: 'folder', group: 'graphify', path: 'graphify-out/' },
   ];
 
@@ -13421,9 +14326,9 @@ async function runInitAll(baseDir: string, agent: string, projectId: string | un
       ...skillsMdFiles.map(f => `- \`agent/skills/${f}\``),
     ].join('\n');
 
-    const agentsContent = `# ðŸ¤– AI Agent Workspace
+    const agentsContent = `# 🤖 AI Agent Workspace
 
-> **Auto-generated by Tracker Mind** â€” ${new Date().toISOString()}
+> **Auto-generated by Tracker Mind** — ${new Date().toISOString()}
 > **Target Agent:** ${agent}
 
 ## Workspace Context
@@ -13482,7 +14387,7 @@ These actions will be automatically executed to keep the project board in sync.
 
     // Step 3: INITIALIZE.md
     send('initialize-md', 'creating');
-    const initContent = `# ðŸš€ Workspace Initialization Guide
+    const initContent = `# 🚀 Workspace Initialization Guide
 
 > **Generated for:** ${agent}
 > **Date:** ${new Date().toISOString()}
@@ -13501,12 +14406,12 @@ ${agent === 'opencode' ? `Run: \`opencode --init\` in the project root to initia
 
 ## Step 3: Review Project State
 
-- \`state.md\` â€” Current project state and recent changes
-- \`PROBLEMS.md\` â€” Known issues to fix
-- \`REQUESTS.md\` â€” User feature requests
-- \`problems.json\` â€” Machine-parseable problem data
-- \`requests.json\` â€” Machine-parseable request data
-- \`problems.json\` and \`requests.json\` â€” Each item has a \`steps\` array (inline sub-tasks with status tracking)
+- \`state.md\` — Current project state and recent changes
+- \`PROBLEMS.md\` — Known issues to fix
+- \`REQUESTS.md\` — User feature requests
+- \`problems.json\` — Machine-parseable problem data
+- \`requests.json\` — Machine-parseable request data
+- \`problems.json\` and \`requests.json\` — Each item has a \`steps\` array (inline sub-tasks with status tracking)
 
 ## Step 4: Skills Setup
 
@@ -13518,7 +14423,7 @@ Once initialization is complete, you can begin working on:
 1. Review and update \`PROBLEMS.md\` with any discovered issues
 2. Address high-priority items
 3. Update \`state.md\` as you make changes
-4. For each problem or request you work on, add steps to the \`steps\` array â€” add step-by-step items so the human can track progress:
+4. For each problem or request you work on, add steps to the \`steps\` array — add step-by-step items so the human can track progress:
    - Each step: \`{ "id": "problem-1-step-1", "description": "what to do", "status": "pending|in_progress|completed" }\`
    - Use \`[add-step]\` and \`[complete-step]\` actions to manage them
 
@@ -13561,7 +14466,7 @@ Once initialization is complete, you can begin working on:
         if (existing.length > 0) {
           requestsContent = fs_1.default.readFileSync(requestsPath, 'utf-8');
         } else {
-          requestsContent = `# ðŸ“‹ User Requests Log\n\n> **Purpose:** Track all user requests.\n> **Last Updated:** ${new Date().toISOString()}\n\n---\n\n<!-- No requests yet. -->\n`;
+          requestsContent = `# 📋 User Requests Log\n\n> **Purpose:** Track all user requests.\n> **Last Updated:** ${new Date().toISOString()}\n\n---\n\n<!-- No requests yet. -->\n`;
           fs_1.default.writeFileSync(requestsPath, requestsContent, 'utf-8');
         }
       } catch (e) {
@@ -13577,7 +14482,7 @@ Once initialization is complete, you can begin working on:
     const statePath = path_1.default.join(agentDir, 'state.md');
     let stateContent = '';
     if (!fs_1.default.existsSync(statePath)) {
-      stateContent = `# ðŸ“Œ Project State
+      stateContent = `# 📌 Project State
 
 **Purpose:** Current status, known issues, and recent changes for Tracker Mind.
 
@@ -13587,7 +14492,7 @@ Once initialization is complete, you can begin working on:
 
 ## Recent Changes
 
-### ${new Date().toISOString().split('T')[0]} â€” Initial Setup
+### ${new Date().toISOString().split('T')[0]} — Initial Setup
 
 - Initialized Tracker Mind structure
 - Created agent/ directory
@@ -13688,12 +14593,989 @@ Once initialization is complete, you can begin working on:
     }
     send('human-test', 'done', { content: htContent });
 
-    // Step 14: skills directory
-    send('skills-dir', 'creating');
-    if (!fs_1.default.existsSync(skillsDir)) {
-      fs_1.default.mkdirSync(skillsDir, { recursive: true });
+    // -- agents.md (lowercase) --
+    send('agents-lower', 'creating');
+    const agentsLowerPath = path_1.default.join(agentDir, 'agents.md');
+    if (!fs_1.default.existsSync(agentsLowerPath)) {
+      fs_1.default.writeFileSync(agentsLowerPath, `# ?? AI Agent Workspace
+
+> **Auto-generated by Tracker Mind** � ${new Date().toISOString()}
+> **Target Agent:** ${agent}
+
+## Workspace Context
+
+This directory contains the context files for AI agents working on this project.
+
+## Agent Files
+
+\${allMdFiles || '- No markdown files yet'}
+
+## Initialization Instructions
+
+1. Read each file listed above for project context
+2. Check \`INITIALIZE.md\` for setup instructions
+3. Review \`PROBLEMS.md\` for known issues
+4. Check \`REQUESTS.md\` for pending requests
+5. Update files as needed during work
+
+## Session Metadata Requirements
+
+This project requires structured session metadata from AI agents.
+
+At the **start of each session** (or when switching tasks), output:
+
+\`\`\`
+## Session Metadata
+- Title: Short descriptive title of what this session is working on
+- Description: 1-2 sentences explaining the goal and scope
+- Status: active | paused | completed
+- Product Area: Which part of the application this targets (e.g., Dashboard, Settings, Terminal, Database, External Page, IDE Page, etc.)
+- Category: bug-fix | feature | refactor | research | review
+\`\`\`
+
+If you don't provide this metadata, the system will auto-analyze your messages to infer it. Providing it explicitly is more accurate.
+
+## Recent Activity Tracking
+
+Changes to problems, requests, steps, and sessions are tracked. When a user completes a step or changes a request status, it will be reflected here.
+
+You can also signal important activity by including an \`## Actions\` block in your response:
+
+\`\`\`
+## Actions
+- [create-problem] Problem Title - priority: high - category: bug-fix - description: What's broken
+- [update-problem] ProblemID - status: In Progress
+- [complete-checklist] checklist-item-id
+\`\`\`
+
+These actions will be automatically executed to keep the project board in sync.
+---\n`, 'utf-8');
     }
-    send('skills-dir', 'done');
+    send('agents-lower', 'done', { content: fs_1.default.readFileSync(agentsLowerPath, 'utf-8') });
+
+    // -- context.md --
+    send('context-md', 'creating');
+    const contextPath = path_1.default.join(agentDir, 'context.md');
+    if (!fs_1.default.existsSync(contextPath)) {
+      fs_1.default.writeFileSync(contextPath, `# ?? Project Context
+
+**Purpose:** Comprehensive overview of the project architecture, tech stack, and conventions.
+**Last Updated:** ${today}
+
+---
+
+## ?? Project Overview
+
+**Project Name** � Brief one-liner describing what the application does.
+
+**Core Systems:**
+- **System 1** � Brief description of what it does
+- **System 2** � Brief description of what it does
+- **System 3** � Brief description of what it does
+- **System 4** � Brief description of what it does
+
+---
+
+## ??? Tech Stack
+
+### Core Technologies
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Electron | | Desktop wrapper |
+| React | | UI framework |
+| TypeScript | | Type safety |
+| Vite | | Build tool |
+
+### Database
+| Technology | Purpose |
+|------------|---------|
+| SQLite (better-sqlite3) | Primary storage |
+
+## Architecture
+
+Describe the application architecture here. Include:
+- Main process (Electron) responsibilities
+- Renderer process responsibilities
+- IPC communication patterns
+- Key service layers
+
+## Data Flow
+
+Describe key data flows here. Include:
+- Tracking data: source ? storage ? display
+- User interactions: UI ? IPC ? main process ? response
+- External integrations
+
+## Build & Deployment
+
+- **Build command:** \`npm run build\`
+- **Dev command:** \`npm run dev\`
+- **Output:** \`dist/\` (renderer) + \`dist-electron/\` (main)
+
+---
+
+## Environment
+
+- **Platform:** Windows (primary), cross-platform potential
+- **Package manager:** npm
+- **Node version:** 18+
+
+---\n`, 'utf-8');
+    }
+    send('context-md', 'done', { content: fs_1.default.readFileSync(contextPath, 'utf-8') });
+
+    // -- constraints.md --
+    send('constraints-md', 'creating');
+    const constraintsPath = path_1.default.join(agentDir, 'constraints.md');
+    if (!fs_1.default.existsSync(constraintsPath)) {
+      fs_1.default.writeFileSync(constraintsPath, `# ?? Project Constraints
+
+**Purpose:** Hard rules and limitations for this project.
+
+---
+
+## ?? Hard Constraints
+
+### Electron
+- **No external URLs** � All assets must be local
+- **No nodeIntegration** � Must use contextIsolation
+- **CJS for Electron** � Main/preload must be CommonJS (.cjs)
+
+### React
+- **HashRouter only** � No BrowserRouter (file:// protocol)
+- **No direct DOM** � Use refs for Three.js integration if applicable
+- **TypeScript** � All new code must be TypeScript
+
+### Database
+- **SQLite preferred** � JSON fallback only if SQLite fails
+- **No SQL injection** � Use prepared statements
+
+### Build
+- **Vite base** � Must be './' for Electron
+- **TypeScript target** � ES2020 for Electron, ESNext for React
+- **No eval** � Content Security Policy
+
+---
+
+## ?? Style Constraints
+
+### Code Style
+Describe code style conventions here.
+
+### Naming Conventions
+Describe naming conventions here.
+
+---
+
+## ?? Dependency Constraints
+
+Document any pinned dependency versions or upgrade restrictions here.
+
+---
+
+## ?? Process Constraints
+
+- Run build after every code change
+- Update state.md after every change
+- Check PROBLEMS.md before starting new work
+
+---\n`, 'utf-8');
+    }
+    send('constraints-md', 'done', { content: fs_1.default.readFileSync(constraintsPath, 'utf-8') });
+
+    // -- patterns.md --
+    send('patterns-md', 'creating');
+    const patternsPath = path_1.default.join(agentDir, 'patterns.md');
+    if (!fs_1.default.existsSync(patternsPath)) {
+      fs_1.default.writeFileSync(patternsPath, `# ?? Code Patterns
+
+**Purpose:** Common code patterns and conventions used in this project.
+
+---
+
+## ?? React Patterns
+
+### Component Template
+\`\`\`tsx
+interface Props {
+  data: DataType;
+  onAction: () => void;
+}
+
+function MyComponent({ data, onAction }: Props) {
+  const [state, setState] = useState(false);
+
+  const computed = useMemo(() => {
+    return expensiveComputation(data);
+  }, [data]);
+
+  return <div onClick={onAction}>{/* ... */}</div>;
+}
+
+export default MyComponent;
+\`\`\`
+
+### State Management
+\`\`\`tsx
+// Local state
+const [isPaused, setIsPaused] = useState(false);
+
+// Derived state
+const filteredItems = useMemo(() => {
+  return items.filter(item => item.active);
+}, [items]);
+
+// Callbacks
+const handleSubmit = useCallback((data: DataType) => {
+  // handle submit
+}, [dependencies]);
+\`\`\`
+
+## ?? IPC Patterns
+
+### Request-Response
+\`\`\`ts
+// Main process
+ipcMain.handle('get-data', async (_, args) => {
+  return { success: true, data: result };
+});
+
+// Preload bridge
+getData: (args) => ipcRenderer.invoke('get-data', args),
+
+// Renderer
+const result = await window.deskflowAPI?.getData?.(args);
+\`\`\`
+
+### Events (Main ? Renderer)
+\`\`\`ts
+// Main process
+mainWindow.webContents.send('data-updated', payload);
+
+// Renderer
+window.deskflowAPI?.onDataUpdated?.((data) => { ... });
+\`\`\`
+
+## ??? Data Patterns
+
+Document data access patterns here (SQL queries, JSON file I/O, etc.).
+
+## ?? Styling Patterns
+
+Document styling conventions (Tailwind classes, CSS modules, etc.).
+
+---\n`, 'utf-8');
+    }
+    send('patterns-md', 'done', { content: fs_1.default.readFileSync(patternsPath, 'utf-8') });
+
+    // -- glossary.md --
+    send('glossary-md', 'creating');
+    const glossaryPath = path_1.default.join(agentDir, 'glossary.md');
+    if (!fs_1.default.existsSync(glossaryPath)) {
+      fs_1.default.writeFileSync(glossaryPath, `# ?? Glossary
+
+**Purpose:** Domain-specific terminology and definitions.
+
+---
+
+## ?? Technical Terms
+
+| Term | Definition |
+|------|-----------|
+| **IPC** | Inter-Process Communication (main ? renderer) |
+| **Preload** | Script that bridges main and renderer securely |
+| **Context Bridge** | Electron API for exposing safe APIs to renderer |
+
+## ??? Architecture Terms
+
+| Term | Definition |
+|------|-----------|
+| | |
+
+## ?? Domain Terms
+
+| Term | Definition |
+|------|-----------|
+| | |
+
+---\n`, 'utf-8');
+    }
+    send('glossary-md', 'done', { content: fs_1.default.readFileSync(glossaryPath, 'utf-8') });
+
+    // -- data.md --
+    send('data-md', 'creating');
+    const dataPath = path_1.default.join(agentDir, 'data.md');
+    if (!fs_1.default.existsSync(dataPath)) {
+      fs_1.default.writeFileSync(dataPath, `# ?? Project Data Reference
+
+**Purpose:** Document data storage, schemas, and IPC endpoints.
+**Last Updated:** ${today}
+
+---
+
+## ??? Data Storage Architecture
+
+### Primary Storage
+- **Type:** Specify database type (SQLite / JSON / etc.)
+- **Location:** Specify storage path
+- **Tables/Collections:**
+
+| Table/Collection | Key Fields | Purpose |
+|-----------------|------------|---------|
+| | | |
+
+### Fallback Storage (if applicable)
+- **Type:** 
+- **Location:** 
+- **Status:** 
+
+---
+
+## ?? IPC Endpoints
+
+| Channel | Direction | Payload | Purpose |
+|---------|-----------|---------|---------|
+| | renderer ? main | | |
+
+---
+
+## ?? Data Flow
+
+Describe how data flows through the system.
+
+---\n`, 'utf-8');
+    }
+    send('data-md', 'done', { content: fs_1.default.readFileSync(dataPath, 'utf-8') });
+
+    // -- debugging.md --
+    send('debugging-md', 'creating');
+    const debuggingPath = path_1.default.join(agentDir, 'debugging.md');
+    if (!fs_1.default.existsSync(debuggingPath)) {
+      fs_1.default.writeFileSync(debuggingPath, `# ?? Debugging Guide
+
+**Purpose:** Common issues, debugging strategies, and known fixes.
+
+---
+
+## [Issue Title: Brief description]
+
+**Root cause:** Explain why the issue happens.
+
+**Symptoms:**
+- Symptom 1
+- Symptom 2
+- Symptom 3
+
+**Fix:**
+Step-by-step fix description.
+
+---
+
+## [Issue Title: Another issue]
+
+**Root cause:** Explain why the issue happens.
+
+**Symptoms:**
+- Symptom 1
+- Symptom 2
+
+**Fix:**
+Step-by-step fix description.
+
+---
+
+## General Debugging Tips
+
+- Tip 1
+- Tip 2
+- Tip 3
+
+---\n`, 'utf-8');
+    }
+    send('debugging-md', 'done', { content: fs_1.default.readFileSync(debuggingPath, 'utf-8') });
+
+    // -- skills.md --
+    send('skills-md', 'creating');
+    const skillsMdPath = path_1.default.join(agentDir, 'skills.md');
+    if (!fs_1.default.existsSync(skillsMdPath)) {
+      fs_1.default.writeFileSync(skillsMdPath, `# ?? Available Skills
+
+**Purpose:** Documentation of available skills and when to use them.
+
+---
+
+## ?? Agent Self-Improvement
+
+### [skill-name]
+**Location:** \`agent/skills/[skill-name]/\`
+**When to use:** Describe when this skill is appropriate.
+
+**Usage:**
+Describe how to invoke/use the skill.
+
+**What it does:**
+Brief description of the skill's functionality.
+
+---
+
+## ?? Core Skills
+
+### 1. [Skill Name]
+**When to use:** 
+
+**Best practices:**
+- Practice 1
+- Practice 2
+
+### 2. [Skill Name]
+**When to use:** 
+
+**Best practices:**
+- Practice 1
+- Practice 2
+
+---
+
+## ?? Skill Index
+
+| Skill | Location | Purpose |
+|-------|----------|---------|
+| | | |
+
+---\n`, 'utf-8');
+    }
+    send('skills-md', 'done', { content: fs_1.default.readFileSync(skillsMdPath, 'utf-8') });
+
+    // -- prompt.md --
+    send('prompt-md', 'creating');
+    const promptPath = path_1.default.join(agentDir, 'prompt.md');
+    if (!fs_1.default.existsSync(promptPath)) {
+      fs_1.default.writeFileSync(promptPath, `# ?? Prompt for AI
+
+**Purpose:** Reusable prompt templates for AI agents working on this project.
+
+---
+
+## ?? Prompt Template
+
+### Task
+Describe the specific task to be completed.
+
+### Key Files
+- \`path/to/file1\` � What this file does
+- \`path/to/file2\` � What this file does
+
+### Context
+Relevant background information for the task.
+
+### Requirements
+1. Requirement 1
+2. Requirement 2
+3. Requirement 3
+
+### Expected Output
+Describe what success looks like.
+
+---
+
+## ?? Quick Reference
+
+- **Build command:** \`npm run build\`
+- **Test command:** (specify if applicable)
+- **Key directories:** \`src/\`, \`agent/\`, etc.
+
+---\n`, 'utf-8');
+    }
+    send('prompt-md', 'done', { content: fs_1.default.readFileSync(promptPath, 'utf-8') });
+
+    // -- prompts.md --
+    send('prompts-md', 'creating');
+    const promptsPath = path_1.default.join(agentDir, 'prompts.md');
+    if (!fs_1.default.existsSync(promptsPath)) {
+      fs_1.default.writeFileSync(promptsPath, `# ?? Compiled Prompts
+
+**Purpose:** Collection of proven prompts for common tasks.
+
+---
+
+## ?? Development Prompts
+
+### [Prompt Category Title]
+\`\`\`
+Prompt content here with specific instructions for the AI agent.
+Be detailed and include file paths, expected patterns, and constraints.
+\`\`\`
+
+### [Another Prompt]
+\`\`\`
+Prompt content here.
+\`\`\`
+
+---
+
+## ?? Diagnostic Prompts
+
+### [Diagnostic Title]
+\`\`\`
+Steps to diagnose and fix the issue.
+\`\`\`
+
+---
+
+## ?? Prompt Index
+
+| Prompt | Category | When to Use |
+|--------|----------|-------------|
+| | | |
+
+---\n`, 'utf-8');
+    }
+    send('prompts-md', 'done', { content: fs_1.default.readFileSync(promptsPath, 'utf-8') });
+
+    // -- README.md --
+    send('readme-md', 'creating');
+    const readmePath = path_1.default.join(agentDir, 'README.md');
+    if (!fs_1.default.existsSync(readmePath)) {
+      fs_1.default.writeFileSync(readmePath, `# ?? Agent Workspace
+
+**Purpose:** AI agent workspace directory for this project. Contains context files, skills, and configuration for AI agents.
+
+---
+
+## ?? Directory Structure
+
+### Core Files
+| File | Purpose |
+|------|---------|
+| \`AGENTS.md\` | Primary agent instructions and behavioral guidelines |
+| \`state.md\` | Current project state and recent changes |
+| \`context.md\` | Architecture, tech stack, and data flow |
+| \`PROBLEMS.md\` | Issue tracker for bugs and improvements |
+| \`REQUESTS.md\` | User feature requests and task tracking |
+
+### Configuration Files
+| File | Purpose |
+|------|---------|
+| \`constraints.md\` | Hard rules and limitations |
+| \`patterns.md\` | Code patterns and conventions |
+| \`data.md\` | Data schemas and IPC endpoints |
+
+### Subdirectories
+| Directory | Purpose |
+|-----------|---------|
+| \`skills/\` | Available skills for AI agents |
+| \`docs/\` | Documentation files |
+| \`templates/\` | Reusable templates |
+| \`core/\` | Core configuration files |
+| \`context/\` | Context assembly files |
+
+---
+
+## ?? Getting Started
+
+1. Read \`AGENTS.md\` for full instructions
+2. Check \`state.md\` for current status
+3. Review \`PROBLEMS.md\` for known issues
+4. Browse \`skills/\` for available capabilities
+
+---\n`, 'utf-8');
+    }
+    send('readme-md', 'done', { content: fs_1.default.readFileSync(readmePath, 'utf-8') });
+
+    // -- GENERIC_AGENT.md --
+    send('generic-agent', 'creating');
+    const genericAgentPath = path_1.default.join(agentDir, 'GENERIC_AGENT.md');
+    if (!fs_1.default.existsSync(genericAgentPath)) {
+      fs_1.default.writeFileSync(genericAgentPath, `# ?? AI Agent Instructions (Generic)
+
+**Purpose:** General-purpose instructions for any AI agent working on any project. Customize with project-specific rules.
+
+---
+
+## ? PRIME STATE � MANDATORY PERFORMANCE STANDARD
+
+**Always be in peak performance mode.** This is not optional.
+
+### Prime State Rules:
+1. **Always read relevant files BEFORE coding** � Never guess, never assume
+2. **Understand the data flow FIRST** � Trace from source to display
+3. **Match existing patterns** � Follow the codebase's conventions
+4. **Verify EVERY change** � Run build, test, confirm
+5. **Make surgical changes only** � Touch only what you must
+
+### Prime State Checklist:
+- [ ] Read the relevant files thoroughly
+- [ ] Understand exactly what is needed (clarify if ambiguous)
+- [ ] Trace the complete data flow
+- [ ] Identify root cause (not just symptoms)
+- [ ] Make surgical changes only
+- [ ] Verify build passes
+- [ ] Confirm the fix actually solves the problem
+
+### What Kills Prime State:
+- Rushing without understanding
+- Making assumptions instead of reading code
+- Suggesting changes without verifying they work
+
+---\n`, 'utf-8');
+    }
+    send('generic-agent', 'done', { content: fs_1.default.readFileSync(genericAgentPath, 'utf-8') });
+
+    // -- qwen.md --
+    send('qwen-md', 'creating');
+    const qwenPath = path_1.default.join(agentDir, 'qwen.md');
+    if (!fs_1.default.existsSync(qwenPath)) {
+      fs_1.default.writeFileSync(qwenPath, `# ?? Qwen Configuration
+
+**Purpose:** Qwen-specific behavior, configuration, and best practices for this project.
+
+---
+
+## ?? Critical Instructions
+
+### Version Notice
+- Specify the Qwen CLI version in use
+- Note any version-specific behaviors
+
+### Task-Specific Prompt Structure
+
+For EVERY new task, use a DIFFERENT prompt based on task type:
+
+### 1. ?? Research Agent
+**When:** Researching technologies, analyzing codebases, architecture decisions
+
+**Prompt Template:**
+\`\`\`markdown
+# Research: [Topic]
+
+## Context
+[Why this research is needed]
+
+## Research Questions
+1. [Primary question]
+2. [Secondary question]
+
+## Scope
+- **Include:** [What to cover]
+- **Exclude:** [What to skip]
+\`\`\`
+
+### 2. ?? Development Agent
+**When:** Writing code, fixing bugs, implementing features
+
+**Prompt Template:**
+\`\`\`markdown
+# Development: [Task]
+
+## Context
+[Background information]
+
+## Files to Modify
+- [path/to/file] � [change needed]
+
+## Requirements
+1. [Requirement]
+2. [Requirement]
+\`\`\`
+
+---
+
+## Configuration
+
+Document any Qwen-specific configuration settings here.
+
+---\n`, 'utf-8');
+    }
+    send('qwen-md', 'done', { content: fs_1.default.readFileSync(qwenPath, 'utf-8') });
+
+    // -- dictionary.md --
+    send('dictionary', 'creating');
+    const dictPath = path_1.default.join(agentDir, 'dictionary.md');
+    if (!fs_1.default.existsSync(dictPath)) {
+      fs_1.default.writeFileSync(dictPath, `# ?? Project Context Dictionary
+
+**Purpose:** Key terms, concepts, and their meanings in this project.
+
+---
+
+## Architecture & Design
+
+### [Term]
+- **What it is:** Brief definition
+- **How it works:** Explanation of behavior
+- **Important:** Key nuance to understand
+
+### [Term]
+- **What it is:** Brief definition
+- **How it works:** Explanation of behavior
+- **Important:** Key nuance to understand
+
+---
+
+## Data & Storage
+
+### [Term]
+- **What it is:** Brief definition
+- **Location:** Where it's stored/configured
+- **Format:** Data format
+
+---
+
+## UI & Interaction
+
+### [Term]
+- **What it is:** Brief definition
+- **Location:** Where it appears in the UI
+- **Behavior:** How it works
+
+---
+
+## Quick Reference
+
+| Term | Short Definition |
+|------|-----------------|
+| | |
+
+---\n`, 'utf-8');
+    }
+    send('dictionary', 'done', { content: fs_1.default.readFileSync(dictPath, 'utf-8') });
+
+    // -- ACTIONS_SCHEMA.md --
+    send('actions-schema', 'creating');
+    const actionsSchemaPath = path_1.default.join(agentDir, 'ACTIONS_SCHEMA.md');
+    if (!fs_1.default.existsSync(actionsSchemaPath)) {
+      fs_1.default.writeFileSync(actionsSchemaPath, `# actions.json Schema
+
+Write structured actions to \`agent/actions.json\` for batch execution:
+
+\`\`\`json
+{
+  "terminal_id": "term-xxx",
+  "actions": [
+    { "type": "create_problem", "title": "...", "priority": "high", "category": "bug-fix", "description": "..." },
+    { "type": "update_problem", "id": "1.5", "status": "FIXED" },
+    { "type": "complete_checklist", "id": "checklist-item-id" },
+    { "type": "update_request", "id": "1", "status": "IMPLEMENTED" }
+  ]
+}
+\`\`\`
+
+## Available Actions
+
+| Action Type | Description | Required Fields |
+|-------------|-------------|-----------------|
+| \`create_problem\` | Create a new problem entry | title, priority, category, description |
+| \`update_problem\` | Update problem status | id, status |
+| \`complete_checklist\` | Mark checklist item done | id |
+| \`update_request\` | Update request status | id, status |
+
+---
+
+## Examples
+
+### Example 1: Create a bug problem
+\`\`\`json
+{
+  "terminal_id": "term-123",
+  "actions": [
+    { "type": "create_problem", "title": "Feature not working", "priority": "high", "category": "bug-fix", "description": "Description of the bug" }
+  ]
+}
+\`\`\`
+
+### Example 2: Update problem + complete checklist
+\`\`\`json
+{
+  "terminal_id": "term-123",
+  "actions": [
+    { "type": "update_problem", "id": "1.5", "status": "FIXED" },
+    { "type": "complete_checklist", "id": "problem-1.5-step-1" }
+  ]
+}
+\`\`\`
+
+---\n`, 'utf-8');
+    }
+    send('actions-schema', 'done', { content: fs_1.default.readFileSync(actionsSchemaPath, 'utf-8') });
+
+    // -- DEFAULT_SYSTEM_PROMPT.md --
+    send('default-system-prompt', 'creating');
+    const dspPath = path_1.default.join(agentDir, 'DEFAULT_SYSTEM_PROMPT.md');
+    if (!fs_1.default.existsSync(dspPath)) {
+      fs_1.default.writeFileSync(dspPath, `# Default System Prompt
+
+**Purpose:** Default system prompt template for AI agents working on this project.
+
+---
+
+\`\`\`
+You are an AI agent operating within a desktop application built with Electron, React, TypeScript, and SQLite.
+
+## Your Environment
+
+You have access to:
+- The full codebase via file system
+- IPC bridge to interact with the application
+- Terminal sessions for running commands
+- Agent workspace at \`agent/\` for context files
+
+## Communication
+
+You communicate through:
+1. **Terminal** � Running commands, scripts, and builds
+2. **Agent workspace** � Reading/writing context files in \`agent/\`
+3. **Actions** � Use \`## Actions\` blocks or \`agent/actions.json\` for structured operations
+
+## Core Rules
+
+1. Read \`agent/AGENTS.md\` at session start
+2. Read context files before making changes
+3. Run build after code changes
+4. Update \`agent/state.md\` after every change
+5. Check \`agent/PROBLEMS.md\` before starting new work
+6. Never use git checkout/restore/reset commands
+\`\`\`
+
+---\n`, 'utf-8');
+    }
+    send('default-system-prompt', 'done', { content: fs_1.default.readFileSync(dspPath, 'utf-8') });
+
+    // -- RULES_COMPACT.md --
+    send('rules-compact', 'creating');
+    const rulesCompactPath = path_1.default.join(agentDir, 'RULES_COMPACT.md');
+    if (!fs_1.default.existsSync(rulesCompactPath)) {
+      fs_1.default.writeFileSync(rulesCompactPath, `# AGENT RULES (read first � always)
+
+1. At session start: read \`state.md\`, \`context.md\`, active problem, active checklist.
+2. At session end: write ## Session Metadata block. Write actions.json if changes.
+3. actions.json format: { "actions": [ { "type": "...", "payload": {...} } ] }
+4. Never guess file paths. Use list-agent-dir-files if unsure.
+5. If unsure about a term: check glossary.md before asking the user.
+6. After code changes: run \`npm run build\` to verify.
+7. NEVER use git checkout, git restore, git reset, git stash.
+8. NEVER change \`@import "tailwindcss"\` in src/index.css to v3 directives.
+9. Make surgical changes � touch only what you must.
+10. Update \`state.md\` after every change.
+
+---\n`, 'utf-8');
+    }
+    send('rules-compact', 'done', { content: fs_1.default.readFileSync(rulesCompactPath, 'utf-8') });
+
+    // -- TERMINAL_SIDEBAR_REFERENCE.md --
+    send('terminal-sidebar-ref', 'creating');
+    const tsrPath = path_1.default.join(agentDir, 'TERMINAL_SIDEBAR_REFERENCE.md');
+    if (!fs_1.default.existsSync(tsrPath)) {
+      fs_1.default.writeFileSync(tsrPath, `# Terminal Sidebar Reference
+
+**Purpose:** Reference for terminal and workspace sidebar features.
+
+---
+
+## Status Overview
+
+| Feature | Tab/Area | Status |
+|---------|----------|--------|
+| Terminal Tabs | Header | Present |
+| Sidebar Tabs | Sidebar | Present |
+
+## Sidebar Tabs
+
+| Tab | Purpose | Features |
+|-----|---------|----------|
+| Sessions | Session management | List, resume, categorize sessions |
+| Problems | Issue tracker | View, create, update problems |
+| Requests | Request tracker | View, create, update requests |
+| Skills | Skill library | Browse, save, add to project |
+| Files | File browser | Navigate project files |
+| Analytics | Usage analytics | Token usage, cost, agent stats |
+| Map | Session map | Visual session relationship view |
+
+---
+
+## Key Interactions
+
+- **New Session:** Opens NewSessionDialog with agent type selection
+- **Resume Session:** Opens existing session in terminal
+- **Save Checkpoint:** Saves workspace state
+
+---\n`, 'utf-8');
+    }
+    send('terminal-sidebar-ref', 'done', { content: fs_1.default.readFileSync(tsrPath, 'utf-8') });
+
+    // -- TRACKER_MIND_CHECKLIST.md --
+    send('tracker-mind-checklist', 'creating');
+    const tmcPath = path_1.default.join(agentDir, 'TRACKER_MIND_CHECKLIST.md');
+    if (!fs_1.default.existsSync(tmcPath)) {
+      fs_1.default.writeFileSync(tmcPath, `# Tracker Mind � Feature Checklist
+
+## Core Features
+
+### 1. Problems Tab in Workspace Sidebar
+- [ ] Problems tab visible in workspace sidebar
+- [ ] Shows parsed issues from agent/PROBLEMS.md
+- [ ] Groups by status (NEW, In Progress, Fixed, etc.)
+- [ ] Click to view problem details
+- [ ] Create new problem via UI
+- [ ] Change status via UI
+- [ ] Auto-creates/updates PROBLEMS.md
+
+### 2. Requests Tab in Workspace Sidebar
+- [ ] Requests tab visible in workspace sidebar
+- [ ] Shows parsed requests from agent/REQUESTS.md
+- [ ] Groups by status (pending, in_progress, implemented)
+- [ ] Create new request via UI
+- [ ] Change status via UI
+- [ ] Auto-creates/updates REQUESTS.md
+
+### 3. Terminal-Problem Binding
+- [ ] Terminal shows what problem it's working on
+- [ ] Can assign problem to terminal from Problems panel
+- [ ] If no matching terminal exists, can create new terminal for problem
+- [ ] Terminal binding stored and displayed
+
+### 4. Send Instructions to Terminal
+- [ ] In problem detail, can type instructions
+- [ ] Instructions sent to the bound terminal
+
+### 5. Session Management
+- [ ] Session list with status indicators
+- [ ] Session categorization (bug-fix, feature, etc.)
+- [ ] Session resume with context restoration
+
+### 6. Skills System
+- [ ] Browse workspace skill library
+- [ ] Save/bookmark skills
+- [ ] Add skills to project
+- [ ] View skill content inline
+
+---\n`, 'utf-8');
+    }
+    send('tracker-mind-checklist', 'done', { content: fs_1.default.readFileSync(tmcPath, 'utf-8') });
+
+    // -- agent/docs/ subdirectories --
+    const docsDir = path_1.default.join(agentDir, 'docs');
+    const templatesDir = path_1.default.join(agentDir, 'templates');
+    const coreDir = path_1.default.join(agentDir, 'core');
+    const contextDir = path_1.default.join(agentDir, 'context');
+
+    send('docs-dir', 'creating');
+    if (!fs_1.default.existsSync(docsDir)) fs_1.default.mkdirSync(docsDir, { recursive: true });
+    send('docs-dir', 'done');
+
+    send('templates-dir', 'creating');
+    if (!fs_1.default.existsSync(templatesDir)) fs_1.default.mkdirSync(templatesDir, { recursive: true });
+    send('templates-dir', 'done');
+
+    send('core-dir', 'creating');
+    if (!fs_1.default.existsSync(coreDir)) fs_1.default.mkdirSync(coreDir, { recursive: true });
+    send('core-dir', 'done');
+
+    send('context-dir', 'creating');
+    if (!fs_1.default.existsSync(contextDir)) fs_1.default.mkdirSync(contextDir, { recursive: true });
+    send('context-dir', 'done');
+
+    // Step 14: skills directory (moved after new config files)
+    send('skills-dir', 'creating');
 
     // Step 15: Skill templates
     send('skill-templates', 'creating');
@@ -13727,7 +15609,25 @@ Systematically analyze and fix issues in the codebase.
     }
     send('skill-templates', 'done', { content: skillContent });
 
-    // Step 16: graphify-out directory
+    // -- Skill subdirectories --
+    const skillSubDirs = [
+      'agent-reflect', 'commit', 'deep-research', 'deep-research-prompt',
+      'design-taste', 'fix-problems', 'frontend-design', 'generate-problem',
+      'generate-prompt', 'google-stitch', 'impeccable', 'maintain-context',
+      'readme-generator', 'recursive-playwright', 'sqlite-js-migration',
+      'taste-skill', 'terminal-agent', 'ui-ux-pro-max',
+    ];
+    for (const sub of skillSubDirs) {
+      const stepId = `skill-${sub.replace(/-/g, '-')}`;
+      send(stepId, 'creating');
+      const subDir = path_1.default.join(skillsDir, sub);
+      if (!fs_1.default.existsSync(subDir)) {
+        fs_1.default.mkdirSync(subDir, { recursive: true });
+      }
+      send(stepId, 'done');
+    }
+
+    // -- graphify-out directory --
     send('graphify-dir', 'creating');
     if (!fs_1.default.existsSync(graphifyDir)) {
       fs_1.default.mkdirSync(graphifyDir, { recursive: true });
@@ -13744,7 +15644,7 @@ Systematically analyze and fix issues in the codebase.
   }
 }
 
-// TODO: tracker-mind-generate â€” handler for generating content via tracker mind (e.g., prompts, summaries)
+// TODO: tracker-mind-generate — handler for generating content via tracker mind (e.g., prompts, summaries)
 // TODO: Tracker Mind Setup Handler
 electron_1.ipcMain.handle('tracker-mind-setup', async (event, { step, projectId, agentName }: { step: string; projectId?: string; agentName?: string }) => {
   try {
@@ -13791,9 +15691,9 @@ electron_1.ipcMain.handle('tracker-mind-setup', async (event, { step, projectId,
         ].join('\n');
 
         const agentsPath = path_1.default.join(agentDir, 'AGENTS.md');
-        const agentsContent = `# ðŸ¤– AI Agent Workspace
+        const agentsContent = `# 🤖 AI Agent Workspace
 
-> **Auto-generated by Tracker Mind** â€” ${new Date().toISOString()}
+> **Auto-generated by Tracker Mind** — ${new Date().toISOString()}
 > **Target Agent:** ${agent}
 
 ## Workspace Context
@@ -13853,7 +15753,7 @@ These actions will be automatically executed to keep the project board in sync.
 
       case 'init-initialize-md': {
         const initPath = path_1.default.join(agentDir, 'INITIALIZE.md');
-        const initContent = `# ðŸš€ Workspace Initialization Guide
+        const initContent = `# 🚀 Workspace Initialization Guide
 
 > **Generated for:** ${agent}
 > **Date:** ${new Date().toISOString()}
@@ -13872,9 +15772,9 @@ ${agent === 'opencode' ? `Run: \`opencode --init\` in the project root to initia
 
 ## Step 3: Review Project State
 
-- \`state.md\` â€” Current project state and recent changes
-- \`PROBLEMS.md\` â€” Known issues to fix
-- \`REQUESTS.md\` â€” User feature requests
+- \`state.md\` — Current project state and recent changes
+- \`PROBLEMS.md\` — Known issues to fix
+- \`REQUESTS.md\` — User feature requests
 
 ## Step 4: Skills Setup
 
@@ -13917,7 +15817,7 @@ Browse the \`skills/\` directory and load relevant skills for your tasks.
             if (existing.length > 0) {
               console.log('[Tracker Mind] REQUESTS.md auto-created by RequestsService');
             } else {
-              const initialContent = `# ðŸ“‹ User Requests Log\n\n> **Purpose:** Track all user requests.\n> **Last Updated:** ${new Date().toISOString()}\n\n---\n\n<!-- No requests yet. -->\n`;
+              const initialContent = `# 📋 User Requests Log\n\n> **Purpose:** Track all user requests.\n> **Last Updated:** ${new Date().toISOString()}\n\n---\n\n<!-- No requests yet. -->\n`;
               fs_1.default.writeFileSync(requestsPath, initialContent, 'utf-8');
             }
           } catch (e) {
@@ -13958,7 +15858,7 @@ Browse the \`skills/\` directory and load relevant skills for your tasks.
       case 'init-state-md': {
         const statePath = path_1.default.join(agentDir, 'state.md');
         if (!fs_1.default.existsSync(statePath)) {
-          const initialContent = `# ðŸ“Œ Project State
+          const initialContent = `# 📌 Project State
 
 **Purpose:** Current status, known issues, and recent changes for Tracker Mind.
 
@@ -13968,7 +15868,7 @@ Browse the \`skills/\` directory and load relevant skills for your tasks.
 
 ## Recent Changes
 
-### ${new Date().toISOString().split('T')[0]} â€” Initial Setup
+### ${new Date().toISOString().split('T')[0]} — Initial Setup
 
 - Initialized Tracker Mind structure
 - Created agent/ directory
@@ -14184,7 +16084,7 @@ electron_1.ipcMain.handle('list-project-files', async (_, subDir?: string, proje
   }
 });
 
-// List directory entries (for ContextService â€” returns names only)
+// List directory entries (for ContextService — returns names only)
 electron_1.ipcMain.handle('list-directory', async (_, { projectPath, relativePath }: { projectPath: string; relativePath: string }) => {
   try {
     if (!projectPath) return { success: false, error: 'No project path provided', data: [] };
@@ -14233,7 +16133,7 @@ electron_1.ipcMain.handle('update-state-from-agent', async (_, data: {
       const requestsPath = path_1.default.join(agentDir, 'REQUESTS.md');
       let content = fs_1.default.existsSync(requestsPath) 
         ? fs_1.default.readFileSync(requestsPath, 'utf-8')
-        : '# ðŸ“‹ User Requests Log\n\n> Auto-generated by Tracker Mind\n\n---\n\n';
+        : '# 📋 User Requests Log\n\n> Auto-generated by Tracker Mind\n\n---\n\n';
       
       const requestNum = (content.match(/### Request #(\d+)/g) || []).length + 1;
       const newRequest = `### Request #${requestNum} - ${data.updates.newRequest.title}\n\n`;
@@ -14331,7 +16231,7 @@ electron_1.ipcMain.handle('get-base-system-prompt', async (_, agent: string) => 
   }
 });
 
-// â”€â”€ AI Task Status IPC â”€â”€
+// ── AI Task Status IPC ──
 electron_1.ipcMain.handle('get-prompt-status', async (_event, terminalId?: string) => {
   if (!db) return { success: false, data: [] };
   try {
@@ -14351,7 +16251,7 @@ electron_1.ipcMain.handle('get-prompt-status', async (_event, terminalId?: strin
   }
 });
 
-// â”€â”€ AI Task File Watcher (agent/ai-tasks.json) â”€â”€
+// ── AI Task File Watcher (agent/ai-tasks.json) ──
 const aiTaskWatchers = new Map<string, { watcher: any; debounce: any }>();
 
 electron_1.ipcMain.handle('ai-task:watch', async (_event, projectPath: string) => {
@@ -14477,7 +16377,7 @@ electron_1.ipcMain.handle('unregister-terminal', async (event, terminalId: strin
   }
 });
 
-// â”€â”€ Cross-Session Sync IPC Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Cross-Session Sync IPC Handlers ─────────────────────────────
 
 electron_1.ipcMain.handle('lock-file', async (_event, filePath: string, terminalId: string, sessionId: string | null, action?: string) => {
   const result = acquireLock(filePath, terminalId, sessionId, action);
@@ -14537,7 +16437,7 @@ electron_1.ipcMain.handle('compile-sync-summary', async (_event, terminalId: str
       
       if (binding.active_problem_id) {
         const problem = db.prepare('SELECT title, description FROM problems WHERE id = ?').get(binding.active_problem_id) as any;
-        if (problem) lines.push(`  Active Problem: ${problem.title} â€” ${problem.description || 'no description'}`);
+        if (problem) lines.push(`  Active Problem: ${problem.title} — ${problem.description || 'no description'}`);
       }
       
       if (binding.session_context) {

@@ -81,7 +81,16 @@ interface InsightsPageProps {
   browserLogs?: any[];
   appStats?: AppStat[];
   selectedPeriod?: Period;
+  dateOffset?: number;
+  onDateOffsetChange?: (offset: number) => void;
   tierAssignments?: { productive: string[]; neutral: string[]; distracting: string[] };
+}
+
+function periodToDays(period: Period): number {
+  if (period === 'today') return 7;
+  if (period === 'week' || period === '7day') return 7;
+  if (period === 'month' || period === '30day') return 30;
+  return 365;
 }
 
 function formatHours(seconds: number): string {
@@ -141,6 +150,8 @@ export default function InsightsPage({
   browserLogs = [],
   appStats = [],
   selectedPeriod: parentPeriod = 'week',
+  dateOffset = 0,
+  onDateOffsetChange,
   tierAssignments = { productive: ['IDE', 'AI Tools', 'Developer Tools', 'Education', 'Productivity', 'Tools'], neutral: ['Communication', 'Design', 'Search Engine', 'News', 'Uncategorized', 'Other', 'Browser'], distracting: ['Entertainment', 'Social Media', 'Shopping'] },
 }: InsightsPageProps) {
   const [stats, setStats] = useState<ExternalStats>({ byActivity: {}, total_seconds: 0, sleep_deficit_seconds: 0, average_sleep_hours: 0 });
@@ -149,29 +160,38 @@ export default function InsightsPage({
   const [bestDays, setBestDays] = useState<{ bestDay: string; worstDay: string; averages: Record<string, number> }>({ bestDay: 'Mon', worstDay: 'Sun', averages: {} });
   const [typicalDayData, setTypicalDayData] = useState<TypicalDayData | null>(null);
   const [tooltip, setTooltip] = useState<{ day: number; hour: number; x: number; y: number } | null>(null);
-  const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month'>('week');
   const [activeTab, setActiveTab] = useState<'typical' | 'weekly' | 'activities'>('typical');
   const [dailyStats, setDailyStats] = useState<any[]>([]);
 
   useEffect(() => {
-    const p = selectedPeriod === 'week' ? 'week' : 'month';
-    window.deskflowAPI?.getExternalStats(p).then(setStats);
-    window.deskflowAPI?.getConsistencyScore(selectedPeriod).then(setConsistency);
-    window.deskflowAPI?.getSleepTrends(selectedPeriod).then(setSleepTrends);
+    const statsPeriod = parentPeriod === 'today' ? 'week' : parentPeriod === '7day' ? 'week' : parentPeriod === '30day' ? 'month' : parentPeriod === 'all' ? 'month' : parentPeriod;
+    window.deskflowAPI?.getExternalStats(parentPeriod).then(setStats);
+    window.deskflowAPI?.getConsistencyScore(statsPeriod as 'week' | 'month').then(setConsistency);
+    window.deskflowAPI?.getSleepTrends(parentPeriod, dateOffset).then(setSleepTrends);
     window.deskflowAPI?.getBestDays().then(setBestDays);
-    window.deskflowAPI?.getTypicalDay(30).then((result: any) => {
-      if (result?.grid) setTypicalDayData(result as TypicalDayData);
-    });
-    window.deskflowAPI?.getDailyStats?.(p).then((data: any) => setDailyStats(Array.isArray(data) ? data : []));
-  }, [selectedPeriod]);
+    window.deskflowAPI?.getDailyStats?.(statsPeriod as 'week' | 'month' | 'all').then((data: any) => setDailyStats(Array.isArray(data) ? data : []));
+  }, [parentPeriod, dateOffset]);
+
+  useEffect(() => {
+    const fetchTypicalDay = () => {
+      const days = periodToDays(parentPeriod);
+      window.deskflowAPI?.getTypicalDay(days, dateOffset).then((result: any) => {
+        if (result?.grid) setTypicalDayData(result as TypicalDayData);
+      });
+    };
+    fetchTypicalDay();
+    const interval = setInterval(fetchTypicalDay, 60000);
+    return () => clearInterval(interval);
+  }, [parentPeriod, dateOffset]);
 
   const sleepTrendData = useMemo(() => {
-    const days = selectedPeriod === 'week' ? 7 : 30;
+    const days = parentPeriod === 'today' || parentPeriod === 'week' || parentPeriod === '7day' ? 7 : parentPeriod === 'all' ? 90 : 30;
     const labels: string[] = [];
     const sleepData: number[] = [];
     const deficitData: number[] = [];
+    const offsetDays = dateOffset * (parentPeriod === 'week' || parentPeriod === '7day' ? 7 : parentPeriod === 'today' ? 1 : parentPeriod === 'all' ? 365 : 30);
     for (let i = days - 1; i >= 0; i--) {
-      const date = subDays(new Date(), i);
+      const date = subDays(new Date(), i + offsetDays);
       labels.push(format(date, 'MMM d'));
       const dayStr = format(date, 'yyyy-MM-dd');
       const dayData = sleepTrends.daily.find(d => d.date === dayStr);
@@ -179,7 +199,7 @@ export default function InsightsPage({
       deficitData.push((dayData?.deficit_seconds || 0) / 3600);
     }
     return { labels, sleepData, deficitData };
-  }, [sleepTrends, selectedPeriod]);
+  }, [sleepTrends, parentPeriod, dateOffset]);
 
   const weeklyData = useMemo(() => {
     const labels = consistency.weekly_comparison.map(w => w.week.slice(5));
@@ -359,14 +379,11 @@ export default function InsightsPage({
               </button>
             ))}
           </div>
-          <select
-            value={selectedPeriod}
-            onChange={(e) => setSelectedPeriod(e.target.value as any)}
-            className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300 cursor-pointer hover:border-zinc-600 transition-colors"
-          >
-            <option value="week">This Week</option>
-            <option value="month">This Month</option>
-          </select>
+          <div className="text-xs text-zinc-500 bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-1.5">
+            {dateOffset === 0
+              ? parentPeriod === 'today' ? 'Today' : parentPeriod === 'week' ? 'This Week' : parentPeriod === '7day' ? 'Last 7 Days' : parentPeriod === 'month' ? 'This Month' : parentPeriod === '30day' ? 'Last 30 Days' : 'All Time'
+              : `${parentPeriod.charAt(0).toUpperCase() + parentPeriod.slice(1)} -${dateOffset}`}
+          </div>
         </div>
       </div>
 
@@ -420,6 +437,7 @@ export default function InsightsPage({
             {typicalDayData && (
               <p className="text-xs text-zinc-500 mt-0.5 mb-4">
                 Activity patterns across {typicalDayData.daysCovered} days
+                {parentPeriod === 'today' && <span className="text-zinc-600"> — minimum 7 days needed for pattern</span>}
               </p>
             )}
 
@@ -484,8 +502,10 @@ export default function InsightsPage({
                             {dayData.map((cell, hourIdx) => (
                               <div
                                 key={hourIdx}
-                                onMouseEnter={(e) => setTooltip({ day: dayIdx, hour: hourIdx, x: e.clientX, y: e.clientY })}
-                                onMouseMove={(e) => setTooltip((prev) => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
+                                onMouseEnter={(e) => {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setTooltip({ day: dayIdx, hour: hourIdx, x: rect.left + rect.width / 2, y: rect.top });
+                                }}
                                 onMouseLeave={() => setTooltip(null)}
                                 onClick={() => console.log('Clicked:', DAY_LABELS[dayIdx], hourLabels[hourIdx])}
                                 className="flex-1 aspect-square cursor-pointer transition-transform hover:scale-110 hover:z-10 relative rounded-sm"
@@ -511,8 +531,12 @@ export default function InsightsPage({
 
                   {tooltip && data.grid[tooltip.day]?.[tooltip.hour] && (
                     <div
-                      className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 min-w-[160px]"
-                      style={{ left: tooltip.x + 12, top: tooltip.y + 12 }}
+                      className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 min-w-[160px] pointer-events-none"
+                      style={{
+                        left: tooltip.x,
+                        top: tooltip.y - 4,
+                        transform: 'translate(-50%, -100%)',
+                      }}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-medium text-zinc-200">{DAY_LABELS[tooltip.day]} {hourLabels[tooltip.hour]}</span>
@@ -849,151 +873,189 @@ export default function InsightsPage({
               <GlassCard>
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-sm font-semibold text-zinc-200">Time Distribution</h3>
+                    <h3 className="text-sm font-semibold text-zinc-100">Time Distribution</h3>
                     <p className="text-xs text-zinc-500 mt-0.5">Device vs external activity split</p>
-                  </div>
-                  <div className="flex items-center gap-4 text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 rounded-sm bg-cyan-400" />
-                      <span className="text-zinc-500">Device</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 rounded-sm bg-purple-400" />
-                      <span className="text-zinc-500">External</span>
-                    </div>
                   </div>
                 </div>
 
                 {timeSplit.total > 0 ? (
                   <>
-                    {/* Split bar visualization */}
-                    <div className="relative mb-5">
-                      <div className="flex h-10 rounded-lg overflow-hidden bg-zinc-900/50">
-                        <div 
-                          className="flex items-center justify-center bg-gradient-to-r from-cyan-600/80 to-cyan-500/60 transition-colors duration-500"
-                          style={{ width: `${timeSplit.total > 0 ? (timeSplit.deviceSec / timeSplit.total) * 100 : 0}%` }}
-                        >
-                          {timeSplit.deviceSec / timeSplit.total > 0.15 && (
-                            <span className="text-xs font-semibold text-white px-2 truncate">
+                    {/* Animated split bar with glass texture */}
+                    <div className="relative mb-6">
+                      <div className="flex h-11 rounded-xl overflow-hidden bg-zinc-900/60 backdrop-blur-sm border border-zinc-800/40 shadow-inner">
+                        <motion.div
+          key={`device-${timeSplit.deviceSec}`}
+          initial={{ width: 0 }}
+          animate={{ width: `${timeSplit.total > 0 ? (timeSplit.deviceSec / timeSplit.total) * 100 : 0}%` }}
+          transition={{ duration: 0.8, ease: 'easeOut' }}
+          className="flex items-center justify-center relative overflow-hidden"
+        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-teal-600/90 to-teal-500/80" />
+                          <div className="absolute inset-0 bg-[repeating-linear-gradient(45deg,transparent,transparent_8px,rgba(255,255,255,0.03)_8px,rgba(255,255,255,0.03)_16px)]" />
+                          {timeSplit.deviceSec / timeSplit.total > 0.12 && (
+                            <span className="relative text-xs font-bold text-white drop-shadow-sm">
                               {Math.round((timeSplit.deviceSec / timeSplit.total) * 100)}%
                             </span>
                           )}
-                        </div>
-                        <div 
-                          className="flex items-center justify-center bg-gradient-to-r from-purple-600/80 to-purple-500/60 transition-colors duration-500"
-                          style={{ width: `${timeSplit.total > 0 ? (timeSplit.externalSec / timeSplit.total) * 100 : 0}%` }}
-                        >
-                          {timeSplit.externalSec / timeSplit.total > 0.15 && (
-                            <span className="text-xs font-semibold text-white px-2 truncate">
+                        </motion.div>
+                        <motion.div
+          key={`external-${timeSplit.externalSec}`}
+          initial={{ width: 0 }}
+          animate={{ width: `${timeSplit.total > 0 ? (timeSplit.externalSec / timeSplit.total) * 100 : 0}%` }}
+          transition={{ duration: 0.8, ease: 'easeOut', delay: 0.1 }}
+          className="flex items-center justify-center relative overflow-hidden"
+        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-violet-600/90 to-violet-500/80" />
+                          <div className="absolute inset-0 bg-[repeating-linear-gradient(-45deg,transparent,transparent_8px,rgba(255,255,255,0.03)_8px,rgba(255,255,255,0.03)_16px)]" />
+                          {timeSplit.externalSec / timeSplit.total > 0.12 && (
+                            <span className="relative text-xs font-bold text-white drop-shadow-sm">
                               {Math.round((timeSplit.externalSec / timeSplit.total) * 100)}%
                             </span>
                           )}
+                        </motion.div>
+                      </div>
+                      <div className="flex items-center justify-center gap-5 mt-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2.5 h-2.5 rounded-sm bg-teal-400 shadow-[0_0_6px_rgba(45,212,191,0.3)]" />
+                          <span className="text-[11px] text-zinc-500">Device</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2.5 h-2.5 rounded-sm bg-violet-400 shadow-[0_0_6px_rgba(139,92,246,0.3)]" />
+                          <span className="text-[11px] text-zinc-500">External</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Stats row */}
-                    <div className="grid grid-cols-2 gap-4 mb-5">
-                      <div className="bg-zinc-900/40 rounded-xl p-4 border border-zinc-800/50">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
-                            <Monitor className="w-3.5 h-3.5 text-cyan-400" />
-                          </div>
-                          <span className="text-xs text-zinc-500 font-medium">Device Time</span>
-                        </div>
-                        <div className="text-2xl font-bold text-cyan-300 tabular-nums">
-                          {formatHours(timeSplit.deviceSec)}
-                        </div>
-                        <div className="text-[10px] text-zinc-600 mt-1">
-                          {timeSplit.total > 0 ? Math.round((timeSplit.deviceSec / timeSplit.total) * 100) : 0}% of total
-                        </div>
-                      </div>
-                      <div className="bg-zinc-900/40 rounded-xl p-4 border border-zinc-800/50">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-                            <Globe className="w-3.5 h-3.5 text-purple-400" />
-                          </div>
-                          <span className="text-xs text-zinc-500 font-medium">External Time</span>
-                        </div>
-                        <div className="text-2xl font-bold text-purple-300 tabular-nums">
-                          {formatHours(timeSplit.externalSec)}
-                        </div>
-                        <div className="text-[10px] text-zinc-600 mt-1">
-                          {timeSplit.total > 0 ? Math.round((timeSplit.externalSec / timeSplit.total) * 100) : 0}% of total
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Productivity tier breakdown */}
-                    <div className="border-t border-zinc-700/50 pt-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs text-zinc-500 font-medium">Productivity Breakdown</span>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-sm font-bold ${tierDistribution.score >= 70 ? 'text-emerald-400' : tierDistribution.score >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
-                            {Math.round(tierDistribution.score)}%
-                          </span>
-                          <span className="text-[10px] text-zinc-600">score</span>
-                        </div>
-                      </div>
-                      
-                      {/* Score bar */}
-                      <div className="h-2 bg-zinc-900/60 rounded-full overflow-hidden mb-4">
-                        <div 
-                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-cyan-500 to-purple-500 transition-colors duration-500"
-                          style={{ width: `${tierDistribution.score}%` }}
-                        />
-                      </div>
-
-                      {/* Tier bars */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                            <span className="text-xs text-zinc-400">Productive</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="w-20 h-1.5 bg-zinc-900/60 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full rounded-full bg-emerald-500 transition-colors duration-500"
-                                style={{ width: `${tierDistribution.total > 0 ? (tierDistribution.productive / tierDistribution.total) * 100 : 0}%` }}
-                              />
+                    {/* Glass stat cards */}
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="relative group"
+        >
+                          <div className="absolute inset-0 bg-gradient-to-br from-teal-500/5 to-transparent rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                          <div className="relative bg-zinc-900/40 backdrop-blur-xl rounded-xl p-4 border border-zinc-800/40 hover:border-teal-500/20 transition-colors duration-300">
+                            <div className="flex items-center gap-2.5 mb-3">
+                              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-500/15 to-teal-500/5 border border-teal-500/20 flex items-center justify-center shadow-lg shadow-teal-500/5">
+                                <Monitor className="w-4 h-4 text-teal-300" />
+                              </div>
+                              <span className="text-[11px] text-zinc-400 font-medium tracking-wide uppercase">Device Time</span>
                             </div>
-                            <span className="text-xs font-medium text-emerald-400 tabular-nums w-16 text-right">
+                            <div className="text-2xl font-bold text-teal-200 tabular-nums tracking-tight">
+                              {formatHours(timeSplit.deviceSec)}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <div className="h-1 flex-1 bg-zinc-800/60 rounded-full overflow-hidden">
+                                <div
+          className="h-full rounded-full bg-gradient-to-r from-teal-500 to-teal-400"
+          style={{ width: `${timeSplit.total > 0 ? (timeSplit.deviceSec / timeSplit.total) * 100 : 0}%` }}
+        />
+                              </div>
+                              <span className="text-[10px] text-zinc-600 tabular-nums">
+                                {timeSplit.total > 0 ? Math.round((timeSplit.deviceSec / timeSplit.total) * 100) : 0}%
+                              </span>
+                            </div>
+                          </div>
+                        </motion.div>
+
+                      <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="relative group"
+        >
+                          <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                          <div className="relative bg-zinc-900/40 backdrop-blur-xl rounded-xl p-4 border border-zinc-800/40 hover:border-violet-500/20 transition-colors duration-300">
+                            <div className="flex items-center gap-2.5 mb-3">
+                              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500/15 to-violet-500/5 border border-violet-500/20 flex items-center justify-center shadow-lg shadow-violet-500/5">
+                                <Globe className="w-4 h-4 text-violet-300" />
+                              </div>
+                              <span className="text-[11px] text-zinc-400 font-medium tracking-wide uppercase">External Time</span>
+                            </div>
+                            <div className="text-2xl font-bold text-violet-200 tabular-nums tracking-tight">
+                              {formatHours(timeSplit.externalSec)}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <div className="h-1 flex-1 bg-zinc-800/60 rounded-full overflow-hidden">
+                                <div
+          className="h-full rounded-full bg-gradient-to-r from-violet-500 to-violet-400"
+          style={{ width: `${timeSplit.total > 0 ? (timeSplit.externalSec / timeSplit.total) * 100 : 0}%` }}
+        />
+                              </div>
+                              <span className="text-[10px] text-zinc-600 tabular-nums">
+                                {timeSplit.total > 0 ? Math.round((timeSplit.externalSec / timeSplit.total) * 100) : 0}%
+                              </span>
+                            </div>
+                          </div>
+                        </motion.div>
+                    </div>
+
+                    {/* Productivity breakdown with circular gauge */}
+                    <div className="border-t border-zinc-700/30 pt-5">
+                      <div className="flex items-center justify-center gap-8 mb-4">
+                        {/* Circular gauge */}
+                        <div className="relative" style={{ width: 110, height: 110 }}>
+                          <svg width={110} height={110} className="transform -rotate-90">
+                            <defs>
+                              <linearGradient id="scoreGaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stopColor="#f43f5e" />
+                                <stop offset="50%" stopColor="#f59e0b" />
+                                <stop offset="100%" stopColor="#10b981" />
+                              </linearGradient>
+                            </defs>
+                            <circle cx={55} cy={55} r={47} stroke="rgba(39,39,42,0.6)" strokeWidth={8} fill="none" />
+                            <motion.circle
+          key={`gauge-${Math.round(tierDistribution.score)}`}
+          cx={55} cy={55} r={47}
+          stroke="url(#scoreGaugeGrad)"
+          strokeWidth={8}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={295.31}
+          initial={{ strokeDashoffset: 295.31 }}
+          animate={{ strokeDashoffset: 295.31 - (tierDistribution.score / 100) * 295.31 }}
+          transition={{ duration: 1.2, ease: 'easeOut' }}
+        />
+                          </svg>
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className={`text-xl font-bold ${tierDistribution.score >= 70 ? 'text-emerald-300' : tierDistribution.score >= 40 ? 'text-amber-300' : 'text-rose-300'}`}>
+                              {Math.round(tierDistribution.score)}%
+                            </span>
+                            <span className="text-[9px] text-zinc-600 mt-0.5">score</span>
+                          </div>
+                        </div>
+
+                        {/* Tier list */}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.3)]" />
+                            <span className="text-xs text-zinc-400 w-20">Productive</span>
+                            <span className="text-xs font-medium text-emerald-300 tabular-nums w-14 text-right">
                               {formatDuration(tierDistribution.productive / 1000)}
                             </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-blue-400" />
-                            <span className="text-xs text-zinc-400">Neutral</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="w-20 h-1.5 bg-zinc-900/60 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full rounded-full bg-blue-500 transition-colors duration-500"
-                                style={{ width: `${tierDistribution.total > 0 ? (tierDistribution.neutral / tierDistribution.total) * 100 : 0}%` }}
-                              />
-                            </div>
-                            <span className="text-xs font-medium text-blue-400 tabular-nums w-16 text-right">
-                              {formatDuration(tierDistribution.neutral / 1000)}
+                            <span className="text-[10px] text-zinc-600 w-8 text-right">
+                              {tierDistribution.total > 0 ? Math.round((tierDistribution.productive / tierDistribution.total) * 100) : 0}%
                             </span>
                           </div>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-red-400" />
-                            <span className="text-xs text-zinc-400">Distracting</span>
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-2.5 h-2.5 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.3)]" />
+                            <span className="text-xs text-zinc-400 w-20">Neutral</span>
+                            <span className="text-xs font-medium text-blue-300 tabular-nums w-14 text-right">
+                              {formatDuration(tierDistribution.neutral / 1000)}
+                            </span>
+                            <span className="text-[10px] text-zinc-600 w-8 text-right">
+                              {tierDistribution.total > 0 ? Math.round((tierDistribution.neutral / tierDistribution.total) * 100) : 0}%
+                            </span>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <div className="w-20 h-1.5 bg-zinc-900/60 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full rounded-full bg-red-500 transition-colors duration-500"
-                                style={{ width: `${tierDistribution.total > 0 ? (tierDistribution.distracting / tierDistribution.total) * 100 : 0}%` }}
-                              />
-                            </div>
-                            <span className="text-xs font-medium text-red-400 tabular-nums w-16 text-right">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-2.5 h-2.5 rounded-full bg-rose-400 shadow-[0_0_6px_rgba(251,113,133,0.3)]" />
+                            <span className="text-xs text-zinc-400 w-20">Distracting</span>
+                            <span className="text-xs font-medium text-rose-300 tabular-nums w-14 text-right">
                               {formatDuration(tierDistribution.distracting / 1000)}
+                            </span>
+                            <span className="text-[10px] text-zinc-600 w-8 text-right">
+                              {tierDistribution.total > 0 ? Math.round((tierDistribution.distracting / tierDistribution.total) * 100) : 0}%
                             </span>
                           </div>
                         </div>

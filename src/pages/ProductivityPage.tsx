@@ -493,7 +493,7 @@ export default function ProductivityPage({
           let currentMs = sessionStart;
           while (currentMs < sessionEnd) {
             const currentHour = new Date(currentMs).getHours();
-            const segmentHourStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), currentHour).getTime();
+            const segmentHourStart = new Date(range.start.getFullYear(), range.start.getMonth(), range.start.getDate(), currentHour).getTime();
             const segmentHourEnd = segmentHourStart + 3600000;
             const segmentStart = Math.max(currentMs, segmentHourStart);
             const segmentEnd = Math.min(sessionEnd, segmentHourEnd);

@@ -6,7 +6,7 @@ import {
   TrendingUp, TrendingDown, Minus, Lightbulb, Zap, Heart, Brain,
   Code, Laptop, Wrench, Cog, Music, Gamepad2, Footprints, Droplets,
   Wind, Flame, Backpack, Dribbble, Palette, Edit3, Pencil,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, GripVertical,
   PieChart as PieChartIcon, BarChart3
 } from 'lucide-react';
 import {
@@ -189,6 +189,9 @@ function formatBedtime(date: Date): string {
 
 export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange }: { selectedPeriod?: Period; dateOffset?: number; onDateOffsetChange?: (offset: number) => void }) {
   const [activities, setActivities] = useState<ExternalActivity[]>([]);
+  const [orderedActivities, setOrderedActivities] = useState<ExternalActivity[]>([]);
+  const dragIndex = useRef<number | null>(null);
+  useEffect(() => { setOrderedActivities(activities); }, [activities]);
   const [stats, setStats] = useState<ExternalStats>({ byActivity: {}, total_seconds: 0, sleep_deficit_seconds: 0, average_sleep_hours: 0 });
   const [consistency, setConsistency] = useState<ConsistencyData>({ score: 0, weekly_comparison: [] });
   const [allSessions, setAllSessions] = useState<any[]>([]);
@@ -779,7 +782,6 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => window.dispatchEvent(new Event('open-gap-panel'))} className="px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 transition">Gaps</button>
-          <button onClick={() => window.dispatchEvent(new Event('trigger-afk-debug'))} className="px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 transition">🐛 AFK</button>
           <button onClick={() => setShowPastSleepModal(true)} className="px-3 py-1.5 rounded-lg text-sm text-amber-400 hover:text-amber-300 transition">+ Sleep</button>
         </div>
       </div>
@@ -1351,13 +1353,43 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
         
           <div className="relative mb-8">
             <div className="grid grid-cols-4 gap-4">
-              {activities.map((activity) => {
+              {orderedActivities.map((activity, idx) => {
                 const Icon = getIcon(activity.icon);
                 const actStats = stats.byActivity[activity.name];
                 const totalSeconds = actStats?.total_seconds || 0;
+                const isDragging = dragIndex.current === idx;
+                const isOver = dragIndex.current !== null && !isDragging;
                 return (
-                  <div key={activity.id} className="relative group" data-activity-card>
-                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-colors duration-150 hover:ring-2 w-full h-[140px] ${selectedActivity?.id === activity.id ? 'ring-2' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
+                  <div
+                    key={activity.id}
+                    className="relative group"
+                    data-activity-card
+                    draggable
+                    onDragStart={(e) => { dragIndex.current = idx; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)); }}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const from = dragIndex.current;
+                      dragIndex.current = null;
+                      if (from === null || from === idx) return;
+                      setOrderedActivities(prev => {
+                        const reordered = [...prev];
+                        const [moved] = reordered.splice(from, 1);
+                        reordered.splice(idx, 0, moved);
+                        if (window.deskflowAPI?.reorderExternalActivities) {
+                          window.deskflowAPI.reorderExternalActivities(reordered.map((a, i) => ({ id: a.id, sort_order: i })));
+                        }
+                        return reordered;
+                      });
+                    }}
+                    onDragEnd={() => { dragIndex.current = null; }}
+                    style={{ opacity: isDragging ? 0.4 : 1 }}
+                  >
+                    {/* Drag handle dots — left side */}
+                    <div className="absolute top-2 left-2 flex flex-col gap-[2px] opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/5">
+                      <GripVertical className="w-3.5 h-3.5 text-zinc-500" />
+                    </div>
+                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-colors duration-150 hover:ring-2 w-full h-[140px] ${selectedActivity?.id === activity.id ? 'ring-2' : ''} ${isOver ? 'ring-1 ring-white/10' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
                       <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: activity.color }}><Icon className="w-6 h-6 text-white" /></div>
                       <div className="text-center min-w-0"><div className="font-medium text-zinc-100 text-sm leading-tight truncate">{activity.name}</div><div className="text-xs text-zinc-400 mt-0.5">{formatHours(totalSeconds)}</div></div>
                       <div className="w-full h-8 flex items-end gap-[2px] px-1">
@@ -1371,9 +1403,9 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                             dayData.push(daySec);
                           }
                           const maxD = Math.max(...dayData, 1);
-                          return dayData.map((sec, idx) => (
-                            <div key={idx} className="flex-1 flex flex-col items-center">
-                              <div style={{ height: `${Math.max(2, (sec / maxD) * 24)}px`, backgroundColor: idx === 6 ? '#FCD34D' : activity.color }} className="w-full rounded-t" />
+                          return dayData.map((sec, dIdx) => (
+                            <div key={dIdx} className="flex-1 flex flex-col items-center">
+                              <div style={{ height: `${Math.max(2, (sec / maxD) * 24)}px`, backgroundColor: dIdx === 6 ? '#FCD34D' : activity.color }} className="w-full rounded-t" />
                             </div>
                           ));
                         })()}
@@ -1621,7 +1653,8 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                             <span className="text-zinc-500"> → </span>
                             🌅 {(() => {
                               const wakeD = new Date(day.date + 'T00:00:00');
-                              if (wakeMin <= appExitMin) wakeD.setDate(wakeD.getDate() + 1);
+                              const shifted = appExitMin < 720; // bedtime was AM → grouped as previous day
+                              if (wakeMin <= appExitMin || shifted) wakeD.setDate(wakeD.getDate() + 1);
                               return wakeD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                             })()}
                           </div>

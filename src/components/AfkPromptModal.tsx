@@ -194,7 +194,7 @@ export default function AfkPromptModal({
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.92, opacity: 0, y: 10 }}
         transition={{ type: 'spring', duration: 0.4, bounce: 0.25 }}
-        className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-sm overflow-hidden"
+        className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-xl max-h-[min(640px,85vh)] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="h-1 bg-gradient-to-r from-indigo-500/40 via-emerald-500/40 to-indigo-500/40" />
@@ -263,14 +263,33 @@ export default function AfkPromptModal({
                 return elems;
               })}
             </div>
-            <div className="flex justify-between text-[10px] text-zinc-600 mt-1">
-              <span>{formatTime(new Date(periodStart).getTime())}</span>
-              <span>{formatTime(new Date(periodEnd).getTime())}</span>
+            {/* Edge times — positioned at divider locations */}
+            <div className="relative text-[10px] text-zinc-500 mt-1 h-4">
+              {(() => {
+                const total = totalDurationSeconds;
+                const edges: { time: string; pct: number }[] = [];
+                edges.push({ time: formatTime(new Date(periodStart).getTime()), pct: 0 });
+                let cum = 0;
+                for (let i = 0; i < segments.length - 1; i++) {
+                  cum += segments[i].durationSeconds;
+                  edges.push({ time: formatTime(new Date(new Date(periodStart).getTime() + cum * 1000).getTime()), pct: total > 0 ? (cum / total) * 100 : 0 });
+                }
+                edges.push({ time: formatTime(new Date(periodEnd).getTime()), pct: 100 });
+                return edges.map((e, i) => (
+                  <span
+                    key={i}
+                    className={`absolute ${i === 0 ? 'text-left' : i === edges.length - 1 ? 'text-right' : 'text-center'}`}
+                    style={{ left: `${e.pct}%`, transform: 'translateX(-50%)', whiteSpace: 'nowrap' }}
+                  >
+                    {e.time}
+                  </span>
+                ));
+              })()}
             </div>
           </div>
 
           {/* Segments */}
-          <div className="space-y-2 mb-4 max-h-52 overflow-y-auto">
+          <div className="space-y-2 mb-4 max-h-72 overflow-y-auto">
             {segments.map(seg => {
               const act = visibleActivities.find(a => a.id.toString() === seg.activityId);
               const isPicking = pickingId === seg.id;
@@ -323,7 +342,7 @@ export default function AfkPromptModal({
                   {/* Inline activity picker */}
                   {isPicking && (
                     <div className="mt-1.5 ml-16 pl-3 border-l-2 border-zinc-700/40">
-                      <div className="p-2 rounded-xl bg-zinc-800/80 border border-zinc-700/30 max-h-36 overflow-y-auto">
+                      <div className="p-2 rounded-xl bg-zinc-800/80 border border-zinc-700/30 max-h-48 overflow-y-auto">
                         {visibleActivities.length === 0 ? (
                           <p className="text-xs text-zinc-600 py-2 text-center">No activities — add on External page</p>
                         ) : (

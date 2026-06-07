@@ -3,12 +3,253 @@
 > **Purpose:** Current project state for AI context â€” tracks version, recent changes, known issues, and feature inventory.
 
 ## Metadata
-- version: 4.23
-- last_updated: 2026-06-06
+- version: 4.39
+- last_updated: 2026-06-07
 - agent: opencode
-- current_focus: Compose panel fix — agentSend + pendingWrites flush
+- current_focus: Insights page typical day — timeframe integration, tooltip, dateOffset for past models
 
 ## Recent Changes
+
+### 2026-06-07 (v4.40) — Detail popup time controls for apps & websites
+
+**What Changed:**
+1. **StatsPage popup** — Added `allLogs` prop, independent `detailPeriod`/`detailDateOffset` state with period-selector button bar (Today/Week/7 Day/Month/30 Day/All) + prev/next arrows. Daily usage chart and hourly activity chart now use detail-period-filtered logs instead of parent's fixed 7-day data.
+2. **BrowserActivityPage popup** — Added `allLogs` prop, `detailPeriod`/`detailDateOffset` state with same period-selector UI. New daily usage bar chart appears in the domain detail modal, computed from detail-local period/offset.
+3. **App.tsx** — Passes `allLogs` to both `StatsPage` and `BrowserActivityPage`.
+
+**Files Modified:**
+- `src/App.tsx` — Added `allLogs` prop to StatsPage and BrowserActivityPage routes
+- `src/pages/StatsPage.tsx` — `allLogs` prop, `detailPeriod`/`detailDateOffset` state, `detailAppLogs`/`detailDailyBreakdown`/`detailHourlyDist` computations, period button bar + prev/next arrows in popup
+- `src/pages/BrowserActivityPage.tsx` — `allLogs` prop, `detailPeriod`/`detailDateOffset` state, `detailDomainLogs`/`detailDailyChart` computations, period button bar + prev/next arrows + Bar chart in domain detail modal
+
+**Result:** Selecting an app shows its usage across any time range (not just 7 days). Selecting a domain shows a daily usage chart with independent period controls. Prev/next navigates time windows for both.
+
+**Build:** ✅ Renderer + Electron
+
+### 2026-06-07 — Insights page typical day fixes: timeframe, tooltip, dateOffset
+
+**What Changed:**
+1. **Typical day now respects selected period & dateOffset** — `getTypicalDay` IPC handler now accepts `(days, dateOffset)` to shift the time window back. InsightsPage maps `Period` to days: week/7day→7, month/30day→30, all→365.
+2. **Top nav prev/next now works** — InsightsPage accepts `dateOffset` and `onDateOffsetChange` from App.tsx instead of using isolated local period state. Removed local period select in favor of parent's top-nav period+prev/next controls.
+3. **Tooltip hover position fixed** — Reduced offset from 14px to 4px, added `pointer-events-none` to prevent interference, increased bounds check from 220 to 240px.
+4. **Sleep trend labels respect dateOffset** — Labels now shift with the offset so they match the actual data range.
+5. **Added periodToDays mapper** and "All Time" support throughout.
+
+**Files Modified:**
+- `src/main.ts` — `get-typical-day` IPC: accepts `dateOffset`, shifts window back by `dateOffset * days`
+- `src/preload.ts` — `getTypicalDay` signature: passes `(days, dateOffset)` to IPC
+- `src/App.tsx` — Passes `dateOffset` and `onDateOffsetChange` to InsightsPage route
+- `src/pages/InsightsPage.tsx` — Accepts parent's period+offset, removes local period state, maps period to days, adds periodToDays(), fixes tooltip offset 14→4px, adds `pointer-events-none`, fixes sleep label offset
+
+**Result:** Switching periods and clicking prev/next in the top nav now updates the typical day heatmap, hover tooltip follows the cursor closely, and past time windows are queryable.
+
+**Build:** ✅ Renderer (vite build)
+
+### 2026-06-07 — Settings category items centered
+
+**What Changed:**
+1. **Category items in Settings → External/Applications/Websites** — Fixed name/category alignment in button cards. Changed name row from `flex items-start` (left-aligned with `flex-1`) to `justify-center` with `max-w-[calc(100%-16px)]` so the dot/icon + name pair is truly centered, matching the category label below.
+
+**Files Modified:**
+- `src/pages/SettingsPage.tsx` — Three button templates (External Activities, Applications, Websites) received `justify-center` on the name row div and `max-w-[calc(...)]` to preserve truncation.
+
+### 2026-06-07 (v4.38) — Connection flow fix, 3-dot dropdown, color scheme presets, style presets
+
+**What Changed:**
+1. **Direct Connect/Disconnect on cards** — Added `onStartServer`/`onStopServer` props to DesignLibrarySources. Cards now show a "Connect" button (idle) or "Disconnect" + "Browse" buttons (connected). Status updates immediately via `handleStartServer`/`handleStopServer` in DesignWorkspacePage.
+2. **3-dot (MoreVertical) button** — Now opens a dropdown menu with "Configure" and "Enable/Disable" options instead of being decorative.
+3. **Periodic status polling** — `checkLibraryStatuses` runs every 10s to auto-detect running MCP servers and update card status.
+4. **Modal→card status propagation** — LibraryConfigModal now accepts `onConnectionChanged` callback to push connection status changes back to the page immediately (not just on save).
+5. **Color scheme presets** — 6 built-in schemes (Galaxy Dark, Cyberpunk, Warm Earth, Ocean, Minimal Light, Sunset) with visual color swatch previews in a grid. One-click to apply the full scheme.
+6. **Color scheme import** — New Import panel that accepts JSON arrays `[{role, color, label}]` or objects `{primary: "#...", accent: "#..."}`. Validates and applies.
+7. **Style description presets** — 12 categorized presets in 4 groups (Dark, Light, Vibrant, Minimal) with descriptions. "Suggestions" button opens guidance panel.
+
+**Files Modified:**
+- `src/pages/DesignWorkspacePage.tsx` — Added `handleStartServer`, `handleStopServer`, `checkLibraryStatuses`, periodic polling interval, `onConnectionChanged` wiring
+- `src/components/workspace/DesignLibrarySources.tsx` — Connect/Disconnect buttons, 3-dot dropdown menu, new props for start/stop
+- `src/components/workspace/LibraryConfigModal.tsx` — `onConnectionChanged` callback to propagate status to cards
+- `src/components/workspace/ColorPicker.tsx` — 6 color scheme presets with visual swatches, JSON import panel
+- `src/components/workspace/StyleDescription.tsx` — 12 categorized presets in 4 groups, "Suggestions" toggle panel
+
+**Result:** Users can now connect/disconnect libraries directly from cards, see status update in real-time, pick from visual color scheme presets, import schemes as JSON, and get AI-guided style suggestions.
+
+**Build:** ✅ Both renderer + electron
+
+### 2026-06-07 (v4.37) — Wire fix: Configure button, config persistence, all-3-sources config modal, detail fetch
+
+**What Changed:**
+1. **Phase A — Wire + Bugfix:** Added `onConfigure` prop to DesignLibrarySources, fixed `getStatusText` bug (was always reading `libraries[0].itemCount` instead of per-card count), wired `openConfig` in DesignWorkspacePage, added config persistence via IPC `setDesignLibraryConfig` + load-on-mount via `getDesignLibraryConfig`
+2. **Phase B — LibraryConfigModal rewrite:** Replaced single-source config modal with unified all-3-sources panel per §5D spec. Each source gets its own section with accent color, enable/disable, MCP command, API key, auto-start, Start/Stop/Refresh/Clear Cache buttons, and real-time status feedback. Persists full config via `onSave(config)` → `setDesignLibraryConfig`
+3. **Phase C — Detail fetch:** Added `fetchComponentDetail` to ComponentBrowserModal that calls `aceternityFetchComponent`, `mcpCallTool get_component`, or `fetchReferoSystem` when a component card is expanded, falling back to inline code if detail fetch fails
+
+**Files Modified:**
+- `src/components/workspace/DesignLibrarySources.tsx` — `onConfigure` prop, `getStatusText(id, itemCount)` signature
+- `src/pages/DesignWorkspacePage.tsx` — `onConfigure={openConfig}` wiring, `handleSaveConfig` signature updated, config load-on-mount
+- `src/components/workspace/LibraryConfigModal.tsx` — Full rewrite to all-3-sources config panel with IPC persistence
+- `src/components/workspace/ComponentBrowserModal.tsx` — `fetchComponentDetail`, `componentDetails` state, detail loading indicator
+
+**Result:** Configure button actually opens the config modal, config modal shows all 3 sources with live start/stop/status, component browser fetches full code details on expand, config persists across sessions.
+
+**Build:** ✅ Both renderer + electron
+
+### 2026-06-07 (v4.36) — Design library integration implementation: MCP JSON-RPC, 3 source cards, browser modal, config modal
+
+**What Changed:**
+1. **3 new components** — DesignLibrarySources.tsx (3 source cards with status indicators), ComponentBrowserModal.tsx (search/browse/add modal with category pills), LibraryConfigModal.tsx (API keys, registry URL, MCP command, test connection)
+2. **MCP JSON-RPC protocol** (main.ts) — Replaced placeholder MCP handlers with full bidirectional stdio protocol: initialize handshake, tools/list, tools/call, stdout parsing, error handling, 30s timeout management
+3. **8 new IPC endpoints** — mcp-server-status, fetch-refero-catalog, fetch-refero-system, search-refero-systems, get-design-library-config, set-design-library-config, get-design-cached-data, test-design-library-connection
+4. **8 new preload bridges** — matching the IPC endpoints above
+5. **DesignComposeOutlet enhanced** — Source attribution badges and imported count badge
+6. **DesignWorkspacePage fixes** — Added missing handleToggle function, preview/loadingContext/importedComponents state, ColorPicker import, handleAddComponent/handleSaveConfig/handleCopy functions
+
+**Files Modified:**
+- `src/main.ts` — JSON-RPC MCP protocol, Aceternity/Refero service handlers (lines 5561+)
+- `src/preload.ts` — 8 new IPC bridges (lines 198-216)
+- `src/pages/DesignWorkspacePage.tsx` — State/functions added, duplicate declarations fixed
+- `src/components/workspace/DesignComposeOutlet.tsx` — Source badges + count
+- `src/components/workspace/DesignLibrarySources.tsx` — New component
+- `src/components/workspace/ComponentBrowserModal.tsx` — New component
+- `src/components/workspace/LibraryConfigModal.tsx` — New component
+
+**Why:** Design library integration (RESULT.md) had unimplemented components — missing states, functions, IPC handlers, and UI components for the 3 design libraries (21st.dev via MCP, Aceternity UI via CLI/registry, Refero via MCP + HTTP fallback).
+
+**Result:** All 3 libraries functional: 21st.dev MCP with JSON-RPC over stdio, Aceternity UI with CLI install + registry fetch, Refero with MCP-first + HTTP fallback.
+
+**Build:** ✅ Both renderer + electron
+
+### 2026-06-07 (v4.35) — Multi‑provider AI connector & goal‑tracking design prompt generation
+
+**Status:** IN PROGRESS — Prompt generation for provider connectors (CloudFlayer, Invilier, Olamah) and daily‑goal tracking feature.
+
+**User request:** Enable connections to external AI providers and add a goal‑planning assistant that can suggest daily tasks, track progress, and integrate with existing activity data.
+
+**Planned actions:**
+1. Create CONTEXT_BUNDLE.md with relevant IPC, service, and DB references.
+2. Generate a full‑design prompt via the generate‑prompt skill.
+3. Review and implement backend IPC channels, service classes, and UI components.
+4. Update documentation and state.
+
+### 2026-06-07 (v4.35) — External provider integration for research and goal tracking
+
+**Status:** IN PROGRESS — Context bundle + research prompt generated.
+
+**What's planned:**
+1. Research integration with external providers (CloudFlayer, Invilier, Olamah) for enhanced data insights
+2. Focus on research functionality and goal tracking rather than just activity pattern analysis
+3. Leverage existing tracking data to provide AI-powered research insights and goal management
+4. Create external data ingestion pipeline with provider-specific adapters
+5. Integrate with existing AI systems (daily briefs, topic digests, anomaly detection)
+6. Add goal tracking and progress monitoring features
+
+**Docs Created:**
+- `agent/docs/external-provider-research-07062026/CONTEXT_BUNDLE.md`
+- `agent/docs/external-provider-research-07062026/prompt.md`
+
+### 2026-06-06 (v4.34) — Research prompt: design library integration (Refero, Aceternity UI, 21st.dev)
+
+**Status:** Completed — Context bundle + research prompt generated.
+
+**What's planned:**
+1. Research how to integrate 3 external design resources (Refero, Aceternity UI, 21st.dev) into workspace theme infrastructure
+2. Via MCP, API, or manual integration
+3. Combined with existing 5 design skills + 21st.dev MCP + Stitch design system
+4. Integrated into workspace sidebar Design tab UI
+5. Documented in workspace guidebook
+
+**Docs Created:**
+- `agent/docs/design-library-integration-06062026/CONTEXT_BUNDLE.md`
+- `agent/docs/design-library-integration-06062026/prompt.md`
+
+### 2026-06-06 (v4.33) — Browser apps tracked by active-win like any other OS app
+
+**What Changed:**
+1. **Removed `isBrowserWithExtension` skip from active-win loop** (5 locations in `main.ts`: fallback app switch, fallback checkpoint, sleep gap, active-win app switch, active-win checkpoint) — Browser apps (Comet/Chrome/Firefox) are no longer filtered out by active-win. They're now logged as normal OS apps when they're the foreground window, just like any other app.
+2. **Removed 30s session cap for configured browser** (`main.ts:addLog`) — The safety cap that limited browser app entries to 30 seconds when the extension is active is removed. Browser apps now record their full foreground duration.
+3. **Reverted synthetic stats_daily entries** (`main.ts:updateAggregates` & `main.ts:backfillStatsTables`) — Removed the code that aggregated domain time into a synthetic browser app entry in `stats_daily`. Since active-win now logs the browser app naturally, synthetic entries would cause double-counting.
+
+**Effect:** The configured browser app (e.g., Comet) now appears in the Application page with its actual foreground time, treated identically to any other OS app. Individual website domains remain in Browser Activity only (filtered by `app_type = 'app'` and `is_browser_tracking` checks in `appStats` computation).
+
+**Files Modified:**
+- `src/main.ts` — 5 skips removed from active-win loop, 30s cap removed in addLog, synthetic entries removed from updateAggregates and backfillStatsTables
+
+**Build:** ✅
+
+### 2026-06-06 (v4.31) — Browser tracking foreground fix + stats backfill + dictionary entry
+
+**What Changed:**
+1. **Foreground app check fix** (`src/main.ts:10641-10651`) — `handleBrowserData()` now only validates against `currentApp` when the extension hasn't explicitly confirmed focus (`is_browser_focused !== true`). This fixes the false positive where a Chromium browser (Chrome) would match Comet's process aliases (`BROWSER_PROCESS_NAMES['comet'] = ['chrome', 'comet', 'chromium']`). Previously, `isAppMatchingBrowser('chrome', 'comet')` returned `true` because `'chrome'` is in Comet's alias list — so Chrome foreground + Comet extension background = data leaked through. Now, when the extension says `is_browser_focused: true`, we trust it (it knows its own browser focus). The `currentApp` check is still used as fallback when the flag is absent.
+2. **`backfillStatsTables()` rewrite** (`src/main.ts:2138-2176`) — Removed early-return skip (`if daily.cnt > 0 && hourly.cnt > 0`). Now always deletes and re-populates `stats_daily` + `stats_hourly` from logs on startup. This fixes the Dashboard vs Browser Activity page data discrepancy: previously, the one-time backfill populated `stats_daily` once and never refreshed, so all subsequent browser data was missing from Dashboard aggregates. Combined with the `updateAggregates()` `stats_daily` writes, Dashboard now shows correct real-time AND historical browser data.
+3. **`agent/dictionary.md`** — Added "Browser App" entry explaining it's the browser with the DeskFlow extension. Documents the foreground app check.
+
+**Files Modified:**
+- `src/main.ts` — `handleBrowserData()` foreground check (trust extension's focus flag), `backfillStatsTables` rewrite (always re-populate)
+- `agent/dictionary.md` — "Browser App" definition
+- `agent/state.md` — v4.31 entry
+
+**Build:** ✅
+
+### 2026-06-06 (v4.30) — Expanded init: all agent/ files, dirs, and skill subdirectories
+
+**What Changed:**
+1. **22 new template files** (`src/main.ts:runInitAll`) — The init flow now creates all `agent/` config files: `agents.md`, `context.md`, `constraints.md`, `patterns.md`, `glossary.md`, `data.md`, `debugging.md`, `skills.md`, `prompt.md`, `prompts.md`, `README.md`, `GENERIC_AGENT.md`, `qwen.md`, `dictionary.md`, `ACTIONS_SCHEMA.md`, `DEFAULT_SYSTEM_PROMPT.md`, `RULES_COMPACT.md`, `TERMINAL_SIDEBAR_REFERENCE.md`, `TRACKER_MIND_CHECKLIST.md`. Each has a meaningful template with today's date.
+2. **4 new subdirectories** — `agent/docs/`, `agent/templates/`, `agent/core/`, `agent/context/` are created as part of the init flow.
+3. **18 skill subdirectories** — All skill dirs (`agent-reflect/`, `commit/`, `deep-research/`, `deep-research-prompt/`, `design-taste/`, `fix-problems/`, `frontend-design/`, `generate-problem/`, `generate-prompt/`, `google-stitch/`, `impeccable/`, `maintain-context/`, `readme-generator/`, `recursive-playwright/`, `sqlite-js-migration/`, `taste-skill/`, `terminal-agent/`, `ui-ux-pro-max/`) are created as empty folders.
+4. **New 'docs' group in frontend** (`InitializeProgressModal.tsx`) — Added to `GROUP_LABELS` and `GROUP_ORDER` so the `agent/docs/` folder shows in the init progress view.
+
+**Result:** The init flow now produces a complete workspace structure matching the full reference in AGENTS.md.
+
+**Files Modified:**
+- `src/main.ts` — Expanded `runInitAll` steps array + implementation
+- `src/components/InitializeProgressModal.tsx` — Added 'docs' group
+
+**Build:** ✅
+
+### 2026-06-06 (v4.29) — Existing project initialization with AI agent seeding
+
+**What Changed:**
+1. **InitializeProgressModal config panel** — Added "Project Type" toggle (New/Existing) with agent selector and editable seed prompt. Auto-init removed.
+2. **Agent seeding phase** — After template files created, launches agent terminal to populate files with real project data.
+3. **TerminalPage wired** — `onSeedWithAgent` handler creates terminal, launches agent, writes prompt.
+4. **IDEProjectsPage updated** — Added `projectPath` prop.
+
+**Files Modified:**
+- `src/components/InitializeProgressModal.tsx` — Config panel, agent seeding, deferred init
+- `src/pages/TerminalPage.tsx` — `onSeedWithAgent` handler
+- `src/pages/IDEProjectsPage.tsx` — `projectPath` prop
+- `src/main.ts` — Expanded init files/dirs
+
+**Build:** ✅
+
+### 2026-06-06 (v4.28) — Topic digest retries with reduced maxTokens instead of model fallback
+
+**What Changed:**
+1. **Reflection log created** (`agent/skills/agent-reflect/logs/2026-06-06_idiot_trigger.md`) — Documents the hardcoded model mistake and correct approach.
+2. **Topic digest retry with reduced maxTokens** (`src/main.ts:9926-9940`) — On OpenRouter 402 credit error, retries with maxTokens reduced through tiers 200→100→50 instead of falling back to a hardcoded free model. Preserves the user's configured model choice.
+3. **`generateTopicDigest` accepts optional maxTokens** (`src/services/AIService.ts:517`) — New optional parameter allows the caller to reduce token budget on retry without switching models.
+
+**Why:** Previous fix hardcoded `meta-llama/llama-3.3-70b-instruct:free` on credit errors, ignoring the user's configured model. This caused 429 rate-limit errors on an unwanted model. Correct approach: retry same model with reduced maxTokens.
+
+**Result:** 402 errors gracefully handled by reducing token count, not switching models. User's configured model is always respected.
+
+**Files Modified:**
+- `agent/skills/agent-reflect/logs/2026-06-06_idiot_trigger.md` — Reflection log
+- `src/main.ts` — Token tier retry logic
+- `src/services/AIService.ts` — Optional maxTokens parameter
+
+**Build:** ✅
+
+### 2026-06-06 (v4.27) — IDE Projects page revamp planning (IN PROGRESS)
+
+**What's Planned:**
+1. **Sidebar spacing** — Add more padding/spacing to better utilize sidebar height
+2. **IDE Projects page tabs revamp**:
+   - Replace "Trash" tab with "Backup" (backup/restore for AI coding changes)
+   - Replace/revamp "Tools" tab with something more useful
+   - Move "Sync AI" button from page header into AI tools tab
+   - Potentially remove "ides" tab (list of IDs, redundant with tools)
+3. Generate design prompt using generate-prompt skill
+
+**Status:** Planning phase — context bundle + prompt generation in progress.
 
 ### 2026-06-06 (v4.23) — Compose panel fix: agentSend with pendingWrites flush
 
@@ -20,6 +261,45 @@
 **Files Modified:**
 - `src/main.ts` — pendingWrites flush in both `terminal:create` and `spawn-terminal` handlers; DB recording in `agent:send` handler
 - `src/pages/TerminalPage.tsx` — `handleInstructionPanelSend` uses `agentSend` instead of `terminalWrite`
+
+**Build:** ✅
+
+### 2026-06-06 (v4.26) — Multiple saved directories + modal scroll
+
+**What Changed:**
+1. **Multiple saved directories** (`IDEProjectsPage.tsx`) — Changed from a single `customScanPath` to an array `savedCustomDirs` persisted in `localStorage('customScanDirs')`. Users can add many root directories via the "Add Directory" button (opens native folder picker). Each directory is shown as a card with its path, project count, and per-project language badges. Remove button (X) on each card.
+2. **Modal max-h + scroll** (`IDEProjectsPage.tsx`) — Wrapped scrollable content in `max-h-[60vh] overflow-y-auto` to prevent the modal from overflowing the viewport. Footer buttons (Cancel/Add) stay visible outside the scroll area.
+3. **Old key migration** — `customScanPath` localStorage key is automatically migrated to `customScanDirs` array format on first load.
+
+**Files Modified:**
+- `src/pages/IDEProjectsPage.tsx` — Replaced single-path with multi-dir state + UI + scroll
+- `agent/state.md` — Updated
+
+**Build:** ✅
+
+### 2026-06-06 (v4.25) — Custom directory project scanning + folder picker fix
+
+**What Changed:**
+1. **New IPC handler `scan-custom-directory`** (`main.ts:5587-5652`) — Accepts a user-specified root path, scans immediate subdirectories (depth 2, max 200 files per dir), filters by recognized code file extensions (`.ts`, `.py`, `.java`, `.go`, `.rs`, etc.), returns only directories that contain coding files.
+2. **`scanCustomDirectory` preload bridge** (`preload.ts:223`) — Exposed new IPC method to renderer.
+3. **Custom Directory section in Add Project modal** (`IDEProjectsPage.tsx`) — Added text input + Browse button + Scan button + results display with language badges showing up to 3 recognized languages per directory.
+4. **Path persistence** — Custom directory path saved to `localStorage('customScanPath')` and auto-scanned on modal open.
+5. **Fixed `@electron/dialog` → `electron.dialog`** (`main.ts:6345-6373`) — Both `pick-folder` and `show-open-dialog` handlers used `require('@electron/dialog')` (non-existent package). Changed to `electron_1.dialog` from the existing `require('electron')` import.
+6. **Fixed bare `ipcMain` references** (`main.ts:13094,13104`) — Two handler declarations used bare `ipcMain` instead of `electron_1.ipcMain`, causing TypeScript errors.
+
+**Files Modified:**
+- `src/main.ts` — New IPC handler + `@electron/dialog` fix + bare ipcMain fix
+- `src/preload.ts` — New bridge method
+- `src/pages/IDEProjectsPage.tsx` — Custom directory UI in Add Project modal
+
+**Build:** ✅
+
+### 2026-06-06 (v4.24) — Workspace sidebar scroll fix: missing flex-col
+
+**What Changed:**
+1. **Workspace sidebar `flex-col` fix** (`TerminalPage.tsx:2432`) — Added `flex flex-col` to the workspace sidebar container. The content div used `flex-1` to take remaining space, but `flex-1` only works inside a flex container. Without `flex-col` on the sidebar wrapper, the content div resolved to auto height (normal block flow), and the scroll chain collapsed — TabPanel's `h-full overflow-y-auto` had no definite height to fill.
+
+**Root cause:** Previous "fixes" targeted the wrong elements. The TabPanel component itself was already correct (outer `flex-1 min-h-0`, inner `h-full overflow-y-auto`). Sessions/Map tabs using the inline pattern were also correct. The bug was ABOVE TabPanel — the sidebar wrapper wasn't a flex container.
 
 **Build:** ✅
 
@@ -77,20 +357,21 @@ esolvePeriodBounds() function. Updated get-logs-by-period IPC handler to accept 
 
 **Build:** ✅
 
-### 2026-06-06 (v4.22) — Website background recording toggle in Settings
+### 2026-06-06 (v4.22) — Website + App background recording toggles in Settings
 
 **What Changed:**
-1. **New "Website Background Recording" toggle in Settings > Tracking** — Controls whether website tracking logs persist in the background (Always) or only while viewing the Browser Activity page (While viewing).
-2. **On-view recording mode** — When set to "While viewing", `handleBrowserData()` and `addLog()` skip DB writes when the Browser Activity page is hidden. Detection still runs (live events still stream to renderer).
-3. **Page visibility IPC** — BrowserActivityPage sends `set-page-visibility` on mount/unmount so the backend tracks whether the page is currently viewed.
+1. **Two new toggles in Settings > Tracking** — "Website Background Recording" and "App Background Recording". Each controls whether logs persist in the background (Always) or only while the relevant page is open (While viewing).
+2. **On-view recording mode** — When set to "While viewing", `handleBrowserData()` and `addLog()` skip DB writes when the respective page is hidden. Detection still runs.
+3. **Page visibility IPC** — BrowserActivityPage and DashboardPage each send `set-page-visibility` on mount/unmount so the backend tracks page visibility.
 4. **New IPC endpoints** — `set-recording-mode`, `get-recording-modes`, `set-page-visibility`.
 
 **Files Modified:**
-- `src/main.ts` — Added `browserRecordingMode`, `browserPageVisible` state, 3 IPC handlers, guards in `handleBrowserData()` and `addLog()`
+- `src/main.ts` — Added `browserRecordingMode`, `appRecordingMode`, `browserPageVisible`, `dashboardPageVisible` state, 3 IPC handlers, guards in `addLog()` for both browser and app entries
 - `src/preload.ts` — Added `setRecordingMode`, `getRecordingModes`, `setPageVisibility`
 - `src/App.tsx` — Type declarations for new IPC methods
-- `src/pages/SettingsPage.tsx` — Toggle in Tracking tab
+- `src/pages/SettingsPage.tsx` — Both toggles in Tracking tab
 - `src/pages/BrowserActivityPage.tsx` — Page visibility IPC on mount/unmount
+- `src/pages/DashboardPage.tsx` — Page visibility IPC on mount/unmount
 
 **Build:** ✅
 
@@ -665,11 +946,41 @@ emove-interest-topic deletes by topic name. SQLite pref fallback in getOpenRoute
 - 2026-05-28: FIXED dashboard black screen freeze on "all time" â€” root cause: `getLogs()` in main.ts ran `SELECT * FROM logs` with no LIMIT or WHERE, returning 500k+ rows into React state â†’ 6+ useMemo hooks each did full O(n) iteration. Fix 1: capped `getLogs()` at SQL level to 90 days (`WHERE timestamp > datetime('now', '-90 days')`). Fix 2: hourly heatmap pre-filters by target week before iterating (was iterating ALL logs unconditionally).
 
 ## Active Work
-- active_problem_id: general-tracking-revamp-06062026
-- active_problem_title: General tracking overhaul — period navigation freeze, website tracking accuracy, app detection, performance
-- current_phase: PROMPT GENERATED — CONTEXT_BUNDLE.md + prompt.md saved to agent/docs/tracking-system-overhaul-06062026/. Ready to send to target AI.
+- active_problem_id: multi-provider-ai-continuation
+- active_problem_title: Continuation — planning.md context management, checklist parsing, full AI Page UI/UX revamp
+- current_phase: IMPLEMENTED — Multi-provider AI connector layer (provider types, templates, callProvider, router, GoalStore, 6 IPC handlers, preload bridges, topic digest rewired, DailyPlanCard + GoalHistoryCard created, build ✅). Ready for continuation: planning.md integration, context persistence, checklist parsing, full AI page redesign.
 - blocked: false
 - blocked_reason: null
+
+### 2026-06-07 (v4.38) — Multi-provider AI connector: backend + frontend implemented
+
+**Status:** COMPLETED — All provider abstraction layer files created, topic digest rewired, DailyPlanCard + GoalHistoryCard added to AiPage. Build passes.
+
+**What Changed:**
+1. **Provider layer (5 new files):**
+   - `src/services/providers/types.ts` — ProviderTemplate, CanonicalRequest/Response, ResolvedProvider interfaces
+   - `src/services/providers/templates.ts` — 5 built-in templates (OpenRouter, CloudFlayer, Invilier, Olamah, Custom)
+   - `src/services/providers/callProvider.ts` — Universal fetch-based caller with auth/body/response adapters
+   - `src/services/providers/router.ts` — buildChain() + runWithFallback() with per-feature routing + fallback chain
+   - `src/services/GoalStore.ts` — localStorage-backed goal persistence (loadAll, getDay, saveDay, history)
+   - `src/services/providers/AIService.ts` — Updated AIService with provider-aware methods, goal routines, token-tier fallback
+
+2. **IPC handlers (main.ts):** Added `compute-goal-progress`, `get-ai-providers`, `save-ai-providers`, `test-provider`, `suggest-goals`, `review-goals`. Rewired `get-topic-digest` to use provider chain.
+
+3. **Preload bridges (preload.ts):** Added 6 new bridges matching new IPC handlers.
+
+4. **Goal DB tables:** Added `goals` and `goal_reviews` tables to DB init.
+
+5. **Build config:** Added `src/services/providers/*.ts` and `src/services/GoalStore.ts` to `build:electron` tsc compilation.
+
+6. **UI Components:** Created `DailyPlanCard.tsx` (morning/in-progress/review modes with progress bars) and `GoalHistoryCard.tsx` (past days history list). Added to AiPage below TopicDigestCard.
+
+7. **Result:** Provider layer functional, goals stored in localStorage, topic digest rewired through provider chain, progress bars compute from logs. Build ✅.
+
+**Docs Created:**
+- `agent/docs/multi-provider-ai-design-07062026/CONTEXT_BUNDLE.md`
+- `agent/docs/multi-provider-ai-design-07062026/prompt.md`
+- `agent/docs/multi-provider-ai-design-07062026/RESULT.md`
 
 ## Recent Changes
 - 2026-06-01: REDESIGNED InitializeProgressModal with grouped directory views -- steps array in `src/main.ts` now has `{ id, label, type, group, path }` shape with 16 steps organized under `agent/` (9 items), `agent/skills/` (2 items), and `graphify-out/` (1 item). Component rewritten: grouped directory headers with per-group progress counters, path display per item, refresh-bug fix (useRef for onComplete preventing re-init on parent re-render), expandable file previews with AnimatePresence, improved visual hierarchy with status badges (creating/done/failed), loading manifest state, and retry on error. | **Build:** âœ…
@@ -4068,3 +4379,36 @@ All three changes now COMPLETE: 1) Camera properly follows planet 2) FPS line gr
 - src/App.tsx — Added llLogsFingerprintRef (line 461); fingerprint guard in onForegroundChange log refresh (lines 685-690)
 
 **Build:** ✅
+
+### 2026-06-07 (v4.40) - Multi-provider AI continuation: cleanup dead AI code, AiPage revamp, planning.md integration, checklist parsing
+
+**What Changed:**
+1. **Task 1 - Cleanup dead AI code** - Deleted AiBriefCard, WeeklyReviewCard, PatternCard, SleepCard components and their renderer imports. Removed \generateDailyBrief\, \generateWeeklyReview\, \checkAnomalies\, \nalyzePatterns\, \nalyzeSleep\, \dataChatQuery\ from AIService.ts and main.ts. Removed 7 preload bridges and App.tsx type declarations. Stripped AiPage.tsx to clean grid layout. Fixed GlassCard accent API (\'pink' | 'amber' | 'none'\, top stripe, p-4). Fixed broken \suggest-goals\ fallback with direct OpenRouter call.
+
+2. **Task 2 - AiPage revamp** - Created MarkdownPreview.tsx (regex-based markdown renderer). Rewrote DailyPlanCard.tsx (props-driven mode state machine: morning/in-progress/review with Accept/Dismiss, toggle completion, feedback input, GlassCard accent="pink"). Rewrote GoalHistoryCard.tsx (expanding rows, accent="pink"). Restyled TopicDigestCard.tsx (pink stripe). Created ContextSummaryCard.tsx. Rewrote AiPage.tsx (three-column grid, mode detection, goal loading, context assembly).
+
+3. **Task 3 - planning.md integration** - Added \ead-planning-md\ and \write-planning-md\ IPC handlers in main.ts, preload bridges, App.tsx types. Created MyPlanCard.tsx (edit/preview toggle, 1s debounce auto-save, save indicator, accent="amber"). Extended \suggest-goals\ and \eview-goals\ to accept optional \GoalPromptContext\.
+
+4. **Task 4 - Context management** - Extended GoalStore.ts (\GoalDayContext\, \unfinishedFromYesterday\, \ecentlyCompletedTitles\, \saveGoal\). Added \get-goal-context\ IPC handler + preload bridge. Wired context assembly in AiPage.
+
+5. **Task 5 - Checklist parsing & feedback loop** - Created \src/services/planningParser.ts\ (\parseChecklist\ - parses \- [ ]\/\- [x]\ markdown checklists with optional time estimates). Added \parse-goal-feedback\ IPC handler + preload bridge + App.tsx type. Wired checklist parsing into AiPage: parses planning.md on mount, passes \planGoals\ to DailyPlanCard which renders "From your plan" section in morning mode.
+
+**Files Modified:**
+- \src/pages/AiPage.tsx\ - Full rewired layout (goal/mode state, planning context, suggestions, feedback, planGoals parsing)
+- \src/components/DailyPlanCard.tsx\ - Props-driven mode machine, "From your plan" section, suggestions accept/dismiss, feedback input
+- \src/components/MyPlanCard.tsx\ - New: edit/preview markdown editor with auto-save, GlassCard accent="amber"
+- \src/components/MarkdownPreview.tsx\ - New: regex-based markdown renderer
+- \src/components/ContextSummaryCard.tsx\ - New: GlassCard with unfinished count, completed this week, last updated
+- \src/components/GlassCard.tsx\ - Updated accent API (\'pink' | 'amber' | 'none'\), top stripe, p-4
+- \src/services/GoalStore.ts\ - Extended with \GoalDayContext\, \unfinishedFromYesterday\, \ecentlyCompletedTitles\, \saveGoal\
+- \src/services/planningParser.ts\ - New: \parseChecklist\ utility
+- \src/services/AIService.ts\ - Only \generateTopicDigest\ remains (removed 6 dead methods)
+- \src/main.ts\ - Added read-planning-md, write-planning-md, get-goal-context, parse-goal-feedback IPC handlers; extended suggest-goals/review-goals with GoalPromptContext; removed 6 dead handlers
+- \src/preload.ts\ - Updated bridges for new/removed handlers
+- \src/App.tsx\ - Updated deskflowAPI type declarations
+- Deleted: AiBriefCard.tsx, WeeklyReviewCard.tsx, PatternCard.tsx, SleepCard.tsx
+- Restructured: GoalHistoryCard.tsx, TopicDigestCard.tsx
+
+**Result:** AiPage is fully functional with plan-driven goal suggestions, checklist items from planning.md, morning/in-progress/review mode state machine, feedback parsing, and context-aware AI prompts.
+
+**Build:** ✅ Both renderer + electron

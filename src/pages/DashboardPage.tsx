@@ -15,7 +15,7 @@ import {
   Edit3, Check, Plus, Minus, TrendingUp,
   Target, ZapCircle, RefreshCw, Clock3,
   ChevronLeft, ChevronRight, Maximize2, Minimize2,
-  BarChart3, Sparkles
+  BarChart3, Sparkles, Ban, Pause
 } from 'lucide-react';
 import { getDateRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
@@ -429,7 +429,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
           id: `init-${idx}-${Date.now()}`,
           timestamp,
           startTime: timestamp.getTime(),
-          type: s.isBrowser ? 'browser' as const : 'app' as const,
+          type: s.is_browser_tracking ? 'browser' as const : 'app' as const,
           name: s.app || s.title || s.domain || 'Unknown',
           category: s.category || 'Unknown',
           tier: getTierFromCategory(s.category),
@@ -1223,7 +1223,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                 
                 const activityName = session.activity_name || 'Unknown';
                 if (!existing.breakdown[activityName]) {
-                  existing.breakdown[activityName] = { seconds: 0, color: session.color || '#8b5cf6', icon: session.icon || '🎮' };
+                  existing.breakdown[activityName] = { seconds: 0, color: session.color || '#8b5cf6', icon: session.icon || '?' };
                 }
                 existing.breakdown[activityName].seconds += segmentSeconds;
                 
@@ -1677,7 +1677,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                     onClick={() => setHeatmapMode(mode)}
                     className={`px-3 py-1.5 text-xs rounded-md transition capitalize ${heatmapMode === mode ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
                   >
-                    {mode === 'device' ? '📱 Device' : mode === 'external' ? '🎮 External' : '🔄 Combined'}
+                    {mode === 'device' ? 'Device' : mode === 'external' ? 'External' : 'Combined'}
                   </button>
                 ))}
               </div>
@@ -1766,13 +1766,13 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
               </div>
               <div className="space-y-1">
                 <div className="flex items-baseline justify-between">
-                  <span className="text-zinc-400 text-xs">📱 Device:</span>
+                  <span className="text-zinc-400 text-xs">Device:</span>
                   <span className="font-mono text-sm text-emerald-400 tabular-nums">
                     {formatDuration((hoveredCell.deviceSeconds || 0) * 1000)}
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-zinc-400 text-xs">🎮 External:</span>
+                  <span className="text-zinc-400 text-xs">External:</span>
                   <span className="font-mono text-sm text-purple-400 tabular-nums">
                     {formatDuration((hoveredCell.externalSeconds || 0) * 1000)}
                   </span>
@@ -1865,7 +1865,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                               {activities.map(([activity, data]: [string, any]) => (
                                 <div key={activity} className="flex items-baseline justify-between text-xs">
                                   <span className="text-zinc-400 truncate flex items-center gap-1">
-                                    {data.icon || '🎮'} {activity}:
+                                    {data.icon || '?'} {activity}:
                                   </span>
                                   <span className="font-mono text-purple-300 ml-2 flex-shrink-0">{formatDuration(data.seconds * 1000)}</span>
                                 </div>
@@ -2050,6 +2050,18 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     })).filter((l: any) => l.app);
   }, [dashboardData?.websiteStats]);
 
+  // Notify backend when dashboard is visible/hidden for on-view recording mode
+  useEffect(() => {
+    if (window.deskflowAPI?.setPageVisibility) {
+      window.deskflowAPI.setPageVisibility('dashboard', true);
+    }
+    return () => {
+      if (window.deskflowAPI?.setPageVisibility) {
+        window.deskflowAPI.setPageVisibility('dashboard', false);
+      }
+    };
+  }, []);
+
   return (
     <PageShell page="dashboard" variant="dashboard" className="text-white bg-[#0a0a0a]">
       {/* Background grid effect */}
@@ -2113,16 +2125,16 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                             : '#3b82f6'  // Blue for neutral/idle
                     }}
                   />
-                 <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+                  <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400 flex items-center gap-1">
                     {isPaused 
-                      ? '⏸ Paused' 
+                      ? <><Pause className="w-3 h-3" /> Paused</>
                       : displayTime.label.includes('External')
                         ? displayTime.label
                           : isDistracting 
-                          ? '⛔ Distracting'
+                          ? <><Ban className="w-3 h-3" /> Distracting</>
                           : isCurrentlyProductive 
-                            ? '🔒 Locked In' 
-                            : '⏸ Idle'}
+                            ? <><Target className="w-3 h-3" /> Locked In</>
+                            : <><Pause className="w-3 h-3" /> Idle</>}
                   </span>
                 </motion.div>
 

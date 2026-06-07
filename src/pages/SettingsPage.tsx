@@ -886,6 +886,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
   const [filterTransientApps, setFilterTransientApps] = useState(true);
   const [promptHistoryLimit, setPromptHistoryLimit] = useState(5);
   const [browserRecordingMode, setBrowserRecordingMode] = useState<'always' | 'on-view'>('always');
+  const [appRecordingMode, setAppRecordingMode] = useState<'always' | 'on-view'>('always');
 
   // System Prompts state
   const [systemPrompts, setSystemPrompts] = useState<Record<string, string>>({
@@ -905,6 +906,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
       if (window.deskflowAPI?.getRecordingModes) {
         const modes = await window.deskflowAPI.getRecordingModes();
         setBrowserRecordingMode(modes.browser || 'always');
+        setAppRecordingMode(modes.app || 'always');
       }
     };
     loadTrackingSettings();
@@ -1280,9 +1282,9 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                               : 'bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/30 hover:border-zinc-500'
                           }`}
                         >
-                          <div className="flex items-center gap-1.5 w-full">
+                          <div className="flex items-center justify-center gap-1.5 w-full">
                             <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tierColor }} />
-                            <span className="text-xs text-zinc-200 group-hover:text-white truncate flex-1">{act.name}</span>
+                            <span className="text-xs text-zinc-200 group-hover:text-white truncate max-w-[calc(100%-16px)]">{act.name}</span>
                           </div>
                           <span className="text-xs px-1.5 py-0.5 rounded mt-1.5" style={{ backgroundColor: `${tierColor}20`, color: tierColor }}>
                             {currentTier}
@@ -1480,9 +1482,9 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                               <Sparkles className="w-3 h-3" />
                             </button>
                             
-                            <div className="flex items-center gap-1.5 w-full pr-5">
+                            <div className="flex items-center justify-center gap-1.5 w-full pr-5">
                               <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor }} />
-                              <span className="text-xs text-zinc-200 group-hover:text-white truncate flex-1">{app.app}</span>
+                              <span className="text-xs text-zinc-200 group-hover:text-white truncate max-w-[calc(100%-16px)]">{app.app}</span>
                             </div>
                             <span className="text-xs px-1.5 py-0.5 rounded mt-1.5" style={{ backgroundColor: `${categoryColor}20`, color: categoryColor }}>
                               {displayCategory}
@@ -1704,9 +1706,9 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                               <Sparkles className="w-3 h-3" />
                             </button>
                             
-                            <div className="flex items-center gap-1.5 w-full pr-5">
+                            <div className="flex items-center justify-center gap-1.5 w-full pr-5">
                               <Globe className="w-3 h-3 text-zinc-500 flex-shrink-0" />
-                              <span className="text-xs text-zinc-200 group-hover:text-white truncate flex-1">{site.domain}</span>
+                              <span className="text-xs text-zinc-200 group-hover:text-white truncate max-w-[calc(100%-20px)]">{site.domain}</span>
                             </div>
                             <span className="text-xs px-1.5 py-0.5 rounded mt-1.5" style={{ backgroundColor: `${categoryColor}20`, color: categoryColor }}>
                               {displayCategory}
@@ -2419,6 +2421,25 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                 className={`relative w-11 h-6 rounded-full transition-colors ${browserRecordingMode === 'always' ? 'bg-emerald-500' : 'bg-zinc-700'}`}
               >
                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${browserRecordingMode === 'always' ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <label className="text-sm font-medium text-zinc-300">App Background Recording</label>
+                <p className="text-xs text-zinc-500">When OFF, app logs only appear while Dashboard is open</p>
+              </div>
+              <button
+                onClick={async () => {
+                  const newMode = appRecordingMode === 'always' ? 'on-view' : 'always';
+                  setAppRecordingMode(newMode);
+                  if (window.deskflowAPI?.setRecordingMode) {
+                    await window.deskflowAPI.setRecordingMode('app', newMode);
+                  }
+                }}
+                className={`relative w-11 h-6 rounded-full transition-colors ${appRecordingMode === 'always' ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${appRecordingMode === 'always' ? 'translate-x-5' : ''}`} />
               </button>
             </div>
 

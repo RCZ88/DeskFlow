@@ -138,6 +138,9 @@ CZVault/
 *.backup
 *.old
 
+# opencode config (contains MCP API keys)
+opencode.json
+
 # Lock files (keep package-lock.json, ignore others)
 yarn.lock
 pnpm-lock.yaml
