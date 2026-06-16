@@ -14,6 +14,7 @@ import {
   Trash2,
   RefreshCw,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Sparkles,
   GitCommit,
@@ -48,12 +49,16 @@ import {
   LayoutDashboard,
   FolderGit2,
   Archive,
+  FileText,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
+  LogarithmicScale,
   PointElement,
   BarElement,
   LineElement,
@@ -65,13 +70,15 @@ import {
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
 import { format, subDays, eachDayOfInterval, formatDistanceToNow } from 'date-fns';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import { StatsDashboard } from '../components/stats/StatsDashboard';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
+import FeatureSpecPanel from '../components/FeatureSpecPanel';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, BarElement, LineElement, ArcElement, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, LogarithmicScale, PointElement, BarElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
 interface Overview {
   ides: any[];
@@ -143,13 +150,106 @@ const AGENT_CONFIG: Record<string, { name: string; icon: string; color: string }
   'opencode': { name: 'OpenCode', icon: 'opencode', color: '#3b82f6' },
   'gemini': { name: 'Gemini CLI', icon: 'gemini', color: '#22c55e' },
   'codex': { name: 'Codex CLI', icon: 'codex', color: '#10b981' },
+  'qwen': { name: 'Qwen CLI', icon: 'qwen', color: '#f59e0b' },
   'aider': { name: 'Aider', icon: 'aider', color: '#f59e0b' },
-  'copilot': { name: 'GitHub Copilot', icon: 'copilot', color: '#6366f1' },
+  'kilocode': { name: 'KiloCode', icon: 'kilocode', color: '#22c55e' },
 };
 
-type TabKey = 'overview' | 'projects' | 'ai' | 'git' | 'environment' | 'analytics' | 'backup';
+const AGENT_LIMITS: Record<string, number> = {
+  'opencode': 3500000,
+  'claude-code': 1000000,
+  'cursor': 500000,
+  'gemini': 2000000,
+  'codex': 1000000,
+  'aider': 1000000,
+  'kilocode': 2000000,
+};
 
-const TAB_KEYS: TabKey[] = ['overview', 'projects', 'ai', 'git', 'environment', 'analytics', 'backup'];
+function FreeUsageStats({ agent, dailyUsage, formatTokens }: { agent: AIAgent; dailyUsage: Record<string, any>; formatTokens: (v: number) => string }) {
+  const limit = AGENT_LIMITS[agent.id] || 0;
+  if (limit === 0) return null;
+
+  const calculateAvailability = (days: number) => {
+    const periodDays = eachDayOfInterval({ start: subDays(new Date(), days - 1), end: new Date() });
+    let actualUsage = 0;
+    let daysWithData = 0;
+
+    for (const d of periodDays) {
+      const dayStr = format(d, 'yyyy-MM-dd');
+      if (dailyUsage[dayStr]) {
+        actualUsage += dailyUsage[dayStr].tokens || 0;
+        daysWithData++;
+      }
+    }
+
+    const totalLimit = limit * days;
+    let available = 0;
+    let isEstimated = false;
+
+    if (daysWithData === days) {
+      available = totalLimit - actualUsage;
+    } else if (daysWithData > 0) {
+      const avgDaily = actualUsage / daysWithData;
+      const estimatedTotal = avgDaily * days;
+      available = totalLimit - estimatedTotal;
+      isEstimated = true;
+    } else {
+      available = totalLimit;
+    }
+
+    return { available: Math.max(0, available), isEstimated };
+  };
+
+  const day = calculateAvailability(1);
+  const week = calculateAvailability(7);
+  const month = calculateAvailability(30);
+
+  return (
+    <div className="bg-zinc-800/50 rounded-xl p-4 mb-6 border border-emerald-500/10">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+          <Sparkles className="w-4 h-4 text-emerald-400" />
+        </div>
+        <div>
+          <h4 className="text-sm font-semibold text-white">Available Free Usage</h4>
+          <p className="text-[10px] text-zinc-500">Estimated based on daily allowance</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: 'Today', data: day },
+          { label: 'This Week', data: week },
+          { label: 'This Month', data: month },
+        ].map((item, idx) => (
+          <div key={idx} className="bg-zinc-900/60 rounded-xl p-3 border border-zinc-800/50 flex flex-col items-center justify-center text-center">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-1.5">{item.label}</div>
+            <div className="text-sm font-bold text-emerald-400">
+              {formatTokens(item.data.available)}
+            </div>
+            <div className="text-[9px] text-zinc-600 mt-0.5">tokens left</div>
+            {item.data.isEstimated && (
+              <div className="mt-1.5 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[8px] text-amber-500/80 font-medium uppercase tracking-tighter">
+                Estimated
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {(day.isEstimated || week.isEstimated || month.isEstimated) && (
+        <div className="mt-4 flex items-start gap-2 p-2 rounded-lg bg-zinc-900/30">
+          <div className="w-1 h-1 rounded-full bg-zinc-700 mt-1.5" />
+          <p className="text-[10px] text-zinc-500 leading-relaxed italic">
+            Values marked as estimated are calculated using your average daily usage because partial data is available for the period.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type TabKey = 'overview' | 'projects' | 'ai' | 'git' | 'environment' | 'analytics' | 'backup' | 'specs';
+
+const TAB_KEYS: TabKey[] = ['overview', 'projects', 'ai', 'git', 'environment', 'analytics', 'backup', 'specs'];
 
 const TAB_HOVER = { scale: 1.02 };
 const TAB_TAP = { scale: 0.98 };
@@ -163,6 +263,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: any }> = [
   { key: 'environment', label: 'Environment', icon: Boxes },
   { key: 'analytics', label: 'Analytics', icon: BarChart3 },
   { key: 'backup', label: 'Backup', icon: Archive },
+  { key: 'specs', label: 'Specs', icon: FileText },
 ];
 
 // Back-compat: retired keys map to their new home.
@@ -172,7 +273,12 @@ const TAB_MIGRATION: Record<string, TabKey> = {
   trash: 'backup',
 };
 
-export default function IDEProjectsPage() {
+interface IDEProjectsPageProps {
+  selectedPeriod?: string;
+  dateOffset?: number;
+}
+
+export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 0 }: IDEProjectsPageProps) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -192,6 +298,8 @@ export default function IDEProjectsPage() {
   const [commitHistory, setCommitHistory] = useState<any[]>([]);
   const [workspaceAnalytics, setWorkspaceAnalytics] = useState<{ aiUsage: any; sessions: any[]; problems: any[]; requests: any[]; promptHistory: any[] } | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const analyticsCacheRef = useRef<{ data: typeof workspaceAnalytics; timestamp: number } | null>(null);
   const [contributorStats, setContributorStats] = useState<any>(null);
   const [doraMetrics, setDoraMetrics] = useState<any>(null);
   const [syncingGit, setSyncingGit] = useState(false);
@@ -212,6 +320,9 @@ export default function IDEProjectsPage() {
   const [compareAgents, setCompareAgents] = useState<string[]>([]);
   const [compareMetric, setCompareMetric] = useState<'tokens' | 'messages' | 'cost' | 'sessions'>('tokens');
   const [comparePeriod, setComparePeriod] = useState<'week' | 'month' | 'all'>('week');
+  const [timeLock, setTimeLock] = useState(() => localStorage.getItem('ide-projects-time-lock') === 'true');
+  const [logScale, setLogScale] = useState(() => localStorage.getItem('ide-projects-log-scale') !== 'false');
+  const [excludeOutliers, setExcludeOutliers] = useState(() => localStorage.getItem('ide-projects-exclude-outliers') === 'true');
 
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -271,11 +382,11 @@ export default function IDEProjectsPage() {
 
   useEffect(() => {
     localStorage.setItem('ide-projects-onboarding-seen', 'true');
-    loadOverview();
+    loadOverview(timeLock ? 'all' : selectedPeriod, timeLock ? 0 : dateOffset);
     window.deskflowAPI!.getAISyncStatus().then(status => {
       if (status?.lastRunAt) setAiLastSyncAt(status.lastRunAt);
     }).catch(() => {});
-  }, []);
+  }, [timeLock]); // Only depend on timeLock, ignore selectedPeriod/dateOffset when locked
 
   useEffect(() => {
     if (activeTab === 'git' && overview?.projects && overview.projects.length > 0) {
@@ -301,30 +412,87 @@ export default function IDEProjectsPage() {
     localStorage.setItem('ide-projects-expandedProjects', JSON.stringify([...expandedProjects]));
   }, [expandedProjects]);
 
-  // Fetch workspace analytics when analytics tab is active
   useEffect(() => {
-    if (activeTab !== 'analytics' || !window.deskflowAPI) return;
+    localStorage.setItem('ide-projects-time-lock', String(timeLock));
+  }, [timeLock]);
+  useEffect(() => {
+    localStorage.setItem('ide-projects-log-scale', String(logScale));
+  }, [logScale]);
+  useEffect(() => {
+    localStorage.setItem('ide-projects-exclude-outliers', String(excludeOutliers));
+  }, [excludeOutliers]);
+
+  const fetchAnalytics = useCallback(async () => {
+    if (!window.deskflowAPI) return;
     setAnalyticsLoading(true);
-    Promise.all([
-      window.deskflowAPI.getAIUsageSummary('month'),
-      window.deskflowAPI.getProblems(),
-      window.deskflowAPI.getRequests(),
-      window.deskflowAPI.getTerminalSessions?.(undefined, 500),
-      window.deskflowAPI.getPromptHistory?.({ limit: 2000 }),
-    ]).then(([aiUsage, problems, requests, sessions, promptHistory]) => {
-      setWorkspaceAnalytics({
-        aiUsage: aiUsage || null,
-        problems: problems?.data || problems || [],
-        requests: requests?.data || requests || [],
-        sessions: sessions?.data || sessions || [],
-        promptHistory: promptHistory || [],
-      });
-    }).catch((err) => {
+    setAnalyticsError(null);
+    try {
+      // Use cache for all-time data if available and recent (less than 5 minutes old)
+      const effectivePeriod = timeLock ? 'all' : selectedPeriod;
+      const effectiveOffset = timeLock ? 0 : dateOffset;
+
+      if (timeLock && analyticsCacheRef.current && analyticsCacheRef.current.timestamp) {
+        const cacheAge = Date.now() - analyticsCacheRef.current.timestamp;
+        if (cacheAge < 5 * 60 * 1000) { // 5 minutes
+          console.log('[IDEProjectsPage] Using cached all-time data');
+          setWorkspaceAnalytics(analyticsCacheRef.current.data);
+          setAnalyticsLoading(false);
+          return;
+        }
+      }
+
+      console.log('[IDEProjectsPage] Fetching analytics data for period:', effectivePeriod);
+      const [aiUsageSummary, problems, requests, sessions, promptHistory] = await Promise.all([
+        window.deskflowAPI.getAIUsageSummary(effectivePeriod, effectiveOffset).catch(err => {
+          console.error('[IDEProjectsPage] Failed to fetch AI usage summary:', err);
+          return null;
+        }),
+        window.deskflowAPI.getProblems().catch(err => {
+          console.error('[IDEProjectsPage] Failed to fetch problems:', err);
+          return [];
+        }),
+        window.deskflowAPI.getRequests().catch(err => {
+          console.error('[IDEProjectsPage] Failed to fetch requests:', err);
+          return [];
+        }),
+        window.deskflowAPI.getTerminalSessions?.(undefined, 500).catch(err => {
+          console.error('[IDEProjectsPage] Failed to fetch sessions:', err);
+          return [];
+        }),
+        window.deskflowAPI.getPromptHistory?.({ limit: 1000 }).catch(err => {
+          console.error('[IDEProjectsPage] Failed to fetch prompt history:', err);
+          return [];
+        }),
+      ]);
+
+      // Progressive data rendering - process in chunks to prevent UI freezing
+      setTimeout(() => {
+        const data = {
+          aiUsage: aiUsageSummary || null,
+          problems: problems?.data || problems || [],
+          requests: requests?.data || requests || [],
+          sessions: sessions?.data || sessions || [],
+          promptHistory: promptHistory || [],
+        };
+        analyticsCacheRef.current = { data, timestamp: Date.now() };
+        setWorkspaceAnalytics(data);
+        setAnalyticsLoading(false);
+      }, 100); // Small delay to allow UI to render loading state
+
+    } catch (err) {
       console.error('[IDEProjectsPage] Failed to fetch workspace analytics:', err);
-    }).finally(() => {
+      setAnalyticsError(err instanceof Error ? err.message : 'Failed to load analytics');
       setAnalyticsLoading(false);
-    });
-  }, [activeTab]);
+    }
+  }, [timeLock]); // Only depend on timeLock, ignore selectedPeriod/dateOffset when locked
+
+  // Fetch workspace analytics when ai or analytics tab is active
+  useEffect(() => {
+    if ((activeTab !== 'analytics' && activeTab !== 'ai') || !window.deskflowAPI) return;
+    // Bypass cache when lock changes so data stays in sync
+    analyticsCacheRef.current = null;
+    fetchAnalytics();
+  }, [activeTab, timeLock, fetchAnalytics]); // Only depend on timeLock, ignore selectedPeriod/dateOffset when locked
 
   const loadGitData = async (projectId: string) => {
     try {
@@ -366,15 +534,35 @@ export default function IDEProjectsPage() {
     setSyncingGit(false);
   };
 
-  const loadOverview = async () => {
+  const loadOverview = async (period?: string, offset?: number) => {
     setLoading(true);
     try {
-      const data = await window.deskflowAPI!.getIDEProjectsOverview();
-      setOverview(data);
+      const effectivePeriod = period ?? (timeLock ? 'all' : selectedPeriod);
+      const effectiveOffset = offset ?? (timeLock ? 0 : dateOffset);
+
+      console.log('[IDEProjectsPage] Loading overview for period:', effectivePeriod, 'offset:', effectiveOffset);
+
+      // Progressive loading for all-time data to prevent UI freezing
+      if (effectivePeriod === 'all') {
+        setTimeout(async () => {
+          try {
+            const data = await window.deskflowAPI!.getIDEProjectsOverview(effectivePeriod, effectiveOffset);
+            setOverview(data);
+          } catch (err) {
+            console.error('[IDEProjectsPage] Failed to load all-time overview:', err);
+          } finally {
+            setLoading(false);
+          }
+        }, 50); // Small delay to allow UI to show loading state
+      } else {
+        const data = await window.deskflowAPI!.getIDEProjectsOverview(effectivePeriod, effectiveOffset);
+        setOverview(data);
+        setLoading(false);
+      }
     } catch (err) {
-      console.error('Failed to load IDE projects overview:', err);
+      console.error('[IDEProjectsPage] Failed to load IDE projects overview:', err);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSyncAI = async () => {
@@ -383,13 +571,17 @@ export default function IDEProjectsPage() {
     setAiSyncResult(null);
     let cleanup: (() => void) | undefined;
     try {
+      window.__probe?.expect?.('ai-sync-status', 'starting');
       cleanup = window.deskflowAPI!.onAISyncProgress((data: any) => {
         if (data.status === 'detecting') {
           setSyncProgress(`Detecting ${data.name}...`);
+          window.__probe?.expect?.('ai-sync-' + data.name, { status: 'detecting', name: data.name });
         } else if (data.status === 'parsing') {
           setSyncProgress(`Parsing ${data.name} data...`);
+          window.__probe?.expect?.('ai-sync-' + data.name, { status: 'parsing', name: data.name });
         } else if (data.status === 'saving') {
           setSyncProgress(`Saving ${data.count} sessions from ${data.name}...`);
+          window.__probe?.expect?.('ai-sync-' + data.name, { status: 'done', name: data.name, count: data.count });
         }
       });
       const result = await window.deskflowAPI!.syncAIUsage() as any;
@@ -401,17 +593,36 @@ export default function IDEProjectsPage() {
           }
         }
         setAiSyncResult({ success: true, agents });
+        window.__probe?.expect?.('ai-sync-results', agents);
         setSyncProgress('Refreshing data...');
         await loadOverview();
         const status = await window.deskflowAPI!.getAISyncStatus();
-        if (status?.lastRunAt) setAiLastSyncAt(status.lastRunAt);
+        if (status?.lastRunAt) {
+          setAiLastSyncAt(status.lastRunAt);
+          window.__probe?.expect?.('ai-sync-last-run', status.lastRunAt);
+        }
       }
     } catch (err) {
       console.error('AI sync failed:', err);
+      window.__probe?.expect?.('ai-sync-status', 'error');
     } finally {
       if (cleanup) cleanup();
       setSyncingAI(false);
       setSyncProgress(null);
+      window.__probe?.expect?.('ai-sync-status', 'finished');
+    }
+  };
+
+  const handleForceResyncAI = async () => {
+    setSyncingAI(true);
+    setSyncProgress('Clearing cache...');
+    try {
+      await window.deskflowAPI!.clearAISyncState();
+      await handleSyncAI();
+    } catch (e) {
+      console.error('Force resync failed:', e);
+      setSyncProgress('Force resync failed');
+      setSyncingAI(false);
     }
   };
 
@@ -661,13 +872,54 @@ export default function IDEProjectsPage() {
   };
 
   const formatTokens = (tokens: number): string => {
-    if (tokens >= 1000000000) return `${(tokens / 1000000000).toFixed(1)}B`;
-    if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
-    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
+    if (tokens >= 1e15) return `${(tokens / 1e15).toFixed(1)}Qi`;
+    if (tokens >= 1e12) return `${(tokens / 1e12).toFixed(1)}T`;
+    if (tokens >= 1e9) return `${(tokens / 1e9).toFixed(1)}B`;
+    if (tokens >= 1e6) return `${(tokens / 1e6).toFixed(1)}M`;
+    if (tokens >= 1e3) return `${(tokens / 1e3).toFixed(1)}K`;
     return tokens.toString();
   };
 
+  const TokenValue = ({ value }: { value: number }) => {
+    const [showFull, setShowFull] = useState(false);
+    return (
+      <span className="inline-flex flex-col items-center leading-tight cursor-pointer" onClick={() => setShowFull(!showFull)} title={showFull ? 'Click for abbreviated' : 'Click for full number'}>
+        {showFull ? (
+          <span className="text-[10px] text-zinc-400 font-normal">{value.toLocaleString()}</span>
+        ) : (
+          <span>{formatTokens(value)}</span>
+        )}
+        {value > 0 && (
+          <span className="text-[9px] text-zinc-600 font-normal opacity-50 hover:opacity-100 transition-opacity">
+            {showFull ? 'abbreviated' : 'full'}
+          </span>
+        )}
+      </span>
+    );
+  };
+
+  const CostValue = ({ value }: { value: number }) => {
+    const [showFull, setShowFull] = useState(false);
+    return (
+      <span className="inline-flex flex-col items-center leading-tight cursor-pointer" onClick={() => setShowFull(!showFull)} title={showFull ? 'Click for abbreviated' : 'Click for full amount'}>
+        {showFull ? (
+          <span className="text-[10px] text-zinc-400 font-normal">${value.toFixed(value >= 1 ? 2 : 4)}</span>
+        ) : (
+          <span>{formatCurrency(value)}</span>
+        )}
+        {value > 0 && (
+          <span className="text-[9px] text-zinc-600 font-normal opacity-50 hover:opacity-100 transition-opacity">
+            {showFull ? 'abbreviated' : 'full'}
+          </span>
+        )}
+      </span>
+    );
+  };
+
   const formatCurrency = (amount: number): string => {
+    if (amount >= 1e9) return `$${(amount / 1e9).toFixed(1)}B`;
+    if (amount >= 1e6) return `$${(amount / 1e6).toFixed(1)}M`;
+    if (amount >= 1e3) return `$${(amount / 1e3).toFixed(1)}K`;
     if (amount >= 1) return `$${amount.toFixed(2)}`;
     return `$${amount.toFixed(4)}`;
   };
@@ -684,7 +936,7 @@ export default function IDEProjectsPage() {
 
   const aiAgents = useMemo((): AIAgent[] => {
     const agents: AIAgent[] = [];
-    const byTool = overview?.aiUsage?.byTool || {};
+    const byTool = workspaceAnalytics?.aiUsage?.byTool || overview?.aiUsage?.byTool || {};
 
     for (const [agentId, data] of Object.entries(byTool)) {
       const config = AGENT_CONFIG[agentId] || { name: agentId, icon: agentId, color: '#6366f1' };
@@ -721,18 +973,30 @@ export default function IDEProjectsPage() {
     }
 
     return agents;
-  }, [overview?.aiUsage?.byTool]);
+  }, [workspaceAnalytics?.aiUsage?.byTool, overview?.aiUsage?.byTool, timeLock]); // Add timeLock dependency
 
   useEffect(() => {
-    const activeIds = aiAgents.filter(a => a.tokens > 0).map(a => a.id);
+      const activeIds = aiAgents.filter(a => a.status !== 'inactive').map(a => a.id);
     if (compareAgents.length === 0 && activeIds.length > 0) {
       setCompareAgents(activeIds);
     }
   }, [aiAgents]);
 
+  function filterOutlierValues(values: number[], stddevMultiplier = 3): number[] {
+    if (!excludeOutliers || values.length < 3) return values;
+    const nonZero = values.filter(v => v > 0);
+    if (nonZero.length < 2) return values;
+    const mean = nonZero.reduce((a, b) => a + b, 0) / nonZero.length;
+    const variance = nonZero.reduce((sum, v) => sum + (v - mean) ** 2, 0) / nonZero.length;
+    const stddev = Math.sqrt(variance);
+    const threshold = mean + stddevMultiplier * stddev;
+    return values.map(v => v > threshold ? 0 : v);
+  }
+
   const agentChartsData = useMemo(() => {
+    const effectivePeriod = timeLock ? 'all' : aiPeriod;
     const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 90 };
-    const numDays = daysMap[aiPeriod] || 7;
+    const numDays = daysMap[effectivePeriod] || 7;
 
     const lastDays = eachDayOfInterval({
       start: subDays(new Date(), numDays - 1),
@@ -741,6 +1005,7 @@ export default function IDEProjectsPage() {
 
     const activeAgents = aiAgents.filter(a => a.status !== 'inactive' && a.tokens > 0);
 
+    // Optimize: Only process agents with actual data
     const getMetricValue = (agent: AIAgent, dayStr: string) => {
       const dayData = overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr];
       if (!dayData) return 0;
@@ -755,7 +1020,9 @@ export default function IDEProjectsPage() {
 
     return activeAgents.map(agent => {
       const labels = lastDays.map(d => format(d, 'MMM dd'));
-      const data = lastDays.map(d => getMetricValue(agent, format(d, 'yyyy-MM-dd')));
+      let data = lastDays.map(d => getMetricValue(agent, format(d, 'yyyy-MM-dd')));
+      if (excludeOutliers) data = filterOutlierValues(data);
+      if (logScale) data = data.map(v => v === 0 ? null : v) as number[];
       return {
         agentId: agent.id,
         agentName: agent.name,
@@ -774,7 +1041,7 @@ export default function IDEProjectsPage() {
         }
       };
     });
-  }, [aiAgents, overview?.aiUsage?.byTool, aiPeriod, aiChartMode]);
+  }, [aiAgents, overview?.aiUsage?.byTool, aiPeriod, aiChartMode, timeLock, logScale, excludeOutliers]);
 
   const agentDistributionData = useMemo(() => {
     const activeAgents = aiAgents.filter(a => a.status !== 'inactive');
@@ -916,7 +1183,7 @@ export default function IDEProjectsPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
               { label: 'Environment', value: (overview?.ides?.length || 0) + (overview?.tools?.length || 0), subValue: `${overview?.ides?.length || 0} IDEs · ${overview?.tools?.length || 0} tools`, icon: Boxes, color: '#3b82f6', bg: 'bg-blue-500/10', tab: 'environment' as TabKey },
-              { label: 'AI Usage', value: formatTokens(overview?.aiUsage?.totalTokens || 0), subValue: formatCurrency(overview?.aiUsage?.totalCost || 0), icon: Sparkles, color: '#a855f7', bg: 'bg-violet-500/10', tab: 'ai' as TabKey },
+              { label: 'AI Usage', value: <TokenValue value={overview?.aiUsage?.totalTokens || 0} />, subValue: <CostValue value={overview?.aiUsage?.totalCost || 0} />, icon: Sparkles, color: '#a855f7', bg: 'bg-violet-500/10', tab: 'ai' as TabKey },
               { label: 'Commits', value: overview?.commits?.totalCommits || 0, subValue: `+${overview?.commits?.totalAdditions || 0} / -${overview?.commits?.totalDeletions || 0}`, icon: GitCommit, color: '#f59e0b', bg: 'bg-amber-500/10', tab: 'git' as TabKey },
               { label: 'Last Backup', value: '—', subValue: 'Not configured', icon: Archive, color: '#10b981', bg: 'bg-emerald-500/10', tab: 'backup' as TabKey },
             ].map((stat, idx) => (
@@ -962,7 +1229,7 @@ export default function IDEProjectsPage() {
                 </div>
               </div>
 
-              {aiAgents.filter(a => a.tokens > 0).length > 0 ? (
+              {aiAgents.filter(a => a.status !== 'inactive').length > 0 ? (
                 <>
                   <div className="h-48 mb-6">
                     {(() => {
@@ -1015,7 +1282,7 @@ export default function IDEProjectsPage() {
                   </div>
 
                   <div className="space-y-3">
-                    {aiAgents.filter(a => a.tokens > 0).map((agent) => (
+                    {aiAgents.filter(a => a.status !== 'inactive').map((agent) => (
                       <div key={agent.id} className="flex items-center justify-between p-3 bg-zinc-900/50 rounded-xl">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: agent.color + '22' }}>
@@ -1027,8 +1294,8 @@ export default function IDEProjectsPage() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-sm font-medium text-violet-400">{formatTokens(agent.tokens)}</div>
-                          <div className="text-xs text-zinc-500">{formatCurrency(agent.cost)}</div>
+                          <div className="text-sm font-medium text-emerald-400"><CostValue value={agent.cost} /></div>
+                          <div className="text-xs text-zinc-500"><CostValue value={agent.cost} /></div>
                         </div>
                       </div>
                     ))}
@@ -1134,6 +1401,7 @@ export default function IDEProjectsPage() {
             </button>
             <button
               onClick={async () => {
+                if (!window.confirm('WARNING: This will permanently delete all detected tools and re-scan your system. Are you sure?')) return;
                 const result = await window.deskflowAPI!.resetTools();
                 if (result.success) await loadOverview();
               }}
@@ -1531,21 +1799,7 @@ export default function IDEProjectsPage() {
                 <span className="text-zinc-500 ml-2">{aiAgents.filter(a => a.status !== 'inactive').length} active</span>
               </div>
             </div>
-            <div className="flex items-center gap-3 text-sm">
-              <div>
-                <span className="text-zinc-500">Tokens: </span>
-                <span className="text-violet-400 font-medium">{formatTokens(overview?.aiUsage?.totalTokens || 0)}</span>
-              </div>
-              <div className="text-zinc-700">|</div>
-              <div>
-                <span className="text-zinc-500">Messages: </span>
-                <span className="text-blue-400 font-medium">{(overview?.aiUsage?.totalMessages || 0).toLocaleString()}</span>
-              </div>
-              <div className="text-zinc-700">|</div>
-              <div>
-                <span className="text-zinc-500">Cost: </span>
-                <span className="text-emerald-400 font-medium">{formatCurrency(overview?.aiUsage?.totalCost || 0)}</span>
-              </div>
+            <div className="flex items-center gap-4">
               <div className="w-px h-6 bg-zinc-700" />
               <button
                 onClick={handleSyncAI}
@@ -1555,6 +1809,15 @@ export default function IDEProjectsPage() {
               >
                 <Sparkles className={`w-3.5 h-3.5 ${syncingAI ? 'animate-spin' : ''}`} />
                 {syncingAI ? 'Syncing...' : 'Sync AI'}
+              </button>
+              <button
+                onClick={handleForceResyncAI}
+                disabled={syncingAI}
+                className="flex items-center gap-2 px-2 py-1.5 text-[11px] bg-red-950/40 hover:bg-red-900/50 text-red-400 rounded-lg disabled:opacity-50 transition-colors"
+                title="Clear cache and re-scan all AI agent data from scratch"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Force Resync
               </button>
               {aiLastSyncAt && !syncingAI && (
                 <span className="text-[11px] text-zinc-500">
@@ -1571,13 +1834,68 @@ export default function IDEProjectsPage() {
               )}
               <div className="w-px h-6 bg-zinc-700" />
               <button
+                onClick={() => {
+                  setTimeLock(!timeLock);
+                  // Force immediate update and clear analytics cache when locking/unlocking
+                  if (!timeLock) {
+                    // When locking to all-time, clear cache to force fresh load
+                    analyticsCacheRef.current = null;
+                    setWorkspaceAnalytics(null);
+                    // Immediately trigger reload with all-time
+                    setTimeout(() => {
+                      loadOverview('all', 0);
+                    }, 0);
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                  timeLock
+                    ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
+                    : 'text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700'
+                }`}
+                title={timeLock ? 'Unlock timeframe (use nav)' : 'Lock to All Time (ignores nav changes)'}
+              >
+                {timeLock ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                <span>All Time</span>
+                {timeLock && <span className="ml-1 text-[9px] bg-amber-500/30 px-1 rounded">LOCKED</span>}
+              </button>
+              <div className="w-px h-6 bg-zinc-700" />
+              <button
                 onClick={handleDebugAgents}
                 className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
               >
                 {showAgentDebug ? 'Hide Details' : 'Show Details'}
               </button>
+              <div className="w-px h-6 bg-zinc-700" />
+              <button
+                onClick={() => {
+                  const rows: string[] = ['Agent,Tokens,Messages,Sessions,Cost,Tokens/Msg,Cost/Session'];
+                  aiAgents.filter(a => a.status !== 'inactive').forEach(a => {
+                    rows.push(`${a.name},${a.tokens},${a.messageCount},${a.sessions},${a.cost.toFixed(4)},${a.messageCount > 0 ? Math.round(a.tokens / a.messageCount) : 0},${a.sessions > 0 ? (a.cost / a.sessions).toFixed(4) : 0}`);
+                  });
+                  const csv = rows.join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `ai-usage-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export CSV
+              </button>
             </div>
           </motion.div>
+
+          {/* Stats Dashboard */}
+          <StatsDashboard
+            rawData={workspaceAnalytics}
+            loading={analyticsLoading}
+            error={analyticsError || undefined}
+            onRetry={() => { analyticsCacheRef.current = null; fetchAnalytics(); }}
+          />
 
           {/* Debug Panel */}
           <AnimatePresence>
@@ -1612,7 +1930,7 @@ export default function IDEProjectsPage() {
                         </div>
                         <div>
                           <span className="text-zinc-500">Total Tokens:</span>
-                          <span className="text-violet-400 ml-2">{formatTokens(agentDebugInfo.database.totalTokens || 0)}</span>
+                          <span className="text-violet-400 ml-2"><TokenValue value={agentDebugInfo.database.totalTokens || 0} /></span>
                         </div>
                         <div>
                           <span className="text-zinc-500">By Tool:</span>
@@ -1735,7 +2053,7 @@ export default function IDEProjectsPage() {
                   <>
                     <div className="grid grid-cols-4 gap-3 mb-3">
                       <div className="text-center">
-                        <div className="text-lg font-semibold text-white tabular-nums">{formatTokens(agent.tokens)}</div>
+                        <div className="text-lg font-semibold text-white tabular-nums"><TokenValue value={agent.tokens} /></div>
                         <div className="text-xs text-zinc-500">Tokens</div>
                       </div>
                       <div className="text-center">
@@ -1743,18 +2061,21 @@ export default function IDEProjectsPage() {
                         <div className="text-xs text-zinc-500">Messages</div>
                       </div>
                       <div className="text-center">
-                        <div className="text-lg font-semibold text-emerald-400 tabular-nums">{formatCurrency(agent.cost)}</div>
+                        <div className="text-lg font-semibold text-emerald-400 tabular-nums"><CostValue value={agent.cost} /></div>
                         <div className="text-xs text-zinc-500">Cost</div>
                       </div>
                       <div className="text-center">
-                        <div className="text-lg font-semibold text-amber-400 tabular-nums">{agent.messageCount > 0 ? formatTokens(Math.round(agent.tokens / agent.messageCount)) : '—'}</div>
+                        <div className="text-lg font-semibold text-amber-400 tabular-nums">{agent.messageCount > 0 ? <TokenValue value={Math.round(agent.tokens / agent.messageCount)} /> : '—'}</div>
                         <div className="text-xs text-zinc-500">Avg/Msg</div>
                       </div>
                     </div>
 
-                    {/* Sparkline - 7 day trend */}
+                    {/* Sparkline - trend over effective period */}
                     {(() => {
-                      const days = eachDayOfInterval({ start: subDays(new Date(), 6), end: new Date() });
+                      const sparkPeriod = timeLock ? 'all' : aiPeriod;
+                      const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 90 };
+                      const sparkDays = daysMap[sparkPeriod] || 7;
+                      const days = eachDayOfInterval({ start: subDays(new Date(), sparkDays - 1), end: new Date() });
                       const data = days.map(d => {
                         const dayStr = format(d, 'yyyy-MM-dd');
                         return overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr]?.tokens || 0;
@@ -1836,73 +2157,8 @@ export default function IDEProjectsPage() {
             </motion.div>
           </div>
 
-          {/* AI Leaderboard & Actions */}
-          {aiAgents.filter(a => a.tokens > 0).length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="grid grid-cols-1 md:grid-cols-3 gap-4"
-            >
-              {/* Most Active */}
-              {(() => {
-                const sorted = [...aiAgents].filter(a => a.tokens > 0).sort((a, b) => b.tokens - a.tokens);
-                const top = sorted[0];
-                if (!top) return null;
-                return (
-                  <GlassCard className="p-4">
-                    <div className="text-xs text-zinc-500 mb-1">Most Active</div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: top.color }} />
-                      <span className="text-white font-medium">{top.name}</span>
-                    </div>
-                    <div className="text-sm text-violet-400 mt-1">{formatTokens(top.tokens)} tokens</div>
-                  </GlassCard>
-                );
-              })()}
-              {/* Most Efficient */}
-              {(() => {
-                const sorted = [...aiAgents].filter(a => a.tokens > 0 && a.messageCount > 0).sort((a, b) => (a.tokens / a.messageCount) - (b.tokens / b.messageCount));
-                const top = sorted[0];
-                if (!top) return null;
-                return (
-                  <GlassCard className="p-4">
-                    <div className="text-xs text-zinc-500 mb-1">Most Efficient</div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: top.color }} />
-                      <span className="text-white font-medium">{top.name}</span>
-                    </div>
-                    <div className="text-sm text-emerald-400 mt-1">{formatTokens(Math.round(top.tokens / top.messageCount))} tokens/msg</div>
-                  </GlassCard>
-                );
-              })()}
-              {/* Export Button */}
-              <GlassCard className="p-4 flex flex-col justify-center">
-                <button
-                  onClick={() => {
-                    const rows: string[] = ['Agent,Tokens,Messages,Sessions,Cost,Tokens/Msg,Cost/Session'];
-                    aiAgents.filter(a => a.tokens > 0).forEach(a => {
-                      rows.push(`${a.name},${a.tokens},${a.messageCount},${a.sessions},${a.cost.toFixed(4)},${a.messageCount > 0 ? Math.round(a.tokens / a.messageCount) : 0},${a.sessions > 0 ? (a.cost / a.sessions).toFixed(4) : 0}`);
-                    });
-                    const csv = rows.join('\n');
-                    const blob = new Blob([csv], { type: 'text/csv' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `ai-usage-${format(new Date(), 'yyyy-MM-dd')}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                  className="flex items-center justify-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl transition text-sm"
-                >
-                  <Download className="w-4 h-4" />
-                  Export CSV
-                </button>
-              </GlassCard>
-            </motion.div>
-          )}
-
           {/* AI Charts Section */}
-          {aiAgents.filter(a => a.tokens > 0).length > 0 && (
+          {aiAgents.filter(a => a.status !== 'inactive').length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1939,9 +2195,9 @@ export default function IDEProjectsPage() {
                     {(['week', 'month', 'all'] as const).map(period => (
                       <button
                         key={period}
-                        onClick={() => setAiPeriod(period)}
+                        onClick={() => !timeLock && setAiPeriod(period)}
                         className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
-                          aiPeriod === period
+                          (timeLock ? 'all' : aiPeriod) === period
                             ? 'bg-violet-500/20 text-violet-400'
                             : 'text-zinc-400 hover:text-white'
                         }`}
@@ -1949,7 +2205,7 @@ export default function IDEProjectsPage() {
                         {period === 'week' ? '7 Days' : period === 'month' ? '30 Days' : 'All Time'}
                       </button>
                     ))}
-                  </div>
+                </div>
                 </div>
               </div>
 
@@ -1990,17 +2246,19 @@ export default function IDEProjectsPage() {
                           scales: {
                             x: { grid: { display: false }, ticks: { color: '#71717a', maxTicksLimit: 5, font: { size: 10 } } },
                             y: {
+                              type: logScale ? 'logarithmic' as const : 'linear' as const,
                               grid: { color: '#27272a' },
                               ticks: {
                                 color: '#71717a',
                                 font: { size: 10 },
                                 callback: (v) => {
+                                  if (v === null) return '';
                                   if (aiChartMode === 'tokens') return formatTokens(v as number);
                                   if (aiChartMode === 'cost') return `$${(v as number).toFixed(2)}`;
                                   return String(v);
                                 }
                               },
-                              beginAtZero: true,
+                              ...(logScale ? {} : { beginAtZero: true }),
                             }
                           },
                         }}
@@ -2061,7 +2319,7 @@ export default function IDEProjectsPage() {
               </GlassCard>
 
               {/* Multi-Agent Comparison Chart */}
-              {aiAgents.filter(a => a.tokens > 0).length > 1 && (
+              {aiAgents.filter(a => a.status !== 'inactive').length > 1 && (
                 <GlassCard>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -2102,12 +2360,30 @@ export default function IDEProjectsPage() {
                           </button>
                         ))}
                       </div>
+                      <div className="flex items-center gap-0.5 bg-zinc-800/50 rounded-lg p-0.5">
+                        <button
+                          onClick={() => setLogScale(!logScale)}
+                          className={`px-2 py-1 rounded text-[10px] font-medium transition ${
+                            logScale ? 'bg-cyan-500/20 text-cyan-400' : 'text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          Log
+                        </button>
+                        <button
+                          onClick={() => setExcludeOutliers(!excludeOutliers)}
+                          className={`px-2 py-1 rounded text-[10px] font-medium transition ${
+                            excludeOutliers ? 'bg-amber-500/20 text-amber-400' : 'text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          ♯ Out
+                        </button>
+                      </div>
                     </div>
                   </div>
 
                   {/* Agent Toggles */}
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {aiAgents.filter(a => a.tokens > 0).map(agent => (
+                    {aiAgents.filter(a => a.status !== 'inactive').map(agent => (
                       <label key={agent.id} className="flex items-center gap-1.5 px-2 py-1 bg-zinc-800/50 rounded-lg cursor-pointer hover:bg-zinc-800 transition">
                         <input
                           type="checkbox"
@@ -2134,9 +2410,9 @@ export default function IDEProjectsPage() {
                       const periodDays = eachDayOfInterval({ start: subDays(new Date(), numDays - 1), end: new Date() });
                       const labels = periodDays.map(d => format(d, numDays <= 7 ? 'EEE' : 'MMM dd'));
 
-                      const selected = aiAgents.filter(a => compareAgents.includes(a.id) && a.tokens > 0);
+                      const selected = aiAgents.filter(a => compareAgents.includes(a.id) && a.status !== 'inactive');
                       const datasets = selected.map(agent => {
-                        const data = periodDays.map(d => {
+                        let data = periodDays.map(d => {
                           const dayStr = format(d, 'yyyy-MM-dd');
                           const dayData = overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr];
                           if (!dayData) return 0;
@@ -2146,6 +2422,8 @@ export default function IDEProjectsPage() {
                           if (compareMetric === 'cost') return dayData.cost || 0;
                           return 0;
                         });
+                        if (excludeOutliers) data = filterOutlierValues(data);
+                        if (logScale) data = data.map(v => v === 0 ? null : v) as number[];
                         return {
                           label: agent.name,
                           data,
@@ -2190,17 +2468,19 @@ export default function IDEProjectsPage() {
                                 ticks: { color: '#71717a', maxTicksLimit: 8, font: { size: 10 } }
                               },
                               y: {
+                                type: logScale ? 'logarithmic' as const : 'linear' as const,
                                 grid: { color: '#27272a' },
                                 ticks: {
                                   color: '#71717a',
                                   font: { size: 10 },
                                   callback: (v) => {
+                                    if (v === null) return '';
                                     if (compareMetric === 'tokens') return formatTokens(v as number);
                                     if (compareMetric === 'cost') return `$${(v as number).toFixed(2)}`;
                                     return String(v);
                                   }
                                 },
-                                beginAtZero: true,
+                                ...(logScale ? {} : { beginAtZero: true }),
                               }
                             }
                           }}
@@ -2708,7 +2988,7 @@ export default function IDEProjectsPage() {
               requests={workspaceAnalytics.requests}
               promptHistory={workspaceAnalytics.promptHistory}
               loading={analyticsLoading}
-              period="30d"
+              period={selectedPeriod}
               variant="workspace"
             />
           ) : analyticsLoading ? (
@@ -2744,6 +3024,19 @@ export default function IDEProjectsPage() {
               description="Create a backup before your next AI coding session to enable file-level restore"
             />
           </GlassCard>
+        </motion.div>
+      )}
+
+      {/* Specs Tab */}
+      {activeTab === 'specs' && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="h-full"
+        >
+          <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 overflow-hidden h-full">
+            <FeatureSpecPanel />
+          </div>
         </motion.div>
       )}
 
@@ -3123,7 +3416,7 @@ export default function IDEProjectsPage() {
                     <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
                       <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
                         <div className="text-xs text-zinc-500 mb-1">Tokens</div>
-                        <div className="text-base font-semibold text-white">{formatTokens(periodTokens)}</div>
+                        <div className="text-base font-semibold text-white"><TokenValue value={periodTokens} /></div>
                       </div>
                       <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
                         <div className="text-xs text-zinc-500 mb-1">Messages</div>
@@ -3131,7 +3424,7 @@ export default function IDEProjectsPage() {
                       </div>
                       <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
                         <div className="text-xs text-zinc-500 mb-1">Cost</div>
-                        <div className="text-base font-semibold text-emerald-400">{formatCurrency(periodCost)}</div>
+                        <div className="text-base font-semibold text-emerald-400"><CostValue value={periodCost} /></div>
                       </div>
                       <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
                         <div className="text-xs text-zinc-500 mb-1">Sessions</div>
@@ -3140,7 +3433,7 @@ export default function IDEProjectsPage() {
                       <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
                         <div className="text-xs text-zinc-500 mb-1">Tokens/Msg</div>
                         <div className="text-base font-semibold text-amber-400">
-                          {periodMessages > 0 ? formatTokens(Math.round(periodTokens / periodMessages)) : 'N/A'}
+                          {periodMessages > 0 ? <TokenValue value={Math.round(periodTokens / periodMessages)} /> : 'N/A'}
                         </div>
                       </div>
                       <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
@@ -3150,6 +3443,12 @@ export default function IDEProjectsPage() {
                         </div>
                       </div>
                     </div>
+
+                    <FreeUsageStats 
+                      agent={selectedAgentDetail} 
+                      dailyUsage={overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {}} 
+                      formatTokens={formatTokens}
+                    />
                   </>
                 );
               })()}
@@ -3279,7 +3578,7 @@ export default function IDEProjectsPage() {
                               <div className="text-xs text-zinc-300 truncate" title={proj.path}>{proj.path}</div>
                               <div className="text-[10px] text-zinc-500">{proj.sessions} sessions • {proj.messageCount} msgs</div>
                             </div>
-                            <div className="text-xs text-violet-400 font-medium tabular-nums ml-2">{formatTokens(proj.tokens)}</div>
+                            <div className="text-xs text-violet-400 font-medium tabular-nums ml-2"><TokenValue value={proj.tokens} /></div>
                           </div>
                         ))}
                       </div>
@@ -3301,7 +3600,7 @@ export default function IDEProjectsPage() {
                               <div className="text-xs text-zinc-300 truncate" title={m.model}>{m.model}</div>
                               <div className="text-[10px] text-zinc-500">{m.sessions} sessions • {m.messageCount} msgs</div>
                             </div>
-                            <div className="text-xs text-blue-400 font-medium tabular-nums ml-2">{formatTokens(m.tokens)}</div>
+                            <div className="text-xs text-blue-400 font-medium tabular-nums ml-2"><TokenValue value={m.tokens} /></div>
                           </div>
                         ))}
                       </div>
@@ -3936,6 +4235,61 @@ onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDi
                     <p className="text-xs text-zinc-500 font-mono">{workspaceProject.path}</p>
                   </div>
                 </div>
+                {/* Project navigation */}
+                {overview?.projects && overview.projects.length > 0 && (
+                  <>
+                    <div className="w-px h-8 bg-zinc-700" />
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          const projects = overview!.projects;
+                          const idx = projects.findIndex((p: any) => p.id === workspaceProject.id);
+                          if (idx > 0) {
+                            const prev = projects[idx - 1];
+                            setSelectedProject(prev.id);
+                            setWorkspaceProject(prev);
+                          }
+                        }}
+                        disabled={overview.projects.findIndex((p: any) => p.id === workspaceProject.id) <= 0}
+                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Previous project"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <select
+                        value={workspaceProject.id}
+                        onChange={(e) => {
+                          const project = overview!.projects.find((p: any) => p.id === e.target.value);
+                          if (project) {
+                            setSelectedProject(project.id);
+                            setWorkspaceProject(project);
+                          }
+                        }}
+                        className="max-w-[140px] h-7 rounded-md bg-zinc-800 border border-zinc-700 px-2 text-xs text-zinc-200 appearance-none bg-no-repeat bg-[right_0.3rem_center] hover:border-zinc-600 focus:border-cyan-500/60 focus:outline-none cursor-pointer transition-colors"
+                      >
+                        {overview.projects.map((p: any) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => {
+                          const projects = overview!.projects;
+                          const idx = projects.findIndex((p: any) => p.id === workspaceProject.id);
+                          if (idx < projects.length - 1) {
+                            const next = projects[idx + 1];
+                            setSelectedProject(next.id);
+                            setWorkspaceProject(next);
+                          }
+                        }}
+                        disabled={overview.projects.findIndex((p: any) => p.id === workspaceProject.id) >= overview.projects.length - 1}
+                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Next project"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button

@@ -23,6 +23,7 @@
 | `/database` | `DatabasePage` | Database viewer + analytics dashboard |
 | `/settings` | `SettingsPage` | 5-tab settings (Category/Colors/General/Tracking/Prompts) |
 | `/ide-help` | `IDEHelpPage` | IDE setup help documentation |
+| `/features` | `FeatureSpecViewer` | Hierarchical feature specs browser with sidebar + markdown copy |
 | `/design-workspace` | `DesignWorkspacePage` | Design taste knobs + style references (embedded in Terminal) |
 
 ---

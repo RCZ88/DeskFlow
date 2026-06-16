@@ -23,6 +23,7 @@ import { RoutingToast } from '../components/RoutingToast';
 import { SessionEditDialog } from '../components/SessionEditDialog';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
+import { notificationService } from '../services/NotificationService';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
 import '@xterm/xterm/css/xterm.css';
@@ -103,6 +104,9 @@ const SESSION_STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   paused: { dot: 'bg-yellow-500', label: 'Paused' },
   completed: { dot: 'bg-gray-500', label: 'Completed' },
   archived: { dot: 'bg-zinc-600', label: 'Archived' },
+  action_required: { dot: 'bg-orange-500 animate-pulse', label: 'Action Required' },
+  in_progress: { dot: 'bg-violet-500 animate-pulse', label: 'Working...' },
+  ready: { dot: 'bg-cyan-500', label: 'Ready' },
 };
 
 function CategoryBadge({ category }: { category?: string }) {
@@ -384,6 +388,8 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveDialogName, setSaveDialogName] = useState('');
   const [showCloseWorkspaceDialog, setShowCloseWorkspaceDialog] = useState(false);
+  const [opencodeSessionExport, setOpencodeSessionExport] = useState<any>(null);
+  const [loadingExport, setLoadingExport] = useState(false);
   const [fileConflicts, setFileConflicts] = useState<Array<{
     filePath: string; requestingTerminal: string; lockingTerminal: string;
     sessionId: string | null; timestamp: number;
@@ -411,14 +417,33 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
   interface AgentInitErrorInfo {
     terminalId: string;
+    agentType: string;
     reason: string;
     detail: string;
-    installHint: string;
+    installHint?: string;
+    hint?: string;
   }
   const [agentInitErrors, setAgentInitErrors] = useState<Record<string, AgentInitErrorInfo>>({});
 
   // Terminal tab bar state
   type TerminalTabInfo = { name: string; agent: string; modelTier?: string };
+  useEffect(() => {
+    if (!window.deskflowAPI?.onAiTaskUpdated) return;
+
+    const cleanup = window.deskflowAPI.onAiTaskUpdated((data: { terminalId: string; status: string }) => {
+      // Get settings from localStorage
+      const settings = JSON.parse(localStorage.getItem('agent-notifications') || '{"attention": true, "complete": true}');
+      
+      if (data.status === 'action_required' && settings.attention) {
+        notificationService.notifyAttention();
+      } else if (data.status === 'completed' && settings.complete) {
+        notificationService.notifyComplete();
+      }
+    });
+
+    return () => cleanup();
+  }, []);
+
   const [terminalTabs, setTerminalTabs] = useState<Record<string, TerminalTabInfo>>({});
   const terminalTabsRef = useRef(terminalTabs);
   const draggedTabRef = useRef<string | null>(null);
@@ -454,11 +479,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [terminalLayout, setTerminalLayout] = useState<PaneNode | null>(null);
   const [activeGroupIndex, setActiveGroupIndex] = useState(0);
   const [layoutLoading, setLayoutLoading] = useState(true);
-  const [mapListRatio, setMapListRatio] = useState(0.6);
+  const effectiveProjectId = propProjectId || selectedProject;
+
+  const [mapListRatio, setMapListRatio] = useState(() => {
+    if (effectiveProjectId) {
+      const saved = localStorage.getItem(`mapListRatio:${effectiveProjectId}`);
+      if (saved) return parseFloat(saved);
+    }
+    return 0.6;
+  });
   const mapResizeRef = useRef<{ startY: number; startRatio: number } | null>(null);
   const userCreatedTerminalRef = useRef(false);
 
-  const effectiveProjectId = propProjectId || selectedProject;
+  // Persist mapListRatio when it changes
+  useEffect(() => {
+    if (effectiveProjectId) {
+      localStorage.setItem(`mapListRatio:${effectiveProjectId}`, String(mapListRatio));
+    }
+  }, [mapListRatio, effectiveProjectId]);
 
   // Load saved layout from DB — only restore if empty state (no terminals to auto-spawn)
   useEffect(() => {
@@ -637,7 +675,8 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       if (window.deskflowAPI?.armHandshake) {
         const hs = await window.deskflowAPI.armHandshake(terminalId);
         if (hs?.success && hs.token) {
-          await window.deskflowAPI.terminalWrite(terminalId, hs.token + '\r');
+          const writeData = hs.bracketedPaste ? `\x1b[200~${hs.token}\x1b[201~\r` : hs.token + '\r';
+          await window.deskflowAPI.terminalWrite(terminalId, writeData);
           // Wait for handshake token to appear in agent output
           await new Promise<void>((resolve) => {
             let done = false;
@@ -719,6 +758,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     return () => cleanup?.();
   }, []);
 
+  // Track terminal timeouts for retry overlay
+  const [terminalTimeouts, setTerminalTimeouts] = useState<Record<string, boolean>>({});
+
   // Listen for agent init errors (launch failure recovery)
   useEffect(() => {
     if (!window.deskflowAPI?.onAgentInitError) return;
@@ -727,6 +769,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     });
     return () => cleanup?.();
   }, []);
+
+  // Listen for agent timeouts
+  useEffect(() => {
+    if (!window.deskflowAPI?.onAgentTimeout) return;
+    const cleanup = window.deskflowAPI.onAgentTimeout((data: { terminalId: string }) => {
+      setTerminalTimeouts(prev => ({ ...prev, [data.terminalId]: true }));
+    });
+    return () => cleanup?.();
+  }, []);
+
+  // Build agentStatuses for TerminalLayout overlay
+  const agentStatuses = useMemo(() => {
+    const result: Record<string, 'spawning' | 'waiting' | 'ready' | 'timeout'> = {};
+    for (const tid of Object.keys(terminalTimeouts)) {
+      result[tid] = 'timeout';
+    }
+    return result;
+  }, [terminalTimeouts]);
 
   // Load terminal bindings
   const loadTerminalBindings = useCallback(async () => {
@@ -800,6 +860,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     instruction: string;
     prompt: string;
     systemPromptIncluded?: boolean;
+    agent?: string;
   }) => {
     if (!window.deskflowAPI || !config.prompt.trim() || isSending) return;
     setIsSending(true);
@@ -822,8 +883,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       if (config.prompt.trim().toLowerCase() === '/sync') {
         const syncResult = await window.deskflowAPI.compileSyncSummary(resolvedTargetId);
         if (syncResult?.success && syncResult.summary) {
-          await window.deskflowAPI.terminalWrite(resolvedTargetId, syncResult.summary + '\r\n');
-          showError('Cross-session context synced', 'info');
+          const agentType = config.agent || existingSession?.agent || 'claude';
+          const sendResult = await window.deskflowAPI.agentSend?.(resolvedTargetId, syncResult.summary, agentType);
+          if (sendResult && !sendResult.success) {
+            showError(`Sync write failed: ${sendResult.error || 'Unknown'}`, 'error');
+          } else {
+            showError('Cross-session context synced', 'info');
+          }
         } else {
           showError(syncResult?.error || 'Sync failed', 'error');
         }
@@ -874,7 +940,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
       // ── 5. Send prompt to agent ────────────────────────────
       try {
-        const sendResult = await window.deskflowAPI?.agentSend?.(resolvedTargetId, config.prompt, existingSession?.agent || 'claude');
+        const sendResult = await window.deskflowAPI?.agentSend?.(resolvedTargetId, config.prompt, config.agent || existingSession?.agent || 'claude');
         if (sendResult && !sendResult.success) {
           showError(`Terminal not responding: ${sendResult.error || 'Unknown error'}`, 'error');
           return;
@@ -939,6 +1005,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
   const handleRetryAgentInit = useCallback(async (terminalId: string, agentType: string) => {
     setAgentInitErrors(prev => { const n = { ...prev }; delete n[terminalId]; return n; });
+    setTerminalTimeouts(prev => { const n = { ...prev }; delete n[terminalId]; return n; });
     if (window.deskflowAPI?.retryAgentLaunch) {
       await window.deskflowAPI.retryAgentLaunch(terminalId, agentType);
     }
@@ -1096,11 +1163,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           .join('\n---\n');
         resolvedMessage = `Context from session messages:\n${refBlock}\n\n---\n${resolvedMessage}`;
       }
-      const result = await window.deskflowAPI.terminalWrite(resolvedTargetId, resolvedMessage + '\r\n');
-      if (result && !result.success) {
-        showError(`Terminal not responding: ${result.error || 'Unknown error'}`, 'error');
-        return;
-      }
+      const targetAgent = terminalTabs[resolvedTargetId]?.agent;
+      const sendOk = await handleSendToTerminal(resolvedTargetId, resolvedMessage, targetAgent);
+      if (sendOk === false) return;
       setInstructionText('');
       setQuotedReferences([]);
       setMentionDropdown(prev => ({ ...prev, visible: false }));
@@ -1358,16 +1423,31 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const handleSaveWorkspace = useCallback(async () => {
     if (!propProjectId || !window.deskflowAPI?.saveWorkspace) return;
     try {
-      await window.deskflowAPI.saveWorkspace({
+      const terminalInfo = Object.fromEntries(
+        Object.entries(terminalTabs).map(([id, info]) => [id, { name: info.name, agent: info.agent, modelTier: info.modelTier }])
+      );
+      const result = await window.deskflowAPI.saveWorkspace({
         projectId: propProjectId,
         scope: 'project',
         sidebarWidth,
         activeTab,
         terminalTabs: Object.keys(terminalTabs),
+        layout: terminalLayout,
+        openFiles: [],
+        activeTerminalId,
+        todos: [],
+        presets,
+        terminalInfo,
       });
-      showError('Workspace saved', 'info');
-    } catch {}
-  }, [propProjectId, sidebarWidth, activeTab, terminalTabs]);
+      if (result?.success) {
+        showError('Workspace saved', 'info');
+      } else {
+        showError(result?.error || 'Failed to save workspace', 'error');
+      }
+    } catch (err: any) {
+      showError(err?.message || 'Failed to save workspace', 'error');
+    }
+  }, [propProjectId, sidebarWidth, activeTab, terminalTabs, terminalLayout, activeTerminalId, presets]);
 
   const handleLoadWorkspace = useCallback(async () => {
     if (!propProjectId || !window.deskflowAPI?.loadWorkspace) return;
@@ -1376,9 +1456,43 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       if (result?.success && result.data) {
         if (result.data.sidebarWidth) setSidebarWidth(result.data.sidebarWidth);
         if (result.data.activeTab) setActiveTab(result.data.activeTab);
+        if (result.data.presets?.length > 0) setPresets(result.data.presets);
+
+        // Restore pane layout from state_json.layout or from terminal_layouts table
+        if (result.data.layout) {
+          setTerminalLayout(result.data.layout);
+        } else {
+          const layouts = await window.deskflowAPI.getTerminalLayouts(effectiveProjectId || undefined);
+          const active = layouts?.find((l: any) => l.is_active);
+          if (active?.layout_data) {
+            setTerminalLayout(JSON.parse(active.layout_data));
+          }
+        }
+
+        // Reconstruct terminals from saved terminalTabs
+        const savedTabs = result.data.terminalTabs || [];
+        const terminalInfo = result.data.terminalInfo || {};
+        if (savedTabs.length > 0 && !userCreatedTerminalRef.current) {
+          const proj = projects.find(p => p.id === propProjectId);
+          const cwd = proj?.path || '';
+          for (const terminalId of savedTabs) {
+            if (!terminalTabsRef.current[terminalId]) {
+              const info = terminalInfo[terminalId];
+              window.dispatchEvent(new CustomEvent('create-terminal', {
+                detail: { terminalId, cwd, agent: info?.agent, sessionName: info?.name }
+              }));
+            }
+          }
+        }
+
+        if (result.data.activeTerminalId) {
+          setActiveTerminalId(result.data.activeTerminalId);
+        }
       }
-    } catch {}
-  }, [propProjectId]);
+    } catch (err: any) {
+      showError(err?.message || 'Failed to load workspace', 'error');
+    }
+  }, [propProjectId, effectiveProjectId, projects]);
 
   const handleImportOpencodeSessions = useCallback(async (opencodeSessions: any[]) => {
     const proj = projects.find(p => p.id === selectedProject);
@@ -1432,14 +1546,29 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     };
   }, [propProjectId, sidebarWidth, activeTab, terminalTabs, handleSaveWorkspace]);
 
-  const spawnTerminal = useCallback(async (terminalId: string, cwd?: string) => {
-    console.log('[TerminalPage] spawnTerminal called:', terminalId, cwd);
+  useEffect(() => {
+    if (!selectedSessionDetail) { setOpencodeSessionExport(null); return; }
+    const session = sessions.find(s => s.id === selectedSessionDetail);
+    if (!session?.resume_id) { setOpencodeSessionExport(null); return; }
+    setLoadingExport(true);
+    window.deskflowAPI?.executeCommand?.(`opencode export ${session.resume_id}`).then(result => {
+      if (result?.stdout) {
+        try {
+          const parsed = JSON.parse(result.stdout);
+          setOpencodeSessionExport(parsed.info || parsed);
+        } catch {}
+      }
+    }).finally(() => setLoadingExport(false));
+  }, [selectedSessionDetail, sessions]);
+
+  const spawnTerminal = useCallback(async (terminalId: string, cwd?: string, agentType?: string) => {
+    console.log('[TerminalPage] spawnTerminal called:', terminalId, cwd, agentType);
     if (!window.deskflowAPI) {
       showError('Terminal API not available - cannot create terminal', 'error');
       return false;
     }
     try {
-      const result = await window.deskflowAPI.spawnTerminal(terminalId, cwd || '');
+      const result = await window.deskflowAPI.spawnTerminal(terminalId, cwd || '', agentType);
       if (!result.success) {
         showError(`Failed to spawn shell: ${result.error || 'Unknown error'}`, 'error');
         return false;
@@ -1452,19 +1581,56 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     }
   }, [showError]);
 
+  const workspaceRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (!propProjectId || workspaceRestoredRef.current) return;
+    workspaceRestoredRef.current = true;
+    const timer = setTimeout(() => {
+      handleLoadWorkspace();
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [propProjectId, handleLoadWorkspace]);
+
   // Handle create-terminal events: spawn the PTY and notify the system
   // Placed after spawnTerminal to avoid TDZ reference error
   useEffect(() => {
     const handleCreateTerminal = async (e: CustomEvent) => {
       const d = e.detail as { terminalId: string; cwd?: string; agent?: string; sessionName?: string };
       userCreatedTerminalRef.current = true;
-      await spawnTerminal(d.terminalId, d.cwd || propProjectPath);
+      await spawnTerminal(d.terminalId, d.cwd || propProjectPath, d.agent);
       window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: d.terminalId } }));
       window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: d.terminalId, agent: d.agent } }));
     };
     window.addEventListener('create-terminal', handleCreateTerminal as EventListener);
     return () => window.removeEventListener('create-terminal', handleCreateTerminal as EventListener);
   }, [spawnTerminal, propProjectPath]);
+
+  // Handle terminal crash events: clean up agent state
+  useEffect(() => {
+    const handleTerminalCrashed = (e: CustomEvent) => {
+      const { terminalId } = e.detail as { terminalId: string; exitCode: number };
+      setAgentInitErrors(prev => { const n = { ...prev }; delete n[terminalId]; return n; });
+    };
+    window.addEventListener('terminal:crashed', handleTerminalCrashed as EventListener);
+    return () => window.removeEventListener('terminal:crashed', handleTerminalCrashed as EventListener);
+  }, []);
+
+  // Handle re-spawn requests from dead terminal overlay
+  useEffect(() => {
+    const handleReSpawn = async (e: CustomEvent) => {
+      const { terminalId } = e.detail as { terminalId: string };
+      const tab = terminalTabs[terminalId];
+      const agent = tab?.agent || 'opencode';
+      const cwd = propProjectPath || '';
+      const spawned = await spawnTerminal(terminalId, cwd, agent);
+      if (!spawned) return;
+      window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId } }));
+      await initializeTerminal(terminalId, agent, undefined, undefined, undefined, cwd);
+    };
+    window.addEventListener('re-spawn-terminal', handleReSpawn as EventListener);
+    return () => window.removeEventListener('re-spawn-terminal', handleReSpawn as EventListener);
+  }, [spawnTerminal, initializeTerminal, terminalTabs, propProjectPath]);
 
   const handleLayoutChange = useCallback((layout: PaneNode) => {
     setTerminalLayout(layout);
@@ -1542,6 +1708,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     setTerminalLayout(finalLayout);
     saveLayout(finalLayout);
   }, [terminalLayout, saveLayout]);
+
+  const handleMiniMapMoveToGroup = useCallback((terminalId: string, targetGroupIndex: number) => {
+    handleTerminalMoveToGroup(terminalId, targetGroupIndex);
+  }, [handleTerminalMoveToGroup]);
 
   const loadSavedConfigs = useCallback(async () => {
     if (!window.deskflowAPI) return;
@@ -1718,7 +1888,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         const updatedLayout = insertIntoLayout(terminalLayout, resolvedTerminalId);
         setTerminalLayout(updatedLayout);
         saveLayout(updatedLayout);
-        const spawned = await spawnTerminal(resolvedTerminalId, cwd);
+        const spawned = await spawnTerminal(resolvedTerminalId, cwd, session.agent);
         if (!spawned) {
           showError('Failed to create terminal', 'error');
           return;
@@ -2256,6 +2426,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 >
                   <Monitor className="w-3 h-3 text-green-500" />
                   {sessionInTab && <StatusDot status={sessionInTab.status} />}
+                  {sessionInTab?.status === 'action_required' && (
+                    <AlertTriangle className="w-3.5 h-3.5 text-orange-500 animate-pulse ml-0.5" />
+                  )}
                   <span>{tab.name}</span>
                   {tab.modelTier && (
                     <span className={`text-[9px] px-1 rounded font-medium ${
@@ -2322,7 +2495,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 <div className="text-red-200/50">{err.installHint}</div>
               </div>
               <button
-                onClick={() => handleRetryAgentInit(tid, err.reason === 'not-recognized' ? 'opencode' : 'claude')}
+                onClick={() => handleRetryAgentInit(tid, err.agentType)}
                 className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs rounded"
               >
                 Retry
@@ -2420,6 +2593,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                       onActiveTerminalChange={handleActiveTerminalChange}
                       onCloseTerminal={closeTerminal}
                       projectPath={propProjectPath}
+                      agentStatuses={agentStatuses}
+                      onRetryInit={(tid) => {
+                        const err = agentInitErrors[tid];
+                        if (err) {
+                          handleRetryAgentInit(tid, err.agentType);
+                        } else {
+                          const tab = terminalTabs[tid];
+                          handleRetryAgentInit(tid, tab?.agent || 'opencode');
+                        }
+                      }}
                     />
                   </div>
                 );
@@ -2713,8 +2896,8 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                   <div><span className="text-zinc-500">Category:</span> <span className="text-zinc-300">{session.category || 'Uncategorized'}</span></div>
                                   <div><span className="text-zinc-500">Date:</span> <span className="text-zinc-300">{formatDate(session.created_at)}</span></div>
                                   <div><span className="text-zinc-500">Terminal:</span> <span className="text-zinc-300">{terminalInfo ? `${terminalInfo.name} (active)` : 'Closed'}</span></div>
-                                  <div><span className="text-zinc-500">Cost:</span> <span className="text-emerald-400">${session.total_cost?.toFixed(2) || '0.00'}</span></div>
-                                  <div><span className="text-zinc-500">Tokens:</span> <span className="text-zinc-300">{session.total_tokens?.toLocaleString() || 0}</span></div>
+                                  <div><span className="text-zinc-500">Cost:</span> <span className="text-emerald-400">${opencodeSessionExport?.cost?.toFixed(2) ?? session.total_cost?.toFixed(2) ?? '0.00'}</span></div>
+                                  <div><span className="text-zinc-500">Tokens:</span> <span className="text-zinc-300">{opencodeSessionExport?.tokens ? (opencodeSessionExport.tokens.input + opencodeSessionExport.tokens.output).toLocaleString() : session.total_tokens?.toLocaleString() ?? '0'}</span></div>
                                   {session.resume_id && <div className="col-span-2"><span className="text-zinc-500">Resume ID:</span> <span className="text-zinc-300 font-mono">{session.resume_id}</span></div>}
                                   {session.description && <div className="col-span-2"><span className="text-zinc-500">Description:</span> <span className="text-zinc-300">{session.description}</span></div>}
                                   {session.product_area && <div className="col-span-2"><span className="text-zinc-500">Area:</span> <span className="text-cyan-600">{session.product_area}</span></div>}
@@ -2815,12 +2998,12 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                             const tags = (() => { try { return JSON.parse(session.auto_tags || '[]'); } catch { return []; } })();
                             return (
                               <div key={session.id}
-                                   onClick={() => { setSelectedSessionDetail(session.id); setSessionMessages([]); }}
+                                   onClick={async () => { setSelectedSessionDetail(session.id); setSessionMessages([]); try { const r = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent); if (r?.success) setSessionMessages(r.data || []); } catch {} }}
                                    className="mb-2 p-2 bg-zinc-800 rounded group hover:bg-zinc-750 transition-colors border-l-2 cursor-pointer"
                                    style={{ borderLeftColor: terminalInfo ? 'rgb(34 197 94 / 0.4)' : 'rgb(113 113 122 / 0.2)' }}
                               >
                                 <div className="flex items-start justify-between">
-                                  <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                                  <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <StatusDot status={session.status} />
                                       <CategoryBadge category={session.category} />
@@ -2875,6 +3058,20 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                     </button>
                                     <button
                                       onClick={async () => {
+                                        setSelectedSessionDetail(session.id);
+                                        setSessionMessages([]);
+                                        try {
+                                          const r = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
+                                          if (r?.success) setSessionMessages(r.data || []);
+                                        } catch {}
+                                      }}
+                                      title="View session details"
+                                      className="px-2 py-0.5 bg-cyan-600/60 hover:bg-cyan-500/80 text-cyan-200 text-[10px] font-medium rounded-md transition-colors duration-150 active:scale-95"
+                                    >
+                                      Details
+                                    </button>
+                                    <button
+                                      onClick={async () => {
                                         try {
                                           const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
                                           if (result?.success) {
@@ -2926,6 +3123,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         onTerminalMove={handleMiniMapTerminalMove}
                         onSplit={handleMiniMapSplit}
                         onToggleDirection={handleMiniMapToggleDirection}
+                        onMoveToGroup={handleMiniMapMoveToGroup}
                       />
                     ) : (
                       <p className="text-xs text-zinc-600 mb-4">No terminals open</p>
@@ -3648,6 +3846,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 localStorage.setItem('terminal-defaultAgent', agent);
                 setShowNewSessionDialog(false);
 
+                // Show session in list immediately while creation is in progress
+                const optimisticSession: Session = {
+                  id: config.id,
+                  agent,
+                  topic: sessionName,
+                  created_at: new Date().toISOString(),
+                  status: 'initializing',
+                };
+                setSessions(prev => [optimisticSession, ...prev]);
+
                 // Resolve init content from config (skip when resuming existing session)
                 let initContent = config.initContent || '';
                 if (!config.resumeId && !config.initContent) {
@@ -3760,6 +3968,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   loadSessions();
                   showError(`Session "${sessionName}" started in terminal`, 'info');
                   setNewSessionSelectedTerminal('');
+                } else {
+                  setSessions(prev => prev.filter(s => s.id !== config.id));
+                  showError('Failed to save session', 'error');
                 }
               }}
               problems={allProblems}

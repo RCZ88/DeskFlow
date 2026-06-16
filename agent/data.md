@@ -20,6 +20,7 @@
   - `browser_sessions`: id, date, domain, category, title, total_sec, sessions, last_active
 
 **AI Features Tables (added 2026-06-04):**
+  - `goals`: id, date, title, description, category (default 'work'), target_type, target_seconds, match_category, status (pending/completed), period (daily/longterm), source, links, progress_seconds, created_at, completed_at, **priority** (added 2026-06-13, INTEGER DEFAULT 0)
   - `ai_briefs`: type (daily/weekly), date (YYYY-MM-DD or week key), content (JSON), model_used, tokens_used, created_at
   - `ai_interests`: id, topic (text), enabled (boolean default 1), created_at
   - `ai_feature_usage`: date, feature (briefing/weekly/topic/anomaly), model, input_tokens, output_tokens, cost_usd, success (boolean), created_at
@@ -75,7 +76,7 @@
 | `write-terminal` | Write data to terminal stdin. Accepts `(terminalId, data)`. |
 | `resize-terminal` | Resize terminal PTY. Accepts `(terminalId, cols, rows)`. |
 | `kill-terminal` | Kill terminal PTY process. Accepts `(terminalId)`. |
-| `terminal:write-old-format` | Write data to terminal stdin (used by `terminalWrite` preload bridge). Accepts `(terminalId, data)`. Persists to `terminal_messages` table. |
+| `terminal:write-old-format` | Write data to terminal stdin (used by `terminalWrite` preload bridge). Accepts `(terminalId, data)`. **Phase-aware** — queues to `pendingWrites` during `launching`/`busy` phases. Persists to `terminal_messages` table. |
 | `terminal:resize-old-format` | Resize terminal PTY (used by `terminalResize` preload bridge). Accepts `(terminalId, cols, rows)`. |
 | `terminal:destroy-old-format` | Kill terminal PTY (used by `terminalDestroy` preload bridge). Accepts `(terminalId)`. |
 | `get-terminal-session-resume-id` | Get resume_id for a terminal session. Accepts `(sessionId)`. Returns `resume_id` string or null. |
@@ -116,6 +117,9 @@
 | `get-interest-topics` | Returns all rows from `ai_interests` table ordered by creation date desc. |
 | `add-interest-topic` | Adds a new interest topic. Accepts `(topic: string)`. Inserts into `ai_interests` with `INSERT OR IGNORE`. |
 | `remove-interest-topic` | Removes an interest topic by ID. Accepts `(topicId: number)`. Deletes from `ai_interests`. |
+| `get-longterm-goals` | Returns all goals with `period='longterm'` ordered by priority ASC, created_at ASC. No params. |
+| `delete-goal` | Deletes a goal by ID. Accepts `(goalId: string)`. Returns `{ success }`. |
+| `suggest-goals` | **Extended 2026-06-13:** Now accepts an optional `longtermGoals` array in the context. Injects incomplete long-term goals into the AI system prompt so suggestions align with long-term plans. |
 
 ---
 
@@ -127,7 +131,10 @@
 | `terminal:exit` | main → renderer | PTY process exited. Payload: `(terminalId, exitCode, signal)`. |
 | `terminal:ready` | main → renderer | PTY spawned and ready for I/O. Payload: `(terminalId)`. |
 | `agent:ready` | main → renderer | AI agent signature detected in terminal output. Payload: `{ terminalId }`. Triggers system prompt write and message queue flush. |
-| `agent:timeout` | main → renderer | Agent initialization timed out (30s). Payload: `{ terminalId, agentType }`. Shows retry overlay. |
+| `agent:timeout` | main → renderer | Agent initialization timed out (30s). Payload: `{ terminalId, agentType }`. Shows retry overlay. **Added 2026-06-13:** Now armed on initial spawn (was only armed on retry). |
+| `terminal:crashed` | renderer → layout | CustomEvent dispatched by TerminalPane on terminal exit. Triggers dead overlay with "Click to re-spawn" button. |
+| `re-spawn-terminal` | layout → TerminalPage | CustomEvent dispatched by dead overlay's re-spawn button. TerminalPage cleans up agent state, re-initializes terminal. |
+| `terminal:pending-failed` | main → renderer | Pending writes marked `failed` on terminal kill. Payload: `{ terminalId, count: number }`. Surfaced to notify user of lost messages. |
 | `context-changed` | main → renderer | Problem/request/checklist CRUD event. Payload: `{ type: 'problem'|'request'|'checklist', action: 'created'|'updated'|'deleted', entity: { id, title?, status? } }`. Written to active terminal as `[System: ...]` message. |
 | `session-metadata-updated` | main → renderer | Agent output was parsed for ## Session Metadata block. Payload: `{ sessionId, metadata: { title?, description?, status?, productArea?, category? }, autoTags: string[] }`. Triggers session list reload. |
 | `ai-brief-ready` | main → renderer | Push event when a brief is freshly generated. Payload: `{ type: 'daily'|'weekly', content: any }`. Frontend subscribes via `onAiBriefReady` preload bridge. |
@@ -144,4 +151,4 @@
 
 ---
 
-**Last Updated:** 2026-06-06
+**Last Updated:** 2026-06-13

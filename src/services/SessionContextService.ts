@@ -53,8 +53,20 @@ export class SessionContextService {
       }
     }
     
-    // Detect waiting for input
-    if (/\?\s*\[y\/n\]/i.test(output) || /\?\s*\(yes\/no\)/i.test(output)) {
+    // Detect waiting for input (Action Required)
+    const actionRequiredPatterns = [
+      /\?\s*\[y\/n\]/i,
+      /\?\s*\(yes\/no\)/i,
+      /\[y\/n\]\s*\?/i,
+      /confirm/i,
+      /proceed/i,
+      /password/i,
+      /passphrase/i,
+      /enter\s+your\s+name/i,
+      /select\s+an\s+option/i,
+    ];
+
+    if (actionRequiredPatterns.some(re => re.test(output))) {
       context.status = 'waiting_input';
     }
     

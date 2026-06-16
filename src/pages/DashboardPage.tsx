@@ -105,6 +105,7 @@ const WEBSITE_CATEGORY_MAP: Record<string, string> = {
 };
 
 function formatDuration(ms: number): string {
+  if (!ms || !isFinite(ms)) return '00:00:00';
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -394,6 +395,10 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
 
   // Dashboard data from backend (replaces allLogs-based client-side computation)
   const [dashboardData, setDashboardData] = useState<any>(null);
+
+  // Gap/unfilled time indicator
+  const [unfilledMinutes, setUnfilledMinutes] = useState(0);
+  const [gapCount, setGapCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -412,6 +417,26 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     })();
     return () => { cancelled = true; };
   }, [selectedPeriod, dateOffset, weekOffset]);
+
+  // Fetch today's gap data for unfilled time indicator
+  useEffect(() => {
+    (async () => {
+      try {
+        const gaps = await (window as any).deskflowAPI?.detectUsageGaps({ period: 'today', minGapMinutes: 5 });
+        if (gaps && gaps.length > 0) {
+          const totalMinutes = gaps.reduce((sum: number, g: any) => sum + Math.round(g.durationSeconds / 60), 0);
+          setUnfilledMinutes(totalMinutes);
+          setGapCount(gaps.length);
+        } else {
+          setUnfilledMinutes(0);
+          setGapCount(0);
+        }
+      } catch (_e) {
+        setUnfilledMinutes(0);
+        setGapCount(0);
+      }
+    })();
+  }, []);
 
   // Reset pausedByTrackerApp when mode changes from 'pause' to something else
   useEffect(() => {
@@ -923,6 +948,15 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
         console.log('[Focus] Initial foreground:', initialData.app, '| category:', initialData.category);
         setLastNonBrowserApp(initialData);
         setCurrentApp(initialData);
+        const initialTa = tierAssignmentsRef.current;
+        const initialGetTier = (cat?: string): 'productive' | 'neutral' | 'distracting' => {
+          if (!cat) return 'neutral';
+          const tiers = initialTa || DEFAULT_TIER_ASSIGNMENTS;
+          if (tiers.productive.includes(cat)) return 'productive';
+          if (tiers.distracting.includes(cat)) return 'distracting';
+          return 'neutral';
+        };
+        setLastTier(initialGetTier(initialData.category));
       }).catch(() => {});
     }
     
@@ -1454,37 +1488,79 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     };
   }, [activities, selectedExternalActivity]);
 
-  // Compute real heatmap data from allLogs (last 7 days)
-  // ── Hourly heatmap from backend data ──
+  // Load all logs for heatmap calculations
+  const [allLogs, setAllLogs] = useState<any[]>([]);
+  useEffect(() => {
+    if (window.deskflowAPI?.getLogs) {
+      window.deskflowAPI.getLogs().then((logs:any[]) => {
+        const formatted = logs.map(l => ({
+          timestamp: new Date(l.timestamp),
+          app: l.app,
+          is_browser_tracking: l.is_browser_tracking === 1 || l.is_browser_tracking === true,
+          domain: l.domain,
+          duration_ms: l.duration_ms,
+        }));
+        setAllLogs(formatted);
+      }).catch(e => console.warn('[Dashboard] Failed to load all logs', e));
+    }
+  }, []);
+
+  // Compute heatmap data for the selected week (respecting weekOffset)
   const heatmapData = useMemo(() => {
-    if (!dashboardData?.hourlyHeatmap) return [] as HeatmapCell[];
-    const result: HeatmapCell[] = [];
-    for (const [dateKey, hours] of Object.entries(dashboardData.hourlyHeatmap)) {
-      const d = new Date(dateKey + 'T12:00:00');
-      const day = d.getDay();
-      for (let hour = 0; hour < 24; hour++) {
-        const cell = (hours as any)[hour];
-        if (!cell) {
-          result.push({ day, hour, value: 0, productivity: 0 });
-          continue;
-        }
-        const totalSeconds = (cell.appSeconds || 0) + (cell.domainSeconds || 0);
-        const productivity = totalSeconds > 0 ? ((cell.productive || 0) / totalSeconds) : 0;
-        const extData = externalHourlyData.get(`${day}-${hour}`);
-        result.push({
-          day,
-          hour,
-          value: totalSeconds,
-          productivity,
-          deviceSeconds: totalSeconds,
-          externalSeconds: extData?.externalSeconds || 0,
-          deviceBreakdown: cell.apps || {},
-          externalBreakdown: extData?.breakdown || {},
-        });
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + weekOffset * 7);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const cellMap = new Map<string, { seconds: number; productive: number; apps: Record<string, number>; appSeconds: number; domainSeconds: number }>();
+    for (let d = 0; d < 7; d++) {
+      for (let h = 0; h < 24; h++) {
+        cellMap.set(`${d}-${h}`, { seconds: 0, productive: 0, apps: {}, appSeconds: 0, domainSeconds: 0 });
       }
     }
+
+    allLogs.forEach(log => {
+      const ts = new Date(log.timestamp);
+      if (ts < weekStart || ts >= weekEnd) return;
+      const day = ts.getDay();
+      const hour = ts.getHours();
+      const key = `${day}-${hour}`;
+      const entry = cellMap.get(key);
+      if (!entry) return;
+      const secs = (log.duration_ms || 0) / 1000;
+      entry.seconds += secs;
+      entry.productive += secs; // assume all time is productive for now
+      if (log.is_browser_tracking) {
+        entry.domainSeconds += secs;
+        entry.apps[log.domain] = (entry.apps[log.domain] || 0) + secs;
+      } else {
+        entry.appSeconds += secs;
+        entry.apps[log.app] = (entry.apps[log.app] || 0) + secs;
+      }
+    });
+
+    const result: HeatmapCell[] = [];
+    cellMap.forEach((v, key) => {
+      const [dayStr, hourStr] = key.split('-');
+      const day = Number(dayStr);
+      const hour = Number(hourStr);
+      const totalSeconds = v.appSeconds + v.domainSeconds;
+      const productivity = totalSeconds > 0 ? v.productive / totalSeconds : 0;
+      const extData = externalHourlyData.get(key);
+      result.push({
+        day,
+        hour,
+        value: totalSeconds,
+        productivity,
+        deviceSeconds: totalSeconds,
+        externalSeconds: extData?.externalSeconds || 0,
+        deviceBreakdown: v.apps,
+        externalBreakdown: extData?.breakdown || {},
+      });
+    });
     return result;
-  }, [dashboardData?.hourlyHeatmap, externalHourlyData]);
+  }, [allLogs, weekOffset, externalHourlyData]);
 
   const heatmapWeekLabel = useMemo(() => {
     const now = new Date();
@@ -1934,32 +2010,31 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
   const stats = useMemo(() => {
     const ov = dashboardData?.overview;
     const liveProductiveMs = (lastTier === 'productive' && !isPaused) ? currentProductiveMs : 0;
-    if (!ov) {
-      if (liveProductiveMs > 0) {
-        const formatHours = (ms: number) => {
-          const hours = ms / (1000 * 60 * 60);
-          return hours >= 1 ? `${hours.toFixed(1)}h` : `${Math.round(ms / (1000 * 60))}m`;
-        };
-        return { totalTime: formatHours(liveProductiveMs), totalTimeMs: liveProductiveMs, productiveTime: formatHours(liveProductiveMs), productiveTimeMs: liveProductiveMs, productivePercent: 100, longestFocus: formatHours(liveProductiveMs) };
-      }
-      return { totalTime: '0', totalTimeMs: 0, productiveTime: '0', productiveTimeMs: 0, productivePercent: 0, longestFocus: 'N/A' };
-    }
-    const totalTimeMs = (ov.totalSeconds || 0) * 1000 + (liveProductiveMs > 0 ? liveProductiveMs : 0);
-    const productiveTimeMs = (ov.productiveSeconds || 0) * 1000 + liveProductiveMs;
-    const productivePercent = totalTimeMs > 0 ? Math.round((productiveTimeMs / totalTimeMs) * 100) : 0;
     const formatHours = (ms: number) => {
       const hours = ms / (1000 * 60 * 60);
       return hours >= 1 ? `${hours.toFixed(1)}h` : `${Math.round(ms / (1000 * 60))}m`;
     };
+    const longestFocusMs = sessionsData.sessions.length > 0
+      ? Math.max(...sessionsData.sessions.map((s: any) => (s.duration_seconds || 0) * 1000))
+      : 0;
+    if (!ov) {
+      if (liveProductiveMs > 0) {
+        return { totalTime: formatHours(liveProductiveMs), totalTimeMs: liveProductiveMs, productiveTime: formatHours(liveProductiveMs), productiveTimeMs: liveProductiveMs, productivePercent: 100, longestFocus: formatHours(Math.max(liveProductiveMs, longestFocusMs)) };
+      }
+      return { totalTime: '0', totalTimeMs: 0, productiveTime: '0', productiveTimeMs: 0, productivePercent: 0, longestFocus: longestFocusMs > 0 ? formatHours(longestFocusMs) : 'N/A' };
+    }
+    const totalTimeMs = (ov.totalSeconds || 0) * 1000 + (liveProductiveMs > 0 ? liveProductiveMs : 0);
+    const productiveTimeMs = (ov.productiveSeconds || 0) * 1000 + liveProductiveMs;
+    const productivePercent = totalTimeMs > 0 ? Math.round((productiveTimeMs / totalTimeMs) * 100) : 0;
     return {
       totalTime: formatHours(totalTimeMs),
       totalTimeMs,
       productiveTime: formatHours(productiveTimeMs),
       productiveTimeMs,
       productivePercent,
-      longestFocus: formatHours(productiveTimeMs),
+      longestFocus: longestFocusMs > 0 ? formatHours(longestFocusMs) : 'N/A',
     };
-  }, [dashboardData?.overview, currentProductiveMs, lastTier, isPaused]);
+  }, [dashboardData?.overview, currentProductiveMs, lastTier, isPaused, sessionsData]);
 
   // Need state for live tick
   const [tick, setTick] = useState(0);
@@ -2945,6 +3020,51 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                   date={dayDetailDate}
                   items={dayDetailItems}
                   onClose={() => { setDayDetailDate(null); setDayDetailItems([]); }}
+                  onDateChange={(newDate) => {
+                    setDayDetailDate(newDate);
+                    if (window.deskflowAPI?.getDayDetail) {
+                      window.deskflowAPI.getDayDetail(newDate).then(detail => {
+                        if (!detail) return;
+                        const newItems: TimelineItem[] = [];
+                        (detail.logs || []).forEach((log: any) => {
+                          const logDate = new Date(log.timestamp);
+                          const startHour = logDate.getHours() + logDate.getMinutes() / 60;
+                          const durationSec = (log.duration_ms || 0) / 1000;
+                          const endHour = startHour + durationSec / 3600;
+                          const isBrowser = log.is_browser_tracking;
+                          const label = isBrowser ? (log.domain || log.app) : log.app;
+                          newItems.push({
+                            id: `log-${log.id}`,
+                            startHour,
+                            endHour: Math.min(endHour, 24),
+                            label,
+                            category: isBrowser ? 'browser' : 'app',
+                            color: isBrowser ? '#10b981' : '#3b82f6',
+                            duration: Math.round(durationSec),
+                            details: log.title,
+                          });
+                        });
+                        (detail.externalSessions || []).forEach((session: any) => {
+                          const startDate = new Date(session.started_at);
+                          const endDate = session.ended_at ? new Date(session.ended_at) : new Date();
+                          const sHour = startDate.getHours() + startDate.getMinutes() / 60;
+                          const durSec = (endDate.getTime() - startDate.getTime()) / 1000;
+                          const eHour = sHour + durSec / 3600;
+                          newItems.push({
+                            id: `ext-${session.id}`,
+                            startHour: sHour,
+                            endHour: Math.min(eHour, 24),
+                            label: session.activity_name || 'External',
+                            category: 'external',
+                            color: session.color || '#8b5cf6',
+                            duration: Math.round(durSec),
+                          });
+                        });
+                        newItems.sort((a, b) => a.startHour - b.startHour);
+                        setDayDetailItems(newItems);
+                      });
+                    }
+                  }}
                 />
               )}
             </Suspense>
@@ -3005,6 +3125,40 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                 </motion.div>
               )}
             </AnimatePresence>
+
+          {/* Gap Indicator Widget */}
+          {unfilledMinutes > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+              className="mb-4"
+            >
+              <GlassCard>
+                <div className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center ring-1 ring-amber-500/20">
+                      <Clock className="w-5 h-5 text-amber-400" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-100">
+                        {unfilledMinutes >= 60
+                          ? `${(unfilledMinutes / 60).toFixed(1)}h`
+                          : `${unfilledMinutes}m`} unfilled today
+                      </div>
+                      <p className="text-xs text-zinc-500 mt-0.5">{gapCount} time gap{gapCount !== 1 ? 's' : ''} detected</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => window.dispatchEvent(new CustomEvent('open-gap-panel'))}
+                    className="px-4 py-2 rounded-lg text-xs font-medium bg-amber-600/20 text-amber-400 hover:bg-amber-600/30 border border-amber-600/30 transition"
+                  >
+                    Fill Gaps
+                  </button>
+                </div>
+              </GlassCard>
+            </motion.div>
+          )}
 
           {/* Activity Feed */}
           <motion.div

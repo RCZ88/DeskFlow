@@ -7,7 +7,7 @@ import {
   Download, Trash2, Award, Zap, Users, Info, Database, CheckCircle, XCircle, AlertTriangle,
   Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard, Target,
   ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
-  X, FolderTree, Bot, Minus, HelpCircle, Settings2, Moon
+  X, FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen
 } from 'lucide-react';
 import { format as dateFormat } from 'date-fns';
 import SettingsPage from './pages/SettingsPage';
@@ -18,12 +18,14 @@ import DatabasePage from './pages/DatabasePage';
 import IDEProjectsPage from './pages/IDEProjectsPage';
 import IDEHelpPage from './pages/IDEHelpPage';
 import TutorialPage from './pages/TutorialPage';
+import GuidePage from './pages/GuidePage';
 import TerminalPage from './pages/TerminalPage';
 import ExternalPage from './pages/ExternalPage';
 import { AiPage } from './pages/AiPage';
 import { DurationPicker, LatencyPicker } from './components/DurationPicker';
 import InsightsPage from './pages/InsightsPage';
 import DashboardPage from './pages/DashboardPage';
+import FeatureSpecViewer from './components/FeatureSpecViewer';
 import AfkPromptModal from './components/AfkPromptModal';
 import GapPanel from './components/GapPanel';
 import { getDateRange } from './lib/dateRange';
@@ -171,9 +173,9 @@ declare global {
       getProjectTools: (projectId: string) => Promise<any[]>;
       removeProject: (projectId: string) => Promise<{ success: boolean }>;
       openProject: (projectId: string, ideId?: string) => Promise<{ success: boolean; ide?: string; message?: string }>;
-      getAIUsageSummary: (period?: string) => Promise<any>;
+      getAIUsageSummary: (period?: string, dateOffset?: number) => Promise<any>;
       getCommitStats: (projectId?: string, period?: string) => Promise<any>;
-      getIDEProjectsOverview: () => Promise<any>;
+      getIDEProjectsOverview: (period?: string, dateOffset?: number) => Promise<any>;
       scanIdeDefaultProjects: () => Promise<{ ide: string; projects: { name: string; path: string }[] }[]>;
       syncAIUsage: () => Promise<{ success: boolean; [key: string]: number | boolean | string }>;
       onAISyncProgress: (callback: (data: any) => void) => () => void;
@@ -255,15 +257,17 @@ declare global {
       setCrossSessionSyncConfig: (config: any) => Promise<{ success: boolean }>;
       executeCommand: (command: string, cwd?: string) => Promise<{ stdout: string; stderr: string; error?: string }>;
       // AI Digest & Config
-      getTopicDigest: () => Promise<{ success: boolean; topics?: any[]; error?: string }>;
-      saveAiConfig: (config: any) => Promise<{ success: boolean }>;
-      getAiConfig: () => Promise<any>;
-      getInterestTopics: () => Promise<string[]>;
-      addInterestTopic: (topic: string) => Promise<{ success: boolean }>;
-      removeInterestTopic: (topic: string) => Promise<{ success: boolean }>;
+       getTopicDigest: () => Promise<{ success: boolean; topics?: any[]; error?: string }>;
+       saveAiConfig: (config: any) => Promise<{ success: boolean }>;
+       getAiConfig: () => Promise<any>;
+       getAiProviders: () => Promise<any>;
+       getInterestTopics: () => Promise<string[]>;
+       addInterestTopic: (topic: string) => Promise<{ success: boolean }>;
+       removeInterestTopic: (topic: string) => Promise<{ success: boolean }>;
       // Planning.md
       readPlanningMd: () => Promise<{ content: string; error?: string }>;
       writePlanningMd: (content: string) => Promise<{ success: boolean; error?: string }>;
+      writeFeatureSpecFile: (content: string) => Promise<{ success: boolean; error?: string }>;
       getGoalContext: () => Promise<{ success: boolean; last7dByCategory?: any[]; yesterday?: any; error?: string }>;
       parseGoalFeedback: (data: { message: string; goals: string[] }) => Promise<{ completed: string[]; added: any[]; note: string }>;
       // Design Library Integration
@@ -426,6 +430,8 @@ function isAppMatchingBrowserRenderer(appName: string, browserName: string): boo
     processNames.some(p => appLower.includes(p));
 }
 
+import { GapBanner } from './components/GapBanner';
+
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -437,6 +443,7 @@ function App() {
   }, [location.pathname]);
 
   const [isTracking, setIsTracking] = useState(true);
+  const [dbConnected, setDbConnected] = useState(true);
   const [currentApp, setCurrentApp] = useState('VS Code');
   const [elapsedTime, setElapsedTime] = useState(0);
   const [sessionStart, setSessionStart] = useState(new Date());
@@ -453,6 +460,11 @@ function App() {
   const [showStorageDetails, setShowStorageDetails] = useState(false);
   const [terminalProjectInfo, setTerminalProjectInfo] = useState<{ name: string; path: string }>({ name: '', path: '' });
   const [provisionStatus, setProvisionStatus] = useState<'idle' | 'provisioning' | 'provisioned'>('idle');
+
+  // Gap Indicator Banner State
+  const [unfilledMinutes, setUnfilledMinutes] = useState(0);
+  const [gapCount, setGapCount] = useState(0);
+  const [showGapBannerSetting, setShowGapBannerSetting] = useState(true);
 
   useEffect(() => {
     const handler = (e: CustomEvent<{ name: string; path: string }>) => setTerminalProjectInfo(e.detail);
@@ -706,7 +718,10 @@ function App() {
     if (window.deskflowAPI && typeof window.deskflowAPI.onTrackingHeartbeat === 'function') {
       window.deskflowAPI.onTrackingHeartbeat((data) => {
         // Don't update isTracking from heartbeat - let user control it
-        if (data.currentApp) setCurrentApp(data.currentApp);
+        if (data.currentApp) {
+          setCurrentApp(data.currentApp);
+          currentForegroundAppRef.current = data.currentApp;
+        }
         // Store OS-level idle seconds for idle detection
         if (typeof data.systemIdleSeconds === 'number') {
           systemIdleSecondsRef.current = data.systemIdleSeconds;
@@ -759,6 +774,54 @@ function App() {
         }
       });
     }
+  }, []);
+
+  // Periodic data refresh to recover from stale DB connection after system sleep/idle
+  useEffect(() => {
+    if (!window.deskflowAPI) return;
+    let reconnectAttempts = 0;
+    const refresh = async () => {
+      try {
+        const status = await window.deskflowAPI!.getStorageStatus();
+        setStorageStatus(status);
+        if (status.working) {
+          setDbConnected(true);
+          reconnectAttempts = 0;
+          const electronLogs = await window.deskflowAPI!.getLogs();
+          const formattedLogs: ActivityLog[] = electronLogs.map((log: any) => ({
+            id: log.id,
+            timestamp: new Date(log.timestamp),
+            app: log.app,
+            category: log.category || 'Other',
+            duration: Math.round(log.duration_ms / 1000),
+            title: log.title,
+            project: log.project,
+            is_browser_tracking: log.is_browser_tracking === 1 || log.is_browser_tracking === true,
+            domain: log.domain,
+            url: log.url,
+          }));
+          const fp = formattedLogs.length + ':' + (formattedLogs.length > 0 ? formattedLogs[0].id + '-' + formattedLogs[formattedLogs.length - 1].id : 'empty');
+          if (fp !== allLogsFingerprintRef.current) {
+            allLogsFingerprintRef.current = fp;
+            setAllLogs(formattedLogs);
+            setLogs(formattedLogs);
+          }
+        } else {
+          setDbConnected(false);
+        }
+      } catch {
+        reconnectAttempts++;
+        if (reconnectAttempts >= 3) setDbConnected(false);
+      }
+    };
+    const interval = setInterval(refresh, 30000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refresh();
+    });
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, []);
 
   // Load saved planet colors or generate new ones
@@ -817,11 +880,40 @@ function App() {
           if (prefs?.trackerAppMode) {
             setTrackerAppMode(prefs.trackerAppMode);
           }
+          if (prefs?.showGapBannerSetting !== undefined) {
+            setShowGapBannerSetting(prefs.showGapBannerSetting);
+          }
         }
       } catch { /* ignore */ }
     };
     loadTrackingBrowser();
     const interval = setInterval(loadTrackingBrowser, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch today's gap data for the global banner
+  const fetchGaps = async () => {
+    try {
+      if ((window as any).deskflowAPI?.detectUsageGaps) {
+        const gaps = await (window as any).deskflowAPI.detectUsageGaps({ period: 'today', minGapMinutes: 5 });
+        if (gaps && gaps.length > 0) {
+          const totalMinutes = gaps.reduce((sum: number, g: any) => sum + Math.round(g.durationSeconds / 60), 0);
+          setUnfilledMinutes(totalMinutes);
+          setGapCount(gaps.length);
+        } else {
+          setUnfilledMinutes(0);
+          setGapCount(0);
+        }
+      }
+    } catch (_e) {
+      setUnfilledMinutes(0);
+      setGapCount(0);
+    }
+  };
+
+  useEffect(() => {
+    fetchGaps();
+    const interval = setInterval(fetchGaps, 60000); // Check every minute
     return () => clearInterval(interval);
   }, []);
 
@@ -1115,6 +1207,7 @@ function App() {
     // Group by app
     const grouped: Record<string, { total_ms: number; sessions: number; first_seen: string; last_seen: string; category: string }> = {};
     for (const log of appLogs) {
+      if (log.is_browser_tracking) continue;
       const app = log.app;
       const category = getCategory(app, log.category || 'Other');
       if (!grouped[app]) {
@@ -2100,7 +2193,7 @@ function App() {
 
   const weeklyData = useMemo(() => {
     // Calculate actual weekly productivity from logs
-    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const today = new Date();
     const currentDayOfWeek = today.getDay(); // 0 = Sunday
     
@@ -2110,7 +2203,7 @@ function App() {
     weekStart.setDate(today.getDate() - daysSinceMonday);
     weekStart.setHours(0, 0, 0, 0);
     
-    // Initialize data for Mon-Sun
+    // Initialize data for Sun-Sat
     const weekData: Record<string, { productive: number; neutral: number; distracting: number }> = {};
     dayNames.forEach(day => { weekData[day] = { productive: 0, neutral: 0, distracting: 0 }; });
     
@@ -2370,7 +2463,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
     { icon: BarChart3, label: 'Insights', path: '/reports' },
     { icon: Database, label: 'Database', path: '/database' },
     { icon: Settings, label: 'Settings', path: '/settings' },
-    { icon: HelpCircle, label: 'Tutorial', path: '/tutorial' },
+    { icon: BookOpen, label: 'Guide', path: '/guide' },
   ];
 
   return (
@@ -2418,6 +2511,21 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Gap Banner */}
+        <AnimatePresence>
+          {showGapBannerSetting && unfilledMinutes > 0 && (
+            <GapBanner
+              unfilledMinutes={unfilledMinutes}
+              gapCount={gapCount}
+              onClose={() => {}}
+              onFillGaps={() => window.dispatchEvent(new CustomEvent('open-gap-panel'))}
+              onDismissForever={() => {
+                window.deskflowAPI?.setPreference('showGapBannerSetting', false);
+                setShowGapBannerSetting(false);
+              }}
+            />
+          )}
+        </AnimatePresence>
         {/* Top Bar */}
         {location.pathname === '/terminal' ? (
           <div className="flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-800">
@@ -2476,6 +2584,12 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
               LIVE
             </div>
+            {!dbConnected && (
+              <div className="text-xs px-2.5 py-1 bg-amber-500/10 text-amber-400 rounded-full flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+                Reconnecting...
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -2665,14 +2779,14 @@ Trend: +14% vs. yesterday. Keep it up!`;
               {/* Browser Page */}
               <Route path="/browser" element={<BrowserActivityPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} allLogs={allLogs} />} />
               {/* IDE Page */}
-              <Route path="/ide" element={<IDEProjectsPage />} />
+              <Route path="/ide" element={<IDEProjectsPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} />} />
 
               <Route path="/external" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
               <Route path="/ai" element={<AiPage />} />
               {/* Legacy routes */}
               <Route path="/old-dashboard" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
 
-              <Route path="/tutorial" element={<TutorialPage />} />
+              <Route path="/guide" element={<GuidePage />} />
 
               <Route path="/ide-help" element={<IDEHelpPage />} />
 
@@ -2692,7 +2806,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               {/* Pricing Page */}
               <Route path="/pricing" element={<div className="glass rounded-3xl p-8 flex items-center justify-center h-96"><div className="text-center text-zinc-400"><div className="text-4xl mb-4">!</div><div className="text-lg font-medium">Not Yet Added Feature</div><div className="text-sm text-zinc-500 mt-1">Pricing plans are coming soon</div></div></div>} />
               {/* Settings Page */}
-<Route path="/settings" element={<SettingsPage logs={logs} appStats={allTimeAppStats} websiteStats={allTimeWebsiteStats} onRegisterSave={handleRegisterSave} onReloadData={loadData} onCategoryOverridesChange={setCategoryOverrides} onHasChangesChange={setSettingsHasChanges} timerBehavior={timerBehavior} setTimerBehavior={setTimerBehavior} trackerAppMode={trackerAppMode} setTrackerAppMode={setTrackerAppMode} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} onExternalActivityTiersChange={setExternalActivityTiers} />} />
+<Route path="/settings" element={<SettingsPage logs={logs} appStats={allTimeAppStats} websiteStats={allTimeWebsiteStats} onRegisterSave={handleRegisterSave} onReloadData={loadData} onCategoryOverridesChange={setCategoryOverrides} onHasChangesChange={setSettingsHasChanges} timerBehavior={timerBehavior} setTimerBehavior={setTimerBehavior} trackerAppMode={trackerAppMode} setTrackerAppMode={setTrackerAppMode} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} onExternalActivityTiersChange={setExternalActivityTiers} showGapBannerSetting={showGapBannerSetting} setShowGapBannerSetting={setShowGapBannerSetting} />} />
             </Routes>
           </AnimatePresence>
 

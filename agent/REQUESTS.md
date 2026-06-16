@@ -700,3 +700,32 @@ Also: "WHY IS THE APP ECOSYSTEM NOT FOLLOWING THE FUCKING TOP NAV TIME SELECTION
 
 ---
 
+### Request #048 - Automated Workspace Feature Testing
+
+**Status:** ✅ COMPLETED
+**Priority:** P1
+**Category:** Testing
+**Created:** 2026-06-15T18:30:00.000Z
+**Updated:** 2026-06-15T18:30:00.000Z
+
+**Request:**
+"Automated testing of all workspace sidebar features via probe."
+
+**Testing Results:**
+- **Presets tab:** Add Preset form opens, IPC `add-terminal-preset` works (2 presets in DB)
+- **Sessions tab:** New Session dialog opens, session created successfully (session-1781523172269 for App Tracker via claude agent)
+- **Detail view:** Session details, Open in Terminal, Edit buttons visible
+- **Map tab:** Tab button renders and responds
+- **Analytics tab:** Shows "Workspace Analytics" with Token/Cost/Problem/Request distribution charts
+- **Issues tab:** Tab button renders and responds
+- **Files tab:** Tab button renders and responds
+- **Skills tab:** Tab button renders and responds
+- **Design tab:** Tab button renders and responds
+- **Configs tab:** Tab button renders and responds
+- **History tab:** Tab button renders and responds
+- **Context tab:** Tab button renders and responds
+- **Maintenance tab:** Shows Context Maintenance with 6 sub-tabs (Overview, Contexts, History, Compactions, Search, Settings) and MEMORY STATUS section
+- **Database:** Probe DB has 41 tables, 74,820 terminal_messages, 4 terminal_sessions, 2 terminal_presets
+
+---
+

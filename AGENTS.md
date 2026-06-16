@@ -72,6 +72,7 @@ All markdown files in the `agent/` directory. Organized by category.
 | File | What It Tracks | When to Update |
 |------|---------------|----------------|
 | `agent/FEATURE_TRACKER.md` | Complete inventory of all pages and features | When new features added/changed |
+| `agent/FEATURE_SPECS.md` | Auto-generated from `src/data/feature-specs.ts` — see `/features` page | When feature specs change |
 | `agent/WORKSPACE_CONTEXT.md` | Workspace/IDE projects/terminal system context | When workspace features change |
 | `agent/docs/SETTINGS_PAGE_FEATURES.md` | Complete Settings page feature reference | When modifying Settings page |
 | `agent/data.md` | DB schemas, IPC endpoint reference | When IPC endpoints or DB schema change |

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Clock, TrendingUp, Zap, Calendar, BarChart3, X, Monitor,
   ChevronRight, ChevronLeft, Award, Activity, TrendingUp as TrendingUpIcon,
-  Pencil, Trash2, Save, Terminal
+  Pencil, Trash2, Save, Terminal, Lock, Unlock
 } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
@@ -82,6 +82,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   const [detailPeriod, setDetailPeriod] = useState<Period>('week');
   const [detailDateOffset, setDetailDateOffset] = useState(0);
+  const [timeLock, setTimeLock] = useState(() => localStorage.getItem('stats-time-lock') === 'true');
   const [hourlyChartMode, setHourlyChartMode] = useState<'bar' | 'line'>('bar');
   const [editingAppLogId, setEditingAppLogId] = useState<number | null>(null);
   const [editingAppLogTimes, setEditingAppLogTimes] = useState({ started_at: '', ended_at: '' });
@@ -100,6 +101,10 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('stats-time-lock', String(timeLock));
+  }, [timeLock]);
 
   // Restore scroll position when selectedPeriod or dateOffset changes
   useLayoutEffect(() => {
@@ -719,6 +724,8 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     { label: 'Active Apps', value: totals.uniqueApps, icon: Monitor, color: 'text-amber-400' },
   ], [totals.totalTime, totals.totalSessions, totals.avgSession, totals.uniqueApps]);
 
+  const effectivePeriod = timeLock ? 'all' : selectedPeriod;
+
   return (
     <PageShell page="stats">
     {/* Header */}
@@ -727,9 +734,21 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
           <h1 className="text-3xl font-semibold tracking-tight">Applications</h1>
           <p className="text-sm text-zinc-500 mt-1">Track your application usage</p>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setTimeLock(!timeLock)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+              timeLock
+                ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
+                : 'text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700'
+            }`}
+            title={timeLock ? 'Unlock timeframe (use nav)' : 'Lock to All Time'}
+          >
+            {timeLock ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+            <span>All Time</span>
+          </button>
           <span className="text-sm font-medium px-2 text-zinc-400">
-            {viewLabel}
+            {timeLock ? 'All Time' : viewLabel}
           </span>
         </div>
       </div>

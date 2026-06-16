@@ -165,18 +165,18 @@ export function DayDetailPopup({ date, items, onClose, onDateChange }: DayDetail
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/90 backdrop-blur-2xl"
       onClick={onClose}
     >
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="w-full h-full max-w-7xl overflow-y-auto bg-zinc-950"
+        className="w-full h-full overflow-y-auto bg-zinc-950/95 backdrop-blur-xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="sticky top-0 z-10 px-6 py-4 border-b flex items-center justify-between bg-zinc-950/95 border-violet-500/20">
+        <div className="sticky top-0 z-10 px-5 py-4 border-b flex items-center justify-between bg-zinc-950/95 backdrop-blur-xl border-zinc-800/50">
           <div className="flex items-center gap-4">
             <button
               onClick={onClose}
@@ -240,7 +240,7 @@ export function DayDetailPopup({ date, items, onClose, onDateChange }: DayDetail
           {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Donut Chart */}
-            <div className="rounded-xl border p-4" style={{ backgroundColor: 'rgba(18, 18, 18, 0.95)', borderColor: 'rgba(139, 92, 246, 0.2)' }}>
+            <div className="rounded-xl border p-5 bg-zinc-950/95 backdrop-blur-xl border-zinc-800/50">
               <h3 className="text-sm font-semibold text-zinc-200 mb-4">Category Breakdown</h3>
               <div className="flex items-center justify-center">
                 <DonutChart data={categoryData} total={donutTotal} />
@@ -256,7 +256,7 @@ export function DayDetailPopup({ date, items, onClose, onDateChange }: DayDetail
             </div>
 
             {/* Hourly Bar Chart */}
-            <div className="rounded-xl border p-4" style={{ backgroundColor: 'rgba(18, 18, 18, 0.95)', borderColor: 'rgba(139, 92, 246, 0.2)' }}>
+            <div className="rounded-xl border p-5 bg-zinc-950/95 backdrop-blur-xl border-zinc-800/50">
               <h3 className="text-sm font-semibold text-zinc-200 mb-4">Hourly Activity</h3>
               <HourlyBarChart data={hourlyData} maxValue={hourlyMax} />
             </div>
@@ -265,7 +265,7 @@ export function DayDetailPopup({ date, items, onClose, onDateChange }: DayDetail
           {/* Time Blocks + Radar */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Time of Day Blocks */}
-            <div className="rounded-xl border p-4" style={{ backgroundColor: 'rgba(18, 18, 18, 0.95)', borderColor: 'rgba(139, 92, 246, 0.2)' }}>
+            <div className="rounded-xl border p-5 bg-zinc-950/95 backdrop-blur-xl border-zinc-800/50">
               <h3 className="text-sm font-semibold text-zinc-200 mb-4">Time of Day</h3>
               <div className="space-y-3">
                 {timeBlockData.map(block => (
@@ -275,14 +275,14 @@ export function DayDetailPopup({ date, items, onClose, onDateChange }: DayDetail
             </div>
 
             {/* Daily Rhythm Radar */}
-            <div className="rounded-xl border p-4" style={{ backgroundColor: 'rgba(18, 18, 18, 0.95)', borderColor: 'rgba(139, 92, 246, 0.2)' }}>
+            <div className="rounded-xl border p-5 bg-zinc-950/95 backdrop-blur-xl border-zinc-800/50">
               <h3 className="text-sm font-semibold text-zinc-200 mb-4">Daily Rhythm</h3>
               <RadarChart data={hourlyData} />
             </div>
           </div>
 
           {/* Timeline - Shows External, Device (App), Browser */}
-          <div className="rounded-xl border p-4" style={{ backgroundColor: 'rgba(18, 18, 18, 0.95)', borderColor: 'rgba(139, 92, 246, 0.2)' }}>
+          <div className="rounded-xl border p-5 bg-zinc-950/95 backdrop-blur-xl border-zinc-800/50">
             <h3 className="text-sm font-semibold text-zinc-200 mb-4">Activity Timeline</h3>
             <CompressedTimeline items={items} />
           </div>
@@ -297,12 +297,7 @@ function StatCard({ icon, label, value, color }: { icon: string; label: string; 
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl border p-4 relative overflow-hidden"
-      style={{
-        backgroundColor: 'rgba(18, 18, 18, 0.95)',
-        borderColor: `${color}30`,
-        boxShadow: `0 0 20px ${color}15`,
-      }}
+      className="rounded-xl border p-5 bg-zinc-950/95 backdrop-blur-xl border-zinc-800/50 relative overflow-hidden"
     >
       <div className="absolute inset-0 opacity-10" style={{ background: `linear-gradient(135deg, ${color}20, transparent)` }} />
       <div className="flex items-center gap-3">
@@ -418,8 +413,7 @@ function TimeBlock({ block }: TimeBlockComponentProps) {
     <motion.div
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
-      className="rounded-lg border overflow-hidden"
-      style={{ backgroundColor: 'rgba(24, 24, 27, 0.8)', borderColor: 'rgba(139, 92, 246, 0.15)' }}
+      className="rounded-xl border bg-zinc-950/95 backdrop-blur-xl border-zinc-800/50 overflow-hidden"
     >
       <button
         onClick={() => setExpanded(!expanded)}
@@ -444,13 +438,12 @@ function TimeBlock({ block }: TimeBlockComponentProps) {
       </button>
       <AnimatePresence>
         {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="border-t overflow-hidden"
-            style={{ borderColor: 'rgba(139, 92, 246, 0.1)' }}
-          >
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="border-t overflow-hidden border-zinc-800/50"
+            >
             <div className="p-3 space-y-3">
               {block.uniqueApps.length === 0 && block.uniqueExternal.length === 0 ? (
                 <div className="text-xs text-zinc-500 text-center py-2">No activity</div>
@@ -665,8 +658,7 @@ function CompressedTimeline({ items }: { items: TimelineItem[] }) {
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                className="mt-2 p-3 space-y-2 rounded-lg border"
-                style={{ backgroundColor: 'rgba(24, 24, 27, 0.6)', borderColor: 'rgba(139, 92, 246, 0.1)' }}
+                className="mt-2 p-3 space-y-2 rounded-xl border bg-zinc-950/90 backdrop-blur-xl border-zinc-800/50"
               >
                 {catItems.map(item => (
                   <div key={item.id} className="flex items-center justify-between p-2 rounded" style={{ backgroundColor: `${CATEGORY_COLORS[cat]}10` }}>

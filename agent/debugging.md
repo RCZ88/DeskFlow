@@ -4,6 +4,38 @@
 
 ---
 
+## Stale `useCallback`/`useMemo` closures — props/state not updating
+
+**Root cause:** A `useCallback` or `useMemo` has an **empty or incomplete dependency array**, so the function/memoized value captures stale props or state in its closure. Changing those values in the parent does nothing — the old values are used forever.
+
+**Symptoms:**
+- A component receives new props but doesn't react to them
+- Data loads from an IPC call using an old period/offset/ID
+- Works on first render, breaks on subsequent state changes
+- Console logs show the old value despite seeing new props pass externally
+
+**Fix:**
+- Add ALL referenced props, state, and variables to the dependency array
+- The React exhaustive-deps eslint rule catches this — run `npx eslint` if available
+- Common pattern: `useCallback(fn, [])` where `fn` uses `selectedPeriod` or similar prop
+
+**Example (the bug):**
+```typescript
+// BUG: empty deps — selectedPeriod is captured once on mount, never updates
+const fetchAnalytics = useCallback(async () => {
+  const data = await api.getData(selectedPeriod); // always uses initial 'week'
+}, []);
+```
+
+**Example (fixed):**
+```typescript
+const fetchAnalytics = useCallback(async () => {
+  const data = await api.getData(selectedPeriod);
+}, [selectedPeriod]); // re-creates when selectedPeriod changes
+```
+
+---
+
 ## `mainWindow.on('focus')` never fires on app startup
 
 **Root cause:** The `BrowserWindow` constructor creates and shows the window immediately (with default `show: true`). By the time `mainWindow.on('focus', handler)` is registered, the window is **already focused** — so the `focus` event never fires. This means any focus-gated logic (like sleep detection) silently never runs on app launch.
@@ -17,6 +49,20 @@
 - Extract the inline focus-handler logic into a reusable `checkSleepGap()` function
 - Call it explicitly after registering the handler: `checkSleepGap(lastFocusTime, Date.now())`
 - If IPC is sent before renderer loads, use a JSON file as fallback that the renderer reads on mount
+
+## Early return before later hooks causes production hook-order crash
+
+**Root cause:** A component returns for `loading` or `error` before all of its hooks are declared. The initial render skips the later hooks, but the next render after data loads calls them, so React sees a different hook order and throws a minified production error.
+
+**Symptoms:**
+- Browser or page works in source mentally, but crashes only when data transitions from loading to loaded
+- Production build shows a minified React error instead of a clear hook warning
+- Error appears near the component's first render or around a `useMemo`/`useEffect` that was added later in the file
+
+**Fix:**
+- Declare all `useState`, `useRef`, `useMemo`, `useEffect`, and `useCallback` hooks before any early `return`
+- If loading/error UI is needed, move the early returns to the bottom of the hook section
+- Rebuild and verify the component renders through both loading and loaded states
 
 ---
 
@@ -1099,3 +1145,30 @@ async () => {
 
 **Added:** 2026-06-06
 **Fixed in:** `src/main.ts:9926-9940`, `src/services/AIService.ts:517`
+
+---
+
+## MCP feedback doc vs SKILL.md confusion
+
+**Symptoms:**
+- User asks to document a conversation about Probe MCP capabilities
+- AI creates a formal SKILL.md with YAML frontmatter, tool specs, and code patterns
+- User gets angry — they wanted a conversation capture, not a tool definition
+
+**Root cause:**
+- AI hears "make file in skill tab" and assumes SKILL.md format
+- Doesn't distinguish between "create a tool/skill" vs "document a conversation/review"
+- Over-engineers: writes 300+ lines of DSL definitions when user wanted Q&A feedback document
+
+**Fix:**
+- When user says "review", "feedback", "my question and your response", "document this conversation" — create a `*_REVIEW.md` or `*_FEEDBACK.md` file capturing the actual dialogue exchange
+- Do NOT create a SKILL.md with frontmatter DSL — that's for defining interactive tools, not documenting feedback
+- File format: Q&A style, capability analysis, improvement suggestions — NOT input/output schemas and code examples
+
+**Prevention:**
+- Before writing, ask: "Do you want a SKILL.md (tool definition) or a feedback document (conversation capture)?"
+- If unsure, read the `PROBE_MCP_REVIEW.md` in `agent/skills/probe-mcp-testing/` for the correct format
+- Pattern signal: user wants "improve the MCP" → they want analysis/recommendations, not a new tool
+
+**Added:** 2026-06-15
+**Reference file:** `agent/skills/probe-mcp-testing/PROBE_MCP_REVIEW.md`

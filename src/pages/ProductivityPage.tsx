@@ -575,7 +575,9 @@ export default function ProductivityPage({
 
     // For week/month, show daily breakdown
     const endDate = new Date(range.end);
-    endDate.setDate(endDate.getDate() - 1);
+    if (selectedPeriod !== '7day' && selectedPeriod !== '30day') {
+      endDate.setDate(endDate.getDate() - 1);
+    }
     const dayStartDate = new Date(range.start);
     const daysInRange = eachDayOfInterval({ start: dayStartDate, end: endDate });
 

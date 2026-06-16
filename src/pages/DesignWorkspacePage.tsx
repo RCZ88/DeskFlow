@@ -336,7 +336,7 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
         taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs
       );
       const dapi = (window as any).deskflowAPI;
-      await dapi?.terminalWrite?.(activeTerminalId, ctx + '\n');
+      await dapi?.agentSend?.(activeTerminalId, ctx, 'claude');
       await dapi?.saveTerminalBinding?.({
         terminalId: activeTerminalId,
         problemId: null,

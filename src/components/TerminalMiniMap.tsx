@@ -5,6 +5,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent, DragOverEvent } from '@dnd-kit/core';
 import type { PaneNode } from './TerminalWindow';
@@ -18,6 +19,7 @@ interface TerminalMiniMapProps {
   onTerminalMove: (fromId: string, toId: string) => void;
   onSplit: (terminalId: string, direction: 'horizontal' | 'vertical') => void;
   onToggleDirection: (groupIndex: number, path: number[]) => void;
+  onMoveToGroup?: (terminalId: string, targetGroupIndex: number) => void;
 }
 
 interface FlattenedItem {
@@ -41,6 +43,31 @@ function flattenLayout(node: PaneNode): FlattenedItem[] {
   return result;
 }
 
+function GroupDropTarget({ groupIndex, groupLabel, visible }: { groupIndex: number; groupLabel: string; visible: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `group-${groupIndex}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex-1 flex items-center justify-center text-[9px] rounded transition-all py-1 ${
+        visible
+          ? isOver
+            ? 'bg-green-600/40 text-green-300 border border-green-500'
+            : 'bg-zinc-800/60 text-zinc-500 border border-zinc-700'
+          : 'hidden'
+      }`}
+    >
+      {groupLabel}
+    </div>
+  );
+}
+
+// Extract group count from a pane tree for cross-group drag targets
+function getInternalGroups(layout: PaneNode): string[] {
+  if (layout.type === 'leaf') return ['G1'];
+  if (layout.children) return layout.children.map((_, i) => `G${i + 1}`);
+  return ['G1'];
+}
+
 export function TerminalMiniMap({
   layouts,
   activeTerminalId,
@@ -50,12 +77,14 @@ export function TerminalMiniMap({
   onTerminalMove,
   onSplit,
   onToggleDirection,
+  onMoveToGroup,
 }: TerminalMiniMapProps) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropMode, setDropMode] = useState<'swap' | 'split-h' | 'split-v' | null>(null);
   const [selGroup, setSelGroup] = useState(0);
 
-  const groupCount = layouts.length;
+  // Number of groups: use layouts array length OR children count of the root tree
+  const groupCount = Math.max(layouts.length, currentLayout && currentLayout.children ? currentLayout.children.length : 1);
 
   // Sync from parent
   const effectiveGroup = typeof activeGroupIndex === 'number' ? activeGroupIndex : selGroup;
@@ -123,14 +152,19 @@ export function TerminalMiniMap({
       if (over && active.id !== over.id) {
         const sourceId = active.id as string;
         const targetId = over.id as string;
-        if (dropMode === 'swap') onTerminalMove(sourceId, targetId);
+        // Check if target is a group droppable (cross-group move)
+        const groupMatch = targetId.match(/^group-(\d+)$/);
+        if (groupMatch) {
+          const targetGroupIndex = parseInt(groupMatch[1], 10);
+          if (onMoveToGroup) onMoveToGroup(sourceId, targetGroupIndex);
+        } else if (dropMode === 'swap') onTerminalMove(sourceId, targetId);
         else if (dropMode === 'split-h') onSplit(targetId, 'horizontal');
         else if (dropMode === 'split-v') onSplit(targetId, 'vertical');
       }
       setDraggedId(null);
       setDropMode(null);
     },
-    [dropMode, onTerminalMove, onSplit]
+    [dropMode, onTerminalMove, onSplit, onMoveToGroup]
   );
 
   return (
@@ -182,6 +216,18 @@ export function TerminalMiniMap({
                 </div>
               )}
             </div>
+            {onMoveToGroup && (
+              <div className="flex gap-1 px-1 pb-1">
+                {getInternalGroups(currentLayout || layouts[0]).map((label, gi) => (
+                  <GroupDropTarget
+                    key={gi}
+                    groupIndex={gi}
+                    groupLabel={label}
+                    visible={!!draggedId && groupCount > 1}
+                  />
+                ))}
+              </div>
+            )}
           </>
         )}
         {dropMode && (
@@ -191,10 +237,19 @@ export function TerminalMiniMap({
             'bg-gradient-to-b from-transparent via-green-500/20 to-transparent border-y-2 border-dashed border-green-500'
           }`} />
         )}
-        <div className="sticky bottom-0 left-0 right-0 flex justify-center gap-1 p-1 z-20">
-          {dropMode === 'swap' && <span className="text-[9px] text-blue-400 bg-zinc-900/80 px-2 py-0.5 rounded">Swap</span>}
-          {dropMode === 'split-v' && <span className="text-[9px] text-green-400 bg-zinc-900/80 px-2 py-0.5 rounded">Split Vertically</span>}
-          {dropMode === 'split-h' && <span className="text-[9px] text-green-400 bg-zinc-900/80 px-2 py-0.5 rounded">Split Horizontally</span>}
+        <div className="sticky bottom-0 left-0 right-0 flex flex-col gap-1 p-1 z-20">
+          <div className="flex justify-center gap-1">
+            {dropMode === 'swap' && <span className="text-[9px] text-blue-400 bg-zinc-900/80 px-2 py-0.5 rounded">Swap</span>}
+            {dropMode === 'split-v' && <span className="text-[9px] text-green-400 bg-zinc-900/80 px-2 py-0.5 rounded">Split Vertically</span>}
+            {dropMode === 'split-h' && <span className="text-[9px] text-green-400 bg-zinc-900/80 px-2 py-0.5 rounded">Split Horizontally</span>}
+          </div>
+          {draggedId && onMoveToGroup && groupCount > 1 && (
+            <div className="flex gap-1">
+              {layouts.map((_, gi) => (
+                <GroupDropTarget key={gi} groupIndex={gi} isDragging={true} groupCount={groupCount} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
       <DragOverlay>

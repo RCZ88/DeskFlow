@@ -39,7 +39,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const getStatusColor = (status: string, fallbackIdx: number) => STATUS_COLORS[status] || CHART_COLORS[fallbackIdx % CHART_COLORS.length];
 const getStatusBorder = (status: string, fallbackIdx: number) => getStatusColor(status, fallbackIdx).replace('0.8)', '1)');
-const fmtNum = (n: number) => { if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'; if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'; return n.toLocaleString(); };
+const fmtNum = (n: number) => { if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + 'B'; if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'; if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'; return n.toLocaleString(); };
 const fmtCost = (n: number) => { if (n >= 1) return '$' + n.toFixed(2); if (n >= 0.01) return '$' + n.toFixed(3); if (n > 0) return '$' + n.toFixed(4); return '$0.00'; };
 const fmtSec = (s: number) => { if (s >= 3600) return (s / 3600).toFixed(1) + 'h'; if (s >= 60) return (s / 60).toFixed(1) + 'm'; return s.toFixed(1) + 's'; };
 

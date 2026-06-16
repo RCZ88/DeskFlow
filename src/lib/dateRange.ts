@@ -29,7 +29,9 @@ export function getDateRange(
 
   if (period === 'week') {
     const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay() - dateOffset * 7);
+    const day = weekStart.getDay();
+    const diff = day === 0 ? 6 : day - 1;
+    weekStart.setDate(weekStart.getDate() - diff - dateOffset * 7);
     weekStart.setHours(0, 0, 0, 0);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);

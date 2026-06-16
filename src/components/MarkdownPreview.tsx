@@ -1,9 +1,18 @@
 interface MarkdownPreviewProps {
   content: string;
+  accent?: 'pink' | 'amber' | 'emerald' | 'none';
   className?: string;
 }
 
-export function MarkdownPreview({ content, className = '' }: MarkdownPreviewProps) {
+const headingColors: Record<string, string> = {
+  pink:    'text-pink-400',
+  amber:   'text-amber-400',
+  emerald: 'text-emerald-400',
+  none:    'text-zinc-300',
+};
+
+export function MarkdownPreview({ content, accent = 'none', className = '' }: MarkdownPreviewProps) {
+  const hc = headingColors[accent];
   const lines = content.split('\n');
 
   const elements = lines.map((line, i) => {
@@ -35,15 +44,15 @@ export function MarkdownPreview({ content, className = '' }: MarkdownPreviewProp
     }
 
     if (trimmed.startsWith('## ')) {
-      return <h2 key={i} className="text-sm font-semibold text-purple-400 mt-4 mb-2">{trimmed.replace('## ', '')}</h2>;
+      return <h2 key={i} className={`text-sm font-semibold ${hc} mt-3 mb-1.5`}>{trimmed.replace('## ', '')}</h2>;
     }
 
     if (trimmed.startsWith('# ')) {
-      return <h1 key={i} className="text-base font-bold text-purple-400 mt-4 mb-2">{trimmed.replace('# ', '')}</h1>;
+      return <h1 key={i} className={`text-base font-bold ${hc} mt-3 mb-1.5`}>{trimmed.replace('# ', '')}</h1>;
     }
 
     if (trimmed === '') {
-      return <div key={i} className="h-2" />;
+      return <div key={i} className="h-1.5" />;
     }
 
     return <div key={i} className="text-sm text-zinc-300">{renderInline(trimmed)}</div>;

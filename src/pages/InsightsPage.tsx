@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { subDays, format } from 'date-fns';
 import type { Period } from '../lib/dateRange';
+import { getDateRange } from '../lib/dateRange';
 import { BarChart3, Clock, Target, Moon, TrendingUp, TrendingDown, Activity, Zap, Sun, Globe, Monitor, PieChart } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
@@ -185,18 +186,31 @@ export default function InsightsPage({
   }, [parentPeriod, dateOffset]);
 
   const sleepTrendData = useMemo(() => {
-    const days = parentPeriod === 'today' || parentPeriod === 'week' || parentPeriod === '7day' ? 7 : parentPeriod === 'all' ? 90 : 30;
     const labels: string[] = [];
     const sleepData: number[] = [];
     const deficitData: number[] = [];
-    const offsetDays = dateOffset * (parentPeriod === 'week' || parentPeriod === '7day' ? 7 : parentPeriod === 'today' ? 1 : parentPeriod === 'all' ? 365 : 30);
-    for (let i = days - 1; i >= 0; i--) {
-      const date = subDays(new Date(), i + offsetDays);
-      labels.push(format(date, 'MMM d'));
-      const dayStr = format(date, 'yyyy-MM-dd');
-      const dayData = sleepTrends.daily.find(d => d.date === dayStr);
-      sleepData.push((dayData?.sleep_seconds || 0) / 3600);
-      deficitData.push((dayData?.deficit_seconds || 0) / 3600);
+    if (parentPeriod === 'week' || parentPeriod === '7day') {
+      const range = getDateRange(parentPeriod === '7day' ? '7day' : 'week', dateOffset);
+      let curr = new Date(range.start);
+      while (curr < range.end) {
+        labels.push(format(curr, 'MMM d'));
+        const dayStr = format(curr, 'yyyy-MM-dd');
+        const dayData = sleepTrends.daily.find(d => d.date === dayStr);
+        sleepData.push((dayData?.sleep_seconds || 0) / 3600);
+        deficitData.push((dayData?.deficit_seconds || 0) / 3600);
+        curr.setDate(curr.getDate() + 1);
+      }
+    } else {
+      const days = parentPeriod === 'today' ? 7 : parentPeriod === 'all' ? 90 : 30;
+      const offsetDays = dateOffset * (parentPeriod === 'today' ? 1 : parentPeriod === 'all' ? 365 : 30);
+      for (let i = days - 1; i >= 0; i--) {
+        const date = subDays(new Date(), i + offsetDays);
+        labels.push(format(date, 'MMM d'));
+        const dayStr = format(date, 'yyyy-MM-dd');
+        const dayData = sleepTrends.daily.find(d => d.date === dayStr);
+        sleepData.push((dayData?.sleep_seconds || 0) / 3600);
+        deficitData.push((dayData?.deficit_seconds || 0) / 3600);
+      }
     }
     return { labels, sleepData, deficitData };
   }, [sleepTrends, parentPeriod, dateOffset]);

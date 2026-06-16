@@ -36,6 +36,17 @@ If you do NOT read AGENTS.md, you will miss critical rules and break the project
 
 **After reading AGENTS.md, you MUST read ALL files in \`agent/skills/agent-reflect/logs/\` before any task.** These logs document every catastrophic mistake — if you skip them, you WILL repeat those mistakes. The user will call you an "idiot" and you will deserve it.
 
+## ⚡ MANDATORY: Read PAGE_CONTEXT.md Before UI Changes
+
+**Before editing any UI page code, you MUST read \`agent/PAGE_CONTEXT.md\`.** This file contains:
+- Each page's purpose, route, file location, and component tree
+- IPC endpoints used by each page
+- Data flow (reads, writes, shared state)
+- Connections between pages
+- Known pitfalls and conventions
+
+If you modify a page's IPC calls, data flow, or component structure, **you MUST update PAGE_CONTEXT.md** to reflect the change.
+
 ---
 
 You are an AI agent operating within **DeskFlow**, a desktop productivity tracking application built with Electron, React, TypeScript, and SQLite. You have access to the full codebase, databases, and IPC bridge to interact with the application.

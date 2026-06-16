@@ -1,22 +1,28 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__importDefault) ? mod : { "default": mod };
-};
+ var __importDefault = function (mod) {
+        return (mod && mod.__importDefault) ? mod : { "default": mod };
+    };
 Object.defineProperty(exports, "__esModule", { value: true });
 // Load environment variables from .env file
 require('dotenv').config();
 const electron_1 = require("electron");
+// Set Windows App User Model ID so Task Manager groups/names the app as "DeskFlow" not "Electron"
+electron_1.app.setAppUserModelId('com.deskflow.app');
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const child_process_1 = require("child_process");
 const active_win_1 = __importDefault(require("active-win"));
 const http_1 = __importDefault(require("http"));
-const ProblemsServiceModule = require("./services/ProblemsService.cjs");
+const ProblemsServiceModule = require("./services/ProblemsService.js");
 const ProblemsService = ProblemsServiceModule.ProblemsService || ProblemsServiceModule;
-const RequestsServiceModule = require("./services/RequestsService.cjs");
+const RequestsServiceModule = require("./services/RequestsService.js");
 const RequestsService = RequestsServiceModule.RequestsService || RequestsServiceModule;
-const SkillsServiceModule = require("./services/SkillsService.cjs");
+const SkillsServiceModule = require("./services/SkillsService.js");
 const SkillsService = SkillsServiceModule.SkillsService || SkillsServiceModule;
+const AgentHostServiceModule = require("./services/AgentHostService.js");
+const { agentHostService } = AgentHostServiceModule.AgentHostService || AgentHostServiceModule;
+const GameDetectionModule = require("./gameDetection.js");
+const { resolveForegroundApp, buildInstalledGameIndex, rescanGames } = GameDetectionModule;
 
 // --- Global shortcut for DevTools ---
 const { globalShortcut } = require('electron');
@@ -26,6 +32,7 @@ const dbPath = path_1.default.join(userDataPath, 'deskflow-data.db');
 const jsonPath = path_1.default.join(userDataPath, 'deskflow-data.json');
 const sleepStatePath = path_1.default.join(userDataPath, 'deskflow-sleep-state.json');
 const sleepPatternPath = path_1.default.join(userDataPath, 'deskflow-sleep-pattern.json');
+const windowStatePath = path_1.default.join(userDataPath, 'deskflow-window-state.json');
 // --- Sleep tracking state (for morning prompt) ---
 let lastCloseTime: number | null = null;
 let lastCloseType: 'normal' | 'force' | null = null;
@@ -214,8 +221,11 @@ const DEFAULT_APP_CATEGORIES = {
     'apex': 'Gaming', 'overwatch': 'Gaming', 'pubg': 'Gaming', 'warzone': 'Gaming',
     'genshin': 'Gaming', 'steam': 'Gaming', 'epic': 'Gaming', 'battle.net': 'Gaming',
     'blizzard': 'Gaming', 'riot': 'Gaming', 'ubisoft': 'Gaming', 'origin': 'Gaming',
-    'xbox': 'Gaming', 'playstation': 'Gaming', 'nintendo': 'Gaming', 'game': 'Gaming',
-    'unity': 'Gaming', 'unreal': 'Gaming', 'godot': 'Gaming',
+    'xbox': 'Gaming', 'playstation': 'Gaming', 'nintendo': 'Gaming',
+    'godot': 'Gaming',
+    'wuthering': 'Gaming', 'honkai': 'Gaming', 'star rail': 'Gaming',
+    'elden ring': 'Gaming', 'cyberpunk': 'Gaming', 'baldur': 'Gaming',
+    'call of duty': 'Gaming', 'gta': 'Gaming', 'v rising': 'Gaming',
     // Communication
     'slack': 'Communication', 'discord': 'Communication', 'teams': 'Communication',
     'zoom': 'Communication', 'skype': 'Communication', 'telegram': 'Communication',
@@ -311,6 +321,7 @@ interface ParsedSession {
     durationMs?: number;
     projectPath?: string;
     messageCount?: number;
+    cost?: number;
 }
 
 interface AIAgentPlugin {
@@ -344,6 +355,31 @@ function getModelPricing(model?: string): { input: number; output: number; cache
     if (!model) return MODEL_PRICING['default'];
     const key = Object.keys(MODEL_PRICING).find(k => model.toLowerCase().includes(k.toLowerCase()));
     return MODEL_PRICING[key || 'default'];
+}
+
+// Shared helpers for token parsing (REQUIRED - see §0.3 of RESULT.md)
+function toInt(v: unknown): number {
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+function readTextFileSafe(p: string): string | null {
+    try {
+        const buf = fs_1.default.readFileSync(p);
+        const start = buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF ? 3 : 0;
+        return buf.slice(start).toString('utf8');
+    } catch (e: any) {
+        if (e?.code === 'EACCES' || e?.code === 'EBUSY' || e?.code === 'EPERM') return null;
+        throw e;
+    }
+}
+
+function* iterJsonl(text: string): Generator<any> {
+    for (const raw of text.split(/\r\n|\n|\r/)) {
+        const line = raw.trim();
+        if (!line) continue;
+        try { yield JSON.parse(line); } catch { /* skip corrupt line */ }
+    }
 }
 
 function calculateCost(session: ParsedSession): number {
@@ -414,27 +450,12 @@ const ClaudeCodePlugin: AIAgentPlugin = {
                         const message = entry.message || entry;
                         const usage = message?.usage || message?.tokenUsage;
                         if (usage) {
-                            inputTokens = usage.input_tokens || usage.inputTokens || 0;
-                            outputTokens = usage.output_tokens || usage.outputTokens || 0;
-                            cacheRead = usage.cache_read_input_tokens || usage.cacheReadTokens || 0;
-                            cacheWrite = usage.cache_creation_input_tokens || usage.cacheWriteTokens || 0;
+                            totalInput += toInt(usage.input_tokens) + toInt(usage.inputTokens) + toInt(usage.server_tool_use?.input_tokens);
+                            totalOutput += toInt(usage.output_tokens) + toInt(usage.outputTokens) + toInt(usage.server_tool_use?.output_tokens);
+                            totalCacheRead += toInt(usage.cache_read_input_tokens) + toInt(usage.cacheReadTokens);
+                            totalCacheWrite += toInt(usage.cache_creation_input_tokens) + toInt(usage.cacheWriteTokens);
                         }
-                        if (message?.model) model = message.model;
-                    } else {
-                        const usage = entry.usage || entry.tokenUsage || entry.tokens;
-                        inputTokens = usage?.input_tokens || usage?.input || entry.input_tokens || entry.prompt_tokens || 0;
-                        outputTokens = usage?.output_tokens || usage?.output || entry.output_tokens || entry.completion_tokens || 0;
-                        cacheRead = usage?.cache_read_input_tokens || entry.cache_read_input_tokens || 0;
-                        cacheWrite = usage?.cache_creation_input_tokens || entry.cache_creation_input_tokens || 0;
-                        model = entry.model || entry.model_version || '';
-                    }
-
-                    if (inputTokens > 0 || outputTokens > 0) {
-                        totalInput += inputTokens;
-                        totalOutput += outputTokens;
-                        totalCacheRead += cacheRead;
-                        totalCacheWrite += cacheWrite;
-                        if (model && !lastModel) lastModel = model;
+                        if (message?.model) lastModel = message.model;
                     }
                 } catch {}
             }
@@ -461,7 +482,7 @@ const ClaudeCodePlugin: AIAgentPlugin = {
                     model: lastModel || undefined,
                     provider: 'anthropic',
                     projectPath,
-                    messageCount: messageCount > 0 ? Math.floor(messageCount / 2) : undefined, // user+assistant pairs
+                    messageCount: messageCount > 0 ? messageCount : undefined,
                 });
             }
         } catch {}
@@ -622,6 +643,8 @@ const GeminiPlugin: AIAgentPlugin = {
 
     getStoragePaths(): string[] {
         const homedir = require('os').homedir();
+        const explicit = (global as any).__aiAgentCustomPaths?.['gemini'];
+        if (explicit) return [explicit];
         return [
             path_1.default.join(homedir, '.gemini', 'tmp'),
             path_1.default.join(homedir, '.gemini', 'history'),
@@ -635,39 +658,142 @@ const GeminiPlugin: AIAgentPlugin = {
 
             if (filePath.endsWith('.jsonl')) {
                 const lines = content.split('\n').filter(Boolean);
+
+                // Find session header (first line with sessionId, no $set, no type field)
+                let sessionId: string | null = null;
+                let sessionTime: string | null = null;
+                let projectPath: string | null = null;
                 for (const line of lines) {
                     try {
                         const entry = JSON.parse(line);
-                        const usage = entry.usage || entry.tokens || entry.tokenUsage;
-                        if (usage || entry.inputTokens || entry.outputTokens) {
-                            sessions.push({
-                                sessionId: entry.id || entry.sessionId || String(Date.now()),
-                                timestamp: new Date(entry.createdAt || entry.timestamp || Date.now()),
-                                inputTokens: entry.inputTokens || entry.input_token_count || usage?.inputTokens || usage?.input_tokens || 0,
-                                outputTokens: entry.outputTokens || entry.output_token_count || usage?.outputTokens || usage?.output_tokens || 0,
-                                model: entry.model || entry.modelName || 'gemini',
-                                provider: 'google',
-                            });
+                        if (entry.$set) continue;
+                        if (entry.sessionId && !entry.type) {
+                            sessionId = entry.sessionId;
+                            sessionTime = entry.startTime || null;
+                            projectPath = entry.cwd || null;
+                            break;
                         }
                     } catch {}
                 }
+                if (!sessionId) return sessions;
+
+                let inputTokens = 0, outputTokens = 0, cacheReadTokens = 0;
+                let model = 'gemini';
+                let messageCount = 0;
+
+                for (const line of lines) {
+                    try {
+                        const entry = JSON.parse(line);
+                        if (entry.$set) continue;
+                        if (entry.type !== 'gemini') continue;
+                        messageCount++;
+                        if (entry.tokens) {
+                            inputTokens += entry.tokens.input || 0;
+                            outputTokens += entry.tokens.output || 0;
+                            cacheReadTokens += entry.tokens.cached || 0;
+                        }
+                        if (entry.model) model = entry.model;
+                    } catch {}
+                }
+
+                if (messageCount > 0) {
+                    sessions.push({
+                        sessionId,
+                        timestamp: new Date(sessionTime || Date.now()),
+                        inputTokens,
+                        outputTokens,
+                        cacheReadTokens,
+                        model,
+                        provider: 'google',
+                        projectPath: projectPath || undefined,
+                        messageCount,
+                    });
+                }
             } else if (filePath.endsWith('.json')) {
-                // Handle JSON files (session files)
                 try {
                     const data = JSON.parse(content);
-                    if (data.messages && Array.isArray(data.messages)) {
-                        for (const msg of data.messages) {
-                            const usage = msg.usage || msg.tokens;
-                            if (usage && (usage.inputTokens || usage.outputTokens)) {
-                                sessions.push({
-                                    sessionId: data.id || String(Date.now()),
-                                    timestamp: new Date(data.createdAt || Date.now()),
-                                    inputTokens: usage.inputTokens || 0,
-                                    outputTokens: usage.outputTokens || 0,
-                                    model: data.model || 'gemini',
+
+                    if (Array.isArray(data)) {
+                        // Flat array format (logs.json)
+                        const sessionMap = new Map<string, {
+                            sessionId: string;
+                            timestamp: Date;
+                            inputTokens: number;
+                            outputTokens: number;
+                            cacheReadTokens: number;
+                            model: string;
+                            provider: string;
+                            messageCount: number;
+                        }>();
+                        for (const entry of data) {
+                            if (!entry.sessionId || entry.type !== 'gemini') continue;
+                            const tokens = entry.tokens;
+                            if (!tokens) continue;
+
+                            let existing = sessionMap.get(entry.sessionId);
+                            if (!existing) {
+                                existing = {
+                                    sessionId: entry.sessionId,
+                                    timestamp: new Date(entry.timestamp || Date.now()),
+                                    inputTokens: 0,
+                                    outputTokens: 0,
+                                    cacheReadTokens: 0,
+                                    model: entry.model || 'gemini',
                                     provider: 'google',
-                                });
+                                    messageCount: 0,
+                                };
+                                sessionMap.set(entry.sessionId, existing);
                             }
+                            existing.inputTokens += tokens.input || 0;
+                            existing.outputTokens += tokens.output || 0;
+                            existing.cacheReadTokens += tokens.cached || 0;
+                            existing.messageCount++;
+                        }
+                        for (const vals of sessionMap.values()) {
+                            sessions.push({
+                                sessionId: vals.sessionId,
+                                timestamp: vals.timestamp,
+                                inputTokens: vals.inputTokens,
+                                outputTokens: vals.outputTokens,
+                                cacheReadTokens: vals.cacheReadTokens,
+                                model: vals.model,
+                                provider: vals.provider,
+                                messageCount: vals.messageCount,
+                            });
+                        }
+                    } else if (data.messages && Array.isArray(data.messages)) {
+                        // Session file format: {sessionId, messages: [{id, type, content, tokens, model}]}
+                        const sid = data.sessionId || data.id || String(Date.now());
+                        const timestamp = new Date(data.startTime || data.createdAt || Date.now());
+
+                        let inputTokens = 0, outputTokens = 0, cacheReadTokens = 0;
+                        let model = data.model || 'gemini';
+                        let messageCount = 0;
+
+                        for (const msg of data.messages) {
+                            if (msg.type && msg.type !== 'gemini') continue;
+                            messageCount++;
+                            const usage = msg.usage || msg.tokens;
+                            if (usage) {
+                                inputTokens += usage.input || usage.inputTokens || 0;
+                                outputTokens += usage.output || usage.outputTokens || 0;
+                                cacheReadTokens += usage.cached || usage.cacheReadTokens || 0;
+                            }
+                            if (msg.model) model = msg.model;
+                        }
+
+                        if (messageCount > 0) {
+                            sessions.push({
+                                sessionId: sid,
+                                timestamp,
+                                inputTokens,
+                                outputTokens,
+                                cacheReadTokens,
+                                model,
+                                provider: 'google',
+                                projectPath: data.cwd,
+                                messageCount,
+                            });
                         }
                     }
                 } catch {}
@@ -676,30 +802,27 @@ const GeminiPlugin: AIAgentPlugin = {
         return sessions;
     },
 
-    async parseDir(dirPath: string): Promise<ParsedSession[]> {
+async parseDir(dirPath: string): Promise<ParsedSession[]> {
         const sessions: ParsedSession[] = [];
-        try {
-            if (!fs_1.default.existsSync(dirPath)) return sessions;
-            
-            // For .gemini/tmp/<project_hash>/chats/ structure
-            const subdirs = fs_1.default.readdirSync(dirPath);
-            for (const subdir of subdirs) {
-                const subdirPath = path_1.default.join(dirPath, subdir);
-                if (!fs_1.default.statSync(subdirPath).isDirectory()) continue;
-                
-                // Check for chats subdirectory
-                const chatsPath = path_1.default.join(subdirPath, 'chats');
-                if (fs_1.default.existsSync(chatsPath)) {
-                    const files = fs_1.default.readdirSync(chatsPath);
-                    for (const file of files) {
-                        if (file.endsWith('.json') || file.endsWith('.jsonl')) {
-                            const fromFile = await this.parse(path_1.default.join(chatsPath, file));
-                            sessions.push(...fromFile);
-                        }
-                    }
+        let i = 0;
+        const exts = new Set(['.json', '.jsonl']);
+        const walk = async (d: string, project?: string) => {
+            let entries: { name: string; isDirectory: () => boolean; isFile: () => boolean }[] = [];
+            try { entries = fs_1.default.readdirSync(d, { withFileTypes: true }) as any; } catch { return; }
+            for (const ent of entries) {
+                const p = path_1.default.join(d, ent.name);
+                if (ent.isDirectory()) {
+                    const proj = project ?? (path_1.default.dirname(d) === dirPath ? ent.name : undefined);
+                    await walk(p, proj);
+                } else if (ent.isFile() && exts.has(path_1.default.extname(ent.name).toLowerCase())) {
+                    const parsed = await this.parse(p);
+                    for (const s of parsed) { if (!s.projectPath && project) s.projectPath = project; }
+                    sessions.push(...parsed);
+                    if (++i % 10 === 0) await new Promise(r => setImmediate(r));
                 }
             }
-        } catch {}
+        };
+        await walk(dirPath);
         return sessions;
     }
 };
@@ -723,6 +846,8 @@ const CodexPlugin: AIAgentPlugin = {
 
     getStoragePaths(): string[] {
         const homedir = require('os').homedir();
+        const explicit = (global as any).__aiAgentCustomPaths?.['codex'];
+        if (explicit) return [explicit];
         return [
             path_1.default.join(homedir, '.codex'),
             path_1.default.join(homedir, '.codex', 'sessions'),
@@ -733,42 +858,58 @@ const CodexPlugin: AIAgentPlugin = {
     async parse(filePath: string): Promise<ParsedSession[]> {
         const sessions: ParsedSession[] = [];
         try {
+            if (filePath.endsWith('.sqlite') || filePath.endsWith('.db')) {
+                return this.parseSQLite ? this.parseSQLite(filePath) : sessions;
+            }
+
             if (!filePath.endsWith('.jsonl') && !filePath.endsWith('.json')) return sessions;
 
             const content = fs_1.default.readFileSync(filePath, 'utf8');
 
             if (filePath.endsWith('.jsonl')) {
+                // history.jsonl format: {"session_id":"...","ts":...,"text":"..."}
+                // No token data in this file. Group by session_id to count messages.
                 const lines = content.split('\n').filter(Boolean);
+                const sessionGroups = new Map<string, { ts: number; count: number }>();
                 for (const line of lines) {
                     try {
                         const entry = JSON.parse(line);
-                        const usage = entry.usage || entry.tokens || entry.tokenUsage;
-                        if (usage || entry.inputTokens || entry.outputTokens) {
-                            sessions.push({
-                                sessionId: entry.id || entry.session_id || String(Date.now()),
-                                timestamp: new Date(entry.timestamp || entry.created_at || Date.now()),
-                                inputTokens: entry.input_tokens || entry.inputTokens || usage?.input || 0,
-                                outputTokens: entry.output_tokens || entry.outputTokens || usage?.output || 0,
-                                cacheReadTokens: entry.cached_tokens || entry.cache_read_tokens,
-                                model: entry.model || entry.model_name || 'codex',
-                                provider: 'openai',
-                            });
+                        const sid = entry.session_id || String(Date.now());
+                        const existing = sessionGroups.get(sid);
+                        if (existing) {
+                            existing.count++;
+                            if (entry.ts > existing.ts) existing.ts = entry.ts;
+                        } else {
+                            sessionGroups.set(sid, { ts: entry.ts || Date.now(), count: 1 });
                         }
                     } catch {}
                 }
+                for (const [sid, info] of sessionGroups) {
+                    sessions.push({
+                        sessionId: sid,
+                        timestamp: new Date(info.ts * 1000),
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        model: 'codex',
+                        provider: 'openai',
+                        messageCount: info.count,
+                    });
+                }
             } else {
-                // Handle JSON session files
                 try {
                     const data = JSON.parse(content);
                     const usage = data.usage || data.tokens;
-                    if (usage && (usage.input || usage.output || data.input_tokens || data.output_tokens)) {
+                    if (usage && (usage.input_tokens || usage.output_tokens || usage.input || usage.output)) {
                         sessions.push({
                             sessionId: data.id || String(Date.now()),
                             timestamp: new Date(data.timestamp || data.created_at || Date.now()),
-                            inputTokens: data.input_tokens || usage?.input || 0,
-                            outputTokens: data.output_tokens || usage?.output || 0,
+                            inputTokens: usage.input_tokens || usage.input || 0,
+                            outputTokens: usage.output_tokens || usage.output || 0,
+                            cacheReadTokens: usage.cached_tokens || usage.cache_read_tokens || 0,
                             model: data.model || 'codex',
                             provider: 'openai',
+                            projectPath: data.cwd,
+                            messageCount: 1,
                         });
                     }
                 } catch {}
@@ -777,11 +918,126 @@ const CodexPlugin: AIAgentPlugin = {
         return sessions;
     },
 
+    async parseSQLite(dbPath: string): Promise<ParsedSession[]> {
+        const sessions: ParsedSession[] = [];
+        try {
+            const homedir = require('os').homedir();
+            const logDbPath = path_1.default.join(homedir, '.codex', 'logs_2.sqlite');
+            if (!fs_1.default.existsSync(logDbPath)) return sessions;
+
+            const Database = require('better-sqlite3');
+            const db = new Database(logDbPath, { readonly: true });
+
+            const rows = db.prepare(`
+                SELECT feedback_log_body, ts
+                FROM logs
+                WHERE feedback_log_body LIKE '%response.completed%'
+                ORDER BY ts ASC
+            `).all() as any[];
+
+            const convMap = new Map<string, {
+                inputTokens: number;
+                outputTokens: number;
+                cacheReadTokens: number;
+                model: string;
+                messageCount: number;
+                timestamp: Date;
+            }>();
+
+            for (const row of rows) {
+                try {
+                    const body: string = row.feedback_log_body || '';
+                    let convId = '';
+                    let inputTokens = 0;
+                    let outputTokens = 0;
+                    let cacheReadTokens = 0;
+                    let model = 'codex';
+                    let ts = row.ts || 0;
+
+                    // Try JSON format: "Received message {...}"
+                    if (body.startsWith('Received message ')) {
+                        const jsonStr = body.substring('Received message '.length);
+                        const data = JSON.parse(jsonStr);
+                        const resp = data.response || {};
+                        convId = resp.id || '';
+                        model = resp.model || model;
+                        const usage = resp.usage || {};
+                        inputTokens = usage.input_tokens || 0;
+                        outputTokens = usage.output_tokens || 0;
+                        cacheReadTokens = usage.input_tokens_details?.cached_tokens || 0;
+                    }
+
+                    // Try key=value format
+                    if (!convId) {
+                        const pairs: Record<string, string> = {};
+                        for (const part of body.split(' ')) {
+                            const eqIdx = part.indexOf('=');
+                            if (eqIdx > 0) {
+                                pairs[part.substring(0, eqIdx)] = part.substring(eqIdx + 1);
+                            }
+                        }
+                        if (pairs['event.kind'] === 'response.completed') {
+                            convId = pairs['conversation.id'] || '';
+                            inputTokens = parseInt(pairs['input_token_count']) || 0;
+                            outputTokens = parseInt(pairs['output_token_count']) || 0;
+                            cacheReadTokens = parseInt(pairs['cached_token_count']) || 0;
+                            model = pairs['model'] || model;
+                            if (pairs['event.timestamp']) {
+                                const parsed = new Date(pairs['event.timestamp']);
+                                if (!isNaN(parsed.getTime())) ts = parsed.getTime() / 1000;
+                            }
+                        }
+                    }
+
+                    if (!convId) continue;
+                    const existing = convMap.get(convId);
+                    if (existing) {
+                        existing.inputTokens += inputTokens;
+                        existing.outputTokens += outputTokens;
+                        existing.cacheReadTokens += cacheReadTokens;
+                        existing.messageCount++;
+                    } else {
+                        convMap.set(convId, {
+                            inputTokens,
+                            outputTokens,
+                            cacheReadTokens,
+                            model,
+                            messageCount: 1,
+                            timestamp: new Date(ts * 1000),
+                        });
+                    }
+                } catch {}
+            }
+
+            db.close();
+
+            for (const [convId, info] of convMap) {
+                if (info.inputTokens > 0 || info.outputTokens > 0) {
+                    sessions.push({
+                        sessionId: convId,
+                        timestamp: info.timestamp,
+                        inputTokens: info.inputTokens,
+                        outputTokens: info.outputTokens,
+                        cacheReadTokens: info.cacheReadTokens || undefined,
+                        model: info.model,
+                        provider: 'openai',
+                        messageCount: info.messageCount,
+                    });
+                }
+            }
+
+            console.log(`[Codex] SQLite: parsed ${sessions.length} sessions from ${rows.length} events`);
+        } catch (e: any) {
+            console.error(`[Codex] SQLite parse error: ${e.message}`);
+        }
+        return sessions;
+    },
+
     async parseDir(dirPath: string): Promise<ParsedSession[]> {
         const sessions: ParsedSession[] = [];
         try {
             if (!fs_1.default.existsSync(dirPath)) return sessions;
-            
+
             const walkDir = async (dir: string) => {
                 const items = fs_1.default.readdirSync(dir);
                 for (const item of items) {
@@ -790,7 +1046,7 @@ const CodexPlugin: AIAgentPlugin = {
                         const stat = fs_1.default.statSync(fullPath);
                         if (stat.isDirectory()) {
                             await walkDir(fullPath);
-                        } else if (item.endsWith('.jsonl') || item.endsWith('.json')) {
+                        } else if (item.endsWith('.jsonl') || item.endsWith('.json') || item.endsWith('.sqlite') || item.endsWith('.db')) {
                             const parsed = await this.parse(fullPath);
                             sessions.push(...parsed);
                         }
@@ -827,61 +1083,76 @@ const QwenPlugin: AIAgentPlugin = {
             if (!filePath.endsWith('.jsonl')) return sessions;
             const content = fs_1.default.readFileSync(filePath, 'utf8');
             const lines = content.split('\n').filter(Boolean);
-            let sessionId = '';
-            let sessionTimestamp: Date | null = null;
-            let totalInputTokens = 0;
-            let totalOutputTokens = 0;
-            let totalCachedTokens = 0;
-            let totalThoughtsTokens = 0;
-            let model: string | undefined;
-            let projectPath: string | undefined;
-            let messageCount = 0;
+            
+            // Group by sessionId to handle multiple sessions per file
+            const sessionMap = new Map<string, {
+                sessionId: string;
+                timestamp: Date;
+                inputTokens: number;
+                outputTokens: number;
+                cachedTokens: number;
+                thoughtsTokens: number;
+                model: string;
+                provider: string;
+                projectPath?: string;
+                messageCount: number;
+            }>();
 
             for (const line of lines) {
                 try {
                     const entry = JSON.parse(line);
-                    if (!sessionId && entry.sessionId) sessionId = entry.sessionId;
-                    if (!sessionTimestamp && entry.timestamp) sessionTimestamp = new Date(entry.timestamp);
-                    if (!projectPath && entry.cwd) projectPath = entry.cwd;
-                    if (!model && entry.model) model = entry.model;
+                    if (!entry.sessionId) continue;
+                    
+                    const sessionId = entry.sessionId;
+                    let existing = sessionMap.get(sessionId);
+                    if (!existing) {
+                        const timestamp = entry.timestamp ? new Date(entry.timestamp) : new Date();
+                        existing = {
+                            sessionId,
+                            timestamp,
+                            inputTokens: 0,
+                            outputTokens: 0,
+                            cachedTokens: 0,
+                            thoughtsTokens: 0,
+                            model: entry.model || '',
+                            provider: 'alibaba',
+                            projectPath: entry.cwd,
+                            messageCount: 0,
+                        };
+                        sessionMap.set(sessionId, existing);
+                    }
 
                     // Count actual messages (user + assistant exchanges)
                     if (entry.type === 'user' || entry.type === 'assistant') {
-                        messageCount++;
+                        existing.messageCount++;
                     }
 
-                    if (entry.type === 'system' && entry.subtype === 'ui_telemetry') {
-                        const uiEvent = entry.systemPayload?.uiEvent;
-                        if (uiEvent) {
-                            totalInputTokens += uiEvent.input_token_count || 0;
-                            totalOutputTokens += uiEvent.output_token_count || 0;
-                            totalCachedTokens += uiEvent.cached_content_token_count || 0;
-                            totalThoughtsTokens += uiEvent.thoughts_token_count || 0;
-                            if (!model && uiEvent.model) model = uiEvent.model;
-                        }
-                    } else if (entry.type === 'assistant' && entry.usageMetadata) {
+                    if (entry.type === 'assistant' && entry.usageMetadata) {
                         const usage = entry.usageMetadata;
-                        totalInputTokens += usage.promptTokenCount || 0;
-                        totalOutputTokens += usage.candidatesTokenCount || 0;
-                        totalCachedTokens += usage.cachedContentTokenCount || 0;
-                        totalThoughtsTokens += usage.thoughtsTokenCount || 0;
+                        existing.inputTokens += toInt(usage.promptTokenCount);
+                        existing.outputTokens += toInt(usage.candidatesTokenCount);
+                        existing.cachedTokens += toInt(usage.cachedContentTokenCount);
+                        existing.thoughtsTokens += toInt(usage.thoughtsTokenCount);
                     }
                 } catch {}
             }
 
-            if (totalInputTokens > 0 || totalOutputTokens > 0 || messageCount > 0) {
-                sessions.push({
-                    sessionId: sessionId || String(Date.now()),
-                    timestamp: sessionTimestamp || new Date(),
-                    inputTokens: totalInputTokens,
-                    outputTokens: totalOutputTokens,
-                    cacheReadTokens: totalCachedTokens || undefined,
-                    reasoningTokens: totalThoughtsTokens || undefined,
-                    model,
-                    provider: 'alibaba',
-                    projectPath,
-                    messageCount: messageCount > 0 ? Math.floor(messageCount / 2) : undefined,
-                });
+            // Convert map to sessions array
+            for (const vals of sessionMap.values()) {
+                if (vals.inputTokens > 0 || vals.outputTokens > 0 || vals.messageCount > 0) {
+                    sessions.push({
+                        sessionId: vals.sessionId,
+                        timestamp: vals.timestamp,
+                        inputTokens: vals.inputTokens,
+                        outputTokens: vals.outputTokens,
+                        cacheReadTokens: vals.cachedTokens || undefined,
+                        reasoningTokens: vals.thoughtsTokens || undefined,
+                        model: vals.model,
+                        provider: vals.provider,
+                        projectPath: vals.projectPath,
+                        messageCount: vals.messageCount > 0 ? vals.messageCount : undefined,
+                    });
+                }
             }
         } catch {}
         return sessions;
@@ -1074,6 +1345,91 @@ const CursorPlugin: AIAgentPlugin = {
     }
 };
 
+// ---------------------------------------------------------------------------
+// KiloCode Plugin (Continue fork — task files at ~/.kilocode/.../tasks/)
+// ---------------------------------------------------------------------------
+const KiloCodePlugin: AIAgentPlugin = {
+    id: 'kilocode',
+    name: 'KiloCode',
+    color: '#22c55e',
+
+    async detect(): Promise<boolean> {
+        const kiloCodePath = path_1.default.join(
+            require('os').homedir(),
+            '.kilocode', 'globalStorage', 'kilo code.kilo-code', 'tasks'
+        );
+        return fs_1.default.existsSync(kiloCodePath);
+    },
+
+    getStoragePaths(): string[] {
+        const home = require('os').homedir();
+        const explicit = (global as any).__aiAgentCustomPaths?.['kilocode'];
+        if (explicit) return [explicit];
+        return [path_1.default.join(home, '.kilocode', 'globalStorage', 'kilo code.kilo-code', 'tasks')];
+    },
+
+async parse(filePath: string): Promise<ParsedSession[]> {
+        const sessions: ParsedSession[] = [];
+        const base = path_1.default.basename(filePath).toLowerCase();
+        if (base !== 'api_conversation_history.json') return sessions;
+        const text = readTextFileSafe(filePath);
+        if (!text) return sessions;
+        let arr: any[];
+        try { arr = JSON.parse(text); } catch { return sessions; }
+        if (!Array.isArray(arr) || arr.length === 0) return sessions;
+        const taskDir = path_1.default.basename(path_1.default.dirname(filePath));
+        const firstTs = typeof arr[0]?.ts === 'number' ? arr[0].ts : 0;
+        let cost: number | undefined;
+        let totalInput = 0;
+        let totalOutput = 0;
+        const re = /Current Cost:\s*\$([0-9]+(?:\.[0-9]+)?)/g;
+        for (const msg of arr) {
+            const content = Array.isArray(msg?.content) ? msg.content : [];
+            for (const c of content) {
+                if (typeof c?.text === 'string') {
+                    let m: RegExpExecArray | null;
+                    while ((m = re.exec(c.text)) !== null) {
+                        const n = parseFloat(m[1]);
+                        if (Number.isFinite(n)) cost = n;
+                    }
+                }
+            }
+        }
+        return [{
+            sessionId: taskDir,
+            timestamp: firstTs ? new Date(firstTs) : new Date(),
+            inputTokens: totalInput,
+            outputTokens: totalOutput,
+            messageCount: arr.length,
+            projectPath: path_1.default.dirname(filePath),
+            cost,
+            model: undefined,
+            provider: 'kilocode',
+        }];
+    },
+
+    async parseDir(dirPath: string): Promise<ParsedSession[]> {
+        const sessions: ParsedSession[] = [];
+        let i = 0;
+        const walk = async (d: string) => {
+            let entries: any[] = [];
+            try { entries = fs_1.default.readdirSync(d, { withFileTypes: true }); }
+            catch (e: any) { if (e?.code === 'EACCES' || e?.code === 'EBUSY' || e?.code === 'EPERM') return; throw e; }
+            for (const ent of entries) {
+                const p = path_1.default.join(d, ent.name);
+                if (ent.isDirectory()) { await walk(p); continue; }
+                if (ent.isFile() && ent.name.toLowerCase() === 'api_conversation_history.json') {
+                    const parsed = await this.parse(p);
+                    sessions.push(...parsed);
+                    if (++i % 10 === 0) await new Promise(r => setImmediate(r));
+                }
+            }
+        };
+        try { await walk(dirPath); } catch {}
+        return sessions;
+    }
+};
+
 // Register all plugins
 const AI_AGENT_PLUGINS: AIAgentPlugin[] = [
     ClaudeCodePlugin,
@@ -1081,6 +1437,7 @@ const AI_AGENT_PLUGINS: AIAgentPlugin[] = [
     OpenCodePlugin,
     GeminiPlugin,
     CodexPlugin,
+    KiloCodePlugin,
     QwenPlugin,
     AiderPlugin,
 ];
@@ -1094,7 +1451,7 @@ const yieldToEventLoop = () => new Promise<void>(resolve => setImmediate(resolve
 function getDirDataSignature(dirPath: string): { fileCount: number; latestMtime: number } {
     let fileCount = 0;
     let latestMtime = 0;
-    const RELEVANT_EXTS = new Set(['.jsonl', '.json', '.db']);
+    const RELEVANT_EXTS = new Set(['.jsonl', '.json', '.db', '.sqlite']);
     function walk(currentDir: string) {
         try {
             const entries = fs_1.default.readdirSync(currentDir, { withFileTypes: true });
@@ -1211,7 +1568,7 @@ async function syncAllAIAgents(db: any): Promise<Record<string, number>> {
                     try {
                         db!.transaction(() => {
                             for (const session of batch) {
-                                const id = `${plugin.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                                const id = `${plugin.id}-${session.sessionId}`;
                                 const date = session.timestamp.toISOString().split('T')[0];
                                 const cost = calculateCost(session);
 
@@ -1276,6 +1633,21 @@ async function syncAllAIAgents(db: any): Promise<Record<string, number>> {
         }
     } catch (err: any) {
         console.error('[DeskFlow] Failed to resolve project_id from project_path:', err.message);
+    }
+
+    // Deduplicate ai_usage rows that were duplicated by old random-ID sync (prior to deterministic IDs)
+    try {
+        const dupInfo = db!.prepare(`
+            DELETE FROM ai_usage WHERE rowid NOT IN (
+                SELECT MIN(rowid) FROM ai_usage
+                GROUP BY tool, date, input_tokens, output_tokens, IFNULL(project_path, ''), IFNULL(model, '')
+            )
+        `).run();
+        if (dupInfo.changes > 0) {
+            console.log(`[DeskFlow] 🧹 Deduplicated ${dupInfo.changes} ai_usage rows (old random-ID duplicates)`);
+        }
+    } catch (err: any) {
+        console.error('[DeskFlow] Failed to deduplicate ai_usage:', err.message);
     }
 
     return results;
@@ -1414,6 +1786,9 @@ function initializeStorage() {
     try {
         const Database = require('better-sqlite3');
         db = new Database(dbPath);
+        // Enable WAL mode for concurrent access + busy timeout to survive transient locks
+        db.pragma('journal_mode = WAL');
+        db.pragma('busy_timeout = 5000');
         db.exec(`
       CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1609,6 +1984,10 @@ function initializeStorage() {
         db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_date ON ai_usage(date)');
         db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_tool ON ai_usage(tool)');
         db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_project_path ON ai_usage(project_path)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_tool_date ON ai_usage(tool, date)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_date_tool ON ai_usage(date, tool)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_tool_project ON ai_usage(tool, project_path)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_tool_model ON ai_usage(tool, model)');
 
         // AI Features: briefs cache
         db.exec(`
@@ -1790,12 +2169,16 @@ function initializeStorage() {
             CREATE TABLE IF NOT EXISTS workspace_state (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               project_id TEXT NOT NULL UNIQUE,
+              scope TEXT DEFAULT 'project',
               sidebar_width INTEGER DEFAULT 400,
               active_tab TEXT DEFAULT 'presets',
               terminal_tabs TEXT DEFAULT '[]',
+              state_json TEXT,
               updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        try { db.exec(`ALTER TABLE workspace_state ADD COLUMN scope TEXT DEFAULT 'project'`); } catch (_e) {}
+        try { db.exec(`ALTER TABLE workspace_state ADD COLUMN state_json TEXT`); } catch (_e) {}
 
         // Terminal bindings (terminal → project/agent/problem association)
         db.exec(`
@@ -2003,6 +2386,15 @@ function initializeStorage() {
           )
         `);
         db.exec('CREATE INDEX IF NOT EXISTS idx_goals_date ON goals(date)');
+        try { db.exec('ALTER TABLE goals ADD COLUMN priority INTEGER DEFAULT 0'); } catch {} // may already exist
+
+        // Category overrides table (for tier mapping)
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS category_overrides (
+            app TEXT PRIMARY KEY,
+            category TEXT NOT NULL
+          )
+        `);
 
         // Goal reviews table
         db.exec(`
@@ -2458,7 +2850,8 @@ function invalidateTierMapCache() {
 // Track only the MOST RECENTLY active browser domain (only one active at a time)
 let lastActiveBrowserDomain = null;
 let lastActiveBrowserTimestamp = 0;
-function categorizeApp(appName) {
+function categorizeApp(appName, opts?: { isResolvedGame?: boolean }) {
+    if (opts?.isResolvedGame) return 'Gaming';
     const lower = appName.toLowerCase();
     if (categoryConfig.appCategoryMap[appName]) {
         return categoryConfig.appCategoryMap[appName];
@@ -2600,102 +2993,9 @@ function categorizeDomain(domain, title, url) {
     return 'Entertainment';
 }
 
-// Fallback: Use PowerShell to get foreground window when active-win returns null
-// Captures games in exclusive fullscreen that active-win can't detect
-function getForegroundViaPowerShell() {
-    // Method 1: Win32 API (GetForegroundWindow) — works for most fullscreen apps,
-    // but blocked by anti-cheat (Vanguard blocks it for VALORANT)
-    try {
-        const result = (0, child_process_1.execSync)(`
-            Add-Type @"
-                using System;
-                using System.Runtime.InteropServices;
-                using System.Diagnostics;
-                using System.Text;
-                public class ForegroundWin {
-                    [DllImport("user32.dll")]
-                    static extern IntPtr GetForegroundWindow();
-                    [DllImport("user32.dll")]
-                    static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
-                    [DllImport("user32.dll")]
-                    static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
-                    public static string GetInfo() {
-                        IntPtr hwnd = GetForegroundWindow();
-                        if (hwnd == IntPtr.Zero) return null;
-                        StringBuilder sb = new StringBuilder(256);
-                        GetWindowText(hwnd, sb, 256);
-                        uint pid;
-                        GetWindowThreadProcessId(hwnd, out pid);
-                        string procName = "";
-                        try { procName = Process.GetProcessById((int)pid).ProcessName; } catch {}
-                        return sb.ToString() + "|" + procName + "|" + pid;
-                    }
-                }
-"@
-            [ForegroundWin]::GetInfo()
-        `, { encoding: 'utf8', timeout: 3000 }).trim();
-        const parts = result.split('|');
-        if (parts.length >= 2 && parts[1]) {
-            return { title: parts[0], owner: { name: parts[1], processId: parseInt(parts[2]) } };
-        }
-    }
-    catch { }
-
-    // Method 2: Process enumeration — works when GetForegroundWindow is blocked (anti-cheat).
-    // Lists all processes with visible windows, sorts by most recently started.
-    // Not 100% accurate for the actual foreground but better than tracking nothing.
-    try {
-        const result = (0, child_process_1.execSync)(
-            `powershell -NoProfile -NonInteractive -Command "Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and $_.Responding } | Select-Object MainWindowTitle,ProcessName,Id,StartTime | ConvertTo-Json -Compress"`,
-            { encoding: 'utf8', timeout: 3000 }
-        ).trim();
-        if (result) {
-            const processes = JSON.parse(result);
-            const arr = Array.isArray(processes) ? processes : [processes];
-            let bestScore = -1;
-            let bestProcess = null;
-            for (const p of arr) {
-                let score = 0;
-                const name = (p.ProcessName || '').toLowerCase();
-                const title = (p.MainWindowTitle || '');
-                score += Math.min(title.length, 50);
-                const GAME_PRIORITY = {
-                    'minecraft-windows': 100, 'minecraft': 90,
-                    'fortniteclient': 90, 'fortnite': 80,
-                    'valorant': 90, 'valorsrv': 80,
-                    'league of legends': 90, 'leagueclient': 80,
-                    'csgo': 80, 'dota2': 80,
-                    'rocketleague': 80, 'rlauncher': 70,
-                    'apex': 70, 'r5apex': 80,
-                    'overwatch': 70, 'ow': 60,
-                    'steam': 40, 'epicgameslauncher': 40,
-                    'battle.net': 40, 'blizzard': 30,
-                    'unity': 50, 'unreal': 50,
-                };
-                const titleLower = title.toLowerCase();
-                for (const [gkey, gscore] of Object.entries(GAME_PRIORITY)) {
-                    if (name.includes(gkey) || titleLower.includes(gkey)) {
-                        score += gscore;
-                        break;
-                    }
-                }
-                if (name === 'explorer' || name === 'shellexperiencehost' || name === 'searchapp' || name === 'system') {
-                    score -= 30;
-                }
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestProcess = p;
-                }
-            }
-            if (bestProcess) {
-                console.log(`[DeskFlow] Scored fallback detected: ${bestProcess.ProcessName} (${bestProcess.MainWindowTitle}) score=${bestScore}`);
-                return { title: bestProcess.MainWindowTitle, owner: { name: bestProcess.ProcessName, processId: parseInt(bestProcess.Id) } };
-            }
-        }
-    }
-    catch { }
-    return null;
-}
+// 🎮 Game-mode poll skip counter: reduces active-win calls during gameplay to prevent stutter
+let gameModePollCount = 0;
+const GAME_POLL_SKIP = 6; // Only call active-win every 6th poll (30s) during games
 
 // Real window polling using active-win
 async function pollForeground() {
@@ -2703,88 +3003,49 @@ async function pollForeground() {
         return;
     const now = Date.now();
     try {
-        const result = await (0, active_win_1.default)();
-        // Track poll time for gap detection
-        const timeSinceLastPoll = now - lastPollTime;
-        lastPollTime = now;
-        // --- Fallback for games/apps active-win can't detect ---
-        // Only trigger after 3+ consecutive null polls to avoid overhead
-        if (!result) {
-            consecutiveNullPolls++;
-            if (consecutiveNullPolls >= 3) {
-                const psResult = getForegroundViaPowerShell();
-                if (psResult) {
-                    const appName = psResult.owner?.name || '';
-                    const windowTitle = psResult.title || '';
-                    if (!appName) {
-                        consecutiveNullPolls = 0;
-                        return;
-                    }
-                    console.log(`[DeskFlow] 🎮 Fallback detected: ${appName} (${windowTitle})`);
-                    consecutiveNullPolls = 0;
-                    // Process like a normal active-win result
-                    const appLower = appName.toLowerCase();
-                    const isTransientApp = TRANSIENT_APPS.some(t => appLower.includes(t));
-                    const filterEnabled = userPreferences.filterTransientApps !== false;
-                    if (filterEnabled && isTransientApp) {
-                        return;
-                    }
-                    if (appLower.includes('electron') || appLower.includes('deskflow')) {
-                        if (mainWindow && !mainWindow.isDestroyed()) {
-                            mainWindow.webContents.send('foreground-changed', {
-                                app: appName, title: windowTitle,
-                                category: categorizeApp(appName),
-                                timestamp: new Date().toISOString(),
-                                isReal: true
-                            });
-                        }
-                        return;
-                    }
-                    if (appName !== currentApp) {
-                        const rawDuration = now - sessionStart;
-                        if (currentApp && rawDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
-                            const duration = Math.min(rawDuration, MAX_SESSION_MS);
-                            if (rawDuration > MAX_SESSION_MS) {
-                                console.log(`[DeskFlow] ⚠️ Session capped: ${currentApp} had ${Math.round(rawDuration / 1000)}s, capped to ${Math.round(duration / 1000)}s (likely sleep artifact)`);
-                            }
-                            const category = categorizeApp(currentApp);
-                            addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
-                        }
-                        currentApp = appName;
+        // 🎮 Game optimization: skip active-win for 5 out of 6 polls during fullscreen games
+        const isInGame = currentApp && categorizeApp(currentApp) === 'Gaming';
+        if (isInGame) {
+            gameModePollCount++;
+            if (gameModePollCount < GAME_POLL_SKIP) {
+                lastPollTime = now;
+                // Still checkpoint long game sessions even without active-win
+                if (now - lastCheckpointTime > CHECKPOINT_INTERVAL_MS) {
+                    const checkpointDuration = now - sessionStart;
+                    if (checkpointDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
+                        const duration = Math.min(checkpointDuration, MAX_SESSION_MS);
+                        const category = categorizeApp(currentApp, { isResolvedGame: true });
+                        addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
+                        console.log(`[DeskFlow] 📝 Game checkpoint: ${currentApp} → ${Math.round(duration / 1000)}s`);
                         sessionStart = now;
-                        if (mainWindow && !mainWindow.isDestroyed()) {
-                            mainWindow.webContents.send('foreground-changed', {
-                                app: appName, title: windowTitle,
-                                category: categorizeApp(appName),
-                                timestamp: new Date().toISOString(),
-                                isReal: true
-                            });
-                        }
                     }
-                    // Periodic checkpointing for fallback-detected apps
-                    if (currentApp && (now - lastCheckpointTime > CHECKPOINT_INTERVAL_MS)) {
-                        const checkpointDuration = now - sessionStart;
-                        if (checkpointDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
-                            const duration = Math.min(checkpointDuration, MAX_SESSION_MS);
-                            const category = categorizeApp(currentApp);
-                            addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
-                            sessionStart = now;
-                        }
-                        lastCheckpointTime = now;
-                    }
-                    return;
+                    lastCheckpointTime = now;
                 }
+                return;
             }
+            gameModePollCount = 0;
+        } else {
+            gameModePollCount = 0;
         }
 
+        const result = await (0, active_win_1.default)();
+        const timeSinceLastPoll = now - lastPollTime;
+        lastPollTime = now;
+        const resolved = await resolveForegroundApp(result ?? null);
+
         // --- Sleep / gap detection ---
-        // If active-win returned null (and PowerShell also failed), check for sleep
-        // consecutiveNullPolls is already incremented above
         if (!result) {
+            consecutiveNullPolls++;
             if (consecutiveNullPolls >= 30) {
                 if (currentApp) {
-                    // Never reset session for known games (fullscreen games don't report windows)
-                    if (KNOWN_GAME_APPS.has(currentApp.toLowerCase())) {
+                    // Keep-alive: null poll during a known game keeps session alive
+                    if (resolved && resolved.source === 'keepalive') {
+                        consecutiveNullPolls = 0;
+                        sessionStart = sessionStart ?? now;
+                        return;
+                    }
+                    // Never reset session for games (fullscreen games don't report windows due to anti-cheat)
+                    if (categorizeApp(currentApp) === 'Gaming') {
                         sessionStart = now;
                         return;
                     }
@@ -2803,7 +3064,7 @@ async function pollForeground() {
                         }
                         return;
                     }
-                    // Normal apps � existing logic
+                    // Normal apps — existing logic
                     const knownDuration = (now - timeSinceLastPoll) - sessionStart;
                     if (knownDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
                         const duration = Math.min(knownDuration, MAX_SESSION_MS);
@@ -2820,8 +3081,6 @@ async function pollForeground() {
         // If we get a result after a gap, check if the gap was large enough to indicate sleep
         if (timeSinceLastPoll > SLEEP_GAP_MS) {
             console.log(`[DeskFlow] 💤 Sleep gap detected (${Math.round(timeSinceLastPoll / 1000)}s). Resetting session.`);
-            // Log accumulated time up to the last known good poll before resetting
-            // (not including the gap itself, which might be sleep)
             if (currentApp && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
                 const previousPollTime = now - timeSinceLastPoll;
                 const knownDuration = previousPollTime - sessionStart;
@@ -2836,96 +3095,110 @@ async function pollForeground() {
             consecutiveNullPolls = 0;
             return;
         }
-          // Successful poll — reset counter
-          consecutiveNullPolls = 0;
-          const appName = result.owner?.name || '';
-          const windowTitle = result.title || '';
-          const appLower = appName.toLowerCase();
-          const isTransientApp = TRANSIENT_APPS.some(t => appLower.includes(t));
 
-          // Debug: Log all detected apps including games
-          console.log(`[DeskFlow] active-win: ${appName} | Title: ${windowTitle.substring(0, 60)}`);
+        // Handle resolved result
+        if (!resolved) {
+            consecutiveNullPolls++;
+            return;
+        }
 
-           // Ignore transient/system apps entirely (never change currentApp)
-          // This prevents Windows Explorer and similar from disrupting tracking
-          const filterEnabled = userPreferences.filterTransientApps !== false;
-          if (filterEnabled && isTransientApp) {
-              return;
-          }
+        consecutiveNullPolls = 0;
+        const isResolvedGame = ['map', 'index', 'scan', 'keepalive', 'title'].includes(resolved.source);
 
-          // For DeskFlow/Electron, notify renderer for trackerAppMode but don't log sessions
-          if (appLower.includes('electron') || appLower.includes('deskflow')) {
-              if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.webContents.send('foreground-changed', {
-                      app: appName,
-                      title: windowTitle,
-                      category: categorizeApp(appName),
-                      timestamp: new Date().toISOString(),
-                      isReal: true
-                  });
-              }
-              return;
-          }
+        // Handle keepalive for fullscreen/anti-cheat games (no window)
+        if (resolved.source === 'keepalive') {
+            sessionStart = sessionStart ?? now; // do NOT reset ongoing session
+        }
 
-          // Only log if app changed
-          if (appName !== currentApp) {
-              const rawDuration = now - sessionStart;
-                // Log previous session if it was > 5 seconds AND within reasonable bounds
-                // BUT: Filter out Electron/DeskFlow app (don't track the app itself)
-                // ALSO: Skip known browser when website tracking is active (extension handles websites)
-                if (currentApp && rawDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
-                  // Cap duration to prevent sleep-time inflation from creating bogus multi-hour sessions
-                  const duration = Math.min(rawDuration, MAX_SESSION_MS);
-                  // If the raw duration was much larger than the cap, the system was likely asleep
-                  // Only log up to the cap and warn
-                  if (rawDuration > MAX_SESSION_MS) {
-                      console.log(`[DeskFlow] ⚠️ Session capped: ${currentApp} had ${Math.round(rawDuration / 1000)}s, capped to ${Math.round(duration / 1000)}s (likely sleep artifact)`);
-                  }
-                  const category = categorizeApp(currentApp);
-                  addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
-              }
-              // Start new session
-              currentApp = appName || null;
-              sessionStart = now;
-             // Send to renderer (only if we have a real app name)
-             if (mainWindow && !mainWindow.isDestroyed()) {
-                 const isReal = !!appName;
-                 mainWindow.webContents.send('foreground-changed', {
-                     app: appName || '',
-                     title: isReal ? windowTitle : '',
-                     category: isReal ? categorizeApp(appName) : '',
-                     timestamp: new Date().toISOString(),
-                     isReal
-                 });
-             }
-          }
+        const appName = resolved.name;
+        const windowTitle = result?.title ?? '';
+        const appLower = appName.toLowerCase();
+        const isTransientApp = TRANSIENT_APPS.some(t => appLower.includes(t));
 
-          // Periodic checkpointing: log long-running sessions every CHECKPOINT_INTERVAL_MS
-          // Prevents data loss when user stays on the same app for hours (no app change to trigger log)
-           if (currentApp && (now - lastCheckpointTime > CHECKPOINT_INTERVAL_MS)) {
-                const checkpointDuration = now - sessionStart;
-                if (checkpointDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
-                  const duration = Math.min(checkpointDuration, MAX_SESSION_MS);
-                  const category = categorizeApp(currentApp);
-                  addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
-                  console.log(`[DeskFlow] 📝 Checkpoint: ${currentApp} → ${Math.round(duration / 1000)}s`);
-                  sessionStart = now;
-              }
-              lastCheckpointTime = now;
-          }
-     }
-     catch (err) {
-         console.error('[DeskFlow] active-win error:', err.message);
-         consecutiveNullPolls++;
-     }
- }
+        // Debug: Log all detected apps including games
+        console.log(`[DeskFlow] active-win: ${appName} | Title: ${windowTitle.substring(0, 60)} | Source: ${resolved.source}`);
+
+        // Ignore transient/system apps entirely
+        const filterEnabled = userPreferences.filterTransientApps !== false;
+        if (filterEnabled && isTransientApp) {
+            return;
+        }
+
+        // For DeskFlow/Electron, notify renderer but don't log sessions
+        if (appLower.includes('electron') || appLower.includes('deskflow')) {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('foreground-changed', {
+                    app: appName,
+                    title: windowTitle,
+                    category: categorizeApp(appName, { isResolvedGame }),
+                    timestamp: new Date().toISOString(),
+                    isReal: true
+                });
+            }
+            return;
+        }
+
+        // Only log if app changed
+        if (appName !== currentApp) {
+            const rawDuration = now - sessionStart;
+            if (currentApp && rawDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
+                const duration = Math.min(rawDuration, MAX_SESSION_MS);
+                if (rawDuration > MAX_SESSION_MS) {
+                    console.log(`[DeskFlow] ⚠️ Session capped: ${currentApp} had ${Math.round(rawDuration / 1000)}s, capped to ${Math.round(duration / 1000)}s (likely sleep artifact)`);
+                }
+                const category = categorizeApp(currentApp);
+                addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
+            }
+            // Start new session
+            currentApp = appName || null;
+            sessionStart = now;
+            // Send to renderer
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                const isReal = !!appName;
+                mainWindow.webContents.send('foreground-changed', {
+                    app: appName || '',
+                    title: isReal ? windowTitle : '',
+                    category: isReal ? categorizeApp(appName, { isResolvedGame }) : '',
+                    timestamp: new Date().toISOString(),
+                    isReal
+                });
+            }
+        }
+
+        // Periodic checkpointing
+        if (currentApp && (now - lastCheckpointTime > CHECKPOINT_INTERVAL_MS)) {
+            const checkpointDuration = now - sessionStart;
+            if (checkpointDuration > 5000 && currentApp !== 'DeskFlow' && currentApp !== 'Electron') {
+                const duration = Math.min(checkpointDuration, MAX_SESSION_MS);
+                const category = categorizeApp(currentApp, { isResolvedGame: true });
+                addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
+                console.log(`[DeskFlow] 📝 Checkpoint: ${currentApp} → ${Math.round(duration / 1000)}s`);
+                sessionStart = now;
+            }
+            lastCheckpointTime = now;
+        }
+    }
+    catch (err) {
+        console.error('[DeskFlow] active-win error:', err.message);
+        consecutiveNullPolls++;
+    }
+}
 // --- Window ---
 let mainWindow = null;
 let tray = null;
 let startMinimized = false;
+function ensureWindow() {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        createWindow();
+    }
+    if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+    }
+}
 function createTray() {
     // Use the custom icon for the tray
-    const iconPath = path_1.default.join(__dirname, '../public/deskflow-icon.png');
+    const iconPath = path_1.default.join(__dirname, '..', 'DeskFlow_AppIcon.png');
     let trayIcon;
     
     try {
@@ -2966,10 +3239,7 @@ function createTray() {
         {
             label: 'Show DeskFlow',
             click: () => {
-                if (mainWindow) {
-                    mainWindow.show();
-                    mainWindow.focus();
-                }
+                ensureWindow();
             }
         },
         {
@@ -2993,13 +3263,34 @@ function createTray() {
     tray.setToolTip('DeskFlow - Time Tracker');
     tray.setContextMenu(contextMenu);
     tray.on('click', () => {
-        // Always show and focus the window when tray is clicked
-        if (mainWindow) {
-            mainWindow.show();
-            mainWindow.focus();
-        }
+        ensureWindow();
     });
     console.log('[DeskFlow] ✅ System tray created');
+}
+// --- Window state persistence ---
+interface WindowState {
+    x?: number;
+    y?: number;
+    width: number;
+    height: number;
+    maximized: boolean;
+}
+function loadWindowState(): WindowState | null {
+    try {
+        if (fs_1.default.existsSync(windowStatePath)) {
+            return JSON.parse(fs_1.default.readFileSync(windowStatePath, 'utf-8'));
+        }
+    } catch (e) {
+        console.warn('[DeskFlow] Failed to load window state:', e);
+    }
+    return null;
+}
+function saveWindowState(state: WindowState): void {
+    try {
+        fs_1.default.writeFileSync(windowStatePath, JSON.stringify(state, null, 2));
+    } catch (e) {
+        console.warn('[DeskFlow] Failed to save window state:', e);
+    }
 }
 function createWindow() {
     electron_1.Menu.setApplicationMenu(null);
@@ -3007,18 +3298,32 @@ function createWindow() {
     console.log('[DeskFlow] Preload path:', preloadPath);
     console.log('[DeskFlow] __dirname:', __dirname);
     
+    const savedState = loadWindowState();
+    const primaryDisplay = electron_1.screen.getPrimaryDisplay();
+    const { x: workX, y: workY, width: workWidth, height: workHeight } = primaryDisplay.workArea;
+    
+    const defaultBounds = { x: workX, y: workY, width: workWidth, height: workHeight };
+    const bounds = savedState && !savedState.maximized ? {
+        x: savedState.x ?? defaultBounds.x,
+        y: savedState.y ?? defaultBounds.y,
+        width: Math.min(savedState.width, primaryDisplay.workAreaSize.width),
+        height: Math.min(savedState.height, primaryDisplay.workAreaSize.height),
+    } : defaultBounds;
+    
     mainWindow = new electron_1.BrowserWindow({
-        width: 1400,
-        height: 900,
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
         minWidth: 1024,
         minHeight: 700,
         title: 'DeskFlow',
-        icon: path_1.default.join(__dirname, '../public/deskflow-icon.png'),
+        icon: path_1.default.join(__dirname, '..', 'DeskFlow_AppIcon.png'),
         webPreferences: {
             preload: preloadPath,
             contextIsolation: true,
             nodeIntegration: false,
-            webSecurity: false, // Allow loading local files
+            webSecurity: true,
         },
         titleBarStyle: 'default',
         backgroundColor: '#0a0a0a',
@@ -3056,6 +3361,29 @@ function createWindow() {
             });
         }
     }, 5000);
+    // --- Window state persistence ---
+    const saveWindowStateDebounced = () => {
+        try {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+            const maximized = mainWindow.isMaximized();
+            if (maximized) {
+                saveWindowState({ width: workWidth, height: workHeight, maximized: true });
+            } else {
+                const [x, y] = mainWindow.getPosition();
+                const [width, height] = mainWindow.getSize();
+                saveWindowState({ x, y, width, height, maximized: false });
+            }
+        } catch (e) { /* ignore */ }
+    };
+    mainWindow.on('resize', saveWindowStateDebounced);
+    mainWindow.on('move', saveWindowStateDebounced);
+    mainWindow.on('maximize', saveWindowStateDebounced);
+    mainWindow.on('unmaximize', saveWindowStateDebounced);
+    
+    if (savedState?.maximized) {
+        mainWindow.maximize();
+    }
+    
     mainWindow.on('closed', () => {
         if (trackingInterval)
             clearInterval(trackingInterval);
@@ -3064,6 +3392,7 @@ function createWindow() {
         mainWindow = null;
     });
     mainWindow.on('close', (event) => {
+        saveWindowStateDebounced();
         if (!electron_1.app.isQuitting) {
             event.preventDefault();
             mainWindow?.hide();
@@ -3168,21 +3497,24 @@ electron_1.ipcMain.handle('update-app-log', (_event, id, data) => {
             saveJsonLogs();
             return { success: true };
         }
-        else {
-            const updates = [];
-            const params = [];
-            if (data.timestamp !== undefined) { updates.push('timestamp = ?'); params.push(data.timestamp); }
-            if (data.duration_ms !== undefined) { updates.push('duration_ms = ?'); params.push(data.duration_ms); }
-            if (data.title !== undefined) { updates.push('title = ?'); params.push(data.title); }
-            if (updates.length === 0) return { success: false, error: 'No fields to update' };
-            params.push(id);
-            db.prepare(`UPDATE logs SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-            return { success: true };
-        }
+        const stmt = db.prepare('UPDATE logs SET timestamp = ?, duration_ms = ?, title = ? WHERE id = ?');
+        stmt.run(data.timestamp, data.duration_ms, data.title, id);
+        return { success: true };
     }
     catch (err) {
         console.error('[DeskFlow] update-app-log error:', err);
-        return { success: false, error: String(err) };
+        return { success: false, error: err.message };
+    }
+});
+
+// Game detection - rescan Steam library
+electron_1.ipcMain.handle('rescan-games', () => {
+    try {
+        rescanGames();
+        return { success: true, count: require('./gameDetection.js').installedGameIndex.size };
+    } catch (err) {
+        console.error('[DeskFlow] rescan-games error:', err);
+        return { success: false, error: err.message };
     }
 });
 electron_1.ipcMain.handle('delete-app-log', (_event, id) => {
@@ -3207,10 +3539,7 @@ electron_1.ipcMain.handle('quit-app', () => {
     electron_1.app.quit();
 });
 electron_1.ipcMain.handle('show-window', () => {
-    if (mainWindow) {
-        mainWindow.show();
-        mainWindow.focus();
-    }
+    ensureWindow();
 });
 electron_1.ipcMain.handle('get-auto-start-status', () => {
     return electron_1.app.getLoginItemSettings().openAtLogin;
@@ -3564,6 +3893,7 @@ function savePreferences() {
 }
 // Load preferences on startup
 loadPreferences();
+(global as any).__aiAgentCustomPaths = userPreferences.aiAgentCustomPaths || {};
 electron_1.ipcMain.handle('get-preferences', () => {
     return userPreferences;
 });
@@ -3573,29 +3903,54 @@ electron_1.ipcMain.handle('set-preference', (event, key, value) => {
     return true;
 });
 
+// Custom AI agent storage paths (overrides for plugins)
+electron_1.ipcMain.handle('get-ai-agent-custom-paths', () => {
+    return userPreferences.aiAgentCustomPaths || {};
+});
+electron_1.ipcMain.handle('set-ai-agent-custom-path', (event, pluginId: string, dirPath: string) => {
+    if (!userPreferences.aiAgentCustomPaths) userPreferences.aiAgentCustomPaths = {};
+    if (dirPath) {
+        userPreferences.aiAgentCustomPaths[pluginId] = dirPath;
+    } else {
+        delete userPreferences.aiAgentCustomPaths[pluginId];
+    }
+    (global as any).__aiAgentCustomPaths = { ...userPreferences.aiAgentCustomPaths };
+    savePreferences();
+    return true;
+});
+
 // AI Sync state tracking for efficiency (file mtime tracking) + last sync display
+const SYNC_STATE_VERSION = 2;
 interface AISyncState {
+    version?: number;
     lastRunAt: string | null;
     agentLastRun: Record<string, string>;
     paths: Record<string, Record<string, { mtime: number; fileCount: number }>>;
 }
 function loadAISyncState(): AISyncState {
     const stored = userPreferences.aiSyncState;
-    if (stored && typeof stored === 'object') {
+    if (stored && typeof stored === 'object' && stored.version === SYNC_STATE_VERSION) {
         return {
+            version: stored.version,
             lastRunAt: stored.lastRunAt || null,
             agentLastRun: stored.agentLastRun || {},
             paths: stored.paths || {},
         };
     }
-    return { lastRunAt: null, agentLastRun: {}, paths: {} };
+    return { version: SYNC_STATE_VERSION, lastRunAt: null, agentLastRun: {}, paths: {} };
 }
 function saveAISyncState(state: AISyncState) {
+    state.version = SYNC_STATE_VERSION;
     userPreferences.aiSyncState = state;
     savePreferences();
 }
 electron_1.ipcMain.handle('get-ai-sync-status', () => {
     return loadAISyncState();
+});
+electron_1.ipcMain.handle('clear-ai-sync-state', () => {
+    userPreferences.aiSyncState = null;
+    saveAISyncState({ version: SYNC_STATE_VERSION, lastRunAt: null, agentLastRun: {}, paths: {} });
+    return { success: true };
 });
 // Category Configuration IPC Handlers
 electron_1.ipcMain.handle('get-category-config', () => {
@@ -3857,6 +4212,7 @@ electron_1.ipcMain.handle('get-dashboard-data', async (_, { period, dateOffset =
     if (useJson) {
         return { success: false, error: 'Not available in JSON mode' };
     }
+    ensureDb();
     try {
         const { startDate, endDate } = computeDateRange(period, dateOffset);
 
@@ -4241,6 +4597,7 @@ function buildHourlyHeatmap(logs: any[], tierMap: Map<string, string>, weekRange
 
 // ── IPC: get-dashboard-aggregates ───────────────────────────────────
 electron_1.ipcMain.handle('get-dashboard-aggregates', async (_, request: { period: string; dateOffset?: number; weekOffset?: number }) => {
+    ensureDb();
     try {
         const { period, dateOffset = 0, weekOffset = 0 } = request;
         const periodRange = computePeriodRange(period, dateOffset);
@@ -4398,6 +4755,7 @@ electron_1.ipcMain.handle('get-dashboard-aggregates', async (_, request: { perio
 
 // ── IPC: get-app-stats ──────────────────────────────────────────────
 electron_1.ipcMain.handle('get-app-stats', async (_, request: { period: string; dateOffset?: number }) => {
+    ensureDb();
     try {
         const { period, dateOffset = 0 } = request;
         const range = computePeriodRange(period, dateOffset);
@@ -4606,6 +4964,7 @@ electron_1.ipcMain.handle('get-tier-assignments', () => {
 });
 // Get logs filtered by period
 electron_1.ipcMain.handle('get-logs-by-period', (event, params) => {
+    ensureDb();
     try {
         const period = typeof params === 'string' ? params : params.period;
         const dateOffset = typeof params === 'string' ? 0 : (params.dateOffset || 0);
@@ -5079,15 +5438,16 @@ function execAsync(cmd: string, timeout = 5000): Promise<{ stdout: string; stder
     });
 }
 
-// Expand environment variables in path
+// Expand environment variables in path (safe, no shell exec)
 function expandPath(p: string): string {
     if (process.platform !== 'win32') return p;
-    const { execSync } = require('child_process');
-    try {
-        return execSync(`echo ${p}`, { encoding: 'utf8' }).trim();
-    } catch {
-        return p;
-    }
+    return p.replace(/%([^%]+)%/g, (_, key: string) => process.env[key] || '');
+}
+// Prevent path traversal — ensure resolved path stays within base
+function isPathWithin(base: string, target: string): boolean {
+    const resolved = path_1.default.resolve(base, target);
+    const baseResolved = path_1.default.resolve(base);
+    return resolved === baseResolved || resolved.startsWith(baseResolved + path_1.default.sep);
 }
 
 // Check if path exists (handles expanded env vars)
@@ -5576,6 +5936,85 @@ electron_1.ipcMain.handle('scan-tools', async () => {
         tools,
         message: `Found ${tools.length} tools`
     };
+});
+
+// Reset all tools (clear DB + re-scan)
+electron_1.ipcMain.handle('reset-tools', async () => {
+    try {
+        if (!useJson && db) {
+            db.prepare('DELETE FROM project_tools').run();
+            db.prepare('DELETE FROM tools').run();
+        }
+        console.log('[DeskFlow] Tools cleared, re-scanning...');
+        const { exec } = require('child_process');
+        const tools: any[] = [];
+
+        const execPromise = (cmd: string, timeout = 3000): Promise<{ stdout: string } | null> => {
+            return new Promise((resolve) => {
+                const child = exec(cmd, { timeout }, (err: any, stdout: string) => {
+                    resolve(err ? null : { stdout: stdout.trim() });
+                });
+                setTimeout(() => { child.kill(); resolve(null); }, timeout);
+            });
+        };
+
+        const execSyncSafe = (cmd: string, fallback = ''): string => {
+            try {
+                const { execSync } = require('child_process');
+                return execSync(cmd, { encoding: 'utf8', timeout: 3000 }).trim();
+            } catch { return fallback; }
+        };
+
+        const TOOL_CATEGORIES: Record<string, string[]> = {
+            versionControl: ['git', 'hg', 'svn'],
+            runtimes: ['node', 'python', 'python3', 'ruby', 'go', 'java', 'rustc'],
+            packageManagers: ['npm', 'yarn', 'pnpm', 'pip', 'pip3', 'cargo', 'brew', 'bundle'],
+            containers: ['docker', 'podman', 'kubectl', 'helm'],
+            buildTools: ['make', 'cmake', 'maven', 'gradle', 'webpack', 'vite'],
+            databases: ['psql', 'mysql', 'mongosh', 'redis-cli'],
+            cloud: ['aws', 'gcloud', 'az', 'terraform', 'ansible']
+        };
+
+        const detectCommand = process.platform === 'win32' ? 'where' : 'which';
+        const allCmds = Object.entries(TOOL_CATEGORIES).flatMap(([cat, cmds]) => cmds.map(cmd => ({ cmd, category: cat })));
+
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < allCmds.length; i += BATCH_SIZE) {
+            const batch = allCmds.slice(i, i + BATCH_SIZE);
+            const results = await Promise.all(
+                batch.map(({ cmd, category }) => execPromise(`${detectCommand} ${cmd} 2>nul`))
+            );
+            for (let j = 0; j < batch.length; j++) {
+                const { cmd, category } = batch[j];
+                const result = results[j];
+                if (result && result.stdout) {
+                    const version = execSyncSafe(`${cmd} --version 2>nul`).split('\n')[0] || '';
+                    tools.push({
+                        id: `${cmd}-${Date.now()}`,
+                        name: cmd, category, version,
+                        installPath: result.stdout.split('\n')[0],
+                        detectedAt: new Date().toISOString(),
+                        detectionMethod: 'path'
+                    });
+                }
+            }
+        }
+
+        if (!useJson && db) {
+            for (const tool of tools) {
+                try {
+                    db.prepare(`INSERT OR REPLACE INTO tools (id, name, category, version, install_path, detected_at, detection_method) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+                        .run(tool.id, tool.name, tool.category, tool.version, tool.installPath, tool.detectedAt, tool.detectionMethod);
+                } catch {}
+            }
+        }
+
+        console.log('[DeskFlow] Tools reset complete:', tools.length, 'detected');
+        return { success: true, message: `Tools reset and rescanned: ${tools.length} found` };
+    } catch (err) {
+        console.error('[DeskFlow] Failed to reset tools:', err);
+        return { success: false, message: `Failed to reset tools: ${err}` };
+    }
 });
 
 // Get stored tools
@@ -6715,8 +7154,7 @@ electron_1.ipcMain.handle('get-project-details', (event, projectId) => {
             SELECT COUNT(*) as count FROM terminal_sessions 
             WHERE project_id = ? AND created_at >= datetime('now', '-7 days')
         `).get(projectId);
-        const allSessionsForProject = db.prepare('SELECT id, project_id, created_at FROM terminal_sessions WHERE project_id = ? ORDER BY created_at DESC').all(projectId);
-        console.log('[HealthDebug] get-project-details for projectId:', projectId, 'recentSessions count:', (recentSessions as any)?.count, 'all sessions:', allSessionsForProject);
+        console.log('[HealthDebug] get-project-details for projectId:', projectId, 'recentSessions count:', (recentSessions as any)?.count);
 
         const recentCommits = db.prepare(`
             SELECT COUNT(*) as count FROM commits 
@@ -6825,19 +7263,25 @@ electron_1.ipcMain.handle('remove-project', (event, projectId) => {
 });
 
 // Get AI usage summary
-electron_1.ipcMain.handle('get-ai-usage-summary', (event, period = 'week') => {
+electron_1.ipcMain.handle('get-ai-usage-summary', (event, period = 'week', dateOffset = 0) => {
     if (useJson) return { totalTokens: 0, totalCost: 0, byTool: {} };
 
     try {
         const now = new Date();
-        let sinceDate: Date | null = null;
+        let sinceDateStr: string | null = null;
 
-        if (period === 'day') {
-            sinceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (period === 'today') {
+            const d = new Date(now);
+            d.setDate(d.getDate() - dateOffset);
+            sinceDateStr = d.toISOString().split('T')[0];
         } else if (period === 'week') {
-            sinceDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        } else if (period === '7day') {
+            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         } else if (period === 'month') {
-            sinceDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        } else if (period === '30day') {
+            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         }
 
         let query = `
@@ -6845,14 +7289,17 @@ electron_1.ipcMain.handle('get-ai-usage-summary', (event, period = 'week') => {
                 tool,
                 SUM(input_tokens + output_tokens) as total_tokens,
                 SUM(cost_usd) as total_cost,
-                COUNT(*) as session_count
+                COUNT(*) as session_count,
+                SUM(message_count) as total_messages,
+                MAX(date) as last_used,
+                GROUP_CONCAT(DISTINCT model) as models
             FROM ai_usage
         `;
         const params: any[] = [];
 
-        if (sinceDate) {
+        if (sinceDateStr) {
             query += `WHERE date >= ? GROUP BY tool`;
-            params.push(sinceDate.toISOString().split('T')[0]);
+            params.push(sinceDateStr);
         } else {
             query += `GROUP BY tool`;
         }
@@ -6864,10 +7311,14 @@ electron_1.ipcMain.handle('get-ai-usage-summary', (event, period = 'week') => {
         let totalCost = 0;
 
         for (const row of summary) {
+            const models = row.models ? row.models.split(',').filter((m: string) => m) : [];
             byTool[row.tool] = {
                 tokens: row.total_tokens,
                 cost: row.total_cost,
-                sessions: row.session_count
+                sessions: row.session_count,
+                messageCount: row.total_messages || 0,
+                lastUsed: row.last_used || null,
+                models,
             };
             totalTokens += row.total_tokens;
             totalCost += row.total_cost;
@@ -6949,7 +7400,7 @@ electron_1.ipcMain.handle('show-open-dialog', async (_event, options: any) => {
 });
 
 // Get IDE Projects overview for dashboard
-electron_1.ipcMain.handle('get-ide-projects-overview', () => {
+electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, dateOffset = 0) => {
     if (useJson) {
         return {
             ides: [],
@@ -6964,6 +7415,28 @@ electron_1.ipcMain.handle('get-ide-projects-overview', () => {
         const ides = db.prepare('SELECT * FROM ides ORDER BY name').all();
         const tools = db.prepare('SELECT * FROM tools ORDER BY category, name').all();
         const projects = db.prepare('SELECT * FROM projects ORDER BY last_activity_at DESC LIMIT 10').all();
+
+        // Compute date filter for AI usage queries
+        let dateFilterSQL = '';
+        let dateFilterParam: string | null = null;
+        if (period && period !== 'all') {
+            const now = new Date();
+            let sinceDate: Date | null = null;
+        if (period === 'today' || period === 'day') {
+                const d = new Date(now);
+                d.setDate(d.getDate() - dateOffset);
+                sinceDate = d;
+            } else if (period === 'week' || period === '7day') {
+                sinceDate = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000);
+            } else if (period === 'month' || period === '30day') {
+                sinceDate = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000);
+            }
+            if (sinceDate) {
+                dateFilterSQL = 'WHERE date >= ?';
+                dateFilterParam = sinceDate.toISOString().split('T')[0];
+            }
+        }
+
         const aiUsage = db.prepare(`
             SELECT tool,
                    SUM(input_tokens + output_tokens) as tokens,
@@ -6973,8 +7446,9 @@ electron_1.ipcMain.handle('get-ide-projects-overview', () => {
                    MAX(date) as lastUsed,
                    GROUP_CONCAT(DISTINCT model) as models
             FROM ai_usage
+            ${dateFilterSQL}
             GROUP BY tool
-        `).all();
+        `).all(...(dateFilterParam ? [dateFilterParam] : []));
         const commits = db.prepare(`
             SELECT COUNT(*) as count, SUM(additions) as additions, SUM(deletions) as deletions
             FROM commits
@@ -6989,9 +7463,10 @@ electron_1.ipcMain.handle('get-ide-projects-overview', () => {
                    COUNT(*) as session_count,
                    SUM(message_count) as messageCount
             FROM ai_usage
+            ${dateFilterSQL}
             GROUP BY tool, date
             ORDER BY date DESC
-        `).all();
+        `).all(...(dateFilterParam ? [dateFilterParam] : []));
 
         // Project breakdown per tool
         const aiUsageProjects = db.prepare(`
@@ -7001,9 +7476,10 @@ electron_1.ipcMain.handle('get-ide-projects-overview', () => {
                    COUNT(*) as session_count
             FROM ai_usage
             WHERE project_path IS NOT NULL AND project_path != ''
+            ${dateFilterSQL ? 'AND date >= ?' : ''}
             GROUP BY tool, project_path
             ORDER BY tokens DESC
-        `).all();
+        `).all(...(dateFilterParam ? [dateFilterParam] : []));
 
         // Model breakdown per tool
         const aiUsageModels = db.prepare(`
@@ -7013,9 +7489,10 @@ electron_1.ipcMain.handle('get-ide-projects-overview', () => {
                    COUNT(*) as session_count
             FROM ai_usage
             WHERE model IS NOT NULL AND model != ''
+            ${dateFilterSQL ? 'AND date >= ?' : ''}
             GROUP BY tool, model
             ORDER BY tokens DESC
-        `).all();
+        `).all(...(dateFilterParam ? [dateFilterParam] : []));
 
         const byTool: Record<string, any> = {};
         let totalTokens = 0;
@@ -7330,7 +7807,7 @@ async function verifyAgent(agentType: string): Promise<AgentVerifyResult> {
 }
 
 // Per-terminal agent state machine
-type AgentPhase = 'launching' | 'ready' | 'busy';
+type AgentPhase = 'launching' | 'ready' | 'busy' | 'attention';
 interface AgentState {
   agentType: string;
   phase: AgentPhase;
@@ -7341,6 +7818,50 @@ interface AgentState {
   pendingWrites?: string[];
 }
 const agentStates = new Map<string, AgentState>();
+
+// Patterns that indicate the agent is waiting for user confirmation or input
+const ACTION_REQUIRED_PATTERNS = [
+  /\?\s*\[y\/n\]/i,
+  /\?\s*\(yes\/no\)/i,
+  /\[y\/n\]\s*\?/i,
+  /confirm/i,
+  /proceed/i,
+  /password/i,
+  /passphrase/i,
+  /enter\s+your\s+name/i,
+  /select\s+an\s+option/i,
+];
+
+function detectActionRequired(buffer: string): boolean {
+  const clean = stripAnsi(buffer);
+  const lines = clean.split(/\r?\n/);
+  const lastLine = lines[lines.length - 1]?.trim() || '';
+  if (!lastLine) return false;
+  return ACTION_REQUIRED_PATTERNS.some(re => re.test(lastLine));
+}
+
+// Track which terminals have broadcast terminal:ready (first data chunk)
+const terminalReadySent = new Set<string>();
+const readyTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+
+function armTerminalReadyFallback(id: string) {
+  const timer = setTimeout(() => {
+    if (!terminalReadySent.has(id)) {
+      terminalReadySent.add(id);
+      broadcast('terminal:ready', id);
+    }
+    readyTimeouts.delete(id);
+  }, 3000);
+  readyTimeouts.set(id, timer);
+}
+
+function clearTerminalReadyFallback(id: string) {
+  const timer = readyTimeouts.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    readyTimeouts.delete(id);
+  }
+}
 
 function clearAgentTimeout(terminalId: string) {
   const st = agentStates.get(terminalId);
@@ -7384,6 +7905,7 @@ function startAgentTimeout(id: string, agentType: string) {
         try { win.webContents.send('agent:init-error', { terminalId: id, agentType, ...diag }); } catch {}
       }
     }
+    failPendingWrites(id);
   }, 30000);
   st.timeoutHandle = timer;
 }
@@ -7480,11 +8002,16 @@ function markTaskCompleted(terminalId: string) {
     if (!db) return;
     try {
         const { BrowserWindow } = require('electron');
-        db.prepare(`UPDATE terminal_messages SET status = 'completed' WHERE session_id = ? AND status = 'in_progress'`).run(terminalId);
-        const windows = BrowserWindow.getAllWindows();
-        for (const win of windows) {
-            if (!win.isDestroyed()) {
-                win.webContents.send('ai-task:updated', { terminalId, status: 'completed' });
+        const sid = getSessionIdForTerminal(terminalId);
+        if (!sid) return;
+        const row = db.prepare('SELECT id FROM terminal_messages WHERE session_id = ? AND status = ? ORDER BY created_at ASC LIMIT 1').get(sid, 'in_progress') as any;
+        if (row) {
+            db.prepare(`UPDATE terminal_messages SET status = 'completed' WHERE id = ?`).run(row.id);
+            const windows = BrowserWindow.getAllWindows();
+            for (const win of windows) {
+                if (!win.isDestroyed()) {
+                    win.webContents.send('ai-task:updated', { terminalId, messageId: row.id, status: 'completed' });
+                }
             }
         }
     } catch (_e) { /* silent */ }
@@ -7533,7 +8060,7 @@ const terminalManager = {
   },
   kill(id: string) {
     const t = this.terminals.get(id);
-    if (t) { try { t.pty.kill(); } catch {} this.terminals.delete(id); terminalMessageCounts.delete(id); releaseAllLocksForTerminal(id); return true; }
+    if (t) { try { t.pty.kill(); } catch {} this.terminals.delete(id); terminalMessageCounts.delete(id); releaseAllLocksForTerminal(id); clearTerminalReadyFallback(id); terminalReadySent.delete(id); return true; }
     return false;
   },
   getDataHandler(id: string, cb: (d: string) => void) {
@@ -7656,14 +8183,24 @@ electron_1.ipcMain.handle('terminal:create', async (_event, id: string, cwd: str
         const result = terminalManager.spawn(id, cwd, cols, rows);
         if (result.success) {
             const type = agentType || DEFAULT_AGENT;
+            clearAgentTimeout(id);
             agentStates.set(id, { agentType: type, phase: 'launching', dataBuffer: '', idleSeq: 0 });
+            startAgentTimeout(id, type);
+            armTerminalReadyFallback(id);
 
             terminalManager.getDataHandler(id, function (data) {
+                if (!terminalReadySent.has(id)) {
+                    terminalReadySent.add(id);
+                    clearTerminalReadyFallback(id);
+                    broadcast('terminal:ready', id);
+                }
                 broadcast('terminal:data', id, data);
                 try {
                     if (db) {
-                        const sid = (db.prepare('SELECT id FROM terminal_sessions WHERE terminal_id = ? ORDER BY created_at DESC LIMIT 1').get(id) as any)?.id || id;
-                        db.prepare('INSERT INTO terminal_messages (session_id, role, content) VALUES (?, ?, ?)').run(sid, 'assistant', data);
+                        const sid = (db.prepare('SELECT id FROM terminal_sessions WHERE terminal_id = ? ORDER BY created_at DESC LIMIT 1').get(id) as any)?.id;
+                        if (sid) {
+                            db.prepare('INSERT INTO terminal_messages (session_id, role, content) VALUES (?, ?, ?)').run(sid, 'assistant', data);
+                        }
                     }
                 } catch (_e) { }
 
@@ -7680,21 +8217,40 @@ electron_1.ipcMain.handle('terminal:create', async (_event, id: string, cwd: str
 
                 const handshakeSeen = st.handshakeToken ? stripAnsi(st.dataBuffer).includes(st.handshakeToken) : false;
                 const promptSeen = detectAgentPrompt(st.dataBuffer, st.agentType);
+                const actionRequired = detectActionRequired(st.dataBuffer);
 
-                if (st.phase === 'launching' && (promptSeen || handshakeSeen)) {
+                function isAgentReady(): boolean {
+                    const cfg = getAgentConfig(st.agentType);
+                    if (cfg.bracketedPaste) return promptSeen || handshakeSeen;
+                    return promptSeen && handshakeSeen;
+                }
+                if (st.phase === 'launching' && isAgentReady()) {
                     st.phase = 'ready';
                     clearAgentTimeout(id);
                     if (st.pendingWrites && st.pendingWrites.length > 0) {
                         for (const w of st.pendingWrites) {
-                            terminalManager.write(id, w + '\r\n');
+                            terminalManager.write(id, w);
                         }
                         st.pendingWrites = [];
                     }
                     broadcast('agent:ready', { terminalId: id });
-                } else if (st.phase === 'busy' && promptSeen) {
+                } else if ((st.phase === 'busy' || st.phase === 'attention') && promptSeen) {
                     st.phase = 'ready';
                     st.idleSeq += 1;
+                    if (st.pendingWrites && st.pendingWrites.length > 0) {
+                        for (const w of st.pendingWrites) {
+                            terminalManager.write(id, w);
+                        }
+                        st.pendingWrites = [];
+                    }
                     broadcast('agent:idle', { terminalId: id, seq: st.idleSeq });
+                    broadcast('ai-task:updated', { terminalId: id, status: 'completed' });
+                } else if (st.phase === 'busy' && actionRequired) {
+                    st.phase = 'attention';
+                    broadcast('ai-task:updated', { terminalId: id, status: 'action_required' });
+                } else if (st.phase === 'attention' && !actionRequired && data.length > 0) {
+                    st.phase = 'busy';
+                    broadcast('ai-task:updated', { terminalId: id, status: 'in_progress' });
                 }
 
                 if ((st.phase === 'ready' || st.phase === 'busy') && promptSeen) {
@@ -7714,6 +8270,7 @@ electron_1.ipcMain.handle('terminal:create', async (_event, id: string, cwd: str
 
             terminalManager.getExitHandler(id, (exitCode: number, signal: string) => {
                 clearAgentTimeout(id);
+                failPendingWrites(id);
                 broadcast('terminal:exit', id, exitCode, signal);
             });
         }
@@ -7729,14 +8286,24 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
         const result = terminalManager.spawn(id, cwd || '', 80, 24);
         if (result.success) {
             const type = agentType || DEFAULT_AGENT;
+            clearAgentTimeout(id);
             agentStates.set(id, { agentType: type, phase: 'launching', dataBuffer: '', idleSeq: 0 });
+            startAgentTimeout(id, type);
+            armTerminalReadyFallback(id);
 
             terminalManager.getDataHandler(id, function (data) {
+                if (!terminalReadySent.has(id)) {
+                    terminalReadySent.add(id);
+                    clearTerminalReadyFallback(id);
+                    broadcast('terminal:ready', id);
+                }
                 broadcast('terminal:data', id, data);
                 try {
                     if (db) {
-                        const sid = (db.prepare('SELECT id FROM terminal_sessions WHERE terminal_id = ? ORDER BY created_at DESC LIMIT 1').get(id) as any)?.id || id;
-                        db.prepare('INSERT INTO terminal_messages (session_id, role, content) VALUES (?, ?, ?)').run(sid, 'assistant', data);
+                        const sid = (db.prepare('SELECT id FROM terminal_sessions WHERE terminal_id = ? ORDER BY created_at DESC LIMIT 1').get(id) as any)?.id;
+                        if (sid) {
+                            db.prepare('INSERT INTO terminal_messages (session_id, role, content) VALUES (?, ?, ?)').run(sid, 'assistant', data);
+                        }
                     }
                 } catch (_e) { }
 
@@ -7752,21 +8319,40 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
 
                 const handshakeSeen = st.handshakeToken ? stripAnsi(st.dataBuffer).includes(st.handshakeToken) : false;
                 const promptSeen = detectAgentPrompt(st.dataBuffer, st.agentType);
+                const actionRequired = detectActionRequired(st.dataBuffer);
 
-                if (st.phase === 'launching' && (promptSeen || handshakeSeen)) {
+                function isAgentReady(): boolean {
+                    const cfg = getAgentConfig(st.agentType);
+                    if (cfg.bracketedPaste) return promptSeen || handshakeSeen;
+                    return promptSeen && handshakeSeen;
+                }
+                if (st.phase === 'launching' && isAgentReady()) {
                     st.phase = 'ready';
                     clearAgentTimeout(id);
                     if (st.pendingWrites && st.pendingWrites.length > 0) {
                         for (const w of st.pendingWrites) {
-                            terminalManager.write(id, w + '\r\n');
+                            terminalManager.write(id, w);
                         }
                         st.pendingWrites = [];
                     }
                     broadcast('agent:ready', { terminalId: id });
-                } else if (st.phase === 'busy' && promptSeen) {
+                } else if ((st.phase === 'busy' || st.phase === 'attention') && promptSeen) {
                     st.phase = 'ready';
                     st.idleSeq += 1;
+                    if (st.pendingWrites && st.pendingWrites.length > 0) {
+                        for (const w of st.pendingWrites) {
+                            terminalManager.write(id, w);
+                        }
+                        st.pendingWrites = [];
+                    }
                     broadcast('agent:idle', { terminalId: id, seq: st.idleSeq });
+                    broadcast('ai-task:updated', { terminalId: id, status: 'completed' });
+                } else if (st.phase === 'busy' && actionRequired) {
+                    st.phase = 'attention';
+                    broadcast('ai-task:updated', { terminalId: id, status: 'action_required' });
+                } else if (st.phase === 'attention' && !actionRequired && data.length > 0) {
+                    st.phase = 'busy';
+                    broadcast('ai-task:updated', { terminalId: id, status: 'in_progress' });
                 }
 
                 if ((st.phase === 'ready' || st.phase === 'busy') && promptSeen) {
@@ -7786,6 +8372,7 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
 
             terminalManager.getExitHandler(id, (exitCode: number, signal: string) => {
                 clearAgentTimeout(id);
+                failPendingWrites(id);
                 broadcast('terminal:exit', id, exitCode, signal);
             });
         }
@@ -7806,7 +8393,8 @@ electron_1.ipcMain.handle('agent:arm-handshake', async (_event, terminalId: stri
     if (!st) return { success: false, error: 'Agent session not found' };
     const token = `__HANDSHAKE_${Date.now()}_${Math.random().toString(36).slice(2, 8)}__`;
     st.handshakeToken = token;
-    return { success: true, token };
+    const bp = getAgentConfig(st.agentType).bracketedPaste;
+    return { success: true, token, bracketedPaste: bp };
 });
 
 electron_1.ipcMain.handle('agent:send', async (_event, terminalId: string, data: string, agentType?: string) => {
@@ -7815,46 +8403,41 @@ electron_1.ipcMain.handle('agent:send', async (_event, terminalId: string, data:
         return { success: false, error: 'Agent session not found' };
     }
     const type = agentType || DEFAULT_AGENT;
-    if (st.phase === 'launching') {
+    const recordPrompt = () => {
+        if (!db || !data || data.trim().length < 1) return undefined;
+        try {
+            const sid = getSessionIdForTerminal(terminalId);
+            if (!sid) return undefined;
+            pendingCompletions.add(terminalId);
+            return db.prepare('INSERT INTO terminal_messages (session_id, role, content, status) VALUES (?, ?, ?, ?)').run(sid, 'user', data, 'in_progress');
+        } catch (_e) { return undefined; }
+    };
+    const notifyTask = (messageId: number | bigint | undefined) => {
+        try {
+            const { BrowserWindow } = require('electron');
+            const windows = BrowserWindow.getAllWindows();
+            for (const win of windows) {
+                if (!win.isDestroyed()) {
+                    try {
+                        win.webContents.send('ai-task:updated', { terminalId, status: 'in_progress', messageId });
+                    } catch (e) { /* silent */ }
+                }
+            }
+        } catch (_e) { /* silent */ }
+    };
+
+    if (st.phase === 'launching' || st.phase === 'busy') {
         st.pendingWrites = st.pendingWrites || [];
         st.pendingWrites.push(data);
-        // Record queued prompts to DB
-        if (db && data && data.trim().length >= 20) {
-            try {
-                pendingCompletions.add(terminalId);
-                const result = db.prepare('INSERT INTO terminal_messages (session_id, role, content, status) VALUES (?, ?, ?, ?)').run(terminalId, 'user', data, 'in_progress');
-                const { BrowserWindow } = require('electron');
-                const windows = BrowserWindow.getAllWindows();
-                for (const win of windows) {
-                    if (!win.isDestroyed()) {
-                        try {
-                            win.webContents.send('ai-task:updated', { terminalId, status: 'in_progress', messageId: result.lastInsertRowid });
-                        } catch (e) { /* silent */ }
-                    }
-                }
-            } catch (_e) { /* silent */ }
-        }
+        const result = recordPrompt();
+        if (result) notifyTask(result.lastInsertRowid);
         return { success: true, queued: true };
     }
     const success = terminalManager.write(terminalId, data + '\r\n');
     if (success) {
         st.phase = 'busy';
-        // Record sent prompts to DB
-        if (db && data && data.trim().length >= 20) {
-            try {
-                pendingCompletions.add(terminalId);
-                const result = db.prepare('INSERT INTO terminal_messages (session_id, role, content, status) VALUES (?, ?, ?, ?)').run(terminalId, 'user', data, 'in_progress');
-                const { BrowserWindow } = require('electron');
-                const windows = BrowserWindow.getAllWindows();
-                for (const win of windows) {
-                    if (!win.isDestroyed()) {
-                        try {
-                            win.webContents.send('ai-task:updated', { terminalId, status: 'in_progress', messageId: result.lastInsertRowid });
-                        } catch (e) { /* silent */ }
-                    }
-                }
-            } catch (_e) { /* silent */ }
-        }
+        const result = recordPrompt();
+        if (result) notifyTask(result.lastInsertRowid);
     }
     return { success, queued: false };
 });
@@ -7899,20 +8482,19 @@ electron_1.ipcMain.handle('write-terminal', async (_event, terminalId: string, d
       }
     }
     const success = terminalManager.write(terminalId, data);
-    // Persist user input to terminal_messages with in_progress status
     if (success && db && data && data.trim()) {
         try {
-            pendingCompletions.add(terminalId);
-            const result = db.prepare('INSERT INTO terminal_messages (session_id, role, content, status) VALUES (?, ?, ?, ?)').run(terminalId, 'user', data, 'in_progress');
-            // Notify renderer of new prompt status
-            const { BrowserWindow } = require('electron');
-            const windows = BrowserWindow.getAllWindows();
-            for (const win of windows) {
-                if (!win.isDestroyed()) {
-                    try {
-                        win.webContents.send('ai-task:updated', { terminalId, status: 'in_progress', messageId: result.lastInsertRowid });
-                    } catch (e) {
-                        // Silently ignore frame disposal errors
+            const sid = getSessionIdForTerminal(terminalId);
+            if (sid) {
+                pendingCompletions.add(terminalId);
+                const result = db.prepare('INSERT INTO terminal_messages (session_id, role, content, status) VALUES (?, ?, ?, ?)').run(sid, 'user', data, 'in_progress');
+                const { BrowserWindow } = require('electron');
+                const windows = BrowserWindow.getAllWindows();
+                for (const win of windows) {
+                    if (!win.isDestroyed()) {
+                        try {
+                            win.webContents.send('ai-task:updated', { terminalId, status: 'in_progress', messageId: result.lastInsertRowid });
+                        } catch (e) { /* silent */ }
                     }
                 }
             }
@@ -7929,7 +8511,39 @@ electron_1.ipcMain.handle('resize-terminal', async (_event, terminalId: string, 
     return { success };
 });
 
+function getSessionIdForTerminal(terminalId: string): string | null {
+    if (!db) return null;
+    try {
+        const binding = db.prepare('SELECT session_id FROM terminal_bindings WHERE terminal_id = ?').get(terminalId) as any;
+        if (binding?.session_id) return binding.session_id;
+        const session = db.prepare('SELECT id FROM terminal_sessions WHERE terminal_id = ? ORDER BY created_at DESC LIMIT 1').get(terminalId) as any;
+        return session?.id || null;
+    } catch (_e) {
+        return null;
+    }
+}
+
+function failPendingWrites(terminalId: string) {
+    const st = agentStates.get(terminalId);
+    if (db) {
+        try {
+            const sid = getSessionIdForTerminal(terminalId);
+            if (sid) {
+                const result = db.prepare('UPDATE terminal_messages SET status = ? WHERE session_id = ? AND status = ?')
+                    .run('failed', sid, 'in_progress');
+                if (result.changes > 0) {
+                    broadcast('terminal:pending-failed', { terminalId, count: result.changes });
+                }
+            }
+        } catch (_e) { /* silent */ }
+    }
+    if (st) {
+        st.pendingWrites = [];
+    }
+}
+
 electron_1.ipcMain.handle('kill-terminal', async (_event, terminalId: string) => {
+    failPendingWrites(terminalId);
     const success = terminalManager.kill(terminalId);
     releaseAllLocksForTerminal(terminalId);
     return { success };
@@ -7937,25 +8551,44 @@ electron_1.ipcMain.handle('kill-terminal', async (_event, terminalId: string) =>
 
 // Consolidated terminal API (wraps existing handler with single-arg objects)
 electron_1.ipcMain.handle('terminal:write-old-format', async (_event, terminalId: string, data: string) => {
-    const success = terminalManager.write(terminalId, data);
-    // Only record content that looks like a real prompt (not keystrokes)
-    // Keystrokes are 1-5 chars. Real prompts are 20+ chars.
-    if (success && db && data && data.trim().length >= 20) {
+    const recordPrompt = () => {
+        if (!db || !data || data.trim().length < 1) return undefined;
         try {
+            const sid = getSessionIdForTerminal(terminalId);
+            if (!sid) return undefined;
             pendingCompletions.add(terminalId);
-            const result = db.prepare('INSERT INTO terminal_messages (session_id, role, content, status) VALUES (?, ?, ?, ?)').run(terminalId, 'user', data, 'in_progress');
+            return db.prepare('INSERT INTO terminal_messages (session_id, role, content, status) VALUES (?, ?, ?, ?)').run(sid, 'user', data, 'in_progress');
+        } catch (_e) { return undefined; }
+    };
+    const notifyTask = (messageId: number | bigint | undefined) => {
+        try {
             const { BrowserWindow } = require('electron');
             const windows = BrowserWindow.getAllWindows();
             for (const win of windows) {
                 if (!win.isDestroyed()) {
                     try {
-                        win.webContents.send('ai-task:updated', { terminalId, status: 'in_progress', messageId: result.lastInsertRowid });
-                    } catch (e) {
-                        // Silently ignore frame disposal errors
-                    }
+                        win.webContents.send('ai-task:updated', { terminalId, status: 'in_progress', messageId });
+                    } catch (e) { /* silent */ }
                 }
             }
         } catch (_e) { /* silent */ }
+    };
+
+    const ast = agentStates.get(terminalId);
+    if (ast && (ast.phase === 'launching' || ast.phase === 'busy')) {
+        ast.pendingWrites = ast.pendingWrites || [];
+        ast.pendingWrites.push(data);
+        const result = recordPrompt();
+        if (result) notifyTask(result.lastInsertRowid);
+        return { success: true, queued: true };
+    }
+    const success = terminalManager.write(terminalId, data);
+    if (success && data && data.trim().length >= 1) {
+        const result = recordPrompt();
+        if (result) notifyTask(result.lastInsertRowid);
+    }
+    if (!success) {
+        return { success: false, error: `Terminal "${terminalId}" not found or not spawned. Total terminals: ${terminalManager.terminals.size}` };
     }
     return { success };
 });
@@ -7966,10 +8599,11 @@ electron_1.ipcMain.handle('terminal:write', async (_event, terminalId: string, d
     return { success };
 });
 
+// Handler for preload's executeCommand bridge (used by ImportSessionsDialog and TerminalPage)
 electron_1.ipcMain.handle('electron:execute-command', async (_event, command: string, cwd?: string) => {
     const { exec } = require('child_process');
     return new Promise((resolve) => {
-        exec(command, { cwd: cwd || undefined, maxBuffer: 1024 * 1024 }, (error: any, stdout: string, stderr: string) => {
+        exec(command, { cwd: cwd || undefined, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
             resolve({ stdout, stderr, error: error ? error.message : null, code: error?.code || 0 });
         });
     });
@@ -7981,12 +8615,14 @@ electron_1.ipcMain.handle('terminal:resize-old-format', async (_event, terminalI
 });
 
 electron_1.ipcMain.handle('terminal:destroy-old-format', async (_event, terminalId: string) => {
+    failPendingWrites(terminalId);
     const success = terminalManager.kill(terminalId);
     return { success };
 });
 
 // New-format terminal:destroy handler (used by terminalAPI.destroy in preload)
 electron_1.ipcMain.handle('terminal:destroy', async (_event, terminalId: string) => {
+    failPendingWrites(terminalId);
     const success = terminalManager.kill(terminalId);
     return { success };
 });
@@ -8178,8 +8814,11 @@ electron_1.ipcMain.handle('check-session-exists', async (_event, sessionId: stri
 electron_1.ipcMain.handle('delete-terminal-session', async (_event, sessionId: string) => {
     if (!db) return { success: false };
     try {
+        db.prepare('DELETE FROM terminal_messages WHERE session_id = ?').run(sessionId);
+        db.prepare('DELETE FROM session_parsed_items WHERE session_id = ?').run(sessionId);
+        db.prepare('DELETE FROM terminal_bindings WHERE session_id = ?').run(sessionId);
         db.prepare('DELETE FROM terminal_sessions WHERE id = ?').run(sessionId);
-        console.log('[DeskFlow] delete-terminal-session: deleted session', sessionId);
+        console.log('[DeskFlow] delete-terminal-session: deleted session', sessionId, 'with cascaded messages, parsed items, and bindings');
         return { success: true };
     } catch (err: any) {
         console.error('[DeskFlow] delete-terminal-session error:', err.message);
@@ -8350,9 +8989,12 @@ electron_1.ipcMain.handle('list-init-files', async (_, { projectPath }: { projec
 electron_1.ipcMain.handle('read-init-file', async (_, { filename, projectPath }: { filename: string; projectPath?: string }) => {
   try {
     if (!filename) return { success: false, error: 'No filename provided' };
-    // ONLY use projectPath/agent/ — NOT userDataPath
     if (projectPath) {
-      const projectFile = path_1.default.join(projectPath, 'agent', filename);
+      const agentDir = path_1.default.join(projectPath, 'agent');
+      const projectFile = path_1.default.join(agentDir, filename);
+      if (!isPathWithin(agentDir, filename)) {
+        return { success: false, error: 'Path traversal denied' };
+      }
       if (fs_1.default.existsSync(projectFile)) {
         return { success: true, data: fs_1.default.readFileSync(projectFile, 'utf-8') };
       }
@@ -8423,25 +9065,39 @@ electron_1.ipcMain.handle('set-active-terminal-layout', async (_event, layoutId:
 
 electron_1.ipcMain.handle('workspace:save', async (_event, data: {
     projectId: string;
-    scope: string;
+    scope?: string;
     sidebarWidth?: number;
     activeTab?: string;
     terminalTabs?: string[];
+    layout?: any;
+    openFiles?: string[];
+    activeTerminalId?: string | null;
+    todos?: any[];
+    presets?: any[];
+    terminalInfo?: Record<string, { name: string; agent: string; modelTier?: string }>;
 }) => {
     if (!db) return { success: false, error: 'No database' };
     try {
-        const existing = db.prepare('SELECT id FROM workspace_state WHERE project_id = ?').get(data.projectId) as any;
         const tabsJson = JSON.stringify(data.terminalTabs || []);
+        const stateJson = JSON.stringify({
+            layout: data.layout || null,
+            openFiles: data.openFiles || [],
+            activeTerminalId: data.activeTerminalId || null,
+            todos: data.todos || [],
+            presets: data.presets || [],
+            terminalInfo: data.terminalInfo || {},
+        });
+        const existing = db.prepare('SELECT id FROM workspace_state WHERE project_id = ?').get(data.projectId) as any;
         if (existing) {
             db.prepare(`
-                UPDATE workspace_state SET sidebar_width = ?, active_tab = ?, terminal_tabs = ?, updated_at = CURRENT_TIMESTAMP
+                UPDATE workspace_state SET scope = ?, sidebar_width = ?, active_tab = ?, terminal_tabs = ?, state_json = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE project_id = ?
-            `).run(data.sidebarWidth || 400, data.activeTab || 'presets', tabsJson, data.projectId);
+            `).run(data.scope || 'project', data.sidebarWidth || 400, data.activeTab || 'presets', tabsJson, stateJson, data.projectId);
         } else {
             db.prepare(`
-                INSERT INTO workspace_state (project_id, sidebar_width, active_tab, terminal_tabs)
-                VALUES (?, ?, ?, ?)
-            `).run(data.projectId, data.sidebarWidth || 400, data.activeTab || 'presets', tabsJson);
+                INSERT INTO workspace_state (project_id, scope, sidebar_width, active_tab, terminal_tabs, state_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `).run(data.projectId, data.scope || 'project', data.sidebarWidth || 400, data.activeTab || 'presets', tabsJson, stateJson);
         }
         return { success: true };
     } catch (err: any) {
@@ -8455,12 +9111,20 @@ electron_1.ipcMain.handle('workspace:load', async (_event, data: { projectId: st
     try {
         const row = db.prepare('SELECT * FROM workspace_state WHERE project_id = ?').get(data.projectId) as any;
         if (!row) return { success: true, data: null };
+        const parsedState = row.state_json ? JSON.parse(row.state_json) : {};
         return {
             success: true,
             data: {
                 sidebarWidth: row.sidebar_width,
                 activeTab: row.active_tab,
                 terminalTabs: JSON.parse(row.terminal_tabs || '[]'),
+                state_json: row.state_json,
+                layout: parsedState.layout || null,
+                openFiles: parsedState.openFiles || [],
+                activeTerminalId: parsedState.activeTerminalId || null,
+                todos: parsedState.todos || [],
+                presets: parsedState.presets || [],
+                terminalInfo: parsedState.terminalInfo || {},
             }
         };
     } catch (err: any) {
@@ -9342,7 +10006,7 @@ electron_1.ipcMain.handle('create-terminal-window', async (_event, options?: { t
     <div id="output"></div>
     <input id="input" type="text" placeholder="Enter command..." autofocus />
     <script>
-        const { ipcRenderer } = require('electron');
+        const api = window.deskflowAPI;
         const output = document.getElementById('output');
         const input = document.getElementById('input');
         
@@ -9351,13 +10015,13 @@ electron_1.ipcMain.handle('create-terminal-window', async (_event, options?: { t
                 const cmd = input.value;
                 if (cmd) {
                     output.textContent += '> ' + cmd + '\\n';
-                    ipcRenderer.send('terminal-command', cmd);
+                    api.sendTerminalCommand(cmd);
                     input.value = '';
                 }
             }
         });
         
-        ipcRenderer.on('terminal-output', (_event, data) => {
+        api.onTerminalOutput((data) => {
             output.textContent += data + '\\n';
         });
     </script>
@@ -10755,7 +11419,7 @@ electron_1.ipcMain.handle('get-ai-providers', async () => {
         { id: 'custom', templateId: 'custom', label: 'Custom OpenAI-compatible', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 4 },
       ],
       routing: {
-        default: { providerId: 'openrouter', model: 'google/gemini-2.0-flash-001' },
+        default: { providerId: 'auto', model: '' },
         researchDigest: null,
         goalAssistant: null,
       },
@@ -10820,6 +11484,39 @@ electron_1.ipcMain.handle('get-goals', async (_event, date: string) => {
   }
 });
 
+// Batch goals by date range — replaces N+1 sequential get-goals calls
+electron_1.ipcMain.handle('get-goals-batch', async (_event, startDate: string, endDate: string) => {
+  try {
+    const rows = db!.prepare('SELECT * FROM goals WHERE date BETWEEN ? AND ? ORDER BY date ASC, created_at ASC').all(startDate, endDate) as any[];
+    const reviewRows = db!.prepare('SELECT date, review_summary FROM goal_reviews WHERE date BETWEEN ? AND ?').all(startDate, endDate) as any[];
+    const reviewsMap: Record<string, string> = {};
+    for (const r of reviewRows) { reviewsMap[r.date] = r.review_summary; }
+    const days: Record<string, any> = {};
+    for (const r of rows) {
+      if (!days[r.date]) {
+        days[r.date] = { date: r.date, reviewSummary: reviewsMap[r.date] || null, goals: [] };
+      }
+      days[r.date].goals.push({
+        id: r.id, title: r.title, description: r.description,
+        category: r.category, target: { type: r.target_type, targetSeconds: r.target_seconds, matchCategory: r.match_category },
+        period: r.period, status: r.status, date: r.date, source: r.source,
+        links: JSON.parse(r.links || '[]'), progressSeconds: r.progress_seconds,
+        createdAt: r.created_at, completedAt: r.completed_at,
+      });
+    }
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const result: any[] = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().slice(0, 10);
+      result.push(days[dateStr] || { date: dateStr, reviewSummary: reviewsMap[dateStr] || null, goals: [] });
+    }
+    return { success: true, days: result };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
 electron_1.ipcMain.handle('save-goal', async (_event, date: string, goal: any) => {
   try {
     db!.prepare(`
@@ -10831,6 +11528,24 @@ electron_1.ipcMain.handle('save-goal', async (_event, date: string, goal: any) =
       goal.status || 'pending', goal.period || 'daily', goal.source || 'manual',
       JSON.stringify(goal.links || []), goal.progressSeconds || 0, goal.completedAt || null,
     );
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('get-longterm-goals', async () => {
+  try {
+    const rows = db!.prepare('SELECT * FROM goals WHERE period = ? ORDER BY priority ASC, created_at ASC').all('longterm') as any[];
+    return { success: true, goals: rows };
+  } catch (err: any) {
+    return { success: false, error: err.message, goals: [] };
+  }
+});
+
+electron_1.ipcMain.handle('delete-goal', async (_event, goalId: string) => {
+  try {
+    db!.prepare('DELETE FROM goals WHERE id = ?').run(goalId);
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -10853,6 +11568,7 @@ function planningPath() {
 
 interface GoalPromptContext {
   planningContent?: string;
+  longtermGoals?: Array<{ title: string; category: string }>;
   unfinished?: Array<{ title: string; category: string; progress?: number }>;
   recentlyCompleted?: string[];
   stats?: Record<string, any>;
@@ -10871,6 +11587,19 @@ electron_1.ipcMain.handle('read-planning-md', async () => {
 electron_1.ipcMain.handle('write-planning-md', async (_event, content: string) => {
   try {
     const fpath = planningPath();
+    const dir = path_1.default.dirname(fpath);
+    if (!fs_1.default.existsSync(dir)) fs_1.default.mkdirSync(dir, { recursive: true });
+    fs_1.default.writeFileSync(fpath, content, 'utf-8');
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('write-feature-spec-file', async (_event, content: string) => {
+  try {
+    const appRoot = electron_1.app.getAppPath();
+    const fpath = path_1.default.join(appRoot, 'agent', 'FEATURE_SPECS.md');
     const dir = path_1.default.dirname(fpath);
     if (!fs_1.default.existsSync(dir)) fs_1.default.mkdirSync(dir, { recursive: true });
     fs_1.default.writeFileSync(fpath, content, 'utf-8');
@@ -10901,6 +11630,9 @@ electron_1.ipcMain.handle('suggest-goals', async (_event, date: string, ctx?: Go
 
     if (ctx?.planningContent) {
       systemPrompt += `\n\nThe user has the following plan:\n${ctx.planningContent}\n\nPrefer goals that align with their plan.`;
+    }
+    if (ctx?.longtermGoals?.length) {
+      systemPrompt += `\n\nThe user's long-term goals are:\n${ctx.longtermGoals.map((g: any) => `- ${g.title} (${g.category})`).join('\n')}\n\nSuggest daily goals that make progress toward these long-term goals.`;
     }
     if (ctx?.unfinished?.length) {
       userParts.push(`Unfinished from yesterday: ${ctx.unfinished.map(u => u.title).join(', ')}`);
@@ -11355,7 +12087,9 @@ function computeBrowserDateRange(period, dateOffset) {
     }
     if (period === 'week') {
         const weekStart = new Date(now);
-        weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (dateOffset * 7));
+        const day = weekStart.getDay();
+        const diff = day === 0 ? 6 : day - 1;
+        weekStart.setDate(weekStart.getDate() - diff - dateOffset * 7);
         weekStart.setHours(0, 0, 0, 0);
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekEnd.getDate() + 6);
@@ -11512,6 +12246,9 @@ electron_1.app.whenReady().then(() => {
     initializeStorage();
     loadCategoryConfig();
     loadSleepState(); // Load sleep tracking state
+    
+    // Build game detection index from Steam library (once at startup)
+    buildInstalledGameIndex();
     
     // Initialize Tracker Mind problems from markdown
     try {
@@ -12808,12 +13545,21 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
         if (period === 'today') {
             const localRef = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dateOffset);
             const localStart = localRef.toISOString();
-            const localEnd = new Date(localRef.getFullYear(), localRef.getMonth(), localRef.getDate() + 1).toISOString();
+            const localEnd = new Date(localRef.getFullYear(), localRef.getMonth(), localRef.getDate() + 2).toISOString();
             dateFilter = `AND es.started_at >= '${localStart}' AND es.started_at < '${localEnd}'`;
+        } else if (period === 'week') {
+            const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const day = weekStart.getDay();
+            const diff = day === 0 ? 6 : day - 1;
+            weekStart.setDate(weekStart.getDate() - diff - dateOffset * 7);
+            weekStart.setHours(0, 0, 0, 0);
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekEnd.getDate() + 8);
+            dateFilter = `AND es.started_at >= '${weekStart.toISOString()}' AND es.started_at < '${weekEnd.toISOString()}'`;
         } else {
-            const days = period === 'week' || period === '7day' ? 7 : period === 'month' || period === '30day' ? 30 : period === 'all' ? -1 : 7;
+            const days = period === '7day' ? 7 : period === 'month' || period === '30day' ? 30 : period === 'all' ? -1 : 7;
             if (days > 0) {
-                const rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dateOffset * days);
+                const rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dateOffset * days + 1);
                 const rangeStart = new Date(rangeEnd.getTime() - days * 24 * 60 * 60 * 1000);
                 dateFilter = `AND es.started_at >= '${rangeStart.toISOString()}' AND es.started_at < '${rangeEnd.toISOString()}'`;
             }
@@ -13091,6 +13837,28 @@ electron_1.ipcMain.handle('set-tracking-setting', (event, key: string, value: st
     }
 });
 
+// --- Window state IPC ---
+electron_1.ipcMain.handle('get-window-state', () => {
+    return loadWindowState() ?? { width: 1400, height: 900, maximized: false };
+});
+electron_1.ipcMain.handle('reset-window-state', () => {
+    try {
+        if (fs_1.default.existsSync(windowStatePath)) {
+            fs_1.default.unlinkSync(windowStatePath);
+        }
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            const primaryDisplay = electron_1.screen.getPrimaryDisplay();
+            const { x, y, width, height } = primaryDisplay.workArea;
+            mainWindow.setBounds({ x, y, width, height });
+            mainWindow.maximize();
+        }
+        return { success: true };
+    } catch (e) {
+        console.error('[DeskFlow] Failed to reset window state:', e);
+        return { success: false, error: String(e) };
+    }
+});
+
 electron_1.app.on('window-all-closed', () => {
     // Keep app running in background (tray mode)
 });
@@ -13161,6 +13929,60 @@ electron_1.app.on('before-quit', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// DB Health & Reconnection
+// ═══════════════════════════════════════════════════════════════
+
+const DB_RECONNECT_INTERVAL = 30000; // 30s between reconnect attempts
+let lastDbReconnectAttempt = 0;
+
+function ensureDb(): boolean {
+  if (db) {
+    // Fast health check — verify connection is still alive
+    try {
+      db.prepare('SELECT 1').get();
+      return true;
+    } catch {
+      // Connection is stale — close it and re-open
+      console.warn('[DeskFlow] DB connection stale, attempting reconnect...');
+      try { db.close(); } catch {}
+      db = null;
+    }
+  }
+  // Reconnect
+  const now = Date.now();
+  if (now - lastDbReconnectAttempt < DB_RECONNECT_INTERVAL) return false;
+  lastDbReconnectAttempt = now;
+  try {
+    const Database = require('better-sqlite3');
+    db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('busy_timeout = 5000');
+    useJson = false;
+    console.log('[DeskFlow] DB reconnected successfully');
+    return true;
+  } catch (err) {
+    console.error('[DeskFlow] DB reconnect failed:', err);
+    return false;
+  }
+}
+
+function withDb<T>(fn: (d: any) => T, fallback: T): T {
+  if (!ensureDb()) return fallback;
+  if (useJson) return fallback;
+  try {
+    return fn(db);
+  } catch (err: any) {
+    console.error('[DeskFlow] DB query error:', err);
+    // If it looks like a connection error, force reconnect next time
+    if (err.message && (err.message.includes('closed') || err.message.includes('locked') || err.message.includes('SQLITE_BUSY') || err.message.includes('not open'))) {
+      try { db.close(); } catch {}
+      db = null;
+    }
+    return fallback;
+  }
+}
+
 // TRACKER MIND - TERMINAL BINDING MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 
@@ -13547,7 +14369,7 @@ electron_1.ipcMain.handle('save-prompt-template', async (_event, data) => {
         const now = new Date().toISOString();
         const existingIdx = templates.findIndex((t) => t.id === id);
         if (existingIdx >= 0) {
-            templates[existingIdx] = { ...templates[existingIdx], name: data.name, content: data.content, category: data.category || templates[existingIdx].category, isFormattingTemplate: data.isFormattingTemplate ?? templates[existingIdx].isFormattingTemplate, updatedAt: now };
+            templates[existingIdx] = { ...templates[existingIdx], name: data.name, content: data.content, category: (data.category || templates[existingIdx].category), isFormattingTemplate: (data.isFormattingTemplate ?? templates[existingIdx].isFormattingTemplate), updatedAt: now };
         } else {
             templates.push({ id, name: data.name, content: data.content, category: data.category || 'general', isFormattingTemplate: data.isFormattingTemplate || false, projectId: data.projectId || null, createdAt: now, updatedAt: now });
         }
@@ -14248,6 +15070,7 @@ async function runInitAll(baseDir: string, agent: string, projectId: string | un
     { id: 'feature-tracker', label: 'FEATURE_TRACKER.md', type: 'file', group: 'agent', path: 'agent/FEATURE_TRACKER.md' },
     { id: 'workspace-context', label: 'WORKSPACE_CONTEXT.md', type: 'file', group: 'agent', path: 'agent/WORKSPACE_CONTEXT.md' },
     { id: 'human-test', label: 'HUMAN_TEST_CHECKLIST.md', type: 'file', group: 'agent', path: 'agent/HUMAN_TEST_CHECKLIST.md' },
+    { id: 'page-context-md', label: 'PAGE_CONTEXT.md', type: 'file', group: 'agent', path: 'agent/PAGE_CONTEXT.md' },
     { id: 'context-md', label: 'context.md', type: 'file', group: 'agent', path: 'agent/context.md' },
     { id: 'constraints-md', label: 'constraints.md', type: 'file', group: 'agent', path: 'agent/constraints.md' },
     { id: 'patterns-md', label: 'patterns.md', type: 'file', group: 'agent', path: 'agent/patterns.md' },
@@ -14271,6 +15094,7 @@ async function runInitAll(baseDir: string, agent: string, projectId: string | un
     { id: 'templates-dir', label: 'agent/templates/', type: 'folder', group: 'docs', path: 'agent/templates/' },
     { id: 'core-dir', label: 'agent/core/', type: 'folder', group: 'docs', path: 'agent/core/' },
     { id: 'context-dir', label: 'agent/context/', type: 'folder', group: 'docs', path: 'agent/context/' },
+    { id: 'page-context-guide', label: 'PAGE_CONTEXT_GUIDE.md', type: 'file', group: 'docs', path: 'agent/docs/PAGE_CONTEXT_GUIDE.md' },
     // -- agent/skills/ --
     { id: 'skills-dir', label: 'agent/skills/', type: 'folder', group: 'skills', path: 'agent/skills/' },
     { id: 'skill-templates', label: 'fix-problems.md', type: 'file', group: 'skills', path: 'agent/skills/fix-problems.md' },
@@ -14339,13 +15163,18 @@ This directory contains the context files for AI agents working on this project.
 
 ${allMdFiles || '- No markdown files yet'}
 
+## Page Context System
+
+This project uses \`PAGE_CONTEXT.md\` to track every page's purpose, data flow, IPC endpoints, component tree, and connections to other pages. **Read it before editing any UI code.**
+
 ## Initialization Instructions
 
 1. Read each file listed above for project context
 2. Check \`INITIALIZE.md\` for setup instructions
 3. Review \`PROBLEMS.md\` for known issues
 4. Check \`REQUESTS.md\` for pending requests
-5. Update files as needed during work
+5. Read \`PAGE_CONTEXT.md\` to understand each page's purpose, data flow, and connections before editing UI code
+6. Update files as needed during work — keep \`PAGE_CONTEXT.md\` in sync when you add/modify pages
 
 ## Session Metadata Requirements
 
@@ -14412,6 +15241,10 @@ ${agent === 'opencode' ? `Run: \`opencode --init\` in the project root to initia
 - \`problems.json\` — Machine-parseable problem data
 - \`requests.json\` — Machine-parseable request data
 - \`problems.json\` and \`requests.json\` — Each item has a \`steps\` array (inline sub-tasks with status tracking)
+
+## Step 3a: Read Page Context
+
+Read \`PAGE_CONTEXT.md\` (+ \`docs/PAGE_CONTEXT_GUIDE.md\` for format reference) to understand the full UI layout before editing any page code.
 
 ## Step 4: Skills Setup
 
@@ -14593,6 +15426,67 @@ Once initialization is complete, you can begin working on:
     }
     send('human-test', 'done', { content: htContent });
 
+    // Step 14: PAGE_CONTEXT.md
+    send('page-context-md', 'creating');
+    const pcPath = path_1.default.join(agentDir, 'PAGE_CONTEXT.md');
+    if (!fs_1.default.existsSync(pcPath)) {
+      const pcContent = `# Page Context
+
+**Purpose:** Structured page-by-page reference so AI agents understand the UI layer without re-discovering it every session.
+
+**Last Updated:** ${today}
+
+---
+
+## Page: Example
+
+### Identity
+- **Route:** \`/\`
+- **File:** \`src/pages/ExamplePage.tsx\`
+- **Primary props:** selectedPeriod, dateOffset
+- **Primary state:** items, loading
+
+### Component Tree
+\`\`\`
+PageShell
+├── Section
+│   └── SubComponent
+└── AnotherSection
+\`\`\`
+
+### IPC Endpoints Called
+| Channel | Direction | Purpose |
+|---------|-----------|---------|
+| \`example-read\` | read | Fetches data |
+| \`example-write\` | write | Saves changes |
+
+### Data Flow
+- **Reads:** IPC calls + props from App.tsx
+- **Writes:** IPC mutations
+- **Shared state:** selectedPeriod, dateOffset
+
+### Connections to Other Pages
+- Links to /other-page via navigation
+- Shares global timer state
+
+### Update Conventions
+- Follow the existing pattern for this page type
+- Keep performance in mind
+
+### Known Pitfalls
+- Re-renders on every prop change — use useMemo
+
+---
+
+<!-- AI agents: update this file by running the page-context-update workflow.
+     Read PAGE_CONTEXT_GUIDE.md for the full format specification. -->
+`;
+      fs_1.default.writeFileSync(pcPath, pcContent, 'utf-8');
+      send('page-context-md', 'done', { content: pcContent });
+    } else {
+      send('page-context-md', 'done', { content: fs_1.default.readFileSync(pcPath, 'utf-8') });
+    }
+
     // -- agents.md (lowercase) --
     send('agents-lower', 'creating');
     const agentsLowerPath = path_1.default.join(agentDir, 'agents.md');
@@ -14610,13 +15504,18 @@ This directory contains the context files for AI agents working on this project.
 
 \${allMdFiles || '- No markdown files yet'}
 
+## Page Context System
+
+This project uses \`PAGE_CONTEXT.md\` to track every page's purpose, data flow, IPC endpoints, component tree, and connections to other pages. **Read it before editing any UI code.**
+
 ## Initialization Instructions
 
 1. Read each file listed above for project context
 2. Check \`INITIALIZE.md\` for setup instructions
 3. Review \`PROBLEMS.md\` for known issues
 4. Check \`REQUESTS.md\` for pending requests
-5. Update files as needed during work
+5. Read \`PAGE_CONTEXT.md\` to understand each page's purpose, data flow, and connections before editing UI code
+6. Update files as needed during work — keep \`PAGE_CONTEXT.md\` in sync when you add/modify pages
 
 ## Session Metadata Requirements
 
@@ -15648,11 +16547,14 @@ Systematically analyze and fix issues in the codebase.
 // TODO: Tracker Mind Setup Handler
 electron_1.ipcMain.handle('tracker-mind-setup', async (event, { step, projectId, agentName }: { step: string; projectId?: string; agentName?: string }) => {
   try {
-    let baseDir = process.cwd();
+let baseDir = process.cwd();
     if (projectId) {
       try {
-        const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as any;
+        const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
         if (project?.path) baseDir = project.path;
+        else {
+          console.error('[Tracker Mind] Project exists but has no path. Using cwd:', baseDir);
+        }
       } catch (e) {
         console.error('[Tracker Mind] Failed to get project path for setup:', e);
       }
@@ -15775,6 +16677,10 @@ ${agent === 'opencode' ? `Run: \`opencode --init\` in the project root to initia
 - \`state.md\` — Current project state and recent changes
 - \`PROBLEMS.md\` — Known issues to fix
 - \`REQUESTS.md\` — User feature requests
+
+## Step 3a: Read Page Context
+
+Read \`PAGE_CONTEXT.md\` (+ \`docs/PAGE_CONTEXT_GUIDE.md\` for format reference) to understand the full UI layout before editing any page code.
 
 ## Step 4: Skills Setup
 
@@ -16017,8 +16923,11 @@ electron_1.ipcMain.handle('read-agent-files', async (_, projectPath: string) => 
 
 electron_1.ipcMain.handle('read-agent-file', async (_, filePath: string, projectPath: string) => {
   try {
-    // filePath is the relative path from agent/ (e.g., "PROBLEMS.md" or "docs/test.md")
-    const fullPath = path_1.default.join(projectPath, 'agent', filePath);
+    const agentDir = path_1.default.join(projectPath, 'agent');
+    if (!isPathWithin(agentDir, filePath)) {
+      return { success: false, error: 'Path traversal denied' };
+    }
+    const fullPath = path_1.default.join(agentDir, filePath);
     if (!fs_1.default.existsSync(fullPath)) {
       return { success: false, error: 'File not found: ' + fullPath };
     }
@@ -16035,6 +16944,9 @@ electron_1.ipcMain.handle('read-agent-file', async (_, filePath: string, project
 electron_1.ipcMain.handle('read-project-file', async (_, relativePath: string, projectPath?: string) => {
   try {
     if (!projectPath) return { success: false, error: 'No project path provided' };
+    if (!isPathWithin(projectPath, relativePath)) {
+      return { success: false, error: 'Path traversal denied' };
+    }
     const fullPath = path_1.default.join(projectPath, relativePath);
     if (!fs_1.default.existsSync(fullPath)) {
       return { success: false, error: 'File not found: ' + fullPath };
@@ -16051,6 +16963,9 @@ electron_1.ipcMain.handle('read-project-file', async (_, relativePath: string, p
 electron_1.ipcMain.handle('write-project-file', async (_, relativePath: string, content: string, projectPath?: string) => {
   try {
     if (!projectPath) return { success: false, error: 'No project path provided' };
+    if (!isPathWithin(projectPath, relativePath)) {
+      return { success: false, error: 'Path traversal denied' };
+    }
     const fullPath = path_1.default.join(projectPath, relativePath);
     const dir = path_1.default.dirname(fullPath);
     if (!fs_1.default.existsSync(dir)) {
@@ -16067,6 +16982,9 @@ electron_1.ipcMain.handle('write-project-file', async (_, relativePath: string, 
 electron_1.ipcMain.handle('list-project-files', async (_, subDir?: string, projectPath?: string) => {
   try {
     if (!projectPath) return { success: false, error: 'No project path provided' };
+    if (subDir && !isPathWithin(projectPath, subDir)) {
+      return { success: false, error: 'Path traversal denied', data: [] };
+    }
     const targetPath = subDir ? path_1.default.join(projectPath, subDir) : projectPath;
     if (!fs_1.default.existsSync(targetPath)) {
       return { success: false, error: 'Directory not found: ' + targetPath, data: [] };
@@ -16088,6 +17006,9 @@ electron_1.ipcMain.handle('list-project-files', async (_, subDir?: string, proje
 electron_1.ipcMain.handle('list-directory', async (_, { projectPath, relativePath }: { projectPath: string; relativePath: string }) => {
   try {
     if (!projectPath) return { success: false, error: 'No project path provided', data: [] };
+    if (!isPathWithin(projectPath, relativePath)) {
+      return { success: false, error: 'Path traversal denied', data: [] };
+    }
     const fullPath = path_1.default.join(projectPath, relativePath);
     if (!fs_1.default.existsSync(fullPath)) return { success: true, data: [] };
     const entries = fs_1.default.readdirSync(fullPath, { withFileTypes: true });
@@ -16182,7 +17103,11 @@ electron_1.ipcMain.handle('write-progress-json', async (_, { projectPath, data }
 electron_1.ipcMain.handle('read-agent-file-content', async (_, { filename, projectPath }: { filename: string; projectPath?: string }) => {
   try {
     if (!projectPath) return { success: false, error: 'No project path provided' };
-    const filePath = path_1.default.join(projectPath, 'agent', filename);
+    const agentDir = path_1.default.join(projectPath, 'agent');
+    if (!isPathWithin(agentDir, filename)) {
+      return { success: false, error: 'Path traversal denied' };
+    }
+    const filePath = path_1.default.join(agentDir, filename);
     if (!fs_1.default.existsSync(filePath)) {
       return { success: false, error: 'File not found: ' + filePath };
     }
@@ -16494,5 +17419,7 @@ electron_1.ipcMain.handle('broadcast-context-delta', async (_event, data: { term
       sentCount++;
     }
   }
-  return { success: true, sentCount };
-});
+   return { success: true, sentCount };
+   });
+
+export { getAgentConfig, AgentConfig, detectAgentPrompt, AgentVerifyResult };

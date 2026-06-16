@@ -5,13 +5,16 @@ import {
   AlertTriangle, Palette, Network, Database, Activity, Settings,
   ExternalLink, Trophy, RotateCcw, Check, Timer,
   Target, PieChart, Code2, Clock4, Zap, Users, FileText,
-  Sliders, Search, Layers, Cpu, Grip, Layout,
+  Sliders, Search, Layers, Cpu, Grip, Layout, Brain,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { EmptyState } from '../components/EmptyState';
+import TutorialOverlay from '../components/TutorialOverlay';
+import { useTutorial } from '../hooks/useTutorial';
+import { TUTORIAL_STEPS } from '../data/tutorial-steps';
 
 interface Feature {
   id: string;
@@ -121,6 +124,25 @@ const FEATURES: Feature[] = [
     ],
     visualIcons: [Timer, Clock4, Activity],
     route: '/external',
+  },
+  {
+    id: 'ai-assistant', name: 'AI Assistant', icon: Sparkles,
+    category: 'Core', status: 'released',
+    description: 'Your intelligent companion for goal achievement and daily planning.',
+    whatYoullFind: [
+      'Daily plan card with today\'s focus goals and AI suggestions',
+      'Context summary showing unfinished goals and weekly completions',
+      'Editable planning document with checklist parsing',
+      'Evening review mode for end-of-day reflection notes',
+    ],
+    whatYouCanDo: [
+      'Read today\'s focus goals from the daily plan card',
+      'Confirm AI has your weekly context for relevant suggestions',
+      'Toggle goals as you complete them and add new goals inline',
+      'Compose evening review notes and save reflections',
+    ],
+    visualIcons: [Sparkles, Target, Brain],
+    route: '/ai',
   },
   {
     id: 'productivity', name: 'Productivity', icon: Zap,
@@ -358,10 +380,15 @@ function saveProgress(progress: GuideProgress) {
   localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress));
 }
 
-export default function TutorialPage() {
+export default function TutorialPage({ noShell }: { noShell?: boolean }) {
   const navigate = useNavigate();
   const [progress, setProgress] = useState<GuideProgress>(loadProgress);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const tutorial = useTutorial(TUTORIAL_STEPS);
+
+  const activeFeature = tutorial.activeFeatureId
+    ? FEATURES.find((f) => f.id === tutorial.activeFeatureId) || null
+    : null;
 
   const filteredFeatures = selectedCategory === 'All'
     ? FEATURES : FEATURES.filter((f) => f.category === selectedCategory);
@@ -369,17 +396,29 @@ export default function TutorialPage() {
   const isAllComplete = progress.viewedFeatures.length >= FEATURES.length;
 
   const openFeature = useCallback((feature: Feature) => {
-    setProgress((prev) => {
-      const updated = {
-        ...prev,
-        viewedFeatures: prev.viewedFeatures.includes(feature.id)
-          ? prev.viewedFeatures : [...prev.viewedFeatures, feature.id],
-      };
-      saveProgress(updated);
-      return updated;
-    });
-    navigate(feature.route);
-  }, [navigate]);
+    tutorial.startTutorial(feature.id);
+  }, [tutorial]);
+
+  const handleTryIt = useCallback(() => {
+    tutorial.tryIt();
+    if (activeFeature?.route) navigate(activeFeature.route);
+  }, [tutorial, activeFeature, navigate]);
+
+  const handleNext = useCallback(() => {
+    const wasLastStep = tutorial.isLastStep;
+    tutorial.nextStep();
+    if (wasLastStep && tutorial.activeFeatureId) {
+      setProgress((prev) => {
+        const updated = {
+          ...prev,
+          viewedFeatures: prev.viewedFeatures.includes(tutorial.activeFeatureId!)
+            ? prev.viewedFeatures : [...prev.viewedFeatures, tutorial.activeFeatureId!],
+        };
+        saveProgress(updated);
+        return updated;
+      });
+    }
+  }, [tutorial]);
 
   const resetProgress = useCallback(() => {
     const cleared: GuideProgress = { viewedFeatures: [] };
@@ -387,8 +426,19 @@ export default function TutorialPage() {
     setProgress(cleared);
   }, []);
 
-  return (
-    <PageShell page="tutorial" variant="sticky-header">
+  const content = (
+    <>
+      <TutorialOverlay
+        isVisible={tutorial.isVisible}
+        step={tutorial.currentStep}
+        stepIndex={tutorial.stepIndex}
+        totalSteps={tutorial.totalSteps}
+        featureName={activeFeature?.name || ''}
+        onNext={handleNext}
+        onPrev={tutorial.prevStep}
+        onClose={tutorial.closeTutorial}
+        onTryIt={handleTryIt}
+      />
       <div className="flex-shrink-0 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl">
         <div className="px-5 py-4 flex items-center gap-4">
           <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center">
@@ -523,6 +573,14 @@ export default function TutorialPage() {
           )}
         </div>
       </div>
+    </>
+  );
+
+  if (noShell) return <div className="flex flex-col h-full overflow-hidden">{content}</div>;
+
+  return (
+    <PageShell page="tutorial" variant="sticky-header">
+      {content}
     </PageShell>
   );
 }

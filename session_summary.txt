@@ -1,0 +1,59 @@
+## Session Metadata
+- Title: UI/UX Redesign Prompt for AI Tools and Analytics Pages
+- Description: Created a comprehensive design prompt to evaluate and redesign the AI Tools page and Analytics dashboard, addressing data display quality, potential combination/separation of views, and analytics performance issues
+- Status: completed
+- Product Area: UI/UX Design, Analytics, AI Tools
+- Category: feature | design
+
+## Summary of Work Completed
+
+### 1. Updated Project State
+- Updated `agent/state.md` to reflect current focus on UI redesign initiative
+
+### 2. Created Context Bundle
+- Created `agent/docs/ui-redesign-analytics-ai-tools/CONTEXT_BUNDLE.md` with:
+  - File locations and purposes of AI Tools page (AiPage.tsx) and Analytics dashboard
+  - Key data structures and state management for both views
+  - IPC endpoints and backend logic for data fetching
+  - Documentation of performance issues in analytics loading
+  - Current UI components and design patterns
+  - Shared data sources and technical constraints
+
+### 3. Generated Design Prompt
+- Created `agent/docs/ui-redesign-analytics-ai-tools/prompt.md` that tasks an AI with acting as Lead Designer and Engineer to:
+  - Evaluate whether AI Tools and Analytics views should be combined or kept separate
+  - Design an efficient data processing pipeline to solve performance issues
+  - Create high-fidelity visual specifications for improved data display
+  - Define intuitive interaction flows and user experience
+  - Work within project constraints (TypeScript, React, Electron, Tailwind v4)
+  - Maintain access to AI agents list as a separate component
+  - Preserve existing functionality while improving usability
+
+### 4. Key Technical Details Documented
+- AI Tools page state: goals, topic digest, planning data, suggestions
+- Analytics dashboard state: AI usage, sessions, problems, requests, prompt history
+- Performance bottleneck: Five concurrent IPC calls on analytics tab activation including file-based reads for problems/requests
+- Shared IPC endpoint: `getAIUsageSummary()` used by both views
+- Existing UI components: StatCard, ChartCard, GlassCard, motion animations, lucide-icons
+- Data processing: Multiple useMemo hooks in AnalyticsDashboard for chart data preparation
+
+## Next Steps
+1. Submit the generated prompt to a target AI (Claude, GPT-4, etc.) to get a comprehensive design solution
+2. After receiving RESULT.md, follow the mandatory workflow:
+   - Recursive completeness check (100% coverage between prompt and result)
+   - Implementation planning mapping to actual codebase
+   - Backend logic verification
+   - Then implement the solution
+3. Address the analytics performance freezing issue through:
+   - Data caching or incremental updates
+   - Optimized IPC calls
+   - Potential web worker usage for heavy computations
+   - Pagination or limits for large datasets
+4. Implement the recommended UI/UX changes for improved data display and navigation
+
+## Files Created
+- `agent/docs/ui-redesign-analytics-ai-tools/CONTEXT_BUNDLE.md` - Technical context reference
+- `agent/docs/ui-redesign-analytics-ai-tools/prompt.md` - Design engineering prompt
+
+## Current Status
+Ready for AI processing of the design prompt to generate a comprehensive solution for the UI/UX redesign of AI Tools and Analytics views.

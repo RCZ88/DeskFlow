@@ -2443,6 +2443,26 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
               </button>
             </div>
 
+            <div className="pt-4 border-t border-zinc-700/50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-zinc-300">Game Detection</h3>
+                  <p className="text-xs text-zinc-500">Scan Steam library for installed games to improve tracking accuracy</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (window.deskflowAPI?.rescanGames) {
+                      await window.deskflowAPI.rescanGames();
+                    }
+                  }}
+                  className="px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-sm font-medium transition flex items-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Rescan Games
+                </button>
+              </div>
+            </div>
+
             <div className="pt-4 border-t border-zinc-700/50"></div>
 
             <div className="space-y-2">

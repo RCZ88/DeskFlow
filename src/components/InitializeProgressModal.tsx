@@ -73,7 +73,9 @@ const DEFAULT_SEED_PROMPT = `You are initializing this project's AI workspace. Y
    - WORKSPACE_CONTEXT.md: Document the project's tech stack, architecture, build setup, and IDE configuration
    - state.md: Record the current state of the project
    - COMMITS.md: Analyze git history and document commit patterns
-   - HUMAN_TEST_CHECKLIST.md: Create a testing checklist specific to this project's features
+    - HUMAN_TEST_CHECKLIST.md: Create a testing checklist specific to this project's features
+    - PAGE_CONTEXT.md: Document each page's route, file location, component tree, IPC endpoints, data flow, and connections
+    - PAGE_CONTEXT_GUIDE.md: Read this guide to understand the page context format specification
 3. Use 'opencode --init' or the appropriate command for your agent to process the initialized files
 
 Focus on accuracy. Read actual source files, configuration files, and git history. Do not guess or make things up.`;

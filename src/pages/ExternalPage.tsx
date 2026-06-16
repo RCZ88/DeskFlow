@@ -7,6 +7,7 @@ import {
   Code, Laptop, Wrench, Cog, Music, Gamepad2, Footprints, Droplets,
   Wind, Flame, Backpack, Dribbble, Palette, Edit3, Pencil,
   ChevronLeft, ChevronRight, GripVertical,
+  Calendar,
   PieChart as PieChartIcon, BarChart3
 } from 'lucide-react';
 import {
@@ -21,7 +22,7 @@ import {
   Filler
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
-import { format, subDays } from 'date-fns';
+import { format, subDays, addDays } from 'date-fns';
 import { DurationPicker, LatencyPicker } from '../components/DurationPicker';
 import { getDateRange, isInRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
@@ -220,9 +221,24 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   const [manualSessionDate, setManualSessionDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; });
   const [manualSessionStartHours, setManualSessionStartHours] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getHours(); });
   const [manualSessionStartMinutes, setManualSessionStartMinutes] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getMinutes(); });
-  const [sleepDebugData, setSleepDebugData] = useState<any>(null);
+const [sleepDebugData, setSleepDebugData] = useState<any>(null);
+   const dateInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync timer state to the shared deskflow-timer-state so Dashboard picks it up
+   const prevDay = () => {
+     const d = new Date(manualSessionDate);
+     d.setDate(d.getDate() - 1);
+     setManualSessionDate(format(d, "yyyy-MM-dd"));
+   };
+   const nextDay = () => {
+     const d = new Date(manualSessionDate);
+     d.setDate(d.getDate() + 1);
+     setManualSessionDate(format(d, "yyyy-MM-dd"));
+   };
+
+   const formattedDate = format(new Date(manualSessionDate), "PPP");
+   const dayName = format(new Date(manualSessionDate), "EEEE");
+
+   // Sync timer state to the shared deskflow-timer-state so Dashboard picks it up
   const syncTimerStateToDashboard = useCallback((running: boolean, activity?: ExternalActivity | null, startTime?: Date | null) => {
     const state = {
       productiveMs: 0,
@@ -1018,7 +1034,9 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                             } else if (selectedPeriod === 'week' || selectedPeriod === '7day') {
                               const now = new Date();
                               const weekStart = new Date(now);
-                              weekStart.setDate(weekStart.getDate() - weekStart.getDay() - dateOffset * 7);
+                              const day = weekStart.getDay();
+                              const diff = day === 0 ? 6 : day - 1;
+                              weekStart.setDate(weekStart.getDate() - diff - dateOffset * 7);
                               weekStart.setHours(0, 0, 0, 0);
                               const bars: number[] = [];
                               for (let i = 0; i < 7; i++) {
@@ -1091,7 +1109,9 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                             } else if (selectedPeriod === 'week' || selectedPeriod === '7day') {
                               const now = new Date();
                               const weekStart = new Date(now);
-                              weekStart.setDate(weekStart.getDate() - weekStart.getDay() - dateOffset * 7);
+                              const day = weekStart.getDay();
+                              const diff = day === 0 ? 6 : day - 1;
+                              weekStart.setDate(weekStart.getDate() - diff - dateOffset * 7);
                               weekStart.setHours(0, 0, 0, 0);
                               for (let i = 0; i < 7; i++) {
                                 const d = new Date(weekStart);
@@ -1460,15 +1480,38 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                   <div className="text-lg font-semibold text-zinc-100">{manualSessionActivity.name}</div>
                   <div className="text-sm text-zinc-400 mt-1">Log a past session</div>
                 </div>
-                <div className="mb-4">
-                  <label className="block text-xs text-zinc-500 mb-1.5 text-center">Date</label>
-                  <input
-                    type="date"
-                    value={manualSessionDate}
-                    onChange={(e) => setManualSessionDate(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 text-center"
-                  />
-                </div>
+<div className="mb-4">
+  <label className="block text-xs text-zinc-500 mb-1.5">Date</label>
+  <div className="relative">
+    <button
+      onClick={prevDay}
+      className="absolute left-0 top-0 bottom-0 w-10 flex items-center justify-center text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800/30 rounded-l-lg"
+    >
+      <ChevronLeft className="w-4 h-4" />
+    </button>
+     <button
+       className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-200 text-center"
+     >
+       {formattedDate}
+     </button>
+    <button
+      onClick={nextDay}
+      className="absolute right-0 top-0 bottom-0 w-10 flex items-center justify-center text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800/30 rounded-r-lg"
+    >
+      <ChevronRight className="w-4 h-4" />
+    </button>
+     <input
+       type="date"
+       ref={dateInputRef}
+       className="absolute inset-0 w-full h-full opacity-0"
+       value={manualSessionDate}
+       onChange={(e) => setManualSessionDate(e.target.value)}
+     />
+  </div>
+  <div className="text-xs text-zinc-500 mt-1 text-center">
+    {dayName}
+  </div>
+</div>
                 <div className="flex items-center justify-center gap-6 mb-5">
                   <div>
                     <label className="block text-xs text-zinc-500 mb-1.5 text-center">Start Time</label>
@@ -1550,7 +1593,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
 
 {/* Sleep Trends - Time-based chart */}
 {sleepTrends.daily.length > 0 && (
-          <GlassCard className="mb-8">
+          <GlassCard className="mb-8 !overflow-visible">
             <SectionHeader title="Sleep Patterns" action={
               <div className="flex items-center gap-4 text-xs">
                 <div className="flex items-center gap-1.5">
@@ -1594,7 +1637,33 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                 
                 {/* Bars for each day */}
                 <div className="flex gap-2 relative">
-                  {sleepTrends.daily.map((day, idx) => {
+                  {(() => {
+                    const range = getDateRange(selectedPeriod, dateOffset);
+                    const days: any[] = [];
+                    let curr = new Date(range.start);
+                    // Safeguard for infinite loop
+                    let safety = 0;
+                    while (curr < range.end && safety < 400) {
+                      const ds = localDateStr(curr);
+                      const existing = sleepTrends.daily.find(d => d.date === ds);
+                      if (existing) {
+                        days.push(existing);
+                      } else {
+                        days.push({
+                          date: ds,
+                          sleep_seconds: 0,
+                          deficit_seconds: 0,
+                          pre_sleep_seconds: 0,
+                          post_wake_seconds: 0,
+                          bedtime_minutes: 0,
+                          waketime_minutes: 0
+                        });
+                      }
+                      curr.setDate(curr.getDate() + 1);
+                      safety++;
+                    }
+                    return days;
+                  })().map((day, idx) => {
                     const appExitMin = day.bedtime_minutes; // raw app exit time (when user stopped using device)
                     const preSleepMin = Math.round(day.pre_sleep_seconds / 60);
                     const postWakeMin = Math.round(day.post_wake_seconds / 60);
@@ -1646,43 +1715,46 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                     
                     return (
                       <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px] cursor-pointer" onClick={() => { setPastSleepDate(day.date); setShowPastSleepModal(true); }}>
-                        {/* Tooltip */}
-                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 text-[10px] text-zinc-300 whitespace-nowrap z-20 pointer-events-none">
-                          <div className="font-medium text-white text-center mb-1">
-                            🛏️ {dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            <span className="text-zinc-500"> → </span>
-                            🌅 {(() => {
-                              const wakeD = new Date(day.date + 'T00:00:00');
-                              const shifted = appExitMin < 720; // bedtime was AM → grouped as previous day
-                              if (wakeMin <= appExitMin || shifted) wakeD.setDate(wakeD.getDate() + 1);
-                              return wakeD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                            })()}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                            <span>App Exit: {formatTime(appExitMin)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                            <span>Pre-sleep: {formatHours(day.pre_sleep_seconds)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                            <span>Fell asleep: {formatTime(sleepStartMin)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                            <span>Woke up: {formatTime(wakeMin)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                            <span>Post-wake: {formatHours(day.post_wake_seconds)}</span>
-                          </div>
-                          <div className="mt-1 pt-1 border-t border-zinc-700 text-indigo-400">Sleep: {formatHours(day.sleep_seconds)}</div>
-                        </div>
-                        
                         {/* 3-segment sleep bar: amber pre-sleep → indigo sleep → rose post-wake */}
                         <div className="relative w-full h-72">
+                          {/* Tooltip - positioned at bottom of bar area */}
+                          <div className="absolute left-1/2 -translate-x-1/2 bottom-1 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 text-[10px] text-zinc-300 whitespace-nowrap z-[100] pointer-events-none shadow-xl" style={{ transform: 'translate(-50%, 0)' }}>
+                            <div className="font-medium text-white text-center mb-1">
+                              🛏️ {(() => {
+                                const bedD = new Date(day.date + 'T00:00:00');
+                                if (appExitMin < 720) bedD.setDate(bedD.getDate() + 1);
+                                return bedD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                              })()}
+                              <span className="text-zinc-500"> → </span>
+                              🌅 {(() => {
+                                const wakeD = new Date(day.date + 'T00:00:00');
+                                const shifted = appExitMin < 720; // bedtime was AM → grouped as previous day
+                                if (wakeMin <= appExitMin || shifted) wakeD.setDate(wakeD.getDate() + 1);
+                                return wakeD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                              })()}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                              <span>App Exit: {formatTime(appExitMin)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                              <span>Pre-sleep: {formatHours(day.pre_sleep_seconds)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                              <span>Fell asleep: {formatTime(sleepStartMin)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                              <span>Woke up: {formatTime(wakeMin)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                              <span>Post-wake: {formatHours(day.post_wake_seconds)}</span>
+                            </div>
+                            <div className="mt-1 pt-1 border-t border-zinc-700 text-indigo-400">Sleep: {formatHours(day.sleep_seconds)}</div>
+                          </div>
                           {hasPreSleep && (
                             <Seg start={appExitMin} end={sleepStartMin} color={colors.preSleep} topRound={true} bottomRound={!hasPostWake && sleepStartMin >= wakeMin} />
                           )}
@@ -1696,9 +1768,10 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
                         <div className="text-[9px] text-amber-400 font-medium">{formatTime(appExitMin)}</div>
                         <div className="text-[9px] text-rose-400 font-medium">{formatTime(wakeMin)}</div>
                         
-                        {/* Day label */}
-                        <div className={`text-[10px] font-medium mt-1 ${isToday ? 'text-indigo-400' : 'text-zinc-500'}`}>
-                          {isToday ? 'Today' : dateObj.toLocaleDateString('en-US', { weekday: 'short' })}
+                        {/* Day label — shows actual sleep date (next day for AM bedtimes) */}
+                        <div className={`text-[11px] font-medium mt-1 text-center ${isToday ? 'text-indigo-400' : 'text-zinc-400'}`}>
+                          <div>{isToday ? 'Today' : (() => { const d = new Date(day.date + 'T00:00:00'); if (appExitMin < 720) d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-US', { weekday: 'short' }); })()}</div>
+                          <div className="text-[10px] text-zinc-500 font-normal">{(() => { const d = new Date(day.date + 'T00:00:00'); if (appExitMin < 720) d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })()}</div>
                         </div>
                       </div>
                     );

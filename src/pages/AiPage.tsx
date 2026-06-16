@@ -1,12 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
-import { Sparkles, FileText, RefreshCw } from 'lucide-react';
+import { Target } from 'lucide-react';
 import { TopicDigestCard } from '../components/TopicDigestCard';
 import { DailyPlanCard } from '../components/DailyPlanCard';
 import { GoalHistoryCard } from '../components/GoalHistoryCard';
 import { ContextSummaryCard } from '../components/ContextSummaryCard';
 import { MyPlanCard } from '../components/MyPlanCard';
+import { LongTermPlanCard } from '../components/LongTermPlanCard';
+import { TodayOverviewCard } from '../components/TodayOverviewCard';
+import { AiUsageCard } from '../components/AiUsageCard';
+import { ProjectStatusCard } from '../components/ProjectStatusCard';
+import { useAiPageData } from '../hooks/useAiPageData';
 import { parseChecklist } from '../services/planningParser';
+import { AiChat } from '../components/AiChat';
+const AI_CHAT_ENABLED = true;
 
 type GoalCategory = 'work' | 'personal' | 'health' | 'learning';
 type Mode = 'morning' | 'in-progress' | 'review';
@@ -54,32 +60,69 @@ function determineMode(goals: Goal[]): Mode {
   return 'in-progress';
 }
 
+function getDayLabel(): string {
+  return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
+const modeConfig: Record<Mode, { label: string; accent: string; desc: string }> = {
+  morning:      { label: 'Morning Planning', accent: 'amber',  desc: 'Set your intentions' },
+  'in-progress':{ label: 'In Progress',       accent: 'emerald',desc: 'Working through goals' },
+  review:       { label: 'Evening Review',    accent: 'pink',   desc: 'Reflect on your day' },
+};
+
 export function AiPage() {
   const today = getToday();
+  const dayLabel = getDayLabel();
 
-  // Goals state
   const [goals, setGoals] = useState<Goal[]>([]);
   const [review, setReview] = useState<string | null>(null);
   const [goalsLoading, setGoalsLoading] = useState(true);
   const [goalsError, setGoalsError] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
-  // Suggestions state
   const [suggestions, setSuggestions] = useState<Array<{ title: string; category: GoalCategory }>>([]);
   const [planGoals, setPlanGoals] = useState<Array<{ title: string; targetSeconds?: number }>>([]);
 
-  // Digest state
   const [digestTopics, setDigestTopics] = useState<any[]>([]);
   const [digestLoading, setDigestLoading] = useState(true);
   const [digestError, setDigestError] = useState<string | null>(null);
 
-  // Context state
   const [unfinishedCount, setUnfinishedCount] = useState(0);
   const [completedThisWeek, setCompletedThisWeek] = useState(0);
 
-  const mode = determineMode(goals);
+  const { data: aggData, loading: aggLoading } = useAiPageData('dashboardAggregates', () =>
+    window.deskflowAPI!.getDashboardAggregates({ period: 'today' })
+  );
 
-  // Load goals
+  const { data: aiData, loading: aiLoading } = useAiPageData('aiUsage', () =>
+    window.deskflowAPI!.getAIUsageSummary('day')
+  );
+
+  const { data: projects, loading: projectsLoading } = useAiPageData('projects', () =>
+    window.deskflowAPI!.getProjects()
+  );
+
+  const todayTotalSeconds = aggData?.overview?.totalSeconds ?? 0;
+  const todaySessionCount = aggData?.appStats?.reduce((s: number, a: any) => s + (a.sessions || 0), 0) ?? 0;
+  const topApp = aggData?.appStats?.[0]?.app ?? undefined;
+
+  const aiTokens = aiData?.totalTokens ?? 0;
+  const aiCost = aiData?.totalCost ?? 0;
+  const aiToolEntries = aiData?.byTool ? Object.keys(aiData.byTool) : [];
+  const aiToolCount = aiToolEntries.length;
+  const topTool = aiToolEntries[0];
+
+  const activeProjects = Array.isArray(projects) ? projects.filter((p: any) => !p.deleted_at) : [];
+  const projectCount = activeProjects.length;
+  const recentProject = activeProjects[0];
+  const recentProjectName = recentProject?.name;
+  const recentProjectLanguage = recentProject?.primary_language;
+
+  const mode = determineMode(goals);
+  const mc = modeConfig[mode];
+
+
+
   const loadGoals = useCallback(async () => {
     setGoalsLoading(true);
     setGoalsError(null);
@@ -93,7 +136,6 @@ export function AiPage() {
     setGoalsLoading(false);
   }, [today]);
 
-  // Load digest
   const loadDigest = useCallback(async (showLoader = true) => {
     if (showLoader) setDigestLoading(true);
     setDigestError(null);
@@ -105,23 +147,22 @@ export function AiPage() {
     finally { if (showLoader) setDigestLoading(false); }
   }, []);
 
-  // Load context
   const loadContext = useCallback(async () => {
     try {
-      const sevenDays: string[] = [];
-      for (let i = 0; i < 7; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        sevenDays.push(d.toISOString().slice(0, 10));
-      }
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 6);
+      const startStr = start.toISOString().slice(0, 10);
+      const endStr = end.toISOString().slice(0, 10);
+      const result = await window.deskflowAPI!.getGoalsBatch(startStr, endStr);
+      if (!result.success) return;
       let completed = 0;
       let unfinished = 0;
-      for (const date of sevenDays) {
-        const day: GoalDay = await window.deskflowAPI!.getGoals(date);
+      for (const day of result.days) {
         if (day.goals) {
-          completed += day.goals.filter(g => g.status === 'completed').length;
-          if (date === today) {
-            unfinished = day.goals.filter(g => g.status !== 'completed' && g.status !== 'dismissed').length;
+          completed += day.goals.filter((g: any) => g.status === 'completed').length;
+          if (day.date === today) {
+            unfinished = day.goals.filter((g: any) => g.status !== 'completed' && g.status !== 'dismissed').length;
           }
         }
       }
@@ -132,7 +173,7 @@ export function AiPage() {
 
   useEffect(() => { loadGoals(); loadDigest(); loadContext(); loadPlanGoals(); }, [loadGoals, loadDigest, loadContext]);
 
-  async function loadPlanGoals() {
+  const loadPlanGoals = useCallback(async () => {
     try {
       const r = await window.deskflowAPI!.readPlanningMd();
       if (r.content) {
@@ -140,34 +181,38 @@ export function AiPage() {
         setPlanGoals(items.map(i => ({ title: i.title, targetSeconds: i.targetSeconds })));
       }
     } catch {}
-  }
+  }, []);
 
-  // Suggest goals (with planning context)
-  async function handleSuggest() {
+  const handleSuggest = useCallback(async () => {
     setSuggesting(true);
     try {
-      const [plan, contextStats] = await Promise.all([
+      const [plan, contextStats, longterm] = await Promise.all([
         window.deskflowAPI!.readPlanningMd(),
         window.deskflowAPI!.getGoalContext(),
+        window.deskflowAPI!.getLongtermGoals(),
       ]);
       const ctx: Record<string, any> = {};
       if (plan.content) ctx.planningContent = plan.content;
       if (contextStats?.success) ctx.stats = { last7dByCategory: contextStats.last7dByCategory };
+      if (longterm?.success && longterm.goals?.length > 0) {
+        ctx.longtermGoals = longterm.goals
+          .filter((g: any) => g.status !== 'completed')
+          .map((g: any) => ({ title: g.title, category: g.category }));
+      }
       const r = await window.deskflowAPI!.suggestGoals(today, ctx);
       if (r.success && r.suggestions?.length > 0) {
         setSuggestions(r.suggestions);
       }
     } catch {}
     setSuggesting(false);
-  }
+  }, [today]);
 
-  function handlePlanningSaved() {
+  const handlePlanningSaved = useCallback(() => {
     loadContext();
     loadPlanGoals();
-  }
+  }, [loadContext, loadPlanGoals]);
 
-  // Accept suggestion
-  async function handleAccept(suggestion: { title: string; category: GoalCategory }) {
+  const handleAccept = useCallback(async (suggestion: { title: string; category: GoalCategory }) => {
     setSavingGoal(true);
     try {
       const goal: Goal = {
@@ -187,15 +232,13 @@ export function AiPage() {
       await loadGoals();
     } catch {}
     setSavingGoal(false);
-  }
+  }, [today, loadGoals]);
 
-  // Dismiss suggestion
-  function handleDismiss(suggestion: { title: string; category: GoalCategory }) {
+  const handleDismiss = useCallback((suggestion: { title: string; category: GoalCategory }) => {
     setSuggestions(prev => prev.filter(s => s.title !== suggestion.title));
-  }
+  }, []);
 
-  // Toggle goal completion
-  async function handleToggle(goal: Goal) {
+  const handleToggle = useCallback(async (goal: Goal) => {
     setSavingGoal(true);
     try {
       const updated = {
@@ -207,84 +250,168 @@ export function AiPage() {
       await loadGoals();
     } catch {}
     setSavingGoal(false);
-  }
+  }, [today, loadGoals]);
 
-  // Feedback
-  async function handleFeedback(message: string) {
+  const handleFeedback = useCallback(async (message: string) => {
     setSavingGoal(true);
     try {
       const r = await window.deskflowAPI!.saveGoalReview(today, message);
       if (r.success) setReview(message);
     } catch {}
     setSavingGoal(false);
-  }
+  }, [today]);
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center shadow-lg shadow-pink-500/20">
-            <Sparkles className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold text-zinc-100 leading-tight">AI Assistant</h1>
-            <p className="text-sm text-zinc-400">Plan with purpose</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-medium px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            {mode === 'review' ? 'Evening Review' : mode === 'morning' ? 'Morning Planning' : 'Active'}
-          </span>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* LEFT COLUMN */}
-        <div className="lg:col-span-2 space-y-5">
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            <DailyPlanCard
-              goals={goals}
-              mode={mode}
-              suggestions={suggestions}
-              planGoals={planGoals}
-              review={review}
-              loading={goalsLoading}
-              suggesting={suggesting}
-              saving={savingGoal}
-              error={goalsError}
-              onToggle={handleToggle}
-              onSuggest={handleSuggest}
-              onAccept={handleAccept}
-              onDismiss={handleDismiss}
-              onFeedback={handleFeedback}
+        <header className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            <div className="grid place-items-center h-10 w-10 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
+              <Target className="w-5 h-5 text-zinc-300" />
+            </div>
+            <div>
+              <h1 className="text-lg font-semibold text-white tracking-tight">AI Assistant</h1>
+              <p className="text-xs text-zinc-500 mt-0.5">{dayLabel}</p>
+            </div>
+          </div>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+            mc.accent === 'pink' ? 'bg-pink-500/10 text-pink-300 ring-1 ring-pink-500/20' :
+            mc.accent === 'amber' ? 'bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20' :
+            'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${
+              mc.accent === 'pink' ? 'bg-pink-400' :
+              mc.accent === 'amber' ? 'bg-amber-400' :
+              'bg-emerald-400'
+            }`} />
+            {mc.label}
+          </span>
+        </header>
+
+        {AI_CHAT_ENABLED && (
+          <div className="mb-12 bg-zinc-950/40 border border-zinc-800/50 rounded-xl flex flex-col max-h-[460px]">
+            <AiChat />
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
+          <TodayOverviewCard
+            totalSeconds={todayTotalSeconds}
+            sessionCount={todaySessionCount}
+            topApp={topApp}
+            loading={aggLoading}
+          />
+          <AiUsageCard
+            totalTokens={aiTokens}
+            totalCost={aiCost}
+            toolCount={aiToolCount}
+            topTool={topTool}
+            loading={aiLoading}
+          />
+          <ProjectStatusCard
+            projectCount={projectCount}
+            recentProjectName={recentProjectName}
+            recentProjectLanguage={recentProjectLanguage}
+            loading={projectsLoading}
+          />
+          <div data-tutorial="ai.context">
+            <ContextSummaryCard
+              unfinishedCount={unfinishedCount}
+              completedThisWeek={completedThisWeek}
             />
-          </motion.div>
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
+          </div>
+        </div>
+
+        <section className="mb-10">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-1 h-5 rounded-full bg-pink-500" />
+            <div>
+              <h2 className="text-sm font-semibold text-white">Focus</h2>
+              <p className="text-xs text-zinc-500 mt-0.5">What needs your attention today</p>
+            </div>
+            <div className="ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-pink-500/10 text-pink-300 ring-1 ring-pink-500/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-pink-400" />
+              {unfinishedCount > 0 ? `${unfinishedCount} active` : 'All clear'}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-5">
+            <div data-tutorial="ai.daily-plan">
+              <DailyPlanCard
+                goals={goals}
+                mode={mode}
+                suggestions={suggestions}
+                planGoals={planGoals}
+                review={review}
+                loading={goalsLoading}
+                suggesting={suggesting}
+                saving={savingGoal}
+                error={goalsError}
+                onToggle={handleToggle}
+                onSuggest={handleSuggest}
+                onAccept={handleAccept}
+                onDismiss={handleDismiss}
+                onFeedback={handleFeedback}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-10">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-1 h-5 rounded-full bg-emerald-500" />
+            <div>
+              <h2 className="text-sm font-semibold text-white">Plan</h2>
+              <p className="text-xs text-zinc-500 mt-0.5">Your milestones and objectives</p>
+            </div>
+            <div className="ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              {planGoals.length > 0 ? `${planGoals.length} items` : 'Up to date'}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div data-tutorial="ai.my-plan">
+              <MyPlanCard onPlanningSaved={handlePlanningSaved} />
+            </div>
+            <LongTermPlanCard />
+          </div>
+        </section>
+
+        <section className="mb-10">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-1 h-5 rounded-full bg-amber-500" />
+            <div>
+              <h2 className="text-sm font-semibold text-white">Reflect</h2>
+              <p className="text-xs text-zinc-500 mt-0.5">Patterns and discoveries</p>
+            </div>
+            <div className="ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              {digestTopics.length > 0 ? `${digestTopics.length} topics` : 'No insights yet'}
+            </div>
+          </div>
+          <div className="space-y-5">
             <TopicDigestCard
               topics={digestTopics}
               loading={digestLoading}
               error={digestError || undefined}
               onRefresh={() => loadDigest(true)}
             />
-          </motion.div>
-        </div>
+            <div data-tutorial="ai.review">
+              <GoalHistoryCard />
+            </div>
+          </div>
+        </section>
 
-        {/* RIGHT COLUMN */}
-        <div className="lg:col-span-1 space-y-5">
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            <MyPlanCard onPlanningSaved={handlePlanningSaved} />
-          </motion.div>
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            <GoalHistoryCard />
-          </motion.div>
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-            <ContextSummaryCard
-              unfinishedCount={unfinishedCount}
-              completedThisWeek={completedThisWeek}
-              onRefresh={loadContext}
-            />
-          </motion.div>
-        </div>
+        <footer className="pt-6 border-t border-zinc-800/30">
+          <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
+            <span className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/50" />
+              AI-powered daily planning
+            </span>
+            <span className="text-zinc-700">·</span>
+            <span>{mc.desc}</span>
+          </div>
+        </footer>
       </div>
     </div>
   );

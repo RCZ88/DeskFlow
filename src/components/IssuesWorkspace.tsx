@@ -168,46 +168,48 @@ export default function IssuesWorkspace({ projectId, projectPath, projects, onSe
         ))}
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <select
-            value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value)}
-            className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 focus:outline-none focus:border-zinc-600"
-          >
-            <option value="all">All Items</option>
-            <option value="active">Active</option>
-            {Object.entries(activeSubTab === 'problems' ? PROBLEM_STATUS_CONFIG : REQUEST_STATUS_CONFIG).map(([k, v]) => (
-              <option key={k} value={k}>{v.label}</option>
-            ))}
-          </select>
-          
+      {/* Toolbar — only for problems/requests */}
+      {activeSubTab !== 'checklists' && (
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <select
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value)}
+              className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 focus:outline-none focus:border-zinc-600"
+            >
+              <option value="all">All Items</option>
+              <option value="active">Active</option>
+              {Object.entries(activeSubTab === 'problems' ? PROBLEM_STATUS_CONFIG : REQUEST_STATUS_CONFIG).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+            
+            <button
+              onClick={() => setHideFinished(!hideFinished)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all border ${
+                hideFinished
+                  ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+                  : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800'
+              }`}
+              title={hideFinished ? 'Showing active only' : 'Showing all including finished'}
+            >
+              {hideFinished ? (
+                <Eye className="w-3 h-3" />
+              ) : (
+                <EyeOff className="w-3 h-3" />
+              )}
+              <span>{hideFinished ? 'Active' : 'All'}</span>
+            </button>
+          </div>
           <button
-            onClick={() => setHideFinished(!hideFinished)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all border ${
-              hideFinished
-                ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
-                : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800'
-            }`}
-            title={hideFinished ? 'Showing active only' : 'Showing all including finished'}
+            onClick={() => activeSubTab === 'problems' ? setShowNewProblem(true) : setShowNewRequest(true)}
+            className="flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white text-[10px] font-medium rounded-lg transition-all"
           >
-            {hideFinished ? (
-              <Eye className="w-3 h-3" />
-            ) : (
-              <EyeOff className="w-3 h-3" />
-            )}
-            <span>{hideFinished ? 'Active' : 'All'}</span>
+            <Plus className="w-3 h-3" />
+            New {activeSubTab === 'problems' ? 'Problem' : 'Request'}
           </button>
         </div>
-        <button
-          onClick={() => activeSubTab === 'problems' ? setShowNewProblem(true) : setShowNewRequest(true)}
-          className="flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white text-[10px] font-medium rounded-lg transition-all"
-        >
-          <Plus className="w-3 h-3" />
-          New {activeSubTab === 'problems' ? 'Problem' : 'Request'}
-        </button>
-      </div>
+      )}
 
       {/* Content */}
       {activeSubTab === 'problems' && (

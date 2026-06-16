@@ -7,15 +7,15 @@
   "main": "dist-electron/main.cjs",
   "author": "DeskFlow Team",
   "description": "Productivity time tracker for desktop apps and browser",
-  "scripts": {
-    "dev": "vite",
-    "build:renderer": "vite build",
-    "build:electron": "tsc src/main.ts src/preload.ts src/services/AIService.ts src/services/ProblemsService.ts src/services/RequestsService.ts src/services/SkillsService.ts src/services/SkillDSLParser.ts src/services/providers/types.ts src/services/providers/templates.ts src/services/providers/callProvider.ts src/services/providers/router.ts --module commonjs --target ES2020 --esModuleInterop --outDir dist-electron --skipLibCheck && copy dist-electron\\main.js dist-electron\\main.cjs && copy dist-electron\\preload.js dist-electron\\preload.cjs && mkdir dist-electron\\services 2>nul & mkdir dist-electron\\services\\providers 2>nul & copy dist-electron\\services\\AIService.js dist-electron\\services\\AIService.cjs && copy dist-electron\\services\\ProblemsService.js dist-electron\\services\\ProblemsService.cjs && copy dist-electron\\services\\RequestsService.js dist-electron\\services\\RequestsService.cjs && copy dist-electron\\services\\SkillsService.js dist-electron\\services\\SkillsService.cjs && copy dist-electron\\services\\SkillDSLParser.js dist-electron\\services\\SkillDSLParser.cjs && copy dist-electron\\services\\providers\\types.js dist-electron\\services\\providers\\types.cjs && copy dist-electron\\services\\providers\\templates.js dist-electron\\services\\providers\\templates.cjs && copy dist-electron\\services\\providers\\callProvider.js dist-electron\\services\\providers\\callProvider.cjs && copy dist-electron\\services\\providers\\router.js dist-electron\\services\\providers\\router.cjs && node fix-cjs-requires.cjs",
-    "build": "npm run build:renderer && npm run build:electron",
-    "start": "electron .",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
+    "scripts": {
+     "dev": "vite",
+     "build:renderer": "vite build",
+      "build:electron": "tsc src/main.ts src/preload.ts src/services/AIService.ts src/services/ProblemsService.ts src/services/RequestsService.ts src/services/SkillsService.ts src/services/SkillDSLParser.ts src/services/AgentHostService.ts src/services/providers/types.ts src/services/providers/templates.ts src/services/providers/callProvider.ts src/services/providers/router.ts --module commonjs --target ES2020 --esModuleInterop --downlevelIteration --outDir dist-electron --skipLibCheck && copy dist-electron\\main.js dist-electron\\main.cjs && copy dist-electron\\preload.js dist-electron\\preload.cjs && mkdir dist-electron\\services 2>nul & mkdir dist-electron\\services\\providers 2>nul & copy dist-electron\\services\\AIService.js dist-electron\\services\\AIService.cjs && copy dist-electron\\services\\ProblemsService.js dist-electron\\services\\ProblemsService.cjs && copy dist-electron\\services\\RequestsService.js dist-electron\\services\\RequestsService.cjs && copy dist-electron\\services\\SkillsService.js dist-electron\\services\\SkillsService.cjs && copy dist-electron\\services\\SkillDSLParser.js dist-electron\\services\\SkillDSLParser.cjs && copy dist-electron\\services\\AgentHostService.js dist-electron\\services\\AgentHostService.cjs && copy dist-electron\\services\\providers\\types.js dist-electron\\services\\providers\\types.cjs && copy dist-electron\\services\\providers\\templates.js dist-electron\\services\\providers\\templates.cjs && copy dist-electron\\services\\providers\\callProvider.js dist-electron\\services\\providers\\callProvider.cjs && copy dist-electron\\services\\providers\\router.js dist-electron\\services\\providers\\router.cjs && node scripts\\write-lazy-main.cjs",
+      "build": "npm run build:renderer && npm run build:electron",
+     "start": "electron .",
+     "lint": "eslint .",
+     "preview": "vite preview"
+   },
   "build": {
     "appId": "com.deskflow.app",
     "productName": "DeskFlow",
@@ -27,7 +27,7 @@
       "dist-electron/**/*"
     ],
     "extraMetadata": {
-      "main": "dist-electron/main.cjs"
+"main": "dist-electron/main.cjs"
     },
     "asar": true,
     "asarUnpack": [
@@ -107,3 +107,5 @@
     "vite": "^7.3.1"
   }
 }
+
+

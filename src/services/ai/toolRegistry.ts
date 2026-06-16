@@ -1,0 +1,166 @@
+import type { AiTool, ToolParameter } from './types'
+import { securityGuard } from './securityGuard'
+
+const api = (window as any).deskflowAPI
+
+function p(type: ToolParameter['type'], description: string, extra?: Partial<ToolParameter>): ToolParameter {
+  return { type, description, ...extra }
+}
+
+export class ToolRegistry {
+  private tools = new Map<string, AiTool>()
+
+  register(tool: AiTool) {
+    this.tools.set(tool.name, tool)
+  }
+
+  get(name: string): AiTool | undefined {
+    return this.tools.get(name)
+  }
+
+  getAll(): AiTool[] {
+    return Array.from(this.tools.values())
+  }
+
+  getByCategory(category: string): AiTool[] {
+    return this.getAll().filter(t => t.category === category)
+  }
+
+  getOpenAISpecs(): Array<{
+    type: 'function'
+    function: { name: string; description: string; parameters: any }
+  }> {
+    return this.getAll().map(tool => ({
+      type: 'function' as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: {
+          type: 'object',
+          properties: this.toOpenAIProps(tool.parameters),
+          required: Object.entries(tool.parameters)
+            .filter(([_, p]) => p.required)
+            .map(([k, _]) => k),
+        },
+      },
+    }))
+  }
+
+  async execute(name: string, args: Record<string, any>): Promise<any> {
+    const tool = this.tools.get(name)
+    if (!tool) throw new Error(`Unknown tool: ${name}`)
+
+    if (!securityGuard.isLevelAllowed(tool.securityLevel)) {
+      throw new Error(`Tool ${name} requires ${tool.securityLevel} access`)
+    }
+
+    const rateCheck = securityGuard.checkRateLimit()
+    if (!rateCheck.allowed) throw new Error(rateCheck.reason)
+
+    const validation = securityGuard.validateParams(args, tool.parameters)
+    if (!validation.valid) throw new Error(validation.error)
+
+    return securityGuard.audited(name, args, () => tool.handler(args))
+  }
+
+  private toOpenAIProps(params: Record<string, ToolParameter>): Record<string, any> {
+    const props: Record<string, any> = {}
+    for (const [key, def] of Object.entries(params)) {
+      props[key] = {
+        type: def.type,
+        description: def.description,
+        ...(def.enum ? { enum: def.enum } : {}),
+        ...(def.properties ? { properties: this.toOpenAIProps(def.properties) } : {}),
+        ...(def.items ? { items: { type: def.items.type, description: def.items.description } } : {}),
+      }
+    }
+    return props
+  }
+}
+
+export const toolRegistry = new ToolRegistry()
+
+function wrap<T>(fn: (...args: any[]) => Promise<T>): (params: Record<string, any>) => Promise<T> {
+  return async (params: Record<string, any>) => fn(...Object.values(params))
+}
+
+function registerAll() {
+  const r = (name: string, description: string, params: Record<string, ToolParameter>, level: 'read' | 'confirm' | 'admin', category: string, handler: (p: Record<string, any>) => Promise<any>) => {
+    toolRegistry.register({ name, description, parameters: params, securityLevel: level, category, handler })
+  }
+
+  // ========== Goals ==========
+  r('getGoals', 'Get goals for a specific date', { date: p('string', 'Date string YYYY-MM-DD', { required: true }) }, 'read', 'goals', p => api.getGoals(p.date))
+  r('getGoalsBatch', 'Get goals for a date range', { startDate: p('string', 'Start date YYYY-MM-DD', { required: true }), endDate: p('string', 'End date YYYY-MM-DD', { required: true }) }, 'read', 'goals', p => api.getGoalsBatch(p.startDate, p.endDate))
+  r('getLongtermGoals', 'Get long-term goals', {}, 'read', 'goals', () => api.getLongtermGoals())
+  r('saveGoal', 'Create or update a daily goal', { date: p('string', 'Date YYYY-MM-DD', { required: true }), goal: p('object', 'Goal object with id, text, etc.', { required: true }) }, 'confirm', 'goals', p => api.saveGoal(p.date, p.goal))
+  r('deleteGoal', 'Delete a goal by ID', { goalId: p('string', 'Goal ID to delete', { required: true }) }, 'confirm', 'goals', p => api.deleteGoal(p.goalId))
+  r('saveGoalReview', 'Save a goal review summary', { date: p('string', 'Date YYYY-MM-DD', { required: true }), reviewSummary: p('string', 'Review summary text', { required: true }) }, 'confirm', 'goals', p => api.saveGoalReview(p.date, p.reviewSummary))
+  r('getGoalContext', 'Get goal context for AI', {}, 'read', 'goals', () => api.getGoalContext())
+
+  // ========== Projects ==========
+  r('getProjects', 'Get all projects (non-deleted)', {}, 'read', 'projects', () => api.getProjects())
+  r('getAllProjects', 'Get ALL projects including deleted', {}, 'read', 'projects', () => api.getAllProjects())
+  r('getProjectDetails', 'Get detailed project info', { projectId: p('string', 'Project ID', { required: true }) }, 'read', 'projects', p => api.getProjectDetails(p.projectId))
+  r('addProject', 'Create a new project', { name: p('string', 'Project name', { required: true }), path: p('string', 'File system path', { required: true }), repositoryUrl: p('string', 'Optional git URL'), vcsType: p('string', 'VCS type (git etc)'), primaryLanguage: p('string', 'Primary programming language'), defaultIde: p('string', 'Default IDE ID') }, 'confirm', 'projects', p => api.addProject(p))
+  r('updateProject', 'Update project fields', { projectId: p('string', 'Project ID', { required: true }), name: p('string', 'New name'), path: p('string', 'New path'), repositoryUrl: p('string', 'Git URL'), vcsType: p('string', 'VCS type'), primaryLanguage: p('string', 'Language'), defaultIde: p('string', 'IDE ID') }, 'confirm', 'projects', p => api.updateProject(p.projectId, p))
+  r('deleteProject', 'Soft-delete a project', { projectId: p('string', 'Project ID', { required: true }) }, 'confirm', 'projects', p => api.deleteProject(p.projectId))
+  r('restoreProject', 'Restore a deleted project', { projectId: p('string', 'Project ID', { required: true }) }, 'confirm', 'projects', p => api.restoreProject(p.projectId))
+  r('openProject', 'Open a project in its IDE', { projectId: p('string', 'Project ID', { required: true }), ideId: p('string', 'Optional specific IDE ID') }, 'confirm', 'projects', p => api.openProject(p.projectId, p.ideId))
+  r('calculateProjectHealth', 'Calculate project health score', { projectId: p('string', 'Project ID', { required: true }) }, 'read', 'projects', p => api.calculateProjectHealth(p.projectId))
+  r('getCommitStats', 'Get commit statistics for project(s)', { projectId: p('string', 'Optional project ID'), period: p('string', '"week" or "month"') }, 'read', 'projects', p => api.getCommitStats(p.projectId, p.period))
+
+  // ========== External Activities ==========
+  r('getExternalActivities', 'Get all external activities', {}, 'read', 'external', () => api.getExternalActivities())
+  r('addExternalActivity', 'Create an external activity', { name: p('string', 'Activity name', { required: true }), type: p('string', 'Activity type', { required: true }), color: p('string', 'Hex color'), icon: p('string', 'Icon identifier'), default_duration: p('number', 'Default duration in minutes') }, 'confirm', 'external', p => api.addExternalActivity(p))
+  r('updateExternalActivity', 'Update an external activity', { id: p('string', 'Activity ID', { required: true }), name: p('string', 'New name'), type: p('string', 'New type'), color: p('string', 'New hex color'), icon: p('string', 'New icon'), default_duration: p('number', 'Default duration mins'), is_visible: p('boolean', 'Visibility'), is_default: p('boolean', 'Is default') }, 'confirm', 'external', p => api.updateExternalActivity(p.id, p))
+  r('deleteExternalActivity', 'Delete an external activity', { id: p('string', 'Activity ID to delete', { required: true }) }, 'confirm', 'external', p => api.deleteExternalActivity(p.id))
+  r('startExternalSession', 'Start tracking an external activity', { activityId: p('string', 'Activity ID to start', { required: true }) }, 'confirm', 'external', p => api.startExternalSession(p.activityId))
+  r('stopExternalSession', 'Stop tracking an external session', { sessionId: p('string', 'Session ID', { required: true }), endTime: p('string', 'Optional end time ISO string') }, 'confirm', 'external', p => api.stopExternalSession(p.sessionId, p.endTime))
+  r('getExternalSessions', 'Get external sessions for a period', { period: p('string', '"today", "week", "month", or "all"', { required: true }) }, 'read', 'external', p => api.getExternalSessions(p.period))
+  r('getExternalStats', 'Get external activity stats', { period: p('string', '"today", "week", "month", or "all"', { required: true }) }, 'read', 'external', p => api.getExternalStats(p.period))
+  r('addExternalTime', 'Manually add time to an activity', { activityId: p('string', 'Activity ID', { required: true }), durationMinutes: p('number', 'Duration in minutes', { required: true }), started_at: p('string', 'Start time ISO string'), ended_at: p('string', 'End time ISO string') }, 'confirm', 'external', p => api.addExternalTime(p.activityId, p.durationMinutes, p.started_at, p.ended_at))
+  r('getActiveExternalSession', 'Get currently active external session', {}, 'read', 'external', () => api.getActiveExternalSession())
+
+  // ========== Sleep ==========
+  r('getSleepForDate', 'Get sleep data for a date', { dateStr: p('string', 'Date string YYYY-MM-DD', { required: true }) }, 'read', 'sleep', p => api.getSleepForDate(p.dateStr))
+  r('addManualSleep', 'Add manual sleep entry', { started_at: p('string', 'Start time ISO', { required: true }), ended_at: p('string', 'End time ISO', { required: true }) }, 'confirm', 'sleep', p => api.addManualSleep(p))
+  r('updateManualSleep', 'Update a manual sleep entry', { sessionId: p('string', 'Session ID', { required: true }), started_at: p('string', 'Start time ISO', { required: true }), ended_at: p('string', 'End time ISO', { required: true }) }, 'confirm', 'sleep', p => api.updateManualSleep(p.sessionId, p))
+  r('getSleepTrends', 'Get sleep trends data', { period: p('string', '"today", "week", "month", "all"', { required: true }), dateOffset: p('number', 'Days offset from today') }, 'read', 'sleep', p => api.getSleepTrends(p.period, p.dateOffset))
+
+  // ========== Preferences ==========
+  r('getPreferences', 'Get all user preferences', {}, 'read', 'settings', () => api.getPreferences())
+  r('setPreference', 'Set a user preference', { key: p('string', 'Preference key', { required: true }), value: p('string', 'Preference value (JSON string)', { required: true }) }, 'confirm', 'settings', p => api.setPreference(p.key, p.value))
+  r('getExternalSettings', 'Get external settings value', { key: p('string', 'Settings key', { required: true }) }, 'read', 'settings', p => api.getExternalSettings(p.key))
+  r('setExternalSettings', 'Set external settings value', { key: p('string', 'Settings key', { required: true }), value: p('string', 'Settings value', { required: true }) }, 'confirm', 'settings', p => api.setExternalSettings(p.key, p.value))
+
+  // ========== Category Config ==========
+  r('getCategoryConfig', 'Get category configuration', {}, 'read', 'categories', () => api.getCategoryConfig())
+  r('getTierAssignments', 'Get tier assignments for apps/domains', {}, 'read', 'categories', () => api.getTierAssignments())
+  r('setAppCategory', 'Set category for an app', { appName: p('string', 'App name', { required: true }), category: p('string', 'Category name', { required: true }) }, 'confirm', 'categories', p => api.setAppCategory(p.appName, p.category))
+  r('setDomainCategory', 'Set category for a domain', { domain: p('string', 'Domain name', { required: true }), category: p('string', 'Category name', { required: true }) }, 'confirm', 'categories', p => api.setDomainCategory(p.domain, p.category))
+  r('setAppTier', 'Set productivity tier for an app', { appName: p('string', 'App name', { required: true }), tier: p('string', '"productive", "neutral", or "distracting"', { required: true, enum: ['productive', 'neutral', 'distracting'] }) }, 'confirm', 'categories', p => api.setAppTier(p.appName, p.tier))
+  r('setDomainTier', 'Set productivity tier for a domain', { domain: p('string', 'Domain name', { required: true }), tier: p('string', '"productive", "neutral", or "distracting"', { required: true, enum: ['productive', 'neutral', 'distracting'] }) }, 'confirm', 'categories', p => api.setDomainTier(p.domain, p.tier))
+  r('setTierAssignments', 'Bulk set tier assignments', { assignments: p('object', '{ productive: string[], neutral: string[], distracting: string[] }', { required: true }) }, 'confirm', 'categories', p => api.setTierAssignments(p.assignments))
+
+  // ========== IDE / Terminal ==========
+  r('getIDEProjectsOverview', 'Get IDE projects overview', { period: p('string', 'Period string'), dateOffset: p('number', 'Days offset') }, 'read', 'ide', p => api.getIDEProjectsOverview(p.period, p.dateOffset))
+  r('getTerminalSessions', 'Get terminal sessions', { projectId: p('string', 'Optional project ID'), limit: p('number', 'Max sessions') }, 'read', 'ide', p => api.getTerminalSessions(p.projectId, p.limit))
+
+  // ========== Problems ==========
+  r('getProblems', 'Get problems for a project', { projectId: p('string', 'Optional project ID'), projectPath: p('string', 'Optional project path') }, 'read', 'problems', p => api.getProblems(p.projectId, p.projectPath))
+  r('updateProblemStatus', 'Update a problem status', { problemId: p('string', 'Problem ID', { required: true }), status: p('string', 'New status', { required: true }) }, 'confirm', 'problems', p => api.updateProblemStatus({ problemId: p.problemId, status: p.status }))
+  r('deleteProblem', 'Delete a problem', { problemId: p('string', 'Problem ID', { required: true }) }, 'confirm', 'problems', p => api.deleteProblem(p.problemId))
+
+  // ========== Recording ==========
+  r('getRecordingModes', 'Get current recording modes', {}, 'read', 'recording', () => api.getRecordingModes())
+  r('setRecordingMode', 'Set recording mode for browser or app', { type: p('string', '"browser" or "app"', { required: true, enum: ['browser', 'app'] }), mode: p('string', '"always" or "on-view"', { required: true, enum: ['always', 'on-view'] }) }, 'confirm', 'recording', p => api.setRecordingMode(p.type, p.mode))
+
+  // ========== Browser Stats ==========
+  r('getBrowserCategoryStats', 'Get browser stats by category', { period: p('string', 'Period string', { required: true }), dateOffset: p('number', 'Days offset') }, 'read', 'stats', p => api.getBrowserCategoryStats(p.period, p.dateOffset))
+
+  // ========== AI Context ==========
+  r('getAiContext', 'Get AI context for agent', { projectId: p('string', 'Optional project ID'), since: p('string', 'ISO date filter'), limit: p('number', 'Max entries') }, 'read', 'ai', p => api.getAiContext(p))
+}
+
+registerAll()

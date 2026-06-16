@@ -586,25 +586,6 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     }]
   };
 
-  if (loading) {
-    return <PageShell page="browser"><LoadingState variant="spinner" className="py-24" /></PageShell>;
-  }
-
-  if (error) {
-    return (
-      <PageShell page="browser">
-        <GlassCard>
-          <div className="text-center py-8">
-            <AlertCircle className="mx-auto w-12 h-12 mb-4 text-red-500" />
-            <div className="text-red-400 font-medium">Error loading browser data</div>
-            <div className="text-sm text-zinc-500 mt-2">{error}</div>
-            <button onClick={fetchData} className="mt-4 px-4 py-2 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-sm transition">Retry</button>
-          </div>
-        </GlassCard>
-      </PageShell>
-    );
-  }
-
   // Total browser time
   const totalBrowserTime = domainStats.reduce((sum, d) => sum + d.total_ms, 0);
   const totalSessions = domainStats.reduce((sum, d) => sum + d.sessions, 0);
@@ -684,6 +665,25 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     { key: '30day', label: '30 Day' },
     { key: 'all', label: 'All' },
   ];
+
+  if (loading) {
+    return <PageShell page="browser"><LoadingState variant="spinner" className="py-24" /></PageShell>;
+  }
+
+  if (error) {
+    return (
+      <PageShell page="browser">
+        <GlassCard>
+          <div className="text-center py-8">
+            <AlertCircle className="mx-auto w-12 h-12 mb-4 text-red-500" />
+            <div className="text-red-400 font-medium">Error loading browser data</div>
+            <div className="text-sm text-zinc-500 mt-2">{error}</div>
+            <button onClick={fetchData} className="mt-4 px-4 py-2 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-sm transition">Retry</button>
+          </div>
+        </GlassCard>
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell page="browser">

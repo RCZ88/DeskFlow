@@ -1,8 +1,8 @@
 ﻿# PROBLEMS.md
 
 > **Purpose:** Issue tracker for AI agents and humans ΓÇö all known bugs, feature requests, and their resolution status.
-> **Last Updated:** 2026-06-06 (AiPage fixes round 2: credit fallback, cache migration, visual polish)
-> **Total Issues:** 113
+> **Last Updated:** 2026-06-15 (Stale DB connection fix)
+> **Total Issues:** 117
 > **Parse Priority:** High
 
 ---
@@ -14,7 +14,7 @@
 | NEW | 0 |
 | Not Started | 0 |
 | In Progress | 0 |
-| AI Attempted Fix | 0 |
+| AI Attempted Fix | 1 |
 | User Testing | 0 |
 | Fixed | ~110 |
 
@@ -751,3 +751,80 @@
    3. `main.ts` — Added old cache format migration on read: when loading a cached brief, detects `{ summary: object }` format and unwraps it automatically.
    4. `AiPage.tsx` — `fallbackParseDailyBrief` now unwraps old `{ summary: object }` format for backward compatibility with stale cached data.
 - **Files:** `src/main.ts`, `src/components/AiBriefCard.tsx`, `src/pages/AiPage.tsx`
+
+---
+
+## 🚦 Terminal Spawn + Agent Readiness — R2 Fixes (Applied)
+
+### Issue #152: spawnTerminal() drops agentType argument
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **Root Cause:** `spawnTerminal()` at TerminalPage.tsx:1435 accepted `(terminalId, cwd?)` and dropped the 3rd arg — agentType always defaulted to `'opencode'` in main process.
+- **Fix:** Added `agentType?: string` param forwarded to `spawn-terminal` IPC call.
+- **Files:** `src/pages/TerminalPage.tsx`
+
+### Issue #153: Initial terminal spawn has no 30s timeout
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **Root Cause:** `startAgentTimeout()` was only called in `agent:retry-launch` handler, not in initial `terminal:create` or `spawn-terminal` handlers.
+- **Fix:** Added `startAgentTimeout(id, type)` after each `agentStates.set()` in both spawn handlers. Added `clearAgentTimeout(id)` before sets.
+- **Files:** `src/main.ts`
+
+### Issue #154: terminal-exit vs terminal:exit event name mismatch
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **Root Cause:** preload.ts:276 listened for `'terminal-exit'` (hyphen), main process sent `'terminal:exit'` (colon). Exit events never reached renderer.
+- **Fix:** Changed to `'terminal:exit'` in preload. Added `isDead` state + dead overlay with "Click to re-spawn" in TerminalWindow.tsx. Added `re-spawn-terminal` handler in TerminalPage.tsx.
+- **Files:** `src/preload.ts`, `src/components/TerminalWindow.tsx`, `src/pages/TerminalPage.tsx`
+
+### Issue #155: Retry dialog hardcodes agent types instead of using actual type
+- **Status:** AI Attempted Fix
+- **Priority:** Medium
+- **Root Cause:** Error banner retry logic used `err.reason === 'not-recognized' ? 'opencode' : 'claude'` instead of the actual agentType from the error payload.
+- **Fix:** Added `agentType` to `AgentInitErrorInfo` interface and `onAgentInitError` callback type. Retry button uses `err.agentType`.
+- **Files:** `src/pages/TerminalPage.tsx`, `src/preload.ts`
+
+### Issue #156: pendingWrites lost when terminal killed
+- **Status:** AI Attempted Fix
+- **Priority:** Medium
+- **Root Cause:** No cleanup of queued `pendingWrites` when terminal was killed or destroyed — writes silently disappeared.
+- **Fix:** Added `failPendingWrites()` helper that marks DB rows as `'failed'` and broadcasts `terminal:pending-failed`. Called from `kill-terminal`, `terminal:destroy-old-format`, and `terminal:destroy` handlers.
+- **Files:** `src/main.ts`
+
+### Issue #157: Handshake token has no bracketed paste awareness
+- **Status:** AI Attempted Fix
+- **Priority:** Low
+- **Root Cause:** Handshake token written as raw text; some agents require bracketed paste wrapping (`\x1b[200~`/`\x1b[201~`) to preserve token integrity.
+- **Fix:** `agent:arm-handshake` handler returns `bracketedPaste` boolean. Renderer conditionally wraps token in bracketed paste sequences.
+- **Files:** `src/main.ts`, `src/components/TerminalWindow.tsx`
+
+### Issue #158: Triple write path causes inconsistent behavior
+- **Status:** AI Attempted Fix
+- **Priority:** Medium
+- **Root Cause:** Three write paths (`terminalWrite` → `terminal:write-old-format`, `writeTerminal` → `write-terminal`, `agentSend` → `agent:send`) with inconsistent queuing, DB persistence, and phase awareness.
+- **Fix:** Made `terminal:write-old-format` phase-aware — checks `agentStates` and queues to `pendingWrites` during `launching`/`busy` phases. Routes all agent-directed content through queuing path.
+- **Files:** `src/main.ts`
+
+### Issue #159: Browser Activity Page Crashes With React Error #310
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User said:** "when accessing the browser activity page, theres this error: Uncaught Error: Minified React error #310"
+- **Root Cause:** `BrowserActivityPage.tsx` returned early for `loading` and `error` before later `useMemo` hooks (`detailDomainLogs`, `detailDailyChart`, `PERIOD_OPTIONS`) were declared. That changed hook order between the initial loading render and the loaded render, which triggers React's production hook-order invariant.
+- **Fix:** Moved the `loading` and `error` returns below the remaining hooks so the component calls the same hook sequence on every render.
+- **Files:** `src/pages/BrowserActivityPage.tsx`
+
+### Issue #160: TerminalPage useCallback TDZ — "Cannot access 'Dc' before initialization"
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User said:** "Cannot access 'Dc' before initialization" when workspace tries to open
+- **Root Cause:** `handleMiniMapMoveToGroup` useCallback referenced `handleTerminalMoveToGroup` in its dependency array `[handleTerminalMoveToGroup]`, but `handleTerminalMoveToGroup` (a `const`) was declared 4 lines later. React evaluates dependency arrays in source order during render, triggering the Temporal Dead Zone.
+- **Fix:** Swapped the two useCallback declarations so `handleTerminalMoveToGroup` is defined before `handleMiniMapMoveToGroup`.
+- **Files:** `src/pages/TerminalPage.tsx`
+
+### Issue #161: Stale DB connection shows empty data after AFK
+- **Status:** AI Attempted Fix
+- **Priority:** Medium
+- **User said:** "Fix the bug where after being AFK for a while, the app data becomes unloaded/empty, appearing disconnected from the database"
+- **Root Cause:** Single global `better-sqlite3` connection is never reopened. After system sleep/resume the file handle can become invalid, causing IPC handlers to silently return `[]` with no error indicator. The renderer had no periodic health check and no reconnection mechanism.
+- **Fix:** (1) Added WAL mode + busy_timeout to DB initialization. (2) Added `ensureDb()` health-check function that closes stale connections and re-opens. (3) Added `withDb<T>()` wrapper for automatic reconnection on IPC queries. (4) Wrapped 5 critical IPC handlers with `ensureDb()`. (5) Added 30s periodic health-check + visibilitychange refresh in `App.tsx` with `dbConnected` state and yellow "Reconnecting..." indicator badge.
+- **Files:** `src/App.tsx`, `src/main.ts`

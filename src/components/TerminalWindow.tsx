@@ -99,6 +99,7 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const [isDead, setIsDead] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current || terminalRef.current) return;
@@ -159,11 +160,8 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
 
     terminal.write('\x1b[33mStarting shell...\x1b[0m\r\n');
 
-    console.log('[DEBUG:TW] TerminalPane mounted, scheduling onTerminalReady in 100ms:', terminalId);
-    setTimeout(() => {
-      console.log('[DEBUG:TW] Calling onTerminalReady:', terminalId);
-      onTerminalReady(terminalId);
-    }, 100);
+    console.log('[DEBUG:TW] TerminalPane mounted, calling onTerminalReady:', terminalId);
+    onTerminalReady(terminalId);
 
     return () => {
       terminal.dispose();
@@ -204,11 +202,14 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
       if (id === terminalId && terminalRef.current) {
         terminalRef.current.write(`\r\n\x1b[31mProcess exited with code ${exitCode}\x1b[0m\r\n`);
         terminalReadyStates.set(terminalId, false);
+        setIsDead(true);
+        window.dispatchEvent(new CustomEvent('terminal:crashed', { detail: { terminalId: id, exitCode } }));
       }
     });
 
     const cleanupReady = window.deskflowAPI.onTerminalReady?.((id) => {
       if (id === terminalId) {
+        setIsDead(false);
         terminalReadyStates.set(terminalId, true);
         const buffer = inputBuffers.get(terminalId) || [];
         buffer.forEach((bufferedData) => {
@@ -307,6 +308,15 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <span className="text-[10px] text-amber-400 font-medium">Agent failed. Click to retry.</span>
+        </div>
+      )}
+      {isDead && (
+        <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-zinc-900/90 backdrop-blur-sm rounded-full px-2.5 py-1 z-10 cursor-pointer"
+             onClick={() => window.dispatchEvent(new CustomEvent('re-spawn-terminal', { detail: { terminalId } }))}>
+          <svg className="w-2.5 h-2.5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span className="text-[10px] text-red-400 font-medium">Process crashed. Click to re-spawn.</span>
         </div>
       )}
     </div>

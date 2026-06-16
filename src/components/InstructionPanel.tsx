@@ -33,6 +33,7 @@ interface InstructionConfig {
   instruction: string;
   prompt: string;
   systemPromptIncluded?: boolean;
+  agent?: string;
 }
 
 interface SystemPromptLayer {

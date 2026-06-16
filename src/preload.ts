@@ -89,6 +89,12 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Set user preference
   setPreference: (key: string, value: any) => ipcRenderer.invoke('set-preference', key, value),
 
+  // Get custom AI agent storage paths
+  getAIAgentCustomPaths: () => ipcRenderer.invoke('get-ai-agent-custom-paths'),
+
+  // Set custom path for an AI agent plugin
+  setAIAgentCustomPath: (pluginId: string, dirPath: string) => ipcRenderer.invoke('set-ai-agent-custom-path', pluginId, dirPath),
+
   // Browser tracking methods (optional period filter and dateOffset)
   getBrowserLogs: (period: string, dateOffset = 0) => ipcRenderer.invoke('get-browser-logs', period, dateOffset),
 
@@ -102,6 +108,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getRecordingModes: () => ipcRenderer.invoke('get-recording-modes'),
   setPageVisibility: (page: 'browser' | 'dashboard', visible: boolean) => ipcRenderer.invoke('set-page-visibility', { page, visible }),
   setBrowserWithExtension: (browser: string) => ipcRenderer.invoke('set-browser-with-extension', browser),
+
+  // Game detection - rescan Steam library
+  rescanGames: () => ipcRenderer.invoke('rescan-games'),
 
   // Get tracked browsers (apps categorized as Browser)
   getTrackedBrowsers: () => ipcRenderer.invoke('get-tracked-browsers'),
@@ -215,6 +224,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // Tool Detection
   scanTools: () => ipcRenderer.invoke('scan-tools'),
+  resetTools: () => ipcRenderer.invoke('reset-tools'),
   getTools: (category?: string) => ipcRenderer.invoke('get-tools', category),
   getToolCategories: () => ipcRenderer.invoke('get-tool-categories'),
 
@@ -235,15 +245,16 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   scanCustomDirectory: (rootDir: string) => ipcRenderer.invoke('scan-custom-directory', rootDir),
 
   // AI & Git Metrics
-  getAIUsageSummary: (period?: 'day' | 'week' | 'month') => ipcRenderer.invoke('get-ai-usage-summary', period),
+  getAIUsageSummary: (period?: string, dateOffset?: number) => ipcRenderer.invoke('get-ai-usage-summary', period, dateOffset),
   getCommitStats: (projectId?: string, period?: 'week' | 'month') => ipcRenderer.invoke('get-commit-stats', projectId, period),
 
   // Dashboard Overview
-  getIDEProjectsOverview: () => ipcRenderer.invoke('get-ide-projects-overview'),
+  getIDEProjectsOverview: (period?: string, dateOffset?: number) => ipcRenderer.invoke('get-ide-projects-overview', period, dateOffset),
 
   // AI Usage Sync
   syncAIUsage: () => ipcRenderer.invoke('sync-ai-usage'),
   getAISyncStatus: () => ipcRenderer.invoke('get-ai-sync-status'),
+  clearAISyncState: () => ipcRenderer.invoke('clear-ai-sync-state'),
   debugAIAgents: () => ipcRenderer.invoke('debug-ai-agents'),
   onAISyncProgress: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
@@ -262,6 +273,12 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // ========== Terminal Window ==========
   createTerminalWindow: () => ipcRenderer.invoke('create-terminal-window'),
+  sendTerminalCommand: (cmd: string) => ipcRenderer.send('terminal-command', cmd),
+  onTerminalOutput: (callback: (data: string) => void) => {
+    const handler = (_event: any, data: string) => callback(data);
+    ipcRenderer.on('terminal-output', handler);
+    return () => ipcRenderer.removeListener('terminal-output', handler);
+  },
   spawnTerminal: (terminalId: string, cwd?: string, agentType?: string) => ipcRenderer.invoke('spawn-terminal', terminalId, cwd, agentType),
   writeTerminal: (terminalId: string, data: string) => ipcRenderer.invoke('write-terminal', terminalId, data),
   resizeTerminal: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke('resize-terminal', terminalId, cols, rows),
@@ -273,8 +290,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   },
   onTerminalExit: (callback: (terminalId: string, exitCode: number, signal: string) => void) => {
     const handler = (_event: any, terminalId: string, exitCode: number, signal: string) => callback(terminalId, exitCode, signal);
-    ipcRenderer.on('terminal-exit', handler);
-    return () => ipcRenderer.removeListener('terminal-exit', handler);
+    ipcRenderer.on('terminal:exit', handler);
+    return () => ipcRenderer.removeListener('terminal:exit', handler);
   },
 
   // Consolidated Terminal API (new format — single arg objects)
@@ -308,8 +325,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.on('agent:idle', handler);
     return () => ipcRenderer.removeListener('agent:idle', handler);
   },
-  onAgentInitError: (callback: (data: { terminalId: string; reason: string; detail: string; installHint: string }) => void) => {
-    const handler = (_event: any, data: { terminalId: string; reason: string; detail: string; installHint: string }) => callback(data);
+  onAgentInitError: (callback: (data: { terminalId: string; agentType: string; reason: string; detail: string; installHint?: string; hint?: string }) => void) => {
+    const handler = (_event: any, data: { terminalId: string; agentType: string; reason: string; detail: string; installHint?: string; hint?: string }) => callback(data);
     ipcRenderer.on('agent:init-error', handler);
     return () => ipcRenderer.removeListener('agent:init-error', handler);
   },
@@ -446,6 +463,10 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   setExternalSettings: (key: string, value: string) => ipcRenderer.invoke('set-external-settings', key, value),
   getTrackingSettings: () => ipcRenderer.invoke('get-tracking-settings'),
   setTrackingSetting: (key: string, value: string) => ipcRenderer.invoke('set-tracking-setting', key, value),
+  
+  // ========== Window State ==========
+  getWindowState: () => ipcRenderer.invoke('get-window-state'),
+  resetWindowState: () => ipcRenderer.invoke('reset-window-state'),
    getTypicalDay: (days?: number, dateOffset?: number) => ipcRenderer.invoke('get-typical-day', days, dateOffset),
    getTypicalActivityAtTime: (timestamp: string) => ipcRenderer.invoke('get-typical-activity-at-time', timestamp),
    detectUsageGaps: (options?: { period?: string; minGapMinutes?: number }) => ipcRenderer.invoke('detect-usage-gaps', options || {}),
@@ -456,15 +477,18 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
    // ========== Workspace Save/Load ==========
    saveWorkspace: (data: {
-     scope: 'session' | 'project' | 'global';
-     projectId?: string;
-     name?: string;
-     layout?: any;
-     openFiles?: string[];
-     activeTerminalId?: string;
-     todos?: any[];
-     presets?: any[];
-   }) => ipcRenderer.invoke('workspace:save', data),
+      scope: 'session' | 'project' | 'global';
+      projectId?: string;
+      name?: string;
+      sidebarWidth?: number;
+      activeTab?: string;
+      terminalTabs?: string[];
+      layout?: any;
+      openFiles?: string[];
+      activeTerminalId?: string | null;
+      todos?: any[];
+      presets?: any[];
+    }) => ipcRenderer.invoke('workspace:save', data),
     loadWorkspace: (data: {
       scope: 'session' | 'project' | 'global';
       projectId?: string;
@@ -674,7 +698,10 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   saveAiProviders: (state: any) => ipcRenderer.invoke('save-ai-providers', state),
   testAiProvider: (providerId: string) => ipcRenderer.invoke('test-ai-provider', providerId),
   getGoals: (date: string) => ipcRenderer.invoke('get-goals', date),
+  getGoalsBatch: (startDate: string, endDate: string) => ipcRenderer.invoke('get-goals-batch', startDate, endDate),
+  getLongtermGoals: () => ipcRenderer.invoke('get-longterm-goals'),
   saveGoal: (date: string, goal: any) => ipcRenderer.invoke('save-goal', date, goal),
+  deleteGoal: (goalId: string) => ipcRenderer.invoke('delete-goal', goalId),
   saveGoalReview: (date: string, reviewSummary: string) => ipcRenderer.invoke('save-goal-review', date, reviewSummary),
   getGoalContext: () => ipcRenderer.invoke('get-goal-context'),
   parseGoalFeedback: (data: { message: string; goals: string[] }) => ipcRenderer.invoke('parse-goal-feedback', data),
@@ -684,4 +711,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Planning.md
   readPlanningMd: () => ipcRenderer.invoke('read-planning-md'),
   writePlanningMd: (content: string) => ipcRenderer.invoke('write-planning-md', content),
+
+  // Feature Specs
+  writeFeatureSpecFile: (content: string) => ipcRenderer.invoke('write-feature-spec-file', content),
 });
