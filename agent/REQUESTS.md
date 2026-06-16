@@ -729,3 +729,54 @@ Also: "WHY IS THE APP ECOSYSTEM NOT FOLLOWING THE FUCKING TOP NAV TIME SELECTION
 
 ---
 
+### Request #049 - NVIDIA Nemotron 3.5 Content Safety Model as AI Response Security Layer
+
+**Status:** Pending
+**Priority:** High
+**Category:** Feature / Security
+**Created:** 2026-06-17
+
+**Request:**
+"Add NVIDIA Nemotron 3.5 Content Safety model (free on OpenRouter: `nvidia/nemotron-3.5-content-safety:free`) as an additional security layer for AI assistant responses. This model should check both the LLM's response AND any tool calls before they're executed, acting as a content safety filter on top of the existing 4-tier permission system."
+
+**Details:**
+- Model: `nvidia/nemotron-3.5-content-safety:free` (free tier on OpenRouter)
+- Purpose: Content safety classification for AI responses and tool calls
+- Integration point: After LLM generates response with tool calls, before tool execution and before showing response to user
+- Checks: 
+  - LLM response content for harmful/unsafe content
+  - Tool call parameters for dangerous operations
+  - Tool results before returning to user
+- This adds a second layer on top of the existing securityGuard (4-tier permissions, rate limiting, audit log)
+- Can be configured per-tool or globally
+- Should respect existing security levels (read/confirm/admin/blocked) - this is an ADDITIONAL check
+
+**Why:** Extra safety net for AI agent actions, especially for confirm/admin level tools that modify data. The Nemotron model specializes in content safety classification and is free on OpenRouter.
+
+**Status:** ✅ COMPLETED
+**Priority:** P1
+**Category:** Testing
+**Created:** 2026-06-15T18:30:00.000Z
+**Updated:** 2026-06-15T18:30:00.000Z
+
+**Request:**
+"Automated testing of all workspace sidebar features via probe."
+
+**Testing Results:**
+- **Presets tab:** Add Preset form opens, IPC `add-terminal-preset` works (2 presets in DB)
+- **Sessions tab:** New Session dialog opens, session created successfully (session-1781523172269 for App Tracker via claude agent)
+- **Detail view:** Session details, Open in Terminal, Edit buttons visible
+- **Map tab:** Tab button renders and responds
+- **Analytics tab:** Shows "Workspace Analytics" with Token/Cost/Problem/Request distribution charts
+- **Issues tab:** Tab button renders and responds
+- **Files tab:** Tab button renders and responds
+- **Skills tab:** Tab button renders and responds
+- **Design tab:** Tab button renders and responds
+- **Configs tab:** Tab button renders and responds
+- **History tab:** Tab button renders and responds
+- **Context tab:** Tab button renders and responds
+- **Maintenance tab:** Shows Context Maintenance with 6 sub-tabs (Overview, Contexts, History, Compactions, Search, Settings) and MEMORY STATUS section
+- **Database:** Probe DB has 41 tables, 74,820 terminal_messages, 4 terminal_sessions, 2 terminal_presets
+
+---
+

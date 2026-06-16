@@ -167,6 +167,7 @@ export const AiChat: FC<Props> = ({ today: todayProp }) => {
         status={status}
         toolsUsed={formatToolUsage(toolsUsedRef.current)}
         onReset={handleReset}
+        className="flex-shrink-0"
       />
       <MessageList>
         {messages.map(msg => (
@@ -194,6 +195,7 @@ export const AiChat: FC<Props> = ({ today: todayProp }) => {
             ? 'Reply yes or no...'
             : 'Ask about goals, projects, activities\u2026'
         }
+        className="flex-shrink-0"
       />
     </div>
   )

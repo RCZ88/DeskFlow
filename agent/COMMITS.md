@@ -4,6 +4,44 @@
 
 ### Commit Message
 ```
+feat(ai): complete AI agent system with real LLM tool calling
+```
+
+### Detailed Changes
+
+#### New AI Agent System (src/services/ai/)
+- **types.ts** — Core types: ToolDefinition, ToolCall, AgentMessage, SecurityLevel (read/confirm/admin/blocked), AiAgentConfig, AuditEntry, AgentContext
+- **securityGuard.ts** — 4-tier permission matrix (read/confirm/admin/blocked) with rate limiting (60/min, 500/session), audit logging, input validation (string length, number range, array length, object size)
+- **toolRegistry.ts** — ~40 tools wrapping ALL IPC methods: goals (getGoals, getGoalsBatch, getLongtermGoals, saveGoal, deleteGoal, saveGoalReview, getGoalContext), projects (getProjects, getAllProjects, getProjectDetails, addProject, updateProject, deleteProject, restoreProject, openProject, calculateProjectHealth, getCommitStats), external activities (getExternalActivities, addExternalActivity, updateExternalActivity, deleteExternalActivity, startExternalSession, stopExternalSession, getExternalSessions, getExternalStats, addExternalTime, getActiveExternalSession), sleep (getSleepForDate, addManualSleep, updateManualSleep, getSleepTrends), preferences (getPreferences, setPreference, getExternalSettings, setExternalSettings), categories (getCategoryConfig, getTierAssignments, setAppCategory, setDomainCategory, setAppTier, setDomainTier, setTierAssignments), IDE/terminal (getIDEProjectsOverview, getTerminalSessions), problems (getProblems, updateProblemStatus, deleteProblem), recording (getRecordingModes, setRecordingMode), browser stats (getBrowserCategoryStats), AI context (getAiContext)
+- **aiAgentService.ts** — Full agent loop: LLM → tool calls → execute via toolRegistry → results back to LLM → final response; confirmation flow for confirm/admin tools; conversation history with tool call/result tracking; localStorage persistence per day; debug logging
+- **index.ts** — Barrel export
+
+#### AI Chat UI Rewrite (src/components/AiChat/)
+- **AiChat.tsx** — Complete rewrite: connects to aiAgentService, real LLM tool calling via providers, confirmation prompts for destructive actions, debug logging, greeting without quick-action suggestions, reset button
+- **ChatHeader.tsx** — Added toolsUsed display and onReset callback
+- **BlockRenderer.tsx** — Added empty-block fallback
+- **ChatInput.tsx** — Uses existing sanitizeInput, MAX_INPUT_LENGTH from chatSafety
+- **All block components** — GoalListBlock, GoalCreateBlock, GoalDeleteBlock, NewsItemBlock, DataSummaryBlock, ErrorBlock, NavigationBlock, TextBlock (unchanged, existing)
+
+#### Integration
+- **src/App.tsx** — Added getAiProviders to deskflowAPI type definition
+- **src/preload.ts** — Already had getAiProviders (ipcRenderer.invoke('get-ai-providers'))
+
+#### Architecture
+- No main process IPC changes needed — renderer calls providers directly via fetch using API keys from getAiProviders()
+- Uses existing multi-provider system (OpenRouter, CloudFlayer, Olamah, Invilier, Custom)
+- Tools cover full CRUD on goals, projects, external activities, sleep, categories, preferences, problems, recording modes, browser stats, IDE/terminal sessions
+
+#### Why
+Replaces 100% rule-based AiChat (parseIntent + checkAction) with real LLM agent that can perform ANY action a human can via tools, with strong security (4-tier permissions, confirmations, rate limits, audit log) and efficiency (direct provider calls, smart context).
+
+### Build
+✅ npm run build passes (renderer + electron)
+
+## Previous Commit
+
+### Commit Message
+```
 fix: Compose panel sends full prompts via agentSend with pendingWrites flush
 ```
 

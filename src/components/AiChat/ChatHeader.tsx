@@ -9,6 +9,7 @@ type Props = {
   status: Status
   toolsUsed?: string
   onReset?: () => void
+  className?: string
 }
 
 const modeConfig: Record<Mode, { bg: string; text: string; ring: string }> = {
@@ -29,10 +30,10 @@ const modeLabel: Record<Mode, string> = {
   review: 'Review',
 }
 
-export const ChatHeader: FC<Props> = ({ mode, dateLabel, status, toolsUsed, onReset }) => {
+export const ChatHeader: FC<Props> = ({ mode, dateLabel, status, toolsUsed, onReset, className }) => {
   const c = modeConfig[mode]
   return (
-    <div className="flex items-center justify-between px-5 h-11 border-b border-zinc-800/60 bg-zinc-950/90">
+    <div className={`flex items-center justify-between px-5 h-11 border-b border-zinc-800/60 bg-zinc-950/90 ${className ?? ''}`}>
       <div className="flex items-center gap-3">
         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${c.bg} ${c.text} ${c.ring}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${c.text.replace('text-', 'bg-').replace('300', '400')}`} />

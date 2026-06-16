@@ -5,9 +5,10 @@ type Props = {
   onSend: (text: string) => void
   disabled?: boolean
   placeholder?: string
+  className?: string
 }
 
-export const ChatInput: FC<Props> = ({ onSend, disabled, placeholder }) => {
+export const ChatInput: FC<Props> = ({ onSend, disabled, placeholder, className }) => {
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -38,7 +39,7 @@ export const ChatInput: FC<Props> = ({ onSend, disabled, placeholder }) => {
   }, [])
 
   return (
-    <div className="border-t border-zinc-800/60 bg-zinc-950/90 px-4 py-3.5">
+    <div className={`border-t border-zinc-800/60 bg-zinc-950/90 px-4 py-3.5 ${className ?? ''}`}>
       <div className="flex items-end gap-2.5">
         <textarea
           ref={textareaRef}
