@@ -3,7 +3,7 @@
 **Purpose:** Document data storage, schemas, and recent changes to database/information.
 
 **Created:** 2026-04-13
-**Last Updated:** 2026-06-07
+**Last Updated:** 2026-06-20
 
 ---
 
@@ -18,6 +18,9 @@
   - `daily_stats`: id, date, app, category, total_sec, sessions, avg_session_sec, keystrokes, clicks, focus_score, productivity_type, total_time_sec, focus_time_sec (UNIQUE date+app)
   - `daily_aggregates`: id, date, category, total_sec, sessions, focus_score
   - `browser_sessions`: id, date, domain, category, title, total_sec, sessions, last_active
+
+**Bug Reports Table (added 2026-06-18):**
+  - `bug_reports`: id (TEXT PRIMARY KEY), project_id (TEXT), title (TEXT), error_text (TEXT), status (TEXT DEFAULT 'pending'), agent_responses (TEXT — JSON array), linked_problem_id (TEXT), flow_type (TEXT DEFAULT 'manual'), root_cause_report (TEXT — JSON), created_at (TEXT), updated_at (TEXT)
 
 **AI Features Tables (added 2026-06-04):**
   - `goals`: id, date, title, description, category (default 'work'), target_type, target_seconds, match_category, status (pending/completed), period (daily/longterm), source, links, progress_seconds, created_at, completed_at, **priority** (added 2026-06-13, INTEGER DEFAULT 0)
@@ -104,6 +107,35 @@
 | `get-design-cached-data` | Get cached design library data by key. Accepts `(cacheKey: string)`. Returns cached data or null. |
 | `test-design-library-connection` | Test connection to a design library source. Accepts `{ source: '21st-dev' \| 'aceternity' \| 'refero' }`. Returns `{ success, latencyMs? }`. |
 
+### Bug Report IPC (Collaborative Debugging — added 2026-06-18)
+
+| Endpoint | Description |
+|----------|-------------|
+| `bug-report:submit` | Submit a bug report. Accepts `{ projectId, title, errorText }`. Saves to `bug_reports` table, dispatches to all agent terminals via `terminalManager.write()` with `[System] BUG-REPORT: ...`. Returns `{ success, id }`. |
+| `bug-report:list` | List bug reports for a project. Accepts `(projectId: string)`. Returns array of bug report objects ordered by `created_at` DESC. |
+| `bug-report:get` | Get a single bug report by ID. Accepts `(reportId: string)`. Returns full bug report object with `agent_responses` parsed. |
+| `bug-report:auto-consult` | Flow B — auto-consult other agents when a problem is created. Accepts `{ projectId, reportId, ownerAgentId }`. Dispatches consult to all non-owner agent terminals. |
+| `bug-report:investigate` | Flow C — 3-phase evidence pipeline. Accepts `(reportId: string)`. Gathers file locks, sync logs, stack trace files, session metadata; builds `RootCauseReport` with suspect sessions, suspicious files, timeline, suggested approach. |
+
+### Finance Security IPC / Storage (updated 2026-06-20)
+
+| Endpoint | Description |
+|----------|-------------|
+| `finance:get-display-currency` | Returns the persisted finance currency from `finance_settings.display_currency`. Used as the finance base currency source on startup. |
+| `finance:set-display-currency` | Persists `display_currency` in `finance_settings` and updates the in-memory finance currency. |
+| `finance:set-password` | First-time password setup only. Writes salted `password_hash` and `password_salt` rows. Rejects overwriting an existing password. |
+| `finance:change-password` | Requires the current password, then rewrites the salted hash rows with a new password. Uses `scrypt` hashing and constant-time comparison. |
+| `finance:verify-password` | Verifies a password against the stored hash. |
+
+### Workspace IPC (multi-instance support — added 2026-06-17)
+
+| Endpoint | Description |
+|----------|-------------|
+| `workspace:save` | Save/overwrite a named workspace instance. Accepts `{ projectId, name, state_json, sidebarWidth?, activeTab?, isActive? }`. Upserts by `UNIQUE(project_id, name)`, deactivates all other instances for the project. Returns `{ success, name }`. |
+| `workspace:load` | Load a workspace instance by name (or active/default). Accepts `{ projectId, name? }`. Returns full `state_json` + `name` + `sidebarWidth` + `activeTab` + all saved fields. |
+| `workspace:list` | List all workspace instances for a project. Accepts `{ projectId }`. Returns array of `{ name, isActive, sidebarWidth, activeTab, updatedAt }`. |
+| `workspace:delete` | Delete a workspace instance. Accepts `{ projectId, name }`. Returns `{ success }`. |
+
 ### AI Features IPC (added 2026-06-04)
 
 | Endpoint | Description |
@@ -135,11 +167,26 @@
 | `terminal:crashed` | renderer → layout | CustomEvent dispatched by TerminalPane on terminal exit. Triggers dead overlay with "Click to re-spawn" button. |
 | `re-spawn-terminal` | layout → TerminalPage | CustomEvent dispatched by dead overlay's re-spawn button. TerminalPage cleans up agent state, re-initializes terminal. |
 | `terminal:pending-failed` | main → renderer | Pending writes marked `failed` on terminal kill. Payload: `{ terminalId, count: number }`. Surfaced to notify user of lost messages. |
-| `context-changed` | main → renderer | Problem/request/checklist CRUD event. Payload: `{ type: 'problem'|'request'|'checklist', action: 'created'|'updated'|'deleted', entity: { id, title?, status? } }`. Written to active terminal as `[System: ...]` message. |
+| `context-changed` | main → renderer | Problem/request/checklist/bug_report CRUD event. Payload: `{ type: 'problem'|'request'|'checklist'|'bug_report', action: 'created'|'updated'|'deleted', entity: { id, title?, status? } }`. Written to active terminal as `[System: ...]` message. |
 | `session-metadata-updated` | main → renderer | Agent output was parsed for ## Session Metadata block. Payload: `{ sessionId, metadata: { title?, description?, status?, productArea?, category? }, autoTags: string[] }`. Triggers session list reload. |
 | `ai-brief-ready` | main → renderer | Push event when a brief is freshly generated. Payload: `{ type: 'daily'|'weekly', content: any }`. Frontend subscribes via `onAiBriefReady` preload bridge. |
 
 ---
+
+## 🗄️ DB Schema: `workspace_state`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PRIMARY KEY AUTOINCREMENT | Row ID |
+| `project_id` | TEXT NOT NULL | Project identifier (UUID / path hash) |
+| `name` | TEXT NOT NULL DEFAULT 'default' | Workspace instance name |
+| `state_json` | TEXT | JSON blob containing terminal layout, sidebar configs, presets, todos, openFiles, configs tab state, analytics period, session category filter, map list ratio |
+| `sidebar_width` | INTEGER | Saved sidebar width in pixels |
+| `active_tab` | TEXT | Last active sidebar tab |
+| `is_active` | INTEGER DEFAULT 0 | Flag: 1 = current active instance |
+| `created_at` | TEXT DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
+| `updated_at` | TEXT DEFAULT CURRENT_TIMESTAMP | Last update timestamp |
+- **UNIQUE constraint:** `UNIQUE(project_id, name)` — each project can have many uniquely named workspaces
 
 ## 🔧 Data Troubleshooting
 
@@ -151,4 +198,4 @@
 
 ---
 
-**Last Updated:** 2026-06-13
+**Last Updated:** 2026-06-18

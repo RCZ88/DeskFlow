@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion';
+
 interface TabBarProps {
   tabs: Array<{ key: string; label: string; icon?: React.ReactNode }>;
   activeKey: string;
@@ -12,14 +14,23 @@ export function TabBar({ tabs, activeKey, onTabChange, className = '' }: TabBarP
         <button
           key={tab.key}
           onClick={() => onTabChange(tab.key)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150 ${
+          className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950 ${
             tab.key === activeKey
-              ? 'bg-[var(--page-accent)]/15 text-[var(--page-accent)]'
-              : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-zinc-800/50'
+              ? 'text-emerald-400'
+              : 'text-zinc-400 hover:text-zinc-200'
           }`}
         >
-          {tab.icon}
-          {tab.label}
+          {tab.key === activeKey && (
+            <motion.div
+              layoutId="tabPill"
+              className="absolute inset-0 rounded-lg bg-emerald-500/15"
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            />
+          )}
+          <span className="relative z-10 flex items-center gap-1.5">
+            {tab.icon}
+            {tab.label}
+          </span>
         </button>
       ))}
     </div>

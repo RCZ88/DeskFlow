@@ -841,7 +841,7 @@ export default function ProductivityPage({
       </div>
 
       {/* Main Score Card */}
-      <GlassCard>
+      <GlassCard data-tutorial="prod.score">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-emerald-500/30">
@@ -889,7 +889,7 @@ export default function ProductivityPage({
           const filteredWebCount = filteredItems.filter(i => i.type === 'website').length;
           
           return (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div data-tutorial="prod.breakdown" className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-zinc-900/50 rounded-xl p-4 border border-emerald-500/20">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-3 h-3 rounded-full bg-emerald-400" />
@@ -1024,7 +1024,7 @@ export default function ProductivityPage({
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Productivity Trend */}
-        <GlassCard>
+        <GlassCard data-tutorial="prod.trends">
           <SectionHeader title="Productivity Trend" icon={<TrendingUp className="w-5 h-5" />} />
           <div className="h-64">
             <Line 

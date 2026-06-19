@@ -241,11 +241,12 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   removeProject: (projectId: string) => ipcRenderer.invoke('remove-project', projectId),
   openProject: (projectId: string, ideId?: string) => ipcRenderer.invoke('open-project', projectId, ideId),
   detectProjectLanguage: (projectPath: string) => ipcRenderer.invoke('detect-project-language', projectPath),
+  detectProjectsLanguages: (projectPaths: string[]) => ipcRenderer.invoke('detect-projects-languages', projectPaths),
   scanIdeDefaultProjects: () => ipcRenderer.invoke('scan-ide-default-projects'),
   scanCustomDirectory: (rootDir: string) => ipcRenderer.invoke('scan-custom-directory', rootDir),
 
   // AI & Git Metrics
-  getAIUsageSummary: (period?: string, dateOffset?: number) => ipcRenderer.invoke('get-ai-usage-summary', period, dateOffset),
+  getAIUsageSummary: (period?: string, dateOffset?: number, projectId?: string) => ipcRenderer.invoke('get-ai-usage-summary', period, dateOffset, projectId),
   getCommitStats: (projectId?: string, period?: 'week' | 'month') => ipcRenderer.invoke('get-commit-stats', projectId, period),
 
   // Dashboard Overview
@@ -455,6 +456,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   addExternalTime: (activityId: string, durationMinutes: number, started_at?: string, ended_at?: string) => ipcRenderer.invoke('add-external-time', { activityId, durationMinutes, started_at, ended_at }),
    getExternalStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-external-stats', period),
    getSleepDebug: (period: string = 'week', dateOffset = 0) => ipcRenderer.invoke('get-sleep-debug', period, dateOffset),
+   fixSleepDates: () => ipcRenderer.invoke('fix-sleep-dates'),
    getComparisonStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-comparison-stats', period),
    updateActivityChartPreference: (activityId: string, chartType: string) => ipcRenderer.invoke('update-activity-chart-preference', activityId, chartType),
    getSleepTrends: (period: string, dateOffset = 0) => ipcRenderer.invoke('get-sleep-trends', period, dateOffset),
@@ -475,25 +477,35 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
    getDayDetail: (date: string) => ipcRenderer.invoke('get-day-detail', date),
    getHourDetail: (date: string, hour: number) => ipcRenderer.invoke('get-hour-detail', date, hour),
 
-   // ========== Workspace Save/Load ==========
-   saveWorkspace: (data: {
-      scope: 'session' | 'project' | 'global';
-      projectId?: string;
-      name?: string;
-      sidebarWidth?: number;
-      activeTab?: string;
-      terminalTabs?: string[];
-      layout?: any;
-      openFiles?: string[];
-      activeTerminalId?: string | null;
-      todos?: any[];
-      presets?: any[];
-    }) => ipcRenderer.invoke('workspace:save', data),
+   // ========== Workspace Save/Load (v2: named instances) ==========
+    saveWorkspace: (data: {
+       scope: 'session' | 'project' | 'global';
+       projectId?: string;
+       name?: string;
+       sidebarWidth?: number;
+       activeTab?: string;
+       terminalTabs?: string[];
+       layout?: any;
+       openFiles?: string[];
+       activeTerminalId?: string | null;
+       todos?: any[];
+       presets?: any[];
+       terminalInfo?: any;
+       configs?: any;
+       contextConfig?: any;
+       analyticsPeriod?: string;
+       sessionCategoryFilter?: string;
+       skillsActiveView?: string;
+       mapListRatio?: number;
+       theme?: any;
+     }) => ipcRenderer.invoke('workspace:save', data),
     loadWorkspace: (data: {
-      scope: 'session' | 'project' | 'global';
-      projectId?: string;
-      name?: string;
-    }) => ipcRenderer.invoke('workspace:load', data),
+       scope: 'session' | 'project' | 'global';
+       projectId?: string;
+       name?: string;
+     }) => ipcRenderer.invoke('workspace:load', data),
+    listWorkspaces: (data: { projectId: string }) => ipcRenderer.invoke('workspace:list', data),
+    deleteWorkspace: (data: { projectId: string; name: string }) => ipcRenderer.invoke('workspace:delete', data),
 
   // ========= Tracker Mind - Problem Management =========
   getProblems: (projectId?: string, projectPath?: string) => ipcRenderer.invoke('get-problems', { projectId, projectPath }),
@@ -510,6 +522,17 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     systemPrompt?: string;
     projectId?: string;
   }) => ipcRenderer.invoke('assign-problem-to-terminal', data),
+  // Bug Report bridges
+  submitBugReport: (data: { projectId: string; title?: string; errorText: string }) =>
+    ipcRenderer.invoke('bug-report:submit', data),
+  listBugReports: (data: { projectId: string }) =>
+    ipcRenderer.invoke('bug-report:list', data),
+  getBugReport: (data: { id: string }) =>
+    ipcRenderer.invoke('bug-report:get', data),
+  autoConsultAgents: (data: { problemId: string; problemTitle: string; problemDescription: string; projectId?: string }) =>
+    ipcRenderer.invoke('bug-report:auto-consult', data),
+  investigateBugReport: (data: { bugReportId: string }) =>
+    ipcRenderer.invoke('bug-report:investigate', data),
   getTerminalBindings: () => ipcRenderer.invoke('get-terminal-bindings'),
   getSkills: (projectPath?: string) => ipcRenderer.invoke('get-skills', { projectPath }),
   getAppSkills: () => ipcRenderer.invoke('get-app-skills'),
@@ -714,4 +737,55 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // Feature Specs
   writeFeatureSpecFile: (content: string) => ipcRenderer.invoke('write-feature-spec-file', content),
+
+  // ========== Finance Page ==========
+  financeGetAccounts: () => ipcRenderer.invoke('finance:get-accounts'),
+  financeCreateAccount: (data: any) => ipcRenderer.invoke('finance:create-account', data),
+  financeUpdateAccount: (data: any) => ipcRenderer.invoke('finance:update-account', data),
+  financeArchiveAccount: (id: number) => ipcRenderer.invoke('finance:archive-account', id),
+  financeArchiveWallet: (id: number) => ipcRenderer.invoke('finance:archive-wallet', id),
+
+  financeGetWallets: (accountId?: number) => ipcRenderer.invoke('finance:get-wallets', accountId),
+  financeCreateWallet: (data: any) => ipcRenderer.invoke('finance:create-wallet', data),
+  financeUpdateWallet: (data: any) => ipcRenderer.invoke('finance:update-wallet', data),
+
+  financeGetCategories: () => ipcRenderer.invoke('finance:get-categories'),
+  financeCreateCategory: (data: any) => ipcRenderer.invoke('finance:create-category', data),
+  financeUpdateCategory: (data: any) => ipcRenderer.invoke('finance:update-category', data),
+
+  financeGetTransactions: (filters?: any) => ipcRenderer.invoke('finance:get-transactions', filters),
+  financeCreateTransaction: (data: any) => ipcRenderer.invoke('finance:create-transaction', data),
+  financeUpdateTransaction: (data: any) => ipcRenderer.invoke('finance:update-transaction', data),
+  financeDeleteTransaction: (id: number) => ipcRenderer.invoke('finance:delete-transaction', id),
+
+  financeGetSummary: () => ipcRenderer.invoke('finance:get-summary'),
+  financeGetSpendingByCategory: () => ipcRenderer.invoke('finance:get-spending-by-category'),
+  financeGetMonthlyTrends: () => ipcRenderer.invoke('finance:get-monthly-trends'),
+
+  financeIsLocked: () => ipcRenderer.invoke('finance:is-locked'),
+  financeUnlock: (password: string) => ipcRenderer.invoke('finance:unlock', password),
+  financeLock: () => ipcRenderer.invoke('finance:lock'),
+  financeSetPassword: (password: string) => ipcRenderer.invoke('finance:set-password', password),
+  financeChangePassword: (currentPassword: string, nextPassword: string) => ipcRenderer.invoke('finance:change-password', currentPassword, nextPassword),
+  financeVerifyPassword: (password: string) => ipcRenderer.invoke('finance:verify-password', password),
+  financeCheckPasswordSetup: () => ipcRenderer.invoke('finance:check-password-setup'),
+  financeSetRememberDevice: (remember: boolean, days: number) => ipcRenderer.invoke('finance:set-remember-device', remember, days),
+  financeSetLockTimeout: (timeoutMs: number) => ipcRenderer.invoke('finance:set-lock-timeout', timeoutMs),
+  financeGetSecuritySettings: () => ipcRenderer.invoke('finance:get-security-settings'),
+  financeCheckPageAccess: () => ipcRenderer.invoke('finance:check-page-access'),
+  financeBiometricUnlock: () => ipcRenderer.invoke('finance:biometric-unlock'),
+  financeGetWebAuthnCredential: () => ipcRenderer.invoke('finance:get-webauthn-credential'),
+  financeStoreWebAuthnCredential: (credentialId: string) => ipcRenderer.invoke('finance:store-webauthn-credential', credentialId),
+
+  financeGetDisplayCurrency: () => ipcRenderer.invoke('finance:get-display-currency'),
+  financeSetDisplayCurrency: (currency: string) => ipcRenderer.invoke('finance:set-display-currency', currency),
+
+  financeGetArchivedAccounts: () => ipcRenderer.invoke('finance:get-archived-accounts'),
+  financeGetArchivedWallets: () => ipcRenderer.invoke('finance:get-archived-wallets'),
+  financeUnarchiveAccount: (id: number) => ipcRenderer.invoke('finance:unarchive-account', id),
+  financeUnarchiveWallet: (id: number) => ipcRenderer.invoke('finance:unarchive-wallet', id),
+  financeDeleteAccount: (id: number) => ipcRenderer.invoke('finance:delete-account', id),
+  financeDeleteWallet: (id: number) => ipcRenderer.invoke('finance:delete-wallet', id),
+  financeGetPasswordRequirements: () => ipcRenderer.invoke('finance:get-password-requirements'),
+  financeSetPasswordRequirement: (key: string, value: boolean) => ipcRenderer.invoke('finance:set-password-requirement', key, value),
 });

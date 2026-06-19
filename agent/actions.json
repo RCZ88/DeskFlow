@@ -15,5 +15,13 @@
       "category": "bug-fix",
       "description": "AI agents had no instruction to show reasoning. Added thoughtProcessEnabled toggle, Configs tab UI, injection in initializeTerminal that appends ## Thought Process instruction after system prompt"
     }
+    ,
+    {
+      "type": "create_problem",
+      "title": "AI agent tool calls dropped during streaming",
+      "priority": "high",
+      "category": "bug-fix",
+      "description": "callLLM() SSE stream handler ignored delta.tool_calls, causing the AI to respond with truncated text and never complete tool-based actions like adding external activities. Fixed by adding tool call delta accumulation."
+    }
   ]
 }

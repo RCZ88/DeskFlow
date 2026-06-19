@@ -2,7 +2,7 @@
 
 **Purpose:** Complete inventory of every page and feature in DeskFlow app.
 
-**Last Updated:** 2026-06-02
+**Last Updated:** 2026-06-20
 
 **Maintainer:** AI Development Team
 
@@ -17,14 +17,13 @@
 | `/productivity` | `ProductivityPage` | Productivity score, focus sessions, trends |
 | `/browser` | `BrowserActivityPage` | Browser usage tracking with timeline nav |
 | `/ide` | `IDEProjectsPage` | IDE projects, workspace, Initialize/Setup, analytics |
-| `/terminal` | `TerminalPage` | 5235-line terminal workspace with 12-tab sidebar |
+| `/terminal` | `TerminalPage` | ~4823-line terminal workspace with 5-group sidebar |
 | `/external` | `ExternalPage` | External activity tracking, sleep, comparison card |
 | `/reports` | `InsightsPage` | 3-tab insights (Day/Weekly/Activities), heatmap, stats |
 | `/database` | `DatabasePage` | Database viewer + analytics dashboard |
 | `/settings` | `SettingsPage` | 5-tab settings (Category/Colors/General/Tracking/Prompts) |
 | `/ide-help` | `IDEHelpPage` | IDE setup help documentation |
 | `/features` | `FeatureSpecViewer` | Hierarchical feature specs browser with sidebar + markdown copy |
-| `/design-workspace` | `DesignWorkspacePage` | Design taste knobs + style references (embedded in Terminal) |
 
 ---
 
@@ -461,7 +460,7 @@
 
 ## ðŸ’» 6. Terminal Page / Workspace (`/terminal`)
 
-**Component:** `src/pages/TerminalPage.tsx` (~5235 lines)
+**Component:** `src/pages/TerminalPage.tsx` (~4900 lines)
 **Terminal Component:** `src/components/TerminalWindow.tsx` (607 lines)
 **Hook:** `src/hooks/useTerminalLayout.ts`
 
@@ -486,11 +485,15 @@
 - **Startup delay guard:** 3s startup delay before agent signature checking (prevents shell prompt false-positive)
 - **Auto-recovery:** `retry-agent-init` handler for failed agent initialization
 
-#### 6.2 Sidebar Tabs (12 tabs + 1 divider):
+#### 6.2 Sidebar Groups (5 groups, 12 sub-tabs):
 
-**Tab Group 1 ï¿½ Management (Tools):**
+Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (active tab flush with border, rounded-t-lg, bg-zinc-800/80) and accent connectivity strip (2px colored bar). Each group renders a `<WorkspaceShell>` with chip-style sub-tab bar (rounded-full pill, no border). Sub-tab selection uses `usePersistentSubTab` (URL query + localStorage). Sub-tab accent color maps: setup=orange, work=green, insights=purple, studio=indigo, context=amber.
+
+**Group 1 — Setup (orange, Settings icon):**
+- **Sub-tabs:** Presets, Configs
 
 ##### 6.2.1 Presets Tab
+- **Sub-tab of:** Setup group
 - **Icon:** `Zap` (green accent)
 - **Feature:** Save/reuse common terminal commands
 - **DB Table:** `terminal_presets`
@@ -499,170 +502,137 @@
 - **Grouping:** By category (general, build, test, deploy, etc.)
 - **Operations:** Add preset via inline form, execute with one click
 
-##### 6.2.2 Sessions Tab
+##### 6.2.2 Configs Tab
+- **Sub-tab of:** Setup group
+- **Icon:** `Settings` (orange accent)
+- **Feature:** Manage project-specific configurations
+- **Model config controls:** Threshold slider (3-30), Tier selector, Debug toggle
+- **Cross-session sync config:** Master toggle, TTL slider (30-600s), Context broadcast toggle, Conflict mode dropdown, `/sync` toggle
+- **Thought-process toggle:** Inject `## Thought Process` instruction after system prompt
+
+**Group 2 — Work (green, Monitor icon):**
+- **Sub-tabs:** Sessions, Map, Files
+
+##### 6.2.3 Sessions Tab
+- **Sub-tab of:** Work group
 - **Icon:** `Clock` (green accent)
 - **Feature:** View AI agent chat history and session management
 - **DB Table:** `terminal_sessions`
 - **Fields:** id, agent, topic, resume_id, created_at, total_cost, total_tokens, status, category, product_area, description, auto_tags
+- **Subpage grouping:** Sessions organized under sub-headers (Top Pinned, Recent, This Month, Older) with collapsible sections
+- **Filter pills:** Category filter pills below sub-tab bar using SESSION_CATEGORIES
 - **Status tracking:** StatusDot indicator (active/idle/completed/error/cancelled)
-- **Category filter:** Filter pills by SESSION_CATEGORIES
 - **Session cards:** Show status dot, category badge, agent badge, topic, terminal status (Running/Closed), description, date, tags, cost
 - **Session edit dialog:** Two-column form for editing session metadata
 - **Import opencode sessions:** Dialog for importing external session data
-- **Session loading:** Increased to 500 sessions per load
-- **Detail view:** Click a session ? full detail panel with:
-  - Session metadata grid (status, category, date, terminal, cost, tokens, resume_id, description, product_area)
-  - Focus Terminal / Open in Terminal buttons
-  - Message viewer with Refresh capability
-  - Messages displayed with role coloring (assistant=cyan, user=blue, system=zinc)
-- **Message viewer:** Modal popup with Expandable rows, search, and role-colored messages
+- **Detail view:** Click a session → full detail panel with metadata grid, Focus/Open in Terminal buttons, Message viewer with role coloring
 - **Search & filter:** Filter sessions by text, status, category, agent
 - **Actions:** Focus terminal, Open in terminal (resume), View messages, Delete
 
-##### 6.2.3 Map Tab
+##### 6.2.4 Map Tab
+- **Sub-tab of:** Work group
 - **Icon:** `Monitor` (green accent)
 - **Feature:** Terminal layout visualization + group-managed terminal list
-- **Components:** `TerminalMiniMap` ï¿½ draggable pane layout visualization
-- **Mini Map:** Shows all terminal panes as draggable rectangles, click to focus, drag to rearrange via PaneNode tree
-- **Drag-to-rearrange + drag-to-split:** Uses `@dnd-kit` for drag-and-drop pane manipulation
+- **Components:** `TerminalMiniMap` — draggable pane layout visualization using `@dnd-kit`
+- **Mini Map:** Shows all terminal panes as draggable rectangles, click to focus, drag to rearrange
 - **Quadrant detection:** Drop zones detect quadrant position for split direction
-- **Running Terminals (grouped):** Below the map, terminals organized by layout groups showing:
-  - Group number, split direction (? Stack / ? Side-by-side), terminal count
-  - Each terminal: name, agent, active indicator, linked session info (topic, category, status)
-  - Focus button, New Session button for unassigned terminals
-- **Sessions list:** Below terminals, shows all sessions with running/closed status
+- **Running Terminals (grouped):** Below the map, terminals organized by layout groups with Focus/New Session buttons
 
-##### 6.2.4 Analytics Tab
-- **Icon:** `PieChart` (green accent)
-- **Feature:** AI usage analytics with period selection
-- **Variant:** `variant='project'` for project-specific sessions data
-- **Period selector:** Day / Week / Month toggle bar
-- **Overview cards:** Total tokens, Total cost ($), Session count
-- **By Agent breakdown:** Visual bar chart with gradient bars showing token usage per agent
-- **Top Sessions by Cost:** Sortable list of most expensive sessions (topic, agent, date, cost)
-- **Data source:** `getAIUsageSummary(period)` IPC + sessions data
-
-##### 6.2.5 Problems Tab
-- **Icon:** `AlertCircle` (purple accent)
-- **Component:** `ProblemsTab` (inline component)
-- **Feature:** Track and manage project problems/issues
-- **Status filter:** All / Active / By status (NEW, Not Started, In Progress, AI Attempted Fix, User Testing, Fixed, Irrelevant)
-- **Group by status:** Problems displayed grouped by status with color-coded headers
-- **Redesigned glass cards:** Priority glow dots using PRIORITY_INDICATORS colors
-- **ProblemDetailModal:** Redesigned with improved layout and field organization
-- **Inline edit:** Click to expand, edit fields, change status
-- **Operations:** Create, update status, assign to terminal, delete
-- **Link problem to request:** Associate problems with related requests
-- **Auto-refresh:** Polls every 5 seconds
-
-##### 6.2.6 Requests Tab
-- **Icon:** `FileText` (blue accent)
-- **Component:** `RequestsTab` (inline component)
-- **Feature:** Track project requests and feature requests
-- **Redesigned glass cards:** Same glass styling as Problems tab
-- **Link/unlink problems:** Associate requests with related problems
-- **RequestDetailModal:** Dedicated detail view for requests
-- **Status filter:** All / Pending / In Progress / Completed / Cancelled
-- **Inline edit:** Click to expand and edit
-- **Operations:** Create, update status, delete
-- **Auto-refresh:** Polls every 5 seconds
-
-##### 6.2.7 Files Tab
+##### 6.2.5 Files Tab
+- **Sub-tab of:** Work group
 - **Icon:** `Folder` (yellow accent)
-- **Component:** `FilesTab` (inline component)
+- **Component:** `FilesTab` (imported component)
 - **Feature:** Browse `agent/` directory markdown files
 - **IPC:** `read-agent-file`, `list-agent-files`
-- **Features:** Navigate subdirectories, view markdown content with syntax highlighting
-- **Scope:** Uses `projectPath + '/agent'`
-- **Read-only:** View files, no edit capability
-- **Pulse notification:** Green ping dot when agent files change (via `onAgentFileChanged`)
+- **Read-only:** Navigate subdirectories, view markdown with syntax highlighting
+- **Pulse notification:** Green ping dot on Work group button when agent files change
 
-**Tab Group 2 ï¿½ Utilities:**
+**Group 3 — Insights (purple, PieChart icon):**
+- **Sub-tabs:** Analytics, Issues
 
-##### 6.2.8 Checklists Tab
-- **Icon:** `CheckCircle2` (emerald accent)
-- **Feature:** Project-specific task tracking and progress
-- **Status:** Placeholder (future implementation)
-- **Planned:**
-  - Create/edit checklists linked to problems/requests
-  - Track completion percentage
-  - Requires human verification
+##### 6.2.6 Analytics Tab
+- **Sub-tab of:** Insights group
+- **Icon:** `PieChart` (green accent)
+- **Component:** `AnalyticsDashboard` (shared, `variant="full"`)
+- **Feature:** AI usage analytics with period selection
+- **Period selector:** 7 Days / 30 Days / All Time pill toggle
+- **Overview cards:** Total tokens, Total cost ($), Session count
+- **By Agent breakdown:** Visual bar chart showing token usage per agent
+- **Top Sessions by Cost:** Sortable list of most expensive sessions
+- **Data source:** `getAIUsageSummary(period)` IPC + sessions data
 
-##### 6.2.9 Skills Tab
+##### 6.2.7 Issues Tab (combined Problems + Requests)
+- **Sub-tab of:** Insights group
+- **Icon:** `ListChecks` (emerald accent)
+- **Component:** `IssuesWorkspace` (imported component)
+- **Feature:** Combined problem and request tracking
+- **Problem tracking:** Status filter (NEW, Not Started, In Progress, AI Attempted Fix, User Testing, Fixed, Irrelevant), group by status with color-coded headers, priority glow dots
+- **Request tracking:** Status filter (All / Pending / In Progress / Completed / Cancelled), link/unlink problems
+- **ProblemDetailModal / RequestDetailModal:** Dedicated detail views with inline editing
+- **Link problems to requests:** Associate problems with related requests
+- **Auto-refresh:** Polls every 5 seconds
+
+**Group 4 — Studio (indigo, Sparkles icon):**
+- **Sub-tabs:** Skills, Design
+
+##### 6.2.8 Skills Tab
+- **Sub-tab of:** Studio group
 - **Icon:** `Sparkles` (indigo accent)
-- **Component:** `SkillsTab` (inline component, ~400 lines)
+- **Component:** `SkillsTab` (imported component, ~400 lines)
 - **Feature:** Manage AI agent skills and capabilities
 - **IPC:** `getSkills(projectPath)`, `createSkill()`, `updateSkill()`
 - **Skill source:** Parses from `agent/skills/` directory (subdirs with SKILL.md + standalone .md files) + legacy `agent/skills.md`
-- **Each skill has:** id, name, description, category, content (markdown), filePath
-- **Skill DSL integration:** Dynamic forms generated from YAML frontmatter metadata
-- **10 widget types:** select, radio, switch, slider, text, textarea, code, file, checkbox, tags
+- **Skill DSL integration:** Dynamic forms generated from YAML frontmatter metadata (10 widget types)
 - **GeneralistDialog:** Dialog with search + category filter for browsing all skills
 - **Inline CRUD:** Create, read, update, delete skills with inline forms
-- **Search:** Filter skills by name/description/content
-- **Category filter:** Filter pills by skill category
-- **Skill cards:** Show name, category badge, description
-- **Expandable:** Click to show full markdown content with path info
 - **Use Skill modal:** View skill content, select target terminal, enter prompt, send to terminal
 - **Auto-refresh:** Polls every 10 seconds
-- **Notification toast:** Success/error feedback on operations
 
-##### 6.2.10 Configs Tab
-- **Icon:** `Settings` (orange accent)
-- **Feature:** Manage project-specific configurations
-- **Model config controls:**
-  - Threshold slider (3-30)
-  - Tier selector
-  - Debug toggle
-- **Cross-session sync config:**
-  - Master toggle (enable/disable cross-session sync)
-  - TTL slider (30-600s)
-  - Context broadcast toggle
-  - Conflict mode dropdown
-  - `/sync` toggle
-- **Thought-process toggle:** Inject `## Thought Process` instruction after system prompt
-- **Prompt textarea:** Moved to dedicated Prompts tab
+##### 6.2.9 Design Tab
+- **Sub-tab of:** Studio group
+- **Icon:** `Palette` (accent)
+- **Feature:** Design taste knobs + style references
+- **Component:** Design workspace panel (taste config, style reference viewer)
+- **Integration:** Previously a standalone route (`/design-workspace`), now embedded as a Studio group sub-tab
 
-##### 6.2.11 History Tab
-- **Icon:** `Clock` (rose accent)
-- **Component:** `PromptHistoryTab`
-- **Feature:** Prompt history with search, filter, and management
-- **Search/filter:** Filter prompts by text, agent, date
-- **Delete:** Remove individual prompt history entries
-- **Limit:** Configurable history limit in Settings
-- **Expandable cards:** Click to expand and view full prompt content
-- **Agent filter:** Filter by specific AI agent
+**Group 5 — Context (amber, Settings2 icon):**
+- **Sub-tabs:** Context, Maintenance, Page Context
 
-**Visual Divider (vertical line, zinc-700/50)**
+##### 6.2.10 Context Tab
+- **Sub-tab of:** Context group
+- **Icon:** `Settings2` (amber accent)
+- **Component:** `ContextSidebar` (imported component)
+- **Feature:** Toggle context sources (LLM Wiki, Obsidian Skills, Graphify, PARA, QMD, Automations, Design Skills)
+- **Context Map:** Visual map showing active context systems and token budget
+- **Context Assembly:** Build and preview assembled context before starting a session
 
-##### 6.2.12 Context Maintenance Tab ?
+##### 6.2.11 Maintenance Tab (was Context Maintenance)
+- **Sub-tab of:** Context group
 - **Icon:** `Database` (violet accent)
+- **Component:** `ContextMaintenanceTab` (382 lines)
 - **Feature:** Persistent AI memory management across sessions
-- **Component:** `src/components/ContextMaintenanceTab.tsx` (382 lines)
-- **6 sub-components:**
-  - `MemoryStatusCard` ï¿½ Token usage visualization
-  - `ActiveContextsList` ï¿½ Skill, graphify, wiki, QMD contexts with toggles
-  - `RecentChatHistory` ï¿½ Recent chat history with message management
-  - `CompactionsPanel` ï¿½ Monthly summary management
-  - `ContextSearchBar` ï¿½ Semantic + full-text search
-  - `SettingsPanel` ï¿½ Auto-compaction, RAG mode, token budget
-- **4 new IPC endpoints:** Dedicated handlers for context maintenance operations
+- **6 sub-components:** MemoryStatusCard, ActiveContextsList, RecentChatHistory, CompactionsPanel, ContextSearchBar, SettingsPanel
+- **4 dedicated IPC endpoints:** Context maintenance operations
 
-##### 6.2.13 Prompts Tab
-- **Icon:** `ScrollText` (accent)
-- **Feature:** Dedicated prompts management
-- **Project prompt textarea:** Moved from Configs tab to dedicated Prompts tab
-- **Prompt editing:** Write and save project-specific system prompt additions
+##### 6.2.12 Page Context Tab
+- **Sub-tab of:** Context group
+- **Icon:** `FileText` (accent)
+- **Component:** `PageContextPanel` (imported component)
+- **Feature:** Structured page context metadata display
+- **Displays:** Page identity, component tree, IPC endpoints, data flow, connections to other pages
 
 #### 6.3 Layout & Group System
 - **N-ary tree layout:** `PaneNode.children` refactored from binary tuple to array for flexible splits
 - **Group extraction:** `extractGroups()` helper collects terminals into top-level split groups with equal screen space
 - **Layout persistence:** Save/load via `workspace:save` / `workspace:load` IPC
+- **Persistent save indicator:** Workspace name shown with green dot in sidebar header, clickable to save
+- **Saved Workspaces inline list:** Always-visible list in Configs tab with Load/Delete per workspace
+- **Auto-session creation:** Toggle in Configs tab to auto-create sessions when model is active
 - **Layout auto-sync:** Panes auto-populate `terminalTabs` state on layout changes
 - **MapEditor:** Drag-to-rearrange + drag-to-split with `@dnd-kit` library
 - **Split handle drag resize:** Mouse-based divider dragging for pane resizing
 - **TerminalPane hover controls:** Split/close buttons appear on hover
-- **Workspace state:** Saved to `workspace_state` DB table (sidebarWidth, activeTab, terminalTabs)
+- **Workspace state:** Saved to `workspace_state` DB table (sidebarWidth, activeGroup, terminalTabs)
 
 #### 6.4 AI Agent Integration
 - **Supported Agents:**
@@ -1087,6 +1057,16 @@
 ---
 
 ## Recent Feature Additions
+
+### 2026-06-19:
+- Navigation redesign: browser-tab-style group tabs (rounded-t-lg, bg-zinc-800/80, -mb-px), chip-style sub-tabs (rounded-full pill, no border), accent connectivity strip between nav and content
+- SubTabBar redesigned: border-pill style → rounded-full chips, accent prop with static color map
+- WorkspaceShell passes accent prop to SubTabBar for per-group coloring
+- Session subpage grouping: collapsible sub-headers (Top Pinned, Recent, This Month, Older)
+- Session filter pills: category pills below sub-tab bar
+- Analytics tab: wiring for issues and bugs sub-tabs
+- FEATURE_TRACKER.md updated with all recent changes
+- SubTabBar accent wire: setup=orange, work=green, insights=purple, studio=indigo, context=amber
 
 ### 2026-06-02:
 - Skill DSL: dynamic UI from SKILL.md frontmatter (10 widgets, validation, groups, file picker)

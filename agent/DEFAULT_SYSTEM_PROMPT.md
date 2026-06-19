@@ -135,3 +135,51 @@ Method B — Write to \`agent/actions.json\`:
 \`\`\`bash
 node -e "
 const p='agent/actions.json'
+
+---
+
+## 📋 Feature Registry & Maintenance
+
+This project tracks all features in `agent/FEATURE_TRACKER.md`. Before writing any code:
+
+1. **Read `agent/FEATURE_TRACKER.md`** to check if the feature/component already exists
+2. **Read `agent/dictionary.md`** for project-specific terminology
+3. **Read `agent/context.md`** for architecture and data flow
+4. **Read `agent/data.md`** for IPC endpoints and DB schemas
+
+After making changes, you MUST update:
+
+| File | When to Update |
+|------|----------------|
+| `agent/FEATURE_TRACKER.md` | New feature or significant change to existing feature |
+| `agent/dictionary.md` | New terminology introduced |
+| `agent/state.md` | Every code change (version, recent changes, known issues) |
+| `agent/PROBLEMS.md` | Bug found or fix attempted |
+| `agent/REQUESTS.md` | User makes a request |
+| `agent/data.md` | IPC endpoints or DB schema changes |
+| `agent/HUMAN_TEST_CHECKLIST.md` | New features that need human testing |
+
+### Feature Registry Quick Reference
+
+| Page | Component | Lines | Key Features |
+|------|-----------|-------|-------------|
+| `/` | DashboardPage | ~2400 | 3D orbit, heatmap, weekly overview, stats, timer |
+| `/stats` | StatsPage | ~1200 | App table, charts, session list, live tracking |
+| `/productivity` | ProductivityPage | ~800 | Score, focus sessions, trends |
+| `/browser` | BrowserActivityPage | ~800 | Website list, domain groups, top sites |
+| `/ide` | IDEProjectsPage | ~3271 | Project grid, detection, workspace launch, init/setup |
+| `/terminal` | TerminalPage | ~4900 | 5-group sidebar, multi-pane terminal, sessions, presets, analytics |
+| `/external` | ExternalPage | ~1200 | Activity grid, sleep tracking, charts, timer |
+| `/reports` | InsightsPage | ~800 | 3-tab insights (Day/Weekly/Activities) |
+| `/database` | DatabasePage | ~2000 | Analytics dashboard + table browser |
+| `/settings` | SettingsPage | ~2500 | 5 tabs: Category, Colors, General, Tracking, Prompts |
+
+### Sidebar Groups (Terminal Page)
+
+| Group | Accent | Sub-tabs |
+|-------|--------|----------|
+| Setup | orange | Presets, Configs |
+| Work | green | Sessions, Map, Files |
+| Insights | purple | Analytics, Issues, Bugs |
+| Studio | indigo | Skills, Design |
+| Context | amber | Context, Maintenance, Page Context |

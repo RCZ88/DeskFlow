@@ -36,6 +36,30 @@ const fetchAnalytics = useCallback(async () => {
 
 ---
 
+---
+
+## `git clean -fdx` deletes original `.ts` source files (UNRECOVERABLE)
+
+**Root cause:** `git clean -fdx` removes ALL files not tracked by git, including `.ts` source files that were in the working directory. Unlike `git checkout` or `git restore` which revert tracked files, `git clean` targets **untracked** files — git has never stored them, so they are permanently gone.
+
+**Symptoms:**
+- `src/main.ts` — if it was a pre-compiled CJS backup with uncommitted source changes, the real source is impossible to recover. The CJS file still exists (because it was overwriting the real `.ts` file) but it contains `require()`/`exports.` syntax, not real TypeScript.
+- `src/services/*.ts` — these must be reconstructed by hand from whatever fragments exist in bundled output directories
+- Any documentation, build scripts, config files, or backups that weren't committed are gone
+
+**Fix (prevention):**
+- Add ALL source files to `.gitignore` or commit them before running any git cleanup
+- Use `git clean -ndx` first (dry run) to see what would be deleted — then manually move or commit important files before running with `-f`
+- Better yet: don't use `git clean` at all. Manually delete `node_modules/`, `dist/`, and `dist-electron/` when needed.
+
+**Fix (recovery — if source is lost):**
+- Check `git stash list` for any stashed changes
+- Check Windows File History or previous backups
+- If the file is a `.ts` file that has been overwritten with CJS output, the CJS file IS the only surviving copy. You must manually reverse-engineer it back to real `.ts` syntax (convert `require()` → `import`, `exports.X` → `export`, add types).
+- Check `src/*.ts.bak.*` files if backup naming convention was used (e.g., `main.ts.bak.20260607-210956`)
+
+---
+
 ## `mainWindow.on('focus')` never fires on app startup
 
 **Root cause:** The `BrowserWindow` constructor creates and shows the window immediately (with default `show: true`). By the time `mainWindow.on('focus', handler)` is registered, the window is **already focused** — so the `focus` event never fires. This means any focus-gated logic (like sleep detection) silently never runs on app launch.
@@ -1172,3 +1196,18 @@ async () => {
 
 **Added:** 2026-06-15
 **Reference file:** `agent/skills/probe-mcp-testing/PROBE_MCP_REVIEW.md`
+
+---
+
+## Writing to existing output folders instead of creating new ones
+
+**Root cause:** When asked to write fresh versions of context bundle, prompt, or design files, the AI wrote directly into the **existing** output folder, overwriting unrecoverable files. Old files were not in git → permanently destroyed.
+
+**Fix:**
+- Before writing ANY file, check if the target directory already exists
+- If it does and is not a designated "working" directory → create a new directory (e.g., `-2026-06-18`, `-v2`)
+- When in doubt, ASK the user about folder naming
+- Convention: new iteration = new folder. Never overwrite.
+
+**Added:** 2026-06-18
+**Reference file:** `agent/skills/agent-reflect/logs/2026-06-18_overwrite_existing_folder_idiot.md`

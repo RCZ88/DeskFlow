@@ -40,13 +40,43 @@ This directory contains the context files for AI agents working on this project.
 - `agent/skills/SKILL_DSL_GUIDE.md`
 - `agent/skills/fix-problems.md`
 
+## CRITICAL RULE: "create a prompt" → USE generate-prompt skill
+
+Whenever the user says "create a prompt" or "write a prompt", you MUST load the `generate-prompt` skill (`agent/skills/generate-prompt/SKILL.md`) and use it. Do NOT write a prompt manually — always use the skill.
+
+## CRITICAL RULE: Read FEATURE_TRACKER.md Before Writing Code
+
+**Before writing ANY new code**, read `FEATURE_TRACKER.md` to check if the feature already exists or is already partially implemented. This prevents duplicate work and ensures you build on existing patterns.
+
+## CRITICAL RULE: Update Infrastructure Files After Changes
+
+**After every code change**, update these files if applicable:
+- `agent/FEATURE_TRACKER.md` — Add/update feature entries and Recent Feature Additions
+- `agent/dictionary.md` — Add any new terms or clarify existing ones
+- `agent/state.md` — Update version, recent changes, known issues
+- `agent/data.md` — Update if IPC endpoints or DB schemas changed
+
+## CRITICAL RULE: Avoid Subagent Fragmentation
+
+**NEVER use subagents/task agents** to search for information that already exists in `agent/*.md` files (especially `FEATURE_TRACKER.md`, `dictionary.md`, `data.md`, `state.md`, `context.md`). These files are the canonical reference. Using subagents for file search wastes tokens and causes context fragmentation. Read the markdown files directly.
+
+## ⚡ MANDATORY: Read All Reflection Logs Before ANY Task
+
+**Read ALL files in these directories before doing anything else:**
+- `agent/skills/agent-reflect/logs/`
+- `agent/skills/agent-reflect/log/`
+- `agent/skills/agent-reflect/problem.md`
+
+These documents past mistakes — ignoring them guarantees repeating them. If you don't read them, the "idiot trigger" mechanism is useless.
+
 ## Initialization Instructions
 
 1. Read each file listed above for project context
-2. Check `INITIALIZE.md` for setup instructions
-3. Review `PROBLEMS.md` for known issues
-4. Check `REQUESTS.md` for pending requests
-5. Update files as needed during work
+2. Read ALL reflection logs and `problem.md` (see above — mandatory)
+3. Check `INITIALIZE.md` for setup instructions
+4. Review `PROBLEMS.md` for known issues
+5. Check `REQUESTS.md` for pending requests
+6. Update files as needed during work
 
 ## Session Metadata Requirements
 

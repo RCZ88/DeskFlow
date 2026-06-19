@@ -9,23 +9,27 @@ const electron_1 = require("electron");
 // Set Windows App User Model ID so Task Manager groups/names the app as "DeskFlow" not "Electron"
 electron_1.app.setAppUserModelId('com.deskflow.app');
 const path_1 = __importDefault(require("path"));
+const { pathToFileURL } = require('node:url');
 const fs_1 = __importDefault(require("fs"));
 const child_process_1 = require("child_process");
 const active_win_1 = __importDefault(require("active-win"));
 const http_1 = __importDefault(require("http"));
-const ProblemsServiceModule = require("./services/ProblemsService.js");
+const ProblemsServiceModule = require("./services/ProblemsService.cjs");
 const ProblemsService = ProblemsServiceModule.ProblemsService || ProblemsServiceModule;
-const RequestsServiceModule = require("./services/RequestsService.js");
+const RequestsServiceModule = require("./services/RequestsService.cjs");
 const RequestsService = RequestsServiceModule.RequestsService || RequestsServiceModule;
-const SkillsServiceModule = require("./services/SkillsService.js");
+const SkillsServiceModule = require("./services/SkillsService.cjs");
 const SkillsService = SkillsServiceModule.SkillsService || SkillsServiceModule;
-const AgentHostServiceModule = require("./services/AgentHostService.js");
+const AgentHostServiceModule = require("./services/AgentHostService.cjs");
 const { agentHostService } = AgentHostServiceModule.AgentHostService || AgentHostServiceModule;
-const GameDetectionModule = require("./gameDetection.js");
+const GameDetectionModule = require("./gameDetection.cjs");
 const { resolveForegroundApp, buildInstalledGameIndex, rescanGames } = GameDetectionModule;
 
 // --- Global shortcut for DevTools ---
 const { globalShortcut } = require('electron');
+electron_1.protocol.registerSchemesAsPrivileged([
+    { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+]);
 // --- Storage (SQLite with JSON fallback) ---
 const userDataPath = electron_1.app.getPath('userData');
 const dbPath = path_1.default.join(userDataPath, 'deskflow-data.db');
@@ -1129,9 +1133,12 @@ const QwenPlugin: AIAgentPlugin = {
 
                     if (entry.type === 'assistant' && entry.usageMetadata) {
                         const usage = entry.usageMetadata;
-                        existing.inputTokens += toInt(usage.promptTokenCount);
+                        // promptTokenCount and cachedContentTokenCount are CUMULATIVE (total so far in session), not per-message
+                        // Using = (not +=) gives the correct cumulative total from the last assistant message
+                        existing.inputTokens = toInt(usage.promptTokenCount);
+                        existing.cachedTokens = toInt(usage.cachedContentTokenCount);
+                        // candidatesTokenCount and thoughtsTokenCount are per-message, so accumulate them
                         existing.outputTokens += toInt(usage.candidatesTokenCount);
-                        existing.cachedTokens += toInt(usage.cachedContentTokenCount);
                         existing.thoughtsTokens += toInt(usage.thoughtsTokenCount);
                     }
                 } catch {}
@@ -2137,7 +2144,25 @@ function initializeStorage() {
         try { db.exec("ALTER TABLE terminal_sessions ADD COLUMN description TEXT DEFAULT ''"); } catch {}
         try { db.exec("ALTER TABLE terminal_sessions ADD COLUMN auto_tags TEXT DEFAULT '[]'"); } catch {}
         try { db.exec('ALTER TABLE terminal_sessions ADD COLUMN category_confirmed INTEGER DEFAULT 0'); } catch {}
+        try { db.exec("ALTER TABLE terminal_sessions ADD COLUMN subpage TEXT DEFAULT 'work/sessions'"); } catch {}
         try { db.exec('ALTER TABLE workspace_problems ADD COLUMN session_id TEXT'); } catch {}
+
+        // Collaborative Debugging System — Bug Reports
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS bug_reports (
+              id TEXT PRIMARY KEY,
+              project_id TEXT NOT NULL,
+              title TEXT DEFAULT '',
+              error_text TEXT NOT NULL,
+              status TEXT DEFAULT 'pending' CHECK(status IN ('pending','investigating','identified','not_my_issue','fixed','ignored')),
+              agent_responses TEXT DEFAULT '[]',
+              linked_problem_id TEXT,
+              flow_type TEXT DEFAULT 'manual' CHECK(flow_type IN ('manual','auto-consult','research')),
+              root_cause_report TEXT,
+              created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+              updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
 
         // Session parsed items (decisions, action items, references)
         db.exec(`
@@ -2164,21 +2189,34 @@ function initializeStorage() {
         `);
         try { db.exec(`ALTER TABLE terminal_messages ADD COLUMN status TEXT DEFAULT 'completed'`); } catch (_e) {}
 
-        // Workspace state persistence
+        // Workspace state persistence (v2: supports named instances)
         db.exec(`
             CREATE TABLE IF NOT EXISTS workspace_state (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
-              project_id TEXT NOT NULL UNIQUE,
+              project_id TEXT NOT NULL,
+              name TEXT NOT NULL DEFAULT 'default',
+              is_active INTEGER DEFAULT 0,
               scope TEXT DEFAULT 'project',
               sidebar_width INTEGER DEFAULT 400,
               active_tab TEXT DEFAULT 'presets',
               terminal_tabs TEXT DEFAULT '[]',
               state_json TEXT,
-              updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+              updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE(project_id, name)
             )
         `);
         try { db.exec(`ALTER TABLE workspace_state ADD COLUMN scope TEXT DEFAULT 'project'`); } catch (_e) {}
         try { db.exec(`ALTER TABLE workspace_state ADD COLUMN state_json TEXT`); } catch (_e) {}
+        try { db.exec(`ALTER TABLE workspace_state ADD COLUMN name TEXT NOT NULL DEFAULT 'default'`); } catch (_e) {}
+        try { db.exec(`ALTER TABLE workspace_state ADD COLUMN is_active INTEGER DEFAULT 0`); } catch (_e) {}
+        // If the old UNIQUE(project_id) schema exists, migrate to new schema
+        try {
+            // Remove any rows without a name (legacy from old schema)
+            db.exec(`UPDATE workspace_state SET name = 'default', is_active = 1 WHERE name IS NULL OR name = ''`);
+            // Drop the old UNIQUE constraint by recreating — since we can't ALTER DROP in SQLite,
+            // we just proceed with the new table. The old UNIQUE(project_id) is silently replaced.
+            try { db.exec(`DROP INDEX IF EXISTS sqlite_autoindex_workspace_state_1`); } catch (_e) {}
+        } catch (_e) {}
 
         // Terminal bindings (terminal → project/agent/problem association)
         db.exec(`
@@ -2421,8 +2459,116 @@ function initializeStorage() {
         db.exec('CREATE INDEX IF NOT EXISTS idx_touched_files_path ON touched_files(file_path)');
         db.exec('CREATE INDEX IF NOT EXISTS idx_touched_files_timestamp ON touched_files(timestamp)');
 
+        // ========== Finance Tables ==========
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS finance_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('personal','joint','custodial','business')),
+            description TEXT,
+            icon TEXT DEFAULT 'Wallet',
+            color TEXT DEFAULT '#10b981',
+            currency TEXT DEFAULT 'USD',
+            balance REAL DEFAULT 0.0,
+            is_archived INTEGER DEFAULT 0,
+            parent_account_id INTEGER,
+            created_at DATETIME DEFAULT (datetime('now','localtime')),
+            updated_at DATETIME DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (parent_account_id) REFERENCES finance_accounts(id)
+          )
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS finance_wallets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('bank','debit_card','credit_card','crypto','cash','ewallet','other')),
+            provider TEXT,
+            last_four TEXT,
+            balance REAL DEFAULT 0.0,
+            currency TEXT DEFAULT 'USD',
+            is_archived INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT (datetime('now','localtime')),
+            updated_at DATETIME DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
+          )
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS finance_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('income','expense','transfer')),
+            icon TEXT DEFAULT 'CircleDollarSign',
+            color TEXT DEFAULT '#10b981',
+            sort_order INTEGER DEFAULT 0,
+            is_archived INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT (datetime('now','localtime'))
+          )
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS finance_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            wallet_id INTEGER,
+            category_id INTEGER NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('income','expense','transfer')),
+            amount REAL NOT NULL,
+            description TEXT,
+            note TEXT,
+            date TEXT NOT NULL,
+            time TEXT,
+            is_recurring INTEGER DEFAULT 0,
+            recurring_interval TEXT,
+            tags TEXT,
+            created_at DATETIME DEFAULT (datetime('now','localtime')),
+            updated_at DATETIME DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (account_id) REFERENCES finance_accounts(id),
+            FOREIGN KEY (wallet_id) REFERENCES finance_wallets(id),
+            FOREIGN KEY (category_id) REFERENCES finance_categories(id)
+          )
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS finance_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_finance_txn_account ON finance_transactions(account_id)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_finance_txn_date ON finance_transactions(date)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_finance_txn_category ON finance_transactions(category_id)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_finance_txn_type ON finance_transactions(type)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_finance_wallet_account ON finance_wallets(account_id)');
+
+        // Seed default categories (only if empty)
+        const existingCats = db.prepare('SELECT COUNT(*) as count FROM finance_categories').get() as { count: number };
+        if (existingCats.count === 0) {
+          const insertCat = db.prepare('INSERT INTO finance_categories (name, type, icon, color, sort_order) VALUES (?, ?, ?, ?, ?)');
+          const seedCats: [string, string, string, string, number][] = [
+            ['Salary', 'income', 'CircleDollarSign', '#10b981', 1],
+            ['Freelance', 'income', 'CircleDollarSign', '#34d399', 2],
+            ['Gift', 'income', 'CircleDollarSign', '#6ee7b7', 3],
+            ['Interest', 'income', 'CircleDollarSign', '#a7f3d0', 4],
+            ['Refund', 'income', 'CircleDollarSign', '#6ee7b7', 5],
+            ['Food & Groceries', 'expense', 'TrendingDown', '#ef4444', 6],
+            ['Transport', 'expense', 'TrendingDown', '#f97316', 7],
+            ['Housing', 'expense', 'TrendingDown', '#f59e0b', 8],
+            ['Utilities', 'expense', 'TrendingDown', '#eab308', 9],
+            ['Entertainment', 'expense', 'TrendingDown', '#ec4899', 10],
+            ['Shopping', 'expense', 'TrendingDown', '#d946ef', 11],
+            ['Health', 'expense', 'TrendingDown', '#8b5cf6', 12],
+            ['Education', 'expense', 'TrendingDown', '#6366f1', 13],
+            ['Other', 'expense', 'TrendingDown', '#52525b', 14],
+            ['Transfer', 'transfer', 'ArrowLeftRight', '#f59e0b', 15],
+          ];
+          const insertMany = db.transaction((cats: [string, string, string, string, number][]) => {
+            for (const c of cats) insertCat.run(...c);
+          });
+          insertMany(seedCats);
+        }
+
         // Safe migration for auto_named column
         try { db.exec("ALTER TABLE terminal_sessions ADD COLUMN auto_named INTEGER DEFAULT 0"); } catch {}
+        try { db.exec("ALTER TABLE terminal_sessions ADD COLUMN subpage TEXT DEFAULT 'work/sessions'"); } catch {}
 
         // Indexes for fast queries
         db.exec('CREATE INDEX IF NOT EXISTS idx_stats_hourly_date ON stats_hourly(date)');
@@ -3328,13 +3474,17 @@ function createWindow() {
         titleBarStyle: 'default',
         backgroundColor: '#0a0a0a',
     });
-    const indexPath = path_1.default.join(__dirname, '../dist/index.html');
-    console.log('[DeskFlow] Loading index.html from:', indexPath);
     if (process.env.VITE_DEV_SERVER_URL) {
         mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     }
     else {
-        mainWindow.loadFile(indexPath);
+        electron_1.protocol.handle('app', (request) => {
+            const url = new URL(request.url);
+            const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
+            const filePath = path_1.default.join(__dirname, '../dist', rel);
+            return electron_1.net.fetch(pathToFileURL(filePath).toString());
+        });
+        mainWindow.loadURL('app://local/index.html');
     }
     // Log loading errors
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
@@ -3479,6 +3629,7 @@ function createWindow() {
     });
 }
 // --- IPC handlers ---
+electron_1.ipcMain.removeHandler('get-logs');
 electron_1.ipcMain.handle('get-logs', () => {
     try {
         return getLogs();
@@ -6821,6 +6972,104 @@ electron_1.ipcMain.handle('detect-project-language', async (_, projectPath: stri
     }
 });
 
+// Batch detect languages for multiple projects with coding-only filter
+electron_1.ipcMain.handle('detect-projects-languages', async (_, projectPaths) => {
+    const EXT_TO_LANG = {
+        '.ts': 'TypeScript', '.tsx': 'TypeScript', '.js': 'JavaScript', '.jsx': 'JavaScript',
+        '.mjs': 'JavaScript', '.cjs': 'JavaScript', '.py': 'Python', '.rs': 'Rust',
+        '.go': 'Go', '.java': 'Java', '.kt': 'Kotlin', '.kts': 'Kotlin',
+        '.swift': 'Swift', '.rb': 'Ruby', '.php': 'PHP', '.c': 'C', '.h': 'C',
+        '.cpp': 'C++', '.hpp': 'C++', '.cc': 'C++', '.cxx': 'C++',
+        '.cs': 'C#', '.scala': 'Scala', '.r': 'R', '.dart': 'Dart',
+        '.sh': 'Shell', '.bash': 'Shell', '.zsh': 'Shell', '.ps1': 'PowerShell',
+        '.lua': 'Lua', '.pl': 'Perl', '.pm': 'Perl', '.hs': 'Haskell',
+        '.elm': 'Elm', '.clj': 'Clojure', '.cljs': 'Clojure', '.erl': 'Erlang',
+        '.ex': 'Elixir', '.exs': 'Elixir', '.vue': 'Vue', '.svelte': 'Svelte',
+        '.astro': 'Astro', '.css': 'CSS', '.scss': 'Sass/SCSS', '.less': 'Less',
+        '.html': 'HTML', '.sql': 'SQL', '.graphql': 'GraphQL', '.gql': 'GraphQL',
+        '.yaml': 'YAML', '.yml': 'YAML', '.json': 'JSON', '.xml': 'XML',
+        '.toml': 'TOML', '.md': 'Markdown', '.zig': 'Zig', '.nim': 'Nim',
+        '.cr': 'Crystal', '.coffee': 'CoffeeScript', '.d': 'D',
+        '.f': 'Fortran', '.f90': 'Fortran', '.v': 'V',
+    };
+    const CODING_EXCLUDE = new Set(['JSON', 'Markdown', 'YAML', 'TOML', 'XML']);
+    const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', 'dist', 'build',
+        '.next', '.nuxt', 'out', 'target', 'bin', 'obj', 'venv', '.venv',
+        '__pycache__', '.cache', 'vendor', 'bower_components', 'tmp', 'coverage',
+        '.nyc_output', '.svelte-kit', '.vercel', '.netlify']);
+
+    const results = {};
+
+    for (const projectPath of projectPaths) {
+        const extCounts = new Map();
+        let scannedFiles = 0;
+        const maxFiles = 10000;
+
+        function walkDir(dirPath, depth = 0) {
+            if (depth > 8 || scannedFiles >= maxFiles) return;
+            try {
+                const entries = fs_1.default.readdirSync(dirPath, { withFileTypes: true });
+                for (const entry of entries) {
+                    if (scannedFiles >= maxFiles) return;
+                    const fullPath = path_1.default.join(dirPath, entry.name);
+                    if (entry.isDirectory()) {
+                        if (!SKIP_DIRS.has(entry.name)) {
+                            walkDir(fullPath, depth + 1);
+                        }
+                    } else if (entry.isFile()) {
+                        scannedFiles++;
+                        const ext = path_1.default.extname(entry.name).toLowerCase();
+                        if (ext && EXT_TO_LANG[ext]) {
+                            const lang = EXT_TO_LANG[ext];
+                            extCounts.set(lang, (extCounts.get(lang) || 0) + 1);
+                        }
+                    }
+                }
+            } catch { }
+        }
+
+        try {
+            if (!fs_1.default.existsSync(projectPath)) {
+                results[projectPath] = { success: false, message: 'Project path does not exist' };
+                continue;
+            }
+
+            walkDir(projectPath);
+
+            const allLangs = [];
+            const codingLangs = [];
+            let codingTotal = 0;
+
+            for (const [lang, count] of extCounts) {
+                const pct = scannedFiles > 0 ? Math.round((count / scannedFiles) * 100) : 0;
+                allLangs.push({ language: lang, count, percentage: pct });
+                if (!CODING_EXCLUDE.has(lang)) {
+                    codingLangs.push({ language: lang, count, percentage: pct });
+                    codingTotal += count;
+                }
+            }
+
+            // Recalculate percentages based on coding-file total
+            const normalized = codingLangs.map(l => ({
+                ...l,
+                percentage: codingTotal > 0 ? Math.round((l.count / codingTotal) * 100) : 0,
+            })).sort((a, b) => b.count - a.count);
+
+            results[projectPath] = {
+                success: true,
+                languages: normalized,
+                allLanguages: allLangs.sort((a, b) => b.count - a.count),
+                totalFiles: scannedFiles,
+                codingFiles: codingTotal,
+            };
+        } catch (err) {
+            results[projectPath] = { success: false, message: 'Error scanning project files' };
+        }
+    }
+
+    return results;
+});
+
 // Soft delete project (mark as deleted, can be restored)
 electron_1.ipcMain.handle('delete-project', (event, projectId: string) => {
     if (useJson) return { success: false, message: 'Projects require SQLite' };
@@ -7263,7 +7512,7 @@ electron_1.ipcMain.handle('remove-project', (event, projectId) => {
 });
 
 // Get AI usage summary
-electron_1.ipcMain.handle('get-ai-usage-summary', (event, period = 'week', dateOffset = 0) => {
+electron_1.ipcMain.handle('get-ai-usage-summary', (event, period = 'week', dateOffset = 0, projectId) => {
     if (useJson) return { totalTokens: 0, totalCost: 0, byTool: {} };
 
     try {
@@ -7297,9 +7546,14 @@ electron_1.ipcMain.handle('get-ai-usage-summary', (event, period = 'week', dateO
         `;
         const params: any[] = [];
 
-        if (sinceDateStr) {
-            query += `WHERE date >= ? GROUP BY tool`;
-            params.push(sinceDateStr);
+        const conditions: string[] = [];
+        if (sinceDateStr) conditions.push(`date >= ?`);
+        if (projectId) conditions.push(`project_id = ?`);
+
+        if (conditions.length > 0) {
+            query += `WHERE ${conditions.join(' AND ')} GROUP BY tool`;
+            if (sinceDateStr) params.push(sinceDateStr);
+            if (projectId) params.push(projectId);
         } else {
             query += `GROUP BY tool`;
         }
@@ -7990,8 +8244,109 @@ function parseTerminalOutput(terminalId: string, output: string) {
 
         // Parse and execute actions
         parseAndExecuteActions(output, sessionId, actor, terminalId);
+
+        // Collaborative Debug — BUG-OWNER pattern detection
+        const bugOwnerRegex = /BUG-OWNER:\s*(yes|no)\s*(?:-?\s*reason:\s*(.+?))?\s*(?:-?\s*session:\s*(\S+))?/i;
+        const bugOwnerMatch = output.match(bugOwnerRegex);
+        if (bugOwnerMatch) {
+            handleBugOwnerResponse({
+                terminalId,
+                sessionId,
+                agent: actor,
+                response: bugOwnerMatch[1].toLowerCase() as 'yes' | 'no',
+                reason: bugOwnerMatch[2]?.trim(),
+                claimedSessionId: bugOwnerMatch[3]?.trim(),
+            });
+        }
     } catch (e) {
         console.error('[Terminal] parseTerminalOutput error:', e);
+    }
+}
+
+// ── Collaborative Debug — Bug Owner Response Handler ──
+const activeBugDispatches = new Map<string, { bugReportId: string; terminalIds: Set<string> }>();
+
+function handleBugOwnerResponse(response: {
+    terminalId: string;
+    sessionId: string;
+    agent: string;
+    response: 'yes' | 'no';
+    reason?: string;
+    claimedSessionId?: string;
+}) {
+    if (!db) return;
+    try {
+        // Find the most recent pending bug report that this terminal was dispatched to
+        const pending = db.prepare("SELECT * FROM bug_reports WHERE status = 'pending' ORDER BY created_at DESC LIMIT 5").all() as any[];
+        let target: any = null;
+        for (const p of pending) {
+            const responses: any[] = JSON.parse(p.agent_responses || '[]');
+            if (!responses.find((r: any) => r.terminalId === response.terminalId)) {
+                target = p;
+                break;
+            }
+        }
+        if (!target) return;
+
+        const responses: any[] = JSON.parse(target.agent_responses || '[]');
+        const entry = {
+            terminalId: response.terminalId,
+            sessionId: response.sessionId,
+            agent: response.agent,
+            response: response.response,
+            reason: response.reason || '',
+            respondedAt: new Date().toISOString(),
+        };
+        responses.push(entry);
+        db.prepare('UPDATE bug_reports SET agent_responses = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(JSON.stringify(responses), target.id);
+
+        if (response.response === 'yes' && response.reason) {
+            // Auto-create a Problem
+            try {
+                const { BrowserWindow } = require('electron');
+                const windows = BrowserWindow.getAllWindows();
+                const projectRow = db.prepare('SELECT project_id FROM terminal_sessions WHERE id = ?').get(response.sessionId) as any;
+                const projectId = projectRow?.project_id;
+                const projectPath = projectId ? getProjectPath(projectId) : undefined;
+
+                const ProblemsServiceModule = require('./services/ProblemsService.cjs');
+                const ProblemsService = ProblemsServiceModule.ProblemsService || ProblemsServiceModule;
+                const ps = new ProblemsService(projectPath || '', projectId);
+                const problem = ps.createProblem({
+                    title: `[Auto] ${response.agent}: ${response.reason}`,
+                    description: (target as any).error_text || response.reason,
+                    category: 'bug',
+                    priority: 'medium',
+                });
+
+                db.prepare("UPDATE bug_reports SET linked_problem_id = ?, status = 'identified', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(String(problem.id), target.id);
+
+                for (const win of windows) {
+                    if (!win.isDestroyed()) {
+                        win.webContents.send('context-changed', { type: 'problem', action: 'created', entity: { id: String(problem.id), title: problem.title, status: problem.status } });
+                        win.webContents.send('context-changed', { type: 'bug_report', action: 'updated', entity: { id: target.id, status: 'identified', linkedProblemId: String(problem.id) } });
+                    }
+                }
+
+                // Notify the claiming agent
+                try { terminalManager.write(response.terminalId, `[System] Your BUG-OWNER claim has been registered. Linked Problem: #${problem.id}.\n`); } catch {}
+            } catch (e2) {
+                console.error('[BugReport] Failed to auto-create problem:', e2);
+            }
+        }
+
+        // Check if all dispatched terminals have responded
+        const allSessions = db.prepare("SELECT terminal_id FROM terminal_sessions WHERE project_id = ? AND terminal_id IS NOT NULL").all((target as any).project_id) as any[];
+        const allResponded = allSessions.every((s: any) =>
+            responses.some((r: any) => r.terminalId === s.terminal_id)
+        );
+        if (allResponded) {
+            const anyYes = responses.some((r: any) => r.response === 'yes');
+            const newStatus = anyYes ? 'identified' : 'not_my_issue';
+            db.prepare('UPDATE bug_reports SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStatus, target.id);
+        }
+    } catch (e) {
+        console.error('[BugReport] handleBugOwnerResponse error:', e);
     }
 }
 
@@ -8069,7 +8424,7 @@ const terminalManager = {
   },
   getExitHandler(id: string, cb: (code: number, sig: string) => void) {
     const t = this.terminals.get(id);
-    if (t) t.pty.onExit(cb);
+    if (t) t.pty.onExit((result) => cb(result.exitCode, result.signal?.toString() ?? ''));
   }
 };
 
@@ -8511,6 +8866,207 @@ electron_1.ipcMain.handle('resize-terminal', async (_event, terminalId: string, 
     return { success };
 });
 
+// ── Collaborative Debugging — Bug Report IPC Handlers ──
+
+electron_1.ipcMain.handle('bug-report:submit', async (_, data: { projectId: string; title?: string; errorText: string }) => {
+    if (!db) return { success: false, error: 'No database' };
+    try {
+        const id = `br-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        db.prepare(`
+            INSERT INTO bug_reports (id, project_id, title, error_text, status, flow_type)
+            VALUES (?, ?, ?, ?, 'pending', 'manual')
+        `).run(id, data.projectId, data.title || '', data.errorText);
+
+        // Dispatch to all terminal sessions for this project
+        const sessions = db.prepare('SELECT id, terminal_id, agent FROM terminal_sessions WHERE project_id = ? AND terminal_id IS NOT NULL').all(data.projectId) as any[];
+        const dispatchMessage = `[System — Collaborative Debug #${id}]\nAn error was reported in project "${data.projectId}". Error details:\n${data.errorText}\n\nPlease determine if YOUR PREVIOUS WORK caused this issue.\n- If YES, respond with exactly: BUG-OWNER: yes - reason: <brief reason> - session: <your session ID>\n- If NO, respond with exactly: BUG-OWNER: no\n- If YES, also create a Problem entry via your ## Actions block.\n`;
+
+        for (const s of sessions) {
+            if (s.terminal_id) {
+                try { terminalManager.write(s.terminal_id, dispatchMessage); } catch {}
+            }
+        }
+
+        // Fire context-changed
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('context-changed', { type: 'bug_report', action: 'created', entity: { id, status: 'pending' } });
+        }
+
+        return { success: true, id };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('bug-report:list', async (_, data: { projectId: string }) => {
+    if (!db) return { success: false, data: [] };
+    try {
+        const rows = db.prepare('SELECT * FROM bug_reports WHERE project_id = ? ORDER BY created_at DESC').all(data.projectId) as any[];
+        const reports = rows.map((r: any) => ({
+            id: r.id,
+            projectId: r.project_id,
+            title: r.title,
+            errorText: r.error_text,
+            status: r.status,
+            agentResponses: JSON.parse(r.agent_responses || '[]'),
+            linkedProblemId: r.linked_problem_id,
+            flowType: r.flow_type,
+            rootCauseReport: r.root_cause_report ? JSON.parse(r.root_cause_report) : undefined,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+        }));
+        return { success: true, data: reports };
+    } catch (err: any) {
+        return { success: false, data: [], error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('bug-report:get', async (_, data: { id: string }) => {
+    if (!db) return { success: false, data: null };
+    try {
+        const r = db.prepare('SELECT * FROM bug_reports WHERE id = ?').get(data.id) as any;
+        if (!r) return { success: true, data: null };
+        return {
+            success: true,
+            data: {
+                id: r.id,
+                projectId: r.project_id,
+                title: r.title,
+                errorText: r.error_text,
+                status: r.status,
+                agentResponses: JSON.parse(r.agent_responses || '[]'),
+                linkedProblemId: r.linked_problem_id,
+                flowType: r.flow_type,
+                rootCauseReport: r.root_cause_report ? JSON.parse(r.root_cause_report) : undefined,
+                createdAt: r.created_at,
+                updatedAt: r.updated_at,
+            },
+        };
+    } catch (err: any) {
+        return { success: false, data: null, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('bug-report:auto-consult', async (_, data: { problemId: string; problemTitle: string; problemDescription: string; projectId?: string }) => {
+    if (!db) return { success: false, error: 'No database' };
+    try {
+        const id = `br-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        db.prepare(`
+            INSERT INTO bug_reports (id, project_id, title, error_text, status, flow_type, linked_problem_id)
+            VALUES (?, ?, ?, ?, 'pending', 'auto-consult', ?)
+        `).run(id, data.projectId || '', `Auto-consult: ${data.problemTitle}`, data.problemDescription, data.problemId);
+
+        // Query all sessions EXCEPT the assigned one
+        const sessions = db.prepare('SELECT id, terminal_id, agent FROM terminal_sessions WHERE project_id = ? AND terminal_id IS NOT NULL').all(data.projectId || '') as any[];
+        const consultMessage = `[System — Collaborative Debug #${id}]\nAgent has been assigned Problem #${data.problemId}: "${data.problemTitle}"\n${data.problemDescription}\n\nDid YOUR PREVIOUS WORK contribute to this issue?\n- If YES: BUG-OWNER: yes - reason: <reason> - session: <your session ID>\n- If NO: BUG-OWNER: no\n`;
+
+        for (const s of sessions) {
+            if (s.terminal_id) {
+                try { terminalManager.write(s.terminal_id, consultMessage); } catch {}
+            }
+        }
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('context-changed', { type: 'bug_report', action: 'created', entity: { id, status: 'pending', flowType: 'auto-consult' } });
+        }
+
+        return { success: true, bugReportId: id };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('bug-report:investigate', async (_, data: { bugReportId: string }) => {
+    if (!db) return { success: false, error: 'No database' };
+    try {
+        const row = db.prepare('SELECT * FROM bug_reports WHERE id = ?').get(data.bugReportId) as any;
+        if (!row) return { success: false, error: 'Bug report not found' };
+
+        // Set status to investigating
+        db.prepare("UPDATE bug_reports SET status = 'investigating', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(data.bugReportId);
+
+        // Phase 1 — Gather evidence
+        const projectId = row.project_id;
+        const fileLocks: any[] = [];
+        const syncLogs: any[] = [];
+        const sessions = db.prepare('SELECT * FROM terminal_sessions WHERE project_id = ? ORDER BY created_at DESC').all(projectId) as any[];
+
+        // Try to get file locks if table exists
+        try { fileLocks.push(...db.prepare('SELECT * FROM file_locks WHERE project_id = ? ORDER BY created_at DESC LIMIT 200').all(projectId) as any[]); } catch {}
+
+        // Parse stack trace for file paths
+        const errorText = row.error_text || '';
+        const stackFilePattern = /(?:at\s+|file:\/\/\/|\(|in\s+)([a-zA-Z]:[^\s:)]+\.\w+|[^\s:)]+\.\w+(?::\d+)?(?::\d+)?)/g;
+        const mentionedFiles: string[] = [];
+        let m;
+        while ((m = stackFilePattern.exec(errorText)) !== null) {
+            const f = m[1].split(':')[0].trim();
+            if (f && !mentionedFiles.includes(f)) mentionedFiles.push(f);
+        }
+
+        // Phase 2 — Correlate
+        const suspectSessions: Array<{ sessionId: string; agent: string; confidence: 'high' | 'medium' | 'low'; reasons: string[] }> = [];
+        const timeline: Array<{ timestamp: string; event: string; sessionId?: string }> = [];
+
+        for (const s of sessions) {
+            const reasons: string[] = [];
+            // Check file locks for this session
+            const sessionLocks = fileLocks.filter((fl: any) => fl.session_id === s.id);
+            for (const lock of sessionLocks) {
+                timeline.push({ timestamp: lock.created_at || lock.timestamp || '', event: `File lock: ${lock.file_path || lock.file || ''}`, sessionId: s.id });
+                if (mentionedFiles.some(f => (lock.file_path || lock.file || '').includes(f))) {
+                    reasons.push(`Touched error-correlated file: ${lock.file_path || lock.file}`);
+                }
+            }
+            if (reasons.length > 0) {
+                suspectSessions.push({
+                    sessionId: s.id,
+                    agent: s.agent || 'unknown',
+                    confidence: reasons.length >= 2 ? 'high' : 'medium',
+                    reasons,
+                });
+            }
+        }
+
+        // Phase 3 — Build report
+        const rootCauseReport = {
+            suspectSessions,
+            suspiciousFiles: mentionedFiles,
+            timeline: timeline.sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+            suggestedApproach: suspectSessions.length > 0
+                ? `Investigate sessions: ${suspectSessions.map((s: any) => s.agent).join(', ')}. They touched files correlated with the error.`
+                : 'No sessions with direct file correlation found. Consider manual investigation or checking recent changes.',
+        };
+
+        const reportJson = JSON.stringify(rootCauseReport);
+        const newStatus = suspectSessions.length > 0 ? 'identified' : 'not_my_issue';
+        db.prepare('UPDATE bug_reports SET status = ?, root_cause_report = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStatus, reportJson, data.bugReportId);
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('context-changed', { type: 'bug_report', action: 'updated', entity: { id: data.bugReportId, status: newStatus } });
+        }
+
+        return {
+            success: true,
+            data: {
+                id: row.id,
+                projectId: row.project_id,
+                title: row.title,
+                errorText: row.error_text,
+                status: newStatus,
+                agentResponses: JSON.parse(row.agent_responses || '[]'),
+                linkedProblemId: row.linked_problem_id,
+                flowType: row.flow_type,
+                rootCauseReport,
+                createdAt: row.created_at,
+                updatedAt: new Date().toISOString(),
+            },
+        };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
 function getSessionIdForTerminal(terminalId: string): string | null {
     if (!db) return null;
     try {
@@ -8657,24 +9213,24 @@ electron_1.ipcMain.handle('save-terminal-session', async (_event, session: any) 
                 UPDATE terminal_sessions SET project_id = ?, agent = ?, resume_id = ?, topic = ?,
                   working_directory = ?, terminal_id = ?, total_tokens = ?, total_cost = ?,
                   category = ?, status = ?, product_area = ?, description = ?, auto_tags = ?,
-                  category_confirmed = ?, updated_at = datetime('now')
+                  category_confirmed = ?, subpage = ?, updated_at = datetime('now')
                 WHERE id = ?
             `).run(
                 session.projectId || null, session.agent, resumeId, session.topic || null,
                 session.workingDirectory || null, session.terminalId || null, session.totalTokens || 0, session.totalCost || 0,
                 cat, stat, session.productArea || '', session.description || '', tags,
-                session.categoryConfirmed ? 1 : 0, id
+                session.categoryConfirmed ? 1 : 0, session.subpage || 'work/sessions', id
             );
         } else {
             db.prepare(`
                 INSERT INTO terminal_sessions (id, project_id, agent, resume_id, topic, working_directory, terminal_id,
-                  total_tokens, total_cost, category, status, product_area, description, auto_tags, category_confirmed, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                  total_tokens, total_cost, category, status, product_area, description, auto_tags, category_confirmed, subpage, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
             `).run(
                 id, session.projectId || null, session.agent, resumeId, session.topic || null,
                 session.workingDirectory || null, session.terminalId || null, session.totalTokens || 0, session.totalCost || 0,
                 cat, stat, session.productArea || '', session.description || '', tags,
-                session.categoryConfirmed ? 1 : 0
+                session.categoryConfirmed ? 1 : 0, session.subpage || 'work/sessions'
             );
         }
         return { success: true, id, resumeId };
@@ -9065,6 +9621,7 @@ electron_1.ipcMain.handle('set-active-terminal-layout', async (_event, layoutId:
 
 electron_1.ipcMain.handle('workspace:save', async (_event, data: {
     projectId: string;
+    name?: string;
     scope?: string;
     sidebarWidth?: number;
     activeTab?: string;
@@ -9075,9 +9632,17 @@ electron_1.ipcMain.handle('workspace:save', async (_event, data: {
     todos?: any[];
     presets?: any[];
     terminalInfo?: Record<string, { name: string; agent: string; modelTier?: string }>;
+    configs?: any;
+    contextConfig?: any;
+    analyticsPeriod?: string;
+    sessionCategoryFilter?: string;
+    skillsActiveView?: string;
+    mapListRatio?: number;
+    theme?: any;
 }) => {
     if (!db) return { success: false, error: 'No database' };
     try {
+        const instanceName = data.name || 'default';
         const tabsJson = JSON.stringify(data.terminalTabs || []);
         const stateJson = JSON.stringify({
             layout: data.layout || null,
@@ -9086,35 +9651,61 @@ electron_1.ipcMain.handle('workspace:save', async (_event, data: {
             todos: data.todos || [],
             presets: data.presets || [],
             terminalInfo: data.terminalInfo || {},
+            configs: data.configs || null,
+            contextConfig: data.contextConfig || null,
+            analyticsPeriod: data.analyticsPeriod || null,
+            sessionCategoryFilter: data.sessionCategoryFilter || null,
+            skillsActiveView: data.skillsActiveView || null,
+            mapListRatio: data.mapListRatio || null,
+            theme: data.theme || null,
         });
-        const existing = db.prepare('SELECT id FROM workspace_state WHERE project_id = ?').get(data.projectId) as any;
+        // Deactivate all instances for this project
+        db.prepare('UPDATE workspace_state SET is_active = 0 WHERE project_id = ?').run(data.projectId);
+        // Upsert by (project_id, name)
+        const existing = db.prepare('SELECT id FROM workspace_state WHERE project_id = ? AND name = ?').get(data.projectId, instanceName) as any;
         if (existing) {
             db.prepare(`
-                UPDATE workspace_state SET scope = ?, sidebar_width = ?, active_tab = ?, terminal_tabs = ?, state_json = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE project_id = ?
-            `).run(data.scope || 'project', data.sidebarWidth || 400, data.activeTab || 'presets', tabsJson, stateJson, data.projectId);
+                UPDATE workspace_state SET scope = ?, sidebar_width = ?, active_tab = ?, terminal_tabs = ?, state_json = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP
+                WHERE project_id = ? AND name = ?
+            `).run(data.scope || 'project', data.sidebarWidth || 400, data.activeTab || 'presets', tabsJson, stateJson, data.projectId, instanceName);
         } else {
             db.prepare(`
-                INSERT INTO workspace_state (project_id, scope, sidebar_width, active_tab, terminal_tabs, state_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-            `).run(data.projectId, data.scope || 'project', data.sidebarWidth || 400, data.activeTab || 'presets', tabsJson, stateJson);
+                INSERT INTO workspace_state (project_id, name, scope, sidebar_width, active_tab, terminal_tabs, state_json, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+            `).run(data.projectId, instanceName, data.scope || 'project', data.sidebarWidth || 400, data.activeTab || 'presets', tabsJson, stateJson);
         }
-        return { success: true };
+        return { success: true, name: instanceName };
     } catch (err: any) {
         console.error('[DeskFlow] workspace:save error:', err.message);
         return { success: false, error: err.message };
     }
 });
 
-electron_1.ipcMain.handle('workspace:load', async (_event, data: { projectId: string }) => {
+electron_1.ipcMain.handle('workspace:load', async (_event, data: { projectId: string; name?: string }) => {
     if (!db) return { success: false, error: 'No database' };
     try {
-        const row = db.prepare('SELECT * FROM workspace_state WHERE project_id = ?').get(data.projectId) as any;
+        let row: any;
+        if (data.name) {
+            // Load specific named instance
+            row = db.prepare('SELECT * FROM workspace_state WHERE project_id = ? AND name = ?').get(data.projectId, data.name) as any;
+        } else {
+            // Load active instance, fallback to 'default'
+            row = db.prepare('SELECT * FROM workspace_state WHERE project_id = ? AND is_active = 1').get(data.projectId) as any;
+            if (!row) {
+                row = db.prepare('SELECT * FROM workspace_state WHERE project_id = ? AND name = ?').get(data.projectId, 'default') as any;
+            }
+            // Fallback to any instance
+            if (!row) {
+                row = db.prepare('SELECT * FROM workspace_state WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1').get(data.projectId) as any;
+            }
+        }
         if (!row) return { success: true, data: null };
         const parsedState = row.state_json ? JSON.parse(row.state_json) : {};
         return {
             success: true,
             data: {
+                name: row.name,
+                isActive: row.is_active === 1,
                 sidebarWidth: row.sidebar_width,
                 activeTab: row.active_tab,
                 terminalTabs: JSON.parse(row.terminal_tabs || '[]'),
@@ -9125,10 +9716,39 @@ electron_1.ipcMain.handle('workspace:load', async (_event, data: { projectId: st
                 todos: parsedState.todos || [],
                 presets: parsedState.presets || [],
                 terminalInfo: parsedState.terminalInfo || {},
+                configs: parsedState.configs || null,
+                contextConfig: parsedState.contextConfig || null,
+                analyticsPeriod: parsedState.analyticsPeriod || null,
+                sessionCategoryFilter: parsedState.sessionCategoryFilter || null,
+                skillsActiveView: parsedState.skillsActiveView || null,
+                mapListRatio: parsedState.mapListRatio || null,
+                theme: parsedState.theme || null,
             }
         };
     } catch (err: any) {
         console.error('[DeskFlow] workspace:load error:', err.message);
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('workspace:list', async (_event, data: { projectId: string }) => {
+    if (!db) return { success: false, error: 'No database' };
+    try {
+        const rows = db.prepare('SELECT name, is_active, sidebar_width, active_tab, updated_at FROM workspace_state WHERE project_id = ? ORDER BY updated_at DESC').all(data.projectId) as any[];
+        return { success: true, data: rows.map(r => ({ name: r.name, isActive: r.is_active === 1, sidebarWidth: r.sidebar_width, activeTab: r.active_tab, updatedAt: r.updated_at })) };
+    } catch (err: any) {
+        console.error('[DeskFlow] workspace:list error:', err.message);
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('workspace:delete', async (_event, data: { projectId: string; name: string }) => {
+    if (!db) return { success: false, error: 'No database' };
+    try {
+        db.prepare('DELETE FROM workspace_state WHERE project_id = ? AND name = ?').run(data.projectId, data.name);
+        return { success: true };
+    } catch (err: any) {
+        console.error('[DeskFlow] workspace:delete error:', err.message);
         return { success: false, error: err.message };
     }
 });
@@ -10628,6 +11248,7 @@ interface AutoAssignConfig {
   autoRename: boolean;
   renameThreshold: number;
   confidenceThreshold: number;
+  autoCreateSessions: boolean;
 }
 
 const DEFAULT_AUTO_ASSIGN_CONFIG: AutoAssignConfig = {
@@ -10637,6 +11258,7 @@ const DEFAULT_AUTO_ASSIGN_CONFIG: AutoAssignConfig = {
   autoRename: false,
   renameThreshold: 5,
   confidenceThreshold: 0.7,
+  autoCreateSessions: false,
 };
 
 function loadAutoAssignConfig(): AutoAssignConfig {
@@ -10699,14 +11321,60 @@ async function callOpenRouter(systemPrompt: string, userPrompt: string, options:
       ],
       max_tokens: options.maxTokens,
       temperature: options.temperature,
+      stream: true,
     }),
   });
   if (!response.ok) {
     const errText = await response.text();
     throw new Error(`OpenRouter API error ${response.status}: ${errText.slice(0, 200)}`);
   }
-  const data = await response.json();
-  return { content: data.choices?.[0]?.message?.content || '', usage: data.usage };
+  
+  // Handle streaming response
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('Response body is not readable');
+  }
+  
+  const decoder = new TextDecoder();
+  let fullContent = '';
+  let usage = { prompt_tokens: 0, completion_tokens: 0 };
+  
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n');
+    
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6);
+        if (data === '[DONE]') continue;
+        
+        try {
+          const parsed = JSON.parse(data);
+          
+          // Extract content from delta
+          if (parsed.choices?.[0]?.delta?.content) {
+            fullContent += parsed.choices[0].delta.content;
+          }
+          
+          // Extract usage information
+          if (parsed.usage) {
+            usage = {
+              prompt_tokens: parsed.usage.prompt_tokens || 0,
+              completion_tokens: parsed.usage.completion_tokens || 0,
+            };
+          }
+        } catch (e) {
+          // Skip invalid JSON lines
+          continue;
+        }
+      }
+    }
+  }
+  
+  return { content: fullContent, usage: usage };
 }
 
 // OpenRouter API base configuration
@@ -10767,6 +11435,7 @@ Example format: {"app1": "#FF5733", "app2": "#33FF57"}`;
                 ],
                 max_tokens: 1000,
                 temperature: 0.7,
+                stream: true,
             }),
         });
 
@@ -10776,15 +11445,55 @@ Example format: {"app1": "#FF5733", "app2": "#33FF57"}`;
             return {};
         }
 
-        const data = await response.json();
-        console.log('[DeskFlow] OpenRouter response:', JSON.stringify(data, null, 2));
-
-        if (data.error) {
-            console.error('[DeskFlow] OpenRouter returned error:', data.error);
+        // Handle streaming response
+        const reader = response.body?.getReader();
+        if (!reader) {
+            console.error('[DeskFlow] Response body is not readable');
             return {};
         }
+        
+        const decoder = new TextDecoder();
+        let fullContent = '';
+        let usage = { prompt_tokens: 0, completion_tokens: 0 };
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6);
+                    if (data === '[DONE]') continue;
+                    
+                    try {
+                        const parsed = JSON.parse(data);
+                        
+                        // Extract content from delta
+                        if (parsed.choices?.[0]?.delta?.content) {
+                            fullContent += parsed.choices[0].delta.content;
+                        }
+                        
+                        // Extract usage information
+                        if (parsed.usage) {
+                            usage = {
+                                prompt_tokens: parsed.usage.prompt_tokens || 0,
+                                completion_tokens: parsed.usage.completion_tokens || 0,
+                            };
+                        }
+                    } catch (e) {
+                        // Skip invalid JSON lines
+                        continue;
+                    }
+                }
+            }
+        }
 
-        const content = data.choices?.[0]?.message?.content;
+        console.log('[DeskFlow] OpenRouter response:', JSON.stringify({ content: fullContent, usage }, null, 2));
+
+        const content = fullContent;
         if (!content) {
             console.error('[DeskFlow] No content in OpenRouter response');
             return {};
@@ -11563,7 +12272,7 @@ electron_1.ipcMain.handle('save-goal-review', async (_event, date: string, revie
 
 // ─── Planning.md Helpers ──────────────────────
 function planningPath() {
-  return path_1.default.join(userDataPath, 'DeskFlow', 'planning.md');
+  return path_1.default.join(userDataPath, 'planning.md');
 }
 
 interface GoalPromptContext {
@@ -12708,6 +13417,23 @@ electron_1.ipcMain.handle('detect-usage-gaps', (event, { period = 'week', minGap
 electron_1.ipcMain.handle('start-external-session', (event, activityId) => {
     if (useJson) return { success: false };
     try {
+        const active = db.prepare(`
+            SELECT id, activity_id FROM external_sessions
+            WHERE ended_at IS NULL
+            ORDER BY started_at DESC
+            LIMIT 1
+        `).get();
+        if (active) {
+            if (active.activity_id.toString() === activityId) {
+                return { success: true, sessionId: active.id.toString() };
+            }
+            const startedAt = db.prepare(`SELECT started_at FROM external_sessions WHERE id = ?`).get(active.id);
+            if (startedAt) {
+                const durationSeconds = Math.floor((Date.now() - new Date(startedAt.started_at).getTime()) / 1000);
+                db.prepare(`UPDATE external_sessions SET ended_at = ?, duration_seconds = ? WHERE id = ?`)
+                    .run(new Date().toISOString(), durationSeconds, active.id);
+            }
+        }
         const result = db.prepare(`
             INSERT INTO external_sessions (activity_id, started_at)
             VALUES (?, ?)
@@ -13008,7 +13734,7 @@ electron_1.ipcMain.handle('confirm-sleep', (event, sleepData: {
         
         // Clean up detection file
         try {
-            const detPath = path_1.default.join(userDataPath, 'deskflow-sleep-detection.json');
+const detPath = path_1.default.join(userDataPath, 'deskflow-sleep-detection.json');
             if (fs_1.default.existsSync(detPath)) fs_1.default.unlinkSync(detPath);
         } catch { /* ignore */ }
         
@@ -13546,7 +14272,7 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
             const localRef = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dateOffset);
             const localStart = localRef.toISOString();
             const localEnd = new Date(localRef.getFullYear(), localRef.getMonth(), localRef.getDate() + 2).toISOString();
-            dateFilter = `AND es.started_at >= '${localStart}' AND es.started_at < '${localEnd}'`;
+            dateFilter = `AND ((es.started_at >= '${localStart}' AND es.started_at < '${localEnd}') OR (es.ended_at >= '${localStart}' AND es.ended_at < '${localEnd}'))`;
         } else if (period === 'week') {
             const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const day = weekStart.getDay();
@@ -13555,13 +14281,13 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
             weekStart.setHours(0, 0, 0, 0);
             const weekEnd = new Date(weekStart);
             weekEnd.setDate(weekEnd.getDate() + 8);
-            dateFilter = `AND es.started_at >= '${weekStart.toISOString()}' AND es.started_at < '${weekEnd.toISOString()}'`;
+            dateFilter = `AND ((es.started_at >= '${weekStart.toISOString()}' AND es.started_at < '${weekEnd.toISOString()}') OR (es.ended_at >= '${weekStart.toISOString()}' AND es.ended_at < '${weekEnd.toISOString()}'))`;
         } else {
             const days = period === '7day' ? 7 : period === 'month' || period === '30day' ? 30 : period === 'all' ? -1 : 7;
             if (days > 0) {
                 const rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dateOffset * days + 1);
                 const rangeStart = new Date(rangeEnd.getTime() - days * 24 * 60 * 60 * 1000);
-                dateFilter = `AND es.started_at >= '${rangeStart.toISOString()}' AND es.started_at < '${rangeEnd.toISOString()}'`;
+                dateFilter = `AND ((es.started_at >= '${rangeStart.toISOString()}' AND es.started_at < '${rangeEnd.toISOString()}') OR (es.ended_at >= '${rangeStart.toISOString()}' AND es.ended_at < '${rangeEnd.toISOString()}'))`;
             }
         }
         
@@ -13723,6 +14449,62 @@ electron_1.ipcMain.handle('get-sleep-debug', (event, period = 'week', dateOffset
     } catch (err) {
         console.error('[DeskFlow] Failed to get sleep debug:', err);
         return { sessions: [], trendsRaw: [], queryRange: null };
+    }
+});
+
+electron_1.ipcMain.handle('fix-sleep-dates', () => {
+    if (useJson) return { fixed: 0, message: 'JSON mode, no-op' };
+    try {
+        const sleepActivity = db.prepare(`SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1`).get() as any;
+        if (!sleepActivity) return { fixed: 0, message: 'No sleep activity found' };
+
+        const sessions = db.prepare(`
+            SELECT * FROM external_sessions
+            WHERE activity_id = ? AND ended_at IS NOT NULL
+            ORDER BY started_at ASC
+        `).all(sleepActivity.id) as any[];
+
+        let fixedCount = 0;
+        const updates: Array<{ id: number; oldEnd: string; newEnd: string; oldDuration: number; newDuration: number }> = [];
+
+        for (const s of sessions) {
+            const startD = new Date(s.started_at);
+            const endD = new Date(s.ended_at);
+
+            const startDateStr = `${startD.getFullYear()}-${String(startD.getMonth()+1).padStart(2,'0')}-${String(startD.getDate()).padStart(2,'0')}`;
+            const endDateStr = `${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,'0')}-${String(endD.getDate()).padStart(2,'0')}`;
+
+            if (startDateStr === endDateStr) continue;
+
+            const startH = startD.getHours();
+            const endH = endD.getHours();
+
+            // Both in AM (before noon) → same calendar day, end date was wrongly pushed to next day
+            if (startH < 12 && endH < 12) {
+                const fixedEnd = new Date(startD);
+                fixedEnd.setHours(endD.getHours(), endD.getMinutes(), endD.getSeconds(), endD.getMilliseconds());
+
+                const newDuration = Math.max(0, Math.floor((fixedEnd.getTime() - startD.getTime()) / 1000));
+
+                db.prepare(`UPDATE external_sessions SET ended_at = ?, duration_seconds = ? WHERE id = ?`).run(
+                    fixedEnd.toISOString(), newDuration, s.id
+                );
+
+                updates.push({
+                    id: s.id,
+                    oldEnd: s.ended_at,
+                    newEnd: fixedEnd.toISOString(),
+                    oldDuration: s.duration_seconds || 0,
+                    newDuration
+                });
+                fixedCount++;
+            }
+        }
+
+        return { fixed: fixedCount, message: `Fixed ${fixedCount} sleep session(s)` };
+    } catch (err) {
+        console.error('[DeskFlow] Failed to fix sleep dates:', err);
+        return { fixed: 0, message: 'Error fixing sleep dates' };
     }
 });
 
@@ -13937,6 +14719,10 @@ const DB_RECONNECT_INTERVAL = 30000; // 30s between reconnect attempts
 let lastDbReconnectAttempt = 0;
 
 function ensureDb(): boolean {
+  if (typeof window !== 'undefined') {
+    // Only run in main process
+    return false;
+  }
   if (db) {
     // Fast health check — verify connection is still alive
     try {
@@ -17421,5 +18207,589 @@ electron_1.ipcMain.handle('broadcast-context-delta', async (_event, data: { term
   }
    return { success: true, sentCount };
    });
+
+// ── Finance Page IPC Handlers ────────────────────────────────────
+
+// In-memory lock state
+let financeLocked = false;
+let financePasswordHash: string | null = null;
+let financePasswordSalt: string | null = null;
+let financeRememberDevice = false;
+let financeRememberDeviceExpiry: number | null = null;
+let financeLockTimeout = 5 * 60 * 1000; // 5 minutes in milliseconds
+let financeDisplayCurrency = 'USD';
+const crypto = require('crypto');
+const PASSWORD_HASH_OPTS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+
+function loadFinanceSettings() {
+  if (!db) return;
+  try {
+    const hashRow = db.prepare("SELECT value FROM finance_settings WHERE key = 'password_hash'").get() as any;
+    const saltRow = db.prepare("SELECT value FROM finance_settings WHERE key = 'password_salt'").get() as any;
+    const rememberDeviceRow = db.prepare("SELECT value FROM finance_settings WHERE key = 'remember_device'").get() as any;
+    const rememberDeviceExpiryRow = db.prepare("SELECT value FROM finance_settings WHERE key = 'remember_device_expiry'").get() as any;
+    const lockTimeoutRow = db.prepare("SELECT value FROM finance_settings WHERE key = 'lock_timeout'").get() as any;
+    const displayCurrencyRow = db.prepare("SELECT value FROM finance_settings WHERE key = 'display_currency'").get() as any;
+    
+    if (hashRow && saltRow) {
+      financePasswordHash = hashRow.value;
+      financePasswordSalt = saltRow.value;
+      financeLocked = true;
+    } else {
+      financePasswordHash = null;
+      financePasswordSalt = null;
+      financeLocked = false;
+    }
+    
+    financeRememberDevice = rememberDeviceRow?.value === 'true';
+    financeRememberDeviceExpiry = rememberDeviceExpiryRow?.value ? parseInt(rememberDeviceExpiryRow.value) : null;
+    financeLockTimeout = lockTimeoutRow?.value ? parseInt(lockTimeoutRow.value) : 5 * 60 * 1000;
+    financeDisplayCurrency = displayCurrencyRow?.value || 'USD';
+    
+    // Check if remember device has expired
+    if (financeRememberDevice && financeRememberDeviceExpiry && Date.now() > financeRememberDeviceExpiry) {
+      financeRememberDevice = false;
+      financeRememberDeviceExpiry = null;
+      financeLocked = true;
+    } else if (financeRememberDevice && !financeLocked) {
+      // If device is remembered and not locked, keep it unlocked
+      financeLocked = false;
+    }
+  } catch { 
+    financeLocked = false;
+    financeRememberDevice = false;
+    financeRememberDeviceExpiry = null;
+    financeLockTimeout = 5 * 60 * 1000;
+  }
+}
+
+function hashPassword(password: string): { hash: string; salt: string } {
+  const salt = crypto.randomBytes(32).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64, PASSWORD_HASH_OPTS).toString('hex');
+  return { hash, salt };
+}
+
+function verifyPassword(password: string): boolean {
+  if (!financePasswordHash || !financePasswordSalt) return false;
+  try {
+    const hash = crypto.scryptSync(password, financePasswordSalt, 64, PASSWORD_HASH_OPTS).toString('hex');
+    const stored = Buffer.from(financePasswordHash, 'hex');
+    const computed = Buffer.from(hash, 'hex');
+    if (stored.length !== computed.length) return false;
+    return crypto.timingSafeEqual(stored, computed);
+  } catch {
+    return false;
+  }
+}
+
+loadFinanceSettings();
+
+// ── Security ──
+electron_1.ipcMain.handle('finance:check-password-setup', async () => {
+  return { hasPassword: !!financePasswordHash };
+});
+
+electron_1.ipcMain.handle('finance:is-locked', async () => {
+  // Check if remember device is active and not expired
+  if (financeRememberDevice && financeRememberDeviceExpiry && Date.now() < financeRememberDeviceExpiry) {
+    return { locked: false };
+  }
+  return { locked: financeLocked };
+});
+
+electron_1.ipcMain.handle('finance:lock', async () => {
+  financeLocked = true;
+  return { success: true };
+});
+
+electron_1.ipcMain.handle('finance:unlock', async (_event, password: string) => {
+  if (verifyPassword(password)) {
+    financeLocked = false;
+    return { success: true };
+  }
+  return { success: false };
+});
+
+electron_1.ipcMain.handle('finance:verify-password', async (_event, password: string) => {
+  return { success: verifyPassword(password) };
+});
+
+electron_1.ipcMain.handle('finance:set-password', async (_event, password: string) => {
+  if (!db) return { success: false };
+  try {
+    if (financePasswordHash) {
+      return { success: false, error: 'Password already exists' };
+    }
+    const { hash, salt } = hashPassword(password);
+    db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('password_hash', ?)").run(hash);
+    db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('password_salt', ?)").run(salt);
+    financePasswordHash = hash;
+    financePasswordSalt = salt;
+    financeLocked = true;
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('finance:change-password', async (_event, currentPassword: string, nextPassword: string) => {
+  if (!db) return { success: false };
+  try {
+    if (!financePasswordHash || !financePasswordSalt) {
+      return { success: false, error: 'No password is set' };
+    }
+    if (!verifyPassword(currentPassword)) {
+      return { success: false, error: 'Current password is incorrect' };
+    }
+    const { hash, salt } = hashPassword(nextPassword);
+    db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('password_hash', ?)").run(hash);
+    db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('password_salt', ?)").run(salt);
+    financePasswordHash = hash;
+    financePasswordSalt = salt;
+    financeLocked = true;
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('finance:set-remember-device', async (_event, remember: boolean, days: number) => {
+  if (!db) return { success: false };
+  try {
+    financeRememberDevice = remember;
+    if (remember) {
+      const expiry = Date.now() + (days * 24 * 60 * 60 * 1000);
+      financeRememberDeviceExpiry = expiry;
+      db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('remember_device', ?)").run('true');
+      db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('remember_device_expiry', ?)").run(String(expiry));
+      financeLocked = false;
+    } else {
+      financeRememberDevice = false;
+      financeRememberDeviceExpiry = null;
+      db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('remember_device', ?)").run('false');
+      db.prepare("DELETE FROM finance_settings WHERE key = 'remember_device_expiry'").run();
+    }
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('finance:set-lock-timeout', async (_event, timeoutMs: number) => {
+  if (!db) return { success: false };
+  try {
+    financeLockTimeout = timeoutMs;
+    db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('lock_timeout', ?)").run(String(timeoutMs));
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('finance:biometric-unlock', async () => {
+  financeLocked = false;
+  return { success: true };
+});
+
+electron_1.ipcMain.handle('finance:get-webauthn-credential', async () => {
+  if (!db) return { credentialId: null };
+  try {
+    const row = db.prepare("SELECT value FROM finance_settings WHERE key = 'webauthn_credential_id'").get() as { value: string } | undefined;
+    return { credentialId: row?.value || null };
+  } catch {
+    return { credentialId: null };
+  }
+});
+
+electron_1.ipcMain.handle('finance:store-webauthn-credential', async (_event, credentialId: string) => {
+  if (!db) return { success: false };
+  try {
+    db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('webauthn_credential_id', ?)").run(credentialId);
+    return { success: true };
+  } catch {
+    return { success: false };
+  }
+});
+
+electron_1.ipcMain.handle('finance:get-display-currency', async () => {
+  return { currency: financeDisplayCurrency };
+});
+
+electron_1.ipcMain.handle('finance:set-display-currency', async (_event, currency: string) => {
+  if (!db) return { success: false };
+  try {
+    db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES ('display_currency', ?)").run(currency);
+    financeDisplayCurrency = currency;
+    return { success: true };
+  } catch {
+    return { success: false };
+  }
+});
+
+electron_1.ipcMain.handle('finance:get-security-settings', async () => {
+  return {
+    hasPassword: !!financePasswordHash,
+    locked: financeLocked,
+    rememberDevice: financeRememberDevice,
+    rememberDeviceExpiry: financeRememberDeviceExpiry,
+    lockTimeout: financeLockTimeout,
+    displayCurrency: financeDisplayCurrency,
+  };
+});
+
+electron_1.ipcMain.handle('finance:check-page-access', async () => {
+  // Check if user can access the finance page
+  if (!financePasswordHash) {
+    // No password set - allow access
+    return { canAccess: true, requiresSetup: true };
+  }
+  
+  if (financeRememberDevice && financeRememberDeviceExpiry && Date.now() < financeRememberDeviceExpiry) {
+    // Device is remembered and not expired - allow access
+    return { canAccess: true, requiresSetup: false };
+  }
+  
+  if (financeLocked) {
+    // Locked - require unlock
+    return { canAccess: false, requiresSetup: false, reason: 'locked' };
+  }
+  
+  // Not locked and no remember device - allow access
+  return { canAccess: true, requiresSetup: false };
+});
+
+// ── Accounts ──
+electron_1.ipcMain.handle('finance:get-accounts', async () => {
+  if (!db) return [];
+  try {
+    return db.prepare('SELECT * FROM finance_accounts WHERE is_archived = 0 ORDER BY name').all();
+  } catch { return []; }
+});
+
+electron_1.ipcMain.handle('finance:create-account', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO finance_accounts (name, type, description, icon, color, currency, balance)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(data.name, data.type, data.description || null, data.icon || 'Wallet', data.color || '#10b981', data.currency || 'USD', data.balance || 0);
+    return { id: result.lastInsertRowid, ...data };
+  } catch (error: any) {
+    console.error('[finance] create account error:', error);
+    return null;
+  }
+});
+
+electron_1.ipcMain.handle('finance:update-account', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    db.prepare(`
+      UPDATE finance_accounts SET name=?, type=?, description=?, icon=?, color=?, currency=?, updated_at=datetime('now','localtime')
+      WHERE id=?
+    `).run(data.name, data.type, data.description, data.icon, data.color, data.currency, data.id);
+    return { success: true };
+  } catch { return null; }
+});
+
+electron_1.ipcMain.handle('finance:archive-account', async (_event, id: number) => {
+  if (!db) return null;
+  try {
+    db.prepare("UPDATE finance_accounts SET is_archived=1 WHERE id=?").run(id);
+    return { success: true };
+  } catch { return null; }
+});
+
+// ── Wallets ──
+electron_1.ipcMain.handle('finance:get-wallets', async (_event, accountId?: number) => {
+  if (!db) return [];
+  try {
+    if (accountId) {
+      return db.prepare('SELECT * FROM finance_wallets WHERE account_id = ? AND is_archived = 0 ORDER BY name').all(accountId);
+    }
+    return db.prepare('SELECT * FROM finance_wallets WHERE is_archived = 0 ORDER BY name').all();
+  } catch { return []; }
+});
+
+electron_1.ipcMain.handle('finance:create-wallet', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO finance_wallets (account_id, name, type, provider, last_four, balance, currency)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(data.account_id, data.name, data.type, data.provider || null, data.last_four || null, data.balance || 0, data.currency || 'USD');
+    return { id: result.lastInsertRowid, ...data };
+  } catch { return null; }
+});
+
+electron_1.ipcMain.handle('finance:update-wallet', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    db.prepare(`
+      UPDATE finance_wallets SET name=?, type=?, provider=?, last_four=?, balance=?, currency=?, updated_at=datetime('now','localtime')
+      WHERE id=?
+    `).run(data.name, data.type, data.provider, data.last_four, data.balance, data.currency, data.id);
+    return { success: true };
+  } catch { return null; }
+});
+
+electron_1.ipcMain.handle('finance:archive-wallet', async (_event, id: number) => {
+  if (!db) return null;
+  try {
+    db.prepare("UPDATE finance_wallets SET is_archived=1, updated_at=datetime('now','localtime') WHERE id=?").run(id);
+    return { success: true };
+  } catch { return null; }
+});
+
+// ── Categories ──
+electron_1.ipcMain.handle('finance:get-categories', async () => {
+  if (!db) return [];
+  try {
+    return db.prepare('SELECT * FROM finance_categories WHERE is_archived = 0 ORDER BY sort_order').all();
+  } catch { return []; }
+});
+
+electron_1.ipcMain.handle('finance:create-category', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 as next FROM finance_categories').get() as any;
+    const stmt = db.prepare(`
+      INSERT INTO finance_categories (name, type, icon, color, sort_order)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(data.name, data.type, data.icon || 'CircleDollarSign', data.color || '#10b981', maxOrder?.next || 1);
+    return { id: result.lastInsertRowid, ...data };
+  } catch (error: any) {
+    console.error('[finance] create category error:', error);
+    return null;
+  }
+});
+
+electron_1.ipcMain.handle('finance:update-category', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    db.prepare(`
+      UPDATE finance_categories SET name=?, type=?, icon=?, color=? WHERE id=?
+    `).run(data.name, data.type, data.icon, data.color, data.id);
+    return { success: true };
+  } catch { return null; }
+});
+
+// ── Transactions ──
+electron_1.ipcMain.handle('finance:get-transactions', async (_event, filters?: any) => {
+  if (!db) return [];
+  try {
+    let query = `
+      SELECT t.*, a.name as account_name, c.name as category_name, c.color as category_color, c.icon as category_icon, w.name as wallet_name
+      FROM finance_transactions t
+      LEFT JOIN finance_accounts a ON t.account_id = a.id
+      LEFT JOIN finance_categories c ON t.category_id = c.id
+      LEFT JOIN finance_wallets w ON t.wallet_id = w.id
+    `;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    if (filters?.type) { conditions.push('t.type = ?'); params.push(filters.type); }
+    if (filters?.account_id) { conditions.push('t.account_id = ?'); params.push(filters.account_id); }
+    if (filters?.category_id) { conditions.push('t.category_id = ?'); params.push(filters.category_id); }
+    if (filters?.date_from) { conditions.push('t.date >= ?'); params.push(filters.date_from); }
+    if (filters?.date_to) { conditions.push('t.date <= ?'); params.push(filters.date_to); }
+    if (filters?.search) {
+      conditions.push('(t.description LIKE ? OR t.note LIKE ?)');
+      params.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
+    if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
+    query += ' ORDER BY t.date DESC, t.id DESC';
+    if (filters?.limit) { query += ' LIMIT ?'; params.push(filters.limit); }
+    return db.prepare(query).all(...params);
+  } catch (error: any) {
+    console.error('[finance] get transactions error:', error);
+    return [];
+  }
+});
+
+electron_1.ipcMain.handle('finance:create-transaction', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO finance_transactions (account_id, wallet_id, category_id, type, amount, description, note, date, time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      data.account_id, data.wallet_id || null, data.category_id,
+      data.type, data.amount, data.description || null, data.note || null,
+      data.date, data.time || null
+    );
+
+    // Update account balance
+    const sign = data.type === 'income' ? 1 : -1;
+    db.prepare('UPDATE finance_accounts SET balance = balance + (? * ?), updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(sign, data.amount, data.account_id);
+
+    // Update wallet balance if wallet specified
+    if (data.wallet_id) {
+      db.prepare('UPDATE finance_wallets SET balance = balance + (? * ?), updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(sign, data.amount, data.wallet_id);
+    }
+
+    return { id: result.lastInsertRowid, ...data };
+  } catch (error: any) {
+    console.error('[finance] create transaction error:', error);
+    return null;
+  }
+});
+
+electron_1.ipcMain.handle('finance:update-transaction', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    db.prepare(`
+      UPDATE finance_transactions SET account_id=?, wallet_id=?, category_id=?, type=?, amount=?, description=?, note=?, date=?, time=?, updated_at=datetime('now','localtime')
+      WHERE id=?
+    `).run(data.account_id, data.wallet_id, data.category_id, data.type, data.amount, data.description, data.note, data.date, data.time, data.id);
+    return { success: true };
+  } catch { return null; }
+});
+
+electron_1.ipcMain.handle('finance:delete-transaction', async (_event, id: number) => {
+  if (!db) return { success: false };
+  try {
+    const txn = db.prepare('SELECT * FROM finance_transactions WHERE id = ?').get(id) as any;
+    if (!txn) return { success: false };
+
+    // Reverse balance effect
+    const sign = txn.type === 'income' ? -1 : 1;
+    db.prepare('UPDATE finance_accounts SET balance = balance + (? * ?), updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(sign, txn.amount, txn.account_id);
+    if (txn.wallet_id) {
+      db.prepare('UPDATE finance_wallets SET balance = balance + (? * ?), updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(sign, txn.amount, txn.wallet_id);
+    }
+
+    db.prepare('DELETE FROM finance_transactions WHERE id = ?').run(id);
+    return { success: true };
+  } catch (error: any) {
+    console.error('[finance] delete transaction error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// ── Summary / Analytics ──
+electron_1.ipcMain.handle('finance:get-summary', async () => {
+  if (!db) return { totalIncome: 0, totalExpense: 0, netBalance: 0 };
+  try {
+    const income = db.prepare("SELECT COALESCE(SUM(amount),0) as total FROM finance_transactions WHERE type='income'").get() as any;
+    const expense = db.prepare("SELECT COALESCE(SUM(amount),0) as total FROM finance_transactions WHERE type='expense'").get() as any;
+    const netBalance = db.prepare("SELECT COALESCE(SUM(balance),0) as total FROM finance_accounts WHERE is_archived=0 AND type!='custodial'").get() as any;
+    return {
+      totalIncome: income.total,
+      totalExpense: expense.total,
+      netBalance: netBalance.total,
+    };
+  } catch {
+    return { totalIncome: 0, totalExpense: 0, netBalance: 0 };
+  }
+});
+
+electron_1.ipcMain.handle('finance:get-spending-by-category', async () => {
+  if (!db) return [];
+  try {
+    return db.prepare(`
+      SELECT c.id as categoryId, c.name as categoryName, c.color as categoryColor, c.icon as categoryIcon, COALESCE(SUM(t.amount),0) as amount, COUNT(t.id) as count
+      FROM finance_categories c
+      LEFT JOIN finance_transactions t ON t.category_id = c.id AND t.type = 'expense'
+      WHERE c.type = 'expense' AND c.is_archived = 0
+      GROUP BY c.id ORDER BY amount DESC
+    `).all();
+  } catch { return []; }
+});
+
+electron_1.ipcMain.handle('finance:get-monthly-trends', async () => {
+  if (!db) return [];
+  try {
+    return db.prepare(`
+      SELECT strftime('%Y-%m', date) as month,
+        COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END),0) as income,
+        COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) as expense
+      FROM finance_transactions
+      GROUP BY month ORDER BY month DESC LIMIT 12
+    `).all();
+  } catch { return []; }
+});
+
+// ── Archived Items ──
+electron_1.ipcMain.handle('finance:get-archived-accounts', async () => {
+  if (!db) return [];
+  try {
+    return db.prepare('SELECT * FROM finance_accounts WHERE is_archived = 1 ORDER BY name').all();
+  } catch { return []; }
+});
+
+electron_1.ipcMain.handle('finance:get-archived-wallets', async () => {
+  if (!db) return [];
+  try {
+    return db.prepare('SELECT * FROM finance_wallets WHERE is_archived = 1 ORDER BY name').all();
+  } catch { return []; }
+});
+
+electron_1.ipcMain.handle('finance:unarchive-account', async (_event, id: number) => {
+  if (!db) return { success: false };
+  try {
+    db.prepare("UPDATE finance_accounts SET is_archived=0, updated_at=datetime('now','localtime') WHERE id=?").run(id);
+    return { success: true };
+  } catch { return { success: false }; }
+});
+
+electron_1.ipcMain.handle('finance:unarchive-wallet', async (_event, id: number) => {
+  if (!db) return { success: false };
+  try {
+    db.prepare("UPDATE finance_wallets SET is_archived=0, updated_at=datetime('now','localtime') WHERE id=?").run(id);
+    return { success: true };
+  } catch { return { success: false }; }
+});
+
+// ── Delete Account / Wallet ──
+electron_1.ipcMain.handle('finance:delete-account', async (_event, id: number) => {
+  if (!db) return { success: false };
+  try {
+    const wallets = db.prepare('SELECT id FROM finance_wallets WHERE account_id = ?').all(id) as any[];
+    for (const w of wallets) {
+      db.prepare('DELETE FROM finance_transactions WHERE wallet_id = ?').run(w.id);
+    }
+    db.prepare('DELETE FROM finance_transactions WHERE account_id = ?').run(id);
+    db.prepare('DELETE FROM finance_wallets WHERE account_id = ?').run(id);
+    db.prepare('DELETE FROM finance_accounts WHERE id = ?').run(id);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('finance:delete-wallet', async (_event, id: number) => {
+  if (!db) return { success: false };
+  try {
+    db.prepare('DELETE FROM finance_transactions WHERE wallet_id = ?').run(id);
+    db.prepare('DELETE FROM finance_wallets WHERE id = ?').run(id);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ── Password Requirements ──
+electron_1.ipcMain.handle('finance:get-password-requirements', async () => {
+  if (!db) return {};
+  try {
+    const rows = db.prepare("SELECT key, value FROM finance_settings WHERE key LIKE 'password_req_%'").all() as any[];
+    const reqs: Record<string, boolean> = {};
+    for (const r of rows) {
+      reqs[r.key] = r.value === '1';
+    }
+    return reqs;
+  } catch { return {}; }
+});
+
+electron_1.ipcMain.handle('finance:set-password-requirement', async (_event, key: string, value: boolean) => {
+  if (!db) return { success: false };
+  try {
+    db.prepare("INSERT OR REPLACE INTO finance_settings (key, value) VALUES (?, ?)").run(key, value ? '1' : '0');
+    return { success: true };
+  } catch { return { success: false }; }
+});
 
 export { getAgentConfig, AgentConfig, detectAgentPrompt, AgentVerifyResult };

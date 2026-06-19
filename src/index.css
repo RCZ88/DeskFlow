@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/finance-glass.css";
 
 @theme {
 	--ws-surface: #09090b;
@@ -9,6 +10,18 @@
 	--ws-radius-card: 0.5rem;
 	--ws-dur: 150ms;
 	--ws-ease: cubic-bezier(0.2, 0, 0, 1);
+
+	--color-clay-300: #f0a892;
+	--color-clay-400: #e8866b;
+	--color-clay-500: #d96846;
+	--color-clay-600: #c2553a;
+	--color-sage-400: #6fb38f;
+	--color-amber-400: #fbbf24;
+	--color-sky-400: #5ab0c9;
+	--color-glow: #f7f3ee;
+
+	--font-serif: "Source Serif 4", Georgia, serif;
+	--font-mono: "JetBrains Mono", "Fira Code", monospace;
 }
 
 @layer utilities {
@@ -93,6 +106,7 @@
 [data-page="database"]     { --page-accent: #a78bfa; }
 [data-page="settings"]     { --page-accent: #22d3ee; }
 [data-page="tutorial"]     { --page-accent: #34d399; }
+[data-page="finance"]      { --page-accent: #10b981; }
 
 body {
   font-family: "Geist", "Inter", system-ui, -apple-system, sans-serif;
@@ -138,6 +152,11 @@ code, pre, .font-mono {
 @keyframes pageEnter {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.5 }
+  50% { opacity: 1 }
 }
 
 @keyframes overlayIn {

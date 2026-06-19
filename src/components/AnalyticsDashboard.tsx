@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Database, BarChart3, DollarSign, Zap, AlertTriangle,
-  Clock, Activity, Cpu, TrendingUp,
+  Clock, Activity, Cpu, TrendingUp, Code2,
   PieChart as PieChartIcon, FileText, Timer, Wrench, Loader2
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -103,8 +103,8 @@ function ChartCard({ title, icon: Icon, subtitle, children, isEmpty, emptyText, 
 
 type DashboardVariant = 'project' | 'workspace' | 'full';
 
-export default function AnalyticsDashboard({ aiUsage, sessions, problems, requests, dailyStats, appStats, promptHistory, loading, period, variant = 'full' }: {
-  aiUsage?: any; sessions: any[]; problems?: any[]; requests?: any[]; dailyStats?: any[]; appStats?: any[]; promptHistory?: any[]; loading: boolean; period: string; variant?: DashboardVariant;
+export default function AnalyticsDashboard({ aiUsage, sessions, problems, requests, dailyStats, appStats, promptHistory, loading, period, variant = 'full', projectLanguages }: {
+  aiUsage?: any; sessions: any[]; problems?: any[]; requests?: any[]; dailyStats?: any[]; appStats?: any[]; promptHistory?: any[]; loading: boolean; period: string; variant?: DashboardVariant; projectLanguages?: { language: string; count: number }[];
 }) {
   const tokenByTool = useMemo(() => {
     if (!aiUsage?.byTool) return { labels: [], values: [] };
@@ -139,6 +139,12 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
     const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
     return { labels: entries.map(e => e[0]), values: entries.map(e => e[1]) };
   }, [appStats]);
+
+  const languageDist = useMemo(() => {
+    if (!projectLanguages?.length) return { labels: [], values: [] };
+    const sorted = [...projectLanguages].sort((a, b) => b.count - a.count);
+    return { labels: sorted.map(e => e.language), values: sorted.map(e => e.count) };
+  }, [projectLanguages]);
 
   const problemsByStatus = useMemo(() => {
     if (!problems?.length) return { labels: [], values: [] };
@@ -284,6 +290,18 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
             </div>
           </ChartCard>
         </div>
+
+        {languageDist.labels.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <ChartCard title="Language Distribution" icon={Code2} subtitle="Coding languages across all projects"
+              isEmpty={false} emptyText="">
+              <Doughnut data={{
+                labels: languageDist.labels,
+                datasets: [{ data: languageDist.values, backgroundColor: languageDist.labels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]), borderColor: languageDist.labels.map((_, i) => CHART_BORDERS[i % CHART_BORDERS.length]), borderWidth: 1.5 }]
+              }} options={pieOptions} />
+            </ChartCard>
+          </div>
+        )}
 
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.35 }}
           className="glass rounded-xl p-5">

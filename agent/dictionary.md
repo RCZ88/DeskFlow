@@ -63,6 +63,17 @@
 - **Close Workspace:** Kills all terminal processes and clears the workspace state. Always prompts to save first (Save & Close / Discard / Cancel). The save feature saves all active terminal sessions.
 - **Saved Workspace Config:** A named snapshot of the terminal layout (which terminals are open, their split ratios) that can be restored later via the Configs tab in the sidebar.
 
+### Workspace vs Session Distinction
+
+- **Workspace** (noun): The permanent container — sidebar groups (Setup/Work/Insights/Studio/Context), terminal layout, project integration, presets, configs. Persists via `workspace:save`/`workspace:load` IPC. Survives session close/reopen.
+- **Session** (noun): An ephemeral AI agent conversation within the workspace. Has a topic, agent type, status (active/idle/completed/error/cancelled), category, cost, tokens. Lives in `terminal_sessions` DB table. Can be resumed via `resume_id`.
+- **Workspace Group** (noun): One of 5 top-level nav buttons (Setup/Work/Insights/Studio/Context) with browser-tab style, accent color, and sub-tab navigation.
+- **Sub-tab** (noun): A secondary navigation within a group (e.g., Sessions/Map/Files under Work group). Rendered as rounded-full chip pills via SubTabBar.
+- **Open Workspace:** Launch terminal workspace for a project from IDE page (navigates to /terminal with projectId + projectPath).
+- **New Session:** Create a new AI agent conversation within an existing workspace (opens NewSessionDialog in terminal page).
+- **Resume Session:** Reconnect to a previous AI agent conversation using its resume_id.
+- **Saved Workspace List:** DOES NOT EXIST YET — workspace state auto-saves to `workspace_state` DB table but there's no UI to browse/restore previous workspaces.
+
 ### IPC Endpoints
 
 | Endpoint | Purpose |

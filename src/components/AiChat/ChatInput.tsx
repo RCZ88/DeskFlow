@@ -1,4 +1,5 @@
 import { type FC, useState, useRef, useCallback, type KeyboardEvent } from 'react'
+import { Send, Sparkles } from 'lucide-react'
 import { sanitizeInput, MAX_INPUT_LENGTH } from '../../services/chatSafety'
 
 type Props = {
@@ -10,6 +11,7 @@ type Props = {
 
 export const ChatInput: FC<Props> = ({ onSend, disabled, placeholder, className }) => {
   const [text, setText] = useState('')
+  const [justSent, setJustSent] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleSend = useCallback(() => {
@@ -17,6 +19,8 @@ export const ChatInput: FC<Props> = ({ onSend, disabled, placeholder, className 
     if (!trimmed || disabled) return
     onSend(trimmed)
     setText('')
+    setJustSent(true)
+    setTimeout(() => setJustSent(false), 600)
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
@@ -34,33 +38,80 @@ export const ChatInput: FC<Props> = ({ onSend, disabled, placeholder, className 
     setText(value)
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 6 * 24) + 'px'
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 5 * 24) + 'px'
     }
   }, [])
 
+  const isEmpty = !text.trim()
+  const canSend = !disabled && !isEmpty
+  const progress = text.length / MAX_INPUT_LENGTH
+  const circumference = 2 * Math.PI * 7
+  const strokeDashoffset = circumference * (1 - Math.min(progress, 1))
+
   return (
-    <div className={`border-t border-zinc-800/60 bg-zinc-950/90 px-4 py-3.5 ${className ?? ''}`}>
-      <div className="flex items-end gap-2.5">
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => handleInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          rows={1}
-          disabled={disabled}
-          placeholder={placeholder ?? 'Ask about your day, manage goals\u2026'}
-          className="flex-1 resize-none bg-zinc-900/80 border border-zinc-800/60 focus:border-pink-500/40 rounded-xl px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-colors"
-        />
+    <div className={`relative bg-stone-950/60 backdrop-blur-md px-4 py-3 ${className ?? ''}`}>
+      <div
+        className="absolute inset-x-0 top-0 h-px pointer-events-none"
+        style={{
+          background: 'linear-gradient(90deg, transparent, rgba(232,134,107,0.4), transparent)',
+        }}
+      />
+      <div className="flex items-end gap-2">
+        <div className="relative flex-1">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => handleInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={1}
+            disabled={disabled}
+            placeholder={placeholder ?? 'Ask about your day, manage goals\u2026'}
+            className="w-full resize-none bg-stone-900/70 border border-stone-800/50 focus:border-clay-400/40 focus:bg-stone-900/90 rounded-xl pr-4 pl-4 py-2.5 text-[13px] font-mono text-stone-100 placeholder:text-stone-500 outline-none transition-all duration-200 focus:ring-2 focus:ring-clay-400/20"
+          />
+        </div>
         <button
           onClick={handleSend}
-          disabled={disabled || !text.trim()}
-          className="bg-pink-500 hover:bg-pink-400 disabled:bg-zinc-800 disabled:text-zinc-600 rounded-lg px-4 py-2.5 text-sm font-medium text-white transition-colors shrink-0 min-w-[68px]"
+          disabled={!canSend}
+          className={`rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center ${
+            canSend
+              ? justSent
+                ? 'bg-sage-400 text-stone-950'
+                : 'bg-clay-500/90 hover:bg-clay-400 text-stone-950'
+              : 'bg-stone-800/60 text-stone-600 cursor-not-allowed'
+          }`}
         >
-          Send
+          {justSent ? (
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <Send className="w-4 h-4" />
+          )}
         </button>
       </div>
-      <div className="flex justify-end mt-1.5">
-        <span className="text-xs text-zinc-600 tabular-nums">{text.length}/{MAX_INPUT_LENGTH}</span>
+      <div className="flex items-center justify-between mt-1.5 px-0.5">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="w-3 h-3 text-stone-600" />
+          <span className="text-[10px] font-mono text-stone-600 tracking-wide">AI-POWERED</span>
+        </div>
+        <svg className="w-4 h-4 -rotate-90" viewBox="0 0 18 18">
+          <circle
+            cx="9" cy="9" r="7"
+            fill="none"
+            stroke="#292524"
+            strokeWidth="2"
+          />
+          <circle
+            cx="9" cy="9" r="7"
+            fill="none"
+            stroke={progress > 0.9 ? '#fbbf24' : '#e8866b'}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            style={{ transition: 'stroke-dashoffset 200ms ease-out' }}
+          />
+        </svg>
       </div>
     </div>
   )

@@ -11,13 +11,12 @@ import { splitPane, removePane } from '../components/TerminalWindow';
 import { ContextMaintenanceTab } from '../components/ContextMaintenanceTab';
 import DesignWorkspacePage from './DesignWorkspacePage';
 import IssuesWorkspace from '../components/IssuesWorkspace';
+import { BugReportPanel } from '../components/BugReportPanel';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import ContextSidebar from '../components/ContextSidebar';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
 import GeneralistDialog from '../components/GeneralistDialog';
-import SkillDynamicForm from '../components/SkillDynamicForm';
-import DSLGenerationModal from '../components/DSLGenerationModal';
 import { RoutingDisambiguationDialog } from '../components/RoutingDisambiguationDialog';
 import { RoutingToast } from '../components/RoutingToast';
 import { SessionEditDialog } from '../components/SessionEditDialog';
@@ -26,11 +25,23 @@ import { GlassCard } from '../components/GlassCard';
 import { notificationService } from '../services/NotificationService';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
+import { ProblemsTab, ProblemDetailModal, NewProblemDialog } from '../components/ProblemsTab';
+import { SkillsTab } from '../components/SkillsTab';
+import { RequestsTab, RequestDetailModal, NewRequestDialog } from '../components/RequestsTab';
+import { FilesTab } from '../components/FilesTab';
+import { WorkspaceShell } from '../components/workspace/WorkspaceShell';
+import { usePersistentSubTab } from '../hooks/usePersistentSubTab';
+import PageContextPanel from '../components/PageContextPanel';
 import '@xterm/xterm/css/xterm.css';
 
 function generateTerminalId(): string {
   return `term-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
+
+const formatDate = (dateStr: string) => {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
 
 interface TerminalGroup { terminals: string[]; direction?: 'horizontal' | 'vertical'; }
 
@@ -107,6 +118,22 @@ const SESSION_STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   action_required: { dot: 'bg-orange-500 animate-pulse', label: 'Action Required' },
   in_progress: { dot: 'bg-violet-500 animate-pulse', label: 'Working...' },
   ready: { dot: 'bg-cyan-500', label: 'Ready' },
+};
+
+const SUBPAGE_LABELS: Record<string, string> = {
+  'setup/presets': 'Setup / Presets',
+  'setup/configs': 'Setup / Configs',
+  'work/sessions': 'Work / Sessions',
+  'work/map': 'Work / Map',
+  'work/files': 'Work / Files',
+  'insights/analytics': 'Insights / Analytics',
+  'insights/issues': 'Insights / Issues',
+  'insights/bugs': 'Insights / Bugs',
+  'studio/skills': 'Studio / Skills',
+  'studio/design': 'Studio / Design',
+  'context/context': 'Context / Context',
+  'context/context-maintenance': 'Context / Maintenance',
+  'context/page-context': 'Context / Page Context',
 };
 
 function CategoryBadge({ category }: { category?: string }) {
@@ -191,19 +218,6 @@ function ToolbarButton({ variant = 'secondary', icon: Icon, children, ...props }
 	);
 }
 
-function WsEmptyState({ icon: Icon, title, hint, action }: { icon: React.ComponentType<any>; title: string; hint?: string; action?: React.ReactNode }) {
-	return (
-		<div className="flex flex-col items-center justify-center text-center py-10 px-4">
-			<div className="w-9 h-9 rounded-lg border border-zinc-800/60 bg-zinc-900 flex items-center justify-center mb-3">
-				<Icon className="w-4 h-4 text-zinc-600" />
-			</div>
-			<p className="text-xs font-medium text-zinc-300">{title}</p>
-			{hint && <p className="text-[11px] text-zinc-500 mt-1 max-w-[200px]">{hint}</p>}
-			{action && <div className="mt-3">{action}</div>}
-		</div>
-	);
-}
-
 function Modal({ open, onClose, title, children, footer, width = 'max-w-md' }: { open: boolean; onClose: () => void; title: string; width?: string; children: React.ReactNode; footer?: React.ReactNode }) {
 	if (!open) return null;
 	return (
@@ -243,6 +257,17 @@ function TabPanel({ accent, children }: { accent: string; children: React.ReactN
 	);
 }
 
+function GroupPanel({ accent, children }: { accent: string; children: React.ReactNode }) {
+	return (
+		<div className="flex min-h-full">
+			<span className={`w-0.5 shrink-0 ${ACCENT_STRIP[accent]} opacity-60`} />
+			<div className="flex-1 px-3 py-3 space-y-3 min-w-0">
+				{children}
+			</div>
+		</div>
+	);
+}
+
 interface Preset {
   id: string;
   name: string;
@@ -268,6 +293,7 @@ interface Session {
   auto_tags?: string;
   category_confirmed?: number;
   auto_named?: number;
+  subpage?: string;
 }
 
 const loggedErrors = new Set<string>();
@@ -286,9 +312,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     return saved ? parseInt(saved) : 400;
   });
   const [isResizing, setIsResizing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'presets' | 'sessions' | 'map' | 'analytics' | 'issues' | 'skills' | 'configs' | 'history' | 'context-maintenance' | 'design' | 'context'>(() => {
-    const saved = localStorage.getItem('terminal-activeTab');
-    return (saved as any) || 'presets';
+  type GroupKey = 'setup' | 'work' | 'insights' | 'studio' | 'context';
+  const [activeGroup, setActiveGroup] = useState<GroupKey>(() => {
+    const saved = localStorage.getItem('terminal-activeGroup');
+    return (saved as GroupKey) || 'setup';
   });
   const [presets, setPresets] = useState<Preset[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -388,6 +415,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveDialogName, setSaveDialogName] = useState('');
   const [showCloseWorkspaceDialog, setShowCloseWorkspaceDialog] = useState(false);
+
+  // Workspace instance management (named snapshots)
+  const [workspaceName, setWorkspaceName] = useState<string>('default');
+  const [showWorkspaceSaveAsDialog, setShowWorkspaceSaveAsDialog] = useState(false);
+  const [workspaceSaveAsName, setWorkspaceSaveAsName] = useState('');
+  const [showWorkspaceLoadDialog, setShowWorkspaceLoadDialog] = useState(false);
+  const [workspaceList, setWorkspaceList] = useState<Array<{ name: string; isActive: boolean; sidebarWidth: number; activeTab: string; updatedAt: string }>>([]);
+  const [workspaceListLoading, setWorkspaceListLoading] = useState(false);
   const [opencodeSessionExport, setOpencodeSessionExport] = useState<any>(null);
   const [loadingExport, setLoadingExport] = useState(false);
   const [fileConflicts, setFileConflicts] = useState<Array<{
@@ -459,6 +494,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
   // Session categorization state
   const [sessionCategoryFilter, setSessionCategoryFilter] = useState<string>('all');
+  const [sessionSubpageFilter, setSessionSubpageFilter] = useState<string>('all');
   const [mentionDropdown, setMentionDropdown] = useState<{
     visible: boolean; query: string; results: Array<{ id: string; name: string; agent: string; sessionTopic: string }>; cursor: number;
   }>({ visible: false, query: '', results: [], cursor: 0 });
@@ -1061,6 +1097,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       
       // ═══ SAVE SESSION ═══
       const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const subtab = localStorage.getItem(`workspace-subtab-${activeGroup}`) || 'sessions';
       const savePayload: any = {
         id: sessionId,
         projectId: selectedProject,
@@ -1070,6 +1107,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         workingDirectory: cwd,
         description: summary || '',
         autoNamed: 1,
+        subpage: `${activeGroup}/${subtab}`,
       };
       const saveResult = await window.deskflowAPI?.saveTerminalSession?.(savePayload);
       if (!saveResult?.success) {
@@ -1232,19 +1270,36 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     setAnalyticsLoading(true);
     try {
       const periodMap: Record<string, string> = { '7d': 'week', '30d': 'month', 'all': 'all' };
-      const p = periodMap[analyticsPeriod] || 'month';
+      const p = periodMap[analyticsPeriod] || 'week';
+      const now = new Date();
+      const cutoffDate = analyticsPeriod === '7d' ? new Date(now.getTime() - 7 * 864e5).toISOString()
+        : analyticsPeriod === '30d' ? new Date(now.getTime() - 30 * 864e5).toISOString()
+        : null;
+      const inPeriod = (dateStr: string | null | undefined) => !cutoffDate || (!!dateStr && dateStr >= cutoffDate);
       const [aiResult, problemsResult, requestsResult, historyResult, dailyResult] = await Promise.all([
-        window.deskflowAPI.getAIUsageSummary(p === 'all' ? 'month' : p),
+        window.deskflowAPI.getAIUsageSummary(p, 0, selectedProject || undefined),
         window.deskflowAPI.getProblems(selectedProject, propProjectPath).catch(() => null),
         window.deskflowAPI.getRequests(selectedProject).catch(() => null),
         window.deskflowAPI.getPromptHistory({ projectId: selectedProject, limit: 500 }).catch(() => null),
         window.deskflowAPI.getDailyAggregates().catch(() => null),
       ]);
       if (aiResult) setAiSummary(aiResult);
-      if (problemsResult) setAnalyticsProblems(Array.isArray(problemsResult) ? problemsResult : problemsResult?.data || []);
-      if (requestsResult) setAnalyticsRequests(Array.isArray(requestsResult) ? requestsResult : requestsResult?.data || []);
-      if (historyResult) setAnalyticsPromptHistory(Array.isArray(historyResult) ? historyResult : historyResult?.data || []);
-      if (dailyResult) setAnalyticsDailyStats(Array.isArray(dailyResult) ? dailyResult : dailyResult?.data || []);
+      if (problemsResult) {
+        const items = Array.isArray(problemsResult) ? problemsResult : problemsResult?.data || [];
+        setAnalyticsProblems(items.filter((r: any) => inPeriod(r.created_at)));
+      }
+      if (requestsResult) {
+        const items = Array.isArray(requestsResult) ? requestsResult : requestsResult?.data || [];
+        setAnalyticsRequests(items.filter((r: any) => inPeriod(r.created_at)));
+      }
+      if (historyResult) {
+        const items = Array.isArray(historyResult) ? historyResult : historyResult?.data || [];
+        setAnalyticsPromptHistory(items.filter((r: any) => inPeriod(r.sent_at)));
+      }
+      if (dailyResult) {
+        const items = Array.isArray(dailyResult) ? dailyResult : dailyResult?.data || [];
+        setAnalyticsDailyStats(items.filter((r: any) => inPeriod(r.date)));
+      }
     } catch (err) {
       console.error('[TerminalPage] Analytics fetch error:', err);
     } finally {
@@ -1346,15 +1401,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   }, [loadProjects]);
 
   useEffect(() => {
-    if (activeTab === 'presets') {
+    if (activeGroup === 'setup') {
       loadPresets();
-    } else if (activeTab === 'sessions') {
+    } else if (activeGroup === 'work') {
       loadSessions();
-    } else if (activeTab === 'analytics' && window.deskflowAPI) {
+    } else if (activeGroup === 'insights' && window.deskflowAPI) {
       fetchAnalyticsData();
       loadSessions();
     }
-  }, [activeTab, selectedProject, loadPresets, loadSessions, analyticsPeriod, fetchAnalyticsData]);
+  }, [activeGroup, selectedProject, loadPresets, loadSessions, analyticsPeriod, fetchAnalyticsData]);
 
   // Load auto-assign config on mount
   useEffect(() => {
@@ -1367,16 +1422,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   }, []);
   const [routingCosts, setRoutingCosts] = useState<any>(null);
   useEffect(() => {
-    if (activeTab === 'configs') {
+    if (activeGroup === 'setup') {
       loadRoutingCosts();
       window.deskflowAPI?.getAutoAssignConfig?.().then(setAutoAssignConfig);
     }
-  }, [activeTab, loadRoutingCosts]);
+  }, [activeGroup, loadRoutingCosts]);
 
   // Persist active tab to localStorage
   useEffect(() => {
-    localStorage.setItem('terminal-activeTab', activeTab);
-  }, [activeTab]);
+    localStorage.setItem('terminal-activeGroup', activeGroup);
+  }, [activeGroup]);
 
   // Persist sidebar width to localStorage
   useEffect(() => {
@@ -1404,14 +1459,18 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
   // Load workspace state on mount (for propProjectPath mode)
   useEffect(() => {
-    if (!propProjectId || !window.deskflowAPI?.loadWorkspace) return;
-    window.deskflowAPI.loadWorkspace({ scope: 'project', projectId: propProjectId }).then((result: any) => {
+    const wsProjectId = propProjectId || selectedProject;
+    if (!wsProjectId || !window.deskflowAPI?.loadWorkspace) return;
+    window.deskflowAPI.loadWorkspace({ scope: 'project', projectId: wsProjectId }).then((result: any) => {
       if (result?.success && result.data) {
+        if (result.data.name) setWorkspaceName(result.data.name);
         if (result.data.sidebarWidth) setSidebarWidth(result.data.sidebarWidth);
-        if (result.data.activeTab) setActiveTab(result.data.activeTab);
+        if (result.data.activeTab) setActiveGroup(result.data.activeTab);
+        if (result.data.analyticsPeriod) setAnalyticsPeriod(result.data.analyticsPeriod);
+        if (result.data.sessionCategoryFilter) setSessionCategoryFilter(result.data.sessionCategoryFilter);
       }
     }).catch(() => {});
-  }, [propProjectId]);
+  }, [propProjectId, selectedProject]);
 
   // Track terminals currently being initialized (prevent duplicate init calls)
   const initializingTerminals = useRef(new Set<string>());
@@ -1420,17 +1479,20 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   // Save workspace state on relevant changes (debounced)
   const saveWorkspaceDebounce = useRef<NodeJS.Timeout | null>(null);
 
-  const handleSaveWorkspace = useCallback(async () => {
-    if (!propProjectId || !window.deskflowAPI?.saveWorkspace) return;
+  const handleSaveWorkspace = useCallback(async (name?: string) => {
+    const wsProjectId = propProjectId || selectedProject;
+    if (!wsProjectId || !window.deskflowAPI?.saveWorkspace) return;
     try {
+      const saveName = name || workspaceName || 'default';
       const terminalInfo = Object.fromEntries(
         Object.entries(terminalTabs).map(([id, info]) => [id, { name: info.name, agent: info.agent, modelTier: info.modelTier }])
       );
       const result = await window.deskflowAPI.saveWorkspace({
-        projectId: propProjectId,
+        projectId: wsProjectId,
+        name: saveName,
         scope: 'project',
         sidebarWidth,
-        activeTab,
+        activeTab: activeGroup,
         terminalTabs: Object.keys(terminalTabs),
         layout: terminalLayout,
         openFiles: [],
@@ -1438,25 +1500,72 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         todos: [],
         presets,
         terminalInfo,
+        configs: {
+          modelReinjectThreshold,
+          modelDefaultTier,
+          modelDebugMode,
+          crossSessionSyncEnabled: localStorage.getItem('cross-session-sync-enabled') === 'true',
+          fileLockTTL: Number(localStorage.getItem('file-lock-ttl')) || 30000,
+          contextBroadcastEnabled: localStorage.getItem('context-broadcast-enabled') === 'true',
+          conflictWarningMode: localStorage.getItem('conflict-warning-mode') || 'all',
+          syncCommandEnabled: localStorage.getItem('sync-command-enabled') === 'true',
+          thoughtProcessEnabled: localStorage.getItem('thought-process-enabled') === 'true',
+        },
+        analyticsPeriod,
+        sessionCategoryFilter,
+        mapListRatio: Number(localStorage.getItem(`mapListRatio:${wsProjectId}`)) || 50,
       });
       if (result?.success) {
-        showError('Workspace saved', 'info');
+        setWorkspaceName(saveName);
+        showError(`Workspace "${saveName}" saved`, 'info');
       } else {
         showError(result?.error || 'Failed to save workspace', 'error');
       }
     } catch (err: any) {
       showError(err?.message || 'Failed to save workspace', 'error');
     }
-  }, [propProjectId, sidebarWidth, activeTab, terminalTabs, terminalLayout, activeTerminalId, presets]);
+  }, [propProjectId, selectedProject, workspaceName, sidebarWidth, activeGroup, terminalTabs, terminalLayout, activeTerminalId, presets, analyticsPeriod, sessionCategoryFilter, modelReinjectThreshold, modelDefaultTier, modelDebugMode]);
 
-  const handleLoadWorkspace = useCallback(async () => {
-    if (!propProjectId || !window.deskflowAPI?.loadWorkspace) return;
+  const handleLoadWorkspace = useCallback(async (name?: string) => {
+    const wsProjectId = propProjectId || selectedProject;
+    if (!wsProjectId || !window.deskflowAPI?.loadWorkspace) return;
     try {
-      const result = await window.deskflowAPI.loadWorkspace({ scope: 'project', projectId: propProjectId });
+      const result = await window.deskflowAPI.loadWorkspace({ scope: 'project', projectId: wsProjectId, name });
       if (result?.success && result.data) {
+        setWorkspaceName(result.data.name || 'default');
         if (result.data.sidebarWidth) setSidebarWidth(result.data.sidebarWidth);
-        if (result.data.activeTab) setActiveTab(result.data.activeTab);
+        if (result.data.activeTab) setActiveGroup(result.data.activeTab as GroupKey);
         if (result.data.presets?.length > 0) setPresets(result.data.presets);
+
+        // Restore configs tab settings
+        if (result.data.configs) {
+          const c = result.data.configs;
+          if (c.modelReinjectThreshold !== undefined) {
+            setModelReinjectThreshold(c.modelReinjectThreshold);
+            localStorage.setItem('model-reinject-threshold', String(c.modelReinjectThreshold));
+          }
+          if (c.modelDefaultTier) {
+            setModelDefaultTier(c.modelDefaultTier);
+            localStorage.setItem('default-model-tier', c.modelDefaultTier);
+          }
+          if (c.modelDebugMode !== undefined) {
+            setModelDebugMode(c.modelDebugMode);
+            localStorage.setItem('model-debug-mode', String(c.modelDebugMode));
+          }
+          if (c.crossSessionSyncEnabled !== undefined) localStorage.setItem('cross-session-sync-enabled', String(c.crossSessionSyncEnabled));
+          if (c.fileLockTTL !== undefined) localStorage.setItem('file-lock-ttl', String(c.fileLockTTL));
+          if (c.contextBroadcastEnabled !== undefined) localStorage.setItem('context-broadcast-enabled', String(c.contextBroadcastEnabled));
+          if (c.conflictWarningMode) localStorage.setItem('conflict-warning-mode', c.conflictWarningMode);
+          if (c.syncCommandEnabled !== undefined) localStorage.setItem('sync-command-enabled', String(c.syncCommandEnabled));
+          if (c.thoughtProcessEnabled !== undefined) localStorage.setItem('thought-process-enabled', String(c.thoughtProcessEnabled));
+        }
+
+        // Restore analytics period
+        if (result.data.analyticsPeriod) setAnalyticsPeriod(result.data.analyticsPeriod as any);
+        if (result.data.sessionCategoryFilter) setSessionCategoryFilter(result.data.sessionCategoryFilter);
+        if (result.data.mapListRatio !== undefined && result.data.mapListRatio !== null) {
+          localStorage.setItem(`mapListRatio:${wsProjectId}`, String(result.data.mapListRatio));
+        }
 
         // Restore pane layout from state_json.layout or from terminal_layouts table
         if (result.data.layout) {
@@ -1473,7 +1582,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         const savedTabs = result.data.terminalTabs || [];
         const terminalInfo = result.data.terminalInfo || {};
         if (savedTabs.length > 0 && !userCreatedTerminalRef.current) {
-          const proj = projects.find(p => p.id === propProjectId);
+          const proj = projects.find(p => p.id === wsProjectId);
           const cwd = proj?.path || '';
           for (const terminalId of savedTabs) {
             if (!terminalTabsRef.current[terminalId]) {
@@ -1492,7 +1601,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     } catch (err: any) {
       showError(err?.message || 'Failed to load workspace', 'error');
     }
-  }, [propProjectId, effectiveProjectId, projects]);
+  }, [propProjectId, selectedProject, effectiveProjectId, projects]);
 
   const handleImportOpencodeSessions = useCallback(async (opencodeSessions: any[]) => {
     const proj = projects.find(p => p.id === selectedProject);
@@ -1538,13 +1647,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   }, [showNewSessionDialog, fetchOpencodeSessionTitle]);
 
   useEffect(() => {
-    if (!propProjectId || !window.deskflowAPI?.saveWorkspace) return;
+    const wsProjectId = propProjectId || selectedProject;
+    if (!wsProjectId || !window.deskflowAPI?.saveWorkspace) return;
     if (saveWorkspaceDebounce.current) clearTimeout(saveWorkspaceDebounce.current);
     saveWorkspaceDebounce.current = setTimeout(handleSaveWorkspace, 2000);
     return () => {
       if (saveWorkspaceDebounce.current) clearTimeout(saveWorkspaceDebounce.current);
     };
-  }, [propProjectId, sidebarWidth, activeTab, terminalTabs, handleSaveWorkspace]);
+  }, [propProjectId, selectedProject, sidebarWidth, activeGroup, terminalTabs, handleSaveWorkspace]);
 
   useEffect(() => {
     if (!selectedSessionDetail) { setOpencodeSessionExport(null); return; }
@@ -1584,13 +1694,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const workspaceRestoredRef = useRef(false);
 
   useEffect(() => {
-    if (!propProjectId || workspaceRestoredRef.current) return;
+    const wsProjectId = propProjectId || selectedProject;
+    if (!wsProjectId || workspaceRestoredRef.current) return;
     workspaceRestoredRef.current = true;
     const timer = setTimeout(() => {
       handleLoadWorkspace();
     }, 800);
     return () => clearTimeout(timer);
-  }, [propProjectId, handleLoadWorkspace]);
+  }, [propProjectId, selectedProject, handleLoadWorkspace]);
 
   // Handle create-terminal events: spawn the PTY and notify the system
   // Placed after spawnTerminal to avoid TDZ reference error
@@ -2044,8 +2155,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     window.addEventListener('trigger-provision', handleTriggerProvision);
     window.addEventListener('open-new-agent', handleOpenNewAgent);
     const handleSwitchSidebarTab = (e: CustomEvent) => {
-      const tab = e.detail;
-      if (tab === 'context') setActiveTab('context');
+      const tab = e.detail as string;
+      if (['setup', 'work', 'insights', 'studio', 'context'].includes(tab)) {
+        setActiveGroup(tab as GroupKey);
+      }
     };
     window.addEventListener('switch-sidebar-tab', handleSwitchSidebarTab as EventListener);
     const handleCloseWorkspaceDialog = () => {
@@ -2091,7 +2204,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               ) : null;
             })()}
             {projects.length > 0 && (
-              <div className="flex items-center gap-2">
+              <div data-tutorial="term.projects" className="flex items-center gap-2">
                 <div className="flex flex-col">
                   <select
                     value={selectedProject}
@@ -2542,7 +2655,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   });
                 };
                 return (
-                  <div
+                  <div data-tutorial="term.panes"
                     className="w-full h-full relative"
                     onDragOver={(e) => {
                       if (draggedTabRef.current || draggedSessionId) e.preventDefault();
@@ -2634,49 +2747,53 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
               <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Terminal</span>
             </div>
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1">
+              {/* Persistent save indicator */}
+              <button
+                onClick={async () => { await handleSaveWorkspace(); }}
+                title={`Workspace: ${workspaceName} — click to save`}
+                className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                <span className="max-w-[80px] truncate">{workspaceName}</span>
+              </button>
               <button onClick={() => setShowFeaturesDialog(true)} title="Workspace Features" className={WS_ICON_BTN}><Info className="w-3.5 h-3.5" /></button>
               <button onClick={() => setShowGeneralistDialog(true)} title="Skill Configuration" className={WS_ICON_BTN}><BookOpen className="w-3.5 h-3.5" /></button>
               <button onClick={() => setSidebarOpen(false)} title="Collapse sidebar" className={WS_ICON_BTN}><PanelLeftClose className="w-3.5 h-3.5" /></button>
             </div>
           </header>
-          {/* Tab Bar */}
-          <nav className="flex flex-wrap border-b border-zinc-800/60 px-1 pt-1">
+          {/* Group Tab Bar */}
+          <nav className="flex border-b border-zinc-800/60 gap-px px-2 pt-1.5">
             {([
-              { key: 'presets', icon: Zap, label: 'Presets', accent: 'green' },
-              { key: 'sessions', icon: Clock, label: 'Sessions', accent: 'green' },
-              { key: 'map', icon: Monitor, label: 'Map', accent: 'green' },
-              { key: 'analytics', icon: PieChart, label: 'Analytics', accent: 'green' },
-              { key: 'issues', icon: ListChecks, label: 'Issues', accent: 'emerald' },
-              { key: 'files', icon: Folder, label: 'Files', accent: 'yellow' },
-              { key: 'skills', icon: Sparkles, label: 'Skills', accent: 'indigo' },
-              { key: 'design', icon: Palette, label: 'Design', accent: 'pink' },
-              { key: 'configs', icon: Settings, label: 'Configs', accent: 'orange' },
-              { key: 'history', icon: RefreshCw, label: 'History', accent: 'rose' },
-              { key: 'context', icon: Settings2, label: 'Context', accent: 'amber' },
-              { key: 'context-maintenance', icon: Database, label: 'Maintenance', accent: 'violet' },
-            ] as const).map((tab, i) => {
-              const active = activeTab === tab.key;
-              const Icon = tab.icon;
+              { key: 'setup' as const, icon: Settings, label: 'Setup', accent: 'orange' },
+              { key: 'work' as const, icon: Monitor, label: 'Work', accent: 'green' },
+              { key: 'insights' as const, icon: PieChart, label: 'Insights', accent: 'purple' },
+              { key: 'studio' as const, icon: Sparkles, label: 'Studio', accent: 'indigo' },
+              { key: 'context' as const, icon: Settings2, label: 'Context', accent: 'amber' },
+            ]).map((g) => {
+              const active = activeGroup === g.key;
+              const Icon = g.icon;
               return (
                 <button
-                  key={tab.key}
-                  onClick={() => {
-                    if (tab.key === 'files') setFileChangedPulse(false);
-                    setActiveTab(tab.key);
-                  }}
-                  title={tab.label}
-                  className={`flex items-center gap-1.5 px-2.5 h-8 -mb-px border-b-2 text-[11px] font-medium rounded-t-md transition-colors duration-150 active:scale-95 ${active ? TAB_ACTIVE[tab.accent] : 'border-transparent text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50'}`}
+                  key={g.key}
+                  onClick={() => { setFileChangedPulse(false); setActiveGroup(g.key); }}
+                  title={g.label}
+                  className={`relative flex items-center gap-1.5 px-4 h-8 rounded-t-lg text-[11px] font-semibold tracking-wider transition-all duration-150 ${active
+                    ? 'bg-zinc-800/80 text-zinc-100 border border-zinc-700/60 border-b-0 shadow-sm -mb-px'
+                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30 border border-transparent'
+                  }`}
                 >
                   <Icon className={`w-3.5 h-3.5 ${active ? '' : 'opacity-80'}`} />
-                  <span>{tab.label}</span>
-                  {tab.key === 'files' && fileChangedPulse && (
+                  <span>{g.label}</span>
+                  {g.key === 'work' && fileChangedPulse && (
                     <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full animate-ping" />
                   )}
                 </button>
               );
             })}
           </nav>
+          {/* Accent connectivity strip */}
+          <div className={`h-0.5 ${ACCENT_STRIP[{setup:'orange',work:'green',insights:'purple',studio:'indigo',context:'amber'}[activeGroup]]} opacity-40`} />
 
           {/* Content */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -2699,109 +2816,725 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   </div>
                  </SectionCard>
             )}
-            {activeTab === 'presets' && (
-              <TabPanel accent="green">
-                <ToolbarButton variant="primary" icon={Plus} onClick={() => setShowAddPreset(true)}>
-                  Add Preset
-                </ToolbarButton>
+            {activeGroup === 'setup' && (
+              <WorkspaceShell accent="orange" tabs={[
+                { key: 'presets', icon: Zap, label: 'Presets' },
+                { key: 'configs', icon: Settings, label: 'Configs' },
+              ]} storageKey="setup" render={(sub) => {
+                switch (sub) {
+                  case 'presets': return (
+                    <GroupPanel accent="green">
+                      <ToolbarButton variant="primary" icon={Plus} onClick={() => setShowAddPreset(true)}>
+                        Add Preset
+                      </ToolbarButton>
 
-                {showAddPreset && (
-                  <div className="p-3 bg-zinc-900 border border-zinc-800/60 rounded-lg space-y-2">
-                    <input
-                      type="text"
-                      placeholder="Name (e.g., 'Run Tests')"
-                      value={newPreset.name}
-                      onChange={(e) => setNewPreset({ ...newPreset, name: e.target.value })}
-                      className="w-full px-2 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-zinc-200 placeholder-zinc-500"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Command (e.g., 'npm test')"
-                      value={newPreset.command}
-                      onChange={(e) => setNewPreset({ ...newPreset, command: e.target.value })}
-                      className="w-full px-2 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-zinc-200 placeholder-zinc-500"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Category (optional)"
-                      value={newPreset.category}
-                      onChange={(e) => setNewPreset({ ...newPreset, category: e.target.value })}
-                      className="w-full px-2 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-zinc-200 placeholder-zinc-500"
-                    />
-                    <div className="flex gap-1">
-                      <button
-                        onClick={handleAddPreset}
-                        className="flex-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => { setShowAddPreset(false); setNewPreset({ name: '', command: '', category: '' }); }}
-                        className="flex-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
+                      {showAddPreset && (
+                        <div className="p-3 bg-zinc-900 border border-zinc-800/60 rounded-lg space-y-2">
+                          <input
+                            type="text"
+                            placeholder="Name (e.g., 'Run Tests')"
+                            value={newPreset.name}
+                            onChange={(e) => setNewPreset({ ...newPreset, name: e.target.value })}
+                            className="w-full px-2 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-zinc-200 placeholder-zinc-500"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Command (e.g., 'npm test')"
+                            value={newPreset.command}
+                            onChange={(e) => setNewPreset({ ...newPreset, command: e.target.value })}
+                            className="w-full px-2 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-zinc-200 placeholder-zinc-500"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Category (optional)"
+                            value={newPreset.category}
+                            onChange={(e) => setNewPreset({ ...newPreset, category: e.target.value })}
+                            className="w-full px-2 py-1.5 bg-zinc-950 border border-zinc-800/60 rounded text-xs text-zinc-200 placeholder-zinc-500"
+                          />
+                          <div className="flex gap-1">
+                            <button
+                              onClick={handleAddPreset}
+                              className="flex-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={() => { setShowAddPreset(false); setNewPreset({ name: '', command: '', category: '' }); }}
+                              className="flex-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
-                {presets.length === 0 ? (
-                  <WsEmptyState icon={TerminalIcon} title="No presets yet" hint="Add a preset to quickly execute commands." />
-                ) : (
-                  presets.map((preset) => (
-                    <div key={preset.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900 p-2 group">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-zinc-200">
-                          {preset.isBuiltIn && <span className="text-[10px] text-blue-400 mr-1">[SYSTEM]</span>}
-                          {preset.name}
-                        </span>
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+                      {presets.length === 0 ? (
+                        <EmptyState iconComponent={TerminalIcon} title="No presets yet" hint="Add a preset to quickly execute commands." />
+                      ) : (
+                        presets.map((preset) => (
+                          <div key={preset.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900 p-2 group">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-zinc-200">
+                                {preset.isBuiltIn && <span className="text-[10px] text-blue-400 mr-1">[SYSTEM]</span>}
+                                {preset.name}
+                              </span>
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+                                <button
+                                  onClick={() => handleExecutePreset(preset)}
+                                  className={WS_ICON_BTN}
+                                  title="Run"
+                                >
+                                  <Play className="w-3 h-3 text-green-400" />
+                                </button>
+                                {preset.isBuiltIn ? (
+                                  <button
+                                    onClick={() => {
+                                      setEditPreset(preset);
+                                      setShowEditPreset(true);
+                                    }}
+                                    className={WS_ICON_BTN}
+                                    title="View Details"
+                                  >
+                                    <Info className="w-3 h-3 text-blue-400" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setEditPreset(preset);
+                                      setShowEditPreset(true);
+                                    }}
+                                    className={WS_ICON_BTN}
+                                    title="Edit"
+                                  >
+                                    <Edit className="w-3 h-3 text-yellow-400" />
+                                  </button>
+                                )}
+                                {!preset.isBuiltIn && (
+                                  <button
+                                    onClick={() => handleRemovePreset(preset.id)}
+                                    className={WS_ICON_BTN}
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-3 h-3 text-red-400" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-xs text-zinc-500 font-mono truncate">{preset.command || 'Re-inject context snapshot into active terminal'}</div>
+                          </div>
+                        ))
+                      )}
+                    </GroupPanel>
+                  );
+                  case 'configs': return (
+                    <GroupPanel accent="orange">
+                      <SectionCard accent="orange" title="Model Configuration">
+
+                        {/* Re-injection threshold */}
+                        <div className="mb-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-semibold text-zinc-300">Rules Re-injection</span>
+                            <span className="font-mono text-emerald-400 text-[11px]">{modelReinjectThreshold}</span>
+                          </div>
+                          <p className="text-[9px] text-zinc-600 mb-2">Auto-inject RULES_COMPACT.md every N messages</p>
+                          <input
+                            type="range"
+                            min={3}
+                            max={30}
+                            value={modelReinjectThreshold}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              setModelReinjectThreshold(v);
+                              localStorage.setItem('model-reinject-threshold', String(v));
+                              window.deskflowAPI?.setReinjectThreshold?.({ threshold: v });
+                            }}
+                            className="w-full h-1 rounded-full appearance-none cursor-pointer accent-emerald-500"
+                          />
+                          <div className="flex justify-between text-[9px] text-zinc-600 mt-0.5">
+                            <span>3</span>
+                            <span>30</span>
+                          </div>
+                        </div>
+
+                        {/* Default model tier */}
+                        <div className="mb-3">
+                          <span className="text-[10px] font-semibold text-zinc-300 block mb-1">Default Model Tier</span>
+                          <p className="text-[9px] text-zinc-600 mb-2">Context budget for new sessions</p>
+                          <div className="flex gap-1">
+                            {(['top', 'mid', 'low'] as const).map((tier) => (
+                              <button
+                                key={tier}
+                                onClick={() => {
+                                  setModelDefaultTier(tier);
+                                  localStorage.setItem('default-model-tier', tier);
+                                }}
+                                className={`flex-1 py-1.5 rounded text-[10px] font-semibold border transition-colors duration-150 ${
+                                  modelDefaultTier === tier
+                                    ? tier === 'top'
+                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                      : tier === 'mid'
+                                      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                                      : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
+                                    : 'bg-zinc-700/50 text-zinc-500 border-zinc-600/40'
+                                }`}
+                              >
+                                {tier}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Debug mode */}
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] font-semibold text-zinc-300">Debug Mode</span>
+                            <p className="text-[9px] text-zinc-600">Verbose [SYSTEM] logging</p>
+                          </div>
                           <button
-                            onClick={() => handleExecutePreset(preset)}
-                            className={WS_ICON_BTN}
-                            title="Run"
+                            onClick={() => {
+                              const v = !modelDebugMode;
+                              setModelDebugMode(v);
+                              localStorage.setItem('model-debug-mode', String(v));
+                              window.deskflowAPI?.setModelDebug?.({ enabled: v });
+                            }}
+                            className={`w-10 h-5 rounded-full transition-colors duration-150 relative ${modelDebugMode ? 'bg-emerald-500' : 'bg-zinc-600'}`}
                           >
-                            <Play className="w-3 h-3 text-green-400" />
+                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-colors duration-150 ${modelDebugMode ? 'translate-x-5' : ''}`} />
                           </button>
-                          {preset.isBuiltIn ? (
+                        </div>
+
+                        {/* ── Auto-Assign Configuration ── */}
+                        <div className="pt-3 border-t border-orange-500/10 space-y-3">
+                          <h4 className="text-xs font-semibold text-orange-400 flex items-center gap-1.5">
+                            <Sparkles className="w-3 h-3" />
+                            Auto-Assign Routing
+                          </h4>
+
+                          {/* Toggle */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs text-zinc-300">Auto-assign prompts to sessions</span>
+                              <p className="text-[10px] text-zinc-600">AI routes your prompts to the best-matching session</p>
+                            </div>
                             <button
-                              onClick={() => {
-                                setEditPreset(preset);
-                                setShowEditPreset(true);
+                              onClick={async () => {
+                                const newConfig = { ...autoAssignConfig, enabled: !autoAssignConfig?.enabled };
+                                await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                                setAutoAssignConfig(newConfig);
                               }}
-                              className={WS_ICON_BTN}
-                              title="View Details"
+                              className={`relative w-9 h-5 rounded-full transition-colors ${
+                                autoAssignConfig?.enabled ? 'bg-cyan-500/30 border border-cyan-500/40' : 'bg-zinc-700 border border-zinc-600'
+                              }`}
                             >
-                              <Info className="w-3 h-3 text-blue-400" />
+                              <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${
+                                autoAssignConfig?.enabled ? 'translate-x-4 bg-cyan-400' : 'translate-x-0.5 bg-zinc-400'
+                              }`} />
                             </button>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                setEditPreset(preset);
-                                setShowEditPreset(true);
+                          </div>
+
+                          {/* Routing Model */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-zinc-400">Routing model</span>
+                            <select
+                              value={autoAssignConfig?.routingModel || 'anthropic/claude-3.5-haiku'}
+                              onChange={async (e) => {
+                                const newConfig = { ...autoAssignConfig, routingModel: e.target.value };
+                                await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                                setAutoAssignConfig(newConfig);
                               }}
-                              className={WS_ICON_BTN}
-                              title="Edit"
+                              className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-orange-500/40"
                             >
-                              <Edit className="w-3 h-3 text-yellow-400" />
-                            </button>
-                          )}
-                          {!preset.isBuiltIn && (
+                              <option value="anthropic/claude-3.5-haiku">Claude 3.5 Haiku ($0.80/M)</option>
+                              <option value="anthropic/claude-3-haiku">Claude 3 Haiku ($0.25/M)</option>
+                              <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash ($0.10/M)</option>
+                              <option value="openai/gpt-4o-mini">GPT-4o Mini ($0.15/M)</option>
+                            </select>
+                          </div>
+
+                          {/* Summary Frequency */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-zinc-400">Summary frequency</span>
+                            <select
+                              value={autoAssignConfig?.summaryFrequency || 10}
+                              onChange={async (e) => {
+                                const newConfig = { ...autoAssignConfig, summaryFrequency: parseInt(e.target.value) };
+                                await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                                setAutoAssignConfig(newConfig);
+                              }}
+                              className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-orange-500/40"
+                            >
+                              <option value="5">Every 5 messages</option>
+                              <option value="10">Every 10 messages</option>
+                              <option value="20">Every 20 messages</option>
+                              <option value="0">Manual only</option>
+                            </select>
+                          </div>
+
+                          {/* Auto-Rename Toggle */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs text-zinc-300">Auto-rename sessions</span>
+                              <p className="text-[10px] text-zinc-600">AI generates descriptive session names</p>
+                            </div>
                             <button
-                              onClick={() => handleRemovePreset(preset.id)}
-                              className={WS_ICON_BTN}
-                              title="Delete"
+                              onClick={async () => {
+                                const newConfig = { ...autoAssignConfig, autoRename: !autoAssignConfig?.autoRename };
+                                await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                                setAutoAssignConfig(newConfig);
+                              }}
+                              className={`relative w-9 h-5 rounded-full transition-colors ${
+                                autoAssignConfig?.autoRename ? 'bg-cyan-500/30 border border-cyan-500/40' : 'bg-zinc-700 border border-zinc-600'
+                              }`}
                             >
-                              <Trash2 className="w-3 h-3 text-red-400" />
+                              <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${
+                                autoAssignConfig?.autoRename ? 'translate-x-4 bg-cyan-400' : 'translate-x-0.5 bg-zinc-400'
+                              }`} />
                             </button>
+                          </div>
+
+                          {/* Rename Threshold */}
+                          {autoAssignConfig?.autoRename && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-zinc-400">Rename after N messages</span>
+                              <select
+                                value={autoAssignConfig?.renameThreshold || 5}
+                                onChange={async (e) => {
+                                  const newConfig = { ...autoAssignConfig, renameThreshold: parseInt(e.target.value) };
+                                  await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                                  setAutoAssignConfig(newConfig);
+                                }}
+                                className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-orange-500/40"
+                              >
+                                <option value="3">3 messages</option>
+                                <option value="5">5 messages</option>
+                                <option value="10">10 messages</option>
+                              </select>
+                            </div>
                           )}
                         </div>
+
+                        {/* ── Auto-Session Creation ── */}
+                        <div className="pt-3 border-t border-orange-500/10 space-y-3">
+                          <h4 className="text-xs font-semibold text-orange-400 flex items-center gap-1.5">
+                            <Zap className="w-3 h-3" />
+                            Auto-Session Creation
+                          </h4>
+
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs text-zinc-300">Auto-create sessions</span>
+                              <p className="text-[10px] text-zinc-600">Detect when model is active and auto-create new sessions</p>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                const newConfig = { ...autoAssignConfig, autoCreateSessions: !autoAssignConfig?.autoCreateSessions };
+                                await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
+                                setAutoAssignConfig(newConfig);
+                              }}
+                              className={`relative w-9 h-5 rounded-full transition-colors ${
+                                autoAssignConfig?.autoCreateSessions ? 'bg-cyan-500/30 border border-cyan-500/40' : 'bg-zinc-700 border border-zinc-600'
+                              }`}
+                            >
+                              <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${
+                                autoAssignConfig?.autoCreateSessions ? 'translate-x-4 bg-cyan-400' : 'translate-x-0.5 bg-zinc-400'
+                              }`} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* ── Infrastructure Cost Card ── */}
+                        <div className="bg-zinc-900/50 rounded-lg p-3 border border-zinc-800/70">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                              <DollarSign className="w-3 h-3 text-emerald-400" />
+                              Routing Infrastructure Cost
+                            </h4>
+                            <button
+                              onClick={async () => {
+                                if (confirm('Reset all routing cost counters?')) {
+                                  await window.deskflowAPI?.resetRoutingCosts?.();
+                                  loadRoutingCosts();
+                                }
+                              }}
+                              className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                          {routingCosts ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="bg-zinc-800/50 rounded p-2">
+                                <span className="text-[10px] text-zinc-500">Today</span>
+                                <p className="text-sm font-mono text-emerald-400">${(routingCosts.today?.total || 0).toFixed(4)}</p>
+                                <span className="text-[9px] text-zinc-600">{routingCosts.today?.calls || 0} calls</span>
+                              </div>
+                              <div className="bg-zinc-800/50 rounded p-2">
+                                <span className="text-[10px] text-zinc-500">This Week</span>
+                                <p className="text-sm font-mono text-emerald-400">${(routingCosts.week?.total || 0).toFixed(4)}</p>
+                                <span className="text-[9px] text-zinc-600">{routingCosts.week?.calls || 0} calls</span>
+                              </div>
+                              <div className="bg-zinc-800/50 rounded p-2">
+                                <span className="text-[10px] text-zinc-500">This Month</span>
+                                <p className="text-sm font-mono text-emerald-400">${(routingCosts.month?.total || 0).toFixed(4)}</p>
+                                <span className="text-[9px] text-zinc-600">{routingCosts.month?.calls || 0} calls</span>
+                              </div>
+                              <div className="bg-zinc-800/50 rounded p-2">
+                                <span className="text-[10px] text-zinc-500">All Time</span>
+                                <p className="text-sm font-mono text-zinc-300">${(routingCosts.total?.total || 0).toFixed(4)}</p>
+                                <span className="text-[9px] text-zinc-600">{routingCosts.total?.calls || 0} calls</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-center py-3">
+                              <p className="text-[10px] text-zinc-600">Loading costs...</p>
+                            </div>
+                          )}
+                          {routingCosts?.byType && routingCosts.byType.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-zinc-800/50 space-y-1">
+                              {routingCosts.byType.map((bt: any) => (
+                                <div key={bt.call_type} className="flex items-center justify-between">
+                                  <span className="text-[10px] text-zinc-500 capitalize">{bt.call_type}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-mono text-zinc-400">${(bt.total || 0).toFixed(4)}</span>
+                                    <span className="text-[9px] text-zinc-600">×{bt.calls}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </SectionCard>
+
+                      {/* ── Cross-Session Sync ── */}
+                      <SectionCard accent="amber" title="Cross-Session Sync">
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <h4 className="text-[11px] font-medium text-amber-300">Cross-Session Sync</h4>
+                            <p className="text-[9px] text-zinc-500">File lock detection, context broadcast</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const v = !crossSessionSyncEnabled;
+                              setCrossSessionSyncEnabled(v);
+                              localStorage.setItem('cross-session-sync-enabled', String(v));
+                              window.deskflowAPI?.setCrossSessionSyncConfig?.({ enabled: v });
+                            }}
+                            className={`w-8 h-4 rounded-full transition-colors relative ${
+                              crossSessionSyncEnabled ? 'bg-amber-500' : 'bg-zinc-700'
+                            }`}
+                          >
+                            <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
+                              crossSessionSyncEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                            }`} />
+                          </button>
+                        </div>
+
+                        <div className="space-y-3">
+                          {/* File Lock TTL */}
+                          <div>
+                            <div className="flex items-center justify-between mb-0.5">
+                              <span className="text-[10px] text-zinc-400">Lock TTL</span>
+                              <span className="text-[10px] text-amber-400 font-mono">{fileLockTTL}s</span>
+                            </div>
+                            <p className="text-[8px] text-zinc-600 mb-1">How long a file lock lasts before auto-release</p>
+                            <input
+                              type="range"
+                              min={30}
+                              max={600}
+                              step={30}
+                              value={fileLockTTL}
+                              onChange={(e) => {
+                                const v = Number(e.target.value);
+                                setFileLockTTL(v);
+                                localStorage.setItem('file-lock-ttl', String(v));
+                                window.deskflowAPI?.setCrossSessionSyncConfig?.({ lockTTL: v });
+                              }}
+                              className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-amber-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-amber-500 [&::-webkit-slider-thumb]:rounded-full"
+                            />
+                            <div className="flex justify-between text-[8px] text-zinc-600">
+                              <span>30s</span>
+                              <span>10m</span>
+                            </div>
+                          </div>
+
+                          {/* Context Broadcast Toggle */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] text-zinc-400">Context Broadcast</span>
+                              <p className="text-[8px] text-zinc-600">Notify other terminals of problem/request changes</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const v = !contextBroadcastEnabled;
+                                setContextBroadcastEnabled(v);
+                                localStorage.setItem('context-broadcast-enabled', String(v));
+                                window.deskflowAPI?.setCrossSessionSyncConfig?.({ contextBroadcast: v });
+                              }}
+                              className={`w-8 h-4 rounded-full transition-colors relative ${
+                                contextBroadcastEnabled ? 'bg-amber-500' : 'bg-zinc-700'
+                              }`}
+                            >
+                              <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
+                                contextBroadcastEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                              }`} />
+                            </button>
+                          </div>
+
+                          {/* Conflict Warning Mode */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] text-zinc-400">Conflict Warnings</span>
+                              <p className="text-[8px] text-zinc-600">Show toast + terminal warning, or toast only</p>
+                            </div>
+                            <select
+                              value={conflictWarningMode}
+                              onChange={(e) => {
+                                setConflictWarningMode(e.target.value);
+                                localStorage.setItem('conflict-warning-mode', e.target.value);
+                                window.deskflowAPI?.setCrossSessionSyncConfig?.({ conflictWarningMode: e.target.value });
+                              }}
+                              className="bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 px-2 py-1"
+                            >
+                              <option value="both">Toast + Terminal</option>
+                              <option value="toast">Toast Only</option>
+                              <option value="none">Off</option>
+                            </select>
+                          </div>
+
+                          {/* /sync Command Toggle */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] text-zinc-400">/sync Command</span>
+                              <p className="text-[8px] text-zinc-600">Enable the /sync slash command</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const v = !syncCommandEnabled;
+                                setSyncCommandEnabled(v);
+                                localStorage.setItem('sync-command-enabled', String(v));
+                                window.deskflowAPI?.setCrossSessionSyncConfig?.({ syncCommand: v });
+                              }}
+                              className={`w-8 h-4 rounded-full transition-colors relative ${
+                                syncCommandEnabled ? 'bg-amber-500' : 'bg-zinc-700'
+                              }`}
+                            >
+                              <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
+                                syncCommandEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                              }`} />
+                            </button>
+                          </div>
+
+                          {/* ── Thought Process Toggle ── */}
+                          <div className="pt-2 border-t border-amber-500/10">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-[10px] text-zinc-400">Thought Process</span>
+                                <p className="text-[8px] text-zinc-600">AI shows reasoning before answering</p>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  const v = !thoughtProcessEnabled;
+                                  setThoughtProcessEnabled(v);
+                                  localStorage.setItem('thought-process-enabled', String(v));
+                                }}
+                                className={`w-8 h-4 rounded-full transition-colors relative ${
+                                  thoughtProcessEnabled ? 'bg-amber-500' : 'bg-zinc-700'
+                                }`}
+                              >
+                                <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
+                                  thoughtProcessEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                                }`} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </SectionCard>
+
+                      {/* ── Live Context Viewer ── */}
+                      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900 overflow-hidden">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <span className={`w-1.5 h-1.5 rounded-full ${crossSessionSyncEnabled ? 'bg-green-400 animate-pulse' : 'bg-zinc-600'}`} />
+                          <h4 className="text-[11px] font-medium text-amber-300">Live Context</h4>
+                          <span className="text-[8px] text-zinc-600 ml-auto">
+                            {Object.keys(terminalFileLocks).length} terminal{Object.keys(terminalFileLocks).length !== 1 ? 's' : ''} active
+                          </span>
+                        </div>
+
+                        <div className="space-y-2">
+                          {/* ── Active Locks ── */}
+                          <div>
+                            <div className="flex items-center gap-1 text-[10px] text-zinc-400 mb-1">
+                              <Lock className="w-3 h-3" />
+                              <span>File Locks</span>
+                            </div>
+                            {Object.keys(terminalFileLocks).length === 0 ? (
+                              <p className="text-[9px] text-zinc-600 pl-4">No active locks</p>
+                            ) : (
+                              <div className="space-y-1 pl-3">
+                                {Object.entries(terminalFileLocks).map(([termId, files]) => (
+                                  <div key={termId} className="flex items-start gap-1.5">
+                                    <span className="text-[9px] text-amber-400/70 font-mono shrink-0 mt-0.5">{termId.replace('term-', '').slice(0, 8)}</span>
+                                    <div className="flex flex-wrap gap-1">
+                                      {files.map((fp, i) => (
+                                        <span key={i} className="text-[9px] bg-amber-500/10 text-amber-400/80 px-1 rounded truncate max-w-[160px]" title={fp}>
+                                          {fp.split('\\').pop()?.split('/').pop()}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* ── Recent Activity ── */}
+                          <div className="pt-2 border-t border-amber-500/10">
+                            <div className="flex items-center gap-1 text-[10px] text-zinc-400 mb-1">
+                              <FileText className="w-3 h-3" />
+                              <span>Recent Edits</span>
+                            </div>
+                            {touchedFiles.length === 0 ? (
+                              <p className="text-[9px] text-zinc-600 pl-4">No recent file activity</p>
+                            ) : (
+                              <div className="space-y-0.5 pl-3 max-h-[120px] overflow-y-auto">
+                                {touchedFiles.map((f, i) => (
+                                  <div key={f.id || i} className="flex items-center gap-1 text-[9px]">
+                                    <span className={`shrink-0 w-1 h-1 rounded-full ${
+                                      f.action === 'create' ? 'bg-green-500' :
+                                      f.action === 'delete' ? 'bg-red-500' : 'bg-blue-400'
+                                    }`} />
+                                    <span className={`text-[8px] uppercase font-medium ${
+                                      f.action === 'create' ? 'text-green-500' :
+                                      f.action === 'delete' ? 'text-red-400' : 'text-blue-400'
+                                    }`}>{f.action}</span>
+                                    <span className="text-zinc-400 truncate max-w-[140px]" title={f.file_path}>
+                                      {f.file_path.split('\\').pop()?.split('/').pop()}
+                                    </span>
+                                    <span className="text-zinc-600 ml-auto shrink-0">
+                                      {f.timestamp ? (() => {
+                                        const d = new Date(f.timestamp);
+                                        const now = Date.now();
+                                        const diff = Math.floor((now - d.getTime()) / 1000);
+                                        if (diff < 60) return `${diff}s`;
+                                        if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+                                        return `${Math.floor(diff / 3600)}h`;
+                                      })() : ''}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* ── Conflict History ── */}
+                          <div className="pt-2 border-t border-amber-500/10">
+                            <div className="flex items-center gap-1 text-[10px] text-zinc-400 mb-1">
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>Recent Conflicts</span>
+                            </div>
+                            {fileConflicts.length === 0 ? (
+                              <p className="text-[9px] text-zinc-600 pl-4">No recent conflicts</p>
+                            ) : (
+                              <div className="space-y-0.5 pl-3 max-h-[100px] overflow-y-auto">
+                                {fileConflicts.slice(-5).reverse().map((c, i) => (
+                                  <div key={i} className="flex items-center gap-1 text-[9px] text-yellow-400/80">
+                                    <span className="shrink-0 w-1 h-1 rounded-full bg-yellow-500" />
+                                    <span className="text-zinc-400 truncate max-w-[100px]" title={c.filePath}>
+                                      {c.filePath.split('\\').pop()?.split('/').pop()}
+                                    </span>
+                                    <span className="text-zinc-500 text-[8px]">
+                                      {c.lockingTerminal.substring(0, 6)} → {c.requestingTerminal.substring(0, 6)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-xs text-zinc-500 font-mono truncate">{preset.command || 'Re-inject context snapshot into active terminal'}</div>
-                    </div>
-                  ))
-                )}
-              </TabPanel>
+
+                      {/* ── Saved Workspaces ── */}
+                      <SectionCard accent="orange" title="Saved Workspaces">
+                        <div className="space-y-2">
+                          <div className="flex gap-1">
+                            <ToolbarButton onClick={async () => { await handleSaveWorkspace(); }}>
+                              Save
+                            </ToolbarButton>
+                            <ToolbarButton onClick={() => {
+                              setWorkspaceSaveAsName(workspaceName);
+                              setShowWorkspaceSaveAsDialog(true);
+                            }}>
+                              Save As...
+                            </ToolbarButton>
+                            <div className="ml-auto" />
+                            <ToolbarButton onClick={async () => {
+                              const wsProjectId = propProjectId || selectedProject;
+                              if (!wsProjectId || !window.deskflowAPI?.listWorkspaces) return;
+                              setWorkspaceListLoading(true);
+                              try {
+                                const res = await window.deskflowAPI.listWorkspaces({ projectId: wsProjectId });
+                                if (res?.success && res.data) setWorkspaceList(res.data);
+                              } finally { setWorkspaceListLoading(false); }
+                            }}>
+                              <RefreshCw className={`w-3 h-3 ${workspaceListLoading ? 'animate-spin' : ''}`} />
+                            </ToolbarButton>
+                          </div>
+                          {workspaceList.length === 0 ? (
+                            <p className="text-[10px] text-zinc-600 py-2 text-center">No saved workspaces yet. Click Save to create one.</p>
+                          ) : (
+                            <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                              {workspaceList.map((ws) => (
+                                <div
+                                  key={ws.name}
+                                  className={`flex items-center justify-between p-2 rounded text-[11px] ${ws.isActive ? 'bg-green-900/30 border border-green-700/50' : 'bg-zinc-900/50 border border-zinc-800/60'}`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${ws.isActive ? 'bg-green-400' : 'bg-zinc-600'}`} />
+                                    <div className="min-w-0">
+                                      <div className="text-xs text-zinc-200 truncate">{ws.name}</div>
+                                      <div className="text-[9px] text-zinc-500">
+                                        {ws.activeTab ? ws.activeTab.charAt(0).toUpperCase() + ws.activeTab.slice(1) : 'Setup'} · {ws.sidebarWidth}px
+                                        {ws.isActive && <span className="text-green-400 ml-1">(active)</span>}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-1 shrink-0">
+                                    <button
+                                      onClick={async () => {
+                                        await handleLoadWorkspace(ws.name);
+                                      }}
+                                      className="px-2 py-0.5 text-[10px] bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors"
+                                    >
+                                      Load
+                                    </button>
+                                    <button
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (window.confirm(`Delete workspace "${ws.name}"?`)) {
+                                          const wsProjectId = propProjectId || selectedProject;
+                                          if (wsProjectId && window.deskflowAPI?.deleteWorkspace) {
+                                            await window.deskflowAPI.deleteWorkspace({ projectId: wsProjectId, name: ws.name });
+                                            const res = await window.deskflowAPI.listWorkspaces({ projectId: wsProjectId });
+                                            if (res?.success) setWorkspaceList(res.data || []);
+                                          }
+                                        }
+                                      }}
+                                      className="px-1.5 py-0.5 text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </SectionCard>
+                    </GroupPanel>
+                  );
+                  default: return null;
+                }
+              }} />
             )}
 
             <Modal
@@ -2862,981 +3595,577 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               )}
             </Modal>
 
-              {activeTab === 'sessions' && (
-                <div className="relative flex-1 min-h-0">
-                  <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-green-400 to-green-600 opacity-60" />
-                  <div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
-                   {selectedSessionDetail ? (
-                     <div>
-                        <button
-                          onClick={() => { setSelectedSessionDetail(null); setSessionMessages([]); }}
-                          className="mb-3 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded flex items-center gap-1"
-                        >
-                          <ChevronLeft className="w-3 h-3" />
-                          Back to sessions
-                        </button>
-                      {(() => {
-                        const session = sessions.find(s => s.id === selectedSessionDetail);
-                        if (!session) return <p className="text-xs text-zinc-500">Session not found.</p>;
-                        const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
-                          ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
-                          : null;
-                        return (
-                            <div>
-                               <div className="p-3 bg-zinc-800 rounded-lg mb-3">
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="flex items-center gap-2">
-                                    <StatusDot status={session.status} size="md" />
-                                    <span className="text-sm font-bold text-white">{session.topic || 'Unnamed Session'}</span>
-                                  </div>
-                                  <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-2 py-1 rounded">{session.agent}</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                  <div><span className="text-zinc-500">Status:</span> <span className="text-zinc-300">{session.status || 'Unknown'}</span></div>
-                                  <div><span className="text-zinc-500">Category:</span> <span className="text-zinc-300">{session.category || 'Uncategorized'}</span></div>
-                                  <div><span className="text-zinc-500">Date:</span> <span className="text-zinc-300">{formatDate(session.created_at)}</span></div>
-                                  <div><span className="text-zinc-500">Terminal:</span> <span className="text-zinc-300">{terminalInfo ? `${terminalInfo.name} (active)` : 'Closed'}</span></div>
-                                  <div><span className="text-zinc-500">Cost:</span> <span className="text-emerald-400">${opencodeSessionExport?.cost?.toFixed(2) ?? session.total_cost?.toFixed(2) ?? '0.00'}</span></div>
-                                  <div><span className="text-zinc-500">Tokens:</span> <span className="text-zinc-300">{opencodeSessionExport?.tokens ? (opencodeSessionExport.tokens.input + opencodeSessionExport.tokens.output).toLocaleString() : session.total_tokens?.toLocaleString() ?? '0'}</span></div>
-                                  {session.resume_id && <div className="col-span-2"><span className="text-zinc-500">Resume ID:</span> <span className="text-zinc-300 font-mono">{session.resume_id}</span></div>}
-                                  {session.description && <div className="col-span-2"><span className="text-zinc-500">Description:</span> <span className="text-zinc-300">{session.description}</span></div>}
-                                  {session.product_area && <div className="col-span-2"><span className="text-zinc-500">Area:</span> <span className="text-cyan-600">{session.product_area}</span></div>}
-                                </div>
-                                <div className="flex gap-2 mt-3">
-                                  {terminalInfo ? (
-                                    <button onClick={() => { setActiveTerminalId(session.terminal_id!); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } })); }} className="px-3 py-1.5 bg-green-600/80 hover:bg-green-500 text-green-50 text-xs font-medium rounded-lg transition-colors duration-150 hover:shadow-[0_0_8px_rgba(34,197,94,0.3)] active:scale-95">Focus Terminal</button>
-                                  ) : (
-                                    <button onClick={() => handleResumeSession(session)} className="px-3 py-1.5 bg-green-600/80 hover:bg-green-500 text-green-50 text-xs font-medium rounded-lg transition-colors duration-150 hover:shadow-[0_0_8px_rgba(34,197,94,0.3)] active:scale-95">Open in Terminal</button>
-                                  )}
-                                  <button onClick={() => setSessionToEdit(session)} className="px-3 py-1.5 bg-zinc-600/80 hover:bg-zinc-500 text-zinc-200 text-xs font-medium rounded-lg transition-colors duration-150 active:scale-95">Edit</button>
+            {activeGroup === 'work' && (
+              <WorkspaceShell accent="green" tabs={[
+                { key: 'sessions', icon: Clock, label: 'Sessions' },
+                { key: 'map', icon: Monitor, label: 'Map' },
+                { key: 'files', icon: Folder, label: 'Files' },
+              ]} storageKey="work" render={(sub) => {
+                switch (sub) {
+                  case 'sessions': return (
+                    <GroupPanel accent="green">
+                      <div data-tutorial="term.sessions" className="relative flex-1 min-h-0">
+                        <div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
+                         {selectedSessionDetail ? (
+                           <div>
+                              <button
+                                onClick={() => { setSelectedSessionDetail(null); setSessionMessages([]); }}
+                                className="mb-3 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded flex items-center gap-1"
+                              >
+                                <ChevronLeft className="w-3 h-3" />
+                                Back to sessions
+                              </button>
+                            {(() => {
+                              const session = sessions.find(s => s.id === selectedSessionDetail);
+                              if (!session) return <p className="text-xs text-zinc-500">Session not found.</p>;
+                              const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
+                                ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
+                                : null;
+                              return (
+                                  <div>
+                                     <div className="p-3 bg-zinc-800 rounded-lg mb-3">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                          <StatusDot status={session.status} size="md" />
+                                          <span className="text-sm font-bold text-white">{session.topic || 'Unnamed Session'}</span>
+                                        </div>
+                                        <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-2 py-1 rounded">{session.agent}</span>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                        <div><span className="text-zinc-500">Status:</span> <span className="text-zinc-300">{session.status || 'Unknown'}</span></div>
+                                        <div><span className="text-zinc-500">Category:</span> <span className="text-zinc-300">{session.category || 'Uncategorized'}</span></div>
+                                        <div><span className="text-zinc-500">Date:</span> <span className="text-zinc-300">{formatDate(session.created_at)}</span></div>
+                                        <div><span className="text-zinc-500">Terminal:</span> <span className="text-zinc-300">{terminalInfo ? `${terminalInfo.name} (active)` : 'Closed'}</span></div>
+                                        <div><span className="text-zinc-500">Cost:</span> <span className="text-emerald-400">${opencodeSessionExport?.cost?.toFixed(2) ?? session.total_cost?.toFixed(2) ?? '0.00'}</span></div>
+                                        <div><span className="text-zinc-500">Tokens:</span> <span className="text-zinc-300">{opencodeSessionExport?.tokens ? (opencodeSessionExport.tokens.input + opencodeSessionExport.tokens.output).toLocaleString() : session.total_tokens?.toLocaleString() ?? '0'}</span></div>
+                                        {session.resume_id && <div className="col-span-2"><span className="text-zinc-500">Resume ID:</span> <span className="text-zinc-300 font-mono">{session.resume_id}</span></div>}
+                                        {session.description && <div className="col-span-2"><span className="text-zinc-500">Description:</span> <span className="text-zinc-300">{session.description}</span></div>}
+                                        {session.product_area && <div className="col-span-2"><span className="text-zinc-500">Area:</span> <span className="text-cyan-600">{session.product_area}</span></div>}
+                                      </div>
+                                      <div className="flex gap-2 mt-3">
+                                        {terminalInfo ? (
+                                          <button onClick={() => { setActiveTerminalId(session.terminal_id!); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } })); }} className="px-3 py-1.5 bg-green-600/80 hover:bg-green-500 text-green-50 text-xs font-medium rounded-lg transition-colors duration-150 hover:shadow-[0_0_8px_rgba(34,197,94,0.3)] active:scale-95">Focus Terminal</button>
+                                        ) : (
+                                          <button onClick={() => handleResumeSession(session)} className="px-3 py-1.5 bg-green-600/80 hover:bg-green-500 text-green-50 text-xs font-medium rounded-lg transition-colors duration-150 hover:shadow-[0_0_8px_rgba(34,197,94,0.3)] active:scale-95">Open in Terminal</button>
+                                        )}
+                                        <button onClick={() => setSessionToEdit(session)} className="px-3 py-1.5 bg-zinc-600/80 hover:bg-zinc-500 text-zinc-200 text-xs font-medium rounded-lg transition-colors duration-150 active:scale-95">Edit</button>
+                                      </div>
+                                    </div>
+                                     <div className="p-3 bg-zinc-800 rounded-lg">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <span className="text-[10px] text-zinc-500">Messages</span>
+                                        <button
+                                          onClick={async () => {
+                                            try {
+                                              const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
+                                              if (result?.success) setSessionMessages(result.data || []);
+                                            } catch {}
+                                          }}
+                                          className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded"
+                                        >
+                                          Refresh
+                                        </button>
+                                      </div>
+                                      {sessionMessages.length === 0 ? (
+                                        <p className="text-[10px] text-zinc-600">No messages loaded. Click Refresh to load.</p>
+                                      ) : (
+                                        <div className="space-y-1 max-h-48 overflow-y-auto">
+                                          {sessionMessages.map((msg: any, i: number) => (
+                                            <div key={i} className={`px-2 py-1 rounded text-[10px] ${msg.role === 'assistant' ? 'bg-cyan-900/20 border-l-2 border-cyan-500/30' : msg.role === 'user' ? 'bg-blue-900/20 border-l-2 border-blue-500/30' : 'bg-zinc-900/50 border-l-2 border-zinc-500/30'}`}>
+                                              <span className="text-[9px] font-medium text-zinc-500 uppercase mr-1">{msg.role}</span>
+                                              <span className="text-zinc-300">{msg.content?.slice(0, 200)}{msg.content?.length > 200 ? '...' : ''}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                    </div>
+                                );
+                              })()}
+                            </div>
+                         ) : (
+                           <div>
+                              <div className="flex gap-2 mb-4">
+                                <ToolbarButton variant="primary" icon={Plus} onClick={() => {
+                                    setNewSessionTerminalMode('create');
+                                    setNewSessionSelectedTerminal('');
+                                    setNewSessionAgent('claude');
+                                    setNewSessionName('');
+                                    setShowNewSessionDialog(true);
+                                  }}>
+                                  New Session
+                                </ToolbarButton>
+                                <ToolbarButton onClick={() => setShowImportSessionsDialog(true)}>
+                                  <TerminalIcon className="w-3 h-3" />
+                                  Import
+                                </ToolbarButton>
+                                <div className="ml-auto flex gap-1">
+                                  <ToolbarButton onClick={async () => {
+                                    await handleSaveWorkspace();
+                                  }}>
+                                    Save
+                                  </ToolbarButton>
+                                  <ToolbarButton onClick={async () => {
+                                    const wsProjectId = propProjectId || selectedProject;
+                                    if (!wsProjectId || !window.deskflowAPI?.listWorkspaces) return;
+                                    setWorkspaceListLoading(true);
+                                    try {
+                                      const res = await window.deskflowAPI.listWorkspaces({ projectId: wsProjectId });
+                                      if (res?.success && res.data) setWorkspaceList(res.data);
+                                    } finally { setWorkspaceListLoading(false); }
+                                    setShowWorkspaceLoadDialog(true);
+                                  }}>
+                                    Load
+                                  </ToolbarButton>
+                                  <ToolbarButton onClick={() => {
+                                    setWorkspaceSaveAsName(workspaceName);
+                                    setShowWorkspaceSaveAsDialog(true);
+                                  }}>
+                                    Save As...
+                                  </ToolbarButton>
                                 </div>
                               </div>
-                               <div className="p-3 bg-zinc-800 rounded-lg">
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="text-[10px] text-zinc-500">Messages</span>
-                                  <button
-                                    onClick={async () => {
-                                      try {
-                                        const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
-                                        if (result?.success) setSessionMessages(result.data || []);
-                                      } catch {}
-                                    }}
-                                    className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded"
-                                  >
-                                    Refresh
-                                  </button>
+                             {sessions.length > 0 && (
+                                <div className="space-y-2 mb-3">
+                                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                                    {[{ key: 'all', label: 'All', color: 'zinc' }, ...Object.entries(SESSION_CATEGORIES).map(([k, v]) => ({ key: k, label: v.label, color: v.color || 'zinc' }))].map(f => {
+                                      const dotColor: Record<string, string> = {
+                                        zinc: 'bg-zinc-400', green: 'bg-green-400', blue: 'bg-blue-400',
+                                        purple: 'bg-purple-400', amber: 'bg-amber-400', cyan: 'bg-cyan-400',
+                                        red: 'bg-red-400', emerald: 'bg-emerald-400', pink: 'bg-pink-400',
+                                        teal: 'bg-teal-400',
+                                      };
+                                      return (
+                                        <Pill key={f.key} active={sessionCategoryFilter === f.key} onClick={() => setSessionCategoryFilter(f.key)} dotClass={dotColor[f.color]}>
+                                          {f.label}
+                                        </Pill>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                                    <Pill key="all-sub" active={sessionSubpageFilter === 'all'} onClick={() => setSessionSubpageFilter('all')}>All Pages</Pill>
+                                    {['setup/presets', 'setup/configs', 'work/sessions', 'work/map', 'work/files', 'insights/analytics', 'insights/issues', 'insights/bugs', 'studio/skills', 'studio/design', 'context/context', 'context/context-maintenance', 'context/page-context'].map(sp => {
+                                      const count = sessions.filter(s => (s.subpage || 'work/sessions') === sp).length;
+                                      if (count === 0) return null;
+                                      return (
+                                        <Pill key={sp} active={sessionSubpageFilter === sp} onClick={() => setSessionSubpageFilter(sp)}>
+                                          {SUBPAGE_LABELS[sp] || sp} ({count})
+                                        </Pill>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
-                                {sessionMessages.length === 0 ? (
-                                  <p className="text-[10px] text-zinc-600">No messages loaded. Click Refresh to load.</p>
-                                ) : (
-                                  <div className="space-y-1 max-h-48 overflow-y-auto">
-                                    {sessionMessages.map((msg: any, i: number) => (
-                                      <div key={i} className={`px-2 py-1 rounded text-[10px] ${msg.role === 'assistant' ? 'bg-cyan-900/20 border-l-2 border-cyan-500/30' : msg.role === 'user' ? 'bg-blue-900/20 border-l-2 border-blue-500/30' : 'bg-zinc-900/50 border-l-2 border-zinc-500/30'}`}>
-                                        <span className="text-[9px] font-medium text-zinc-500 uppercase mr-1">{msg.role}</span>
-                                        <span className="text-zinc-300">{msg.content?.slice(0, 200)}{msg.content?.length > 200 ? '...' : ''}</span>
+                              )}
+                            {sessions.length === 0 ? (
+                                <EmptyState iconComponent={Clock} title="No sessions yet" hint="Create one using the button above." />
+                             ) : (
+                              (() => {
+                                const filtered = sessions.filter(s => sessionCategoryFilter === 'all' || s.category === sessionCategoryFilter);
+                                const groups: Record<string, Session[]> = {};
+                                for (const s of filtered) {
+                                  const sp = s.subpage || 'work/sessions';
+                                  if (sessionSubpageFilter !== 'all' && sp !== sessionSubpageFilter) continue;
+                                  if (!groups[sp]) groups[sp] = [];
+                                  groups[sp].push(s);
+                                }
+                                const sortedGroups = Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+                                return (
+                                  <div className="space-y-4">
+                                    {sortedGroups.map(([sp, groupSessions]) => (
+                                      <div key={sp}>
+                                        <div className="flex items-center gap-2 mb-2 sticky top-0 bg-zinc-900/90 backdrop-blur z-10 py-1">
+                                          <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">{SUBPAGE_LABELS[sp] || sp}</span>
+                                          <span className="text-[10px] text-zinc-600">{groupSessions.length} session{groupSessions.length !== 1 ? 's' : ''}</span>
+                                        </div>
+                                        <div className="space-y-2">
+                                          {groupSessions.map((session) => {
+                                            const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
+                                              ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
+                                              : null;
+                                            const tags = (() => { try { return JSON.parse(session.auto_tags || '[]'); } catch { return []; } })();
+                                            return (
+                                    <div key={session.id}
+                                         onClick={async () => { setSelectedSessionDetail(session.id); setSessionMessages([]); try { const r = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent); if (r?.success) setSessionMessages(r.data || []); } catch {} }}
+                                         className="mb-2 p-2 bg-zinc-800 rounded group hover:bg-zinc-750 transition-colors border-l-2 cursor-pointer"
+                                         style={{ borderLeftColor: terminalInfo ? 'rgb(34 197 94 / 0.4)' : 'rgb(113 113 122 / 0.2)' }}
+                                    >
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <StatusDot status={session.status} />
+                                            <CategoryBadge category={session.category} />
+                                            <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-1.5 py-0.5 rounded">{session.agent}</span>
+                                            <span className="text-xs font-medium text-zinc-200 truncate">{session.topic || 'Unnamed Session'}</span>
+                                            {terminalInfo ? (
+                                              <span className="text-[10px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                {terminalInfo.name}
+                                              </span>
+                                            ) : (
+                                              <span className="text-[10px] text-zinc-500 bg-zinc-700/30 px-1.5 py-0.5 rounded">Closed</span>
+                                            )}
+                                          </div>
+                                          {session.description && (
+                                            <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1">{session.description}</div>
+                                          )}
+                                          <div className="flex items-center gap-2 mt-0.5">
+                                            <span className="text-[10px] text-zinc-500">{formatDate(session.created_at)}</span>
+                                            {session.product_area && (
+                                              <span className="text-[10px] text-cyan-600/80">{session.product_area}</span>
+                                            )}
+                                            {session.resume_id && (
+                                              <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(0, 12)}&hellip;</span>
+                                            )}
+                                          </div>
+                                          {tags.length > 0 && (
+                                            <div className="flex gap-1 mt-1 flex-wrap">
+                                              {tags.slice(0, 5).map((t: string, i: number) => (
+                                                <span key={i} className="text-[9px] px-1.5 py-0.5 bg-zinc-700/50 text-zinc-400 rounded">{t}</span>
+                                              ))}
+                                            </div>
+                                          )}
+                                          {session.total_cost !== undefined && (
+                                            <div className="text-[10px] text-zinc-600 mt-0.5">Cost: ${session.total_cost.toFixed(2)}</div>
+                                          )}
+                                        </div>
+                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                          <button
+                                            onClick={async () => {
+                                              if (terminalInfo) {
+                                                setActiveTerminalId(session.terminal_id!);
+                                                window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } }));
+                                              } else {
+                                                handleResumeSession(session);
+                                              }
+                                            }}
+                                            title={terminalInfo ? 'Focus terminal' : 'Open in terminal'}
+                                            className="px-2 py-0.5 bg-green-600/60 hover:bg-green-500/80 text-green-200 text-[10px] font-medium rounded-md transition-colors duration-150 active:scale-95"
+                                          >
+                                            {terminalInfo ? 'Focus' : 'Open'}
+                                          </button>
+                                          <button
+                                            onClick={async () => {
+                                              setSelectedSessionDetail(session.id);
+                                              setSessionMessages([]);
+                                              try {
+                                                const r = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
+                                                if (r?.success) setSessionMessages(r.data || []);
+                                              } catch {}
+                                            }}
+                                            title="View session details"
+                                            className="px-2 py-0.5 bg-cyan-600/60 hover:bg-cyan-500/80 text-cyan-200 text-[10px] font-medium rounded-md transition-colors duration-150 active:scale-95"
+                                          >
+                                            Details
+                                          </button>
+                                          <button
+                                            onClick={async () => {
+                                              try {
+                                                const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
+                                                if (result?.success) {
+                                                  setSessionMessages(result.data || []);
+                                                  setShowMessagesViewer(session.id);
+                                                }
+                                              } catch {}
+                                            }}
+                                            title="View session messages"
+                                            className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded"
+                                          >
+                                            Messages
+                                          </button>
+                                          <button
+                                            onClick={() => setConfirmDialog({
+                                              isOpen: true,
+                                              message: `Delete session "${session.topic}" permanently?`,
+                                              onConfirm: () => handleDeleteSession(session.id),
+                                            })}
+                                            title="Delete session"
+                                            className="px-2 py-0.5 bg-rose-600/50 hover:bg-rose-500/80 text-rose-200 text-[10px] font-medium rounded-md transition-colors duration-150 active:scale-95"
+                                          >
+                                            Delete
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                            );
+                                          })}
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
-                                )}
-                              </div>
-                              </div>
-                          );
-                        })()}
+                                );
+                              })()
+                            )}
+                          </div>
+                         )}
                       </div>
-                   ) : (
-                     <div>
-                        <div className="flex gap-2 mb-4">
-                          <ToolbarButton variant="primary" icon={Plus} onClick={() => {
-                              setNewSessionTerminalMode('create');
-                              setNewSessionSelectedTerminal('');
-                              setNewSessionAgent('claude');
-                              setNewSessionName('');
-                              setShowNewSessionDialog(true);
-                            }}>
-                            New Session
-                          </ToolbarButton>
-                          <ToolbarButton onClick={() => setShowImportSessionsDialog(true)}>
-                            <TerminalIcon className="w-3 h-3" />
-                            Import
-                          </ToolbarButton>
-                          <div className="ml-auto flex gap-1">
-                            <ToolbarButton onClick={handleSaveWorkspace}>
-                              Save
-                            </ToolbarButton>
-                            <ToolbarButton onClick={handleLoadWorkspace}>
-                              Load
-                            </ToolbarButton>
-                          </div>
-                        </div>
-                       {sessions.length > 0 && (
-                          <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1 scrollbar-none">
-                            {[{ key: 'all', label: 'All', color: 'zinc' }, ...Object.entries(SESSION_CATEGORIES).map(([k, v]) => ({ key: k, label: v.label, color: v.color || 'zinc' }))].map(f => {
-                              const dotColor: Record<string, string> = {
-                                zinc: 'bg-zinc-400', green: 'bg-green-400', blue: 'bg-blue-400',
-                                purple: 'bg-purple-400', amber: 'bg-amber-400', cyan: 'bg-cyan-400',
-                                red: 'bg-red-400', emerald: 'bg-emerald-400', pink: 'bg-pink-400',
-                                teal: 'bg-teal-400',
-                              };
-                              return (
-                                <Pill key={f.key} active={sessionCategoryFilter === f.key} onClick={() => setSessionCategoryFilter(f.key)} dotClass={dotColor[f.color]}>
-                                  {f.label}
-                                </Pill>
-                              );
-                            })}
-                          </div>
-                        )}
-                      {sessions.length === 0 ? (
-                          <WsEmptyState icon={Clock} title="No sessions yet" hint="Create one using the button above." />
-                       ) : (
-                        <div className="space-y-2">
-                          {sessions
-                            .filter(s => sessionCategoryFilter === 'all' || s.category === sessionCategoryFilter)
-                            .map((session) => {
-                            const terminalInfo = session.terminal_id && terminalTabs[session.terminal_id]
-                              ? { name: terminalTabs[session.terminal_id].name, agent: terminalTabs[session.terminal_id].agent, isRunning: true }
-                              : null;
-                            const tags = (() => { try { return JSON.parse(session.auto_tags || '[]'); } catch { return []; } })();
-                            return (
-                              <div key={session.id}
-                                   onClick={async () => { setSelectedSessionDetail(session.id); setSessionMessages([]); try { const r = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent); if (r?.success) setSessionMessages(r.data || []); } catch {} }}
-                                   className="mb-2 p-2 bg-zinc-800 rounded group hover:bg-zinc-750 transition-colors border-l-2 cursor-pointer"
-                                   style={{ borderLeftColor: terminalInfo ? 'rgb(34 197 94 / 0.4)' : 'rgb(113 113 122 / 0.2)' }}
-                              >
-                                <div className="flex items-start justify-between">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <StatusDot status={session.status} />
-                                      <CategoryBadge category={session.category} />
-                                      <span className="text-[10px] font-medium text-green-400 bg-green-500/20 px-1.5 py-0.5 rounded">{session.agent}</span>
-                                      <span className="text-xs font-medium text-zinc-200 truncate">{session.topic || 'Unnamed Session'}</span>
-                                      {terminalInfo ? (
-                                        <span className="text-[10px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                          {terminalInfo.name}
-                                        </span>
-                                      ) : (
-                                        <span className="text-[10px] text-zinc-500 bg-zinc-700/30 px-1.5 py-0.5 rounded">Closed</span>
-                                      )}
-                                    </div>
-                                    {session.description && (
-                                      <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1">{session.description}</div>
-                                    )}
-                                    <div className="flex items-center gap-2 mt-0.5">
-                                      <span className="text-[10px] text-zinc-500">{formatDate(session.created_at)}</span>
-                                      {session.product_area && (
-                                        <span className="text-[10px] text-cyan-600/80">{session.product_area}</span>
-                                      )}
-                                      {session.resume_id && (
-                                        <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(0, 12)}&hellip;</span>
-                                      )}
-                                    </div>
-                                    {tags.length > 0 && (
-                                      <div className="flex gap-1 mt-1 flex-wrap">
-                                        {tags.slice(0, 5).map((t: string, i: number) => (
-                                          <span key={i} className="text-[9px] px-1.5 py-0.5 bg-zinc-700/50 text-zinc-400 rounded">{t}</span>
-                                        ))}
-                                      </div>
-                                    )}
-                                    {session.total_cost !== undefined && (
-                                      <div className="text-[10px] text-zinc-600 mt-0.5">Cost: ${session.total_cost.toFixed(2)}</div>
-                                    )}
-                                  </div>
-                                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                                    <button
-                                      onClick={async () => {
-                                        if (terminalInfo) {
-                                          setActiveTerminalId(session.terminal_id!);
-                                          window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: session.terminal_id } }));
-                                        } else {
-                                          handleResumeSession(session);
-                                        }
-                                      }}
-                                      title={terminalInfo ? 'Focus terminal' : 'Open in terminal'}
-                                      className="px-2 py-0.5 bg-green-600/60 hover:bg-green-500/80 text-green-200 text-[10px] font-medium rounded-md transition-colors duration-150 active:scale-95"
-                                    >
-                                      {terminalInfo ? 'Focus' : 'Open'}
-                                    </button>
-                                    <button
-                                      onClick={async () => {
-                                        setSelectedSessionDetail(session.id);
-                                        setSessionMessages([]);
-                                        try {
-                                          const r = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
-                                          if (r?.success) setSessionMessages(r.data || []);
-                                        } catch {}
-                                      }}
-                                      title="View session details"
-                                      className="px-2 py-0.5 bg-cyan-600/60 hover:bg-cyan-500/80 text-cyan-200 text-[10px] font-medium rounded-md transition-colors duration-150 active:scale-95"
-                                    >
-                                      Details
-                                    </button>
-                                    <button
-                                      onClick={async () => {
-                                        try {
-                                          const result = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent);
-                                          if (result?.success) {
-                                            setSessionMessages(result.data || []);
-                                            setShowMessagesViewer(session.id);
-                                          }
-                                        } catch {}
-                                      }}
-                                      title="View session messages"
-                                      className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded"
-                                    >
-                                      Messages
-                                    </button>
-                                    <button
-                                      onClick={() => setConfirmDialog({
-                                        isOpen: true,
-                                        message: `Delete session "${session.topic}" permanently?`,
-                                        onConfirm: () => handleDeleteSession(session.id),
-                                      })}
-                                      title="Delete session"
-                                      className="px-2 py-0.5 bg-rose-600/50 hover:bg-rose-500/80 text-rose-200 text-[10px] font-medium rounded-md transition-colors duration-150 active:scale-95"
-                                    >
-                                      Delete
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
                     </div>
-                   )}
-                </div>
-              </div>
-             )}
+                    </GroupPanel>
+                  );
+                  case 'map': return (
+                    <GroupPanel accent="green">
+                      <div className="relative flex-1 min-h-0">
+                        <div className="h-full overflow-y-auto ws-scroll p-3 space-y-3">
+                        <p className="text-xs text-zinc-500">Drag panes to rearrange or split • Click to focus</p>
+                        <div className="min-h-0 overflow-hidden" style={{ flex: mapListRatio }}>
+                          {terminalLayout ? (
+                            <TerminalMiniMap
+                              layouts={[terminalLayout]}
+                              activeTerminalId={activeTerminalId}
+                              onTerminalSelect={handleMiniMapTerminalSelect}
+                              onTerminalMove={handleMiniMapTerminalMove}
+                              onSplit={handleMiniMapSplit}
+                              onToggleDirection={handleMiniMapToggleDirection}
+                              onMoveToGroup={handleMiniMapMoveToGroup}
+                            />
+                          ) : (
+                            <p className="text-xs text-zinc-600 mb-4">No terminals open</p>
+                          )}
+                        </div>
 
-             {activeTab === 'map' && (
-                <div className="relative flex-1 min-h-0">
-                  <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-green-400 to-green-600 opacity-60" />
-                  <div className="h-full overflow-y-auto ws-scroll p-3 space-y-3">
-                  <p className="text-xs text-zinc-500">Drag panes to rearrange or split • Click to focus</p>
-                  <div className="min-h-0 overflow-hidden" style={{ flex: mapListRatio }}>
-                    {terminalLayout ? (
-                      <TerminalMiniMap
-                        layouts={[terminalLayout]}
-                        activeTerminalId={activeTerminalId}
-                        onTerminalSelect={handleMiniMapTerminalSelect}
-                        onTerminalMove={handleMiniMapTerminalMove}
-                        onSplit={handleMiniMapSplit}
-                        onToggleDirection={handleMiniMapToggleDirection}
-                        onMoveToGroup={handleMiniMapMoveToGroup}
-                      />
-                    ) : (
-                      <p className="text-xs text-zinc-600 mb-4">No terminals open</p>
-                    )}
-                  </div>
+                        <div
+                          onMouseDown={(e) => {
+                            mapResizeRef.current = { startY: e.clientY, startRatio: mapListRatio };
+                            const handleMouseMove = (me: MouseEvent) => {
+                              if (!mapResizeRef.current) return;
+                              const parent = (me.target as HTMLElement).closest('[data-map-container]') as HTMLElement | null;
+                              if (!parent) return;
+                              const rect = parent.getBoundingClientRect();
+                              const deltaY = me.clientY - mapResizeRef.current.startY;
+                              const newRatio = Math.max(0.2, Math.min(0.8, mapResizeRef.current.startRatio + deltaY / rect.height));
+                              setMapListRatio(newRatio);
+                            };
+                            const handleMouseUp = () => {
+                              mapResizeRef.current = null;
+                              window.removeEventListener('mousemove', handleMouseMove);
+                              window.removeEventListener('mouseup', handleMouseUp);
+                            };
+                            window.addEventListener('mousemove', handleMouseMove);
+                            window.addEventListener('mouseup', handleMouseUp);
+                          }}
+                          className="relative h-1.5 cursor-row-resize hover:bg-zinc-700/30 rounded transition-colors"
+                        >
+                          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-0.5 bg-zinc-600 rounded-full" />
+                        </div>
 
-                  <div
-                    onMouseDown={(e) => {
-                      mapResizeRef.current = { startY: e.clientY, startRatio: mapListRatio };
-                      const handleMouseMove = (me: MouseEvent) => {
-                        if (!mapResizeRef.current) return;
-                        const parent = (me.target as HTMLElement).closest('[data-map-container]') as HTMLElement | null;
-                        if (!parent) return;
-                        const rect = parent.getBoundingClientRect();
-                        const deltaY = me.clientY - mapResizeRef.current.startY;
-                        const newRatio = Math.max(0.2, Math.min(0.8, mapResizeRef.current.startRatio + deltaY / rect.height));
-                        setMapListRatio(newRatio);
-                      };
-                      const handleMouseUp = () => {
-                        mapResizeRef.current = null;
-                        window.removeEventListener('mousemove', handleMouseMove);
-                        window.removeEventListener('mouseup', handleMouseUp);
-                      };
-                      window.addEventListener('mousemove', handleMouseMove);
-                      window.addEventListener('mouseup', handleMouseUp);
-                    }}
-                    className="relative h-1.5 cursor-row-resize hover:bg-zinc-700/30 rounded transition-colors"
-                  >
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-0.5 bg-zinc-600 rounded-full" />
-                  </div>
-
-                  <div className="min-h-0 overflow-hidden border-t border-zinc-800 pt-2" style={{ flex: 1 - mapListRatio }}>
-                    <SectionCard accent="green" title="Running Terminals">
-                      <div className="text-xs font-medium text-zinc-400 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-500" />
-                        {Object.keys(terminalTabs).length} active
-                      </div>
-                      {Object.keys(terminalTabs).length === 0 ? (
-                        <p className="text-xs text-zinc-600 px-2 mb-3">No running terminals</p>
-                      ) : (
-                        <div className="space-y-2 mb-4">
-                          {(() => {
-                            const groups = extractGroups(terminalLayout);
-                            return groups.length > 0 ? groups.map((group, gi) => (
-                              <div key={gi} className="bg-zinc-800/20 border border-zinc-700/30 rounded-lg overflow-hidden">
-                                <div className="px-2 py-1 bg-zinc-800/40 border-b border-zinc-700/20 flex items-center justify-between">
-                                  <span className="text-[10px] font-medium text-zinc-500">Group {gi + 1}</span>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[9px] text-zinc-600">{group.direction === 'vertical' ? '↕ Stack' : group.direction === 'horizontal' ? '↔ Side-by-side' : '—'}</span>
-                                    <span className="text-[9px] text-zinc-600">{group.terminals.length} terminal{group.terminals.length !== 1 ? 's' : ''}</span>
-                                  </div>
-                                </div>
-                                <div className="p-1.5 space-y-1">
-                                  {group.terminals.map(tid => {
-                                    const tab = terminalTabs[tid];
-                                    if (!tab) return null;
-                                    const sessionInTerminal = sessions.find(s => s.terminal_id === tid);
-                                    return (
-                                      <div key={tid} className={`p-2 rounded border transition-all duration-150 ${
-                                        activeTerminalId === tid
-                                          ? 'bg-zinc-700/80 border-zinc-600/50 shadow-[0_0_10px_rgba(0,0,0,0.2)]'
-                                          : 'bg-zinc-800/50 border-zinc-700/30 hover:bg-zinc-700/50'
-                                      }`}>
+                        <div className="min-h-0 overflow-hidden border-t border-zinc-800 pt-2" style={{ flex: 1 - mapListRatio }}>
+                          <SectionCard accent="green" title="Running Terminals">
+                            <div className="text-xs font-medium text-zinc-400 flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-green-500" />
+                              {Object.keys(terminalTabs).length} active
+                            </div>
+                            {Object.keys(terminalTabs).length === 0 ? (
+                              <p className="text-xs text-zinc-600 px-2 mb-3">No running terminals</p>
+                            ) : (
+                              <div className="space-y-2 mb-4">
+                                {(() => {
+                                  const groups = extractGroups(terminalLayout);
+                                  return groups.length > 0 ? groups.map((group, gi) => (
+                                    <div key={gi} className="bg-zinc-800/20 border border-zinc-700/30 rounded-lg overflow-hidden">
+                                      <div className="px-2 py-1 bg-zinc-800/40 border-b border-zinc-700/20 flex items-center justify-between">
+                                        <span className="text-[10px] font-medium text-zinc-500">Group {gi + 1}</span>
                                         <div className="flex items-center gap-2">
-                                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
-                                          <div className="flex-1 min-w-0">
-                                            <div className="text-xs font-medium text-zinc-200 truncate">{tab.name}</div>
-                                            <div className="text-[10px] text-zinc-500">{tab.agent}</div>
-                                          </div>
-                                          {activeTerminalId === tid && (
-                                            <span className="text-[10px] text-green-400">active</span>
-                                          )}
-                                        </div>
-                                        {sessionInTerminal ? (
-                                          <div className="mt-1.5 ml-4 pl-2 border-l-2 border-cyan-500/30">
-                                            <div className="flex items-center gap-1 flex-wrap">
-                                              <span className="text-[10px] text-cyan-400">Session:</span>
-                                              <CategoryBadge category={sessionInTerminal.category} />
-                                              <StatusDot status={sessionInTerminal.status} />
-                                              <span className="text-[10px] text-zinc-300 truncate">{sessionInTerminal.topic || 'Unnamed'}</span>
-                                            </div>
-                                            <div className="text-[9px] text-zinc-600 mt-0.5">{sessionInTerminal.agent} • {formatDate(sessionInTerminal.created_at)}</div>
-                                          </div>
-                                        ) : (
-                                          <div className="mt-1.5 ml-4 pl-2 border-l-2 border-zinc-700/30">
-                                            <div className="text-[9px] text-zinc-500">No session — ready to assign</div>
-                                          </div>
-                                        )}
-                                        <div className="flex gap-1 mt-1.5">
-                                          <button
-                                            onClick={() => { setActiveTerminalId(tid); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: tid } })); }}
-                                            className="flex-1 px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[9px] rounded"
-                                          >
-                                            Focus
-                                          </button>
-                                          {!sessionInTerminal && (
-                                            <button
-                                              onClick={() => {
-                                                const event = new CustomEvent('open-new-session-for-terminal', { detail: { terminalId: tid } });
-                                                window.dispatchEvent(event);
-                                              }}
-                                              className="flex-1 px-1.5 py-0.5 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 text-[9px] rounded"
-                                            >
-                                              New Session
-                                            </button>
-                                          )}
+                                          <span className="text-[9px] text-zinc-600">{group.direction === 'vertical' ? '↕ Stack' : group.direction === 'horizontal' ? '↔ Side-by-side' : '—'}</span>
+                                          <span className="text-[9px] text-zinc-600">{group.terminals.length} terminal{group.terminals.length !== 1 ? 's' : ''}</span>
                                         </div>
                                       </div>
-                                    );
-                                  })}
-                                </div>
+                                      <div className="p-1.5 space-y-1">
+                                        {group.terminals.map(tid => {
+                                          const tab = terminalTabs[tid];
+                                          if (!tab) return null;
+                                          const sessionInTerminal = sessions.find(s => s.terminal_id === tid);
+                                          return (
+                                            <div key={tid} className={`p-2 rounded border transition-all duration-150 ${
+                                              activeTerminalId === tid
+                                                ? 'bg-zinc-700/80 border-zinc-600/50 shadow-[0_0_10px_rgba(0,0,0,0.2)]'
+                                                : 'bg-zinc-800/50 border-zinc-700/30 hover:bg-zinc-700/50'
+                                            }`}>
+                                              <div className="flex items-center gap-2">
+                                                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                  <div className="text-xs font-medium text-zinc-200 truncate">{tab.name}</div>
+                                                  <div className="text-[10px] text-zinc-500">{tab.agent}</div>
+                                                </div>
+                                                {activeTerminalId === tid && (
+                                                  <span className="text-[10px] text-green-400">active</span>
+                                                )}
+                                              </div>
+                                              {sessionInTerminal ? (
+                                                <div className="mt-1.5 ml-4 pl-2 border-l-2 border-cyan-500/30">
+                                                  <div className="flex items-center gap-1 flex-wrap">
+                                                    <span className="text-[10px] text-cyan-400">Session:</span>
+                                                    <CategoryBadge category={sessionInTerminal.category} />
+                                                    <StatusDot status={sessionInTerminal.status} />
+                                                    <span className="text-[10px] text-zinc-300 truncate">{sessionInTerminal.topic || 'Unnamed'}</span>
+                                                  </div>
+                                                  <div className="text-[9px] text-zinc-600 mt-0.5">{sessionInTerminal.agent} • {formatDate(sessionInTerminal.created_at)}</div>
+                                                </div>
+                                              ) : (
+                                                <div className="mt-1.5 ml-4 pl-2 border-l-2 border-zinc-700/30">
+                                                  <div className="text-[9px] text-zinc-500">No session — ready to assign</div>
+                                                </div>
+                                              )}
+                                              <div className="flex gap-1 mt-1.5">
+                                                <button
+                                                  onClick={() => { setActiveTerminalId(tid); window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: tid } })); }}
+                                                  className="flex-1 px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[9px] rounded"
+                                                >
+                                                  Focus
+                                                </button>
+                                                {!sessionInTerminal && (
+                                                  <button
+                                                    onClick={() => {
+                                                      const event = new CustomEvent('open-new-session-for-terminal', { detail: { terminalId: tid } });
+                                                      window.dispatchEvent(event);
+                                                    }}
+                                                    className="flex-1 px-1.5 py-0.5 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 text-[9px] rounded"
+                                                  >
+                                                    New Session
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )) : (
+                                    <p className="text-[10px] text-zinc-500">No layout groups defined.</p>
+                                  );
+                                })()}
                               </div>
-                            )) : (
-                              <p className="text-[10px] text-zinc-500">No layout groups defined.</p>
-                            );
-                          })()}
+                            )}
+                          </SectionCard>
                         </div>
-                      )}
-                    </SectionCard>
-                  </div>
-                 </div>
-               </div>
-             )}
-
-              {activeTab === 'analytics' && (
-              <TabPanel accent="purple">
-                <div className="flex gap-1.5">
-                  {(['7d', '30d', 'all'] as const).map(p => (
-                    <Pill key={p} active={analyticsPeriod === p} onClick={() => setAnalyticsPeriod(p)}>
-                      {p === '7d' ? '7 Days' : p === '30d' ? '30 Days' : 'All Time'}
-                    </Pill>
-                  ))}
-                </div>
-                <AnalyticsDashboard
-                  aiUsage={aiSummary}
-                  sessions={sessions}
-                  problems={analyticsProblems}
-                  requests={analyticsRequests}
-                  promptHistory={analyticsPromptHistory}
-                  dailyStats={analyticsDailyStats}
-                  loading={analyticsLoading}
-                  period={analyticsPeriod}
-                  variant="full"
-                />
-              </TabPanel>
+                       </div>
+                     </div>
+                    </GroupPanel>
+                  );
+                  case 'files': return (
+                    <GroupPanel accent="yellow">
+                      <FilesTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
+                    </GroupPanel>
+                  );
+                  default: return null;
+                }
+              }} />
             )}
 
-            {activeTab === 'issues' && (
-              <TabPanel accent="emerald">
-                <IssuesWorkspace projectId={selectedProject} projectPath={propProjectPath} activeTerminalId={activeTerminalId} sessions={sessions} />
-              </TabPanel>
+            {activeGroup === 'insights' && (
+              <WorkspaceShell accent="purple" tabs={[
+                { key: 'analytics', icon: PieChart, label: 'Analytics' },
+                { key: 'issues', icon: ListChecks, label: 'Issues' },
+                { key: 'bugs', icon: Bug, label: 'Bugs' },
+              ]} storageKey="insights" render={(sub) => {
+                switch (sub) {
+                  case 'analytics': return (
+                    <GroupPanel accent="purple">
+                      <div className="flex gap-1.5">
+                        {(['7d', '30d', 'all'] as const).map(p => (
+                          <Pill key={p} active={analyticsPeriod === p} onClick={() => setAnalyticsPeriod(p)}>
+                            {p === '7d' ? '7 Days' : p === '30d' ? '30 Days' : 'All Time'}
+                          </Pill>
+                        ))}
+                      </div>
+                      <AnalyticsDashboard
+                        aiUsage={aiSummary}
+                        sessions={sessions}
+                        problems={analyticsProblems}
+                        requests={analyticsRequests}
+                        promptHistory={analyticsPromptHistory}
+                        dailyStats={analyticsDailyStats}
+                        loading={analyticsLoading}
+                        period={analyticsPeriod}
+                        variant="full"
+                      />
+                    </GroupPanel>
+                  );
+                  case 'issues': return (
+                    <GroupPanel accent="emerald">
+                      <IssuesWorkspace projectId={selectedProject} projectPath={propProjectPath} activeTerminalId={activeTerminalId} sessions={sessions} />
+                    </GroupPanel>
+                  );
+                  case 'bugs': return (
+                    <GroupPanel accent="purple">
+                      <BugReportPanel projectId={selectedProject} />
+                    </GroupPanel>
+                  );
+                  default: return null;
+                }
+              }} />
             )}
 
-              {activeTab === 'files' && (
-              <TabPanel accent="yellow">
-                <FilesTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
-              </TabPanel>
-               )}
-
-               {activeTab === 'context-maintenance' && (
-              <TabPanel accent="violet">
-                <ContextMaintenanceTab
-                  projectId={selectedProject || ''}
-                  projectPath={propProjectPath || ''}
-                  sessionId={selectedSessionDetail || undefined}
-                />
-              </TabPanel>
-               )}
-
-             {activeTab === 'skills' && (
-              <TabPanel accent="indigo">
-                <SkillsTab
-                  projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
-                  terminalTabs={terminalTabs}
-                  activeTerminalId={activeTerminalId}
-                  onAddToCompose={(skillId) => {
-                    setComposeSkills(prev => prev.includes(skillId) ? prev : [...prev, skillId]);
-                    setShowInstructionPanel(true);
-                  }}
-                />
-              </TabPanel>
-             )}
-
-             {activeTab === 'design' && (
-              <TabPanel accent="pink">
-                <DesignWorkspacePage
-                  projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
-                  activeTerminalId={activeTerminalId}
-                />
-              </TabPanel>
-              )}
-
-             {activeTab === 'context' && (
-              <TabPanel accent="amber">
-               <ContextSidebar
-                 projectId={selectedProject || propProjectId || undefined}
-                 projectPath={propProjectPath}
-               />
-              </TabPanel>
-             )}
-
-             {activeTab === 'configs' && (
-              <TabPanel accent="orange">
-                <SectionCard accent="orange" title="Model Configuration">
-
-                  {/* Re-injection threshold */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] font-semibold text-zinc-300">Rules Re-injection</span>
-                      <span className="font-mono text-emerald-400 text-[11px]">{modelReinjectThreshold}</span>
-                    </div>
-                    <p className="text-[9px] text-zinc-600 mb-2">Auto-inject RULES_COMPACT.md every N messages</p>
-                    <input
-                      type="range"
-                      min={3}
-                      max={30}
-                      value={modelReinjectThreshold}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        setModelReinjectThreshold(v);
-                        localStorage.setItem('model-reinject-threshold', String(v));
-                        window.deskflowAPI?.setReinjectThreshold?.({ threshold: v });
-                      }}
-                      className="w-full h-1 rounded-full appearance-none cursor-pointer accent-emerald-500"
-                    />
-                    <div className="flex justify-between text-[9px] text-zinc-600 mt-0.5">
-                      <span>3</span>
-                      <span>30</span>
-                    </div>
-                  </div>
-
-                  {/* Default model tier */}
-                  <div className="mb-3">
-                    <span className="text-[10px] font-semibold text-zinc-300 block mb-1">Default Model Tier</span>
-                    <p className="text-[9px] text-zinc-600 mb-2">Context budget for new sessions</p>
-                    <div className="flex gap-1">
-                      {(['top', 'mid', 'low'] as const).map((tier) => (
-                        <button
-                          key={tier}
-                          onClick={() => {
-                            setModelDefaultTier(tier);
-                            localStorage.setItem('default-model-tier', tier);
-                          }}
-                          className={`flex-1 py-1.5 rounded text-[10px] font-semibold border transition-colors duration-150 ${
-                            modelDefaultTier === tier
-                              ? tier === 'top'
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                : tier === 'mid'
-                                ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
-                                : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
-                              : 'bg-zinc-700/50 text-zinc-500 border-zinc-600/40'
-                          }`}
-                        >
-                          {tier}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Debug mode */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] font-semibold text-zinc-300">Debug Mode</span>
-                      <p className="text-[9px] text-zinc-600">Verbose [SYSTEM] logging</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        const v = !modelDebugMode;
-                        setModelDebugMode(v);
-                        localStorage.setItem('model-debug-mode', String(v));
-                        window.deskflowAPI?.setModelDebug?.({ enabled: v });
-                      }}
-                      className={`w-10 h-5 rounded-full transition-colors duration-150 relative ${modelDebugMode ? 'bg-emerald-500' : 'bg-zinc-600'}`}
-                    >
-                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-colors duration-150 ${modelDebugMode ? 'translate-x-5' : ''}`} />
-                    </button>
-                  </div>
-
-                  {/* ── Auto-Assign Configuration ── */}
-                  <div className="pt-3 border-t border-orange-500/10 space-y-3">
-                    <h4 className="text-xs font-semibold text-orange-400 flex items-center gap-1.5">
-                      <Sparkles className="w-3 h-3" />
-                      Auto-Assign Routing
-                    </h4>
-
-                    {/* Toggle */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs text-zinc-300">Auto-assign prompts to sessions</span>
-                        <p className="text-[10px] text-zinc-600">AI routes your prompts to the best-matching session</p>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          const newConfig = { ...autoAssignConfig, enabled: !autoAssignConfig?.enabled };
-                          await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
-                          setAutoAssignConfig(newConfig);
+            {activeGroup === 'studio' && (
+              <WorkspaceShell accent="indigo" tabs={[
+                { key: 'skills', icon: Sparkles, label: 'Skills' },
+                { key: 'design', icon: Palette, label: 'Design' },
+              ]} storageKey="studio" render={(sub) => {
+                switch (sub) {
+                  case 'skills': return (
+                    <GroupPanel accent="indigo">
+                      <SkillsTab
+                        projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
+                        terminalTabs={terminalTabs}
+                        activeTerminalId={activeTerminalId}
+                        onAddToCompose={(skillId) => {
+                          setComposeSkills(prev => prev.includes(skillId) ? prev : [...prev, skillId]);
+                          setShowInstructionPanel(true);
                         }}
-                        className={`relative w-9 h-5 rounded-full transition-colors ${
-                          autoAssignConfig?.enabled ? 'bg-cyan-500/30 border border-cyan-500/40' : 'bg-zinc-700 border border-zinc-600'
-                        }`}
-                      >
-                        <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${
-                          autoAssignConfig?.enabled ? 'translate-x-4 bg-cyan-400' : 'translate-x-0.5 bg-zinc-400'
-                        }`} />
-                      </button>
-                    </div>
-
-                    {/* Routing Model */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-zinc-400">Routing model</span>
-                      <select
-                        value={autoAssignConfig?.routingModel || 'anthropic/claude-3.5-haiku'}
-                        onChange={async (e) => {
-                          const newConfig = { ...autoAssignConfig, routingModel: e.target.value };
-                          await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
-                          setAutoAssignConfig(newConfig);
-                        }}
-                        className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-orange-500/40"
-                      >
-                        <option value="anthropic/claude-3.5-haiku">Claude 3.5 Haiku ($0.80/M)</option>
-                        <option value="anthropic/claude-3-haiku">Claude 3 Haiku ($0.25/M)</option>
-                        <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash ($0.10/M)</option>
-                        <option value="openai/gpt-4o-mini">GPT-4o Mini ($0.15/M)</option>
-                      </select>
-                    </div>
-
-                    {/* Summary Frequency */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-zinc-400">Summary frequency</span>
-                      <select
-                        value={autoAssignConfig?.summaryFrequency || 10}
-                        onChange={async (e) => {
-                          const newConfig = { ...autoAssignConfig, summaryFrequency: parseInt(e.target.value) };
-                          await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
-                          setAutoAssignConfig(newConfig);
-                        }}
-                        className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-orange-500/40"
-                      >
-                        <option value="5">Every 5 messages</option>
-                        <option value="10">Every 10 messages</option>
-                        <option value="20">Every 20 messages</option>
-                        <option value="0">Manual only</option>
-                      </select>
-                    </div>
-
-                    {/* Auto-Rename Toggle */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs text-zinc-300">Auto-rename sessions</span>
-                        <p className="text-[10px] text-zinc-600">AI generates descriptive session names</p>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          const newConfig = { ...autoAssignConfig, autoRename: !autoAssignConfig?.autoRename };
-                          await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
-                          setAutoAssignConfig(newConfig);
-                        }}
-                        className={`relative w-9 h-5 rounded-full transition-colors ${
-                          autoAssignConfig?.autoRename ? 'bg-cyan-500/30 border border-cyan-500/40' : 'bg-zinc-700 border border-zinc-600'
-                        }`}
-                      >
-                        <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${
-                          autoAssignConfig?.autoRename ? 'translate-x-4 bg-cyan-400' : 'translate-x-0.5 bg-zinc-400'
-                        }`} />
-                      </button>
-                    </div>
-
-                    {/* Rename Threshold */}
-                    {autoAssignConfig?.autoRename && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-zinc-400">Rename after N messages</span>
-                        <select
-                          value={autoAssignConfig?.renameThreshold || 5}
-                          onChange={async (e) => {
-                            const newConfig = { ...autoAssignConfig, renameThreshold: parseInt(e.target.value) };
-                            await window.deskflowAPI?.saveAutoAssignConfig?.(newConfig);
-                            setAutoAssignConfig(newConfig);
-                          }}
-                          className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-orange-500/40"
-                        >
-                          <option value="3">3 messages</option>
-                          <option value="5">5 messages</option>
-                          <option value="10">10 messages</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ── Infrastructure Cost Card ── */}
-                  <div className="bg-zinc-900/50 rounded-lg p-3 border border-zinc-800/70">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                        <DollarSign className="w-3 h-3 text-emerald-400" />
-                        Routing Infrastructure Cost
-                      </h4>
-                      <button
-                        onClick={async () => {
-                          if (confirm('Reset all routing cost counters?')) {
-                            await window.deskflowAPI?.resetRoutingCosts?.();
-                            loadRoutingCosts();
-                          }
-                        }}
-                        className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
-                      >
-                        Reset
-                      </button>
-                    </div>
-                    {routingCosts ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="bg-zinc-800/50 rounded p-2">
-                          <span className="text-[10px] text-zinc-500">Today</span>
-                          <p className="text-sm font-mono text-emerald-400">${(routingCosts.today?.total || 0).toFixed(4)}</p>
-                          <span className="text-[9px] text-zinc-600">{routingCosts.today?.calls || 0} calls</span>
-                        </div>
-                        <div className="bg-zinc-800/50 rounded p-2">
-                          <span className="text-[10px] text-zinc-500">This Week</span>
-                          <p className="text-sm font-mono text-emerald-400">${(routingCosts.week?.total || 0).toFixed(4)}</p>
-                          <span className="text-[9px] text-zinc-600">{routingCosts.week?.calls || 0} calls</span>
-                        </div>
-                        <div className="bg-zinc-800/50 rounded p-2">
-                          <span className="text-[10px] text-zinc-500">This Month</span>
-                          <p className="text-sm font-mono text-emerald-400">${(routingCosts.month?.total || 0).toFixed(4)}</p>
-                          <span className="text-[9px] text-zinc-600">{routingCosts.month?.calls || 0} calls</span>
-                        </div>
-                        <div className="bg-zinc-800/50 rounded p-2">
-                          <span className="text-[10px] text-zinc-500">All Time</span>
-                          <p className="text-sm font-mono text-zinc-300">${(routingCosts.total?.total || 0).toFixed(4)}</p>
-                          <span className="text-[9px] text-zinc-600">{routingCosts.total?.calls || 0} calls</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center py-3">
-                        <p className="text-[10px] text-zinc-600">Loading costs...</p>
-                      </div>
-                    )}
-                    {routingCosts?.byType && routingCosts.byType.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-zinc-800/50 space-y-1">
-                        {routingCosts.byType.map((bt: any) => (
-                          <div key={bt.call_type} className="flex items-center justify-between">
-                            <span className="text-[10px] text-zinc-500 capitalize">{bt.call_type}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-mono text-zinc-400">${(bt.total || 0).toFixed(4)}</span>
-                        <span className="text-[9px] text-zinc-600">×{bt.calls}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  </div>
-                </SectionCard>
-
-                  {/* ── Cross-Session Sync ── */}
-                  <SectionCard accent="amber" title="Cross-Session Sync">
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <h4 className="text-[11px] font-medium text-amber-300">Cross-Session Sync</h4>
-                        <p className="text-[9px] text-zinc-500">File lock detection, context broadcast</p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const v = !crossSessionSyncEnabled;
-                          setCrossSessionSyncEnabled(v);
-                          localStorage.setItem('cross-session-sync-enabled', String(v));
-                          window.deskflowAPI?.setCrossSessionSyncConfig?.({ enabled: v });
-                        }}
-                        className={`w-8 h-4 rounded-full transition-colors relative ${
-                          crossSessionSyncEnabled ? 'bg-amber-500' : 'bg-zinc-700'
-                        }`}
-                      >
-                        <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
-                          crossSessionSyncEnabled ? 'translate-x-4' : 'translate-x-0.5'
-                        }`} />
-                      </button>
-                    </div>
-
-                    <div className="space-y-3">
-                      {/* File Lock TTL */}
-                      <div>
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-[10px] text-zinc-400">Lock TTL</span>
-                          <span className="text-[10px] text-amber-400 font-mono">{fileLockTTL}s</span>
-                        </div>
-                        <p className="text-[8px] text-zinc-600 mb-1">How long a file lock lasts before auto-release</p>
-                        <input
-                          type="range"
-                          min={30}
-                          max={600}
-                          step={30}
-                          value={fileLockTTL}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            setFileLockTTL(v);
-                            localStorage.setItem('file-lock-ttl', String(v));
-                            window.deskflowAPI?.setCrossSessionSyncConfig?.({ lockTTL: v });
-                          }}
-                          className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-amber-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-amber-500 [&::-webkit-slider-thumb]:rounded-full"
-                        />
-                        <div className="flex justify-between text-[8px] text-zinc-600">
-                          <span>30s</span>
-                          <span>10m</span>
-                        </div>
-                      </div>
-
-                      {/* Context Broadcast Toggle */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-[10px] text-zinc-400">Context Broadcast</span>
-                          <p className="text-[8px] text-zinc-600">Notify other terminals of problem/request changes</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            const v = !contextBroadcastEnabled;
-                            setContextBroadcastEnabled(v);
-                            localStorage.setItem('context-broadcast-enabled', String(v));
-                            window.deskflowAPI?.setCrossSessionSyncConfig?.({ contextBroadcast: v });
-                          }}
-                          className={`w-8 h-4 rounded-full transition-colors relative ${
-                            contextBroadcastEnabled ? 'bg-amber-500' : 'bg-zinc-700'
-                          }`}
-                        >
-                          <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
-                            contextBroadcastEnabled ? 'translate-x-4' : 'translate-x-0.5'
-                          }`} />
-                        </button>
-                      </div>
-
-                      {/* Conflict Warning Mode */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-[10px] text-zinc-400">Conflict Warnings</span>
-                          <p className="text-[8px] text-zinc-600">Show toast + terminal warning, or toast only</p>
-                        </div>
-                        <select
-                          value={conflictWarningMode}
-                          onChange={(e) => {
-                            setConflictWarningMode(e.target.value);
-                            localStorage.setItem('conflict-warning-mode', e.target.value);
-                            window.deskflowAPI?.setCrossSessionSyncConfig?.({ conflictWarningMode: e.target.value });
-                          }}
-                          className="bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 px-2 py-1"
-                        >
-                          <option value="both">Toast + Terminal</option>
-                          <option value="toast">Toast Only</option>
-                          <option value="none">Off</option>
-                        </select>
-                      </div>
-
-                      {/* /sync Command Toggle */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-[10px] text-zinc-400">/sync Command</span>
-                          <p className="text-[8px] text-zinc-600">Enable the /sync slash command</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            const v = !syncCommandEnabled;
-                            setSyncCommandEnabled(v);
-                            localStorage.setItem('sync-command-enabled', String(v));
-                            window.deskflowAPI?.setCrossSessionSyncConfig?.({ syncCommand: v });
-                          }}
-                          className={`w-8 h-4 rounded-full transition-colors relative ${
-                            syncCommandEnabled ? 'bg-amber-500' : 'bg-zinc-700'
-                          }`}
-                        >
-                          <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
-                            syncCommandEnabled ? 'translate-x-4' : 'translate-x-0.5'
-                          }`} />
-                        </button>
-                      </div>
-
-                      {/* ── Thought Process Toggle ── */}
-                      <div className="pt-2 border-t border-amber-500/10">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <span className="text-[10px] text-zinc-400">Thought Process</span>
-                            <p className="text-[8px] text-zinc-600">AI shows reasoning before answering</p>
-                          </div>
-                          <button
-                            onClick={() => {
-                              const v = !thoughtProcessEnabled;
-                              setThoughtProcessEnabled(v);
-                              localStorage.setItem('thought-process-enabled', String(v));
-                            }}
-                            className={`w-8 h-4 rounded-full transition-colors relative ${
-                              thoughtProcessEnabled ? 'bg-amber-500' : 'bg-zinc-700'
-                            }`}
-                          >
-                            <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${
-                              thoughtProcessEnabled ? 'translate-x-4' : 'translate-x-0.5'
-                            }`} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                 </SectionCard>
-
-                   {/* ── Live Context Viewer ── */}
-                  <div className="rounded-lg border border-zinc-800/60 bg-zinc-900 overflow-hidden">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <span className={`w-1.5 h-1.5 rounded-full ${crossSessionSyncEnabled ? 'bg-green-400 animate-pulse' : 'bg-zinc-600'}`} />
-                      <h4 className="text-[11px] font-medium text-amber-300">Live Context</h4>
-                      <span className="text-[8px] text-zinc-600 ml-auto">
-                        {Object.keys(terminalFileLocks).length} terminal{Object.keys(terminalFileLocks).length !== 1 ? 's' : ''} active
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      {/* ── Active Locks ── */}
-                      <div>
-                        <div className="flex items-center gap-1 text-[10px] text-zinc-400 mb-1">
-                          <Lock className="w-3 h-3" />
-                          <span>File Locks</span>
-                        </div>
-                        {Object.keys(terminalFileLocks).length === 0 ? (
-                          <p className="text-[9px] text-zinc-600 pl-4">No active locks</p>
-                        ) : (
-                          <div className="space-y-1 pl-3">
-                            {Object.entries(terminalFileLocks).map(([termId, files]) => (
-                              <div key={termId} className="flex items-start gap-1.5">
-                                <span className="text-[9px] text-amber-400/70 font-mono shrink-0 mt-0.5">{termId.replace('term-', '').slice(0, 8)}</span>
-                                <div className="flex flex-wrap gap-1">
-                                  {files.map((fp, i) => (
-                                    <span key={i} className="text-[9px] bg-amber-500/10 text-amber-400/80 px-1 rounded truncate max-w-[160px]" title={fp}>
-                                      {fp.split('\\').pop()?.split('/').pop()}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* ── Recent Activity ── */}
-                      <div className="pt-2 border-t border-amber-500/10">
-                        <div className="flex items-center gap-1 text-[10px] text-zinc-400 mb-1">
-                          <FileText className="w-3 h-3" />
-                          <span>Recent Edits</span>
-                        </div>
-                        {touchedFiles.length === 0 ? (
-                          <p className="text-[9px] text-zinc-600 pl-4">No recent file activity</p>
-                        ) : (
-                          <div className="space-y-0.5 pl-3 max-h-[120px] overflow-y-auto">
-                            {touchedFiles.map((f, i) => (
-                              <div key={f.id || i} className="flex items-center gap-1 text-[9px]">
-                                <span className={`shrink-0 w-1 h-1 rounded-full ${
-                                  f.action === 'create' ? 'bg-green-500' :
-                                  f.action === 'delete' ? 'bg-red-500' : 'bg-blue-400'
-                                }`} />
-                                <span className={`text-[8px] uppercase font-medium ${
-                                  f.action === 'create' ? 'text-green-500' :
-                                  f.action === 'delete' ? 'text-red-400' : 'text-blue-400'
-                                }`}>{f.action}</span>
-                                <span className="text-zinc-400 truncate max-w-[140px]" title={f.file_path}>
-                                  {f.file_path.split('\\').pop()?.split('/').pop()}
-                                </span>
-                                <span className="text-zinc-600 ml-auto shrink-0">
-                                  {f.timestamp ? (() => {
-                                    const d = new Date(f.timestamp);
-                                    const now = Date.now();
-                                    const diff = Math.floor((now - d.getTime()) / 1000);
-                                    if (diff < 60) return `${diff}s`;
-                                    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-                                    return `${Math.floor(diff / 3600)}h`;
-                                  })() : ''}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* ── Conflict History ── */}
-                      <div className="pt-2 border-t border-amber-500/10">
-                        <div className="flex items-center gap-1 text-[10px] text-zinc-400 mb-1">
-                          <AlertTriangle className="w-3 h-3" />
-                          <span>Recent Conflicts</span>
-                        </div>
-                        {fileConflicts.length === 0 ? (
-                          <p className="text-[9px] text-zinc-600 pl-4">No recent conflicts</p>
-                        ) : (
-                          <div className="space-y-0.5 pl-3 max-h-[100px] overflow-y-auto">
-                            {fileConflicts.slice(-5).reverse().map((c, i) => (
-                              <div key={i} className="flex items-center gap-1 text-[9px] text-yellow-400/80">
-                                <span className="shrink-0 w-1 h-1 rounded-full bg-yellow-500" />
-                                <span className="text-zinc-400 truncate max-w-[100px]" title={c.filePath}>
-                                  {c.filePath.split('\\').pop()?.split('/').pop()}
-                                </span>
-                                <span className="text-zinc-500 text-[8px]">
-                                  {c.lockingTerminal.substring(0, 6)} → {c.requestingTerminal.substring(0, 6)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </TabPanel>
+                      />
+                    </GroupPanel>
+                  );
+                  case 'design': return (
+                    <GroupPanel accent="pink">
+                      <DesignWorkspacePage
+                        projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
+                        activeTerminalId={activeTerminalId}
+                      />
+                    </GroupPanel>
+                  );
+                  default: return null;
+                }
+              }} />
             )}
 
-              {activeTab === 'history' && (
-               <TabPanel accent="rose">
-                 <WsEmptyState icon={Clock}>
-                   No history records yet. Activity will appear here.
-                 </WsEmptyState>
-               </TabPanel>
-             )}
+            {activeGroup === 'context' && (
+              <WorkspaceShell accent="amber" tabs={[
+                { key: 'context', icon: Settings2, label: 'Context' },
+                { key: 'context-maintenance', icon: Database, label: 'Maintenance' },
+                { key: 'page-context', icon: FileText, label: 'Page Context' },
+              ]} storageKey="context" render={(sub) => {
+                switch (sub) {
+                  case 'context': return (
+                    <GroupPanel accent="amber">
+                      <ContextSidebar
+                        projectId={selectedProject || propProjectId || undefined}
+                        projectPath={propProjectPath}
+                      />
+                    </GroupPanel>
+                  );
+                  case 'context-maintenance': return (
+                    <GroupPanel accent="violet">
+                      <ContextMaintenanceTab
+                        projectId={selectedProject || ''}
+                        projectPath={propProjectPath || ''}
+                        sessionId={selectedSessionDetail || undefined}
+                      />
+                    </GroupPanel>
+                  );
+                  case 'page-context': return (
+                    <GroupPanel accent="blue">
+                      <PageContextPanel projectPath={propProjectPath} />
+                    </GroupPanel>
+                  );
+                  default: return null;
+                }
+              }} />
+            )}
+
 
             <NewSessionDialog
               open={showNewSessionDialog}
               mode={newSessionMode}
               defaultName={openCodeSessionName || undefined}
+              projectId={selectedProject || undefined}
               onClose={() => { setShowNewSessionDialog(false); setNewSessionSelectedTerminal(''); }}
               onCreate={async (config: SessionConfig) => {
                 const proj = projects.find(p => p.id === selectedProject);
@@ -3952,6 +4281,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 }
 
                 const sesResumeId = config.resumeId || `ses_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const subtab = localStorage.getItem(`workspace-subtab-${activeGroup}`) || 'sessions';
                 const sessionResult = await window.deskflowAPI?.saveTerminalSession?.({
                   id: config.id,
                   projectId: selectedProject,
@@ -3962,6 +4292,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   workingDirectory: proj?.path || '',
                   description: initContent || '',
                   autoNamed: 1,
+                  subpage: `${activeGroup}/${subtab}`,
                 });
                 if (sessionResult?.success) {
                   await window.deskflowAPI?.saveSessionConfig?.(config.id, config, proj?.path);
@@ -4099,7 +4430,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-2">
                     {sessionMessages.length === 0 ? (
-                      <WsEmptyState icon={MessageSquare} title="No messages" hint="No messages recorded for this session." />
+                      <EmptyState iconComponent={MessageSquare} title="No messages" hint="No messages recorded for this session." />
                     ) : (() => {
                       const filtered = messagesSearchQuery
                         ? sessionMessages.filter(m => m.content && m.content.toLowerCase().includes(messagesSearchQuery.toLowerCase()))
@@ -4253,6 +4584,89 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         </>
       )}
 
+      {/* Workspace Save As Dialog */}
+      <Modal open={showWorkspaceSaveAsDialog} onClose={() => setShowWorkspaceSaveAsDialog(false)} title="Save Workspace As" footer={
+        <div className="flex gap-2">
+          <button onClick={() => setShowWorkspaceSaveAsDialog(false)} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white transition-colors">Cancel</button>
+          <ToolbarButton variant="primary" disabled={!workspaceSaveAsName.trim()} onClick={async () => {
+            await handleSaveWorkspace(workspaceSaveAsName.trim());
+            setShowWorkspaceSaveAsDialog(false);
+          }}>Save</ToolbarButton>
+        </div>
+      }>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Workspace Name</label>
+            <input
+              type="text"
+              value={workspaceSaveAsName}
+              onChange={(e) => setWorkspaceSaveAsName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && workspaceSaveAsName.trim() && handleSaveWorkspace(workspaceSaveAsName.trim()).then(() => setShowWorkspaceSaveAsDialog(false))}
+              className="w-full bg-zinc-950 border border-zinc-800/60 rounded px-3 py-2 text-white text-sm"
+              placeholder="e.g. Bug fixing session"
+              autoFocus
+            />
+          </div>
+          <p className="text-[11px] text-zinc-500">Saves the current terminal layout, sidebar config, and all page states to a named workspace instance for this project.</p>
+        </div>
+      </Modal>
+
+      {/* Workspace Load Dialog */}
+      <Modal open={showWorkspaceLoadDialog} onClose={() => setShowWorkspaceLoadDialog(false)} title="Load Workspace" footer={
+        <div className="flex gap-2">
+          <button onClick={() => setShowWorkspaceLoadDialog(false)} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white transition-colors">Close</button>
+        </div>
+      }>
+        <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+          {workspaceListLoading ? (
+            <p className="text-xs text-zinc-500 py-4 text-center">Loading...</p>
+          ) : workspaceList.length === 0 ? (
+            <p className="text-xs text-zinc-500 py-4 text-center">No saved workspaces yet.</p>
+          ) : (
+            workspaceList.map((ws) => (
+              <button
+                key={ws.name}
+                onClick={async () => {
+                  await handleLoadWorkspace(ws.name);
+                  setShowWorkspaceLoadDialog(false);
+                }}
+                className={`w-full flex items-center justify-between p-3 rounded-lg text-left transition-colors ${ws.isActive ? 'bg-green-900/30 border border-green-700/50' : 'bg-zinc-900/50 border border-zinc-800/60 hover:bg-zinc-800/80'}`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${ws.isActive ? 'bg-green-400' : 'bg-zinc-600'}`} />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">{ws.name}</div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5">
+                      {ws.activeTab ? ws.activeTab.charAt(0).toUpperCase() + ws.activeTab.slice(1) : 'Setup'} &middot; {ws.sidebarWidth}px
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  {ws.isActive && <span className="text-[10px] text-green-400 mr-1">active</span>}
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (window.confirm(`Delete workspace "${ws.name}"?`)) {
+                        const wsProjectId = propProjectId || selectedProject;
+                        if (wsProjectId && window.deskflowAPI?.deleteWorkspace) {
+                          await window.deskflowAPI.deleteWorkspace({ projectId: wsProjectId, name: ws.name });
+                          const res = await window.deskflowAPI.listWorkspaces({ projectId: wsProjectId });
+                          if (res?.success) setWorkspaceList(res.data || []);
+                        }
+                      }
+                    }}
+                    className="text-zinc-600 hover:text-red-400 text-[10px] px-1 opacity-0 group-hover:opacity-100"
+                    title="Delete"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </Modal>
+
       {/* Collapsed sidebar strip */}
       {!sidebarOpen && (
         <div className="h-full w-10 bg-zinc-950 ws-sidebar-edge flex flex-col items-center gap-1 py-2">
@@ -4291,1577 +4705,13 @@ interface Problem {
   updated_at: string;
 }
 
-const STATUS_CONFIG: Record<string, { color: string; icon: string; label: string }> = {
-  'NEW': { color: 'bg-red-500', icon: '🔴', label: 'New' },
-  'Not Started': { color: 'bg-gray-500', icon: '⚪', label: 'Not Started' },
-  'In Progress': { color: 'bg-blue-500', icon: '🔵', label: 'In Progress' },
-  'AI Attempted Fix': { color: 'bg-yellow-500', icon: '🟡', label: 'AI Attempted' },
-  'User Testing': { color: 'bg-purple-500', icon: '🟣', label: 'User Testing' },
-  'Fixed': { color: 'bg-green-500', icon: '🟢', label: 'Fixed' },
-  'Irrelevant': { color: 'bg-gray-400', icon: '⚫', label: 'Irrelevant' }
-};
+// ProblemsTab, ProblemDetailModal, NewProblemDialog extracted to ../components/ProblemsTab.tsx
 
-const formatDate = (dateStr: string) => {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-};
+// SkillsTab, SkillDynamicForm, DSLGenerationModal extracted to ../components/SkillsTab.tsx
 
-const ProblemsTab: React.FC<{ projectId?: string; projectPath?: string; projects?: { id: string; name: string; path: string }[]; onSelectProject?: (id: string) => void }> = ({ projectId, projectPath: propProjectPath, projects, onSelectProject }) => {
-  const [problems, setProblems] = useState<Problem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [showNewDialog, setShowNewDialog] = useState(false);
-  const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null);
+// RequestsTab, RequestDetailModal, NewRequestDialog extracted to ../components/RequestsTab.tsx
 
-  const resolvedProject = projects?.find(p => p.id === projectId);
-  const computedProjectPath = resolvedProject?.path || propProjectPath || '';
-
-  const loadProblems = useCallback(async () => {
-    try {
-      const result = await window.deskflowAPI?.getProblems?.(projectId, computedProjectPath);
-      if (result?.success) {
-        setProblems(result.data || []);
-      }
-    } catch (e) {
-      console.error('[ProblemsTab] Failed to load:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, computedProjectPath]);
-
-  useEffect(() => {
-    loadProblems();
-    const interval = setInterval(loadProblems, 5000);
-    return () => clearInterval(interval);
-  }, [loadProblems]);
-
-  // Auto-compaction: check active sessions every 60s
-  useEffect(() => {
-    if (!window.deskflowAPI?.checkSessionCompaction) return;
-    const check = async () => {
-      for (const session of sessions) {
-        if (session.status !== 'active') continue;
-        try {
-          const result = await window.deskflowAPI.checkSessionCompaction({
-            sessionId: session.id,
-            messageThreshold: 500,
-          });
-          if (result?.needsCompaction) {
-            console.log('[SessionCompaction] Session', session.id, 'needs compaction (', result.messageCount, 'messages )');
-            const compactResult = await window.deskflowAPI.compactSession?.({ sessionId: session.id });
-            if (compactResult?.success) {
-              console.log('[SessionCompaction] Compacted', session.id, '->', compactResult.newSessionId);
-            }
-          }
-        } catch (err) {
-          console.error('[SessionCompaction] Error checking session', session.id, err);
-        }
-      }
-    };
-    const interval = setInterval(check, 60000);
-    return () => clearInterval(interval);
-  }, [sessions]);
-
-  const filteredProblems = problems.filter(p => {
-    if (filterStatus === 'all') return true;
-    if (filterStatus === 'active') return ['NEW', 'In Progress', 'AI Attempted Fix', 'User Testing'].includes(p.status);
-    return p.status === filterStatus;
-  });
-
-  const groupedProblems = filteredProblems.reduce((acc, p) => {
-    const status = p.status || 'NEW';
-    if (!acc[status]) acc[status] = [];
-    acc[status].push(p);
-    return acc;
-  }, {} as Record<string, Problem[]>);
-
-  const handleStatusChange = async (problemId: string, status: string) => {
-    await window.deskflowAPI?.updateProblemStatus?.({ problemId, status, projectId });
-    setProblems(prev => prev.map(p => p.id === problemId ? { ...p, status } : p));
-    setSelectedProblem(prev => prev?.id === problemId ? { ...prev, status } : prev);
-    loadProblems();
-  };
-
-  const handleCreateProblem = async (title: string, priority?: string) => {
-    const result = await window.deskflowAPI?.createProblem?.({ title, priority, projectId });
-    loadProblems();
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300"
-        >
-          <option value="all">All Issues</option>
-          <option value="active">Active</option>
-          <option value="NEW">New</option>
-          <option value="In Progress">In Progress</option>
-          <option value="Fixed">Fixed</option>
-        </select>
-        <button
-          onClick={() => setShowNewDialog(true)}
-          className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded flex items-center gap-1"
-        >
-          <Plus className="w-3 h-3" />
-          New
-        </button>
-      </div>
-
-      {/* Project Path + File Info */}
-      <div className="mb-2 px-2 py-1 bg-zinc-800/50 rounded">
-        {computedProjectPath ? (
-          <>
-            <div className="text-[10px] text-zinc-500 truncate" title={computedProjectPath}>
-              📁 {resolvedProject?.name || 'Project'} — {computedProjectPath}
-            </div>
-            <div className="text-[10px] text-zinc-600 truncate mt-0.5">
-              agent/PROBLEMS.md • {problems.length} issues parsed
-            </div>
-          </>
-        ) : (
-          <div className="space-y-2">
-            <div className="text-[10px] text-yellow-500">⚠️ No project selected</div>
-            <select
-              value=""
-              onChange={(e) => { if (e.target.value) onSelectProject?.(e.target.value); }}
-              className="w-full px-2 py-1.5 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-200"
-            >
-              <option value="">-- Choose project --</option>
-              {projects?.filter(p => p.id).map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-
-      {/* Problems List */}
-      {loading ? (
-        <div className="text-xs text-zinc-500 py-4 text-center">Loading...</div>
-      ) : filteredProblems.length === 0 ? (
-        <div className="text-xs text-zinc-500 py-4 text-center">No problems found</div>
-      ) : (
-        <div className="flex-1 overflow-y-auto space-y-4">
-          {Object.entries(groupedProblems).map(([status, statusProblems]) => (
-            <div key={status}>
-              <div className="flex items-center gap-2 mb-2 px-1">
-                <span className={`w-2 h-2 rounded-full ${STATUS_CONFIG[status]?.color || 'bg-gray-500'}`} />
-                <span className="text-xs font-medium text-zinc-400">{status}</span>
-                <span className="text-xs text-zinc-600">({statusProblems.length})</span>
-              </div>
-              {statusProblems.map((problem) => (
-                <div
-                  key={problem.id}
-                  onClick={() => setSelectedProblem(problem)}
-                  className={`p-2 bg-zinc-800 rounded mb-2 cursor-pointer hover:bg-zinc-750 border-l-2 ${
-                    problem.priority === 'critical' ? 'border-l-red-500' :
-                    problem.priority === 'high' ? 'border-l-orange-500' :
-                    problem.priority === 'medium' ? 'border-l-yellow-500' :
-                    'border-l-zinc-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-zinc-200">{problem.id}</span>
-                    <span className="text-xs text-zinc-500 capitalize">{problem.priority}</span>
-                  </div>
-                  <div className="text-sm text-white mt-1 line-clamp-2">{problem.title}</div>
-                  {problem.terminal_id && (
-                    <div className="text-xs text-purple-400 mt-1">
-                      Terminal: {problem.terminal_id}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Problem Detail Modal */}
-      {selectedProblem && (
-        <ProblemDetailModal
-          problem={selectedProblem}
-          onClose={() => setSelectedProblem(null)}
-          onStatusChange={handleStatusChange}
-        />
-      )}
-
-      {/* New Problem Dialog */}
-      {showNewDialog && (
-        <NewProblemDialog
-          onClose={() => setShowNewDialog(false)}
-          onCreate={() => { setShowNewDialog(false); loadProblems(); }}
-          projectId={projectId}
-          projectPath={computedProjectPath}
-        />
-      )}
-    </div>
-  );
-};
-
-const ProblemDetailModal: React.FC<{
-  problem: Problem;
-  onClose: () => void;
-  onStatusChange: (id: string, status: string) => void;
-}> = ({ problem, onClose, onStatusChange }) => {
-  const [additionalInstructions, setAdditionalInstructions] = useState('');
-
-  const [isSending, setIsSending] = useState(false);
-
-  const handleSendInstructions = async () => {
-    if (!additionalInstructions.trim() || !problem.terminal_id || isSending) return;
-    setIsSending(true);
-    try {
-      await window.deskflowAPI?.terminalWrite?.(problem.terminal_id, additionalInstructions + '\r\n');
-      setAdditionalInstructions('');
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]">
-      <div className="bg-gray-800 rounded-xl p-5 w-full max-w-md border border-gray-700 max-h-[80vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-white">{problem.id}</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">×</button>
-        </div>
-        
-        <p className="text-white mb-4">{problem.title}</p>
-
-        {/* Status Buttons */}
-        <div className="mb-4">
-          <div className="text-xs text-gray-400 mb-2">Status</div>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(STATUS_CONFIG).map(([status, config]) => (
-              <button
-                key={status}
-                onClick={() => onStatusChange(problem.id, status)}
-                className={`px-2 py-1 rounded text-xs ${problem.status === status ? `${config.color} text-white` : 'bg-gray-700 hover:bg-gray-600'}`}
-              >
-                {config.icon} {config.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Open in Terminal Button */}
-        <div className="mb-4">
-          <button
-            onClick={async () => {
-              if (problem.terminal_id) {
-                window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: problem.terminal_id } }));
-                onClose();
-              } else {
-                const result = await window.deskflowAPI?.assignProblemToTerminal?.({ problemId: problem.id });
-                if (result?.success) {
-                  window.dispatchEvent(new CustomEvent('create-terminal-for-problem', {
-                    detail: { terminalId: result.data.terminalId, prompt: result.data.prompt }
-                  }));
-                  onClose();
-                }
-              }
-            }}
-            className={`w-full px-3 py-2 rounded text-sm text-white flex items-center justify-center gap-2 ${
-              problem.terminal_id ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'
-            }`}
-          >
-            {problem.terminal_id ? 'Open in Terminal' : 'Assign to Terminal'}
-          </button>
-        </div>
-
-        {/* Send Instructions (if terminal assigned) */}
-        {problem.terminal_id && (
-          <div className="mb-4">
-            <div className="text-xs text-gray-400 mb-2">Send Instructions to Terminal</div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={additionalInstructions}
-                onChange={(e) => setAdditionalInstructions(e.target.value)}
-                placeholder="Type instructions..."
-                className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white"
-                onKeyDown={(e) => e.key === 'Enter' && handleSendInstructions()}
-              />
-              <button
-                onClick={handleSendInstructions}
-                disabled={isSending}
-                className="px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded text-sm text-white flex items-center gap-1 min-w-[60px] justify-center"
-              >
-                {isSending ? (
-                  <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
-                ) : (
-                  'Send'
-                )}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Notes */}
-        {problem.user_notes && (
-          <div className="mb-4">
-            <div className="text-xs text-gray-400 mb-1">User Notes</div>
-            <div className="text-sm text-gray-300 bg-gray-900 p-2 rounded">{problem.user_notes}</div>
-          </div>
-        )}
-
-        {/* Meta */}
-        <div className="text-xs text-gray-500 border-t border-gray-700 pt-3 mt-4">
-          <div>Priority: {problem.priority}</div>
-          <div>Category: {problem.category}</div>
-          <div>Created: {new Date(problem.created_at).toLocaleDateString()}</div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const NewProblemDialog: React.FC<{
-  onClose: () => void;
-  onCreate: () => void;
-  projectId?: string;
-  projectPath?: string;
-}> = ({ onClose, onCreate, projectId, projectPath }) => {
-  const [title, setTitle] = useState('');
-  const [priority, setPriority] = useState('medium');
-  const [category, setCategory] = useState('');
-  const [selectedSkill, setSelectedSkill] = useState('');
-  const [skills, setSkills] = useState<{ id: string; name: string; description: string }[]>([]);
-
-  useEffect(() => {
-    window.deskflowAPI?.getSkills?.().then(result => {
-      if (result?.success) setSkills(result.data || []);
-    });
-  }, []);
-
-  const handleSubmit = async () => {
-    if (!title.trim()) return;
-    const result = await window.deskflowAPI?.createProblem?.({ 
-      title, 
-      priority, 
-      category,
-      skill_id: selectedSkill || undefined,
-      projectId,
-      projectPath
-    });
-    if (result?.success) onCreate();
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]">
-      <div className="bg-gray-800 rounded-xl p-5 w-full max-w-md border border-gray-700">
-        <h2 className="text-lg font-bold text-white mb-4">New Problem</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Title *</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
-              placeholder="Brief description"
-            />
-          </div>
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <label className="block text-xs text-gray-400 mb-1">Priority</label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
-              >
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs text-gray-400 mb-1">Category</label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
-              >
-                <option value="">Select...</option>
-                <option value="terminal">Terminal</option>
-                <option value="dashboard">Dashboard</option>
-                <option value="external">External</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-          </div>
-          {skills.length > 0 && (
-            <div>
-              <label className="block text-xs text-gray-400 mb-2">Skill (optional)</label>
-              <div className="grid grid-cols-2 gap-1.5 max-h-28 overflow-y-auto">
-                <button
-                  onClick={() => setSelectedSkill('')}
-                  className={`p-2 rounded text-xs text-left border transition-colors ${
-                    selectedSkill === ''
-                      ? 'bg-gray-600 border-gray-500 text-white'
-                      : 'bg-gray-700 border-gray-600 text-gray-400 hover:bg-gray-600'
-                  }`}
-                >
-                  <div className="font-medium">No skill</div>
-                </button>
-                {skills.map(skill => (
-                  <button
-                    key={skill.id}
-                    onClick={() => setSelectedSkill(skill.id)}
-                    className={`p-2 rounded text-xs text-left border transition-colors ${
-                      selectedSkill === skill.id
-                        ? 'bg-purple-600/30 border-purple-500 text-white'
-                        : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    <div className="font-medium truncate">{skill.name}</div>
-                    {skill.description && (
-                      <div className="text-[10px] text-gray-500 truncate mt-0.5">{skill.description}</div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="flex gap-2 mt-6">
-          <button onClick={onClose} className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded">Cancel</button>
-          <button onClick={handleSubmit} className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded">Create</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─────────────────────────────────────────────
-// SKILLS TAB COMPONENT
-// ─────────────────────────────────────────────
-
-interface Skill {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  content: string;
-  filePath: string;
-}
-
-type SkillsTabView = 'project' | 'browse' | 'saved';
-
-const SkillsTab: React.FC<{ projectPath?: string; terminalTabs?: Record<string, TerminalTabInfo>; activeTerminalId?: string | null; onAddToCompose?: (skillId: string) => void; }> = ({ projectPath, terminalTabs = {}, activeTerminalId, onAddToCompose }) => {
-  const [skills, setSkills] = useState<Skill[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [runningSkill, setRunningSkill] = useState<Skill | null>(null);
-  const [skillPrompt, setSkillPrompt] = useState('');
-  const [skillFormValues, setSkillFormValues] = useState<Record<string, any>>({});
-  const [targetTerminal, setTargetTerminal] = useState('');
-  const [dslSkill, setDslSkill] = useState<Skill | null>(null);
-  const [activeView, setActiveView] = useState<SkillsTabView>(projectPath ? 'project' : 'browse');
-  const [appSkills, setAppSkills] = useState<Skill[]>([]);
-  const [savedSkillIds, setSavedSkillIds] = useState<string[]>([]);
-  const [addingToProject, setAddingToProject] = useState<string | null>(null);
-  const [savingSkill, setSavingSkill] = useState<string | null>(null);
-  const [seedingWorkspace, setSeedingWorkspace] = useState(false);
-
-  useEffect(() => {
-    if (runningSkill?.inputs && runningSkill.inputs.length > 0) {
-      const init: Record<string, any> = {};
-      for (const input of runningSkill.inputs) {
-        if (input.default !== undefined) {
-          init[input.name] = input.default;
-        } else {
-          switch (input.type) {
-            case 'boolean': init[input.name] = false; break;
-            case 'number': init[input.name] = input.min || 0; break;
-            case 'list':
-            case 'multienum': init[input.name] = []; break;
-            case 'enum': init[input.name] = input.choices?.[0] || ''; break;
-            default: init[input.name] = '';
-          }
-        }
-      }
-      setSkillFormValues(init);
-    } else {
-      setSkillFormValues({});
-    }
-  }, [runningSkill]);
-  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editCategory, setEditCategory] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-  const [editContent, setEditContent] = useState('');
-  const [showNewForm, setShowNewForm] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newCategory, setNewCategory] = useState('general');
-  const [newDescription, setNewDescription] = useState('');
-  const [newContent, setNewContent] = useState('');
-  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  const loadSkills = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [projectResult, appResult, savedResult] = await Promise.all([
-        window.deskflowAPI?.getSkills?.(projectPath),
-        window.deskflowAPI?.getAppSkills?.(),
-        window.deskflowAPI?.getSavedSkills?.(),
-      ]);
-      if (projectResult?.success) setSkills(projectResult.data || []);
-      if (appResult?.success) setAppSkills(appResult.data || []);
-      if (savedResult?.success) setSavedSkillIds(savedResult.data || []);
-    } catch (e) {
-      console.error('[SkillsTab] Failed to load skills:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectPath]);
-
-  useEffect(() => {
-    loadSkills();
-    const interval = setInterval(loadSkills, 10000);
-    return () => clearInterval(interval);
-  }, [loadSkills]);
-
-  const categories = ['all', ...new Set(
-    (activeView === 'project' ? skills : activeView === 'saved' ? appSkills.filter(a => savedSkillIds.includes(a.id)) : appSkills)
-      .map(s => s.category || 'general')
-  )];
-
-  const filteredSkills = (() => {
-    let source: Skill[];
-    if (activeView === 'project') {
-      source = skills;
-    } else if (activeView === 'saved') {
-      source = appSkills.filter(a => savedSkillIds.includes(a.id));
-    } else {
-      source = appSkills;
-    }
-    return source.filter(s => {
-      if (categoryFilter !== 'all' && s.category !== categoryFilter) return false;
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.content.toLowerCase().includes(q);
-      }
-      return true;
-    });
-  })();
-
-  const showNotify = (message: string, type: 'success' | 'error') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
-  };
-
-  const handleCreate = async () => {
-    if (!newName.trim()) return;
-    try {
-      const result = await window.deskflowAPI?.createSkill?.({
-        name: newName.trim(),
-        category: newCategory,
-        description: newDescription.trim(),
-        content: newContent,
-        projectPath,
-      });
-      if (result?.success) {
-        showNotify('Skill created successfully', 'success');
-        setShowNewForm(false);
-        setNewName(''); setNewCategory('general'); setNewDescription(''); setNewContent('');
-        loadSkills();
-      } else {
-        showNotify(result?.error || 'Failed to create skill', 'error');
-      }
-    } catch (e) {
-      showNotify('Failed to create skill', 'error');
-    }
-  };
-
-  const handleUpdate = async () => {
-    if (!editingSkill || !editName.trim()) return;
-    try {
-      const result = await window.deskflowAPI?.updateSkill?.({
-        id: editingSkill.id,
-        name: editName.trim(),
-        category: editCategory,
-        description: editDescription.trim(),
-        content: editContent,
-        projectPath,
-      });
-      if (result?.success) {
-        showNotify('Skill updated successfully', 'success');
-        setEditingSkill(null);
-        loadSkills();
-      } else {
-        showNotify(result?.error || 'Failed to update skill', 'error');
-      }
-    } catch (e) {
-      showNotify('Failed to update skill', 'error');
-    }
-  };
-
-  const handleDelete = async (skill: Skill) => {
-    try {
-      const result = await window.deskflowAPI?.updateSkill?.({
-        id: skill.id,
-        name: skill.name,
-        category: skill.category,
-        description: skill.description,
-        content: '',
-        projectPath,
-      });
-      if (result?.success) {
-        showNotify('Skill deleted', 'success');
-        loadSkills();
-      }
-    } catch (e) {
-      showNotify('Failed to delete skill', 'error');
-    }
-  };
-
-  const handleAddToProject = async (skillId: string) => {
-    if (!projectPath) {
-      showNotify('No project selected', 'error');
-      return;
-    }
-    setAddingToProject(skillId);
-    try {
-      const result = await window.deskflowAPI?.addSkillToProject?.({ skillId, projectPath });
-      if (result?.success) {
-        showNotify('Skill added to project', 'success');
-        loadSkills();
-      } else {
-        showNotify(result?.error || 'Failed to add skill to project', 'error');
-      }
-    } catch (e) {
-      showNotify('Failed to add skill to project', 'error');
-    } finally {
-      setAddingToProject(null);
-    }
-  };
-
-  const handleSave = async (skillId: string) => {
-    setSavingSkill(skillId);
-    try {
-      const result = await window.deskflowAPI?.saveWorkspaceSkill?.({ skillId });
-      if (result?.success) {
-        setSavedSkillIds(result.data || []);
-        showNotify('Skill saved', 'success');
-      }
-    } catch (e) {
-      showNotify('Failed to save skill', 'error');
-    } finally {
-      setSavingSkill(null);
-    }
-  };
-
-  const handleUnsave = async (skillId: string) => {
-    setSavingSkill(skillId);
-    try {
-      const result = await window.deskflowAPI?.unsaveWorkspaceSkill?.({ skillId });
-      if (result?.success) {
-        setSavedSkillIds(result.data || []);
-        showNotify('Skill removed from saved', 'success');
-      }
-    } catch (e) {
-      showNotify('Failed to unsave skill', 'error');
-    } finally {
-      setSavingSkill(null);
-    }
-  };
-
-  const handleSeedWorkspace = async () => {
-    if (!projectPath) { showNotify('No project selected', 'error'); return; }
-    setSeedingWorkspace(true);
-    try {
-      const result = await window.deskflowAPI?.seedWorkspaceSkills?.({ sourceDir: projectPath });
-      if (result?.success) {
-        showNotify(`Synced ${result.data?.copied || 0} skills to workspace`, 'success');
-        loadSkills();
-      } else {
-        showNotify(result?.error || 'Failed to sync skills', 'error');
-      }
-    } catch (e) {
-      showNotify('Failed to sync skills', 'error');
-    } finally {
-      setSeedingWorkspace(false);
-    }
-  };
-
-  const handleUse = async () => {
-    if (!runningSkill) return;
-    const terminalId = targetTerminal || activeTerminalId || Object.keys(terminalTabs)[0];
-    if (!terminalId) {
-      showNotify('No terminal available. Create a session first.', 'error');
-      return;
-    }
-    try {
-      const hasInputs = runningSkill.inputs && runningSkill.inputs.length > 0;
-      const configLines = hasInputs
-        ? Object.entries(skillFormValues)
-            .filter(([_, v]) => v !== '' && v !== undefined && !(Array.isArray(v) && v.length === 0))
-            .map(([key, val]) => `- ${key}: ${Array.isArray(val) ? val.join(', ') : val}`)
-            .join('\n')
-        : '';
-      const configSection = configLines ? `\n\n## Skill Configuration\n\n${configLines}` : '';
-      const userSection = skillPrompt.trim() ? `\n\n${skillPrompt}` : '';
-      const fullPrompt = `[Skill: ${runningSkill.name}]\n${runningSkill.content}${configSection}${userSection}`;
-      await window.deskflowAPI?.terminalWrite?.(terminalId, fullPrompt + '\r\n');
-      showNotify(`Sent "${runningSkill.name}" to terminal`, 'success');
-      setRunningSkill(null);
-      setSkillPrompt('');
-    } catch (e) {
-      showNotify('Failed to send to terminal', 'error');
-    }
-  };
-
-  const openEditor = (skill: Skill) => {
-    setEditingSkill(skill);
-    setEditName(skill.name);
-    setEditCategory(skill.category);
-    setEditDescription(skill.description);
-    setEditContent(skill.content);
-  };
-
-  const renderSkillCard = (skill: Skill, showProjectActions: boolean) => {
-    const isSaved = savedSkillIds.includes(skill.id);
-    const inProject = skills.some(s => s.id === skill.id);
-    return (
-      <div key={skill.id} className="bg-zinc-800/50 border border-zinc-700/50 rounded overflow-hidden">
-        <div className="px-2 py-2 flex items-start justify-between cursor-pointer hover:bg-zinc-800/80" onClick={() => setExpandedId(expandedId === skill.id ? null : skill.id)}>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs font-medium text-zinc-200">{skill.name}</span>
-              <span className="text-[9px] px-1.5 py-0.5 bg-indigo-500/20 text-indigo-300 rounded">{skill.category || 'general'}</span>
-              {isSaved && (
-                <span className="text-[9px] px-1.5 py-0.5 bg-amber-500/20 text-amber-300 rounded">Saved</span>
-              )}
-              {inProject && (
-                <span className="text-[9px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded">In Project</span>
-              )}
-            </div>
-            {skill.description && (
-              <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-1">{skill.description}</p>
-            )}
-          </div>
-          <div className="flex gap-1 ml-2 flex-shrink-0">
-            {onAddToCompose && projectPath && inProject && (
-              <button
-                onClick={e => { e.stopPropagation(); onAddToCompose(skill.id); }}
-                className="px-2 py-0.5 bg-cyan-600 hover:bg-cyan-500 text-cyan-100 text-[10px] rounded"
-                title="Add skill to compose"
-              >
-                Use
-              </button>
-            )}
-            {activeView !== 'project' && (
-              isSaved ? (
-                <button
-                  onClick={e => { e.stopPropagation(); handleUnsave(skill.id); }}
-                  disabled={savingSkill === skill.id}
-                  className="px-2 py-0.5 bg-amber-600/50 hover:bg-amber-500 text-amber-200 text-[10px] rounded disabled:opacity-50"
-                  title="Remove from saved"
-                >
-                  {savingSkill === skill.id ? '...' : 'Unsave'}
-                </button>
-              ) : (
-                <button
-                  onClick={e => { e.stopPropagation(); handleSave(skill.id); }}
-                  disabled={savingSkill === skill.id}
-                  className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded disabled:opacity-50"
-                  title="Save to workspace"
-                >
-                  {savingSkill === skill.id ? '...' : 'Save'}
-                </button>
-              )
-            )}
-            {showProjectActions && projectPath && !inProject && activeView !== 'project' && (
-              <button
-                onClick={e => { e.stopPropagation(); handleAddToProject(skill.id); }}
-                disabled={addingToProject === skill.id}
-                className="px-2 py-0.5 bg-indigo-600/50 hover:bg-indigo-500 text-indigo-200 text-[10px] rounded disabled:opacity-50"
-                title="Add to current project"
-              >
-                {addingToProject === skill.id ? '...' : '+ Project'}
-              </button>
-            )}
-            <button
-              onClick={e => { e.stopPropagation(); setDslSkill(skill); }}
-              className="px-2 py-0.5 bg-amber-600 hover:bg-amber-500 text-amber-100 text-[10px] rounded"
-              title="Generate DSL frontmatter"
-            >
-              DSL
-            </button>
-            {activeView === 'project' && (
-              <button
-                onClick={e => { e.stopPropagation(); openEditor(skill); }}
-                className="px-2 py-0.5 bg-zinc-600 hover:bg-zinc-500 text-zinc-200 text-[10px] rounded"
-                title="Edit skill"
-              >
-                Edit
-              </button>
-            )}
-          </div>
-        </div>
-        {expandedId === skill.id && (
-          <div className="px-2 pb-2 border-t border-zinc-700/30">
-            <pre className="mt-2 p-2 bg-zinc-900 rounded text-[10px] text-zinc-400 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap font-mono">
-              {skill.content}
-            </pre>
-            <div className="flex gap-2 mt-2">
-              <span className="text-[10px] text-zinc-600">Path: {skill.filePath}</span>
-              {activeView === 'project' && (
-                <button onClick={() => handleDelete(skill)} className="ml-auto px-2 py-0.5 bg-red-600/30 hover:bg-red-600/50 text-red-300 text-[10px] rounded">Delete</button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div>
-      {/* Notification Toast */}
-      {notification && (
-        <div className={`fixed top-4 right-4 z-[100] px-4 py-2 rounded text-xs shadow-lg transition-opacity ${
-          notification.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-        }`}>
-          {notification.message}
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex gap-0.5 mb-2.5 bg-zinc-900/50 rounded p-0.5 border border-zinc-700/40">
-        <button
-          onClick={() => setActiveView('project')}
-          className={`flex-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
-            activeView === 'project' ? 'bg-indigo-600/30 text-indigo-300' : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          Project ({skills.length})
-        </button>
-        <button
-          onClick={() => setActiveView('browse')}
-          className={`flex-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
-            activeView === 'browse' ? 'bg-indigo-600/30 text-indigo-300' : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          Browse ({appSkills.length})
-        </button>
-        <button
-          onClick={() => setActiveView('saved')}
-          className={`flex-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
-            activeView === 'saved' ? 'bg-indigo-600/30 text-indigo-300' : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          Saved ({savedSkillIds.length})
-        </button>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-zinc-400">
-          {activeView === 'project' ? `${skills.length} project skill${skills.length !== 1 ? 's' : ''}` :
-           activeView === 'saved' ? `${savedSkillIds.length} saved` :
-           `${appSkills.length} available`}
-        </span>
-        <button
-          onClick={() => setShowNewForm(true)}
-          className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded flex items-center gap-1 transition-colors duration-150 active:scale-95"
-        >
-          <Plus className="w-3 h-3" />
-          Create Skill
-        </button>
-      </div>
-
-      {/* Seed workspace banner */}
-      {activeView !== 'project' && appSkills.length === 0 && projectPath && (
-        <div className="mb-3 px-2.5 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-          <p className="text-[11px] text-amber-300 mb-2">No skills in workspace library yet.</p>
-          <button
-            onClick={handleSeedWorkspace}
-            disabled={seedingWorkspace}
-            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-amber-100 text-[10px] rounded disabled:opacity-50"
-          >
-            {seedingWorkspace ? 'Syncing...' : 'Sync skills from this project'}
-          </button>
-        </div>
-      )}
-
-      {/* Search */}
-      <input
-        type="text"
-        value={searchQuery}
-        onChange={e => setSearchQuery(e.target.value)}
-        placeholder="Search skills..."
-        className="w-full mb-2 px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
-      />
-
-      {/* Category Filter */}
-      {categories.length > 1 && (
-        <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
-          {categories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setCategoryFilter(cat)}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-colors duration-150 ${
-                categoryFilter === cat
-                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50'
-                  : 'bg-transparent text-zinc-400 border border-zinc-700 hover:bg-zinc-800'
-              }`}
-            >
-              {cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Loading */}
-      {loading && <p className="text-xs text-zinc-500">Loading skills...</p>}
-
-      {/* Empty State */}
-      {!loading && filteredSkills.length === 0 && (
-        <div className="px-2 py-6 bg-indigo-500/5 border border-indigo-500/20 rounded text-center">
-          <Sparkles className="w-6 h-6 text-indigo-400/50 mx-auto mb-2" />
-          <p className="text-xs text-zinc-500 mb-3">
-            {activeView === 'project'
-              ? (skills.length === 0 ? 'No project skills. Add from Browse or create one.' : 'No skills match your search.')
-              : activeView === 'saved'
-              ? 'No saved skills. Browse and save skills you use often.'
-              : appSkills.length === 0
-              ? 'Workspace library is empty. Sync skills from a project.'
-              : 'No skills match your search.'}
-          </p>
-        </div>
-      )}
-
-      {/* Skill List */}
-      {filteredSkills.length > 0 && (
-        <div className="space-y-2">
-          {filteredSkills.map(skill => renderSkillCard(skill, activeView !== 'project'))}
-        </div>
-      )}
-
-      {/* ── Run Skill Modal ── */}
-      {runningSkill && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]" onClick={() => setRunningSkill(null)}>
-          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700  mx-4" onClick={e => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-zinc-700 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white">Use Skill: {runningSkill.name}</h3>
-              <button onClick={() => setRunningSkill(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
-            </div>
-            <div className="px-4 py-3 overflow-y-auto max-h-[55vh]">
-              {runningSkill.inputs && runningSkill.inputs.length > 0 ? (
-                <SkillDynamicForm
-                  inputs={runningSkill.inputs}
-                  values={skillFormValues}
-                  onChange={setSkillFormValues}
-                />
-              ) : (
-                <div className="mb-3 p-2 bg-zinc-900 rounded max-h-28 overflow-y-auto">
-                  <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap font-mono">{runningSkill.content.slice(0, 500)}{runningSkill.content.length > 500 ? '...' : ''}</pre>
-                </div>
-              )}
-              <select
-                value={targetTerminal}
-                onChange={e => setTargetTerminal(e.target.value)}
-                className="w-full mt-3 mb-2 px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
-              >
-                <option value="">Active terminal ({activeTerminalId ? terminalTabs[activeTerminalId]?.name || 'unnamed' : 'none'})</option>
-                {Object.entries(terminalTabs).map(([id, tab]) => (
-                  <option key={id} value={id}>{tab.name} ({tab.agent})</option>
-                ))}
-              </select>
-              <textarea
-                value={skillPrompt}
-                onChange={e => setSkillPrompt(e.target.value)}
-                placeholder={runningSkill.inputs && runningSkill.inputs.length > 0 ? "Additional instructions or context..." : "Enter your prompt or instructions for this skill..."}
-                className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 min-h-[60px] resize-y"
-              />
-            </div>
-            <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end">
-              <button onClick={() => setRunningSkill(null)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>
-              <button onClick={handleUse} disabled={!(runningSkill.inputs && runningSkill.inputs.length > 0) && !skillPrompt.trim()} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded disabled:opacity-50">Send to Terminal</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── DSL Generation Modal ── */}
-      {dslSkill && (
-        <DSLGenerationModal
-          skill={{
-            id: dslSkill.id,
-            name: dslSkill.name,
-            description: dslSkill.description,
-            content: dslSkill.content,
-            filePath: dslSkill.filePath,
-          }}
-          terminals={Object.entries(terminalTabs).map(([id, tab]) => ({
-            id,
-            label: tab.name,
-            agent: tab.agent,
-            topic: tab.topic,
-          }))}
-          activeTerminalId={activeTerminalId}
-          onClose={() => setDslSkill(null)}
-          onSend={async (terminalId, prompt) => {
-            await window.deskflowAPI?.terminalWrite?.(terminalId, prompt + '\r\n');
-            showNotify(`DSL prompt sent to terminal for "${dslSkill?.name}"`, 'success');
-          }}
-        />
-      )}
-
-      {/* ── Edit Skill Modal ── */}
-      {editingSkill && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]" onClick={() => setEditingSkill(null)}>
-          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700  mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-zinc-700 flex items-center justify-between flex-shrink-0">
-              <h3 className="text-sm font-bold text-white">Edit Skill: {editingSkill.name}</h3>
-              <button onClick={() => setEditingSkill(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
-            </div>
-            <div className="px-4 py-3 overflow-y-auto flex-1 space-y-2">
-              <input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder="Skill name" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
-              <input type="text" value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="Category" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
-              <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)} placeholder="Description" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
-              <textarea value={editContent} onChange={e => setEditContent(e.target.value)} placeholder="Skill content (markdown)" className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 font-mono min-h-[200px] resize-y" />
-            </div>
-            <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end flex-shrink-0">
-              <button onClick={() => setEditingSkill(null)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>
-              <button onClick={handleUpdate} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded">Save Changes</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Create Skill Modal ── */}
-      {showNewForm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]" onClick={() => setShowNewForm(false)}>
-          <div className="bg-zinc-800 rounded-xl w-full max-w-lg border border-zinc-700  mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-zinc-700 flex items-center justify-between flex-shrink-0">
-              <h3 className="text-sm font-bold text-white">Create Skill</h3>
-              <button onClick={() => setShowNewForm(false)} className="text-zinc-400 hover:text-zinc-200">✕</button>
-            </div>
-            <div className="px-4 py-3 overflow-y-auto flex-1 space-y-2">
-              <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Skill name *" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
-              <input type="text" value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="Category (e.g., coding, testing, review)" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
-              <input type="text" value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Short description" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
-              <textarea value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="Skill content (markdown) — include instructions, examples, and rules..." className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 font-mono min-h-[200px] resize-y" />
-            </div>
-            <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end flex-shrink-0">
-              <button onClick={() => setShowNewForm(false)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>
-              <button onClick={handleCreate} disabled={!newName.trim()} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded disabled:opacity-50">Create Skill</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ─────────────────────────────────────────────
-// REQUESTS TAB COMPONENT
-// ─────────────────────────────────────────────
-
-interface Request {
-  id: string;
-  title: string;
-  description: string;
-  status: string;
-  priority: string;
-  category: string;
-  linked_problems: string[];
-  created_at: string;
-  updated_at: string;
-}
-
-const REQUEST_STATUS_CONFIG: Record<string, { color: string; label: string }> = {
-  'Pending': { color: 'bg-yellow-500', label: 'Pending' },
-  'In Progress': { color: 'bg-blue-500', label: 'In Progress' },
-  'Completed': { color: 'bg-green-500', label: 'Completed' },
-  'Cancelled': { color: 'bg-gray-500', label: 'Cancelled' }
-};
-
-const RequestsTab: React.FC<{ projectId?: string; projectPath?: string; onNewRequest: () => void; projects?: { id: string; name: string; path: string }[]; onSelectProject?: (id: string) => void }> = ({ projectId, projectPath: propProjectPath, onNewRequest, projects, onSelectProject }) => {
-  const [requests, setRequests] = useState<Request[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
-
-  const loadRequests = useCallback(async () => {
-    try {
-      const result = await window.deskflowAPI?.getRequests?.(projectId);
-      if (result?.success) {
-        setRequests(result.data || []);
-      }
-    } catch (e) {
-      console.error('[RequestsTab] Failed to load:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    loadRequests();
-    const interval = setInterval(loadRequests, 5000);
-    return () => clearInterval(interval);
-  }, [loadRequests]);
-
-  const filteredRequests = requests.filter(r => {
-    if (filterStatus === 'all') return true;
-    return r.status === filterStatus;
-  });
-
-  const groupedRequests = filteredRequests.reduce((acc, r) => {
-    const status = r.status || 'Pending';
-    if (!acc[status]) acc[status] = [];
-    acc[status].push(r);
-    return acc;
-  }, {} as Record<string, Request[]>);
-
-  const handleStatusChange = async (requestId: string, status: string) => {
-    await window.deskflowAPI?.updateRequestStatus?.({ requestId, status });
-    setRequests(prev => prev.map(r => r.id === requestId ? { ...r, status } : r));
-    setSelectedRequest(prev => prev?.id === requestId ? { ...prev, status } : prev);
-    loadRequests();
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300"
-        >
-          <option value="all">All Requests</option>
-          <option value="Pending">Pending</option>
-          <option value="In Progress">In Progress</option>
-          <option value="Completed">Completed</option>
-        </select>
-        <button
-          onClick={onNewRequest}
-          className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded flex items-center gap-1"
-        >
-          <Plus className="w-3 h-3" />
-          New
-        </button>
-      </div>
-
-      {/* Project path display */}
-      <div className="mb-2 px-2 py-1 bg-zinc-800/50 rounded">
-        {(() => {
-          const resolvedProject = projects?.find(p => p.id === projectId);
-          const displayPath = propProjectPath || resolvedProject?.path || '';
-          if (displayPath || resolvedProject) {
-            return (
-              <>
-                <div className="text-[10px] text-zinc-500 truncate" title={displayPath}>
-                  📁 {resolvedProject?.name || 'Project'}
-                </div>
-                <div className="text-[10px] text-zinc-600 truncate mt-0.5">
-                  agent/REQUESTS.md
-                </div>
-              </>
-            );
-          }
-          return (
-            <div className="space-y-2">
-              <div className="text-[10px] text-yellow-500">⚠️ No project selected</div>
-              <select
-                value=""
-                onChange={(e) => { if (e.target.value) onSelectProject?.(e.target.value); }}
-                className="w-full px-2 py-1.5 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-200"
-              >
-                <option value="">-- Choose project --</option>
-                {projects?.filter(p => p.id).map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-          );
-        })()}
-      </div>
-
-      {/* Requests List */}
-      {loading ? (
-        <div className="text-xs text-zinc-500 py-4 text-center">Loading...</div>
-      ) : !projectId ? (
-        <div className="text-xs text-zinc-500 py-4 text-center">Select a project to view requests</div>
-      ) : filteredRequests.length === 0 ? (
-        <div className="text-xs text-zinc-500 py-4 text-center">No requests found</div>
-      ) : (
-        <div className="flex-1 overflow-y-auto space-y-4">
-          {Object.entries(groupedRequests).map(([status, statusRequests]) => (
-            <div key={status}>
-              <div className="flex items-center gap-2 mb-2 px-1">
-                <span className={`w-2 h-2 rounded-full ${REQUEST_STATUS_CONFIG[status]?.color || 'bg-gray-500'}`} />
-                <span className="text-xs font-medium text-zinc-400">{status}</span>
-                <span className="text-xs text-zinc-600">({statusRequests.length})</span>
-              </div>
-              {statusRequests.map((request) => (
-                <div
-                  key={request.id}
-                  onClick={() => setSelectedRequest(request)}
-                  className={`p-2 bg-zinc-800 rounded mb-2 cursor-pointer hover:bg-zinc-750 border-l-2 ${
-                    request.priority === 'high' ? 'border-l-blue-500' :
-                    request.priority === 'medium' ? 'border-l-cyan-500' :
-                    'border-l-zinc-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-zinc-200">#{request.id}</span>
-                    <span className="text-xs text-zinc-500 capitalize">{request.priority}</span>
-                  </div>
-                  <div className="text-sm text-white mt-1 line-clamp-2">{request.title}</div>
-                  {request.linked_problems.length > 0 && (
-                    <div className="text-xs text-blue-400 mt-1">
-                      Linked: {request.linked_problems.map(p => `#${p}`).join(', ')}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
-{/* Request Detail Modal */}
-{selectedRequest && (
-  <RequestDetailModal
-    request={selectedRequest}
-    onClose={() => setSelectedRequest(null)}
-    onStatusChange={handleStatusChange}
-    projectId={projectId}
-  />
-)}
-    </div>
-  );
-};
-
-// ─────────────────────────────────────────────
-// FILES TAB COMPONENT
-// ─────────────────────────────────────────────
-
-interface AgentFile {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  content?: string;
-}
-
-const FilesTab: React.FC<{ projectId?: string; projectPath?: string; projects?: { id: string; name: string; path: string }[]; onSelectProject?: (id: string) => void }> = ({ projectId, projectPath: propProjectPath, projects, onSelectProject }) => {
-  const [files, setFiles] = useState<AgentFile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
-  const [initStatus, setInitStatus] = useState<'idle' | 'checking' | 'ready' | 'init-ok' | 'error'>('idle');
-  const [fileChangedNotify, setFileChangedNotify] = useState<string | null>(null);
-
-  // Listen for live file change notifications
-  useEffect(() => {
-    if (!window.deskflowAPI?.onAgentFileChanged) return;
-    const cleanup = window.deskflowAPI.onAgentFileChanged((data: { file: string; mtime: string }) => {
-      setFileChangedNotify(`${data.file} updated`);
-      setTimeout(() => setFileChangedNotify(null), 4000);
-      loadFiles();
-    });
-    return () => cleanup?.();
-  }, []);
-
-  const project = projects?.find(p => p.id === projectId);
-  const projectPath = propProjectPath || project?.path || '';
-
-  const loadFiles = useCallback(async () => {
-    if (!window.deskflowAPI || !projectPath) {
-      setLoading(false);
-      setInitStatus('idle');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    setInitStatus('checking');
-    try {
-      const result = await window.deskflowAPI.readAgentFiles?.(projectPath);
-      if (result?.success) {
-        setFiles(result.data || []);
-        setInitStatus('ready');
-      } else {
-        setError(result?.error || 'Failed to load files');
-        setInitStatus('error');
-      }
-    } catch (e) {
-      console.error('[FilesTab] Failed to load:', e);
-      setError('Failed to load files');
-      setInitStatus('error');
-    } finally {
-      setLoading(false);
-    }
-  }, [projectPath]);
-
-  const handleSetup = async () => {
-    if (!window.deskflowAPI || !projectPath || !projectId) return;
-    setInitStatus('checking');
-    try {
-      const result = await window.deskflowAPI.trackerMindSetup?.('init-all', projectId);
-      if (result?.success) {
-        setInitStatus('init-ok');
-        loadFiles();
-      } else {
-        setError(result?.error || 'Setup failed');
-        setInitStatus('error');
-      }
-    } catch (e) {
-      console.error('[FilesTab] Setup failed:', e);
-      setError('Setup failed');
-      setInitStatus('error');
-    }
-  };
-
-  const loadFileContent = useCallback(async (file: AgentFile) => {
-    if (!window.deskflowAPI || file.isDirectory || !projectPath) return;
-    try {
-      const result = await window.deskflowAPI.readAgentFile?.(file.path, projectPath);
-      if (result?.success) {
-        setFileContent(result.data);
-      }
-    } catch (e) {
-      console.error('[FilesTab] Failed to load content:', e);
-    }
-  }, [projectPath]);
-
-  useEffect(() => {
-    loadFiles();
-    const interval = setInterval(loadFiles, 10000);
-    return () => clearInterval(interval);
-  }, [loadFiles]);
-
-  const handleFileClick = (file: AgentFile) => {
-    setSelectedFile(file.name);
-    loadFileContent(file);
-  };
-
-  const statusIcons: Record<string, React.ReactNode> = {
-    'idle': <div className="w-1.5 h-1.5 rounded-full bg-zinc-500" />,
-    'checking': <Loader2 className="w-3 h-3 text-yellow-400 animate-spin" />,
-    'ready': <CheckCircle2 className="w-3 h-3 text-green-400" />,
-    'init-ok': <CheckCircle2 className="w-3 h-3 text-green-400" />,
-    'error': <AlertCircle className="w-3 h-3 text-red-400" />,
-  };
-  const statusLabels: Record<string, string> = {
-    'idle': 'Not initialized',
-    'checking': 'Checking...',
-    'ready': 'Ready',
-    'init-ok': 'Initialized',
-    'error': 'Error'
-  };
-
-  const getFileCategory = (file: AgentFile): string => {
-    if (file.isDirectory) return '';
-    const sep = file.path.includes('\\') ? '\\' : '/';
-    const parts = file.path.split(sep);
-    if (parts.length === 1) return 'Root';
-    return parts[0];
-  };
-
-  const groupedFiles = files.filter(f => !f.isDirectory).reduce<Record<string, AgentFile[]>>((acc, file) => {
-    const cat = getFileCategory(file);
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(file);
-    return acc;
-  }, {});
-
-  const categoryOrder = ['Root', 'skills', 'docs', 'templates'];
-  const sortedCategories = Object.keys(groupedFiles).sort((a, b) => {
-    const ai = categoryOrder.indexOf(a);
-    const bi = categoryOrder.indexOf(b);
-    if (ai !== -1 && bi !== -1) return ai - bi;
-    if (ai !== -1) return -1;
-    if (bi !== -1) return 1;
-    return a.localeCompare(b);
-  });
-
-  const categoryIcons: Record<string, React.ReactNode> = {
-    'Root': <Folder className="w-3 h-3 text-zinc-500" />,
-    'skills': <Zap className="w-3 h-3 text-amber-500" />,
-    'docs': <FileText className="w-3 h-3 text-cyan-500" />,
-    'templates': <FileText className="w-3 h-3 text-violet-500" />,
-  };
-
-  const closePreview = () => {
-    setSelectedFile(null);
-    setFileContent('');
-  };
-
-  return (
-    <div className="flex flex-col h-full relative">
-      {/* Status & Project header */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          {statusIcons[initStatus]}
-          <span className={`text-[10px] font-medium ${
-            initStatus === 'error' ? 'text-red-400' :
-            initStatus === 'checking' ? 'text-yellow-400' :
-            initStatus === 'ready' || initStatus === 'init-ok' ? 'text-green-400' :
-            'text-zinc-500'
-          }`}>
-            {statusLabels[initStatus]}
-          </span>
-        </div>
-        {projectPath && (
-          <span className="text-[10px] text-zinc-600">{files.filter(f => !f.isDirectory).length} files</span>
-        )}
-      </div>
-
-      {/* Project path display */}
-      {projectPath ? (
-        <GlassCard className="p-2 mb-2">
-          <div className="flex items-center gap-2">
-            <Folder className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
-            <div className="min-w-0">
-              <div className="text-[11px] text-zinc-300 truncate" title={projectPath}>
-                {project?.name || 'Project'}
-              </div>
-              <div className="text-[10px] text-zinc-500 truncate" title={projectPath}>
-                {projectPath}
-              </div>
-            </div>
-          </div>
-        </GlassCard>
-      ) : (
-        <GlassCard className="p-3 mb-2 space-y-2">
-          <div className="flex items-center gap-1.5">
-            <AlertCircle className="w-3 h-3 text-yellow-400" />
-            <span className="text-xs text-yellow-400">No project selected</span>
-          </div>
-          <div className="text-[10px] text-zinc-500">Select a project:</div>
-          <select
-            value=""
-            onChange={(e) => { if (e.target.value) onSelectProject?.(e.target.value); }}
-            className="w-full bg-zinc-900/60 border border-zinc-700/50 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-zinc-600"
-          >
-            <option value="">-- Choose project --</option>
-            {projects?.filter(p => p.id).map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </GlassCard>
-      )}
-
-      {/* File Change Notification */}
-      {fileChangedNotify && (
-        <div className="mb-2 px-2.5 py-1.5 bg-green-600/15 border border-green-500/25 rounded-lg text-[10px] text-green-300 flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-          {fileChangedNotify}
-        </div>
-      )}
-
-      {/* Files List */}
-      {loading ? (
-        <LoadingState variant="spinner" />
-      ) : error ? (
-        <div className="flex items-center gap-1.5 text-[10px] text-rose-400 py-4 justify-center">
-          <AlertCircle className="w-3 h-3" />
-          {error}
-        </div>
-      ) : !projectPath ? (
-        <div className="text-[11px] text-zinc-500 py-4 text-center">
-          Select a project to view agent files
-        </div>
-      ) : files.length === 0 ? (
-        <EmptyState icon={FileText} title="No agent files" description='Use the Setup button in the header to initialize.' />
-      ) : (
-        <div className="flex-1 overflow-y-auto pb-2">
-          {sortedCategories.map(cat => (
-            <div key={cat} className="mb-2">
-              <div className="flex items-center gap-1.5 px-1 py-1 mb-1">
-                {categoryIcons[cat] || <FileText className="w-3 h-3 text-zinc-500" />}
-                <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
-                  {cat === 'Root' ? 'Infrastructure' : cat}
-                </span>
-                <span className="text-[10px] text-zinc-700 ml-auto">{groupedFiles[cat].length}</span>
-              </div>
-              {groupedFiles[cat].map(file => (
-                <div
-                  key={file.path}
-                  onClick={() => handleFileClick(file)}
-                  className={`p-2 rounded mb-0.5 cursor-pointer flex items-center gap-2 transition-colors duration-150 ${
-                    selectedFile === file.name 
-                      ? 'bg-zinc-700/70 border border-zinc-600/50' 
-                      : 'bg-zinc-800/50 hover:bg-zinc-700/50'
-                  }`}
-                >
-                  <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${
-                    file.name.endsWith('.md') ? 'text-cyan-500' :
-                    file.name.endsWith('.json') ? 'text-amber-500' :
-                    'text-zinc-500'
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs text-zinc-200 truncate">{file.name}</div>
-                    <div className="text-[10px] text-zinc-600 truncate">{file.path}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* File Content Preview — overlay */}
-      {selectedFile && fileContent && (
-        <div className="absolute bottom-0 left-0 right-0 z-20 max-h-[45%] flex flex-col bg-zinc-900/95 backdrop-blur-sm border-t border-zinc-700/50 rounded-t-lg shadow-2xl">
-          <div className="flex items-center justify-between px-2.5 py-1.5 bg-zinc-800/60 border-b border-zinc-700/30 rounded-t-lg flex-shrink-0">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${
-                selectedFile.endsWith('.md') ? 'text-cyan-500' : 'text-zinc-500'
-              }`} />
-              <span className="text-[11px] text-zinc-300 truncate">{selectedFile}</span>
-              <span className="text-[10px] text-zinc-600">{(fileContent.length / 1024).toFixed(1)} KB</span>
-            </div>
-            <button onClick={closePreview} className="p-0.5 hover:bg-zinc-700/50 rounded transition-colors flex-shrink-0">
-              <X className="w-3.5 h-3.5 text-zinc-500" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2.5">
-            {selectedFile.endsWith('.md') ? (
-              <div className="space-y-1.5 text-xs">
-                {fileContent.split('\n').map((line, i) => {
-                  if (line.startsWith('# ')) return <h2 key={i} className="text-sm font-bold text-white pb-0.5">{line.slice(2)}</h2>;
-                  if (line.startsWith('## ')) return <h3 key={i} className="text-xs font-semibold text-amber-300 pt-1">{line.slice(3)}</h3>;
-                  if (line.startsWith('### ')) return <h4 key={i} className="text-[11px] font-semibold text-cyan-300 pt-0.5">{line.slice(4)}</h4>;
-                  if (line.startsWith('- ')) return <div key={i} className="text-zinc-400 pl-3">• {line.slice(2)}</div>;
-                  if (line.startsWith('> ')) return <div key={i} className="text-zinc-500 italic border-l-2 border-zinc-600 pl-2 py-0.5">{line.slice(2)}</div>;
-                  if (line.startsWith('| ')) return <div key={i} className="text-zinc-400 font-mono text-[10px]">{line}</div>;
-                  if (line.trim() === '---') return <hr key={i} className="border-zinc-700/50 my-1" />;
-                  if (line.startsWith('```')) return null;
-                  const codeMatch = line.match(/`([^`]+)`/);
-                  if (codeMatch) {
-                    const parts = line.split(/`([^`]+)`/);
-                    return <p key={i} className="text-zinc-400">{parts.map((part, j) => j % 2 === 1 ? <code key={j} className="bg-zinc-800/80 px-1 rounded text-cyan-400 text-[10px]">{part}</code> : part)}</p>;
-                  }
-                  if (line.trim()) return <p key={i} className="text-zinc-400">{line}</p>;
-                  return <div key={i} className="h-0.5" />;
-                })}
-              </div>
-            ) : (
-              <pre className="text-[10px] text-zinc-300 whitespace-pre-wrap font-mono leading-relaxed">
-                {fileContent}
-              </pre>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+// FilesTab extracted to ../components/FilesTab.tsx
 
 // ─────────────────────────────────────────────
 // TERMINALS TAB
@@ -6021,176 +4871,7 @@ const TerminalsTab: React.FC<{
   );
 };
 
-// ─────────────────────────────────────────────
-// REQUEST DETAIL MODAL
-// ─────────────────────────────────────────────
-
-const RequestDetailModal: React.FC<{
-  request: Request;
-  onClose: () => void;
-  onStatusChange: (id: string, status: string) => void;
-  projectId?: string;
-}> = ({ request, onClose, onStatusChange, projectId }) => {
-  const [linkProblemId, setLinkProblemId] = useState('');
-  const [allProblems, setAllProblems] = useState<Problem[]>([]);
-
-  useEffect(() => {
-    window.deskflowAPI?.getProblems?.(projectId).then((result: any) => {
-      if (result?.success) setAllProblems(result.data || []);
-    });
-  }, [projectId]);
-
-  const handleLinkProblem = async () => {
-    if (!linkProblemId) return;
-    await window.deskflowAPI?.linkProblemToRequest?.({ requestId: request.id, problemId: linkProblemId, projectId });
-    setLinkProblemId('');
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]">
-      <div className="bg-gray-800 rounded-xl p-5 w-full max-w-md border border-gray-700 max-h-[80vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-white">Request #{request.id}</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">×</button>
-        </div>
-
-        <p className="text-white mb-4">{request.title}</p>
-
-        {request.description && (
-          <div className="mb-4">
-            <div className="text-xs text-gray-400 mb-1">Description</div>
-            <div className="text-sm text-gray-300 bg-gray-900 p-2 rounded">{request.description}</div>
-          </div>
-        )}
-
-        {/* Status Buttons */}
-        <div className="mb-4">
-          <div className="text-xs text-gray-400 mb-2">Status</div>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(REQUEST_STATUS_CONFIG).map(([status, config]) => (
-              <button
-                key={status}
-                onClick={() => onStatusChange(request.id, status)}
-                className={`px-2 py-1 rounded text-xs ${request.status === status ? `${config.color} text-white` : 'bg-gray-700 hover:bg-gray-600'}`}
-              >
-                {config.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Linked Problems */}
-        <div className="mb-4">
-          <div className="text-xs text-gray-400 mb-2">Linked Problems</div>
-          <div className="flex flex-wrap gap-1 mb-2">
-            {request.linked_problems.length === 0 ? (
-              <span className="text-xs text-gray-500">No linked problems</span>
-            ) : request.linked_problems.map(pid => (
-              <span key={pid} className="px-1.5 py-0.5 bg-blue-600/30 text-blue-300 text-[10px] rounded">
-                #{pid}
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <select
-              value={linkProblemId}
-              onChange={(e) => setLinkProblemId(e.target.value)}
-              className="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white"
-            >
-              <option value="">Link a problem...</option>
-              {allProblems
-                .filter(p => !request.linked_problems.includes(p.id))
-                .map(p => (
-                  <option key={p.id} value={p.id}>#{p.id} - {p.title}</option>
-                ))}
-            </select>
-            <button
-              onClick={handleLinkProblem}
-              disabled={!linkProblemId}
-              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white text-xs rounded"
-            >
-              Link
-            </button>
-          </div>
-        </div>
-
-        {/* Meta */}
-        <div className="text-xs text-gray-500 border-t border-gray-700 pt-3 mt-4">
-          <div>Priority: {request.priority}</div>
-          <div>Category: {request.category}</div>
-          <div>Created: {new Date(request.created_at).toLocaleDateString()}</div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─────────────────────────────────────────────
-// NEW REQUEST DIALOG
-// ─────────────────────────────────────────────
-
-const NewRequestDialog: React.FC<{
-  projectId?: string;
-  onClose: () => void;
-  onCreate: () => void;
-}> = ({ projectId, onClose, onCreate }) => {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState('medium');
-
-  const handleSubmit = async () => {
-    if (!title.trim()) return;
-    const result = await window.deskflowAPI?.createRequest?.({ title, description, priority, category: 'Feature', projectId });
-    if (result?.success) onCreate();
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[var(--z-overlay)]">
-      <div className="bg-gray-800 rounded-xl p-5 w-full max-w-md border border-gray-700">
-        <h2 className="text-lg font-bold text-white mb-4">New Request</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Title *</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
-              placeholder="Brief description"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm"
-              rows={3}
-              placeholder="What was requested?"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Priority</label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
-            >
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex gap-2 mt-6">
-          <button onClick={onClose} className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded">Cancel</button>
-          <button onClick={handleSubmit} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded">Create</button>
-        </div>
-      </div>
-    </div>
-  );
-};
+// RequestDetailModal, NewRequestDialog extracted to ../components/RequestsTab.tsx
 
 // ─────────────────────────────────────────────
 // FEATURES DIALOG

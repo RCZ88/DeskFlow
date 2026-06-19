@@ -2,168 +2,44 @@
   "communities": {
     "0": [
       "agent_docs_restoration_plan_py",
-      "agent_docs_ui_redesign_analytics_ai_tools_main_backend_ts",
       "gamedetection_bench_run",
       "main_acquirelock",
-      "main_backend_acquirelock",
-      "main_backend_addgap",
-      "main_backend_addide",
-      "main_backend_addlog",
-      "main_backend_armterminalreadyfallback",
-      "main_backend_backfillstatstables",
-      "main_backend_broadcast",
-      "main_backend_build",
-      "main_backend_buildhourlyheatmap",
-      "main_backend_buildweeklyheatmap",
-      "main_backend_calculatecost",
-      "main_backend_calculateproductivityscore",
-      "main_backend_callopenrouter",
-      "main_backend_categorizeapp",
-      "main_backend_categorizedomain",
-      "main_backend_checkmorningprompt",
-      "main_backend_clearagenttimeout",
-      "main_backend_clearterminalreadyfallback",
-      "main_backend_computebrowserdaterange",
-      "main_backend_computecost",
-      "main_backend_computeelapsed",
-      "main_backend_computeperiodrange",
-      "main_backend_computeroutingcost",
-      "main_backend_computeweekrange",
-      "main_backend_copydirsync",
-      "main_backend_createtray",
-      "main_backend_createwindow",
-      "main_backend_detectactionrequired",
-      "main_backend_detectagentprompt",
-      "main_backend_detecteditsinoutput",
-      "main_backend_detectsleepgap",
-      "main_backend_diagnoseagentfailure",
-      "main_backend_emptytypicaldaygrid",
-      "main_backend_ensurecachedir",
-      "main_backend_execasync",
-      "main_backend_execpromise",
-      "main_backend_execsyncsafe",
-      "main_backend_expandpath",
-      "main_backend_failpendingwrites",
-      "main_backend_findexe",
-      "main_backend_formatdatestr",
-      "main_backend_formatlocaldate",
-      "main_backend_generatesessionname",
-      "main_backend_getagentconfig",
-      "main_backend_getalllocks",
-      "main_backend_getbrowsercategorystats",
-      "main_backend_getbrowserdomainstats",
-      "main_backend_getbrowserlogs",
-      "main_backend_getbrowserprocessnames",
-      "main_backend_getdirdatasignature",
-      "main_backend_getforegroundviapowershell",
-      "main_backend_getlocksforfile",
-      "main_backend_getlogs",
-      "main_backend_getmodelpricing",
-      "main_backend_getmondayofweek",
-      "main_backend_getopenrouterapikey",
-      "main_backend_getsessionagent",
-      "main_backend_getsleepgroupdate",
-      "main_backend_getstats",
-      "main_backend_gettierforcategory",
-      "main_backend_gettiermap",
-      "main_backend_gettodaystr",
-      "main_backend_getweeknumber",
-      "main_backend_getyesterdaystr",
-      "main_backend_handlebrowserdata",
-      "main_backend_haschatssubdir",
-      "main_backend_initializestorage",
-      "main_backend_invalidatetiermapcache",
-      "main_backend_isagentready",
-      "main_backend_isappmatchingbrowser",
-      "main_backend_isbrowserwithextension",
-      "main_backend_iswithinsleephours",
-      "main_backend_loadaisyncstate",
-      "main_backend_loadcategoryconfig",
-      "main_backend_loadsleeppatterns",
-      "main_backend_logroutingcost",
-      "main_backend_lookslikeshell",
-      "main_backend_marktaskcompleted",
-      "main_backend_maybereinjectrules",
-      "main_backend_mtimeof",
-      "main_backend_newestindir",
-      "main_backend_newestrecursive",
-      "main_backend_newestskillmd",
-      "main_backend_parsemessagecontent",
-      "main_backend_parsesessionmetadata",
-      "main_backend_parsesimplefrontmatter",
-      "main_backend_parseterminaloutput",
-      "main_backend_pathexists",
-      "main_backend_planningpath",
-      "main_backend_pollforeground",
-      "main_backend_quickscan",
-      "main_backend_readdir",
-      "main_backend_releasealllocksforterminal",
-      "main_backend_releaselock",
-      "main_backend_resolveperiodbounds",
-      "main_backend_roundduration",
-      "main_backend_roundtoseconds",
-      "main_backend_saveaisyncstate",
-      "main_backend_saveautoassignconfigfile",
-      "main_backend_savecategoryconfig",
-      "main_backend_savejsonlogs",
-      "main_backend_savepreferences",
-      "main_backend_savesavedskillids",
-      "main_backend_savesleeppattern",
-      "main_backend_savesleepstate",
-      "main_backend_scanprojecttools",
-      "main_backend_sendmcprequest",
-      "main_backend_setupactionsfilewatcher",
-      "main_backend_startagenttimeout",
-      "main_backend_startbrowsersessionflushtimer",
-      "main_backend_startbrowsertrackingserver",
-      "main_backend_stopbrowsersessionflushtimer",
-      "main_backend_stripansi",
-      "main_backend_syncallaiagents",
-      "main_backend_toiso",
-      "main_backend_tolocaldate",
-      "main_backend_trackfeatureusage",
-      "main_backend_updateaggregates",
-      "main_backend_updateallaggregates",
-      "main_backend_verifyagent",
-      "main_backend_walkdir",
-      "main_backend_whichone",
-      "main_backend_yieldtoeventloop",
-      "main_backfillstatstables",
-      "main_buildweeklyheatmap",
-      "main_clearagenttimeout",
-      "main_clearterminalreadyfallback",
-      "main_detecteditsinoutput",
-      "main_getlocksforfile",
-      "main_getsessionagent",
-      "main_gettiermap",
-      "main_initializestorage",
-      "main_logroutingcost",
-      "main_maybereinjectrules",
-      "main_releaselock",
-      "main_scanprojecttools",
-      "main_sendmcprequest",
-      "main_startagenttimeout",
-      "main_updateallaggregates",
-      "main_walkdir",
-      "restoration_plan_print_plan",
-      "restoration_plan_rationale_254",
-      "test_gamedetection_bench_ts",
-      "toolregistry_toolregistry_get"
-    ],
-    "1": [
       "main_addgap",
       "main_addide",
       "main_addlog",
       "main_armterminalreadyfallback",
+      "main_backend_acquirelock",
+      "main_backend_backfillstatstables",
+      "main_backend_buildweeklyheatmap",
+      "main_backend_clearagenttimeout",
+      "main_backend_clearterminalreadyfallback",
+      "main_backend_detecteditsinoutput",
+      "main_backend_getlocksforfile",
+      "main_backend_getsessionagent",
+      "main_backend_gettiermap",
+      "main_backend_initializestorage",
+      "main_backend_logroutingcost",
+      "main_backend_marktaskcompleted",
+      "main_backend_maybereinjectrules",
+      "main_backend_releaselock",
+      "main_backend_scanprojecttools",
+      "main_backend_sendmcprequest",
+      "main_backend_startagenttimeout",
+      "main_backend_updateallaggregates",
+      "main_backend_walkdir",
+      "main_backfillstatstables",
       "main_broadcast",
       "main_build",
       "main_buildhourlyheatmap",
+      "main_buildweeklyheatmap",
       "main_calculatecost",
       "main_calculateproductivityscore",
       "main_callopenrouter",
       "main_categorizeapp",
       "main_categorizedomain",
       "main_checkmorningprompt",
+      "main_clearagenttimeout",
+      "main_clearterminalreadyfallback",
       "main_computebrowserdaterange",
       "main_computecost",
       "main_computeelapsed",
@@ -175,6 +51,7 @@
       "main_createwindow",
       "main_detectactionrequired",
       "main_detectagentprompt",
+      "main_detecteditsinoutput",
       "main_detectsleepgap",
       "main_diagnoseagentfailure",
       "main_emptytypicaldaygrid",
@@ -197,18 +74,27 @@
       "main_getbrowserlogs",
       "main_getbrowserprocessnames",
       "main_getdirdatasignature",
+      "main_getlocksforfile",
       "main_getmodelpricing",
       "main_getmondayofweek",
       "main_getopenrouterapikey",
+      "main_getproblemsservice",
+      "main_getprojectpath",
+      "main_getrequestsservice",
+      "main_getsessionagent",
       "main_getsessionidforterminal",
       "main_getsleepgroupdate",
       "main_getstats",
       "main_gettierforcategory",
+      "main_gettiermap",
       "main_gettodaystr",
       "main_getweeknumber",
       "main_getyesterdaystr",
       "main_handlebrowserdata",
+      "main_handlebugownerresponse",
       "main_haschatssubdir",
+      "main_hashpassword",
+      "main_initializestorage",
       "main_invalidatetiermapcache",
       "main_isagentready",
       "main_isappmatchingbrowser",
@@ -217,10 +103,13 @@
       "main_iswithinsleephours",
       "main_loadaisyncstate",
       "main_loadcategoryconfig",
+      "main_loadfinancesettings",
       "main_loadsleeppatterns",
       "main_loadwindowstate",
+      "main_logroutingcost",
       "main_lookslikeshell",
       "main_marktaskcompleted",
+      "main_maybereinjectrules",
       "main_mtimeof",
       "main_newestindir",
       "main_newestrecursive",
@@ -238,6 +127,7 @@
       "main_readtextfilesafe",
       "main_recordprompt",
       "main_releasealllocksforterminal",
+      "main_releaselock",
       "main_resolveperiodbounds",
       "main_roundduration",
       "main_roundtoseconds",
@@ -250,7 +140,10 @@
       "main_savesleeppattern",
       "main_savesleepstate",
       "main_savewindowstate",
+      "main_scanprojecttools",
+      "main_sendmcprequest",
       "main_setupactionsfilewatcher",
+      "main_startagenttimeout",
       "main_startbrowsersessionflushtimer",
       "main_startbrowsertrackingserver",
       "main_stopbrowsersessionflushtimer",
@@ -261,102 +154,129 @@
       "main_tolocaldate",
       "main_trackfeatureusage",
       "main_updateaggregates",
+      "main_updateallaggregates",
       "main_verifyagent",
+      "main_verifypassword",
+      "main_walkdir",
       "main_whichone",
       "main_withdb",
       "main_yieldtoeventloop",
       "ragservice_ragservice_close",
+      "restoration_plan_print_plan",
+      "restoration_plan_rationale_254",
       "settingspage_fetchdomainstats",
-      "src_main_ts"
+      "src_main_ts",
+      "test_gamedetection_bench_ts",
+      "toolregistry_toolregistry_get"
+    ],
+    "1": [
+      "agent_docs_ui_redesign_analytics_ai_tools_main_backend_ts",
+      "main_backend_addgap",
+      "main_backend_addide",
+      "main_backend_addlog",
+      "main_backend_armterminalreadyfallback",
+      "main_backend_broadcast",
+      "main_backend_build",
+      "main_backend_buildhourlyheatmap",
+      "main_backend_calculatecost",
+      "main_backend_calculateproductivityscore",
+      "main_backend_callopenrouter",
+      "main_backend_categorizeapp",
+      "main_backend_categorizedomain",
+      "main_backend_checkmorningprompt",
+      "main_backend_computebrowserdaterange",
+      "main_backend_computecost",
+      "main_backend_computeelapsed",
+      "main_backend_computeperiodrange",
+      "main_backend_computeroutingcost",
+      "main_backend_computeweekrange",
+      "main_backend_copydirsync",
+      "main_backend_createtray",
+      "main_backend_createwindow",
+      "main_backend_detectactionrequired",
+      "main_backend_detectagentprompt",
+      "main_backend_detectsleepgap",
+      "main_backend_diagnoseagentfailure",
+      "main_backend_emptytypicaldaygrid",
+      "main_backend_ensurecachedir",
+      "main_backend_execasync",
+      "main_backend_execpromise",
+      "main_backend_execsyncsafe",
+      "main_backend_expandpath",
+      "main_backend_failpendingwrites",
+      "main_backend_findexe",
+      "main_backend_formatdatestr",
+      "main_backend_formatlocaldate",
+      "main_backend_generatesessionname",
+      "main_backend_getagentconfig",
+      "main_backend_getalllocks",
+      "main_backend_getbrowsercategorystats",
+      "main_backend_getbrowserdomainstats",
+      "main_backend_getbrowserlogs",
+      "main_backend_getbrowserprocessnames",
+      "main_backend_getdirdatasignature",
+      "main_backend_getforegroundviapowershell",
+      "main_backend_getlogs",
+      "main_backend_getmodelpricing",
+      "main_backend_getmondayofweek",
+      "main_backend_getopenrouterapikey",
+      "main_backend_getsleepgroupdate",
+      "main_backend_getstats",
+      "main_backend_gettierforcategory",
+      "main_backend_gettodaystr",
+      "main_backend_getweeknumber",
+      "main_backend_getyesterdaystr",
+      "main_backend_handlebrowserdata",
+      "main_backend_haschatssubdir",
+      "main_backend_invalidatetiermapcache",
+      "main_backend_isagentready",
+      "main_backend_isappmatchingbrowser",
+      "main_backend_isbrowserwithextension",
+      "main_backend_iswithinsleephours",
+      "main_backend_loadaisyncstate",
+      "main_backend_loadcategoryconfig",
+      "main_backend_loadsleeppatterns",
+      "main_backend_lookslikeshell",
+      "main_backend_mtimeof",
+      "main_backend_newestindir",
+      "main_backend_newestrecursive",
+      "main_backend_newestskillmd",
+      "main_backend_parsemessagecontent",
+      "main_backend_parsesessionmetadata",
+      "main_backend_parsesimplefrontmatter",
+      "main_backend_parseterminaloutput",
+      "main_backend_pathexists",
+      "main_backend_planningpath",
+      "main_backend_pollforeground",
+      "main_backend_quickscan",
+      "main_backend_readdir",
+      "main_backend_releasealllocksforterminal",
+      "main_backend_resolveperiodbounds",
+      "main_backend_roundduration",
+      "main_backend_roundtoseconds",
+      "main_backend_saveaisyncstate",
+      "main_backend_saveautoassignconfigfile",
+      "main_backend_savecategoryconfig",
+      "main_backend_savejsonlogs",
+      "main_backend_savepreferences",
+      "main_backend_savesavedskillids",
+      "main_backend_savesleeppattern",
+      "main_backend_savesleepstate",
+      "main_backend_setupactionsfilewatcher",
+      "main_backend_startbrowsersessionflushtimer",
+      "main_backend_startbrowsertrackingserver",
+      "main_backend_stopbrowsersessionflushtimer",
+      "main_backend_stripansi",
+      "main_backend_syncallaiagents",
+      "main_backend_toiso",
+      "main_backend_tolocaldate",
+      "main_backend_trackfeatureusage",
+      "main_backend_updateaggregates",
+      "main_backend_verifyagent",
+      "main_backend_whichone",
+      "main_backend_yieldtoeventloop"
     ],
     "2": [
-      "agent_backups_terminalpage_2026_06_05_010713_tsx",
-      "generalistdialog_hasconfig",
-      "generalistdialog_loadskills",
-      "src_components_generalistdialog_tsx",
-      "src_pages_terminalpage_tsx",
-      "terminalpage_2026_06_05_010713_addleaftogroup",
-      "terminalpage_2026_06_05_010713_async",
-      "terminalpage_2026_06_05_010713_categorybadge",
-      "terminalpage_2026_06_05_010713_check",
-      "terminalpage_2026_06_05_010713_collectleafids",
-      "terminalpage_2026_06_05_010713_extractgroups",
-      "terminalpage_2026_06_05_010713_featuresdialog",
-      "terminalpage_2026_06_05_010713_findleafintree",
-      "terminalpage_2026_06_05_010713_generateterminalid",
-      "terminalpage_2026_06_05_010713_handleclosepane",
-      "terminalpage_2026_06_05_010713_handlecloseworkspacedialog",
-      "terminalpage_2026_06_05_010713_handlecreate",
-      "terminalpage_2026_06_05_010713_handlecreateterminal",
-      "terminalpage_2026_06_05_010713_handlecreateterminalforproblem",
-      "terminalpage_2026_06_05_010713_handledelete",
-      "terminalpage_2026_06_05_010713_handlefocusterminal",
-      "terminalpage_2026_06_05_010713_handlegrouplayoutchange",
-      "terminalpage_2026_06_05_010713_handlelinkproblem",
-      "terminalpage_2026_06_05_010713_handleopennewagent",
-      "terminalpage_2026_06_05_010713_handleopennewsessionforterminal",
-      "terminalpage_2026_06_05_010713_handlestatuschange",
-      "terminalpage_2026_06_05_010713_handlesubmit",
-      "terminalpage_2026_06_05_010713_handleswitchsidebartab",
-      "terminalpage_2026_06_05_010713_handletriggerprovision",
-      "terminalpage_2026_06_05_010713_handleupdate",
-      "terminalpage_2026_06_05_010713_handleuse",
-      "terminalpage_2026_06_05_010713_if",
-      "terminalpage_2026_06_05_010713_logonce",
-      "terminalpage_2026_06_05_010713_openeditor",
-      "terminalpage_2026_06_05_010713_removeleaffromtree",
-      "terminalpage_2026_06_05_010713_sessionintab",
-      "terminalpage_2026_06_05_010713_shownotify",
-      "terminalpage_2026_06_05_010713_statusdot",
-      "terminalpage_2026_06_05_010713_togglepanedirection",
-      "terminalpage_addleaftogroup",
-      "terminalpage_async",
-      "terminalpage_categorybadge",
-      "terminalpage_check",
-      "terminalpage_collectleafids",
-      "terminalpage_extractgroups",
-      "terminalpage_featuresdialog",
-      "terminalpage_findleafintree",
-      "terminalpage_generateterminalid",
-      "terminalpage_handleaddtoproject",
-      "terminalpage_handleclosepane",
-      "terminalpage_handlecloseworkspacedialog",
-      "terminalpage_handlecreate",
-      "terminalpage_handlecreateterminal",
-      "terminalpage_handlecreateterminalforproblem",
-      "terminalpage_handledelete",
-      "terminalpage_handlefocusterminal",
-      "terminalpage_handlegrouplayoutchange",
-      "terminalpage_handlelinkproblem",
-      "terminalpage_handleopennewagent",
-      "terminalpage_handleopennewsessionforterminal",
-      "terminalpage_handlerespawn",
-      "terminalpage_handlesave",
-      "terminalpage_handleseedworkspace",
-      "terminalpage_handlestatuschange",
-      "terminalpage_handlesubmit",
-      "terminalpage_handleswitchsidebartab",
-      "terminalpage_handleterminalcrashed",
-      "terminalpage_handletriggerprovision",
-      "terminalpage_handleunsave",
-      "terminalpage_handleupdate",
-      "terminalpage_handleuse",
-      "terminalpage_if",
-      "terminalpage_logonce",
-      "terminalpage_modal",
-      "terminalpage_openeditor",
-      "terminalpage_pill",
-      "terminalpage_removeleaffromtree",
-      "terminalpage_sectioncard",
-      "terminalpage_sessionintab",
-      "terminalpage_shownotify",
-      "terminalpage_statusdot",
-      "terminalpage_tabpanel",
-      "terminalpage_toggle",
-      "terminalpage_togglepanedirection",
-      "terminalpage_wsemptystate"
-    ],
-    "3": [
       "app_checksleepdetect",
       "app_cleancorrupteddata",
       "app_cleardata",
@@ -438,69 +358,9 @@
       "terminalpage_2026_06_05_010713_refresh",
       "terminalpage_refresh"
     ],
-    "4": [
-      "agent_ai_cli_js",
-      "agent_docs_ui_redesign_analytics_ai_tools_aiservice_ts",
-      "ai_cli_main",
-      "ai_cli_parseargs",
-      "ai_cli_readactions",
-      "ai_cli_writeactions",
-      "aichat_determinemode",
-      "aichat_executegoalaction",
-      "aichat_findgoalbytitle",
-      "aichat_formatgeneralresponse",
-      "aichat_formatgoalcreated",
-      "aichat_formatgoaldeleted",
-      "aichat_formatgoallist",
-      "aichat_formatgoaltoggled",
-      "aichat_getdaylabel",
-      "aichat_loadthread",
-      "aichat_nextid",
-      "aichat_savethread",
-      "aiservice_aiservice",
-      "aiservice_aiservice_generatetopicdigest",
-      "aiservice_callopenrouter",
-      "aiservice_cleanaijson",
-      "aiservice_parseaijson",
-      "colorpicker_applyscheme",
-      "colorpicker_handleadd",
-      "colorpicker_handleimport",
-      "colorpicker_handlekeydown",
-      "colorpicker_handleremove",
-      "colorpicker_isvalidhex",
-      "dist_electron_services_aiservice_js",
-      "main_backend_extractjsonfromresponse",
-      "main_backend_getsavedskillids",
-      "main_backend_handlemcpstdout",
-      "main_backend_loadautoassignconfig",
-      "main_backend_loadpreferences",
-      "main_backend_loadsleepstate",
-      "main_extractjsonfromresponse",
-      "main_getsavedskillids",
-      "main_handlemcpstdout",
-      "main_loadautoassignconfig",
-      "main_loadpreferences",
-      "main_loadsleepstate",
-      "newsdetection_acknowledge",
-      "newsdetection_detectnews",
-      "newsdetection_isacknowledged",
-      "problemsparser_problemsparser_parse",
-      "src_components_aichat_aichat_tsx",
-      "src_components_workspace_colorpicker_tsx",
-      "src_components_workspacesettingsdialog_tsx",
-      "src_hooks_usetutorial_ts",
-      "src_pages_tutorialpage_tsx",
-      "src_services_aiservice_ts",
-      "src_services_newsdetection_ts",
-      "tutorialpage_loadprogress",
-      "tutorialpage_saveprogress",
-      "usetutorial_loadcompleted",
-      "usetutorial_savecompleted",
-      "usetutorial_usetutorial",
-      "workspacesettingsdialog_deepmerge"
-    ],
-    "5": [
+    "3": [
       "checkfeedbackcontrols_sendfeedback",
+      "dist_electron_services_problemssyncservice_js",
       "dist_electron_services_requestsservice_js",
       "issuesworkspace_formatrelative",
       "issuesworkspace_handlelink",
@@ -520,9 +380,6 @@
       "main_backend_logactivity",
       "main_backend_parseandexecuteactions",
       "main_executeactionsfromfile",
-      "main_getproblemsservice",
-      "main_getprojectpath",
-      "main_getrequestsservice",
       "main_logactivity",
       "main_parseandexecuteactions",
       "problemssyncservice_problemssyncservice",
@@ -531,6 +388,11 @@
       "problemssyncservice_problemssyncservice_syncfrommarkdown",
       "problemssyncservice_problemssyncservice_synctomarkdown",
       "problemssyncservice_problemssyncservice_updateproblem",
+      "problemstab_check",
+      "problemstab_formatdate",
+      "problemstab_handlecreateproblem",
+      "problemstab_handlesendinstructions",
+      "problemstab_handlestatuschange",
       "requestsservice_requestsservice",
       "requestsservice_requestsservice_addcheck",
       "requestsservice_requestsservice_addcheckfeedback",
@@ -550,14 +412,17 @@
       "requestsservice_requestsservice_updatestatus",
       "requestsservice_requestsservice_writejson",
       "requestsservice_requestsservice_writemarkdown",
+      "requeststab_handlelinkproblem",
+      "requeststab_handlestatuschange",
+      "requeststab_handlesubmit",
       "src_components_checkfeedbackcontrols_tsx",
       "src_components_issuesworkspace_tsx",
+      "src_components_problemstab_tsx",
+      "src_components_requeststab_tsx",
       "src_services_problemssyncservice_ts",
-      "src_services_requestsservice_ts",
-      "terminalpage_2026_06_05_010713_handlecreateproblem",
-      "terminalpage_handlecreateproblem"
+      "src_services_requestsservice_ts"
     ],
-    "6": [
+    "4": [
       "compactionservice_compactionservice",
       "compactionservice_compactionservice_compact",
       "compactionservice_compactionservice_constructor",
@@ -577,6 +442,10 @@
       "contextassemblyservice_contextassemblyservice_formatcontextforprompt",
       "contextassemblyservice_contextassemblyservice_getassemblystats",
       "contextassemblyservice_createcontextassemblyservice",
+      "dist_electron_services_compactionservice_js",
+      "dist_electron_services_contextassemblyservice_js",
+      "dist_electron_services_projectcontextservice_js",
+      "dist_electron_services_ragservice_js",
       "projectcontextservice_createprojectcontextservice",
       "projectcontextservice_projectcontextservice",
       "projectcontextservice_projectcontextservice_addcompaction",
@@ -615,7 +484,265 @@
       "src_services_projectcontextservice_ts",
       "src_services_ragservice_ts"
     ],
+    "5": [
+      "agent_ai_cli_js",
+      "ai_cli_main",
+      "ai_cli_parseargs",
+      "ai_cli_readactions",
+      "ai_cli_writeactions",
+      "aichat_getdaylabel",
+      "aichat_loadthread",
+      "aichat_nextid",
+      "aichat_savethread",
+      "colorpicker_applyscheme",
+      "colorpicker_handleadd",
+      "colorpicker_handleimport",
+      "colorpicker_handlekeydown",
+      "colorpicker_handleremove",
+      "colorpicker_isvalidhex",
+      "contextmaintenancetab_async",
+      "contextmaintenancetab_handleconfigsave",
+      "contextmaintenancetab_handlerefresh",
+      "contextmaintenancetab_handletogglecontext",
+      "contextmaintenancetab_if",
+      "contextmaintenancetab_loadcontextdata",
+      "contextmaintenancetab_loadcontexts",
+      "contextmaintenancetab_loadrecentmessages",
+      "contextmaintenancetab_renderheader",
+      "dist_electron_services_newsdetection_js",
+      "main_backend_extractjsonfromresponse",
+      "main_backend_getsavedskillids",
+      "main_backend_handlemcpstdout",
+      "main_backend_loadautoassignconfig",
+      "main_backend_loadpreferences",
+      "main_backend_loadsleepstate",
+      "main_extractjsonfromresponse",
+      "main_getsavedskillids",
+      "main_handlemcpstdout",
+      "main_loadautoassignconfig",
+      "main_loadpreferences",
+      "main_loadsleepstate",
+      "newsdetection_acknowledge",
+      "newsdetection_detectnews",
+      "newsdetection_isacknowledged",
+      "problemsparser_problemsparser_parse",
+      "src_components_aichat_aichat_tsx",
+      "src_components_contextmaintenancetab_tsx",
+      "src_components_workspace_colorpicker_tsx",
+      "src_components_workspacesettingsdialog_tsx",
+      "src_contexts_tutorialcontext_tsx",
+      "src_hooks_usetutorial_ts",
+      "src_pages_tutorialpage_tsx",
+      "src_services_newsdetection_ts",
+      "tutorialcontext_loadcompleted",
+      "tutorialcontext_savecompleted",
+      "tutorialcontext_tutorialprovider",
+      "tutorialcontext_usetutorialcontext",
+      "tutorialpage_loadprogress",
+      "tutorialpage_saveprogress",
+      "usetutorial_loadcompleted",
+      "usetutorial_savecompleted",
+      "usetutorial_usetutorial",
+      "workspacesettingsdialog_deepmerge"
+    ],
+    "6": [
+      "accountstab_fmtcurrency",
+      "accountstab_formatconverted",
+      "accountstab_handlesave",
+      "accountstab_handleswipearchive",
+      "animatedamount_animatedamount",
+      "backup_before_finance_revamp_finance_accountstab_tsx",
+      "backup_before_finance_revamp_finance_categoriestab_tsx",
+      "backup_before_finance_revamp_finance_currency_data_ts",
+      "backup_before_finance_revamp_finance_overviewtab_tsx",
+      "backup_before_finance_revamp_finance_transactionstab_tsx",
+      "categoriestab_closecolorpicker",
+      "categoriestab_fc",
+      "categoriestab_handlesave",
+      "categoriestab_opencolorpicker",
+      "categoriestab_selectcolor",
+      "currency_data_convertamount",
+      "currency_data_formatcurrency",
+      "currency_data_getcurrencyinfo",
+      "financestickyheader_financestickyheader",
+      "incomeexpensebarchart_formatvalue",
+      "incomeexpensecard_incomeexpensecard",
+      "masknumber_masknumber",
+      "networthcard_networthcard",
+      "networthlinechart_formatvalue",
+      "numbermaskcontext_numbermaskprovider",
+      "numbermaskcontext_usenumbermask",
+      "overviewtab_fc",
+      "overviewtab_fcc",
+      "overviewtab_fmtmoney",
+      "overviewtab_handlequickadd",
+      "overviewtab_sparkline",
+      "src_components_finance_accountstab_tsx",
+      "src_components_finance_categoriestab_tsx",
+      "src_components_finance_currency_data_ts",
+      "src_components_finance_financestickyheader_tsx",
+      "src_components_finance_fx_animatedamount_tsx",
+      "src_components_finance_fx_usecountup_ts",
+      "src_components_finance_incomeexpensebarchart_tsx",
+      "src_components_finance_incomeexpensecard_tsx",
+      "src_components_finance_networthcard_tsx",
+      "src_components_finance_networthlinechart_tsx",
+      "src_components_finance_overviewtab_tsx",
+      "src_components_finance_transactionstab_tsx",
+      "src_context_numbermaskcontext_tsx",
+      "src_utils_masknumber_ts",
+      "transactionstab_fc",
+      "transactionstab_formatdatelabel",
+      "transactionstab_getaccount",
+      "transactionstab_getcategory",
+      "transactionstab_groupbydate",
+      "transactionstab_handledelete",
+      "transactionstab_handlepassworddelete",
+      "usecountup_usecountup"
+    ],
     "7": [
+      "agent_backups_terminalpage_2026_06_05_010713_tsx",
+      "generalistdialog_hasconfig",
+      "generalistdialog_loadskills",
+      "skillstab_async",
+      "skillstab_handleaddtoproject",
+      "skillstab_handlecreate",
+      "skillstab_handledelete",
+      "skillstab_handlesave",
+      "skillstab_handleseedworkspace",
+      "skillstab_handleunsave",
+      "skillstab_handleupdate",
+      "skillstab_handleuse",
+      "skillstab_openeditor",
+      "skillstab_shownotify",
+      "src_components_generalistdialog_tsx",
+      "src_components_skillstab_tsx",
+      "terminalpage_2026_06_05_010713_addleaftogroup",
+      "terminalpage_2026_06_05_010713_async",
+      "terminalpage_2026_06_05_010713_categorybadge",
+      "terminalpage_2026_06_05_010713_check",
+      "terminalpage_2026_06_05_010713_collectleafids",
+      "terminalpage_2026_06_05_010713_extractgroups",
+      "terminalpage_2026_06_05_010713_featuresdialog",
+      "terminalpage_2026_06_05_010713_findleafintree",
+      "terminalpage_2026_06_05_010713_generateterminalid",
+      "terminalpage_2026_06_05_010713_handleclosepane",
+      "terminalpage_2026_06_05_010713_handlecloseworkspacedialog",
+      "terminalpage_2026_06_05_010713_handlecreate",
+      "terminalpage_2026_06_05_010713_handlecreateproblem",
+      "terminalpage_2026_06_05_010713_handlecreateterminal",
+      "terminalpage_2026_06_05_010713_handlecreateterminalforproblem",
+      "terminalpage_2026_06_05_010713_handledelete",
+      "terminalpage_2026_06_05_010713_handlefocusterminal",
+      "terminalpage_2026_06_05_010713_handlegrouplayoutchange",
+      "terminalpage_2026_06_05_010713_handlelinkproblem",
+      "terminalpage_2026_06_05_010713_handleopennewagent",
+      "terminalpage_2026_06_05_010713_handleopennewsessionforterminal",
+      "terminalpage_2026_06_05_010713_handlestatuschange",
+      "terminalpage_2026_06_05_010713_handlesubmit",
+      "terminalpage_2026_06_05_010713_handleswitchsidebartab",
+      "terminalpage_2026_06_05_010713_handletriggerprovision",
+      "terminalpage_2026_06_05_010713_handleupdate",
+      "terminalpage_2026_06_05_010713_handleuse",
+      "terminalpage_2026_06_05_010713_if",
+      "terminalpage_2026_06_05_010713_logonce",
+      "terminalpage_2026_06_05_010713_openeditor",
+      "terminalpage_2026_06_05_010713_removeleaffromtree",
+      "terminalpage_2026_06_05_010713_sessionintab",
+      "terminalpage_2026_06_05_010713_shownotify",
+      "terminalpage_2026_06_05_010713_statusdot",
+      "terminalpage_2026_06_05_010713_togglepanedirection"
+    ],
+    "8": [
+      "aiagentservice_aiagentservice",
+      "aiagentservice_aiagentservice_callllm",
+      "aiagentservice_aiagentservice_clearprogresscallback",
+      "aiagentservice_aiagentservice_converttoprovidermessages",
+      "aiagentservice_aiagentservice_getconfig",
+      "aiagentservice_aiagentservice_getconversationhistory",
+      "aiagentservice_aiagentservice_getpendingconfirm",
+      "aiagentservice_aiagentservice_getsystemprompt",
+      "aiagentservice_aiagentservice_gettemplate",
+      "aiagentservice_aiagentservice_haspendingconfirm",
+      "aiagentservice_aiagentservice_processmessage",
+      "aiagentservice_aiagentservice_requestconfirm",
+      "aiagentservice_aiagentservice_resetconversation",
+      "aiagentservice_aiagentservice_resolveconfirm",
+      "aiagentservice_aiagentservice_setprogresscallback",
+      "aiagentservice_aiagentservice_updateconfig",
+      "dist_electron_services_ai_aiagentservice_js",
+      "dist_electron_services_ai_securityguard_js",
+      "dist_electron_services_ai_toolregistry_js",
+      "securityguard_securityguard",
+      "securityguard_securityguard_audited",
+      "securityguard_securityguard_checkratelimit",
+      "securityguard_securityguard_getauditlog",
+      "securityguard_securityguard_getconfig",
+      "securityguard_securityguard_getstats",
+      "securityguard_securityguard_islevelallowed",
+      "securityguard_securityguard_requiresconfirm",
+      "securityguard_securityguard_sanitizeparams",
+      "securityguard_securityguard_updateconfig",
+      "securityguard_securityguard_validateparams",
+      "src_services_ai_aiagentservice_ts",
+      "src_services_ai_securityguard_ts",
+      "src_services_ai_toolregistry_ts",
+      "toolregistry_p",
+      "toolregistry_registerall",
+      "toolregistry_toolregistry",
+      "toolregistry_toolregistry_execute",
+      "toolregistry_toolregistry_getall",
+      "toolregistry_toolregistry_getbycategory",
+      "toolregistry_toolregistry_getopenaispecs",
+      "toolregistry_toolregistry_register",
+      "toolregistry_toolregistry_toopenaiprops",
+      "toolregistry_wrap"
+    ],
+    "9": [
+      "orbitsystem_adjustcolor",
+      "orbitsystem_animatecamera",
+      "orbitsystem_calculateangularspeed",
+      "orbitsystem_calculateorbitalperiod",
+      "orbitsystem_calculateorbitradius",
+      "orbitsystem_computeeccentricity",
+      "orbitsystem_computeinclination",
+      "orbitsystem_computeplanets",
+      "orbitsystem_createseededrandom",
+      "orbitsystem_focusonplanet",
+      "orbitsystem_for",
+      "orbitsystem_fpscounter",
+      "orbitsystem_fpslinegraph",
+      "orbitsystem_galaxydustcloud",
+      "orbitsystem_getcategorycolor",
+      "orbitsystem_getdistinctcolor",
+      "orbitsystem_getplanetcolor",
+      "orbitsystem_getsystemposition",
+      "orbitsystem_glcleanup",
+      "orbitsystem_handlecategoryselect",
+      "orbitsystem_handleclosesystem",
+      "orbitsystem_handleentersystem",
+      "orbitsystem_handleinteractionend",
+      "orbitsystem_handleinteractionstart",
+      "orbitsystem_handleplanetclick",
+      "orbitsystem_handleplanetpointerdown",
+      "orbitsystem_handleplanetpointerup",
+      "orbitsystem_handleplanetpositionupdate",
+      "orbitsystem_handlerefreshtextures",
+      "orbitsystem_handleselectsystem",
+      "orbitsystem_handlezoomout",
+      "orbitsystem_hashstring",
+      "orbitsystem_hextorgb",
+      "orbitsystem_resetcameratogalaxy",
+      "orbitsystem_seededrandom",
+      "orbitsystem_setstoredanimationspeed",
+      "orbitsystem_switchtogalaxy",
+      "src_components_aichat_typewritertext_tsx",
+      "src_components_orbitsystem_tsx",
+      "typewritertext_animate",
+      "typewritertext_estimatechars",
+      "typewritertext_extracttextblocks"
+    ],
+    "10": [
       "agent_docs_ui_redesign_analytics_ai_tools_ideprojectspage_tsx",
       "ideprojectspage_async",
       "ideprojectspage_calculateavailability",
@@ -651,43 +778,42 @@
       "ideprojectspage_toggleprojectexpand",
       "src_pages_ideprojectspage_tsx"
     ],
-    "8": [
-      "orbitsystem_adjustcolor",
-      "orbitsystem_animatecamera",
-      "orbitsystem_calculateangularspeed",
-      "orbitsystem_calculateorbitalperiod",
-      "orbitsystem_calculateorbitradiuslogarithmic",
-      "orbitsystem_computeplanets",
-      "orbitsystem_createseededrandom",
-      "orbitsystem_focusonplanet",
-      "orbitsystem_for",
-      "orbitsystem_fpscounter",
-      "orbitsystem_fpslinegraph",
-      "orbitsystem_galaxydustcloud",
-      "orbitsystem_getcategorycolor",
-      "orbitsystem_getdistinctcolor",
-      "orbitsystem_getplanetcolorbyorbit",
-      "orbitsystem_glcleanup",
-      "orbitsystem_handlecategoryselect",
-      "orbitsystem_handleclosesystem",
-      "orbitsystem_handleentersystem",
-      "orbitsystem_handleinteractionend",
-      "orbitsystem_handleinteractionstart",
-      "orbitsystem_handleplanetclick",
-      "orbitsystem_handleplanetpositionupdate",
-      "orbitsystem_handlerefreshtextures",
-      "orbitsystem_handleselectsystem",
-      "orbitsystem_handlezoomout",
-      "orbitsystem_hashstring",
-      "orbitsystem_hextorgb",
-      "orbitsystem_lerpcolor",
-      "orbitsystem_resetcameratogalaxy",
-      "orbitsystem_seededrandom",
-      "orbitsystem_setstoredanimationspeed",
-      "orbitsystem_switchtogalaxy",
-      "src_components_orbitsystem_tsx"
+    "11": [
+      "src_pages_terminalpage_tsx",
+      "terminalpage_addleaftogroup",
+      "terminalpage_async",
+      "terminalpage_categorybadge",
+      "terminalpage_collectleafids",
+      "terminalpage_extractgroups",
+      "terminalpage_findleafintree",
+      "terminalpage_formatdate",
+      "terminalpage_generateterminalid",
+      "terminalpage_grouppanel",
+      "terminalpage_handleclosepane",
+      "terminalpage_handlecloseworkspacedialog",
+      "terminalpage_handlecreateterminal",
+      "terminalpage_handlecreateterminalforproblem",
+      "terminalpage_handlefocusterminal",
+      "terminalpage_handlegrouplayoutchange",
+      "terminalpage_handleopennewagent",
+      "terminalpage_handleopennewsessionforterminal",
+      "terminalpage_handlerespawn",
+      "terminalpage_handleswitchsidebartab",
+      "terminalpage_handleterminalcrashed",
+      "terminalpage_handletriggerprovision",
+      "terminalpage_if",
+      "terminalpage_logonce",
+      "terminalpage_modal",
+      "terminalpage_pill",
+      "terminalpage_removeleaffromtree",
+      "terminalpage_sectioncard",
+      "terminalpage_sessionintab",
+      "terminalpage_statusdot",
+      "terminalpage_tabpanel",
+      "terminalpage_toggle",
+      "terminalpage_togglepanedirection"
     ],
-    "9": [
+    "12": [
       "agent_docs_externalpage_insights_ideas_27042026_externalpage_tsx",
       "externalpage_async",
       "externalpage_calculatesleepduration",
@@ -716,7 +842,7 @@
       "statspage_statspage",
       "statspage_tolocal"
     ],
-    "10": [
+    "13": [
       "dist_electron_services_problemsservice_js",
       "main_backend_runinitall",
       "main_runinitall",
@@ -744,7 +870,7 @@
       "problemsservice_problemsservice_writemarkdown",
       "src_services_problemsservice_ts"
     ],
-    "11": [
+    "14": [
       "agenthostservice_agenthostservice",
       "agenthostservice_agenthostservice_checkforattention",
       "agenthostservice_agenthostservice_cleanupterminal",
@@ -771,7 +897,8 @@
       "terminalpage_2026_06_05_010713_handleterminalcreated",
       "terminalpage_handleterminalcreated"
     ],
-    "12": [
+    "15": [
+      "dist_electron_services_workspaceregistry_js",
       "src_services_workspaceregistry_ts",
       "workspaceregistry_workspaceregistryservice",
       "workspaceregistry_workspaceregistryservice_addplugin",
@@ -797,55 +924,35 @@
       "workspaceregistry_workspaceregistryservice_unregister",
       "workspaceregistry_workspaceregistryservice_unregistercomposecontext"
     ],
-    "13": [
-      "securityguard_securityguard",
-      "securityguard_securityguard_audited",
-      "securityguard_securityguard_checkratelimit",
-      "securityguard_securityguard_getauditlog",
-      "securityguard_securityguard_getconfig",
-      "securityguard_securityguard_getstats",
-      "securityguard_securityguard_islevelallowed",
-      "securityguard_securityguard_requiresconfirm",
-      "securityguard_securityguard_sanitizeparams",
-      "securityguard_securityguard_updateconfig",
-      "securityguard_securityguard_validateparams",
-      "src_services_ai_securityguard_ts",
-      "src_services_ai_toolregistry_ts",
-      "toolregistry_p",
-      "toolregistry_registerall",
-      "toolregistry_toolregistry",
-      "toolregistry_toolregistry_execute",
-      "toolregistry_toolregistry_getall",
-      "toolregistry_toolregistry_getbycategory",
-      "toolregistry_toolregistry_getopenaispecs",
-      "toolregistry_toolregistry_register",
-      "toolregistry_toolregistry_toopenaiprops",
-      "toolregistry_wrap"
+    "16": [
+      "backup_before_finance_revamp_financepage_tsx",
+      "financepage_async",
+      "financepage_checkpageaccess",
+      "financepage_checkpasswordrequirement",
+      "financepage_checksetup",
+      "financepage_handleaddtransaction",
+      "financepage_handlearchivewallet",
+      "financepage_handlebiometricunlock",
+      "financepage_handlecreateaccount",
+      "financepage_handlecreatecategory",
+      "financepage_handlecreatewallet",
+      "financepage_handledeleteaccount",
+      "financepage_handledeletetransaction",
+      "financepage_handledeletewallet",
+      "financepage_handlelock",
+      "financepage_handlesetlocktimeout",
+      "financepage_handlesetrememberdevice",
+      "financepage_handlesetup",
+      "financepage_handleunarchiveaccount",
+      "financepage_handleunarchivewallet",
+      "financepage_handleunlock",
+      "financepage_handleupdatewallet",
+      "financepage_handleviewarchived",
+      "src_pages_financepage_tsx"
     ],
-    "14": [
-      "agent_docs_frontend_design_skills_25052026_ui_ux_workspace_infrastructure_src_contextservice_ts",
-      "contextservice_assemblecontext",
-      "contextservice_buildautomationscontext",
-      "contextservice_builddeepmemorycontext",
-      "contextservice_builddesignskillscontext",
-      "contextservice_buildgraphifycontext",
-      "contextservice_buildllmwikicontext",
-      "contextservice_buildparacontext",
-      "contextservice_buildqmdcontext",
-      "contextservice_buildskillindex",
-      "contextservice_condensestatemd",
-      "contextservice_estimatetokens",
-      "contextservice_getsysteminfo",
-      "contextservice_listdir",
-      "contextservice_parseskillfrontmatter",
-      "contextservice_readfile",
-      "contextservice_readfileuncapped",
-      "contextservice_readrulescompact",
-      "contextservice_truncatetotokens",
-      "src_services_contextservice_ts"
-    ],
-    "15": [
+    "17": [
       "agent_skills_maintain_context_graphify_maintain_py",
+      "dist_electron_services_problemsparser_js",
       "graphify_maintain_ensure_para_structure",
       "graphify_maintain_parse_problems",
       "graphify_maintain_rationale_120",
@@ -866,7 +973,30 @@
       "problemsparser_problemsparser_parseissueblock",
       "src_services_problemsparser_ts"
     ],
-    "16": [
+    "18": [
+      "agent_docs_frontend_design_skills_25052026_ui_ux_workspace_infrastructure_src_contextservice_ts",
+      "contextservice_assemblecontext",
+      "contextservice_buildautomationscontext",
+      "contextservice_builddeepmemorycontext",
+      "contextservice_builddesignskillscontext",
+      "contextservice_buildgraphifycontext",
+      "contextservice_buildllmwikicontext",
+      "contextservice_buildparacontext",
+      "contextservice_buildqmdcontext",
+      "contextservice_buildskillindex",
+      "contextservice_condensestatemd",
+      "contextservice_estimatetokens",
+      "contextservice_getsysteminfo",
+      "contextservice_listdir",
+      "contextservice_parseskillfrontmatter",
+      "contextservice_readfile",
+      "contextservice_readfileuncapped",
+      "contextservice_readrulescompact",
+      "contextservice_truncatetotokens",
+      "dist_electron_services_contextservice_js",
+      "src_services_contextservice_ts"
+    ],
+    "19": [
       "dist_electron_services_skilldslparser_js",
       "dist_electron_services_skillsservice_js",
       "skilldslparser_coercevalue",
@@ -887,7 +1017,7 @@
       "src_services_skilldslparser_ts",
       "src_services_skillsservice_ts"
     ],
-    "17": [
+    "20": [
       "designworkspacepage_buildcolorschemexml",
       "designworkspacepage_builddesignlibraryaccessxml",
       "designworkspacepage_buildfullcontext",
@@ -907,7 +1037,7 @@
       "designworkspacepage_readfilecontent",
       "src_pages_designworkspacepage_tsx"
     ],
-    "18": [
+    "21": [
       "background_checkbrowserfocus",
       "background_detectbrowsername",
       "background_extractdomain",
@@ -926,7 +1056,8 @@
       "background_updateactivetab",
       "browser_extension_background_js"
     ],
-    "19": [
+    "22": [
+      "browseractivitypage_async",
       "browseractivitypage_formatduration",
       "browseractivitypage_getviewlabel",
       "browseractivitypage_handlecategorychange",
@@ -944,7 +1075,7 @@
       "complete_speak",
       "src_pages_browseractivitypage_tsx"
     ],
-    "20": [
+    "23": [
       "agent_docs_externalpage_insights_ideas_27042026_insightspage_tsx",
       "insightspage_cellbg",
       "insightspage_circulargauge",
@@ -959,7 +1090,7 @@
       "insightspage_statuslabel",
       "src_pages_insightspage_tsx"
     ],
-    "21": [
+    "24": [
       "dist_electron_gamedetection_js",
       "gamedetection_buildinstalledgameindex",
       "gamedetection_gamenamefromtitle",
@@ -973,7 +1104,7 @@
       "gamedetection_steamroots",
       "src_gamedetection_ts"
     ],
-    "22": [
+    "25": [
       "durationpicker_dechours",
       "durationpicker_decminutes",
       "durationpicker_handleeditblur",
@@ -987,7 +1118,7 @@
       "durationpicker_stophold",
       "src_components_durationpicker_tsx"
     ],
-    "23": [
+    "26": [
       "settingspage_async",
       "settingspage_handleclickoutside",
       "settingspage_handleesc",
@@ -1001,7 +1132,7 @@
       "settingspage_setlocalappcolors",
       "src_pages_settingspage_tsx"
     ],
-    "24": [
+    "27": [
       "src_components_terminalwindow_tsx",
       "terminalwindow_findfirstleaf",
       "terminalwindow_findleafbyid",
@@ -1014,19 +1145,7 @@
       "terminalwindow_replaceleafterminalid",
       "terminalwindow_tryfit"
     ],
-    "25": [
-      "contextmaintenancetab_async",
-      "contextmaintenancetab_handleconfigsave",
-      "contextmaintenancetab_handlerefresh",
-      "contextmaintenancetab_handletogglecontext",
-      "contextmaintenancetab_if",
-      "contextmaintenancetab_loadcontextdata",
-      "contextmaintenancetab_loadcontexts",
-      "contextmaintenancetab_loadrecentmessages",
-      "contextmaintenancetab_renderheader",
-      "src_components_contextmaintenancetab_tsx"
-    ],
-    "26": [
+    "28": [
       "prompthistorytab_formattime",
       "prompthistorytab_getstatus",
       "prompthistorytab_handledelete",
@@ -1037,7 +1156,7 @@
       "prompthistorytab_truncate",
       "src_components_prompthistorytab_tsx"
     ],
-    "27": [
+    "29": [
       "libraryconfigmodal_defaultconfig",
       "libraryconfigmodal_handleclearcache",
       "libraryconfigmodal_handlerefresh",
@@ -1048,7 +1167,17 @@
       "libraryconfigmodal_updatesource",
       "src_components_workspace_libraryconfigmodal_tsx"
     ],
-    "28": [
+    "30": [
+      "agent_docs_ui_redesign_analytics_ai_tools_aiservice_ts",
+      "aiservice_aiservice",
+      "aiservice_aiservice_generatetopicdigest",
+      "aiservice_callopenrouter",
+      "aiservice_cleanaijson",
+      "aiservice_parseaijson",
+      "dist_electron_services_aiservice_js",
+      "src_services_aiservice_ts"
+    ],
+    "31": [
       "agent_docs_ui_redesign_analytics_ai_tools_analyticsdashboard_tsx",
       "analyticsdashboard_fmtcost",
       "analyticsdashboard_fmtnum",
@@ -1058,7 +1187,17 @@
       "analyticsdashboard_statcard",
       "src_components_analyticsdashboard_tsx"
     ],
-    "29": [
+    "32": [
+      "errorboundary_clearpersistederror",
+      "errorboundary_componentdidcatch",
+      "errorboundary_constructor",
+      "errorboundary_getderivedstatefromerror",
+      "errorboundary_getpersistederrorcount",
+      "errorboundary_getpersistederrormessage",
+      "errorboundary_persisterror",
+      "src_components_errorboundary_tsx"
+    ],
+    "33": [
       "callprovider_callprovider",
       "dist_electron_services_providers_callprovider_js",
       "dist_electron_services_providers_router_js",
@@ -1068,7 +1207,25 @@
       "src_services_providers_callprovider_ts",
       "src_services_providers_router_ts"
     ],
-    "30": [
+    "34": [
+      "dist_electron_services_notificationservice_js",
+      "notificationservice_notificationservice",
+      "notificationservice_notificationservice_initaudio",
+      "notificationservice_notificationservice_notifyattention",
+      "notificationservice_notificationservice_notifycomplete",
+      "notificationservice_notificationservice_playbeep",
+      "src_services_notificationservice_ts"
+    ],
+    "35": [
+      "backup_before_finance_revamp_finance_financelockscreen_tsx",
+      "financelockscreen_arraybuffertobase64url",
+      "financelockscreen_base64urltoarraybuffer",
+      "financelockscreen_handlebiometricclick",
+      "financelockscreen_handlesubmit",
+      "financelockscreen_triggershake",
+      "src_components_finance_financelockscreen_tsx"
+    ],
+    "36": [
       "longtermplancard_handleadd",
       "longtermplancard_handledelete",
       "longtermplancard_handlemovedown",
@@ -1077,7 +1234,7 @@
       "longtermplancard_loadgoals",
       "src_components_longtermplancard_tsx"
     ],
-    "31": [
+    "37": [
       "agent_docs_model_improvements_verification_modelimprovementdashboard_tsx",
       "modelimprovementdashboard_animatednumber",
       "modelimprovementdashboard_handledebugchange",
@@ -1085,7 +1242,7 @@
       "modelimprovementdashboard_handlethresholdchange",
       "modelimprovementdashboard_handletierchange"
     ],
-    "32": [
+    "38": [
       "agent_docs_ui_redesign_analytics_ai_tools_aipage_tsx",
       "aipage_aipage",
       "aipage_determinemode",
@@ -1093,7 +1250,15 @@
       "aipage_gettoday",
       "src_pages_aipage_tsx"
     ],
-    "33": [
+    "39": [
+      "chatintent_extractcategory",
+      "chatintent_extractdate",
+      "chatintent_extracttitle",
+      "chatintent_parseintent",
+      "dist_electron_services_chatintent_js",
+      "src_services_chatintent_ts"
+    ],
+    "40": [
       "daydetailpopup_adddays",
       "daydetailpopup_daydetailpopup",
       "daydetailpopup_formatduration",
@@ -1101,7 +1266,15 @@
       "daydetailpopup_formathour",
       "src_components_daydetailpopup_tsx"
     ],
-    "34": [
+    "41": [
+      "src_components_tutorialoverlay_tsx",
+      "tutorialoverlay_getcardstyle",
+      "tutorialoverlay_getspotlightrect",
+      "tutorialoverlay_handler",
+      "tutorialoverlay_handleresize",
+      "tutorialoverlay_handlescroll"
+    ],
+    "42": [
       "src_hooks_useaipagedata_ts",
       "src_hooks_useappcontext_ts",
       "useaipagedata_cachekey",
@@ -1109,530 +1282,658 @@
       "useaipagedata_useaipagedata",
       "useappcontext_useappcontext"
     ],
-    "35": [
-      "notificationservice_notificationservice",
-      "notificationservice_notificationservice_initaudio",
-      "notificationservice_notificationservice_notifyattention",
-      "notificationservice_notificationservice_notifycomplete",
-      "notificationservice_notificationservice_playbeep",
-      "src_services_notificationservice_ts"
-    ],
-    "36": [
+    "43": [
       "agent_docs_frontend_design_skills_25052026_ui_ux_workspace_infrastructure_src_newsessiondialog_tsx",
       "newsessiondialog_checkinit",
       "newsessiondialog_estimatetokens",
       "newsessiondialog_formatreltime",
       "newsessiondialog_systemtogglecard"
     ],
-    "37": [
+    "44": [
+      "chatsafety_checkaction",
+      "chatsafety_mapintenttoaction",
+      "chatsafety_sanitizeinput",
+      "dist_electron_services_chatsafety_js",
+      "src_services_chatsafety_ts"
+    ],
+    "45": [
+      "dist_electron_services_parseblocks_js",
+      "parseblocks_parseheader",
+      "parseblocks_parseinline",
+      "parseblocks_parsestructuredresponse",
+      "src_services_parseblocks_ts"
+    ],
+    "46": [
+      "dist_electron_services_sessioncontextservice_js",
+      "sessioncontextservice_sessioncontextservice",
+      "sessioncontextservice_sessioncontextservice_extractcontext",
+      "sessioncontextservice_sessioncontextservice_generatebriefcontext",
+      "src_services_sessioncontextservice_ts"
+    ],
+    "47": [
+      "build_esbuildcompile",
+      "build_findallts",
+      "build_main",
+      "build_run",
+      "scripts_build_mjs"
+    ],
+    "48": [
+      "filestab_closepreview",
+      "filestab_getfilecategory",
+      "filestab_handlefileclick",
+      "filestab_handlesetup",
+      "src_components_filestab_tsx"
+    ],
+    "49": [
       "gappanel_formatdate",
       "gappanel_formatelapsed",
       "gappanel_formattime",
       "gappanel_gappanel",
       "src_components_gappanel_tsx"
     ],
-    "38": [
+    "50": [
       "importsessionsdialog_formatdate",
       "importsessionsdialog_handleimport",
       "importsessionsdialog_parseopencodesessions",
       "importsessionsdialog_toggleidx",
       "src_components_importsessionsdialog_tsx"
     ],
-    "39": [
+    "51": [
       "instructionpanel_generateprompt",
       "instructionpanel_handlekeydown",
       "instructionpanel_loadagentfilecontent",
       "instructionpanel_rendermarkdown",
       "src_components_instructionpanel_tsx"
     ],
-    "40": [
+    "52": [
       "mapeditor_createsplitfromdrag",
       "mapeditor_flattenpanes",
       "mapeditor_replaceleafintree",
       "mapeditor_swapleavesintree",
       "src_components_mapeditor_tsx"
     ],
-    "41": [
+    "53": [
       "sessioneditdialog_addtag",
       "sessioneditdialog_handlesave",
       "sessioneditdialog_handletagkeydown",
       "sessioneditdialog_removetag",
       "src_components_sessioneditdialog_tsx"
     ],
-    "42": [
+    "54": [
       "fingerprint_fingerprintrecord",
       "fingerprint_fingerprintrows",
       "fingerprint_hashnumber",
       "fingerprint_hashstring",
       "src_lib_fingerprint_ts"
     ],
-    "43": [
-      "chatintent_extractcategory",
-      "chatintent_extractdate",
-      "chatintent_extracttitle",
-      "chatintent_parseintent",
-      "src_services_chatintent_ts"
-    ],
-    "44": [
+    "55": [
       "agent_docs_externalpage_insights_ideas_27042026_demo_data_ts",
       "demo_data_generatedailydata",
       "demo_data_generateheatmapdata",
       "demo_data_getactivitystats"
     ],
-    "45": [
+    "56": [
       "agent_docs_ui_redesign_analytics_ai_tools_preload_ts",
-      "dist_electron_preload_js",
+      "dist_electron_preload_mjs",
       "preload_handler",
       "src_preload_ts"
     ],
-    "46": [
+    "57": [
       "afkpromptmodal_afkpromptmodal",
       "afkpromptmodal_formatelapsed",
       "afkpromptmodal_formattime",
       "src_components_afkpromptmodal_tsx"
     ],
-    "47": [
+    "58": [
       "dayganttchart_formatduration",
       "dayganttchart_getcategorycolor",
       "dayganttchart_getcategoryicon",
       "src_components_dayganttchart_tsx"
     ],
-    "48": [
-      "errorboundary_componentdidcatch",
-      "errorboundary_constructor",
-      "errorboundary_getderivedstatefromerror",
-      "src_components_errorboundary_tsx"
-    ],
-    "49": [
+    "59": [
       "newsessiondialog_async",
       "newsessiondialog_derivehealth",
       "newsessiondialog_staleclass",
       "src_components_newsessiondialog_tsx"
     ],
-    "50": [
+    "60": [
+      "pagecontextpanel_handler",
+      "pagecontextpanel_identitysection",
+      "pagecontextpanel_parsepagecontext",
+      "src_components_pagecontextpanel_tsx"
+    ],
+    "61": [
       "promptdesigndialog_handlecopy",
       "promptdesigndialog_handlesave",
       "promptdesigndialog_load",
       "src_components_promptdesigndialog_tsx"
     ],
-    "51": [
+    "62": [
       "src_components_terminalminimap_tsx",
       "terminalminimap_flattenlayout",
       "terminalminimap_getinternalgroups",
       "terminalminimap_groupdroptarget"
     ],
-    "52": [
+    "63": [
       "activecontextslist_gettypecolor",
       "activecontextslist_handlerefresh",
       "activecontextslist_handletoggle",
       "src_components_context_ui_activecontextslist_tsx"
     ],
-    "53": [
+    "64": [
       "settingspanel_handlereset",
       "settingspanel_handlesave",
       "settingspanel_updateconfig",
       "src_components_context_ui_settingspanel_tsx"
     ],
-    "54": [
+    "65": [
       "derivestats_derivestats",
       "derivestats_fmtcost",
       "derivestats_fmtnum",
       "src_components_stats_derivestats_ts"
     ],
-    "55": [
+    "66": [
       "designlibrarysources_getstatuscolor",
       "designlibrarysources_getstatustext",
       "designlibrarysources_handleclick",
       "src_components_workspace_designlibrarysources_tsx"
     ],
-    "56": [
+    "67": [
       "src_components_workspace_tasteknobs_tsx",
       "tasteknobs_getaesthetic",
       "tasteknobs_sliderrow",
       "tasteknobs_tasteknobs"
     ],
-    "57": [
+    "68": [
+      "src_components_workspace_workspaceshell_tsx",
+      "src_hooks_usepersistentsubtab_ts",
+      "usepersistentsubtab_usepersistentsubtab",
+      "workspaceshell_workspaceshell"
+    ],
+    "69": [
       "src_hooks_usestablememo_ts",
       "usestablememo_deepequal",
       "usestablememo_shallowequal",
       "usestablememo_usestablememo"
     ],
-    "58": [
-      "chatsafety_checkaction",
-      "chatsafety_mapintenttoaction",
-      "chatsafety_sanitizeinput",
-      "src_services_chatsafety_ts"
-    ],
-    "59": [
-      "sessioncontextservice_sessioncontextservice",
-      "sessioncontextservice_sessioncontextservice_extractcontext",
-      "sessioncontextservice_sessioncontextservice_generatebriefcontext",
-      "src_services_sessioncontextservice_ts"
-    ],
-    "60": [
+    "70": [
       "agent_docs_feature_inventory_py",
       "feature_inventory_print_summary",
       "feature_inventory_rationale_656"
     ],
-    "61": [
+    "71": [
+      "backup_before_finance_revamp_finance_quickaddmodal_tsx",
+      "quickaddmodal_handlesave",
+      "src_components_finance_quickaddmodal_tsx"
+    ],
+    "72": [
+      "dist_electron_services_parseblocks_legacy_js",
+      "parseblocks_legacy_parseblocks",
+      "src_services_parseblocks_legacy_ts"
+    ],
+    "73": [
+      "dist_electron_services_planningparser_js",
+      "planningparser_parsechecklist",
+      "src_services_planningparser_ts"
+    ],
+    "74": [
       "dslgenerationmodal_buildprompt",
       "dslgenerationmodal_handlesend",
       "src_components_dslgenerationmodal_tsx"
     ],
-    "62": [
+    "75": [
       "featurespecpanel_featureicon",
       "featurespecpanel_generateaiprompt",
       "src_components_featurespecpanel_tsx"
     ],
-    "63": [
+    "76": [
       "initializeprogressmodal_groupsteps",
       "initializeprogressmodal_initializeprogressmodal",
       "src_components_initializeprogressmodal_tsx"
     ],
-    "64": [
+    "77": [
       "myplancard_handleedit",
       "myplancard_toggleedit",
       "src_components_myplancard_tsx"
     ],
-    "65": [
+    "78": [
       "memorystatuscard_getprogresscolor",
       "memorystatuscard_getusagecolor",
       "src_components_context_ui_memorystatuscard_tsx"
     ],
-    "66": [
+    "79": [
       "recentchathistory_handlecopy",
       "recentchathistory_handledelete",
       "src_components_context_ui_recentchathistory_tsx"
     ],
-    "67": [
+    "80": [
+      "categoryvisual_walletcolor",
+      "categoryvisual_walleticon",
+      "src_components_finance_fx_categoryvisual_ts"
+    ],
+    "81": [
+      "charttheme_chartdefs",
+      "charttheme_glasstooltip",
+      "src_components_finance_fx_charttheme_tsx"
+    ],
+    "82": [
       "componentbrowsermodal_componentbrowsermodal",
       "componentbrowsermodal_getsourceaccent",
       "src_components_workspace_componentbrowsermodal_tsx"
     ],
-    "68": [
+    "83": [
       "src_components_workspace_stylereferences_tsx",
       "stylereferences_handlepreview",
       "stylereferences_handletoggle"
     ],
-    "69": [
+    "84": [
       "feature_specs_generateallspecsmarkdown",
       "feature_specs_generatemarkdown",
       "src_data_feature_specs_ts"
     ],
-    "70": [
+    "85": [
       "checklistalgorithm_applyfilter",
       "checklistalgorithm_sortandgroupchecks",
       "src_lib_checklistalgorithm_ts"
     ],
-    "71": [
+    "86": [
       "defaults_getdefaultagent",
       "defaults_setdefaultagent",
       "src_lib_defaults_ts"
     ],
-    "72": [
+    "87": [
+      "vite_config_onwarn",
+      "vite_config_ts"
+    ],
+    "88": [
       "agent_docs_graphify_graphify_pipeline_py",
       "graphify_pipeline_rationale_1"
     ],
-    "73": [
+    "89": [
       "aiusagecard_fmtnum",
       "src_components_aiusagecard_tsx"
     ],
-    "74": [
+    "90": [
       "anomalybadge_anomalybadge",
       "src_components_anomalybadge_tsx"
     ],
-    "75": [
+    "91": [
       "basicmarkdownviewer_basicmarkdownviewer",
       "src_components_basicmarkdownviewer_tsx"
     ],
-    "76": [
+    "92": [
+      "bugreportpanel_bugreportpanel",
+      "src_components_bugreportpanel_tsx"
+    ],
+    "93": [
       "categorycolors_getcategorystyle",
       "src_components_categorycolors_tsx"
     ],
-    "77": [
+    "94": [
       "chartcontainer_chartcontainer",
       "src_components_chartcontainer_tsx"
     ],
-    "78": [
+    "95": [
       "confirmdialog_confirmdialog",
       "src_components_confirmdialog_tsx"
     ],
-    "79": [
+    "96": [
       "dailyplancard_handlesendfeedback",
       "src_components_dailyplancard_tsx"
     ],
-    "80": [
+    "97": [
       "featurespecviewer_featureicon",
       "src_components_featurespecviewer_tsx"
     ],
-    "81": [
+    "98": [
       "glasscard_glasscard",
       "src_components_glasscard_tsx"
     ],
-    "82": [
+    "99": [
       "knobslider_knobslider",
       "src_components_knobslider_tsx"
     ],
-    "83": [
+    "100": [
       "loadingstate_loadingstate",
       "src_components_loadingstate_tsx"
     ],
-    "84": [
+    "101": [
       "markdownpreview_markdownpreview",
       "src_components_markdownpreview_tsx"
     ],
-    "85": [
+    "102": [
       "modaloverlay_modaloverlay",
       "src_components_modaloverlay_tsx"
     ],
-    "86": [
+    "103": [
       "pageshell_pageshell",
       "src_components_pageshell_tsx"
     ],
-    "87": [
+    "104": [
       "routingtoast_routingtoast",
       "src_components_routingtoast_tsx"
     ],
-    "88": [
+    "105": [
       "sessioncard_sessioncard",
       "src_components_sessioncard_tsx"
     ],
-    "89": [
+    "106": [
       "skilldynamicform_togglegroup",
       "src_components_skilldynamicform_tsx"
     ],
-    "90": [
+    "107": [
       "src_components_stickyheader_tsx",
       "stickyheader_stickyheader"
     ],
-    "91": [
+    "108": [
       "src_components_systemcard_tsx",
       "systemcard_systemcard"
     ],
-    "92": [
-      "src_components_tabbar_tsx",
-      "tabbar_tabbar"
-    ],
-    "93": [
+    "109": [
       "src_components_terminaltab_tsx",
       "terminaltab_terminaltab"
     ],
-    "94": [
+    "110": [
       "src_components_todayoverviewcard_tsx",
       "todayoverviewcard_fmthours"
     ],
-    "95": [
+    "111": [
       "chatheader_chatheader",
       "src_components_aichat_chatheader_tsx"
     ],
-    "96": [
+    "112": [
       "detailpanel_detailpanel",
       "src_components_aichat_detailpanel_tsx"
     ],
-    "97": [
+    "113": [
       "messagebubble_messagebubble",
       "src_components_aichat_messagebubble_tsx"
     ],
-    "98": [
-      "messagelist_messagelist",
-      "src_components_aichat_messagelist_tsx"
+    "114": [
+      "src_components_aichat_thinkingindicator_tsx",
+      "thinkingindicator_thinkingindicator"
     ],
-    "99": [
-      "datasummaryblock_datasummaryblock",
-      "src_components_aichat_blocks_datasummaryblock_tsx"
+    "115": [
+      "confirmblock_confirmblock",
+      "src_components_aichat_blocks_confirmblock_tsx"
     ],
-    "100": [
+    "116": [
       "goalcreateblock_goalcreateblock",
       "src_components_aichat_blocks_goalcreateblock_tsx"
     ],
-    "101": [
+    "117": [
       "goaldeleteblock_goaldeleteblock",
       "src_components_aichat_blocks_goaldeleteblock_tsx"
     ],
-    "102": [
+    "118": [
+      "inline_inlinerenderer",
+      "src_components_aichat_blocks_inline_tsx"
+    ],
+    "119": [
       "navigationblock_navigationblock",
       "src_components_aichat_blocks_navigationblock_tsx"
     ],
-    "103": [
+    "120": [
       "newsitemblock_newsitemblock",
       "src_components_aichat_blocks_newsitemblock_tsx"
     ],
-    "104": [
-      "src_components_aichat_blocks_textblock_tsx",
-      "textblock_textblock"
+    "121": [
+      "archiveditemsmodal_archiveditemsmodal",
+      "src_components_finance_archiveditemsmodal_tsx"
     ],
-    "105": [
+    "122": [
+      "recenttxnscard_gettimeago",
+      "src_components_finance_recenttxnscard_tsx"
+    ],
+    "123": [
+      "aurorabackground_aurorabackground",
+      "src_components_finance_fx_aurorabackground_tsx"
+    ],
+    "124": [
+      "glasssurface_glasssurface",
+      "src_components_finance_fx_glasssurface_tsx"
+    ],
+    "125": [
+      "sparkline_sparkline",
+      "src_components_finance_fx_sparkline_tsx"
+    ],
+    "126": [
       "chartcard_chartcard",
       "src_components_stats_chartcard_tsx"
     ],
-    "106": [
+    "127": [
       "chartssection_chartssection",
       "src_components_stats_chartssection_tsx"
     ],
-    "107": [
+    "128": [
       "kpicard_kpicard",
       "src_components_stats_kpicard_tsx"
     ],
-    "108": [
+    "129": [
       "kpirow_kpirow",
       "src_components_stats_kpirow_tsx"
     ],
-    "109": [
+    "130": [
       "src_components_stats_statsdashboard_tsx",
       "statsdashboard_statsdashboard"
     ],
-    "110": [
+    "131": [
       "designcomposeoutlet_handlecopy",
       "src_components_workspace_designcomposeoutlet_tsx"
     ],
-    "111": [
+    "132": [
       "src_components_workspace_styledescription_tsx",
       "styledescription_styledescription"
     ],
-    "112": [
+    "133": [
       "src_hooks_useterminallayout_ts",
       "useterminallayout_useterminallayout"
     ],
-    "113": [
+    "134": [
       "sessionresolution_resolvesessionforcheck",
       "src_lib_sessionresolution_ts"
     ],
-    "114": [
+    "135": [
+      "financepage_backup_financepage",
+      "src_pages_financepage_backup_tsx"
+    ],
+    "136": [
       "idehelppage_handlekeydown",
       "src_pages_idehelppage_tsx"
     ],
-    "115": [
-      "parseblocks_parseblocks",
-      "src_services_parseblocks_ts"
-    ],
-    "116": [
-      "planningparser_parsechecklist",
-      "src_services_planningparser_ts"
-    ],
-    "117": [
+    "137": [
       "check_db_js"
     ],
-    "118": [
+    "138": [
       "electron_vite_config_ts"
     ],
-    "119": [
+    "139": [
       "eslint_config_js"
     ],
-    "120": [
+    "140": [
       "migrate_fixed_mjs"
     ],
-    "121": [
+    "141": [
       "migrate_sqlite_to_json_sqljs_mjs"
     ],
-    "122": [
+    "142": [
       "migrate_sqlite_to_json_js"
     ],
-    "123": [
+    "143": [
       "migrate_sqlite_to_json_mjs"
     ],
-    "124": [
-      "vite_config_ts"
-    ],
-    "125": [
-      "agent_docs_externalpage_insights_ideas_27042026_types_ts"
-    ],
-    "126": [
-      "agent_docs_frontend_design_skills_25052026_ui_ux_workspace_infrastructure_src_contextconfig_ts"
-    ],
-    "127": [
-      "agent_docs_model_improvements_verification_model_dashboard_ipc_additions_ts"
-    ],
-    "128": [
-      "dist_electron_main_js"
-    ],
-    "129": [
-      "dist_electron_services_providers_templates_js"
-    ],
-    "130": [
-      "dist_electron_services_providers_types_js"
-    ],
-    "131": [
-      "src_node_pty_d_ts"
-    ],
-    "132": [
-      "src_components_contextsidebar_tsx"
-    ],
-    "133": [
-      "src_components_contextsummarycard_tsx"
-    ],
-    "134": [
-      "src_components_emptystate_tsx"
-    ],
-    "135": [
-      "src_components_gapbanner_tsx"
-    ],
-    "136": [
-      "src_components_projectstatuscard_tsx"
-    ],
-    "137": [
-      "src_components_routingdisambiguationdialog_tsx"
-    ],
-    "138": [
-      "src_components_sectionheader_tsx"
-    ],
-    "139": [
-      "src_components_statcard_tsx"
-    ],
-    "140": [
-      "src_components_topicdigestcard_tsx"
-    ],
-    "141": [
-      "src_components_tutorialoverlay_tsx"
-    ],
-    "142": [
-      "src_components_aichat_blockrenderer_tsx"
-    ],
-    "143": [
-      "src_components_aichat_chatinput_tsx"
-    ],
     "144": [
-      "src_components_aichat_index_ts"
+      "vite_main_config_ts"
     ],
     "145": [
-      "src_components_aichat_blocks_errorblock_tsx"
+      "agent_docs_externalpage_insights_ideas_27042026_types_ts"
     ],
     "146": [
-      "src_components_aichat_blocks_goallistblock_tsx"
+      "agent_docs_frontend_design_skills_25052026_ui_ux_workspace_infrastructure_src_contextconfig_ts"
     ],
     "147": [
-      "src_components_context_ui_compactionspanel_tsx"
+      "agent_docs_model_improvements_verification_model_dashboard_ipc_additions_ts"
     ],
     "148": [
-      "src_components_context_ui_contextsearchbar_tsx"
+      "backup_before_finance_revamp_finance_finance_types_ts"
     ],
     "149": [
-      "src_data_tutorial_steps_ts"
+      "backup_before_finance_revamp_finance_financestickyheader_tsx"
     ],
     "150": [
-      "src_pages_databasepage_tsx"
+      "dist_electron_main_js"
     ],
     "151": [
-      "src_pages_guidepage_tsx"
+      "dist_electron_services_contextconfig_js"
     ],
     "152": [
-      "src_services_contextconfig_ts"
+      "dist_electron_services_goalstore_js"
     ],
     "153": [
-      "src_services_goalstore_ts"
+      "dist_electron_services_wireformat_js"
     ],
     "154": [
-      "src_services_ai_types_ts"
+      "dist_electron_services_ai_index_js"
     ],
     "155": [
-      "src_services_providers_templates_ts"
+      "dist_electron_services_ai_types_js"
     ],
     "156": [
-      "src_services_providers_types_ts"
+      "dist_electron_services_providers_templates_js"
     ],
     "157": [
-      "src_types_context_ts"
+      "dist_electron_services_providers_types_js"
     ],
     "158": [
+      "src_node_pty_d_ts"
+    ],
+    "159": [
+      "src_components_contextsidebar_tsx"
+    ],
+    "160": [
+      "src_components_contextsummarycard_tsx"
+    ],
+    "161": [
+      "src_components_emptystate_tsx"
+    ],
+    "162": [
+      "src_components_gapbanner_tsx"
+    ],
+    "163": [
+      "src_components_projectstatuscard_tsx"
+    ],
+    "164": [
+      "src_components_routingdisambiguationdialog_tsx"
+    ],
+    "165": [
+      "src_components_sectionheader_tsx"
+    ],
+    "166": [
+      "src_components_statcard_tsx"
+    ],
+    "167": [
+      "src_components_tabbar_tsx"
+    ],
+    "168": [
+      "src_components_topicdigestcard_tsx"
+    ],
+    "169": [
+      "src_components_aichat_blockrenderer_tsx"
+    ],
+    "170": [
+      "src_components_aichat_chatinput_tsx"
+    ],
+    "171": [
+      "src_components_aichat_index_ts"
+    ],
+    "172": [
+      "src_components_aichat_messagelist_tsx"
+    ],
+    "173": [
+      "src_components_aichat_blocks_datasummaryblock_tsx"
+    ],
+    "174": [
+      "src_components_aichat_blocks_errorblock_tsx"
+    ],
+    "175": [
+      "src_components_aichat_blocks_goallistblock_tsx"
+    ],
+    "176": [
+      "src_components_aichat_blocks_groupshell_tsx"
+    ],
+    "177": [
+      "src_components_aichat_blocks_sourcesblock_tsx"
+    ],
+    "178": [
+      "src_components_aichat_blocks_tableblock_tsx"
+    ],
+    "179": [
+      "src_components_aichat_blocks_textblock_tsx"
+    ],
+    "180": [
+      "src_components_context_ui_compactionspanel_tsx"
+    ],
+    "181": [
+      "src_components_context_ui_contextsearchbar_tsx"
+    ],
+    "182": [
+      "src_components_finance_emptystate_tsx"
+    ],
+    "183": [
+      "src_components_finance_finance_types_ts"
+    ],
+    "184": [
+      "src_components_finance_financeinsightscard_tsx"
+    ],
+    "185": [
+      "src_components_finance_spendingcategorychart_tsx"
+    ],
+    "186": [
+      "src_components_finance_fx_financemotion_ts"
+    ],
+    "187": [
+      "src_components_finance_fx_tabheader_tsx"
+    ],
+    "188": [
+      "src_components_workspace_subtabbar_tsx"
+    ],
+    "189": [
+      "src_data_tutorial_steps_ts"
+    ],
+    "190": [
+      "src_pages_databasepage_tsx"
+    ],
+    "191": [
+      "src_pages_guidepage_tsx"
+    ],
+    "192": [
+      "src_services_contextconfig_ts"
+    ],
+    "193": [
+      "src_services_goalstore_ts"
+    ],
+    "194": [
+      "src_services_wireformat_ts"
+    ],
+    "195": [
+      "src_services_ai_aiagentservice_test_ts"
+    ],
+    "196": [
+      "src_services_ai_index_ts"
+    ],
+    "197": [
+      "src_services_ai_types_ts"
+    ],
+    "198": [
+      "src_services_providers_templates_ts"
+    ],
+    "199": [
+      "src_services_providers_types_ts"
+    ],
+    "200": [
+      "src_types_context_ts"
+    ],
+    "201": [
       "src_types_skillplugin_ts"
     ]
   },
@@ -1640,90 +1941,90 @@
     "0": 0.02,
     "1": 0.03,
     "2": 0.03,
-    "3": 0.03,
+    "3": 0.06,
     "4": 0.05,
-    "5": 0.08,
+    "5": 0.04,
     "6": 0.06,
-    "7": 0.09,
-    "8": 0.08,
-    "9": 0.08,
-    "10": 0.18,
-    "11": 0.14,
-    "12": 0.13,
-    "13": 0.11,
-    "14": 0.38,
-    "15": 0.13,
-    "16": 0.19,
-    "17": 0.16,
-    "18": 0.27,
-    "19": 0.14,
-    "20": 0.17,
-    "21": 0.42,
-    "22": 0.18,
-    "23": 0.2,
-    "24": 0.18,
-    "25": 0.27,
-    "26": 0.22,
-    "27": 0.25,
-    "28": 0.46,
-    "29": 0.36,
-    "30": 0.43,
-    "31": 0.33,
-    "32": 0.67,
-    "33": 0.33,
-    "34": 0.33,
-    "35": 0.53,
-    "36": 0.5,
-    "37": 0.4,
-    "38": 0.4,
-    "39": 0.4,
-    "40": 0.5,
-    "41": 0.5,
-    "42": 1.0,
-    "43": 0.7,
-    "44": 0.5,
-    "45": 0.5,
-    "46": 0.67,
-    "47": 0.5,
-    "48": 0.5,
-    "49": 0.5,
-    "50": 0.5,
-    "51": 0.5,
+    "7": 0.05,
+    "8": 0.07,
+    "9": 0.07,
+    "10": 0.09,
+    "11": 0.06,
+    "12": 0.08,
+    "13": 0.18,
+    "14": 0.14,
+    "15": 0.12,
+    "16": 0.12,
+    "17": 0.12,
+    "18": 0.43,
+    "19": 0.19,
+    "20": 0.16,
+    "21": 0.27,
+    "22": 0.13,
+    "23": 0.17,
+    "24": 0.42,
+    "25": 0.18,
+    "26": 0.2,
+    "27": 0.18,
+    "28": 0.22,
+    "29": 0.25,
+    "30": 0.57,
+    "31": 0.46,
+    "32": 0.43,
+    "33": 0.36,
+    "34": 0.43,
+    "35": 0.57,
+    "36": 0.43,
+    "37": 0.33,
+    "38": 0.67,
+    "39": 0.73,
+    "40": 0.33,
+    "41": 0.33,
+    "42": 0.33,
+    "43": 0.5,
+    "44": 0.6,
+    "45": 0.8,
+    "46": 0.4,
+    "47": 0.7,
+    "48": 0.4,
+    "49": 0.4,
+    "50": 0.4,
+    "51": 0.4,
     "52": 0.5,
     "53": 0.5,
-    "54": 0.83,
+    "54": 1.0,
     "55": 0.5,
-    "56": 0.67,
+    "56": 0.5,
     "57": 0.67,
     "58": 0.5,
     "59": 0.5,
-    "60": 0.67,
-    "61": 1.0,
-    "62": 0.67,
-    "63": 1.0,
-    "64": 0.67,
-    "65": 0.67,
-    "66": 0.67,
+    "60": 0.5,
+    "61": 0.5,
+    "62": 0.5,
+    "63": 0.5,
+    "64": 0.5,
+    "65": 0.83,
+    "66": 0.5,
     "67": 0.67,
-    "68": 0.67,
-    "69": 1.0,
-    "70": 1.0,
+    "68": 0.5,
+    "69": 0.67,
+    "70": 0.67,
     "71": 0.67,
-    "72": 1.0,
-    "73": 1.0,
+    "72": 0.67,
+    "73": 0.67,
     "74": 1.0,
-    "75": 1.0,
+    "75": 0.67,
     "76": 1.0,
-    "77": 1.0,
-    "78": 1.0,
-    "79": 1.0,
-    "80": 1.0,
-    "81": 1.0,
-    "82": 1.0,
-    "83": 1.0,
+    "77": 0.67,
+    "78": 0.67,
+    "79": 0.67,
+    "80": 0.67,
+    "81": 0.67,
+    "82": 0.67,
+    "83": 0.67,
     "84": 1.0,
     "85": 1.0,
-    "86": 1.0,
+    "86": 0.67,
     "87": 1.0,
     "88": 1.0,
     "89": 1.0,
@@ -1795,22 +2096,65 @@
     "155": 1.0,
     "156": 1.0,
     "157": 1.0,
-    "158": 1.0
+    "158": 1.0,
+    "159": 1.0,
+    "160": 1.0,
+    "161": 1.0,
+    "162": 1.0,
+    "163": 1.0,
+    "164": 1.0,
+    "165": 1.0,
+    "166": 1.0,
+    "167": 1.0,
+    "168": 1.0,
+    "169": 1.0,
+    "170": 1.0,
+    "171": 1.0,
+    "172": 1.0,
+    "173": 1.0,
+    "174": 1.0,
+    "175": 1.0,
+    "176": 1.0,
+    "177": 1.0,
+    "178": 1.0,
+    "179": 1.0,
+    "180": 1.0,
+    "181": 1.0,
+    "182": 1.0,
+    "183": 1.0,
+    "184": 1.0,
+    "185": 1.0,
+    "186": 1.0,
+    "187": 1.0,
+    "188": 1.0,
+    "189": 1.0,
+    "190": 1.0,
+    "191": 1.0,
+    "192": 1.0,
+    "193": 1.0,
+    "194": 1.0,
+    "195": 1.0,
+    "196": 1.0,
+    "197": 1.0,
+    "198": 1.0,
+    "199": 1.0,
+    "200": 1.0,
+    "201": 1.0
   },
   "gods": [
     {
       "id": "gamedetection_bench_run",
       "label": "run()",
-      "degree": 40
-    },
-    {
-      "id": "problemsservice_problemsservice",
-      "label": "ProblemsService",
-      "degree": 23
+      "degree": 41
     },
     {
       "id": "workspaceregistry_workspaceregistryservice",
       "label": "WorkspaceRegistryService",
+      "degree": 24
+    },
+    {
+      "id": "problemsservice_problemsservice",
+      "label": "ProblemsService",
       "degree": 23
     },
     {
@@ -1826,7 +2170,17 @@
     {
       "id": "ragservice_ragservice",
       "label": "RAGService",
-      "degree": 18
+      "degree": 19
+    },
+    {
+      "id": "aiagentservice_aiagentservice",
+      "label": "AiAgentService",
+      "degree": 17
+    },
+    {
+      "id": "contextservice_assemblecontext",
+      "label": "assembleContext()",
+      "degree": 16
     },
     {
       "id": "durationpicker_sethours",
@@ -1834,19 +2188,9 @@
       "degree": 16
     },
     {
-      "id": "contextservice_assemblecontext",
-      "label": "assembleContext()",
-      "degree": 15
-    },
-    {
       "id": "contextservice_readfile",
       "label": "readFile()",
-      "degree": 14
-    },
-    {
-      "id": "main_backend_executeactionsfromfile",
-      "label": "executeActionsFromFile()",
-      "degree": 13
+      "degree": 15
     }
   ],
   "surprises": [
@@ -1895,15 +2239,15 @@
       "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; peripheral node `refresh()` unexpectedly reaches hub `catch()`"
     },
     {
-      "source": "computeDateRange()",
-      "target": "setHours()",
+      "source": "syncAllAIAgents()",
+      "target": "run()",
       "source_files": [
         "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\agent\\docs\\ui-redesign-analytics-ai-tools\\main_backend.ts",
-        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\src\\components\\DurationPicker.tsx"
+        "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\test\\gameDetection.bench.ts"
       ],
       "confidence": "INFERRED",
       "relation": "calls",
-      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; peripheral node `computeDateRange()` unexpectedly reaches hub `setHours()`"
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
     }
   ]
 }

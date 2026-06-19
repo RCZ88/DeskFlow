@@ -8,8 +8,8 @@ const fs = require('fs');
 const path = require('path');
 
 const userDataPath = process.env.APPDATA 
-  ? path.join(process.env.APPDATA, 'DeskFlow')
-  : path.join(process.env.HOME, '.config', 'DeskFlow');
+   ? path.join(process.env.APPDATA, 'DeskFlow')
+   : path.join(process.env.HOME, '.config', 'DeskFlow');
 
 const dbPath = path.join(userDataPath, 'deskflow-data.db');
 const jsonPath = path.join(userDataPath, 'deskflow-data.json');

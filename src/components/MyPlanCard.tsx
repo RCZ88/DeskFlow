@@ -20,6 +20,8 @@ const DEFAULT_TEMPLATE = `# My Plan
 type SaveState = 'idle' | 'unsaved' | 'saving' | 'saved';
 
 export function MyPlanCard({ onPlanningSaved }: MyPlanCardProps) {
+  const [addingItem, setAddingItem] = useState(false);
+  const [newItemText, setNewItemText] = useState('');
   const [content, setContent] = useState('');
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState(false);
@@ -123,11 +125,43 @@ export function MyPlanCard({ onPlanningSaved }: MyPlanCardProps) {
         />
       )}
 
-      {!loading && !error && !editing && (
-        <div className="max-h-44 overflow-y-auto rounded-lg bg-zinc-800/10 p-3">
-          <MarkdownPreview content={content} accent="emerald" />
-        </div>
-      )}
+        {!loading && !error && !editing && (
+          <div className="max-h-44 overflow-y-auto rounded-lg bg-zinc-800/10 p-3 space-y-2">
+            <MarkdownPreview content={content} accent="emerald" />
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={() => setAddingItem(true)}
+                className="px-2 py-1 text-xs rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
+              >Add item</button>
+            </div>
+            {addingItem && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newItemText}
+                  onChange={e => setNewItemText(e.target.value)}
+                  className="flex-1 bg-zinc-900/60 border border-zinc-700/40 rounded px-2 py-1 text-xs text-zinc-200"
+                  placeholder="New plan item"
+                />
+                <button
+                  onClick={() => {
+                    const updated = content.endsWith('\n') ? content : content + '\n';
+                    const newContent = updated + `- [ ] ${newItemText}\n`;
+                    handleEdit(newContent);
+                    setNewItemText('');
+                    setAddingItem(false);
+                  }}
+                  className="px-2 py-1 text-xs rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
+                >Save</button>
+                <button
+                  onClick={() => { setAddingItem(false); setNewItemText(''); }}
+                  className="px-2 py-1 text-xs rounded bg-zinc-500/20 text-zinc-300 hover:bg-zinc-500/30"
+                >Cancel</button>
+              </div>
+            )}
+          </div>
+        )}
+
     </GlassCard>
   );
 }

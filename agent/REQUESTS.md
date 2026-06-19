@@ -753,30 +753,105 @@ Also: "WHY IS THE APP ECOSYSTEM NOT FOLLOWING THE FUCKING TOP NAV TIME SELECTION
 
 **Why:** Extra safety net for AI agent actions, especially for confirm/admin level tools that modify data. The Nemotron model specializes in content safety classification and is free on OpenRouter.
 
-**Status:** ✅ COMPLETED
-**Priority:** P1
-**Category:** Testing
-**Created:** 2026-06-15T18:30:00.000Z
-**Updated:** 2026-06-15T18:30:00.000Z
+---
+
+### Request #050 - Auto-Create Sessions When Model Is Active
+
+**Status:** Completed
+**Priority:** High
+**Category:** Feature
+**Created:** 2026-06-19
 
 **Request:**
-"Automated testing of all workspace sidebar features via probe."
+"When the system detects the AI model is working on something (being used), it should auto-create new sessions. There should be a setting to enable/disable this (e.g., 'Auto-create sessions')."
 
-**Testing Results:**
-- **Presets tab:** Add Preset form opens, IPC `add-terminal-preset` works (2 presets in DB)
-- **Sessions tab:** New Session dialog opens, session created successfully (session-1781523172269 for App Tracker via claude agent)
-- **Detail view:** Session details, Open in Terminal, Edit buttons visible
-- **Map tab:** Tab button renders and responds
-- **Analytics tab:** Shows "Workspace Analytics" with Token/Cost/Problem/Request distribution charts
-- **Issues tab:** Tab button renders and responds
-- **Files tab:** Tab button renders and responds
-- **Skills tab:** Tab button renders and responds
-- **Design tab:** Tab button renders and responds
-- **Configs tab:** Tab button renders and responds
-- **History tab:** Tab button renders and responds
-- **Context tab:** Tab button renders and responds
-- **Maintenance tab:** Shows Context Maintenance with 6 sub-tabs (Overview, Contexts, History, Compactions, Search, Settings) and MEMORY STATUS section
-- **Database:** Probe DB has 41 tables, 74,820 terminal_messages, 4 terminal_sessions, 2 terminal_presets
+**Details:**
+- Detect when model is actively processing/working
+- If auto-create setting is enabled, create a new session automatically
+- Setting should be toggleable in workspace/terminal settings
+- Sessions should be tagged with the appropriate subpage based on what the model is working on
+
+**Implementation (v4.106):**
+1. Added "Auto-Session Creation" section to Configs tab (Setup group)
+2. Toggle to enable/disable auto-session creation when model is active
+3. Uses existing autoAssignConfig structure for consistency
 
 ---
+
+### Request #051 - Workspace vs Session Separation (Save/Load Redesign)
+
+**Status:** Completed
+**Priority:** High
+**Category:** Architecture Change
+**Created:** 2026-06-19
+
+**Request:**
+"Workspace is different from a session. The save/load workspace functionality should not be on the same page as sessions. A workspace should save: all configuration, settings, every single tab opened, and every component state — like Microsoft Word saving the entire document."
+
+**Details:**
+- Workspace save = save ALL state: tabs open, sessions, settings, sidebar state, every configuration
+- Should have its own dedicated page (not mixed with sessions page)
+- Save indicator/button should ALWAYS be visible (persistent UI element)
+- Alternatively, show saved workspaces in the workspace sidebar itself with a list
+- Like Microsoft Word's document save — the workspace IS the document
+- Components of the workspace state should all be serialized and restorable
+
+**Implementation (v4.106):**
+1. Added "Saved Workspaces" inline section to Configs tab (Setup group) — always-visible list with Load/Delete per workspace
+2. Added persistent save indicator in sidebar header — workspace name shown with green dot, clickable to save
+3. Workspace management moved from Sessions tab to Configs tab for separation
+4. Refresh button to reload workspace list; empty state message when no workspaces exist
+
+---
+
+### Request #052 - Specs Should Be About Workspace Project, Not App Tracker
+
+**Status:** Pending
+**Priority:** High
+**Category:** Bug Fix
+**Created:** 2026-06-19
+
+**Request:**
+"The specs feature is still specific to this App Tracker project. ITS SUPPOSED TO BE ABOUT THE PROJECT THAT IS ON THE WORKSPACE — the ones the user is currently working on. It should be empty by default if the app is not yet configured."
+
+**Details:**
+- Specs should reflect the user's active workspace project, not hardcoded App Tracker data
+- If no project is configured, specs page should be empty
+- Should dynamically load from the project the user has open
+
+---
+
+### Request #053 - Comprehensive Request Documentation (Master Tracking)
+
+**Status:** Pending
+**Priority:** Medium
+**Category:** Documentation
+**Created:** 2026-06-19
+
+**Request:**
+"All user requests must be fully documented so the user won't forget, and so future AI models can check what's been implemented vs what's pending. This file (REQUESTS.md) should serve as the single source of truth for feature requests."
+
+**Details:**
+- Every request gets a numbered entry with full description
+- Status must be kept up to date (Pending, In Progress, Completed)
+- Every time a new feature is requested, it's added here before implementation begins
+- AI models should check this file first before asking "what should I do?"
+- Summary of all pending vs completed should be easily scannable
+
+---
+
+### Request #054 - Quality-Drop Detection for Auto Session Creation
+
+**Status:** Pending
+**Priority:** Low
+**Category:** Feature
+**Created:** 2026-06-19
+
+**Request:**
+"Future feature: detect when AI response quality drops and auto-create a new session to reset context."
+
+**Details:**
+- This is explicitly a FUTURE feature — not to be implemented now
+- Tracked here so it's not forgotten
+- Would work with the auto-create session setting (Request #050)
 

@@ -187,7 +187,7 @@ function SectionHeader({
   label: string; icon: any; isOpen: boolean; onToggle: () => void; badge?: string;
 }) {
   return (
-    <button onClick={onToggle} className="w-full flex items-center justify-between py-2.5 px-1 group">
+    <button onClick={onToggle} className="w-full flex items-center justify-between py-2.5 px-1 group" data-tutorial="ctx.systems">
       <div className="flex items-center gap-2">
         <Icon className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-400 transition-colors" />
         <span className="text-xs font-medium text-zinc-300 group-hover:text-zinc-200 transition-colors">
@@ -341,20 +341,22 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
   const api = (window as any).deskflowAPI;
   const [activeSection, setActiveSection] = useState<SectionId>('systems');
 
+  const scopeKey = (key: string) => projectId ? `${key}-${projectId}` : key;
+
   const [wsConfig, setWsConfig, wsLoaded] = usePersistedState<WorkspaceConfig>(
-    WORKSPACE_CONFIG_PREF_KEY, DEFAULT_WORKSPACE_CONFIG, api, true
+    scopeKey(WORKSPACE_CONFIG_PREF_KEY), DEFAULT_WORKSPACE_CONFIG, api, true
   );
   const [modelConfig, setModelConfig, modelLoaded] = usePersistedState<ModelConfig>(
-    MODEL_CONFIG_KEY, DEFAULT_MODEL_CONFIG, api, true
+    scopeKey(MODEL_CONFIG_KEY), DEFAULT_MODEL_CONFIG, api, true
   );
   const [filePaths, setFilePaths, pathsLoaded] = usePersistedState<FilePathConfig>(
-    FILE_PATHS_KEY, DEFAULT_FILE_PATHS, api, true
+    scopeKey(FILE_PATHS_KEY), DEFAULT_FILE_PATHS, api, true
   );
   const [termComm, setTermComm, termLoaded] = usePersistedState<TerminalCommConfig>(
-    TERMINAL_COMM_KEY, DEFAULT_TERMINAL_COMM, api, true
+    scopeKey(TERMINAL_COMM_KEY), DEFAULT_TERMINAL_COMM, api, true
   );
   const [wsDefaults, setWsDefaults, defaultsLoaded] = usePersistedState<WorkspaceDefaultsConfig>(
-    WORKSPACE_DEFAULTS_KEY, DEFAULT_WORKSPACE_DEFAULTS, api, true
+    scopeKey(WORKSPACE_DEFAULTS_KEY), DEFAULT_WORKSPACE_DEFAULTS, api, true
   );
 
   const loaded = wsLoaded && modelLoaded && pathsLoaded && termLoaded && defaultsLoaded;
@@ -544,6 +546,7 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.15 }}
               className="space-y-3"
+              data-tutorial="ctx.tokens"
             >
               <GlassCard
                 className={`p-3 transition-all ${
@@ -650,6 +653,7 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.15 }}
               className="space-y-3"
+              data-tutorial="ctx.model"
             >
               <GlassCard className="p-2">
                 <div className="flex items-start gap-1.5">

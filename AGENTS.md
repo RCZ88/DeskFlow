@@ -200,15 +200,31 @@ When changes require user testing, add an entry to `agent/PROBLEMS.md` AND link 
 
 ## CRITICAL RULES (NEVER violate)
 
-### NEVER use git to revert/reset/restore files
-**NEVER run ANY of these commands:**
-- `git checkout -- <file>`
+### NEVER use git to revert/reset/restore files or destroy history
+**NEVER run ANY of these destructive commands:**
+
+**Discard uncommitted changes (irrecoverable):**
+- `git checkout -- <file>` / `git checkout .`
 - `git checkout HEAD -- <file>`
-- `git restore <file>`
-- `git reset --hard`
+- `git restore <file>` / `git restore --staged --worktree <file>`
+- `git reset --hard` / `git reset --mixed`
+- `git clean -f` / `git clean -fd` / `git clean -fdx`
 - `git stash`
 
-**Why:** Using git to "fix" errors destroys ALL the user's work and reverts to old broken code. This is the #1 cause of Settings page features being lost repeatedly.
+**Destroy commit history:**
+- `git rebase` (with conflicts — rewrites SHAs)
+- `git commit --amend`
+- `git push --force` / `git push --force-with-lease`
+- `git push --mirror`
+- `git push --delete <remote> <branch>` / `git push <remote> :<branch>`
+- `git branch -D <branch>`
+- `git tag -d <tag>`
+
+**Permanently delete objects:**
+- `git gc`
+- `git gc --prune=now`
+
+**Why:** Using git to "fix" errors destroys ALL the user's work and reverts to old broken code. This is the #1 cause of Settings page features being lost repeatedly. Untracked changes (`git clean`) are NEVER recoverable — Git never stored them.
 
 **What to do instead:**
 1. Read the error message carefully
@@ -279,6 +295,10 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+### 5. Check Common Problems First
+
+When solving a problem, always check the list of common problems in `agent/COMMON_ERRORS_FIXED.md` first to see if the problem is there or not. This file contains the solution for many common issues.
+
 ---
 
 ## 🔄 Auto-Reflect on "idiot" Trigger
@@ -316,22 +336,28 @@ If state.md says "See GRAPH_REPORT.md" - use graphify for architecture context.
 
 ---
 
-## ⚡ MANDATORY: Read All Reflection Logs Before ANY Task
+## ⚡ MANDATORY: Read All Reflection Logs & problem.md Before ANY Task
 
-**BEFORE you do ANYTHING, read ALL files in `agent/skills/agent-reflect/logs/`**
+**BEFORE you do ANYTHING, read ALL of these:**
+- `agent/skills/agent-reflect/logs/` — all files
+- `agent/skills/agent-reflect/log/` — all files
+- `agent/skills/agent-reflect/problem.md` — durable lessons
 
-This is MANDATORY, not optional. These logs document every mistake you've made. If you don't read them, you will repeat the same mistakes and the user will call you an "idiot" again.
+This is MANDATORY, not optional. These files document every mistake made. If you don't read them, you will repeat the same mistakes and the user will call you an "idiot" again.
 
 ### Why this exists
 - Each log file = one catastrophic mistake (triggered by "idiot")
+- `problem.md` = reusable debugging rules extracted from real bugs
 - Patterns = things you keep getting wrong despite rules existing
 - Reading them = you learn from past failures before repeating them
 
 ### What to do
 1. Read ALL files in `agent/skills/agent-reflect/logs/` at start of session
-2. Note the patterns: "NEVER use git commands", "complex JSX fixes", etc.
-3. Double-check your actions against what went wrong before
-4. If you're about to do something that matches a logged mistake = STOP
+2. Read ALL files in `agent/skills/agent-reflect/log/` at start of session
+3. Read `agent/skills/agent-reflect/problem.md`
+4. Note the patterns: "NEVER use git commands", "identifiers colliding with DOM globals", etc.
+5. Double-check your actions against what went wrong before
+6. If you're about to do something that matches a logged mistake = STOP
 
 ### Example consequence
 If a log says "Never use git checkout/restore/reset" and you use one anyway = you are ignoring your own documented failure. The reflections exist to prevent this.
@@ -358,4 +384,18 @@ This project uses integrated knowledge management (detailed in `agent/agents.md`
 
 @agent/agents.md
 
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-06-17
+
+---
+
+## Actions System (Problem & Checklist Management)
+
+This project has a structured actions system for agents to manage problems, requests, and checklists via `## Actions` blocks or `agent/actions.json` — do NOT edit PROBLEMS.md or REQUESTS.md manually.
+
+Full reference: `agent/docs/agent-actions-prompt.md`
+
+### Quick syntax:
+- `[create-problem] Title - priority: high|medium|low - category: bug-fix|feature|ui-ux|other - description: ...`
+- `[update-problem] ID_OR_TITLE - status: Not Started|In Progress|AI Attempted Fix|User Testing|Fixed`
+- `[add-check] PARENT_ID - description: ... - instruction: ...`
+- `[complete-check] CHECK_ID`

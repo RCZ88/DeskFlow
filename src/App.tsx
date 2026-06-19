@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useMemo, useRef, useCallback, memo, lazy, Suspense } from 'react';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import {
@@ -7,7 +7,7 @@ import {
   Download, Trash2, Award, Zap, Users, Info, Database, CheckCircle, XCircle, AlertTriangle,
   Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard, Target,
   ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
-  X, FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen
+  X,   FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen, Wallet
 } from 'lucide-react';
 import { format as dateFormat } from 'date-fns';
 import SettingsPage from './pages/SettingsPage';
@@ -24,6 +24,7 @@ import ExternalPage from './pages/ExternalPage';
 import { AiPage } from './pages/AiPage';
 import { DurationPicker, LatencyPicker } from './components/DurationPicker';
 import InsightsPage from './pages/InsightsPage';
+import { FinancePage } from './pages/FinancePage';
 import DashboardPage from './pages/DashboardPage';
 import FeatureSpecViewer from './components/FeatureSpecViewer';
 import AfkPromptModal from './components/AfkPromptModal';
@@ -173,7 +174,7 @@ declare global {
       getProjectTools: (projectId: string) => Promise<any[]>;
       removeProject: (projectId: string) => Promise<{ success: boolean }>;
       openProject: (projectId: string, ideId?: string) => Promise<{ success: boolean; ide?: string; message?: string }>;
-      getAIUsageSummary: (period?: string, dateOffset?: number) => Promise<any>;
+      getAIUsageSummary: (period?: string, dateOffset?: number, projectId?: string) => Promise<any>;
       getCommitStats: (projectId?: string, period?: string) => Promise<any>;
       getIDEProjectsOverview: (period?: string, dateOffset?: number) => Promise<any>;
       scanIdeDefaultProjects: () => Promise<{ ide: string; projects: { name: string; path: string }[] }[]>;
@@ -286,6 +287,39 @@ declare global {
       setDesignLibraryConfig: (config: any) => Promise<{ success: boolean; error?: string }>;
       getDesignCachedData: (key: string) => Promise<{ success: boolean; data?: any; timestamp?: number; stale?: boolean }>;
       testDesignLibraryConnection: (serverId: string) => Promise<{ success: boolean; latency?: number; toolCount?: number; error?: string }>;
+      // Finance Page
+      financeGetAccounts: () => Promise<any[]>;
+      financeCreateAccount: (data: any) => Promise<any>;
+      financeUpdateAccount: (data: any) => Promise<any>;
+      financeArchiveAccount: (id: number) => Promise<any>;
+      financeGetWallets: (accountId?: number) => Promise<any[]>;
+      financeCreateWallet: (data: any) => Promise<any>;
+      financeUpdateWallet: (data: any) => Promise<any>;
+      financeGetCategories: () => Promise<any[]>;
+      financeCreateCategory: (data: any) => Promise<any>;
+      financeUpdateCategory: (data: any) => Promise<any>;
+      financeGetTransactions: (filters?: any) => Promise<any[]>;
+      financeCreateTransaction: (data: any) => Promise<any>;
+      financeUpdateTransaction: (data: any) => Promise<any>;
+      financeDeleteTransaction: (id: number) => Promise<any>;
+      financeGetSummary: () => Promise<any>;
+      financeGetSpendingByCategory: () => Promise<any[]>;
+      financeGetMonthlyTrends: () => Promise<any[]>;
+      financeIsLocked: () => Promise<any>;
+      financeUnlock: (password: string) => Promise<any>;
+      financeLock: () => Promise<any>;
+      financeSetPassword: (password: string) => Promise<any>;
+      financeChangePassword: (currentPassword: string, nextPassword: string) => Promise<any>;
+      financeCheckPasswordSetup: () => Promise<any>;
+      financeSetRememberDevice: (remember: boolean, days: number) => Promise<any>;
+      financeSetLockTimeout: (timeoutMs: number) => Promise<any>;
+      financeGetSecuritySettings: () => Promise<any>;
+      financeCheckPageAccess: () => Promise<any>;
+      financeBiometricUnlock: () => Promise<any>;
+      financeGetWebAuthnCredential: () => Promise<any>;
+      financeStoreWebAuthnCredential: (credentialId: string) => Promise<any>;
+      financeGetDisplayCurrency: () => Promise<{ currency: string }>;
+      financeSetDisplayCurrency: (currency: string) => Promise<{ success: boolean }>;
     };
   }
 }
@@ -431,6 +465,8 @@ function isAppMatchingBrowserRenderer(appName: string, browserName: string): boo
 }
 
 import { GapBanner } from './components/GapBanner';
+import { TutorialProvider } from './contexts/TutorialContext';
+import TutorialOverlay from './components/TutorialOverlay';
 
 function App() {
   const navigate = useNavigate();
@@ -2460,6 +2496,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
     { icon: Code2, label: 'IDE Projects', path: '/ide' },
     { icon: Clock4, label: 'External', path: '/external' },
     { icon: Bot, label: 'AI Assistant', path: '/ai' },
+    { icon: Wallet, label: 'Finance', path: '/finance' },
     { icon: BarChart3, label: 'Insights', path: '/reports' },
     { icon: Database, label: 'Database', path: '/database' },
     { icon: Settings, label: 'Settings', path: '/settings' },
@@ -2467,6 +2504,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
   ];
 
   return (
+    <TutorialProvider>
     <div className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white">
       {/* Sidebar */}
       <div className="w-64 border-r border-zinc-800 flex flex-col h-full glass">
@@ -2759,6 +2797,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   categoryOverrides={categoryOverrides} 
                   timerBehavior={timerBehavior} 
                   selectedPeriod={selectedPeriod}
+                  onSelectedPeriodChange={setSelectedPeriod}
                   dateOffset={dateOffset}
                   onDateOffsetChange={setDateOffset}
                   trackingBrowser={trackingBrowser} 
@@ -2783,8 +2822,10 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
               <Route path="/external" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
               <Route path="/ai" element={<AiPage />} />
-              {/* Legacy routes */}
-              <Route path="/old-dashboard" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
+              <Route path="/finance" element={<FinancePage />} />
+               {/* Legacy routes — kept as redirect for any bookmarked URLs */}
+               <Route path="/dashboard" element={<Navigate to="/" replace />} />
+              <Route path="/old-dashboard" element={<Navigate to="/external" replace />} />
 
               <Route path="/guide" element={<GuidePage />} />
 
@@ -3249,7 +3290,9 @@ Trend: +14% vs. yesterday. Keep it up!`;
           {showGapPanel && <GapPanel onClose={() => setShowGapPanel(false)} />}
         </div>
       </div>
+      <TutorialOverlay />
     </div>
+    </TutorialProvider>
   );
 }
 

@@ -28,6 +28,8 @@ import {
   ExternalLink,
   HelpCircle,
   BookOpen,
+  Lock,
+  Unlock,
   FolderOpen,
   Settings,
   CheckCircle2,
@@ -86,6 +88,20 @@ interface Overview {
   projects: any[];
   aiUsage: { totalTokens: number; totalCost: number; totalMessages?: number; byTool: Record<string, any> };
   commits: { totalCommits: number; totalAdditions: number; totalDeletions: number };
+}
+
+interface LanguageBreakdownItem {
+  language: string;
+  count: number;
+  percentage: number;
+}
+
+interface ProjectLanguagesResult {
+  success: boolean;
+  languages: LanguageBreakdownItem[];
+  allLanguages: LanguageBreakdownItem[];
+  totalFiles: number;
+  codingFiles: number;
 }
 
 interface AIAgent {
@@ -247,9 +263,9 @@ function FreeUsageStats({ agent, dailyUsage, formatTokens }: { agent: AIAgent; d
   );
 }
 
-type TabKey = 'overview' | 'projects' | 'ai' | 'git' | 'environment' | 'analytics' | 'backup' | 'specs';
+type TabKey = 'overview' | 'projects' | 'ai' | 'git' | 'environment' | 'analytics' | 'backup';
 
-const TAB_KEYS: TabKey[] = ['overview', 'projects', 'ai', 'git', 'environment', 'analytics', 'backup', 'specs'];
+const TAB_KEYS: TabKey[] = ['overview', 'projects', 'ai', 'git', 'environment', 'analytics', 'backup'];
 
 const TAB_HOVER = { scale: 1.02 };
 const TAB_TAP = { scale: 0.98 };
@@ -263,7 +279,6 @@ const TABS: Array<{ key: TabKey; label: string; icon: any }> = [
   { key: 'environment', label: 'Environment', icon: Boxes },
   { key: 'analytics', label: 'Analytics', icon: BarChart3 },
   { key: 'backup', label: 'Backup', icon: Archive },
-  { key: 'specs', label: 'Specs', icon: FileText },
 ];
 
 // Back-compat: retired keys map to their new home.
@@ -356,6 +371,10 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [workspaceProject, setWorkspaceProject] = useState<any>(null);
   const [provisionStatus, setProvisionStatus] = useState<'idle' | 'provisioning' | 'provisioned'>('idle');
   const [showInitModal, setShowInitModal] = useState(false);
+  const [showSpecs, setShowSpecs] = useState(false);
+  const [projectLanguages, setProjectLanguages] = useState<Record<string, LanguageBreakdownItem[]>>({});
+  const [projectLanguagesLoading, setProjectLanguagesLoading] = useState(false);
+  const scannedPathsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const handler = (e: CustomEvent<{ status: 'idle' | 'provisioning' | 'provisioned' }>) => setProvisionStatus(e.detail.status);
@@ -564,6 +583,52 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       setLoading(false);
     }
   };
+
+  const scanProjectLanguages = useCallback(async (projects: any[]) => {
+    if (!window.deskflowAPI?.detectProjectsLanguages || !projects?.length) return;
+    const paths = projects.filter((p: any) => p.path).map((p: any) => p.path);
+    const uncached = paths.filter(p => !scannedPathsRef.current.has(p));
+    if (uncached.length === 0) return;
+
+    setProjectLanguagesLoading(true);
+    try {
+      const results = await window.deskflowAPI.detectProjectsLanguages(uncached);
+      setProjectLanguages(prev => {
+        const next = { ...prev };
+        for (const [path, result] of Object.entries(results)) {
+          const r = result as ProjectLanguagesResult;
+          if (r.success && r.languages) {
+            next[path] = r.languages;
+            scannedPathsRef.current.add(path);
+          }
+        }
+        return next;
+      });
+    } catch (err) {
+      console.error('[IDEProjectsPage] Failed to scan project languages:', err);
+    } finally {
+      setProjectLanguagesLoading(false);
+    }
+  }, []);
+
+  // Detect languages when projects or analytics tab becomes active
+  useEffect(() => {
+    if (activeTab !== 'projects' && activeTab !== 'analytics') return;
+    if (!overview?.projects?.length) return;
+    scanProjectLanguages(overview.projects);
+  }, [activeTab, overview?.projects, scanProjectLanguages]);
+
+  const aggregatedProjectLanguages = useMemo(() => {
+    const totals: Record<string, number> = {};
+    for (const langs of Object.values(projectLanguages)) {
+      for (const { language, count } of langs) {
+        totals[language] = (totals[language] || 0) + count;
+      }
+    }
+    return Object.entries(totals)
+      .map(([language, count]) => ({ language, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [projectLanguages]);
 
   const handleSyncAI = async () => {
     setSyncingAI(true);
@@ -1147,7 +1212,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       </AnimatePresence>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-zinc-900/50 rounded-xl w-fit">
+      <div data-tutorial="ide.tabs" className="flex gap-1 p-1 bg-zinc-900/50 rounded-xl w-fit">
         {TABS.map(({ key, label, icon: Icon }) => {
           const isActive = activeTab === key;
           return (
@@ -1180,7 +1245,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* Metric Cards (clickable → navigate to tab) */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div data-tutorial="ide.metrics" className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
               { label: 'Environment', value: (overview?.ides?.length || 0) + (overview?.tools?.length || 0), subValue: `${overview?.ides?.length || 0} IDEs · ${overview?.tools?.length || 0} tools`, icon: Boxes, color: '#3b82f6', bg: 'bg-blue-500/10', tab: 'environment' as TabKey },
               { label: 'AI Usage', value: <TokenValue value={overview?.aiUsage?.totalTokens || 0} />, subValue: <CostValue value={overview?.aiUsage?.totalCost || 0} />, icon: Sparkles, color: '#a855f7', bg: 'bg-violet-500/10', tab: 'ai' as TabKey },
@@ -1214,6 +1279,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {/* AI Usage Overview */}
             <motion.div
+              data-tutorial="ide.usage"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
@@ -1227,6 +1293,24 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                     <div className="text-sm text-zinc-500">Last 30 days</div>
                   </div>
                 </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setLogScale(!logScale)}
+                    className={`px-2 py-1 rounded text-[10px] font-medium transition ${
+                      logScale ? 'bg-cyan-500/20 text-cyan-400' : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    Log
+                  </button>
+                  <button
+                    onClick={() => setExcludeOutliers(!excludeOutliers)}
+                    className={`px-2 py-1 rounded text-[10px] font-medium transition ${
+                      excludeOutliers ? 'bg-amber-500/20 text-amber-400' : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    ♯ Out
+                  </button>
+                </div>
               </div>
 
               {aiAgents.filter(a => a.status !== 'inactive').length > 0 ? (
@@ -1237,16 +1321,22 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                       const overviewDays = eachDayOfInterval({ start: subDays(new Date(), 29), end: new Date() });
                       const overviewChartData = {
                         labels: overviewDays.map(d => format(d, 'MMM dd')),
-                        datasets: activeAgents.map((agent, idx) => ({
-                          label: agent.name,
-                          data: overviewDays.map(d => {
+                        datasets: activeAgents.map((agent, idx) => {
+                          let data = overviewDays.map(d => {
                             const dayStr = format(d, 'yyyy-MM-dd');
                             return overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr]?.tokens || 0;
-                          }),
-                          backgroundColor: agent.color,
-                          stack: 'combined',
-                        }))
+                          });
+                          if (excludeOutliers) data = filterOutlierValues(data);
+                          if (logScale) data = data.map(v => v === 0 ? null : v) as number[];
+                          return {
+                            label: agent.name,
+                            data,
+                            backgroundColor: agent.color,
+                            ...(logScale ? {} : { stack: 'combined' }),
+                          };
+                        })
                       };
+                      const isStacked = !logScale;
                       return (
                         <Bar
                           data={overviewChartData}
@@ -1262,17 +1352,27 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                 borderColor: '#3f3f46',
                                 borderWidth: 1,
                                 callbacks: {
-                                  label: (ctx: any) => ` ${ctx.dataset.label || 'AI'}: ${formatTokens(ctx.parsed.y ?? 0)} tokens`
+                                  label: (ctx: any) => {
+                                    const val = ctx.parsed.y ?? 0;
+                                    return `${ctx.dataset.label || 'AI'}: ${formatTokens(val)} tokens`;
+                                  }
                                 }
                               }
                             },
                             scales: {
-                              x: { stacked: true, grid: { display: false }, ticks: { color: '#71717a', maxTicksLimit: 7 } },
+                              x: { stacked: isStacked, grid: { display: false }, ticks: { color: '#71717a', maxTicksLimit: 7 } },
                               y: {
-                                stacked: true,
+                                type: logScale ? 'logarithmic' as const : 'linear' as const,
+                                stacked: isStacked,
                                 grid: { color: '#27272a' },
-                                ticks: { color: '#71717a', callback: (v: any) => formatTokens(v) },
-                                beginAtZero: true,
+                                ticks: {
+                                  color: '#71717a',
+                                  callback: (v: any) => {
+                                    if (v === null) return '';
+                                    return formatTokens(v);
+                                  },
+                                },
+                                ...(logScale ? {} : { beginAtZero: true }),
                               }
                             },
                           }}
@@ -1351,11 +1451,19 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                             {project.vcs_type}
                           </span>
                         )}
-                        {project.primary_language && (
-                          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-md">
-                            {project.primary_language}
-                          </span>
-                        )}
+                        {(() => {
+                          const langs = projectLanguages[project.path];
+                          const detected = langs?.[0]?.language || project.primary_language;
+                          const pct = langs?.[0]?.percentage;
+                          if (detected) {
+                            return (
+                              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-md">
+                                {detected}{pct !== undefined ? ` ${pct}%` : ''}
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                     </div>
                   ))}
@@ -1612,11 +1720,70 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                           {project.vcs_type}
                         </span>
                       )}
-                      {project.primary_language && (
-                        <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs rounded-lg">
-                          {project.primary_language}
-                        </span>
-                      )}
+                      {(() => {
+                        const langs = projectLanguages[project.path];
+                        const isLoading = projectLanguagesLoading;
+                        if (langs && langs.length > 0) {
+                          const top = langs.slice(0, 3);
+                          const extra = langs.length - 3;
+                          const maxPct = top[0]?.percentage || 0;
+                          return (
+                            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                              {top.map((l, i) => (
+                                <div key={l.language} className="group relative">
+                                  <span className={`px-2 py-1 text-xs rounded-lg inline-flex items-center gap-1.5 ${
+                                    i === 0
+                                      ? 'bg-emerald-500/20 text-emerald-400'
+                                      : 'bg-zinc-700/50 text-zinc-400'
+                                  }`}>
+                                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{
+                                      backgroundColor: i === 0 ? '#34d399' : i === 1 ? '#60a5fa' : '#a78bfa'
+                                    }} />
+                                    {l.language}
+                                    <span className="text-[10px] opacity-70">{l.percentage}%</span>
+                                  </span>
+                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10">
+                                    <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-2 shadow-xl whitespace-nowrap">
+                                      {langs.slice(0, 5).map(l => (
+                                        <div key={l.language} className="flex items-center justify-between gap-3 text-[11px]">
+                                          <span className="text-zinc-300">{l.language}</span>
+                                          <span className="text-zinc-500">{l.count} files ({l.percentage}%)</span>
+                                        </div>
+                                      ))}
+                                      {langs.length > 5 && (
+                                        <div className="text-[10px] text-zinc-600 text-center mt-1">
+                                          +{langs.length - 5} more
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                              {extra > 0 && (
+                                <span className="text-[10px] text-zinc-600 px-1">
+                                  +{extra}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                        if (project.primary_language) {
+                          return (
+                            <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs rounded-lg">
+                              {project.primary_language}
+                            </span>
+                          );
+                        }
+                        if (isLoading) {
+                          return (
+                            <span className="px-2 py-1 bg-zinc-700/30 text-zinc-500 text-xs rounded-lg flex items-center gap-1">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Detecting...
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                       {details?.health?.healthScore !== undefined && (
                         <span className={`px-2 py-1 text-xs rounded-lg flex items-center gap-1 ${
                           details.health.healthScore >= 80 ? 'bg-green-500/20 text-green-400' :
@@ -1889,6 +2056,26 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
             </div>
           </motion.div>
 
+          {/* Global Chart Controls */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setLogScale(!logScale)}
+              className={`px-2 py-1 rounded text-[10px] font-medium transition ${
+                logScale ? 'bg-cyan-500/20 text-cyan-400' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Log
+            </button>
+            <button
+              onClick={() => setExcludeOutliers(!excludeOutliers)}
+              className={`px-2 py-1 rounded text-[10px] font-medium transition ${
+                excludeOutliers ? 'bg-amber-500/20 text-amber-400' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              ♯ Out
+            </button>
+          </div>
+
           {/* Stats Dashboard */}
           <StatsDashboard
             rawData={workspaceAnalytics}
@@ -2076,10 +2263,11 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                       const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 90 };
                       const sparkDays = daysMap[sparkPeriod] || 7;
                       const days = eachDayOfInterval({ start: subDays(new Date(), sparkDays - 1), end: new Date() });
-                      const data = days.map(d => {
+                      let data = days.map(d => {
                         const dayStr = format(d, 'yyyy-MM-dd');
                         return overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr]?.tokens || 0;
                       });
+                      if (excludeOutliers) data = filterOutlierValues(data);
                       const hasData = data.some(v => v > 0);
                       if (!hasData) return null;
                       return (
@@ -2205,7 +2393,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                         {period === 'week' ? '7 Days' : period === 'month' ? '30 Days' : 'All Time'}
                       </button>
                     ))}
-                </div>
+                  </div>
                 </div>
               </div>
 
@@ -2344,7 +2532,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                             {mode.charAt(0).toUpperCase() + mode.slice(1)}
                           </button>
                         ))}
-                      </div>
+                       </div>
                       <div className="flex items-center gap-0.5 bg-zinc-800/50 rounded-lg p-0.5">
                         {(['week', 'month', 'all'] as const).map(period => (
                           <button
@@ -2359,24 +2547,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                             {period === 'week' ? '7D' : period === 'month' ? '30D' : 'All'}
                           </button>
                         ))}
-                      </div>
-                      <div className="flex items-center gap-0.5 bg-zinc-800/50 rounded-lg p-0.5">
-                        <button
-                          onClick={() => setLogScale(!logScale)}
-                          className={`px-2 py-1 rounded text-[10px] font-medium transition ${
-                            logScale ? 'bg-cyan-500/20 text-cyan-400' : 'text-zinc-400 hover:text-white'
-                          }`}
-                        >
-                          Log
-                        </button>
-                        <button
-                          onClick={() => setExcludeOutliers(!excludeOutliers)}
-                          className={`px-2 py-1 rounded text-[10px] font-medium transition ${
-                            excludeOutliers ? 'bg-amber-500/20 text-amber-400' : 'text-zinc-400 hover:text-white'
-                          }`}
-                        >
-                          ♯ Out
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -2990,6 +3160,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
               loading={analyticsLoading}
               period={selectedPeriod}
               variant="workspace"
+              projectLanguages={aggregatedProjectLanguages}
             />
           ) : analyticsLoading ? (
             <div className="flex items-center justify-center py-20">
@@ -3024,19 +3195,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
               description="Create a backup before your next AI coding session to enable file-level restore"
             />
           </GlassCard>
-        </motion.div>
-      )}
-
-      {/* Specs Tab */}
-      {activeTab === 'specs' && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="h-full"
-        >
-          <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 overflow-hidden h-full">
-            <FeatureSpecPanel />
-          </div>
         </motion.div>
       )}
 
@@ -3485,7 +3643,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                 : 'text-zinc-400 hover:text-white'
                             }`}
                           >
-                            {period === 'week' ? '7D' : period === 'month' ? '30D' : 'All'}
+                             {period === 'week' ? '7D' : period === 'month' ? '30D' : 'All'}
                           </button>
                         ))}
                       </div>
@@ -4315,12 +4473,30 @@ onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDi
                   <Bot className="w-3.5 h-3.5" />
                   New Agent
                 </button>
+                <div className="w-px h-5 bg-zinc-700" />
+                <button
+                  onClick={() => setShowSpecs(!showSpecs)}
+                  className={`px-2 py-1.5 text-xs rounded-lg flex items-center gap-1.5 transition-colors duration-150 ${showSpecs ? 'bg-cyan-700/50 text-cyan-200 border border-cyan-600/50' : 'bg-zinc-700/60 hover:bg-zinc-600/60 border border-zinc-600/50 text-zinc-300'}`}
+                  title="View feature specifications"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Specs
+                </button>
               </div>
             </div>
 
             {/* Terminal Content */}
             <div className="flex-1 flex overflow-hidden">
-              <TerminalPage projectId={workspaceProject.id} projectPath={workspaceProject.path} onCloseWorkspace={handleCloseWorkspace} />
+              <div className={`flex-1 min-w-0 ${showSpecs ? 'border-r border-zinc-800' : ''}`}>
+                <TerminalPage projectId={workspaceProject.id} projectPath={workspaceProject.path} onCloseWorkspace={handleCloseWorkspace} />
+              </div>
+              {showSpecs && (
+                <div className="w-[45%] overflow-hidden border-l border-zinc-800">
+                  <div className="h-full overflow-auto">
+                    <FeatureSpecPanel />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Initialize Progress Modal */}

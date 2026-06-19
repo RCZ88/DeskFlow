@@ -1,6 +1,19 @@
 # Human Testing Checklist
 
-**Last Updated:** 2026-06-05
+**Last Updated:** 2026-06-19
+
+## SECTION 6: OrbitSystem Bug Fixes (2026-06-19)
+
+**Fixes:** FPSLineGraph hook error, website duration scaling, timeline selector data loading, sun size, orbit spacing.
+
+| Feature | Test Steps | Expected | Pass/Fail |
+|---------|-----------|----------|-----------|
+| No R3F hook crash | 1. Go to Dashboard 2. Orbit thumbnail loads | No console error "Hooks can only be used within the Canvas" | ⏳ |
+| FPS graph renders | 1. Open OrbitSystem fullscreen 2. Click FPS button | Sparkline graph appears with live FPS data | ⏳ |
+| Website planet sizes correct | 1. Visit websites for several minutes 2. Go to Dashboard → OrbitSystem galaxy view → Websites tab | Website planet sizes correlate to actual usage (hours/minutes, not <5s) | ⏳ |
+| Timeline selector refetches data | 1. Click "Today" in OrbitSystem timeline 2. Click "Week" 3. Click "Month" 4. Click "All" | Data changes to match selected period (planet count, sizes update) | ⏳ |
+| Sun is visually dominant | 1. View solar system mode | Sun is noticeably larger than all planets (≥3x size ratio) | ⏳ |
+| No orbit collisions | 1. Open solar system with many apps visible | Inner planet orbits don't visually overlap; all orbits clearly separated | ⏳ |
 
 ## SECTION 5: Sidebar Scroll Fix (2026-06-05)
 

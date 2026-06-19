@@ -86,8 +86,8 @@ export default function DatabasePage() {
     <PageShell page="database" variant="sticky-header">
       <SectionHeader title="Database" icon={<Database className="w-5 h-5" />} />
 
-      <div className="flex gap-4 flex-1 overflow-auto p-5">
-        <GlassCard className="w-64 flex-shrink-0 p-3 overflow-auto">
+      <div className="flex gap-4 flex-1 overflow-auto p-5" data-tutorial="db.charts">
+        <GlassCard className="w-64 flex-shrink-0 p-3 overflow-auto" data-tutorial="db.browser">
           <div className="relative mb-2">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
             <input
@@ -112,7 +112,7 @@ export default function DatabasePage() {
           </div>
         </GlassCard>
 
-        <GlassCard className="flex-1 p-4 overflow-auto">
+        <GlassCard className="flex-1 p-4 overflow-auto" data-tutorial="db.table">
           {selectedTable ? (
             <>
               <div className="flex items-center justify-between mb-4">

@@ -2,10 +2,11 @@ interface PageShellProps {
   variant?: 'default' | 'sticky-header' | 'dashboard';
   page: string;
   className?: string;
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }
 
-export function PageShell({ variant = 'default', page, className = '', children }: PageShellProps) {
+export function PageShell({ variant = 'default', page, className = '', style, children }: PageShellProps) {
   const layoutClass = {
     default:       'p-5 space-y-4',
     'sticky-header': 'flex flex-col h-full',
@@ -16,7 +17,7 @@ export function PageShell({ variant = 'default', page, className = '', children 
     <div
       data-page={page}
       className={`min-h-full ${layoutClass} ${className}`}
-      style={{ animation: 'pageEnter var(--normal) var(--ease-out)' }}
+      style={{ animation: 'pageEnter var(--normal) var(--ease-out)', ...style }}
     >
       {children}
     </div>

@@ -273,6 +273,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
   const [pastSleepDate, setPastSleepDate] = useState(() => localDateStr(new Date()));
   const [pastWakeupDate, setPastWakeupDate] = useState<string | null>(null);
   const [pastSleepSessionId, setPastSleepSessionId] = useState<string | null>(null);
+  const [pastOriginalStartedAt, setPastOriginalStartedAt] = useState<string | null>(null);
   const [showMorningPrompt, setShowMorningPrompt] = useState(false);
   const [morningPromptData, setMorningPromptData] = useState<{ lastCloseTime: number; lastCloseType: string } | null>(null);
   const [sleepLatencyMinutes, setSleepLatencyMinutes] = useState(15);
@@ -286,6 +287,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
         const existing = await window.deskflowAPI.getSleepForDate!(pastSleepDate);
         if (existing) {
           setPastSleepSessionId(existing.id);
+          setPastOriginalStartedAt(existing.started_at);
           const startD = new Date(existing.started_at);
           const endD = new Date(existing.ended_at);
           setPastDeviceOff({ hours: startD.getHours(), minutes: startD.getMinutes() });
@@ -299,6 +301,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
           setPastWakeupDate(localDateStr(endD));
         } else {
           setPastSleepSessionId(null);
+          setPastOriginalStartedAt(null);
           setPastDeviceOff({ hours: 22, minutes: 0 });
           setPastFellAsleepAt({ hours: 22, minutes: 30 });
           setPastWakeupTime({ hours: 7, minutes: 0 });
@@ -808,6 +811,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
         <AnimatePresence>
           {activeSession && (
             <motion.div
+              data-tutorial="external.timer"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -1371,7 +1375,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
 
         {/* Activity Grid with inline mini charts */}
         
-          <div className="relative mb-8">
+          <div data-tutorial="external.grid" className="relative mb-8">
             <div className="grid grid-cols-4 gap-4">
               {orderedActivities.map((activity, idx) => {
                 const Icon = getIcon(activity.icon);
@@ -1593,7 +1597,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
 
 {/* Sleep Trends - Time-based chart */}
 {sleepTrends.daily.length > 0 && (
-          <GlassCard className="mb-8 !overflow-visible">
+          <GlassCard data-tutorial="external.sleep" className="mb-8 !overflow-visible">
             <SectionHeader title="Sleep Patterns" action={
               <div className="flex items-center gap-4 text-xs">
                 <div className="flex items-center gap-1.5">
@@ -1640,7 +1644,9 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                   {(() => {
                     const range = getDateRange(selectedPeriod, dateOffset);
                     const days: any[] = [];
+                    // Start one day earlier so AM bedtimes grouped to previous day are visible
                     let curr = new Date(range.start);
+                    curr.setDate(curr.getDate() - 1);
                     // Safeguard for infinite loop
                     let safety = 0;
                     while (curr < range.end && safety < 400) {
@@ -1714,7 +1720,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                     };
                     
                     return (
-                      <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px] cursor-pointer" onClick={() => { setPastSleepDate(day.date); setShowPastSleepModal(true); }}>
+                      <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px] cursor-pointer" onClick={() => { const actualDate = (() => { const d = new Date(day.date + 'T00:00:00'); if (day.bedtime_minutes < 720) d.setDate(d.getDate() + 1); return localDateStr(d); })(); setPastSleepDate(actualDate); setShowPastSleepModal(true); }}>
                         {/* 3-segment sleep bar: amber pre-sleep → indigo sleep → rose post-wake */}
                         <div className="relative w-full h-72">
                           {/* Tooltip - positioned at bottom of bar area */}
@@ -1771,7 +1777,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                         {/* Day label — shows actual sleep date (next day for AM bedtimes) */}
                         <div className={`text-[11px] font-medium mt-1 text-center ${isToday ? 'text-indigo-400' : 'text-zinc-400'}`}>
                           <div>{isToday ? 'Today' : (() => { const d = new Date(day.date + 'T00:00:00'); if (appExitMin < 720) d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-US', { weekday: 'short' }); })()}</div>
-                          <div className="text-[10px] text-zinc-500 font-normal">{(() => { const d = new Date(day.date + 'T00:00:00'); if (appExitMin < 720) d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })()}</div>
+                          {!isToday && <div className="text-[10px] text-zinc-500 font-normal">{(() => { const d = new Date(day.date + 'T00:00:00'); if (appExitMin < 720) d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })()}</div>}
                         </div>
                       </div>
                     );
@@ -1798,14 +1804,23 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
           </GlassCard>
         )}
 
-        {/* Sleep Debug */}
-        <div className="mb-4">
+        {/* Sleep Data Fix */}
+        <div className="mb-4 flex gap-3">
           <button onClick={async () => {
             if (sleepDebugData) { setSleepDebugData(null); return; }
             const data = await window.deskflowAPI?.getSleepDebug?.(selectedPeriod, dateOffset);
             setSleepDebugData(data || null);
           }} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition font-mono">
             {sleepDebugData ? 'Hide Sleep Debug' : 'Sleep Debug'}
+          </button>
+          <button onClick={async () => {
+            const result = await window.deskflowAPI?.fixSleepDates?.();
+            if (result) {
+              alert(`Fixed ${result.fixed} sleep session(s): ${result.message}`);
+              refreshStats();
+            }
+          }} className="text-[10px] text-amber-600 hover:text-amber-400 transition font-mono border border-amber-600/30 hover:border-amber-400/50 rounded px-2 py-0.5">
+            Fix Sleep Dates
           </button>
           {sleepDebugData && (
             <div className="text-[10px] font-mono text-zinc-500 bg-zinc-900/50 rounded-xl p-4 mt-1 overflow-auto max-h-96 space-y-2">
@@ -1846,7 +1861,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
         </div>
 
         {/* Charts Section - 3 Glass-Styled Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div data-tutorial="external.streak" className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {/* Daily Usage Trend */}
             <GlassCard>
               <SectionHeader title="Daily Usage Trend" />
@@ -2445,6 +2460,11 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                     // Wake up time = now - time spent awake before opening app
                     const wakeUp = new Date(now.getTime() - wakeUpMinutes * 60 * 1000);
                     
+                    // Set base date to the bedtime date (lastClose), not today — so cross-midnight
+                    // sleeps register on the correct day (e.g., bedtime 11PM June 16 → June 16, not June 17)
+                    setPastSleepDate(localDateStr(lastClose));
+                    setPastOriginalStartedAt(null);
+                    
                     const offH = lastClose.getHours(), offM = lastClose.getMinutes();
                     setPastDeviceOff({ hours: offH, minutes: offM });
                     const fellAsleepM = offM + sleepLatencyMinutes;
@@ -2706,7 +2726,9 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                       setPastSleepError(null);
                       setPastSleepSuccess(false);
 
-                      const baseDate = new Date(pastSleepDate + 'T00:00:00');
+                      const baseDate = pastOriginalStartedAt
+                        ? new Date(pastOriginalStartedAt)
+                        : new Date(pastSleepDate + 'T00:00:00');
                       const deviceOffDate = new Date(baseDate);
                       deviceOffDate.setHours(pastDeviceOff.hours, pastDeviceOff.minutes, 0, 0);
 
@@ -2766,6 +2788,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                         if (result.success) {
                           setPastSleepSuccess(true);
                           setPastSleepSessionId(null);
+                          setPastOriginalStartedAt(null);
                           setPastDeviceOff({ hours: 22, minutes: 0 });
                           setPastFellAsleepAt({ hours: 22, minutes: 30 });
                           setPastWakeupTime({ hours: 7, minutes: 0 });

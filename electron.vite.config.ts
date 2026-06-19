@@ -9,6 +9,9 @@ export default defineConfig({
         entry: 'src/main.ts',
         fileName: () => 'main.cjs',
       },
+      rollupOptions: {
+        external: ['better-sqlite3'],
+      },
     },
   },
   preload: {

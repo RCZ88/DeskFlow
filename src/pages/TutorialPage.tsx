@@ -7,13 +7,12 @@ import {
   Target, PieChart, Code2, Clock4, Zap, Users, FileText,
   Sliders, Search, Layers, Cpu, Grip, Layout, Brain,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { EmptyState } from '../components/EmptyState';
-import TutorialOverlay from '../components/TutorialOverlay';
-import { useTutorial } from '../hooks/useTutorial';
+import { useTutorialContext } from '../contexts/TutorialContext';
 import { TUTORIAL_STEPS } from '../data/tutorial-steps';
 
 interface Feature {
@@ -381,14 +380,9 @@ function saveProgress(progress: GuideProgress) {
 }
 
 export default function TutorialPage({ noShell }: { noShell?: boolean }) {
-  const navigate = useNavigate();
   const [progress, setProgress] = useState<GuideProgress>(loadProgress);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const tutorial = useTutorial(TUTORIAL_STEPS);
-
-  const activeFeature = tutorial.activeFeatureId
-    ? FEATURES.find((f) => f.id === tutorial.activeFeatureId) || null
-    : null;
+  const tutorial = useTutorialContext();
 
   const filteredFeatures = selectedCategory === 'All'
     ? FEATURES : FEATURES.filter((f) => f.category === selectedCategory);
@@ -396,28 +390,9 @@ export default function TutorialPage({ noShell }: { noShell?: boolean }) {
   const isAllComplete = progress.viewedFeatures.length >= FEATURES.length;
 
   const openFeature = useCallback((feature: Feature) => {
-    tutorial.startTutorial(feature.id);
-  }, [tutorial]);
-
-  const handleTryIt = useCallback(() => {
-    tutorial.tryIt();
-    if (activeFeature?.route) navigate(activeFeature.route);
-  }, [tutorial, activeFeature, navigate]);
-
-  const handleNext = useCallback(() => {
-    const wasLastStep = tutorial.isLastStep;
-    tutorial.nextStep();
-    if (wasLastStep && tutorial.activeFeatureId) {
-      setProgress((prev) => {
-        const updated = {
-          ...prev,
-          viewedFeatures: prev.viewedFeatures.includes(tutorial.activeFeatureId!)
-            ? prev.viewedFeatures : [...prev.viewedFeatures, tutorial.activeFeatureId!],
-        };
-        saveProgress(updated);
-        return updated;
-      });
-    }
+    const steps = TUTORIAL_STEPS[feature.id];
+    if (!steps) return;
+    tutorial.startTutorial(feature.id, steps, feature.name, feature.route);
   }, [tutorial]);
 
   const resetProgress = useCallback(() => {
@@ -428,17 +403,6 @@ export default function TutorialPage({ noShell }: { noShell?: boolean }) {
 
   const content = (
     <>
-      <TutorialOverlay
-        isVisible={tutorial.isVisible}
-        step={tutorial.currentStep}
-        stepIndex={tutorial.stepIndex}
-        totalSteps={tutorial.totalSteps}
-        featureName={activeFeature?.name || ''}
-        onNext={handleNext}
-        onPrev={tutorial.prevStep}
-        onClose={tutorial.closeTutorial}
-        onTryIt={handleTryIt}
-      />
       <div className="flex-shrink-0 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl">
         <div className="px-5 py-4 flex items-center gap-4">
           <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center">

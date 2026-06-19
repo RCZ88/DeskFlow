@@ -4,6 +4,33 @@
 
 ### Commit Message
 ```
+feat: sync finance bundle baseline and workspace revamp snapshot
+```
+
+### Detailed Changes
+
+#### Finance bundle sync + security hardening
+- **`src/components/finance/`** — synced the refreshed finance bundle baseline into the workspace. `OverviewTab.tsx` and `FinanceStickyHeader.tsx` now use the revamped layout, `QuickAddModal.tsx` uses the base-currency fallback, and `TransactionsTab.tsx` preserves the `baseCurrency` handoff into the modal.
+- **`src/pages/FinancePage.tsx`** — kept the finance page wiring aligned with the refreshed components and the lock-screen flow.
+- **`src/pages/SettingsPage.tsx`** — password changes now require the current password when one already exists.
+- **`src/main.ts` / `src/preload.ts` / `src/App.tsx`** — secure `app://` production loading for WebAuthn, new `finance:change-password` IPC bridge, and hardened password storage/verification (`scrypt` + constant-time compare, no plaintext).
+
+#### Workspace / agent / UI refresh
+- **AI and collaboration UI** — staged updates across `src/components/AiChat/`, `src/components/BugReportPanel.tsx`, and related support files for the agent/chat revamp and bug-reporting workflow.
+- **Workspace and terminal shell** — staged updates across `src/pages/TerminalPage.tsx`, `src/components/workspace/`, `src/components/FilesTab.tsx`, `src/components/ProblemsTab.tsx`, `src/components/RequestsTab.tsx`, `src/components/SkillsTab.tsx`, and supporting context hooks.
+- **Dashboard / Orbit / page polish** — staged updates across `src/pages/DashboardPage.tsx`, `src/components/OrbitSystem.tsx`, `src/pages/StatsPage.tsx`, `src/pages/ExternalPage.tsx`, and related UI helpers.
+
+#### Docs, build, and snapshot artifacts
+- **Agent markdown + docs** — `agent/state.md`, `agent/data.md`, `agent/FEATURE_TRACKER.md`, `agent/REQUESTS.md`, `agent/PROBLEMS.md`, `agent/docs/*`, and reflection notes were updated to match the current workspace state.
+- **Graph/build outputs and backups** — `graphify-out/*`, `scripts/build.mjs`, `backup_before_finance_revamp/*`, and finance backup artifacts were included as part of the current snapshot.
+
+#### Result
+- The repository now reflects the refreshed finance bundle baseline, the finance security improvements, and the wider workspace/UI snapshot that was already present in the working tree.
+
+## Latest Commit
+
+### Commit Message
+```
 feat(ai): complete AI agent system with real LLM tool calling
 ```
 

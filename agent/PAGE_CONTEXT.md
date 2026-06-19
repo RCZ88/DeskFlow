@@ -396,7 +396,7 @@ PageShell
 ## Page: External Activity
 
 ### Identity
-- **Route:** `/external` (and `/old-dashboard` legacy alias)
+- **Route:** `/external` (legacy `/old-dashboard` now redirects here)
 - **File:** `src/pages/ExternalPage.tsx`
 - **Line count:** ~2763
 - **Primary props:** selectedPeriod, dateOffset
@@ -456,7 +456,7 @@ PageShell
 - **Props:** Only `selectedPeriod` and `dateOffset` from App.tsx
 
 ### Connections to Other Pages
-- `/old-dashboard` is a legacy alias that renders the same component
+- `/old-dashboard` now redirects to `/external` (removed duplicate route)
 - Timer state is fetched via `getActiveExternalSession` — not shared via props
 - No direct navigation links to other pages
 

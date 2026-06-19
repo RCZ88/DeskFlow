@@ -1,0 +1,35 @@
+/**
+ * RecentTxnsCard – shows a short list of the most recent transactions.
+ * Each transaction shows the amount (masked if hide‑numbers is on) and a brief description.
+ */
+import { GlassCard } from '../GlassCard';
+import { formatCurrency } from '../../components/finance/currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
+import { FinanceTransaction } from '../finance/finance-types';
+
+interface RecentTxnsCardProps {
+  transactions: FinanceTransaction[];
+  displayCurrency: string;
+}
+
+export function RecentTxnsCard({ transactions, displayCurrency }: RecentTxnsCardProps) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const recent = transactions.slice(0, 5);
+  return (
+    <GlassCard className="p-4">
+      <h3 className="text-sm font-medium text-zinc-400 mb-2">Recent Transactions</h3>
+      <ul className="space-y-1">
+        {recent.map((tx) => (
+          <li key={tx.id} className="flex justify-between text-xs">
+            <span className="truncate max-w-[70%]">{tx.title}</span>
+            <span className={`font-medium ${tx.amount >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {showNumbers ? formatCurrency(tx.amount, displayCurrency) : maskNumber(tx.amount, maskMode, maskFixedValue)}
+            </span>
+          </li>
+        ))}
+        {recent.length === 0 && <li className="text-zinc-500">No recent transactions</li>}
+      </ul>
+    </GlassCard>
+  );
+}

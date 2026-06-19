@@ -734,7 +734,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
           <h1 className="text-3xl font-semibold tracking-tight">Applications</h1>
           <p className="text-sm text-zinc-500 mt-1">Track your application usage</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div data-tutorial="stats.period" className="flex items-center gap-3">
           <button
             onClick={() => setTimeLock(!timeLock)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
@@ -888,7 +888,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
       </div>
 
 {/* Hourly Distribution */}
-      <GlassCard>
+      <GlassCard data-tutorial="stats.charts">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             {hourlyChartMode === 'bar' ? (
@@ -976,7 +976,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
       </GlassCard>
 
       {/* Per-App Cards */}
-      <GlassCard>
+      <GlassCard data-tutorial="stats.list">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold">Application Statistics</h2>

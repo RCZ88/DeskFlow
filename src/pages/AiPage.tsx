@@ -290,7 +290,7 @@ export function AiPage() {
         </header>
 
         {AI_CHAT_ENABLED && (
-          <div className="mb-12 bg-zinc-950/40 border border-zinc-800/50 rounded-xl flex flex-col h-[460px] min-h-[460px]">
+          <div className="mb-12 bg-zinc-950/50 border border-zinc-800/40 rounded-2xl flex flex-col h-[520px] min-h-[520px] shadow-sm shadow-zinc-950/50 overflow-hidden">
             <AiChat />
           </div>
         )}

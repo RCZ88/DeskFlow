@@ -3,10 +3,574 @@
 > **Purpose:** Current project state for AI context â€” tracks version, recent changes, known issues, and feature inventory.
 
 ## Metadata
-- version: 4.76
-- last_updated: 2026-06-16
+- version: 4.111
+- last_updated: 2026-06-20
 - agent: opencode
-- current_focus: AiPage — full page redesign with accent-bar sections, clean metrics row, removed quick actions
+- current_focus: Finance UI bundle sync for QuickAddModal/TransactionsTab
+
+### 2026-06-20 (v4.111) — Finance transaction modal bundle sync
+
+**What Changed:**
+1. `QuickAddModal.tsx` was aligned to the downloaded finance bundle baseline, including the main/base currency fallback note.
+2. `TransactionsTab.tsx` kept forwarding `baseCurrency` into `QuickAddModal` so the add-transaction popup still uses the Settings currency when no account is selected.
+3. Verified the project still builds successfully after the finance component merge.
+
+**Files Modified:**
+- `src/components/finance/QuickAddModal.tsx` - synced to the refreshed bundle baseline
+- `agent/state.md` - recorded the finance file merge and verification
+
+**Why:** The finance bundle was the source of truth for the refreshed UI, but the transaction popup still needed the workspace's base-currency handoff.
+
+**Result:** The add-transaction modal uses the refreshed bundle layout while preserving the correct currency prefix behavior.
+
+**Build:** ✅
+
+### 2026-06-20 (v4.110) — Finance overview refresh from revamped bundle baseline
+
+**What Changed:**
+1. **OverviewTab** now uses the revamped finance layout from the replacement bundle, including the income vs expense card, monthly net flow card, and net worth across currencies section.
+2. **FinanceStickyHeader** was aligned to the refreshed bundle baseline, including the updated sticky stacking value used by the new layout.
+
+**Files Modified:**
+- `src/components/finance/OverviewTab.tsx` - replaced the old overview hero with the revamped bundle layout
+- `src/components/finance/FinanceStickyHeader.tsx` - aligned the sticky finance header with the refreshed bundle baseline
+
+**Why:** The finance overview screen was still rendering the older layout after the bundle swap, so the downloaded finance UI baseline needed to be merged into the workspace component files.
+
+**Result:** The finance overview now matches the refreshed bundle structure and styling instead of the older single-hero layout.
+
+**Build:** ✅
+
+### 2026-06-20 (v4.109) — Finance lock/security hardening + secure app:// production origin
+
+**What Changed:**
+1. **QuickAddModal now receives the persisted base currency** from `FinancePage` and uses it as the fallback currency symbol when no account is selected.
+2. **Finance page lock screen no longer renders net worth chrome while locked** so the sticky net-worth header is hidden until unlock.
+3. **Password change flow now requires the current password** when one already exists. Settings UI added a current-password field and the main process now rejects password replacement without verification.
+4. **Password storage hardened** — finance passwords remain hashed+salted with `scrypt`, explicit parameters, and constant-time comparison instead of plaintext storage or direct string comparison.
+5. **Production renderer now loads from secure `app://local/index.html`** via a privileged custom scheme so WebAuthn/Windows Hello can work outside dev.
+
+**Files Modified:**
+- `src/pages/FinancePage.tsx` - threaded base currency into QuickAddModal and removed locked-state net-worth header
+- `src/components/finance/QuickAddModal.tsx` - added `baseCurrency` fallback symbol
+- `src/components/finance/TransactionsTab.tsx` - passed `baseCurrency` into QuickAddModal
+- `src/pages/SettingsPage.tsx` - added current-password field and change-password verification flow
+- `src/main.ts` - registered secure `app` scheme, switched prod load URL, added `finance:change-password`, hardened password hashing/comparison
+- `src/preload.ts` - exposed `financeChangePassword`
+- `src/App.tsx` - added DeskFlow API type for password change
+
+**Why:** The finance popup was using the wrong fallback currency, the locked screen still exposed net worth chrome, and password replacement could bypass existing credentials.
+
+**Result:** Finance adds transactions with the correct base currency, locked finance views stay hidden until unlocked, password changes require the old password, and production WebAuthn runs under a secure origin.
+
+**Build:** ✅
+
+### 2026-06-20 (v4.108) — Saved workspaces always-visible + persistent save indicator + auto-session creation
+
+**What Changed:**
+1. **Saved Workspaces section added to Configs tab** — Inline list of saved workspaces with Load/Delete buttons, always visible (not hidden behind a dialog). Shows workspace name, active tab, sidebar width, and active status. Refresh button to reload list.
+2. **Persistent save indicator in sidebar header** — Workspace name shown with green dot next to the Terminal header, clickable to save. Always visible regardless of active sub-tab.
+3. **Auto-Session Creation toggle added** — In Configs tab, toggle to auto-create sessions when the model is actively processing/working.
+4. **AutoAssignConfig extended** — Added `autoCreateSessions` property to AutoAssignConfig interface in main.ts.
+5. **Requests #051 implemented**: Workspace vs Session separation — workspace management is now in the Configs tab (Setup group) and always accessible via the sidebar header indicator.
+6. **Requests #050 implemented**: Auto-create sessions — toggle added to Configs tab.
+
+**Build:** ✅
+
+### 2026-06-20 (v4.105) — Fix AI agent tool calls dropped during streaming
+
+**What Changed:**
+1. **Saved Workspaces section added to Configs tab** — Inline list of saved workspaces with Load/Delete buttons, always visible (not hidden behind a dialog). Shows workspace name, active tab, sidebar width, and active status. Refresh button to reload list.
+2. **Persistent save indicator in sidebar header** — Workspace name shown with green dot next to the Terminal header, clickable to save. Always visible regardless of active sub-tab.
+3. **Auto-Session Creation toggle added** — In Configs tab, toggle to auto-create sessions when the model is actively processing/working.
+4. **AutoAssignConfig extended** — Added `autoCreateSessions` property to AutoAssignConfig interface in main.ts.
+5. **Requests #051 implemented**: Workspace vs Session separation — workspace management is now in the Configs tab (Setup group) and always accessible via the sidebar header indicator.
+6. **Requests #050 implemented**: Auto-create sessions — toggle added to Configs tab.
+
+**Build:** ✅
+
+### 2026-06-20 (v4.105) — Fix AI agent tool calls dropped during streaming
+
+**What Changed:**
+1. **Fixed AI agent tool-call streaming** — `callLLM()` in `aiAgentService.ts` only collected `delta.content` from SSE stream, silently dropping `delta.tool_calls`. When the LLM tried to use a tool (e.g., "I'll check existing activities before adding one"), the tool call was lost and only the partial text prefix was returned to the user.
+2. **Added `streamedToolCalls` buffer** — Accumulates tool call deltas by index across stream chunks, reconstructing full `id`, `function.name`, and `function.arguments`. Returns `tool_calls` on the message alongside content so `processMessage` dispatches them properly.
+
+**Files Modified:**
+- `src/services/ai/aiAgentService.ts:271-336` — Added `delta.tool_calls` accumulation in streaming loop, returns reconstructed tool calls in response.
+
+**Root Cause:** Streaming SSE parser at line 288 only checked `parsed.choices[0].delta.content`, ignoring `parsed.choices[0].delta.tool_calls`. Tool calls from Gemini/OpenRouter were silently dropped.
+
+**Build:** ✅
+
+### 2026-06-19 (v4.104) — Navigation redesign: browser-tab groups + accent connectivity
+
+**What Changed:**
+1. **Group tab bar redesigned** — Changed from `border-b-2` active indicator to browser-tab style (active tab: `rounded-t-lg bg-zinc-800/80 border border-zinc-700/60 border-b-0 -mb-px`). Added accent connectivity strip (2px colored bar below nav).
+2. **SubTabBar redesigned** — Changed from border-pill style (`h-8 px-3 rounded-lg text-[12px]`) to small chips (`h-7 px-2.5 rounded-full text-[11px]`). Added `accent` prop with static color map.
+3. **WorkspaceShell passes accent** — Added `accent="orange|green|purple|indigo|amber"` to all 5 WorkspaceShell usages, enabling per-group sub-tab coloring.
+4. **Session subpage grouping + filter pills** — Sessions organized under collapsible sub-headers (Top Pinned, Recent, This Month, Older). Category filter pills below sub-tab bar.
+5. **Infrastructure files updated** — FEATURE_TRACKER.md, dictionary.md, AGENTS.md, DEFAULT_SYSTEM_PROMPT.md all updated with new rules and feature registry.
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — Group tab bar (lines 2757-2782) redesigned, 5 WorkspaceShell calls now pass `accent`, accent strip added after nav.
+- `src/components/workspace/SubTabBar.tsx` — Redesigned as chip-style with accent prop.
+- `src/components/workspace/WorkspaceShell.tsx` — Now forwards `accent` prop to SubTabBar.
+- `agent/FEATURE_TRACKER.md` — Updated date, line counts, sidebar groups description, sessions sub-tab, recent additions.
+- `agent/dictionary.md` — Added Workspace vs Session distinction section.
+- `agent/AGENTS.md` — Added rules: read FEATURE_TRACKER.md before coding, update infrastructure files after changes, avoid subagent fragmentation.
+- `agent/DEFAULT_SYSTEM_PROMPT.md` — Added Feature Registry & Maintenance section with page references, sidebar group table.
+- `agent/REQUESTS.md` — Already updated in v4.103.
+
+**Next Steps:**
+- Implement saved workspace list UI (Request #051)
+- Fix specs to show workspace project data (Request #052)
+- Consider subpage-aware DB queries for session filtering
+
+**Build:** ✅
+
+### 2026-06-19 (v4.103) — Subpage-scoped session grouping + documented new requests
+
+**What Changed:**
+1. **Session list grouped by subpage** — Sessions in Work > Sessions tab are now grouped by `subpage` with sticky group headers showing subpage name + count. Subpage filter pills row allows filtering to specific subpages.
+2. **5 new requests documented** in REQUESTS.md (#050–#054): auto-create sessions, workspace vs session separation, specs project fix, master request tracking, quality-drop detection.
+3. **Cleaned up corrupted REQUESTS.md** — Removed duplicate testing results section from Request #049.
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — Replaced flat session list with subpage-grouped rendering + subpage filter pills.
+- `agent/REQUESTS.md` — Added 5 new requests, cleaned duplicate.
+
+**Next Steps:**
+- Implement subpage-aware DB queries (backend filtering instead of frontend-only)
+- Build for workspace save/load redesign (Request #051)
+- Fix specs to show workspace project data (Request #052)
+
+**Build:** ✅
+
+### 2026-06-19 (v4.102) — Fix analytics time-range pills not filtering data
+
+**What Changed:**
+1. **Fixed `'all' → 'month'` period override** — Line 1255 mapped "All Time" to `'month'`, making both "30 Days" and "All Time" show identical 30-day data. Now passes actual period to `getAIUsageSummary`.
+2. **Frontend period filtering for all datasets** — Problems, requests, prompt history, and daily aggregates now filter by `created_at`/`sent_at`/`date` based on selected period (7d / 30d / all).
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — Removed `p === 'all' ? 'month' : p` override; added `inPeriod` helper and period filtering for all four non-AI datasets.
+
+**Result:** All five analytics sections respect the selected time pill. "All Time" now shows all data. Token counts corrected (was only counting 30 days).
+
+**Build:** ✅
+
+### 2026-06-19 (v4.101) — Orbit visual enhancements + Finance lock screen + Settings toast
+
+**Finance:**
+1. **Finance lock screen — Windows Hello as primary auth** — When biometric is supported and first-time setup, Windows Hello button appears first (large, prominent). Password form is hidden behind "Or set a password instead" link, with a "Use Windows Hello instead" toggle back. Unlock flow unchanged.
+2. **Settings save confirmation popup** — After clicking OK on the Discord-style save bar, a green toast appears top-right: "Settings saved" with checkmark icon, auto-dismisses after 2.5s.
+3. **Lock description updated** — First-time description now says "Use Windows Hello or a password" when biometric is available.
+
+**Files Modified:** `src/components/finance/FinanceLockScreen.tsx`, `src/pages/SettingsPage.tsx`
+
+**Orbit Visual Enhancements (RESULT.md Phase 1):**
+1. **Starfield component (B9)** — 6000-star Fibonacci sphere with ecliptic bias, two-layer parallax, twinkle animation.
+2. **Atmosphere glow (B8)** — Back-face translucent shell on TexturedPlanet (radius*1.08, 0.08 opacity).
+3. **Portal Ring (B5)** — Animated ring expansion, light flash, particle burst on system entry (handleEnterSystem, handleCategorySelect).
+4. **Planet Rings (C1)** — Changed from random 40% chance to deterministic top-25% apps by total time.
+5. **Hover tooltip time (D1)** — formatDurationSeconds(data.time) shown on planet label hover.
+6. **Keplerian speed formula** — Replaced visualBalanceFactor hack with ω = baseAngularSpeed / r^1.5 + linear visualBoost clamped at minAngularSpeed: 0.08.
+7. **Power-law orbit spacing** — spacingExponent: 0.8 clusters inner planets tighter; replaces logarithmic interpolation.
+8. **Deterministic eccentricity/inclination** — computeEccentricity (outer planets more eccentric) and computeInclination (hash-based, 0–6° range) replace Math.random().
+9. **Category-based planet colors** — 9 PLANET_COLOR_FAMILIES (IDE, AI Tools, Browser, etc.) each get unique HSL base with ±12° per-planet hash shift.
+10. **SUN_RENDER_SIZE** — Separate constant for Three.js sphere geometry (4), decoupled from sun config sizes.
+11. **All three compute functions updated** — computePlanets, computePlanetsFromStats, computeWebsitePlanets.
+12. **Cleaned up dead code** — Removed duplicate hashString, unused lerpColor/getPlanetColorByOrbit/calculateOrbitRadiusLogarithmic.
+
+**Files Modified:** `src/components/OrbitSystem.tsx`
+
+**Build:** ✅ (zero TypeScript errors)
+
+### 2026-06-18 (v4.96) — Finance page redesign: Windows Hello + full visual polish per RESULT.md
+
+**What Changed:**
+1. **Windows Hello (WebAuthn) biometric unlock** — `FinanceLockScreen.tsx` detects `PublicKeyCredential`, creates a platform authenticator credential on first use, authenticates on subsequent clicks. New IPC: `finance:biometric-unlock`, `finance:get-webauthn-credential`, `finance:store-webauthn-credential`.
+2. **Transaction delete confirm** — `TransactionsTab.tsx` shows inline confirm before deleting.
+3. **Lucide import aliasing** — `Lock` → `LockIcon` in FinancePage.tsx to avoid DOM global collision.
+4. **Focus rings on every interactive element** — All buttons, inputs, selects, toggles, and interactive cards in FinancePage.tsx, TabBar.tsx, OverviewTab.tsx, AccountsTab.tsx, TransactionsTab.tsx, CategoriesTab.tsx now enforce `focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950`.
+5. **Touch targets ≥ 44px** — All icon buttons (lock, security, edit, archive, delete, close X) enforce `min-h-[44px] min-w-[44px]`.
+6. **Currency picker animation** — Dropdown animates in/out with 150ms fade+scale.
+7. **Per-component error states** — AccountsTab, TransactionsTab, CategoriesTab now accept `error` + `onRetry` props and display error card with retry button matching the OverviewTab pattern.
+8. **App.tsx type declarations** — Added all missing finance API method types.
+
+**Files Modified:** FinanceLockScreen.tsx, TransactionsTab.tsx, FinancePage.tsx, TabBar.tsx, OverviewTab.tsx, AccountsTab.tsx, CategoriesTab.tsx, main.ts, preload.ts, App.tsx
+
+**Build:** ✅
+
+### 2026-06-18 (v4.97) — AI streaming fix: missing stream:true + real-time text display
+
+**What Changed:**
+1. **Added `stream: true` to request body** — `callLLM` now sends `stream: true` so the API returns SSE chunks instead of a single JSON blob. Without this, the streaming parser extracted no content → all responses were "Done."
+2. **`callLLM` emits each text delta via `progressCallback`** — Every `parsed.choices[0].delta.content` is forwarded as `streamedContent` through the progress callback with the accumulated full text.
+3. **`AiChat.tsx` shows live streaming text** — When `progress.streamedContent` is non-empty, the thinking bubble renders parsed blocks with a blinking cursor instead of the generic `ThinkingIndicator`. Clears on response completion.
+
+**Files Modified:**
+- `src/services/ai/aiAgentService.ts` — Added `stream: true`, `streamedContent` in progress callback, `onChunk` param
+- `src/components/AiChat/AiChat.tsx` — Added `streamedContent` state, renders live text in message bubble with blinking cursor
+
+**Why:** Initial streaming implementation had `stream: true` missing from the request body, so the SSE parser extracted nothing from the JSON response. Also, the streamed text was never forwarded to the UI.
+
+**Result:** AI assistant now shows the model's response text token-by-token as it arrives. No more "Done." responses.
+
+**Build:** ✅
+
+### 2026-06-18 (v4.99) — AI confirm hang fix + debug logging
+
+**What Changed:**
+1. **Fixed `isThinking` guard blocking confirm responses** — `handleSend` had `if (!trimmed || isThinking) return` at the top. When `processMessage` was blocked on `requestConfirm`, `isThinking` was `true`. User typing "yes" or "no" was silently swallowed — the confirm promise was never resolved, hanging forever.
+2. **Removed redundant `processMessage('')` after confirm** — The confirm handler called `processMessage('')` after `resolveConfirm(true)`. But the original `processMessage` call (already awaiting the confirm promise) also resumed, causing a race on `conversationHistory`. Now it just resolves the promise and returns — the original call handles everything.
+3. **Added console.debug logging** — `[AiAgent]` tags on `processMessage` start/end/rounds/tools and `[AiAgent:callLLM]` on LLM calls; `[AiChat]` tags on `handleSend`. Open DevTools console to trace the full flow.
+
+**Files Modified:**
+- `src/components/AiChat/AiChat.tsx` — Confirm handler now runs before `isThinking` guard; removed `processMessage('')` after resolveConfirm
+- `src/services/ai/aiAgentService.ts` — Added `console.log` at every step
+
+**Why:** Two bugs: (1) `isThinking` guard at the top of `handleSend` blocked all messages including confirm responses while the AI was thinking. (2) Calling `processMessage('')` after resolving the confirm created a second concurrent `processMessage` call that clobbered conversation history.
+
+**Result:** User can now say "yes"/"no" to confirm prompts. The original tool execution flow completes normally.
+
+**Build:** ✅
+
+### 2026-06-18 (v4.98) — Collaborative Debugging System: Bug Reports sub-tab + Flow A/B/C
+
+**What Changed:**
+1. **New `bug_reports` DB table** — `src/main.ts:2142-2155` — stores bug reports with status (pending/investigating/identified/not_my_issue/fixed/ignored), agent_responses JSON, linked_problem_id, flow_type (manual/auto-consult/research), root_cause_report JSON.
+2. **5 IPC handlers** — `bug-report:submit` (dispatch to all agents), `bug-report:list`, `bug-report:get`, `bug-report:auto-consult` (Flow B — auto-broadcast on problem assignment), `bug-report:investigate` (Flow C — 3-phase evidence pipeline with file lock correlation, stack trace parsing, timeline construction).
+3. **BUG-OWNER pattern detection** — Regex in `parseTerminalOutput` (main.ts) detects `BUG-OWNER: yes/no - reason: ... - session: ...` responses from agent terminals. Auto-creates Problem entries via `ProblemsService.createProblem()` on "yes" responses.
+4. **5 preload bridges** — `submitBugReport`, `listBugReports`, `getBugReport`, `autoConsultAgents`, `investigateBugReport` in `src/preload.ts:518-527`.
+5. **New `BugReportPanel.tsx` component** — `src/components/BugReportPanel.tsx` — Full sidebar panel with: error submission form (title + textarea), past reports list with expandable detail view showing full error, agent response breakdown, root cause report, and "Investigate (Research Mode)" button for Flow C.
+6. **Bugs sub-tab in insights group** — `src/pages/TerminalPage.tsx` — Added `{ key: 'bugs', icon: Bug, label: 'Bugs' }` tab next to Analytics and Issues under the insights sidebar group.
+7. **Generate-prompt skill workflow** — Full design process: prompt.md → CONTEXT_BUNDLE.md → RESULT.md → IMPLEMENTATION_PLAN.md → code.
+
+**Design Docs:**
+- `agent/docs/bug-report-debugging-system/prompt.md` — The design prompt
+- `agent/docs/bug-report-debugging-system/CONTEXT_BUNDLE.md` — Code context for the target AI
+- `agent/docs/bug-report-debugging-system/RESULT.md` — Complete design specification (18 requirements covered)
+- `agent/docs/bug-report-debugging-system/IMPLEMENTATION_PLAN.md` — Exact file-by-file implementation plan
+
+**Files Modified:** src/main.ts, src/preload.ts, src/pages/TerminalPage.tsx
+**Files Created:** src/components/BugReportPanel.tsx
+
+**Build:** ✅
+
+### 2026-06-18 (v4.94) — AI Assistant streaming + getAiProviders fallback
+
+**What Changed:**
+1. **Streaming in callLLM** — `callLLM` now reads the response body as a stream (`response.body.getReader()`) and parses SSE `data:` lines. Chunks are accumulated into `fullContent` while `usage` is extracted from the final `parsed.usage`. Return shape is preserved as `{ choices: [{ message: { content } }], usage }`.
+2. **getAiProviders fallback** — Wrapped `api.getAiProviders()` in try/catch. When it fails (e.g., `window.deskflowAPI` unavailable), falls back to a hardcoded OpenRouter default with optional API key from `api?.getOpenRouterApiKey?.()`.
+
+**Files Modified:**
+- `src/services/ai/aiAgentService.ts` — Streaming reader loop (lines 240-282) + fallback provider config
+
+**Why:** AI assistant operations (creating external activities) could take 30+ seconds with no feedback. Streaming lets the progress UI show real-time status. The `getAiProviders` crash happened when `deskflowAPI` was undefined — the error was swallowed by the prior try/catch on `getAiConfig` but not caught for `getAiProviders`.
+
+**Result:** AI chat shows progress during long operations. No more "Cannot read properties of undefined (reading 'getAiProviders')" crash.
+
+**Build:** ✅
+
+### 2026-06-18 (v4.93) — [IN PROGRESS] Build crisis: recover from git clean -fdx + electron-vite v5 Windows bug
+
+**Root Cause:**
+`git clean -fdx` deleted ALL untracked files, including the original `.ts` source files. The only surviving `src/main.ts` is a pre-compiled CJS backup (18,292 lines, mixed main+renderer code) that was previously written over the real source. Service `.ts` files in `src/services/` were recreated by hand from bundled output fragments but their real source is lost.
+
+**Compounding Issue:**
+`electron-vite build` v5.0.0 silently fails on Windows — exits 0 with success message but never writes `main.js` to disk. This forced the custom build script approach.
+
+**Current Build Approach (scripts/build.mjs):**
+1. esbuild pre-compiles all `src/services/*.ts` + `gameDetection.ts` individually → `.js` (CJS)
+2. Vite library mode for `src/main.ts` → `dist-electron/main.cjs` (services left as external require())
+3. `dist-electron/package.json` with `"type": "commonjs"` so all `.js` in that tree are CJS
+4. `.cjs` shim files re-exporting `.js` for files required with `.cjs` extension
+5. Preload builds via `vite build --ssr src/preload.ts` → `preload.mjs` (unchanged)
+
+**Persistent Issue:**
+`src/services/AgentHostService.ts` imports `{ getAgentConfig } from '../main'` — resolves to the pre-compiled CJS `main.ts` which contains renderer code (73 references to `window`, React imports). This cross-contamination makes clean bundling impossible — when services are bundled into main.cjs, `window is not defined` errors occur at app launch.
+
+**Files:**
+- `scripts/build.mjs` — Current build script (Vite API + esbuild pre-compilation + .cjs shims)
+- `src/main.ts` — Pre-compiled CJS entry, 18,292 lines, mixed main+renderer code. NOT real TypeScript source.
+- `dist-electron/` — Output directory: services/, gameDetection.js, main.cjs (643 KB), main.js, package.json, preload.mjs
+- Last build run ***succeeded*** (no compilation errors) but app not yet launched to verify runtime behavior.
+
+**Next Steps:**
+1. Rebuild and run `npm start` to verify app launches.
+2. If `window is not defined` at launch, fix the `AgentHostService.ts` ↔ `main.ts` circular dependency.
+3. Document `git clean -fdx` in agent/debugging.md + agent/skills/agent-reflect/problem.md as new durable rule.
+
+### 2026-06-18 (v4.92) — Sleep date fix: fix-sleep-dates button + IPC handler
+
+**What Changed:**
+1. **New `fix-sleep-dates` IPC handler in main.ts** — Queries all sleep sessions where `started_at` is AM (before noon) and `ended_at` is on the next calendar day with AM hours. Fixes `ended_at` date to match `started_at` date (same calendar day). Updates `duration_seconds` accordingly.
+2. **New `fixSleepDates` bridge in preload.ts** — Exposes `window.deskflowAPI.fixSleepDates()` calling the new IPC handler.
+3. **"Fix Sleep Dates" button in ExternalPage.tsx** — Appears next to the Sleep Debug button. Clicking it runs the fix and refreshes stats. Shows alert with count of fixed sessions.
+4. **Chart day label — no date duplicate when "Today"** — When a sleep bar is for today, only "Today" is shown (no weekday/month/day below it). Fixes the duplicate where "Today" and "Jun 13" appeared together.
+
+**Why:** Sleep sessions starting after midnight (e.g., 2:44 AM) had `ended_at` stored on the next calendar day (Jun 14) when the wake time (10:43 AM) is actually on the same day (Jun 13). This caused the Past Sleep Modal to show 🛏️ Jun 13 → 🌅 Jun 14 instead of both on Jun 13.
+
+**Files Modified:**
+- `src/main.ts` — Added `fix-sleep-dates` IPC handler
+- `src/preload.ts` — Added `fixSleepDates` bridge
+- `src/pages/ExternalPage.tsx` — Added Fix Sleep Dates button next to Sleep Debug
+
+**Result:** One-click fix button for all existing sleep data with wrong end dates.
+
+**Build:** ✅
+
+### 2026-06-18 (v4.91) — Finance page: icon picker, state coverage sweep, doughnut overflow, error handling
+
+**What Changed:**
+1. **CreateCategoryModal — searchable icon picker** — Added 32 finance-themed Lucide icons in a grid with search input. Selected icon shows in a live preview chip alongside the category name/type/color. Grid auto-filters as user types. Selection clears the search query.
+2. **CategoriesTab — loading skeleton state** — Added 6 skeleton cards grid when `loading` prop is true (previously had none, showed empty flash).
+3. **OverviewTab doughnut — "top N + Other" overflow** — When `spendingByCategory` exceeds 8 items, the doughnut now truncates to the top 7 + aggregates the rest into an "Other" slice (zinc-500). Prevents 30-slice doughnut with unreadable labels.
+4. **Error state wiring — FinancePage + OverviewTab** — Added `fetchError` state to FinancePage (set on catch), passed `error` + `onRetry={fetchData}` to OverviewTab. OverviewTab shows a red banner with "Could not load finance data" + Retry button when errored. FetchData clears error on retry.
+5. **AccountsTab/TransactionsTab/CategoriesTab error fallback** — If fetchData errors, these tabs silently show last cached data. OverviewTab's error banner + Retry provides the recovery path.
+
+**Files Modified:**
+- `src/components/finance/CategoriesTab.tsx` — Searchable icon picker (32 icons, filter input, live preview chip), loading skeleton grid
+- `src/components/finance/OverviewTab.tsx` — Doughnut top 7 + "Other" truncation (MAX_DOUGHNUT_ITEMS=8); error prop + error state with Retry button
+- `src/pages/FinancePage.tsx` — Added `fetchError` state, set on catch in fetchData, wired `error` + `onRetry` to OverviewTab
+
+**Why:** Icon picker was the last unimplemented feature from RESULTS.md §5. State coverage (§7) was missing loading/error for CategoriesTab and error state across all views. Doughnut with 30+ tiny slices was unusable.
+
+**Result:** CategoriesTab: icon picker with search + live preview + loading skeleton. OverviewTab: doughnut capped at 8 segments. All components: error banner with Retry on OverviewTab, cached data fallback on other tabs.
+
+**Build:** ✅
+
+### 2026-06-17 (v4.89) — Phase 3: route cleanup, WsEmptyState merge, FEATURE_TRACKER sync
+
+**What Changed:**
+1. **`/old-dashboard` route replaced with redirect** — Removed duplicate ExternalPage render at `/old-dashboard` in App.tsx; replaced with `<Navigate to="/external" replace />`. Added `Navigate` to react-router-dom imports. Kept as redirect for any bookmarked URLs.
+2. **WsEmptyState merged into EmptyState** — Removed local `WsEmptyState` function from TerminalPage.tsx. Added `iconComponent`, `hint`, and unified `action` (accepts `{label, onClick}` or `ReactNode`) to the shared `EmptyState` component. Updated 3 callers in TerminalPage.tsx to use `<EmptyState iconComponent={...} hint="..." />`.
+3. **FEATURE_TRACKER.md sidebar section rewritten** — Section 6.2 updated from "12 flat tabs" to "5 groups, 12 sub-tabs". Removed ghost entries (Checklists, Prompts, History tabs, separate Problems/Requests). Added new sub-tabs (Design, Page Context, Issues as combined Problems+Requests). Updated route table: removed `/design-workspace`, updated terminal description line. Updated `activeTab`→`activeGroup` in layout section.
+4. **PAGE_CONTEXT.md updated** — `/old-dashboard` references changed from "legacy alias that renders the same component" to "now redirects to /external".
+
+**Files Modified:**
+- `src/App.tsx` — Added `Navigate` import, replaced `/old-dashboard` route with `<Navigate to="/external" replace />`
+- `src/components/EmptyState.tsx` — Added `iconComponent`, `hint`, unified `action` props
+- `src/pages/TerminalPage.tsx` — Removed WsEmptyState, replaced 3 callers with EmptyState
+- `agent/FEATURE_TRACKER.md` — Rewritten sidebar section 6.2 (5 groups, 12 sub-tabs), route table updates
+- `agent/PAGE_CONTEXT.md` — Updated /old-dashboard references
+- `agent/state.md` — This entry
+
+**Why:** Phase 3 cleanup items from the page-structure-revamp plan — eliminate duplicate routes, merge duplicate components, and keep FEATURE_TRACKER in sync with the actual sidebar structure.
+
+**Result:** `/old-dashboard` redirects to `/external`. No more WsEmptyState (only EmptyState). FEATURE_TRACKER accurately describes the 5-group sidebar. Build passes.
+
+**Build:** ✅
+
+### 2026-06-17 (v4.87) — Phase 2: TerminalPage sidebar regrouped into 5 groups with WorkspaceShell sub-tab routing
+
+**What Changed:**
+1. **Sidebar rewritten from 12 flat tabs to 5 grouped tabs** — The monolithic flat sidebar in TerminalPage.tsx now renders 5 group shells (SetupWorkspace, WorkWorkspace, InsightsWorkspace, StudioWorkspace, ContextWorkspace) with sub-tab routing via WorkspaceShell.
+2. **WorkspaceShell integration** — Each group shell uses WorkspaceShell for sub-tab routing, SubTabBar for sub-navigation, and usePersistentSubTab for state persistence.
+3. **PageContextPanel mounted** — PageContextPanel integrated into the workspace shell as a content slot.
+4. **History tab removed** — The empty "History" placeholder tab was removed (12→11 effective tabs, now organized under 5 groups).
+5. **All content preserved** — All existing tabs reorganized under group umbrellas without content loss.
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — Major content restructuring: sidebar regrouped, WorkspaceShell/PageContextPanel integration, sub-tab routing
+
+**Why:** Phase 2 of the page-structure revamp plan — reduce sidebar cognitive load by grouping 12 flat items into 5 logical categories with sub-tab navigation.
+
+**Result:** TerminalPage sidebar shows 5 group headers with expandable sub-tabs under each. Sub-tab state persists via URL query param + localStorage.
+
+**Next Steps:**
+- Phase 3: PageContextPanel content population, FEATURE_TRACKER drift guard
+
+**Build:** ✅
+
+### 2026-06-17 (v4.86) — Extracted 4 inline TerminalPage components + 3 shared workspace primitives
+
+**What Changed:**
+1. **Extracted ProblemsTab, ProblemDetailModal, NewProblemDialog** → `src/components/terminal/ProblemsTab.tsx` (~1000 lines removed from TerminalPage.tsx)
+2. **Extracted SkillsTab, SkillBrowser** → `src/components/terminal/SkillsTab.tsx` (~600 lines)
+3. **Extracted RequestsTab, RequestDetailModal, NewRequestDialog** → `src/components/terminal/RequestsTab.tsx` (~200 lines)
+4. **Extracted FilesTab** → `src/components/terminal/FilesTab.tsx` (~200 lines)
+5. **Removed orphan imports** — `SkillDynamicForm`, `DSLGenerationModal` removed from TerminalPage.tsx
+6. **Created `SubTabBar.tsx`** — Reusable sub-tab bar component (generic IssuesWorkspace pattern) at `src/components/workspace/SubTabBar.tsx`
+7. **Created `WorkspaceShell.tsx`** — Generic parent shell at `src/components/workspace/WorkspaceShell.tsx`
+8. **Created `usePersistentSubTab.ts`** — Sub-tab state persistence hook (URL query param + localStorage) at `src/hooks/usePersistentSubTab.ts`
+
+**Files Created:**
+- `src/components/terminal/ProblemsTab.tsx`
+- `src/components/terminal/SkillsTab.tsx`
+- `src/components/terminal/RequestsTab.tsx`
+- `src/components/terminal/FilesTab.tsx`
+- `src/components/workspace/SubTabBar.tsx`
+- `src/components/workspace/WorkspaceShell.tsx`
+- `src/hooks/usePersistentSubTab.ts`
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — Replaced inline components with imports; removed orphan imports; TerminalPage.tsx shrank ~6057 → ~4770 lines
+
+**Why:** RESULT.md plan Phase 1 — reduce TerminalPage.tsx bloat (6499→~3300 target) and prepare shared sub-tab infrastructure for Phase 2 regrouping.
+
+**Next Steps:**
+- Phase 2: Build the 5 group shells (SetupWorkspace, WorkWorkspace, InsightsWorkspace, StudioWorkspace, ContextWorkspace) using WorkspaceShell/SubTabBar/usePersistentSubTab
+- Rewrite sidebar from 12 flat items → 5 grouped items
+
+**Build:** ✅
+
+### 2026-06-17 (v4.84) — Page structure audit: mapped all duplicates, created redesign prompt
+
+**What Changed:**
+1. **Comprehensive page/tab/route audit** — Mapped all 15 routes, 12 TerminalPage sidebar tabs, 8 IDEProjectsPage tabs, and all sub-tab patterns. Found 7 categories of duplicates/redundancies.
+2. **Duplicates identified:**
+    - `/old-dashboard` → redirects to `/external` (removed duplicate route)
+   - `context` + `context-maintenance` → same functional domain split across 2 tabs
+   - `design-workspace` → claimed as standalone route in FEATURE_TRACKER but no Route exists
+   - "History" tab → completely empty placeholder consuming a 12th slot
+   - FEATURE_TRACKER claims "Prompts Tab" and "Checklists Tab" exist → they don't
+   - TerminalPage.tsx at 6499 lines with 4 inline components (ProblemsTab, RequestsTab, FilesTab, SkillsTab)
+3. **Created `agent/docs/page-structure-revamp/CONTEXT_BUNDLE.md`** — Self-contained context covering routes, tab definitions, duplicate inventory, design tokens, sub-tab patterns, constraints.
+4. **Created `agent/docs/page-structure-revamp/prompt.md`** — High-fidelity redesign prompt following generate-prompt skill: categorization strategy, sub-tab architecture, file extraction plan, route cleanup, documentation sync process.
+
+**Files Created:**
+- `agent/docs/page-structure-revamp/CONTEXT_BUNDLE.md` — Code context for target AI
+- `agent/docs/page-structure-revamp/prompt.md` — Redesign prompt
+
+**Why:** User identified that the page structure has grown organically with duplicates (context vs context-maintenance, old /old-dashboard vs /external), redundant empty tabs (history), bloated files (TerminalPage.tsx at 6499 lines), and no clear categorization of 12 flat sidebar tabs. The PageContextPanel also needs a home.
+
+**Next Steps:**
+- Present the prompt for user approval
+- Send prompt to target AI to generate RESULT.md
+- Implement based on RESULT.md following generate-prompt Phase 1-4 workflow
+
+**Build:** N/A (no code changes)
+
+### 2026-06-17 (v4.83) — Terminal workspace save/load, session ID collision, session name reset fixes
+
+**What Changed:**
+1. **Workspace save/load at `/terminal` route (TerminalPage.tsx)** — All workspace handlers (`handleSaveWorkspace`, `handleLoadWorkspace`, auto-load, auto-save, auto-restore, toolbar Load/Delete) checked `propProjectId` only. At `/terminal` route, `propProjectId` is undefined (no `projectId` query param). Added `wsProjectId = propProjectId || selectedProject` fallback so workspace save/load works at `/terminal`.
+2. **Session ID generation (NewSessionDialog.tsx:651)** — Changed from `session-${Date.now()}` to `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` to prevent collision when creating sessions rapidly. `save-terminal-session` uses `INSERT OR REPLACE`, so duplicate IDs silently overwrite.
+3. **Session name reset on dialog open (NewSessionDialog.tsx:463)** — Changed `setName('')` to `setName(defaultName && defaultName !== 'New Agent' ? defaultName : '')`. The unconditional `setName('')` always reset the dialog name to empty, discarding the `defaultName` prop before user could type.
+
+**Files Modified:**
+- `src/pages/TerminalPage.tsx` — Added `wsProjectId` fallback in all workspace handlers and effects
+- `src/components/NewSessionDialog.tsx` — Random suffix in ID generation; conditional name reset preserving defaultName
+
+**Why:** Session save/load was dead at `/terminal` because the key guard `if (propProjectId)` failed when routed without a `projectId` query param. Rapid session creation (e.g., clicking New Agent twice) could collide on IDs. The dialog always started with an empty name, ignoring the `defaultName` prop from opencode session list.
+
+**Result:** Workspace save/load works at `/terminal`. Sessions have unique IDs. Dialog shows the correct default name when opening from opencode session list.
+
+**Build:** ✅
+
+### 2026-06-17 (v4.82) — Named workspace instances: multiple snapshots per project
+
+**What Changed:**
+1. **DB schema migration (`workspace_state` table)** — Changed from `UNIQUE(project_id)` to `UNIQUE(project_id, name)`, added `name` (default: `'default'`) and `is_active` columns. Old data migrated with `name='default'`, `is_active=1`. Supports multiple named workspace instances per project.
+2. **Updated IPC handler `workspace:save`** — Now accepts optional `name` param. Deactivates all other instances for the project, upserts by `(project_id, name)`, marks new as active. Returns saved name.
+3. **Updated IPC handler `workspace:load`** — Accepts optional `name`. Loads active instance if no name given, fallbacks to 'default', then most recent.
+4. **New IPC handler `workspace:list`** — Returns all named instances for a project with metadata (active, width, tab, updated_at).
+5. **New IPC handler `workspace:delete`** — Deletes a named instance by `(project_id, name)`.
+6. **Updated preload.ts** — Added `listWorkspaces`, `deleteWorkspace` bridges. Updated `saveWorkspace`/`loadWorkspace` types with `name` and config fields.
+7. **TerminalPage.tsx — expanded `state_json`** — Now captures configs tab state (model threshold, tier, debug mode, cross-session sync settings), analytics period, session category filter, map list ratio alongside existing layout/presets/terminal info.
+8. **TerminalPage.tsx — workspace management UI** — Added "Save As..." button for creating named snapshots, "Load" button opens dialog with list of all instances (current active highlighted), delete support per instance.
+
+**Files Modified:**
+- `src/main.ts` — DB schema migration, 2 updated + 2 new IPC handlers
+- `src/preload.ts` — New bridges `listWorkspaces`, `deleteWorkspace`, updated types
+- `src/pages/TerminalPage.tsx` — Save/load with name, expanded state capture, workspace save-as/load dialogs UI
+- `agent/state.md` — Version bump to 4.82
+- `agent/data.md` — Updated workspace_state schema docs
+
+**Why:** One project needed multiple named workspace snapshots (e.g., "bug fixing", "feature dev", "code review") with independent terminal layouts, sidebar configs, and page states.
+
+**Result:** Users can Save As, Load, and switch between named workspace instances per project. Auto-save goes to the active instance.
+
+**Build:** ✅
+3. **Enhanced project cards (`IDEProjectsPage.tsx`)** — Projects tab now shows top 3 languages with percentage badges and a hover tooltip with full breakdown (language name, file count, percentage). The overview tab shows the top language + percentage. Loading state shows a spinner while detecting.
+4. **New Language Distribution chart (`AnalyticsDashboard.tsx`)** — Added `projectLanguages` prop. When language data is available, a Doughnut chart shows coding language distribution across all projects on the Analytics tab.
+5. **Smart language aggregation (`IDEProjectsPage.tsx`)** — `aggregatedProjectLanguages` memo aggregates all project language data for the Analytics chart. Scanning is cached per project path to avoid re-scanning.
+
+**Why:** The IDE projects list only showed a single `primary_language` field set manually. This automates detection, shows coding languages only (no config files), displays percentages, and adds a language distribution chart to analytics.
+
+**Next Steps:**
+- Present the AiChat redesign context for user approval
+
+### 2026-06-17 (v4.80) — AiChat design overhaul: CONTEXT_BUNDLE.md + prompt.md for Claude-quality visual redesign
+
+**What Changed:**
+1. **Created `agent/docs/ai-chat-revamp/CONTEXT_BUNDLE.md`** — Self-contained code context for the target AI covering all AiChat components, parseBlocks service, aiAgentService, design tokens, design skill principles (impeccable, design-taste, taste-skill, ui-ux-pro-max, frontend-design).
+2. **Created `agent/docs/ai-chat-revamp/prompt.md`** — High-fidelity design prompt following generate-prompt skill schema: raw request verbatim, context reference, engineering/design/UX tasks, Claude-quality visual specs, structured response format requirement.
+3. **Updated `agent/state.md`** — Version bump to 4.80, focus on AiChat design overhaul.
+
+**Why:** The AiChat UI is functional but lacks Claude-level design quality. The user wants a structured AI response format (beyond plain markdown) so the UI can apply deliberate styling per block type, and wants Claude's warm editorial aesthetic applied to the dark dev-tool chrome.
+
+**Next Steps:**
+- Present CONTEXT_BUNDLE.md + prompt.md for user approval
+- Send prompt to target AI (Claude) to generate RESULT.md
+- Implement based on RESULT.md following generate-prompt Phase 1-4 workflow
+
+### 2026-06-17 (v4.79) — Analytics project scoping + per-project config
+
+**What Changed:**
+1. **`get-ai-usage-summary` IPC handler now accepts `projectId` (`main.ts:7266`)** — Added optional 4th parameter `projectId`. When provided, SQL `WHERE` clause includes `project_id = ?`. The `ai_usage` table already has a `project_id` column populated during sync — this just enables filtering.
+2. **Preload bridge + App.tsx types updated** — `getAIUsageSummary(period, dateOffset, projectId)` signature updated in both `preload.ts:248` and `App.tsx:176`.
+3. **TerminalPage sidebar analytics now project-scoped (`TerminalPage.tsx:1237`)** — `getAIUsageSummary` now passes `selectedProject`. The sidebar analytics tab now shows only the selected project's AI usage data (sessions, problems, requests, promptHistory already passed `selectedProject`; AI usage summary was the missing piece).
+4. **ContextSidebar config now per-project (`ContextSidebar.tsx:340`)** — Preference keys are scoped with `${key}-${projectId}` when a project is selected. Each project gets its own saved config (systems, design, model, paths, terminal, defaults).
+5. **NewSessionDialog reads project-scoped config (`NewSessionDialog.tsx:396`)** — Added `projectId` prop. When reading workspace settings for default toggles, looks up `${WORKSPACE_CONFIG_PREF_KEY}-${projectId}` first, falls back to global key.
+
+**Files Modified:**
+- `src/main.ts` — Added projectId param to get-ai-usage-summary handler, SQL WHERE project_id filtering
+- `src/preload.ts` — Added projectId param to getAIUsageSummary bridge
+- `src/App.tsx` — Updated getAIUsageSummary type signature
+- `src/pages/TerminalPage.tsx` — Passes selectedProject to getAIUsageSummary + NewSessionDialog
+- `src/components/ContextSidebar.tsx` — Scoped pref keys with projectId
+- `src/components/NewSessionDialog.tsx` — Added projectId prop, scoped config lookup
+
+**Why:** The TerminalPage sidebar analytics tab was showing AI usage data for ALL projects globally. Analytics should be project-specific — each project has different token/cost/usage. Configuration (ContextSidebar) was also global; saving config for Project A would overwrite config for Project B.
+
+**Result:** TerminalPage sidebar analytics now shows only the selected project's data. ContextSidebar config is saved per-project. NewSessionDialog reads the correct project-scoped defaults.
+
+**Build:** ✅
+
+### 2026-06-17 (v4.78) — Add data-tutorial attributes across 4 pages for tutorial system
+
+**What Changed:**
+1. **ExternalPage.tsx** — Added `data-tutorial` attributes: `external.timer` (active timer), `external.grid` (activity grid), `external.sleep` (sleep patterns), `external.streak` (trend charts section).
+2. **ProductivityPage.tsx** — Added `data-tutorial` attributes: `prod.score` (score card), `prod.breakdown` (time breakdown grid), `prod.trends` (productivity trend chart).
+3. **SettingsPage.tsx** — Added `data-tutorial` attributes: `settings.categories` (custom categories), `settings.tiers` (productivity tiers DnD), `settings.ai` (AI assistant tab).
+4. **IDEProjectsPage.tsx** — Added `data-tutorial` attributes: `ide.tabs` (workspace tab bar), `ide.metrics` (metric cards), `ide.usage` (AI usage overview chart).
+
+All values match selectors already defined in `src/data/tutorial-steps.ts`.
+
+### 2026-06-17 (v4.78) — Fixed duplicate external sessions on rapid start clicks
+
+**What Changed:**
+
+1. **`start-external-session` IPC handler — dedup check (`main.ts:12888-12905`)** — Now checks for existing active session before inserting. If same `activity_id` is already active, returns existing session. If different activity is active, auto-stops it before starting the new one. This prevents time from being doubled when the user clicks Start twice rapidly.
+
+**Files Modified:**
+- `src/main.ts` — `start-external-session` handler: added active-session check, dedup for same activity, auto-stop for different activity
+
+**Why:** Clicking Start twice on the same activity created two overlapping `external_sessions` rows. The UI only displayed the latest, but both accumulated duration, effectively double-counting time in aggregate stats.
+
+**Build:** ✅
+
+### 2026-06-17 (v4.77) — Sleep tracking cross-midnight fixes: modal date, chart filter, chart range
+
+**What Changed:**
+1. **Past Sleep Modal — preserve original started_at as base date (`ExternalPage.tsx:276`)** — Added `pastOriginalStartedAt` state. When loading an existing sleep entry, the original ISO string is stored. The save handler now uses this as the base date for time calculations (instead of `pastSleepDate` which reflects the search/chart date). This prevents cross-midnight sleep from shifting by +1 day when the user opens the modal by clicking a wake-up date column.
+2. **Chart bar click — use actual sleep date not grouped date (`ExternalPage.tsx:1722`)** — The chart bar's onClick now computes the actual calendar date (shifts forward for AM bedtimes that were grouped to the previous day) before setting `pastSleepDate`. This ensures `getSleepForDate` can find the sleep (since the grouped date may not match `date(started_at)` or `date(ended_at)` in the DB).
+3. **getSleepTrends SQL filter — added OR ended_at clause (`main.ts:13549-13564`)** — All period date filters now check `(es.started_at >= ... AND es.started_at < ...) OR (es.ended_at >= ... AND es.ended_at < ...)`. This captures sleep sessions that started before the range but ended within it.
+4. **Chart column range — start one day earlier (`ExternalPage.tsx:1643-1644`)** — Chart iteration now begins one day before `range.start` so AM bedtimes grouped to the previous evening are visible in the chart columns.
+5. **Morning prompt — set pastSleepDate to bedtime date (`ExternalPage.tsx:2451-2452`)** — When the morning prompt "Add Sleep" button is clicked, `pastSleepDate` is now set to the date of `lastClose` (the bedtime), not today's date. This prevents cross-midnight sleep (bedtime 11PM June 16, wake 6AM June 17) from being registered with a +1 day shift in the save handler.
+
+**Files Modified:**
+- `src/pages/ExternalPage.tsx` — Added `pastOriginalStartedAt` state, modified save handler base date logic, chart click handler shifted date, chart column range start offset, morning prompt sets pastSleepDate to lastClose date
+- `src/main.ts` — `get-sleep-trends` date filter expanded with OR ended_at for all periods
+
+**Why:** Cross-midnight sleep (bedtime Dec 15 22:00, wake Dec 16 06:00) had three issues: (1) Past Sleep Modal used the search/wake-up date as base, shifting the entire sleep +1d on save; (2) chart grouped AM bedtimes to previous day but `getSleepForDate` couldn't find them by that date; (3) SQL filter only checked started_at, missing sessions that ended within the range.
+
+**Result:** Sleep that crosses midnight registers to the correct start date. Past Sleep Modal correctly edits existing entries regardless of which date was clicked. Sleep Trends chart shows all days with sleep entries.
+
+**Build:** ✅
 
 ### 2026-06-16 (v4.76) — AiPage full redesign: new layout zones, removed quick actions + greeting suggestions
 
@@ -5235,3 +5799,105 @@ All three changes now COMPLETE: 1) Camera properly follows planet 2) FPS line gr
 - `agent/REQUESTS.md` — Added Request #048 documenting testing results
 
 **Build:** N/A (testing only)
+
+### 2026-06-17 (v4.85) — Full AiChat component overhaul: DBN2 wire format, Claude-grade visual redesign
+
+**What Changed:**
+1. **New type system (`src/services/wireFormat.ts`)** — `WireBlock`, `WireGroup`, `InlineNode`, `ParsedResponse` types; ACCENT palette map; MOTION constants
+2. **Dual parser architecture** — `parseBlocks.ts` auto-detects V2 (`>>type` sigil) vs legacy `[type: x]` DSL; `parseInline()` tokenizer (bold/italic/strikethrough/code/metric/cite/link)
+3. **7 new block components** — `GroupShell`, `TableBlock`, `ConfirmBlock`, `SourcesBlock`, `Inline`, plus all legacy blocks updated to `WireBlock` interface
+4. **Component rewrites** — `ChatHeader` (stone palette, gradient seam, serif title, breathing dot), `MessageBubble` (clay user, L1→L2 glass assistant), `MessageList` (top fade, scroll memory, jump-to-latest), `ChatInput` (SVG arc counter, send morph), `ThinkingIndicator` (breathing dots, rotating labels)
+5. **CSS tokens** — clay-300/400/500/600, sage-400, amber-400, sky-400, glow, serif/mono, `@keyframes breathe` via Tailwind v4 `@theme`
+
+**Files Created:**
+- `src/services/wireFormat.ts` — DBN2 types/constants
+- `src/services/parseBlocks.legacy.ts` — Legacy parser extraction
+- `src/components/AiChat/blocks/GroupShell.tsx` — Grouped block container
+- `src/components/AiChat/blocks/TableBlock.tsx` — Pipe-delimited table
+- `src/components/AiChat/blocks/ConfirmBlock.tsx` — Accept/decline widget
+- `src/components/AiChat/blocks/SourcesBlock.tsx` — Citation badges
+- `src/components/AiChat/blocks/Inline.tsx` — Inline node renderer
+
+**Files Modified:**
+- `src/services/parseBlocks.ts` — Dual parser + parseInline
+- `src/index.css` — @theme tokens (clay/sage/sky, serif/mono, breathe)
+- `src/components/AiChat/AiChat.tsx` — ParseStructuredResponse, typed messages
+- `src/components/AiChat/BlockRenderer.tsx` — WireNode[] routing
+- `src/components/AiChat/ChatHeader.tsx` — Stone palette redesign
+- `src/components/AiChat/MessageBubble.tsx` — Clay/L1→L2 redesign
+- `src/components/AiChat/MessageList.tsx` — Scroll memory + jump
+- `src/components/AiChat/ChatInput.tsx` — SVG arc + send morph
+- `src/components/AiChat/ThinkingIndicator.tsx` — Breathing dots
+- `src/components/AiChat/TypewriterText.tsx` — WireNode prose
+- `src/components/AiChat/blocks/TextBlock.tsx` — Dual prose/legacy
+- `src/components/AiChat/blocks/GoalListBlock.tsx` — WireBlock compat
+- `src/components/AiChat/blocks/GoalCreateBlock.tsx` — WireBlock compat
+- `src/components/AiChat/blocks/GoalDeleteBlock.tsx` — WireBlock compat
+- `src/components/AiChat/blocks/NewsItemBlock.tsx` — WireBlock compat
+- `src/components/AiChat/blocks/DataSummaryBlock.tsx` — WireBlock compat
+- `src/components/AiChat/blocks/ErrorBlock.tsx` — WireBlock compat
+- `src/components/AiChat/blocks/NavigationBlock.tsx` — WireBlock compat
+
+**Why:** Full RESULT.md spec implementation — DBN2 wire format for structured AI responses, Claude-grade visual design
+
+**Result:** AiChat supports dual wire format, inline tokenization, grouped blocks, SVG arc counter, scroll-to-latest, breathing indicators — CSS-only animations, no framer-motion
+
+**Build:** ✅
+
+---
+
+### 2026-06-19 (v4.100) — OrbitSystem bug fixes + design prompt
+
+**What Changed:**
+1. **FPSLineGraph hook fix** — `useFrame` (R3F) replaced with `useEffect` + `setInterval` to prevent "Hooks can only be used within the Canvas" crash.
+2. **Website planet duration fix** — `duration` (already in seconds) was divided by 1000 as if ms. Conditional check: `duration_ms/1000` only when `duration_ms` exists.
+3. **Timeline selector wiring** — Added `onPeriodChange` + `selectedPeriod` props to OrbitSystem. Period button clicks now propagate to DashboardPage for backend refetch.
+4. **Sun size enlarged** — `SUN_CONFIGS.sizeRange` from `[1.5, 2]` → `[4, 5.5]`. `minOrbitRadius` 10→14, `maxOrbitRadius` 80→90 to accommodate.
+5. **Design prompt created** — `agent/docs/OrbitSystem-realism-research/prompt.md` + `CONTEXT_BUNDLE.md` for AI-driven realism/research.
+
+**Files Modified:** OrbitSystem.tsx, DashboardPage.tsx, state.md, agents.md, HUMAN_TEST_CHECKLIST.md
+
+**Build:** ✅
+
+---
+
+### 2026-06-18 (v4.90) — Finance Page Redesign: Currency Fixes + Visual Polish
+
+**What Changed:**
+1. **Currency handling overhaul** — All hardcoded `$` replaced with dynamic `getCurrencyInfo(displayCurrency).symbol`. Net Worth calculation switched to per-account `convertAmount()` instead of trusting `summary?.netBalance` (which may be unconverted). Shared `formatCurrency` from `currency-data.ts` used everywhere.
+2. **AccountsTab runtime bug fixed** — Line 96 had `${account.type === ...}` inside double quotes instead of backticks, causing a literal string `"${...}"` in the className. Same pattern as the earlier TransactionsTab bug.
+3. **FinanceLockScreen duplicate import fixed** — Removed `useState as useState2` alias.
+4. **OverviewTab visual polish** — KPI cards enlarged (xl font, bigger icons, `tabular-nums`), account summary split into personal + custodial sections with amber accent border, chart cards with better spacing.
+5. **AccountsTab visual polish** — Added `tabular-nums` to all balances, custodial disclosure note in CreateAccountModal ("Not counted in Net Worth"), fixed card accent border.
+6. **FAB polish** — Replaced raw `<button>` with framer-motion `<motion.button>` (whileHover/whileTap), removed box-shadow per design rules.
+
+**Files Modified:**
+- `src/pages/FinancePage.tsx` — FAB motion + removed shadow
+- `src/components/finance/OverviewTab.tsx` — KPI polish, custodial section, tabular-nums
+- `src/components/finance/AccountsTab.tsx` — Fixed broken className, tabular-nums, custodial disclosure
+- `src/components/finance/FinanceLockScreen.tsx` — Removed duplicate alias import
+- (QuickAddModal, TransactionsTab, CategoriesTab, FinanceStickyHeader — updated in earlier session)
+
+**Why:** The RESULTS.md redesign spec (292 lines) was designed but never implemented — the finance page still had the original generic version. Hardcoded `$` symbols, broken template literals, and missing custodial fencing needed fixing.
+
+**Result:** Finance page uses dynamic currency throughout, proper glass cards with accent rails, custodial accounts fenced from net worth, all money amounts in tabular-nums for alignment, no runtime className bugs.
+
+**Build:** ✅
+
+---
+
+### 2026-06-20 (v4.105) — Password protection bug fixes + OverviewTab redesign
+
+**What Changed:**
+1. **Settings: Password Protection card always visible** — Removed `hasPassword` gate so the per-action toggles (delete accounts/wallets/transactions) show regardless of password status. Added "(set a password first)" hint when no password exists.
+2. **Settings: Set Password card added** — Green-emerald "Set Password" card shown when no password exists (previously only a red "Change Password" card was shown, confusing).
+3. **Settings: `securitySettings` refresh after password change** — Fixed stale state: `handleChangePassword` now re-fetches `financeGetSecuritySettings()` after success so `hasPassword` updates immediately.
+4. **ArchivedItemsModal: fixed always-passing password verification** — `onVerifyPassword` returned raw `{success: boolean}` object which is always truthy; now unwraps `.success`.
+5. **OverviewTab redesigned per RESULT.md spec** — Inline QuickAddBar with type pills (income/expense/transfer), amount input, description, account select, category chips. 4 KPI cards with SVG sparklines. Doughnut + bar charts side by side. Account summary with custodial fence (amber border-l-2, "Not counted in net worth" label).
+
+**Files Modified:**
+- `src/pages/SettingsPage.tsx` — Password Protection card gate removed, Set Password card added, securitySettings re-fetch in handleChangePassword
+- `src/components/finance/OverviewTab.tsx` — Complete rewrite per RESULT.md spec
+- `src/pages/FinancePage.tsx` — onVerifyPassword unwraps `.success` (line 616)
+
+**Build:** ✅

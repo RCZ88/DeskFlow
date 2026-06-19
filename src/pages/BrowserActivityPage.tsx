@@ -711,7 +711,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
                 <Globe className="w-4 h-4 text-zinc-400" />
                 <span className="text-sm text-zinc-300">Tracking Browser</span>
               </div>
-              <select
+              <select data-tutorial="browser.selector"
                 value={mainBrowser}
                 onChange={async (e) => {
                   const newBrowser = e.target.value;
@@ -827,7 +827,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
         <SectionHeader title={selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
           icon={hourlyChartMode === 'bar' ? <BarChart3 className="w-5 h-5" /> : <TrendingUpIcon className="w-5 h-5" />}
           action={
-            <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
+            <div data-tutorial="browser.toggle" className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
               <button onClick={() => setHourlyChartMode('bar')}
                 className={`p-2 rounded-md transition-colors duration-150 ${hourlyChartMode === 'bar' ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400 hover:text-white'}`}
                 title="Bar Chart"><BarChart3 className="w-4 h-4" /></button>
@@ -940,7 +940,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
       </GlassCard>
 
       {/* Domain Breakdown - Grid Layout */}
-      <GlassCard>
+      <GlassCard data-tutorial="browser.domains">
                 <SectionHeader title="Domain Breakdown" />
         {domainStats.length === 0 ? (
           <div className="text-center py-12 text-zinc-500">

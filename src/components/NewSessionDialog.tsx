@@ -92,6 +92,7 @@ interface NewSessionDialogProps {
   onClose: () => void;
   onCreate: (config: SessionConfig) => void;
   projectPath: string;
+  projectId?: string;
   projectPrompt?: string;
   terminalTabs: Record<string, { name: string; agent: string }>;
   defaultAgent: string;
@@ -399,6 +400,7 @@ export function NewSessionDialog({
   onClose,
   onCreate,
   projectPath,
+  projectId,
   projectPrompt = '',
   terminalTabs,
   defaultAgent,
@@ -458,7 +460,7 @@ export function NewSessionDialog({
       setAgentType(defaultAgent);
       setTerminalMode(initialTerminalMode || 'create');
       setSelectedTerminal(initialSelectedTerminal || '');
-      setName('');
+      setName(defaultName && defaultName !== 'New Agent' ? defaultName : '');
       setIncludeDefaultInit(true);
       setCustomInitFile('');
       setCustomSystemPrompt('');
@@ -488,6 +490,7 @@ export function NewSessionDialog({
       setCtxLoadFailed(false);
       setVerifySignal(null);
       loadInitFiles();
+      const configKey = projectId ? `${WORKSPACE_CONFIG_PREF_KEY}-${projectId}` : WORKSPACE_CONFIG_PREF_KEY;
       const dapi = (window as any).deskflowAPI;
       if (dapi?.getPreferences) {
         dapi.getPreferences().then((prefs: any) => {
@@ -495,9 +498,10 @@ export function NewSessionDialog({
             setGeneralAdditions(prefs.systemPrompts[defaultAgent] || prefs.systemPrompts.claude || '');
           }
           if (prefs?.total_token_budget) setTotalBudget(prefs.total_token_budget);
-          if (prefs?.[WORKSPACE_CONFIG_PREF_KEY]) {
+          const raw = prefs?.[configKey] || prefs?.[WORKSPACE_CONFIG_PREF_KEY];
+          if (raw) {
             try {
-              const wsConfig: WorkspaceConfig = JSON.parse(prefs[WORKSPACE_CONFIG_PREF_KEY]);
+              const wsConfig: WorkspaceConfig = JSON.parse(raw);
               if (wsConfig.systems) {
                 if (wsConfig.systems.llm_wiki != null) setCtxLLMWiki(wsConfig.systems.llm_wiki.enabled);
                 if (wsConfig.systems.obsidian_skills != null) setCtxSkills(wsConfig.systems.obsidian_skills.enabled);
@@ -644,7 +648,7 @@ export function NewSessionDialog({
 
   const handleCreate = async () => {
     try {
-      const sessionId = `session-${Date.now()}`;
+      const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const sessionName = name.trim() || (mode === 'setup' ? `Setup ${agentType}` : mode === 'new-agent' ? `${agentType} agent` : `${agentType} session`);
       const config: SessionConfig = {
         id: sessionId,

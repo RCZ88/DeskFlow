@@ -386,11 +386,13 @@ interface MoonData {
 
 interface OrbitSystemProps {
   logs: ActivityLog[];
+  websiteLogs?: ActivityLog[];
   appColors?: Record<string, string>;
   categoryOverrides?: Record<string, string>;
-  websiteLogs?: ActivityLog[];
   websiteColors?: Record<string, string>;
   websiteCategoryOverrides?: Record<string, string>;
+  selectedPeriod?: 'today' | 'week' | 'month' | 'all';
+  onPeriodChange?: (period: 'today' | 'week' | 'month' | 'all') => void;
 }
 
 // FPS Counter + History component - tracks FPS over time and stores in ref for graph
@@ -424,27 +426,31 @@ function FPSCounter({ fpsDisplayRef, fpsHistoryRef }: { fpsDisplayRef: React.Ref
 }
 
 // FPS Line Graph component - renders SVG sparkline from history data
+// NOTE: must NOT use useFrame/useThree (R3F hooks) — rendered outside <Canvas>
 function FPSLineGraph({ fpsHistoryRef, width = 160, height = 40 }: { fpsHistoryRef: React.MutableRefObject<number[]>; width?: number; height?: number }) {
   const pathRef = useRef<string>('');
   const [path, setPath] = useState('');
   
-  useFrame(() => {
-    const history = fpsHistoryRef.current;
-    if (history.length < 2) return;
-    
-    const maxFps = 60;
-    const points = history.map((fps, i) => {
-      const x = (i / (history.length - 1)) * width;
-      const y = height - (Math.min(fps, maxFps) / maxFps) * height;
-      return `${x},${y}`;
-    });
-    
-    const newPath = `M ${points.join(' L ')}`;
-    if (newPath !== pathRef.current) {
-      pathRef.current = newPath;
-      setPath(newPath);
-    }
-  });
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const history = fpsHistoryRef.current;
+      if (history.length < 2) return;
+      
+      const maxFps = 60;
+      const points = history.map((fps, i) => {
+        const x = (i / (history.length - 1)) * width;
+        const y = height - (Math.min(fps, maxFps) / maxFps) * height;
+        return `${x},${y}`;
+      });
+      
+      const newPath = `M ${points.join(' L ')}`;
+      if (newPath !== pathRef.current) {
+        pathRef.current = newPath;
+        setPath(newPath);
+      }
+    }, 250);
+    return () => clearInterval(interval);
+  }, [fpsHistoryRef, width, height]);
   
   if (fpsHistoryRef.current.length < 2) {
     return <div className="text-zinc-500 text-xs">Collecting data...</div>;
@@ -542,123 +548,75 @@ function getCategoryColor(category: string, indexInCategory: number): string {
 // ORBITAL MECHANICS - Based on Kepler's Laws
 // ============================================
 
-// Configuration constants - Logarithmic spacing with visual speed balance
+// Configuration constants - Realism-enhanced orbital physics
 const ORBIT_CONFIG = {
-  // Radius range - inner planets CLOSE to sun (like Mercury at 0.39 AU)
-  // Sun size is ~3.5, so minOrbitRadius must be > sun size
-  minOrbitRadius: 10,         // First orbit just outside the sun (visual proximity)
-  maxOrbitRadius: 80,         // Outer planets far out (like Neptune at 30 AU)
+  minOrbitRadius: 10,
+  maxOrbitRadius: 110,
+  spacingExponent: 0.8,
+  baseAngularSpeed: 2.0,
+  minAngularSpeed: 0.08,
+  sunRadius: 5,
+  sunGlowSize: 6,
+};
+const SUN_RENDER_SIZE = 4;
 
-  // Speed configuration (Kepler's 3rd Law with visual balance factor)
-  baseAngularSpeed: 2.0,      // Reference speed at r=1
-  visualBalanceFactor: 0.65,  // Boosts outer planet speed for visibility (0.6-0.7 range)
-
-  // Sun properties
-  sunRadius: 3,               // Sun sphere geometry radius
-  sunGlowSize: 3.5,           // Corona halo radius
-
-  // Eccentricity (real solar system: 0.01 - 0.21)
-  eccentricityRange: { min: 0.01, max: 0.08 },
-  // Inclination (degrees, Mercury = 7°)
-  inclinationRange: { min: 0, max: 5 },
+const PLANET_COLOR_FAMILIES: Record<string, { h: number; s: number; l: number }> = {
+  'IDE': { h: 38, s: 85, l: 55 },
+  'AI Tools': { h: 270, s: 75, l: 60 },
+  'Browser': { h: 217, s: 80, l: 58 },
+  'Entertainment': { h: 347, s: 85, l: 55 },
+  'Communication': { h: 173, s: 75, l: 55 },
+  'Design': { h: 348, s: 80, l: 50 },
+  'Productivity': { h: 50, s: 80, l: 55 },
+  'Tools': { h: 25, s: 85, l: 53 },
+  'Other': { h: 240, s: 10, l: 55 },
 };
 
-/**
- * Calculates orbit radius using LOGARITHMIC interpolation.
- * This mimics Kepler's natural orbital distribution and spreads planets visually.
- * 
- * Formula: orbitRadius = minR * (maxR / minR) ^ (n / totalPlanets)
- * 
- * @param planetIndex - Index of planet (0 to totalPlanets-1)
- * @param totalPlanets - Total number of planets
- * @param minR - Minimum orbit radius (inner planet)
- * @param maxR - Maximum orbit radius (outer planet)
- */
-function calculateOrbitRadiusLogarithmic(
-  planetIndex: number,
-  totalPlanets: number,
-  minR: number,
-  maxR: number
-): number {
-  // Normalize index to 0–1 range
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h) + s.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h);
+}
+
+function getPlanetColor(category: string, planetName: string): string {
+  const family = PLANET_COLOR_FAMILIES[category] || PLANET_COLOR_FAMILIES['Other'];
+  const seed = hashString(planetName) % 1000;
+  const hueShift = ((seed / 1000) - 0.5) * 24;
+  const satShift = ((seed / 1000) - 0.5) * 16;
+  const h = ((family.h + hueShift) % 360 + 360) % 360;
+  const s = Math.max(0, Math.min(100, family.s + satShift));
+  return `hsl(${h}, ${s}%, ${family.l}%)`;
+}
+
+function calculateOrbitRadius(planetIndex: number, totalPlanets: number): number {
   const t = totalPlanets > 1 ? planetIndex / (totalPlanets - 1) : 0.5;
-  
-  // Logarithmic interpolation
-  const ratio = maxR / minR;
-  const orbitRadius = minR * Math.pow(ratio, t);
-  
-  return orbitRadius;
+  const { minOrbitRadius, maxOrbitRadius, spacingExponent } = ORBIT_CONFIG;
+  return minOrbitRadius + (maxOrbitRadius - minOrbitRadius) * Math.pow(t, spacingExponent);
 }
 
-/**
- * Calculates angular speed using BALANCED Kepler's 3rd Law.
- * Formula: ω = baseSpeed / sqrt(adjustedRadius * r)
- * where adjustedRadius = orbitRadius * visualBalanceFactor
- * 
- * This boosts outer planet visibility while maintaining Kepler-like physics.
- * Strict Kepler makes outer planets too slow (boring).
- * Balance factor 0.65 makes all planets visibly move while staying physics-grounded.
- */
 function calculateAngularSpeed(radius: number): number {
-  const { baseAngularSpeed, visualBalanceFactor } = ORBIT_CONFIG;
-  
-  // Apply visual balance factor to outer planets
-  const adjustedRadius = radius * visualBalanceFactor;
-  
-  // Modified Kepler: ω ∝ 1 / sqrt(adjustedRadius * r)
-  return baseAngularSpeed / Math.sqrt(adjustedRadius * radius);
+  const { baseAngularSpeed, minAngularSpeed, maxOrbitRadius } = ORBIT_CONFIG;
+  const keplerSpeed = baseAngularSpeed / Math.pow(radius, 1.5);
+  const visualBoost = Math.max(0, 0.25 * (1 - radius / maxOrbitRadius));
+  return Math.max(keplerSpeed + visualBoost, minAngularSpeed);
 }
 
-/**
- * Calculates orbital period from radius.
- * T = 2π/ω = 2π/(k·r^(-3/2)) = (2π/k) · r^(3/2)
- */
 function calculateOrbitalPeriod(radius: number): number {
   const { baseAngularSpeed } = ORBIT_CONFIG;
   return (2 * Math.PI / baseAngularSpeed) * Math.pow(radius, 1.5);
 }
 
-/**
- * Color mapping: inner planets (hot/yellow) → outer planets (cold/blue)
- */
-function getPlanetColorByOrbit(radius: number, minR: number, maxR: number): string {
-  const t = (radius - minR) / (maxR - minR);
-
-  // Gradient: inner (hot/yellow) → outer (cold/blue)
-  const colors = [
-    { pos: 0.0, color: '#FCD34D' },   // Yellow (Mercury-like)
-    { pos: 0.2, color: '#F97316' },   // Orange (Venus-like)
-    { pos: 0.4, color: '#10B981' },   // Green (Earth-like)
-    { pos: 0.6, color: '#06B6D4' },   // Cyan (Mars-like)
-    { pos: 0.8, color: '#3B82F6' },   // Blue (Jupiter-like)
-    { pos: 1.0, color: '#8B5CF6' },   // Purple (Neptune-like)
-  ];
-
-  // Find color segment
-  for (let i = 0; i < colors.length - 1; i++) {
-    if (t <= colors[i + 1].pos) {
-      const localT = (t - colors[i].pos) / (colors[i + 1].pos - colors[i].pos);
-      return lerpColor(colors[i].color, colors[i + 1].color, localT);
-    }
-  }
-
-  return colors[colors.length - 1].color;
+function computeEccentricity(planetIndex: number, totalPlanets: number): number {
+  const t = planetIndex / Math.max(totalPlanets - 1, 1);
+  return 0.15 - 0.12 * t + (Math.random() - 0.5) * 0.03;
 }
 
-function lerpColor(color1: string, color2: string, t: number): string {
-  const r1 = parseInt(color1.slice(1, 3), 16);
-  const g1 = parseInt(color1.slice(3, 5), 16);
-  const b1 = parseInt(color1.slice(5, 7), 16);
-
-  const r2 = parseInt(color2.slice(1, 3), 16);
-  const g2 = parseInt(color2.slice(3, 5), 16);
-  const b2 = parseInt(color2.slice(5, 7), 16);
-
-  const r = Math.round(r1 + (r2 - r1) * t);
-  const g = Math.round(g1 + (g2 - g1) * t);
-  const b = Math.round(b1 + (b2 - b1) * t);
-
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+function computeInclination(planetName: string): number {
+  const seed = hashString(planetName) % 1000;
+  return (seed / 1000) * 6;
 }
 
 function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>, categoryOverrides?: Record<string, string>): PlanetData[] {
@@ -746,24 +704,18 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
     const sizeMultiplier = 0.5 + timeRatio * 0.5;
     const radius = Math.max(0.3, Math.min(1.5, baseSize * sizeMultiplier));
 
-    // Orbit radius - logarithmic spacing for proper planet distribution
-    const { minOrbitRadius, maxOrbitRadius } = ORBIT_CONFIG;
-    const orbitRadius = calculateOrbitRadiusLogarithmic(idx, sortedApps.length, minOrbitRadius, maxOrbitRadius);
+    // Orbit radius - power-law spacing for realistic distribution
+    const orbitRadius = calculateOrbitRadius(idx, sortedApps.length);
 
     // Angular speed using Kepler's 3rd Law
     const angularSpeed = calculateAngularSpeed(orbitRadius);
     const orbitalPeriod = calculateOrbitalPeriod(orbitRadius);
 
-    // Eccentricity (slight variation for visual interest)
-    const { eccentricityRange } = ORBIT_CONFIG;
-    const eccentricity = eccentricityRange.min +
-      Math.random() * (eccentricityRange.max - eccentricityRange.min);
+    // Eccentricity — outer planets more eccentric
+    const eccentricity = computeEccentricity(idx, sortedApps.length);
 
-    // Inclination (slight tilt for 3D depth)
-    const { inclinationRange } = ORBIT_CONFIG;
-    const inclination = (inclinationRange.min +
-      Math.random() * (inclinationRange.max - inclinationRange.min))
-      * (Math.PI / 180);
+    // Inclination — deterministic by name hash, ~0–6°
+    const inclination = computeInclination(appName) * (Math.PI / 180);
 
     // Longitude of perihelion (where in orbit planet starts)
     const longitudeOfPerihelion = Math.random() * Math.PI * 2;
@@ -782,37 +734,28 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
       color: color + '88'
     }));
 
-    // Rings (~40% chance)
+    // Rings (C1) — top 25% of apps by total time get determined rings
     const rings: RingData[] = [];
-    const hasRings = Math.random() < 0.4;
-    if (hasRings) {
-      const ringCount = 1 + Math.floor(Math.random() * 3);
+    const totalApps = sortedApps.length;
+    const top25Threshold = Math.ceil(totalApps * 0.75);
+    const isTop25 = idx >= top25Threshold;
+    if (isTop25) {
       const rgb = hexToRgb(color);
       const ringColor = `#${((1 << 24) + (Math.min(255, Math.floor(rgb.r * 0.85) + 30) << 16) + (Math.min(255, Math.floor(rgb.g * 0.85) + 30) << 8) + Math.min(255, Math.floor(rgb.b * 0.85) + 30)).toString(16).slice(1)}`;
-      const isThick = Math.random() < 0.3;
-      const baseOpacity = isThick ? (0.3 + Math.random() * 0.3) : (0.05 + Math.random() * 0.1);
-      const innerRadius = radius * (1.4 + Math.random() * 0.4);
-      const outerRadius = isThick
-        ? innerRadius + radius * (0.8 + Math.random() * 0.6)
-        : innerRadius + radius * (0.15 + Math.random() * 0.2);
-      const tilt = (Math.random() * 0.8) - 0.4;
-
-      for (let r = 0; r < ringCount; r++) {
-        const spread = (outerRadius - innerRadius) / ringCount;
-        rings.push({
-          innerRadius: innerRadius + r * spread,
-          outerRadius: innerRadius + (r + 1) * spread,
-          opacity: baseOpacity * (0.7 + Math.random() * 0.3),
-          color: ringColor,
-          tilt: tilt + (Math.random() * 0.1 - 0.05),
-        });
-      }
+      const tilt = ((idx / totalApps) * 0.6) - 0.3;
+      rings.push({
+        innerRadius: radius * 2.2,
+        outerRadius: radius * 3.5,
+        opacity: 0.3 + (idx - top25Threshold) / (totalApps - top25Threshold) * 0.2,
+        color: ringColor,
+        tilt: tilt,
+      });
     }
 
     return {
       name: appName,
       category: category,
-      color: getPlanetColorByOrbit(orbitRadius, minOrbitRadius, maxOrbitRadius),
+      color: getPlanetColor(category, appName),
       time: appTime,
       sessions: sessions,
       radius: radius,
@@ -851,34 +794,21 @@ function adjustColor(hex: string, percent: number): string {
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 }
 
-// Hash function to generate consistent seed from string with better distribution
-function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-    hash = Math.imul(hash, 0x85ebca6b); // Mix bits for better distribution
-  }
-  return Math.abs(hash) % 1000000; // Keep it in reasonable range
-}
-
-// Use the global seededRandom function
-// Sun Configuration for each category - smaller sizes for better layout
+// Sun Configuration for each category
 const SUN_CONFIGS: Record<string, { color: string; emissive: string; sizeRange: [number, number] }> = {
-  'IDE': { color: '#ffaa33', emissive: '#ff8800', sizeRange: [1.5, 2] },
-  'AI Tools': { color: '#aa66ff', emissive: '#8833ff', sizeRange: [1.5, 2] },
-  'Browser': { color: '#44aaff', emissive: '#2299ff', sizeRange: [1.5, 2] },
-  'Entertainment': { color: '#ff44aa', emissive: '#ff3399', sizeRange: [1.5, 2] },
-  'Communication': { color: '#33ccaa', emissive: '#22aa88', sizeRange: [1.5, 2] },
-  'Design': { color: '#ff66aa', emissive: '#ff4499', sizeRange: [1.5, 2] },
-  'Productivity': { color: '#ffeecc', emissive: '#ffdd99', sizeRange: [1.5, 2] },
-  'Tools': { color: '#ff8833', emissive: '#ff6622', sizeRange: [1.5, 2] },
-  'Other': { color: '#aaaaaa', emissive: '#888888', sizeRange: [1.5, 2] },
+  'IDE': { color: '#ffaa33', emissive: '#ff8800', sizeRange: [4, 5.5] },
+  'AI Tools': { color: '#aa66ff', emissive: '#8833ff', sizeRange: [4, 5.5] },
+  'Browser': { color: '#44aaff', emissive: '#2299ff', sizeRange: [4, 5.5] },
+  'Entertainment': { color: '#ff44aa', emissive: '#ff3399', sizeRange: [4, 5.5] },
+  'Communication': { color: '#33ccaa', emissive: '#22aa88', sizeRange: [4, 5.5] },
+  'Design': { color: '#ff66aa', emissive: '#ff4499', sizeRange: [4, 5.5] },
+  'Productivity': { color: '#ffeecc', emissive: '#ffdd99', sizeRange: [4, 5.5] },
+  'Tools': { color: '#ff8833', emissive: '#ff6622', sizeRange: [4, 5.5] },
+  'Other': { color: '#aaaaaa', emissive: '#888888', sizeRange: [4, 5.5] },
 };
 
 // Default sun config
-const DEFAULT_SUN_CONFIG = { color: '#ffcc44', emissive: '#ffaa22', sizeRange: [1.5, 2] as [number, number] };
+const DEFAULT_SUN_CONFIG = { color: '#ffcc44', emissive: '#ffaa22', sizeRange: [4, 5.5] as [number, number] };
 
 // Sun Component — multi-layer realistic star with corona, animated surface, lens flare
 function Sun({ category = 'Other', size = 3.5 }: { category?: string; size?: number }) {
@@ -1530,6 +1460,7 @@ function TexturedPlanet({
   onPositionUpdate?: (name: string, position: THREE.Vector3) => void;
 }) {
   const meshRef = useRef<THREE.Mesh>(null!);
+  const shadowRef = useRef<THREE.Mesh>(null!);
   const hologramRef = useRef<THREE.Mesh>(null!);
   const labelRef = useRef<THREE.Group>(null!);
   const glowRef = useRef<THREE.Sprite>(null!);
@@ -1542,6 +1473,11 @@ function TexturedPlanet({
   const angleRef = useRef(initialAngle);
   const [isHovered, setIsHovered] = useState(false);
   const labelPosRef = useRef(new THREE.Vector3());
+  const [cameraDist, setCameraDist] = useState(30);
+  const distScaleRef = useRef(15);
+  // C1: LOD geometry
+  const { geometry: lodGeo, setDetail: setLODDetail, detail: lodDetail } = useLODGeometry(data.radius);
+  const lastLODDetailRef = useRef(0);
 
   const { texture, normalMap, glowTexture } = useMemo(() => {
     const seed = hashString(data.name);
@@ -1572,14 +1508,30 @@ function TexturedPlanet({
     [data.radius]
   );
 
-  useFrame((_, delta) => {
+  useFrame(({ camera }, delta) => {
     if (!meshRef.current) return;
 
-    // Self-rotation (increased from 0.3 to 2 multiplier for visible rotation)
+    // Self-rotation
     const rotSpeed = data.rotationSpeed || 1.5;
     meshRef.current.rotation.y += (isPaused ? 0 : delta * rotSpeed * 2);
 
-    // Orbital motion (increased from 0.15 to 2 multiplier for smooth orbits)
+    // C1: Update LOD detail based on camera distance
+    if (camera) {
+      const worldPos = new THREE.Vector3();
+      meshRef.current.getWorldPosition(worldPos);
+      const dist = camera.position.distanceTo(worldPos);
+      let nd: number;
+      if (dist < 40) nd = 64;
+      else if (dist < 80) nd = 32;
+      else if (dist < 150) nd = 16;
+      else nd = 8;
+      if (nd !== lastLODDetailRef.current) {
+        lastLODDetailRef.current = nd;
+        setLODDetail(nd);
+      }
+    }
+
+    // Orbital motion
     const dt = isPaused ? 0 : delta * speedMultiplier;
     angleRef.current += dt * data.speed * 2;
     const angle = angleRef.current;
@@ -1597,6 +1549,12 @@ function TexturedPlanet({
 
     meshRef.current.position.set(x, y, z);
 
+    // B13: Shadow mesh — rotate dark side to face away from sun (origin)
+    if (shadowRef.current) {
+      shadowRef.current.position.set(x, y, z);
+      shadowRef.current.lookAt(new THREE.Vector3(x * 2, y * 2, z * 2));
+    }
+
     // Report current position to parent for camera tracking
     if (onPositionUpdate) {
       onPositionUpdate(data.name, new THREE.Vector3(x, y, z));
@@ -1610,6 +1568,22 @@ function TexturedPlanet({
       const glowSize = data.radius * 4 * pulse;
       glowRef.current.scale.set(glowSize, glowSize, 1);
     }
+
+    // C2: Activity pulse glow — emissive intensity pulses based on usage
+    const mat = meshRef.current.material as THREE.MeshStandardMaterial;
+    const pulseBase = 0.15 + (data.time / 3600) * 0.02;
+    const pulseT = Date.now() * 0.001;
+    const pulseVal = pulseBase + Math.sin(pulseT * 1.2 + angle) * 0.08;
+    mat.emissiveIntensity = pulseVal;
+
+    // B14: Distance-scaled labels — scale based on camera distance
+    const camPos = camera.position;
+    const dx = camPos.x - x;
+    const dy = camPos.y - y;
+    const dz = camPos.z - z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    distScaleRef.current = dist;
+    setCameraDist(dist);
 
     // Update label world position
     labelPosRef.current.set(x, y - data.radius - 1.0, z);
@@ -1625,8 +1599,8 @@ function TexturedPlanet({
     // Hologram shell animation
     if (hologramRef.current) {
       const targetOpacity = isHovered ? 0.45 : 0;
-      const mat = hologramRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity += (targetOpacity - mat.opacity) * Math.min(delta * 6, 1);
+      const hMat = hologramRef.current.material as THREE.MeshBasicMaterial;
+      hMat.opacity += (targetOpacity - hMat.opacity) * Math.min(delta * 6, 1);
       hologramRef.current.rotation.y += delta * 0.5;
       hologramRef.current.rotation.x += delta * 0.2;
       const targetScale = isHovered ? 1.0 : 0.95;
@@ -1649,11 +1623,17 @@ function TexturedPlanet({
         />
       </sprite>
 
+      {/* B7: Orbit trail */}
+      <OrbitTrail orbitRadius={data.orbitRadius} color={data.color} opacity={0.12} />
+
+      {/* B9: Atmospheric scattering glow */}
+      <AtmosphericScattering radius={data.radius} color={data.color} />
+
       {/* Moons */}
       {data.moons.map((moon) => (
         <Moon key={moon.name} moon={moon} parentRef={meshRef} isPaused={isPaused} speedMultiplier={speedMultiplier} />
       ))}
-
+      
       {/* Rings */}
       {data.rings && data.rings.length > 0 && (
         <PlanetRings rings={data.rings} parentRef={meshRef} />
@@ -1674,7 +1654,7 @@ function TexturedPlanet({
         />
       </mesh>
 
-      {/* Planet mesh */}
+      {/* C1: LOD planet mesh - sphere detail depends on camera distance */}
       <mesh
         ref={meshRef}
         onClick={() => onClick(data)}
@@ -1688,7 +1668,7 @@ function TexturedPlanet({
           document.body.style.cursor = 'auto';
         }}
       >
-        <sphereGeometry args={[data.radius, 64, 64]} />
+        <primitive object={lodGeo} attach="geometry" />
         <meshStandardMaterial
           map={texture}
           normalMap={normalMap}
@@ -1701,14 +1681,41 @@ function TexturedPlanet({
         />
       </mesh>
 
-      {/* Name label — positioned at absolute world coords, stays visible on zoom */}
+      {/* B11/B13: Terminator shadow — dark side hemisphere overlay for eclipse effect */}
+      <mesh ref={shadowRef}>
+        <sphereGeometry args={[data.radius * 1.002, 32, 32]} />
+        <meshBasicMaterial
+          color="#000000"
+          transparent
+          opacity={0.35}
+          side={THREE.FrontSide}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* Atmospheric glow (B8) — back-face translucent shell */}
+      <mesh>
+        <sphereGeometry args={[data.radius * 1.08, 48, 48]} />
+        <meshBasicMaterial
+          color={data.color}
+          transparent
+          opacity={0.08}
+          side={THREE.BackSide}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* B14: Distance-scaled label — opacity/size scales with camera distance */}
       <group ref={labelRef}>
         <Html center distanceFactor={15}>
           <div
             style={{
               pointerEvents: 'none',
-              opacity: isHovered ? 1 : 0.85,
+              opacity: isHovered ? 1 : Math.min(1, Math.max(0.3, 1 - (cameraDist - 15) / 120)),
+              transform: `scale(${isHovered ? 1 : Math.min(1.2, Math.max(0.6, 20 / cameraDist + 0.5))})`,
               transition: 'opacity 0.2s ease',
+              transformOrigin: 'center center',
               background: 'rgba(8, 8, 24, 0.95)',
               backdropFilter: 'blur(8px)',
               border: `1.5px solid ${isHovered ? data.color : 'rgba(255,255,255,0.18)'}`,
@@ -1721,17 +1728,36 @@ function TexturedPlanet({
               letterSpacing: '0.03em',
               fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
               boxShadow: isHovered ? `0 0 16px ${data.color}44` : '0 2px 8px rgba(0,0,0,0.4)',
-              maxWidth: '200px',
+              maxWidth: isHovered ? '200px' : `${Math.max(60, Math.min(200, 200 - (cameraDist - 15) * 2))}px`,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
             }}
           >
-            {data.name}
+            {data.name}{isHovered && <span style={{ marginLeft: '8px', opacity: 0.7, fontWeight: 400 }}>{formatDurationSeconds(data.time)}</span>}
           </div>
         </Html>
       </group>
     </>
   );
+}
+
+// C1: LOD geometry hook - returns { detail, geometry } with disposal
+function useLODGeometry(radius: number) {
+  const [detail, setDetail] = useState(32);
+  const ref = useRef<{ lastDetail: number; disposer: (() => void) | null }>({ lastDetail: 0, disposer: null });
+
+  const geometry = useMemo(() => {
+    ref.current.disposer?.();
+    const geo = new THREE.SphereGeometry(radius, detail, detail);
+    ref.current.lastDetail = detail;
+    const dispose = () => geo.dispose();
+    ref.current.disposer = dispose;
+    return geo;
+  }, [radius, detail]);
+
+  useEffect(() => () => ref.current.disposer?.(), []);
+
+  return { geometry, setDetail, detail };
 }
 
 // Moon component orbiting around its parent planet
@@ -1843,17 +1869,73 @@ function PlanetRings({
   );
 }
 
-// Asteroid belt
+// B7: Orbit trail with fading opacity
+function OrbitTrail({ orbitRadius, color, opacity = 0.15 }: { orbitRadius: number; color: string; opacity?: number }) {
+  const trailRef = useRef<any>(null);
+  const points = useMemo(() => {
+    const pts: [number, number, number][] = [];
+    const segments = 128;
+    for (let i = 0; i <= segments; i++) {
+      const a = (i / segments) * Math.PI * 2;
+      pts.push([Math.cos(a) * orbitRadius, 0, Math.sin(a) * orbitRadius]);
+    }
+    return pts;
+  }, [orbitRadius]);
+
+  return (
+    <Line
+      ref={trailRef}
+      points={points}
+      color={color}
+      lineWidth={1}
+      transparent
+      opacity={opacity}
+      depthWrite={false}
+      blending={THREE.AdditiveBlending}
+    />
+  );
+}
+
+// B9: Simplified atmospheric scattering (Nishita-style)
+function AtmosphericScattering({ radius, color }: { radius: number; color: string }) {
+  return (
+    <mesh>
+      <sphereGeometry args={[radius * 1.08, 32, 32]} />
+      <meshBasicMaterial
+        color={color}
+        transparent
+        opacity={0.08}
+        side={THREE.BackSide}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+    </mesh>
+  );
+}
+
+// C2: Reduced particle count for performance - adaptive based on camera distance
 function AsteroidBelt({
   radius,
   count,
   isPaused,
+  camera,
 }: {
   radius: number;
   count: number;
   isPaused: boolean;
+  camera?: THREE.Camera;
 }) {
   const groupRef = useRef<THREE.Group>(null!);
+
+  // Compute adaptive particle count based on distance
+  const effectiveCount = useMemo(() => {
+    if (!camera) return count;
+    // Simple approximation: if camera is far, reduce particles
+    // Use distance from origin as proxy for camera distance
+    const camDist = camera.position.distanceTo(new THREE.Vector3(0, 0, 0));
+    const ratio = Math.min(1, Math.max(0.2, 1 - camDist / 500));
+    return Math.max(10, Math.floor(count * ratio));
+  }, [count, camera]);
 
   useFrame((_, delta) => {
     if (groupRef.current && !isPaused) {
@@ -1862,8 +1944,8 @@ function AsteroidBelt({
   });
 
   const asteroids = useMemo(() => {
-    return Array.from({ length: count }, (_, i) => {
-      const angle = (i / count) * Math.PI * 2;
+    return Array.from({ length: effectiveCount }, (_, i) => {
+      const angle = (i / effectiveCount) * Math.PI * 2;
       const r = radius + (Math.random() - 0.5) * 3;
       const x = Math.cos(angle) * r;
       const z = Math.sin(angle) * r;
@@ -1871,7 +1953,7 @@ function AsteroidBelt({
       const scale = 0.1 + Math.random() * 0.15;
       return { position: [x, y, z] as [number, number, number], scale };
     });
-  }, [radius, count]);
+  }, [radius, effectiveCount]);
 
   return (
     <group ref={groupRef}>
@@ -1881,6 +1963,274 @@ function AsteroidBelt({
           <meshStandardMaterial color="#666666" roughness={0.9} metalness={0.1} />
         </mesh>
       ))}
+    </group>
+  );
+}
+
+// Starfield background (B9) - deep space background with two-layer parallax
+function Starfield() {
+  const starsRef = useRef<THREE.Points>(null!);
+  const starsRefFar = useRef<THREE.Points>(null!);
+
+  const { positions, sizes } = useMemo(() => {
+    const count = 6000;
+    const positions = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const i0 = (i + 0.5) / count;
+      const theta = 2 * Math.PI * i * 0.618033988749895;
+      const phi = Math.acos(1 - 2 * i0);
+      const r = 200 + Math.random() * 100;
+      // Ecliptic bias: compress toward equator
+      const bias = 0.7;
+      const adjustedPhi = phi * (1 - bias) + (Math.PI / 2) * bias;
+      positions[i * 3] = r * Math.sin(adjustedPhi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.cos(adjustedPhi) * 0.4;
+      positions[i * 3 + 2] = r * Math.sin(adjustedPhi) * Math.sin(theta);
+      sizes[i] = 0.2 + Math.random() * 0.8;
+    }
+    return { positions, sizes };
+  }, []);
+
+  const starTexture = useMemo(() => {
+    const c = document.createElement('canvas');
+    c.width = 32; c.height = 32;
+    const ctx = c.getContext('2d')!;
+    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 32, 32);
+    return new THREE.CanvasTexture(c);
+  }, []);
+
+  useFrame(({ clock }) => {
+    if (!starsRef.current || !starsRefFar.current) return;
+    const t = clock.getElapsedTime();
+    const mat = starsRef.current.material as THREE.PointsMaterial;
+    mat.opacity = 0.7 + Math.sin(t * 0.6) * 0.15;
+    // Slow rotation for parallax feel
+    starsRef.current.rotation.y += 0.00008;
+    starsRefFar.current.rotation.y += 0.00002;
+  });
+
+  return (
+    <group>
+      <points ref={starsRef}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" count={positions.length / 3} array={positions} itemSize={3} />
+          <bufferAttribute attach="attributes-size" count={sizes.length} array={sizes} itemSize={1} />
+        </bufferGeometry>
+        <pointsMaterial
+          size={0.8}
+          map={starTexture}
+          transparent
+          opacity={0.7}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          sizeAttenuation
+        />
+      </points>
+      {/* Far layer — dimmer, slower */}
+      <points ref={starsRefFar}>
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            count={positions.length / 3}
+            array={positions.map((v, i) => {
+              if (i % 3 === 2) return v * 2.5;
+              return v * 2.5;
+            })}
+            itemSize={3}
+          />
+          <bufferAttribute attach="attributes-size" count={sizes.length} array={sizes.map(s => s * 1.5)} itemSize={1} />
+        </bufferGeometry>
+        <pointsMaterial
+          size={0.4}
+          map={starTexture}
+          transparent
+          opacity={0.3}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          sizeAttenuation
+        />
+      </points>
+    </group>
+  );
+}
+
+// Warp Streak Lines (B1/B2) — appears during camera travel
+function WarpLines({ active }: { active: boolean }) {
+  const ref = useRef<THREE.Points>(null!);
+  const count = 400;
+
+  const { positions, velocities } = useMemo(() => {
+    const pos = new Float32Array(count * 3);
+    const vel = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 1 + Math.random() * 60;
+      pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) * 0.3;
+      pos[i * 3 + 2] = r * Math.cos(phi);
+      const speed = 15 + Math.random() * 35;
+      vel[i * 3] = -Math.sin(phi) * Math.cos(theta) * speed;
+      vel[i * 3 + 1] = -Math.sin(phi) * Math.sin(theta) * speed * 0.3;
+      vel[i * 3 + 2] = -Math.cos(phi) * speed;
+    }
+    return { positions: pos, velocities: vel };
+  }, []);
+
+  const velRef = useRef(velocities);
+
+  useFrame((_, delta) => {
+    if (!ref.current) return;
+    const pos = ref.current.geometry.attributes.position as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    for (let i = 0; i < count; i++) {
+      arr[i * 3] += velRef.current[i * 3] * delta;
+      arr[i * 3 + 1] += velRef.current[i * 3 + 1] * delta;
+      arr[i * 3 + 2] += velRef.current[i * 3 + 2] * delta;
+      if (Math.abs(arr[i * 3]) > 80 || Math.abs(arr[i * 3 + 2]) > 80) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = 1 + Math.random() * 10;
+        arr[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+        arr[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) * 0.3;
+        arr[i * 3 + 2] = r * Math.cos(phi);
+      }
+    }
+    pos.needsUpdate = true;
+    const mat = ref.current.material as THREE.PointsMaterial;
+    const targetOpacity = active ? 0.6 : 0;
+    mat.opacity += (targetOpacity - mat.opacity) * Math.min(delta * 4, 1);
+  });
+
+  return (
+    <points ref={ref}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
+      </bufferGeometry>
+      <pointsMaterial
+        color="#ffffff"
+        size={0.4}
+        transparent
+        opacity={0}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation
+      />
+    </points>
+  );
+}
+
+// System Entry Portal Ring (B5) — expands on arrival at a solar system
+function PortalRing({ sunColor, onComplete }: { sunColor: string; onComplete: () => void }) {
+  const ringRef = useRef<THREE.Mesh>(null!);
+  const lightRef = useRef<THREE.PointLight>(null!);
+  const particlesRef = useRef<THREE.Points>(null!);
+  const startTime = useRef(Date.now());
+  const doneRef = useRef(false);
+
+  // Particle burst geometry
+  const particlePositions = useMemo(() => {
+    const pos = new Float32Array(90);
+    for (let i = 0; i < 30; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 0.1;
+      pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      pos[i * 3 + 2] = r * Math.cos(phi);
+    }
+    return pos;
+  }, []);
+
+  const particleVelocities = useRef<THREE.Vector3[]>(
+    Array.from({ length: 30 }, () => {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const speed = 5 + Math.random() * 10;
+      return new THREE.Vector3(
+        Math.sin(phi) * Math.cos(theta) * speed,
+        Math.sin(phi) * Math.sin(theta) * speed * 0.3,
+        Math.cos(phi) * speed
+      );
+    })
+  );
+
+  const particleOpacities = useRef<Float32Array>(new Float32Array(30).fill(1));
+
+  useFrame(() => {
+    const elapsed = Date.now() - startTime.current;
+    const t = Math.min(elapsed / 800, 1);
+
+    // Ring scale with easeOutBack overshoot
+    if (ringRef.current) {
+      const overshoot = 1.1;
+      const easeOutBack = (x: number) => {
+        const c1 = 1.70158;
+        const c3 = c1 + 1;
+        return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+      };
+      const scale = easeOutBack(t) * 8;
+      ringRef.current.scale.setScalar(scale);
+      const mat = ringRef.current.material as THREE.MeshBasicMaterial;
+      const easeOutQuad = (x: number) => 1 - (1 - x) * (1 - x);
+      mat.opacity = 0.7 * (1 - easeOutQuad(t));
+    }
+
+    // Light flash
+    if (lightRef.current) {
+      const intensity = t < 0.5 ? t * 10 : (1 - t) * 10;
+      lightRef.current.intensity = Math.max(0, intensity);
+    }
+
+    // Particle burst
+    if (particlesRef.current) {
+      const pos = particlesRef.current.geometry.attributes.position as THREE.BufferAttribute;
+      const array = pos.array as Float32Array;
+      for (let i = 0; i < 30; i++) {
+        const v = particleVelocities.current[i];
+        array[i * 3] += v.x * 0.016;
+        array[i * 3 + 1] += v.y * 0.016;
+        array[i * 3 + 2] += v.z * 0.016;
+        particleOpacities.current[i] = Math.max(0, 1 - (elapsed / 600));
+      }
+      pos.needsUpdate = true;
+      const pMat = particlesRef.current.material as THREE.PointsMaterial;
+      pMat.opacity = Math.max(...Array.from(particleOpacities.current));
+    }
+
+    if (t >= 1 && !doneRef.current) {
+      doneRef.current = true;
+      onComplete();
+    }
+  });
+
+  return (
+    <group>
+      <mesh ref={ringRef}>
+        <ringGeometry args={[2, 8, 64]} />
+        <meshBasicMaterial color={sunColor} transparent opacity={0} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <pointLight ref={lightRef} color="#ffffff" intensity={0} distance={20} />
+      <points ref={particlesRef}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" count={30} array={particlePositions} itemSize={3} />
+        </bufferGeometry>
+        <pointsMaterial
+          color="#ffffff"
+          size={0.2}
+          transparent
+          opacity={0}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          sizeAttenuation
+        />
+      </points>
     </group>
   );
 }
@@ -1929,11 +2279,13 @@ function PlanetTracker({
   planetPositionsRef,
   trackedPlanetRef,
   cameraPosRef,
+  isAnimatingRef,
 }: {
   controlsRef: React.MutableRefObject<any>;
   planetPositionsRef: React.MutableRefObject<Map<string, THREE.Vector3>>;
   trackedPlanetRef: React.MutableRefObject<string | null>;
   cameraPosRef: React.MutableRefObject<[number, number, number]>;
+  isAnimatingRef: React.MutableRefObject<boolean>;
 }) {
   const lastPlanetPosRef = useRef<THREE.Vector3 | null>(null);
   const cameraOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
@@ -1941,6 +2293,7 @@ function PlanetTracker({
   useFrame(() => {
     const name = trackedPlanetRef.current;
     if (!name || !controlsRef.current) return;
+    if (isAnimatingRef.current) return; // Don't track during camera animation
     const planetPos = planetPositionsRef.current.get(name);
     if (!planetPos) return;
 
@@ -1975,18 +2328,37 @@ function PlanetTracker({
 }
 
 // Main Scene Component
-function SolarSystemScene({ planets, isPaused, speed, onPlanetClick, controlsRef, onPlanetPositionUpdate, category = 'Other', sunSize }: { planets: PlanetData[]; isPaused: boolean; speed: number; onPlanetClick: (data: PlanetData) => void; controlsRef: any; onPlanetPositionUpdate?: (name: string, position: THREE.Vector3) => void; category?: string; sunSize?: number }) {
-  
+function SolarSystemScene({ planets, isPaused, speed, onPlanetClick, controlsRef, onPlanetPositionUpdate, category = 'Other', sunSize, portalKey, isAnimating, showBelt }: { planets: PlanetData[]; isPaused: boolean; speed: number; onPlanetClick: (data: PlanetData) => void; controlsRef: any; onPlanetPositionUpdate?: (name: string, position: THREE.Vector3) => void; category?: string; sunSize?: number; portalKey?: number; isAnimating?: boolean; showBelt?: boolean }) {
+  const { camera } = useThree();
+  const [showPortal, setShowPortal] = useState(portalKey ? true : false);
+
+  useEffect(() => {
+    if (portalKey) {
+      setShowPortal(true);
+    }
+  }, [portalKey]);
+
   return (
     <>
+      {showPortal && (
+        <PortalRing
+          key={portalKey}
+          sunColor={SUN_CONFIGS[category]?.color || '#ffaa00'}
+          onComplete={() => setShowPortal(false)}
+        />
+      )}
+      <WarpLines active={!!isAnimating} />
       <Sun category={category} size={sunSize} />
       <ambientLight color="#ffffff" intensity={0.15} />
       <hemisphereLight color="#6688cc" groundColor="#222233" intensity={0.1} />
       <directionalLight position={[5, 10, 5]} intensity={0.15} color="#aabbff" />
       {planets.filter((p) => p && p.name && (p.category || p.color)).map((planetData) => (<OrbitPath key={`orbit-${planetData.name}`} planet={planetData} />))}
       {planets.filter((p) => { if (!p) return false; if (!p.name) return false; if (!p.category && !p.color) return false; return true; }).map((planetData) => (<TexturedPlanet key={planetData.name} data={planetData} isPaused={isPaused} speedMultiplier={speed} onClick={onPlanetClick} onPositionUpdate={onPlanetPositionUpdate} />))}
-      <Stars radius={300} depth={80} count={800} factor={3} fade speed={0.2} saturation={0.5} />
-      <OrbitControls ref={controlsRef} enablePan={true} enableZoom={true} minDistance={8} maxDistance={200} autoRotate={!isPaused} autoRotateSpeed={0.04} target={[0, 0, 0]} />
+      {showBelt && <AsteroidBelt radius={45} count={400} isPaused={isPaused} camera={camera} />}
+      {showBelt && <AsteroidBelt radius={75} count={300} isPaused={isPaused} camera={camera} />}
+      <Starfield />
+      <Stars radius={300} depth={80} count={400} factor={2} fade speed={0.05} saturation={0.5} />
+      <OrbitControls ref={controlsRef} enablePan={true} enableZoom={true} minDistance={8} maxDistance={200} autoRotate={!isPaused} autoRotateSpeed={0.06} target={[0, 0, 0]} />
     </>
   );
 }
@@ -2107,17 +2479,50 @@ function computePlanetsFromStats(
     const timeRatio = maxTime > 0 ? app.time / maxTime : 0.5;
     const radius = 0.8 + timeRatio * 1.2;
 
-    // Calculate orbit radius using logarithmic spacing
-    const { minOrbitRadius, maxOrbitRadius } = ORBIT_CONFIG;
-    const orbitRadius = calculateOrbitRadiusLogarithmic(idx, sortedApps.length, minOrbitRadius, maxOrbitRadius);
+    // Calculate orbit radius using power-law spacing
+    const orbitRadius = calculateOrbitRadius(idx, sortedApps.length);
 
-    // Speed based on Kepler's 3rd Law
+    // Speed based on Keplerian formula
     const speed = calculateAngularSpeed(orbitRadius);
 
-    // Add some eccentricity and variation
-    const eccentricity = 0.05 + Math.random() * 0.15;
-    const inclination = (Math.random() - 0.5) * 0.3;
+    // Deterministic eccentricity and inclination
+    const eccentricity = computeEccentricity(idx, sortedApps.length);
+    const inclination = computeInclination(appName);
     const longitudeOfPerihelion = Math.random() * Math.PI * 2;
+
+    // Rings (C1) — top 25% of apps by total time get deterministic rings
+    const totalApps = sortedApps.length;
+    const top25Threshold = Math.ceil(totalApps * 0.75);
+    const isTop25 = idx >= top25Threshold;
+    const planetRings: RingData[] = [];
+    if (isTop25) {
+      const rgb = hexToRgb(color);
+      const ringColor = `#${((1 << 24) + (Math.min(255, Math.floor(rgb.r * 0.85) + 30) << 16) + (Math.min(255, Math.floor(rgb.g * 0.85) + 30) << 8) + Math.min(255, Math.floor(rgb.b * 0.85) + 30)).toString(16).slice(1)}`;
+      const tilt = ((idx / totalApps) * 0.6) - 0.3;
+      planetRings.push({
+        innerRadius: radius * 2.2,
+        outerRadius: radius * 3.5,
+        opacity: 0.3 + (idx - top25Threshold) / (totalApps - top25Threshold) * 0.2,
+        color: ringColor,
+        tilt: tilt,
+      });
+    }
+
+    // C4: Moons from sub-apps/projects (sample from dataset)
+    const projectMoons: MoonData[] = [];
+    // Use correlated random based on name for deterministic mooons
+    const moonSeed = hashString(appName);
+    const moonCount = moonSeed % 4; // 0-3 moons
+    for (let m = 0; m < moonCount; m++) {
+      const mHue = (moonSeed * (m + 1)) % 360;
+      projectMoons.push({
+        name: `${appName}-m${m}`,
+        radius: 0.12 + (moonSeed * (m + 7)) % 5 * 0.04,
+        orbitRadius: 0.8 + m * 0.35,
+        speed: 1.0 + (moonSeed * (m + 3)) % 10 * 0.15,
+        color: `hsl(${mHue}, 60%, 65%)`,
+      });
+    }
 
     planets.push({
       name: appName,
@@ -2131,8 +2536,8 @@ function computePlanetsFromStats(
       eccentricity,
       inclination,
       longitudeOfPerihelion,
-      moons: [],
-      rings: radius > 1.5 ? [{ innerRadius: radius * 1.4, outerRadius: radius * 2.2, opacity: 0.2 + Math.random() * 0.3, color, tilt: (Math.random() - 0.5) * 0.5 }] : []
+      moons: projectMoons,
+      rings: planetRings,
     });
   }
 
@@ -2198,21 +2603,20 @@ function computeSolarSystems(
 
 // Website category map - maps website categories to visual configs (Electric Nebula theme)
 const WEBSITE_SUN_CONFIGS: Record<string, { color: string; emissive: string; sizeRange: [number, number] }> = {
-  'Social Media': { color: '#ff00ff', emissive: '#cc00cc', sizeRange: [1.5, 2] },
-  'Entertainment': { color: '#ff44aa', emissive: '#cc3388', sizeRange: [1.5, 2] },
-  'Productivity': { color: '#00ffaa', emissive: '#00cc88', sizeRange: [1.5, 2] },
-  'Search Engine': { color: '#00ccff', emissive: '#0099cc', sizeRange: [1.5, 2] },
-  'News': { color: '#aa66ff', emissive: '#8844cc', sizeRange: [1.5, 2] },
-  'Shopping': { color: '#ffaa00', emissive: '#cc8800', sizeRange: [1.5, 2] },
-  'Communication': { color: '#00ffff', emissive: '#00cccc', sizeRange: [1.5, 2] },
-  'Education': { color: '#66ffff', emissive: '#44cccc', sizeRange: [1.5, 2] },
-  'Developer Tools': { color: '#8866ff', emissive: '#6644cc', sizeRange: [1.5, 2] },
-  'Uncategorized': { color: '#88aacc', emissive: '#6688aa', sizeRange: [1.5, 2] },
-  'Other': { color: '#aabbcc', emissive: '#8899aa', sizeRange: [1.5, 2] },
+  'Social Media': { color: '#ff00ff', emissive: '#cc00cc', sizeRange: [4, 5.5] },
+  'Entertainment': { color: '#ff44aa', emissive: '#cc3388', sizeRange: [4, 5.5] },
+  'Productivity': { color: '#00ffaa', emissive: '#00cc88', sizeRange: [4, 5.5] },
+  'Search Engine': { color: '#00ccff', emissive: '#0099cc', sizeRange: [4, 5.5] },
+  'News': { color: '#aa66ff', emissive: '#8844cc', sizeRange: [4, 5.5] },
+  'Shopping': { color: '#ffaa00', emissive: '#cc8800', sizeRange: [4, 5.5] },
+  'Communication': { color: '#00ffff', emissive: '#00cccc', sizeRange: [4, 5.5] },
+  'Education': { color: '#66ffff', emissive: '#44cccc', sizeRange: [4, 5.5] },
+  'Developer Tools': { color: '#8866ff', emissive: '#6644cc', sizeRange: [4, 5.5] },
+  'Uncategorized': { color: '#88aacc', emissive: '#6688aa', sizeRange: [4, 5.5] },
+  'Other': { color: '#aabbcc', emissive: '#8899aa', sizeRange: [4, 5.5] },
 };
 
-// Default website sun config - cyan/violet
-const DEFAULT_WEBSITE_SUN_CONFIG = { color: '#00c6ff', emissive: '#0099cc', sizeRange: [1.5, 2] as [number, number] };
+const DEFAULT_WEBSITE_SUN_CONFIG = { color: '#00c6ff', emissive: '#0099cc', sizeRange: [4, 5.5] as [number, number] };
 
 // Website category list
 const WEBSITE_CATEGORY_LIST = ['Social Media', 'Entertainment', 'Productivity', 'Search Engine', 'News', 'Shopping', 'Communication', 'Education', 'Developer Tools', 'Uncategorized', 'Other'];
@@ -2256,9 +2660,8 @@ function computeWebsitePlanets(
   
   const sortedApps = Object.entries(grouped)
     .sort(([, a], [, b]) => {
-      // duration_ms in milliseconds, convert to seconds for display
-      const timeA = a.reduce((sum, l) => sum + ((l as any).duration_ms || (l as any).duration || 0) / 1000, 0);
-      const timeB = b.reduce((sum, l) => sum + ((l as any).duration_ms || (l as any).duration || 0) / 1000, 0);
+      const timeA = a.reduce((sum, l) => sum + ((l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0), 0);
+      const timeB = b.reduce((sum, l) => sum + ((l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0), 0);
       return timeA - timeB;
     });
 
@@ -2273,18 +2676,22 @@ function computeWebsitePlanets(
     const color = websiteColors?.[domainName] || getCategoryColor(category, categoryCount[category] || 0);
     categoryCount[category] = (categoryCount[category] || 0) + 1;
 
-    // duration_ms in milliseconds, convert to seconds for display
-    const appTime = domainLogs.reduce((sum: number, l: any) => sum + ((l as any).duration_ms || (l as any).duration || 0) / 1000, 0);
+    const appTime = domainLogs.reduce((sum: number, l: any) => {
+      const raw = (l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0;
+      return sum + raw;
+    }, 0);
     const sessions = domainLogs.length;
 
-    const maxTime = Math.max(...sortedApps.map(([, logs]) => logs.reduce((sum: number, l: any) => sum + ((l as any).duration_ms || (l as any).duration || 0) / 1000, 0)), 1);
+    const maxTime = Math.max(...sortedApps.map(([, logs]) => logs.reduce((sum: number, l: any) => {
+      const raw = (l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0;
+      return sum + raw;
+    }, 0)), 1);
     
-     // LN-based orbit spacing - logarithmic distribution for websites
-    const minOrbitRadius = 24;
-    const maxOrbitRadius = 240;
-    
-    // Use index-based logarithmic spacing (same approach as apps)
-    const orbitRadius = calculateOrbitRadiusLogarithmic(idx, sortedApps.length, minOrbitRadius, maxOrbitRadius);
+     // LN-based orbit spacing for websites (wider range than app planets)
+    const wsMinR = 24;
+    const wsMaxR = 220;
+    const wsT = sortedApps.length > 1 ? idx / (sortedApps.length - 1) : 0.5;
+    const orbitRadius = wsMinR + (wsMaxR - wsMinR) * Math.pow(wsT, 0.8);
     
     // Calculate time ratio for planet size
     const timeRatio = appTime / maxTime;
@@ -2297,8 +2704,8 @@ function computeWebsitePlanets(
     // Orbit speed using Kepler-like physics
     const speed = calculateAngularSpeed(orbitRadius) * 0.1; // Scale down for slower website orbits
     
-    const eccentricity = 0.05 + seededRandom(idx * 7.1) * 0.15;
-    const inclination = (seededRandom(idx * 7.2) - 0.5) * 0.3;
+    const eccentricity = computeEccentricity(idx, sortedApps.length);
+    const inclination = computeInclination(domainName);
     const longitudeOfPerihelion = seededRandom(idx * 7.3) * Math.PI * 2;
 
     planets.push({
@@ -2502,8 +2909,9 @@ function GalaxyView({
   ) => {
     const pos = getSystemPosition(idx, 0, 0); // Will be recalculated
     const brightness = Math.min(1, system.totalTime / 60);
-    const sunSize = config.sizeRange[0] * 0.9;
-    const hitboxSize = sunSize * 4; // Larger clickable area
+    // Small sphere ~same visual weight as dust particles (size 2.5)
+    const sphereSize = 1.2;
+    const hitboxSize = sphereSize * 5;
     
     return (
       <group key={`solar-${system.category}`} position={basePos}>
@@ -2521,43 +2929,28 @@ function GalaxyView({
           <meshBasicMaterial transparent opacity={0} />
         </mesh>
         
-        {/* Visual sun */}
+        {/* Visual core sphere - small, like a bright star cluster */}
         <mesh>
-          <sphereGeometry args={[sunSize, 32, 32]} />
-          <meshStandardMaterial
+          <sphereGeometry args={[sphereSize, 16, 16]} />
+          <meshBasicMaterial
             color={config.color}
-            emissive={new THREE.Color(config.emissive)}
-            emissiveIntensity={1.5 + brightness * 0.8}
-            roughness={0.2}
-            metalness={0.6}
             toneMapped={false}
           />
         </mesh>
         
-        {/* Inner glow */}
-        <sprite scale={[sunSize * 3, sunSize * 3, 1]}>
+        {/* Soft glow aura */}
+        <sprite scale={[sphereSize * 5, sphereSize * 5, 1]}>
           <spriteMaterial
             color={config.color}
             transparent
-            opacity={0.5 * (0.6 + brightness * 0.4)}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-          />
-        </sprite>
-        
-        {/* Outer glow */}
-        <sprite scale={[sunSize * 6, sunSize * 6, 1]}>
-          <spriteMaterial
-            color={config.color}
-            transparent
-            opacity={0.2 * (0.6 + brightness * 0.4)}
+            opacity={0.35 * (0.6 + brightness * 0.4)}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
           />
         </sprite>
         
         {/* Always visible label */}
-        <Html center distanceFactor={30} position={[0, sunSize * 3, 0]} style={{ pointerEvents: 'none' }}>
+        <Html center distanceFactor={30} position={[0, sphereSize * 3, 0]} style={{ pointerEvents: 'none' }}>
           <div className="px-3 py-1.5 rounded-lg bg-black/90 text-white font-bold text-sm whitespace-nowrap border-2 border-white/40" style={{ fontSize: '15px', textShadow: '0 0 10px rgba(0,0,0,0.8), 0 0 20px rgba(0,0,0,0.5)' }}>
             {system.category}
           </div>
@@ -2831,7 +3224,7 @@ function PlanetLegend({
 }
 
 // Main Export Component
-export default function OrbitSystem({ logs, appColors, categoryOverrides, websiteLogs, websiteColors, websiteCategoryOverrides }: OrbitSystemProps) {
+export default function OrbitSystem({ logs, appColors, categoryOverrides, websiteLogs, websiteColors, websiteCategoryOverrides, selectedPeriod: externalPeriod, onPeriodChange }: OrbitSystemProps) {
   
   const [isPaused, setIsPaused] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -2845,6 +3238,9 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   const fpsHistoryRef = useRef<number[]>([]);
   const [currentCategory, setCurrentCategory] = useState<string>('Other');
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('all');
+  
+  // Sync with external period if provided (drives backend refetch via parent)
+  const activePeriod = externalPeriod || selectedPeriod;
   
   // Load saved category on mount after galaxyType is determined
   useEffect(() => {
@@ -2861,6 +3257,10 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   const [showPerf, setShowPerf] = useState(false);
   const [perfExpanded, setPerfExpanded] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  // D3: Filter slider — min usage threshold (seconds)
+  const [minTimeFilter, setMinTimeFilter] = useState(0);
+  // D4: Search query
+  const [searchQuery, setSearchQuery] = useState('');
   const [animationSpeed] = useState<AnimationSpeed>(() => {
     try {
       return (localStorage.getItem('deskflow-animation-speed') as AnimationSpeed) || 'normal';
@@ -2869,10 +3269,14 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   const controlsRef = useRef<any>(null);
   const galaxyTypeRef = useRef(galaxyType);
   const trackedPlanetRef = useRef<string | null>(null);
+  const isAnimatingRef = useRef(false);
+  const [portalKey, setPortalKey] = useState(0);
   
   // Filter logs by selected period
-  const filteredLogs = useMemo(() => filterLogsByPeriod(logs, selectedPeriod), [logs, selectedPeriod]);
-  const filteredWebsiteLogs = useMemo(() => filterLogsByPeriod(websiteLogs || [], selectedPeriod), [websiteLogs, selectedPeriod]);
+  // NOTE: when externalPeriod is provided (from parent), data is already pre-filtered from backend
+  // The internal filter still runs as a safety net for direct prop changes
+  const filteredLogs = useMemo(() => filterLogsByPeriod(logs, activePeriod), [logs, activePeriod]);
+  const filteredWebsiteLogs = useMemo(() => filterLogsByPeriod(websiteLogs || [], activePeriod), [websiteLogs, activePeriod]);
   
   // App galaxy solar systems (period-filtered)
   const appSolarSystems = useMemo(() => {
@@ -2956,9 +3360,21 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   
   const planets = useMemo(() => {
     const system = solarSystems.find(s => s.category === currentCategory);
+    let filtered = system?.planets || [];
     
-    return system?.planets || [];
-  }, [solarSystems, currentCategory]);
+    // D3: Apply min time filter
+    if (minTimeFilter > 0) {
+      filtered = filtered.filter(p => p.time >= minTimeFilter);
+    }
+    
+    // D4: Apply search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(p => p.name.toLowerCase().includes(q));
+    }
+    
+    return filtered;
+  }, [solarSystems, currentCategory, minTimeFilter, searchQuery]);
   
   // All planets for legend (from all categories)
   const allPlanets = useMemo(() => {
@@ -2970,30 +3386,70 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
     return [...new Set(allPlanets.map(p => p.category).filter(Boolean))];
   }, [allPlanets]);
   
-  const handlePlanetClick = (data: PlanetData) => { 
-    setSelectedPlanet(data); 
-    setCurrentCategory(data.category);
-    setViewMode('solarSystem');
-    setSelectedSystem(null);
-    // Get real-time planet position and start tracking
-    const trackedPos = planetPositionsRef.current.get(data.name);
-    if (trackedPos) {
-      trackedPlanetRef.current = data.name;
-      const camOffset = Math.max(data.radius * 6, 12);
-      const camPos = new THREE.Vector3(
-        trackedPos.x + camOffset,
-        trackedPos.y + camOffset * 0.6,
-        trackedPos.z + camOffset
-      );
-      const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
-      animateCamera(camPos, trackedPos, duration);
-    } else {
-      // Fallback: use orbital position
-      const planetPos = new THREE.Vector3(0, 0, 0);
-      const camPos = new THREE.Vector3(data.orbitRadius * 0.8, data.radius * 2, data.orbitRadius * 1.2);
-      const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
-      animateCamera(camPos, planetPos, duration);
+  // D2: Click vs select distinction
+  const clickStartTimeRef = useRef(0);
+  const clickTargetRef = useRef<PlanetData | null>(null);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handlePlanetPointerDown = (data: PlanetData) => {
+    clickStartTimeRef.current = Date.now();
+    clickTargetRef.current = data;
+    // Start a timer — if held > 300ms, it becomes a "select" (track + fly to)
+    clickTimerRef.current = setTimeout(() => {
+      if (clickTargetRef.current) {
+        const pd = clickTargetRef.current;
+        // Long press = select: fly to planet + track
+        setSelectedPlanet(pd);
+        setCurrentCategory(pd.category);
+        setViewMode('solarSystem');
+        setSelectedSystem(null);
+        const trackedPos = planetPositionsRef.current.get(pd.name);
+        if (trackedPos) {
+          trackedPlanetRef.current = pd.name;
+          const camOffset = Math.max(pd.radius * 6, 12);
+          const camPos = new THREE.Vector3(
+            trackedPos.x + camOffset,
+            trackedPos.y + camOffset * 0.6,
+            trackedPos.z + camOffset
+          );
+          animateCamera(camPos, trackedPos, ANIMATION_DURATIONS[animationSpeed]);
+        }
+      }
+      clickTargetRef.current = null;
+    }, 300);
+  };
+
+  const handlePlanetPointerUp = (data: PlanetData) => {
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
     }
+    const elapsed = Date.now() - clickStartTimeRef.current;
+    // Brief click (< 300ms) = quick view (show detail panel, no tracking)
+    if (elapsed < 300 && clickTargetRef.current === data) {
+      setSelectedPlanet(data);
+      setCurrentCategory(data.category);
+      setViewMode('solarSystem');
+      setSelectedSystem(null);
+      // Brief click: show detail panel but don't track; position camera nearby
+      const trackedPos = planetPositionsRef.current.get(data.name);
+      if (trackedPos) {
+        const camOffset = Math.max(data.radius * 6, 12);
+        const camPos = new THREE.Vector3(
+          trackedPos.x + camOffset,
+          trackedPos.y + camOffset * 0.6,
+          trackedPos.z + camOffset
+        );
+        animateCamera(camPos, trackedPos, ANIMATION_DURATIONS[animationSpeed]);
+      }
+    }
+    clickTargetRef.current = null;
+  };
+
+  const handlePlanetClick = (data: PlanetData) => { 
+    // D2: Delegate to pointer down/up handlers
+    handlePlanetPointerDown(data);
+    handlePlanetPointerUp(data);
   };
   
   const handleSelectSystem = (category: string) => {
@@ -3014,7 +3470,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
       const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
       const targetPos = new THREE.Vector3(targetX, 30, 60); // Close to sun
       const lookAtPos = new THREE.Vector3(targetX, 0, 0); // Look at sun
-      animateCamera(targetPos, lookAtPos, duration);
+      animateCamera(targetPos, lookAtPos, duration, () => setPortalKey(k => k + 1));
     }
   };
 
@@ -3058,7 +3514,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
       const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
       const targetPos = new THREE.Vector3(targetX, 30, 60);
       const lookAtPos = new THREE.Vector3(targetX, 0, 0);
-      animateCamera(targetPos, lookAtPos, duration);
+      animateCamera(targetPos, lookAtPos, duration, () => setPortalKey(k => k + 1));
     }
   };
 
@@ -3132,24 +3588,49 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
     return config?.sizeRange[0] || 3.5;
   }, [currentCategory, currentSunConfigs]);
 
-  // Helper to animate camera to target position smoothly
-  const animateCamera = (targetPos: THREE.Vector3, lookAtPos: THREE.Vector3, duration: number) => {
+  // Helper to animate camera to target position smoothly (B1/B2)
+  // Uses 3-phase bezier curve: easeIn → fast travel → easeOut + overshoot
+  const animateCamera = (targetPos: THREE.Vector3, lookAtPos: THREE.Vector3, duration: number, onComplete?: () => void) => {
     if (!controlsRef.current) return;
 
+    isAnimatingRef.current = true;
     const startPos = controlsRef.current.object.position.clone();
     const startTarget = controlsRef.current.target.clone();
     const startTime = Date.now();
+    const totalDist = startPos.distanceTo(targetPos);
+
+    // 3-phase bezier: anticipate (0-0.15), fast travel (0.15-0.7), settle (0.7-1.0)
+    const threePhaseBezier = (t: number): number => {
+      if (t < 0.15) {
+        // Phase 1: ease in (anticipation)
+        const p = t / 0.15;
+        return 0.08 * p * p * p;
+      } else if (t < 0.7) {
+        // Phase 2: fast travel (nearly linear with slight acceleration)
+        const p = (t - 0.15) / 0.55;
+        return 0.08 + 0.84 * p;
+      } else {
+        // Phase 3: ease out with overshoot
+        const p = (t - 0.7) / 0.3;
+        const overshoot = 1.02 + 0.03 * Math.sin(p * Math.PI * 2);
+        return (0.92 + 0.08 * (1 - Math.pow(1 - p, 3))) * overshoot;
+      }
+    };
 
     const animate = () => {
       const elapsed = Date.now() - startTime;
       const t = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      const eased = threePhaseBezier(t);
+      const clamped = Math.min(eased, 1);
 
-      controlsRef.current.object.position.lerpVectors(startPos, targetPos, eased);
-      controlsRef.current.target.lerpVectors(startTarget, lookAtPos, eased);
+      controlsRef.current.object.position.lerpVectors(startPos, targetPos, clamped);
+      controlsRef.current.target.lerpVectors(startTarget, lookAtPos, clamped);
 
       if (t < 1) {
         requestAnimationFrame(animate);
+      } else {
+        isAnimatingRef.current = false;
+        onComplete?.();
       }
     };
     animate();
@@ -3177,8 +3658,42 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
         </div>
       </div>
       
-      {/* Control buttons - below galaxy indicator */}
-      <div className="absolute top-16 left-4 z-20 flex flex-col gap-2">
+      {/* D3/D4: Filter & Search bar */}
+      {viewMode === 'solarSystem' && (
+        <div className="absolute top-16 left-4 z-20 flex flex-col gap-2">
+          {/* Search input */}
+          <div className="glass rounded-xl px-3 py-1.5 flex items-center gap-2">
+            <svg className="w-3.5 h-3.5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search planets..."
+              className="bg-transparent text-xs text-zinc-300 placeholder-zinc-600 outline-none w-28"
+            />
+          </div>
+          {/* Min time slider */}
+          <div className="glass rounded-xl px-3 py-2 flex flex-col gap-1">
+            <div className="flex justify-between text-[10px]">
+              <span className="text-zinc-500">Min time</span>
+              <span className="text-zinc-400 font-mono">{formatDurationSeconds(minTimeFilter)}</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={36000}
+              step={300}
+              value={minTimeFilter}
+              onChange={(e) => setMinTimeFilter(Number(e.target.value))}
+              className="w-full h-1 accent-indigo-500"
+            />
+          </div>
+        </div>
+      )}
+      
+      {/* Control buttons - below filter/search */}
+      <div className="absolute top-16 left-4 z-20 flex flex-col gap-2" style={{ marginTop: viewMode === 'solarSystem' ? '110px' : '0px' }}>
         {/* Top row: Galaxy + Category buttons */}
         <div className="flex items-center gap-2">
           {/* Switch between Apps and Websites galaxy */}
@@ -3226,9 +3741,12 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
           {(['today', 'week', 'month', 'all'] as const).map((p) => (
             <button
               key={p}
-              onClick={() => setSelectedPeriod(p)}
+              onClick={() => {
+                setSelectedPeriod(p);
+                onPeriodChange?.(p);
+              }}
               className={`px-2.5 py-1 rounded-md text-[10px] font-medium transition ${
-                selectedPeriod === p 
+                activePeriod === p 
                   ? 'bg-indigo-500/30 text-indigo-300' 
                   : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
               }`}
@@ -3450,7 +3968,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                       target={galaxyType === 'websites' ? [3250, 0, 0] : [0, 0, 0]}
                     />
                   </>
-                ) : (
+                  ) : (
                   <>
                     <SolarSystemScene
                       planets={planets}
@@ -3461,12 +3979,16 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                       onPlanetPositionUpdate={handlePlanetPositionUpdate}
                       category={currentCategory}
                       sunSize={currentSunSize}
+                      portalKey={portalKey}
+                      isAnimating={isAnimatingRef.current}
+                      showBelt={true}
                     />
                     <PlanetTracker
                       controlsRef={controlsRef}
                       planetPositionsRef={planetPositionsRef}
                       trackedPlanetRef={trackedPlanetRef}
                       cameraPosRef={cameraPosRef}
+                      isAnimatingRef={isAnimatingRef}
                     />
                   </>
                 )}

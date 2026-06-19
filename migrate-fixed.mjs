@@ -6,7 +6,7 @@ import path from 'path';
 import initSqlJs from 'sql.js';
 
 const userDataPath = process.env.APPDATA 
-  ? path.join(process.env.APPDATA, 'DeskFlow')
+    ? path.join(process.env.APPDATA, 'DeskFlow')
   : path.join(process.env.HOME, '.config', 'DeskFlow');
 
 const dbPath = path.join(userDataPath, 'deskflow-data.db');

@@ -1,8 +1,8 @@
 ﻿# PROBLEMS.md
 
 > **Purpose:** Issue tracker for AI agents and humans ΓÇö all known bugs, feature requests, and their resolution status.
-> **Last Updated:** 2026-06-15 (Stale DB connection fix)
-> **Total Issues:** 117
+> **Last Updated:** 2026-06-19 (Orbit visual enhancements)
+> **Total Issues:** 123
 > **Parse Priority:** High
 
 ---
@@ -14,7 +14,7 @@
 | NEW | 0 |
 | Not Started | 0 |
 | In Progress | 0 |
-| AI Attempted Fix | 1 |
+| AI Attempted Fix | 2 |
 | User Testing | 0 |
 | Fixed | ~110 |
 
@@ -821,6 +821,31 @@
 - **Fix:** Swapped the two useCallback declarations so `handleTerminalMoveToGroup` is defined before `handleMiniMapMoveToGroup`.
 - **Files:** `src/pages/TerminalPage.tsx`
 
+## 🚧 2026-06-17 — Session & Workspace Critical Bug Fixes
+
+### Issue #162: Workspace save/load broken at /terminal route
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User said:** "It doesn't save the session ID / the save doesn't work at /terminal"
+- **Root Cause:** All workspace handlers guarded on `propProjectId` only. At `/terminal` route (no `projectId` query param), `propProjectId` is undefined — save/load silently no-ops.
+- **Fix:** Added `wsProjectId = propProjectId || selectedProject` fallback to all workspace handlers and effects.
+- **Files:** `src/pages/TerminalPage.tsx`
+
+### Issue #163: Session ID collision on rapid creation
+- **Status:** AI Attempted Fix
+- **Priority:** High
+- **User said:** "it doesn't even save the correct session ID"
+- **Root Cause:** ID generated as `session-${Date.now()}` — same ms timestamp → same ID. `save-terminal-session` uses `INSERT OR REPLACE`, silently overwriting previous session.
+- **Fix:** Added random suffix `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`.
+- **Files:** `src/components/NewSessionDialog.tsx`
+
+### Issue #164: Session name always empty when dialog opens
+- **Status:** AI Attempted Fix
+- **Priority:** Medium
+- **Root Cause:** `setName('')` called unconditionally in dialog open effect, overriding `defaultName` prop before user could see it.
+- **Fix:** Changed to `setName(defaultName && defaultName !== 'New Agent' ? defaultName : '')`.
+- **Files:** `src/components/NewSessionDialog.tsx`
+
 ### Issue #161: Stale DB connection shows empty data after AFK
 - **Status:** AI Attempted Fix
 - **Priority:** Medium
@@ -828,3 +853,60 @@
 - **Root Cause:** Single global `better-sqlite3` connection is never reopened. After system sleep/resume the file handle can become invalid, causing IPC handlers to silently return `[]` with no error indicator. The renderer had no periodic health check and no reconnection mechanism.
 - **Fix:** (1) Added WAL mode + busy_timeout to DB initialization. (2) Added `ensureDb()` health-check function that closes stale connections and re-opens. (3) Added `withDb<T>()` wrapper for automatic reconnection on IPC queries. (4) Wrapped 5 critical IPC handlers with `ensureDb()`. (5) Added 30s periodic health-check + visibilitychange refresh in `App.tsx` with `dbConnected` state and yellow "Reconnecting..." indicator badge.
 - **Files:** `src/App.tsx`, `src/main.ts`
+
+---
+
+## 🚧 2026-06-18 — Sleep date fix
+
+### Issue #165: Sleep sessions starting after midnight show wrong wake-up date
+- **Status:** AI Attempted Fix
+- **Priority:** Medium
+- **User said:** "🛏️ Jun 13 2:44 AM → 🌅 Jun 14 10:43 AM — same day, why different dates?"
+- **Root Cause:** Sleep sessions starting in AM (after midnight, e.g., 2:44 AM) had `ended_at` stored on the next calendar day (Jun 14) when the wake time (10:43 AM) is on the same day. This happened because the save logic didn't properly handle AM-to-AM sleep (same calendar day).
+- **Fix:** Added `fix-sleep-dates` IPC handler + button in ExternalPage. The fix checks every sleep session: if `started_at` is AM (0-11h) and `ended_at` is on the next calendar day ALSO in AM, it resets `ended_at` date to match `started_at` date and recalculates `duration_seconds`.
+- **Files:** `src/main.ts`, `src/preload.ts`, `src/pages/ExternalPage.tsx`
+- **Test:** Click "Fix Sleep Dates" button next to Sleep Debug on the External page. Verify alert shows count of fixed sessions.
+
+---
+
+## 🚧 2026-06-19 — Orbit System Visual Enhancements (RESULT.md Phase 1)
+
+### Issue #166: Starfield background (B9) — Fibonacci sphere with parallax
+- **Status:** AI Attempted Fix
+- **Priority:** Low
+- **Description:** OrbitSystem needs a starfield background with two-layer parallax and twinkle animation for visual depth.
+- **Source:** RESULT.md §B9, Phase 1 Item 6
+- **Fix:** Added 6000-star Fibonacci sphere with ecliptic bias, two-layer parallax, and twinkle animation in `OrbitSystem.tsx`. Single draw call (8000 points, instanced).
+- **Files:** `src/components/OrbitSystem.tsx`
+
+### Issue #167: Planet atmospheres (B8) — Translucent glow shell
+- **Status:** AI Attempted Fix
+- **Priority:** Low
+- **Description:** Planets need an atmosphere glow effect — a translucent shell that adds depth and realism.
+- **Source:** RESULT.md §B8, Phase 1 Item 7
+- **Fix:** Added back-face translucent shell on `TexturedPlanet` (radius*1.08, 0.08 opacity).
+- **Files:** `src/components/OrbitSystem.tsx`
+
+### Issue #168: Portal ring on arrival (B5) — System entry animation
+- **Status:** AI Attempted Fix
+- **Priority:** Low
+- **Description:** When entering a category/SolarSystem view, a portal ring should expand from the system center with light flash and particles.
+- **Source:** RESULT.md §B5, Phase 1 Item 9
+- **Fix:** Added `PortalRing` component with animated ring expansion, light flash, and particle burst triggered on `handleEnterSystem` and `handleCategorySelect`.
+- **Files:** `src/components/OrbitSystem.tsx`
+
+### Issue #169: Planet rings deterministic top-25% (C1)
+- **Status:** AI Attempted Fix
+- **Priority:** Low
+- **Description:** Planet rings should appear on the top 25% of apps by total time, not random.
+- **Source:** RESULT.md §C1, Phase 1 Item 13
+- **Fix:** Changed from random 40% chance to deterministic top-25% apps by total time.
+- **Files:** `src/components/OrbitSystem.tsx`
+
+### Issue #170: Hover tooltip with time (D1) — Planet label shows duration
+- **Status:** AI Attempted Fix
+- **Priority:** Low
+- **Description:** Hovering a planet label should show the formatted total time using `formatDurationSeconds`.
+- **Source:** RESULT.md §D1, Phase 1 Item 10
+- **Fix:** Added `formatDurationSeconds(data.time)` tooltip on planet label hover.
+- **Files:** `src/components/OrbitSystem.tsx`

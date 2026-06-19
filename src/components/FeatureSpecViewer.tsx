@@ -114,7 +114,7 @@ function SidebarTree({
   }, [filteredSpecs]);
 
   return (
-    <div className="flex flex-col h-full" data-tutorial="feature-spec-sidebar">
+    <div className="flex flex-col h-full" data-tutorial="spec.sidebar">
       <div className="relative px-3 pt-3 pb-2">
         <Search className="absolute left-6 top-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
         <input
@@ -219,7 +219,7 @@ function SpecDetailPanel({
 
   return (
     <div className="flex-1 overflow-y-auto p-5 space-y-5">
-      <div data-tutorial="feature-spec-detail">
+      <div data-tutorial="spec.detail">
         <div className="flex items-start gap-4 mb-3">
           <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${meta.gradient} flex items-center justify-center shrink-0`}>
             <FeatureIcon iconName={feature.icon} className="w-5 h-5 text-white" />
@@ -234,7 +234,7 @@ function SpecDetailPanel({
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => onCopy(generateMarkdown(feature))}
-              data-tutorial="feature-spec-copy"
+              data-tutorial="spec.copy"
               className="p-2 rounded-lg bg-zinc-800/60 border border-zinc-700/40 text-zinc-400 hover:text-white hover:bg-zinc-700/60 transition-all duration-150"
               title="Copy spec as markdown"
             >
@@ -287,7 +287,7 @@ function SpecDetailPanel({
       </div>
 
       {feature.sections.length > 0 && (
-        <div data-tutorial="feature-spec-sections">
+        <div data-tutorial="spec.sections">
           <SectionHeader title="Sections & Components" />
           <div className="space-y-3 mt-3">
             {feature.sections.map((section, si) => (
@@ -324,7 +324,7 @@ function SpecDetailPanel({
       )}
 
       {feature.ipcEndpoints.length > 0 && (
-        <div data-tutorial="feature-spec-ipc">
+        <div data-tutorial="spec.ipc">
           <SectionHeader title={`IPC Endpoints (${feature.ipcEndpoints.length})`} />
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-xs">
@@ -501,7 +501,7 @@ export default function FeatureSpecViewer({ noShell }: { noShell?: boolean }) {
                     ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
                     : 'bg-zinc-800/60 border-zinc-700/40 text-zinc-400 hover:text-white hover:bg-zinc-700/60'
                 }`}
-                data-tutorial="feature-spec-md-toggle"
+                data-tutorial="spec.md"
               >
                 <FileText className="w-3 h-3" />
                 {showMarkdown ? 'View' : 'MD View'}

@@ -7,27 +7,50 @@
  * Location: src/services/RAGService.ts
  */
 
-import Database from 'better-sqlite3';
+// Conditionally import better-sqlite3 only in the main process.
+import type DatabaseConstructor from 'better-sqlite3';
+import type { Database as DatabaseInstance } from 'better-sqlite3';
+
+let Database: DatabaseConstructor | null = null;
+if (typeof window === 'undefined') {
+  // Electron main process (Node environment)
+  // Dynamically require the native module to avoid bundling it into the renderer.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const db = require('better-sqlite3');
+  Database = db.default || db;
+}
+
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 
-import type {
-  RAGMessage,
-  RAGSearchResult,
-  QueryOptions,
-  PaginatedResults,
-  ServiceResponse,
-  MessageMetadata,
-  MessageRole,
-} from '@/types/context';
+interface RAGMessageRow {
+  id: string;
+  session_id: string;
+  timestamp: number;
+  role: string;
+  content: string;
+  tokens: number;
+  embedding?: Buffer | null;
+  metadata?: string | null;
+  created_at: number;
+  content_length: number;
+}
+
+interface SessionStatsRow {
+  message_count?: number;
+  total_tokens?: number;
+  first_message?: number;
+  last_message?: number;
+}
+
 
 // ──────────────────────────────────────────────────────────────
 // RAG Service Implementation
 // ──────────────────────────────────────────────────────────────
 
 export class RAGService {
-  private db: Database.Database | null = null;
+  private db: DatabaseInstance | null = null;
   private dbPath: string;
   private initialized: boolean = false;
 
@@ -49,7 +72,10 @@ export class RAGService {
    * Initialize database and create schema
    */
   public async initialize(): Promise<void> {
-    if (this.initialized) return;
+    // Prevent execution in renderer – must run in main process only
+    if (typeof window !== 'undefined') {
+      throw new Error('RAGService.initialize called in renderer – forbidden');
+    }
 
     try {
       this.db = new Database(this.dbPath);
@@ -177,7 +203,7 @@ export class RAGService {
         SELECT * FROM messages WHERE id = ?
       `);
 
-      const row = stmt.get(messageId) as any;
+      const row = stmt.get(messageId) as RAGMessageRow;
 
       if (!row) {
         return { success: true, data: null, timestamp: new Date() };
@@ -215,7 +241,7 @@ export class RAGService {
 
       // Build query
       let query = 'SELECT * FROM messages WHERE 1=1';
-      const params: any[] = [];
+      const params: unknown[] = [];
 
       if (options.sessionId) {
         query += ' AND session_id = ?';
@@ -241,7 +267,7 @@ export class RAGService {
       const countStmt = this.db.prepare(
         query.replace('SELECT *', 'SELECT COUNT(*) as count')
       );
-      const countRow = countStmt.get(...params) as any;
+      const countRow = countStmt.get(...params) as { count: number };
       const total = countRow.count;
 
       // Get paginated results
@@ -249,7 +275,7 @@ export class RAGService {
       params.push(limit, offset);
 
       const stmt = this.db.prepare(query);
-      const rows = stmt.all(...params) as any[];
+      const rows = stmt.all(...params) as unknown[];
 
       const messages = rows.map(row => this.rowToMessage(row));
 
@@ -304,7 +330,7 @@ export class RAGService {
         WHERE messages_fts MATCH ?
       `;
 
-      const params: any[] = [query];
+      const params: unknown[] = [query];
 
       // Optional session filter
       if (options.sessionId) {
@@ -316,7 +342,7 @@ export class RAGService {
       params.push(limit);
 
       const stmt = this.db.prepare(ftsQuery);
-      const rows = stmt.all(...params) as any[];
+      const rows = stmt.all(...params) as unknown[];
 
       const results: RAGSearchResult[] = rows.map(row => ({
         message: this.rowToMessage(row),
@@ -360,14 +386,14 @@ export class RAGService {
       const minScore = options.minScore || 0.3;
 
       let sql = `SELECT * FROM messages WHERE embedding IS NOT NULL`;
-      const params: any[] = [];
+      const params: unknown[] = [];
 
       if (options.sessionId) {
         sql += ` AND session_id = ?`;
         params.push(options.sessionId);
       }
 
-      const rows = this.db.prepare(sql).all(...params) as any[];
+      const rows = this.db.prepare(sql).all(...params) as unknown[];
 
       if (rows.length === 0) {
         return { success: true, data: [], timestamp: new Date() };
@@ -379,7 +405,7 @@ export class RAGService {
         return { success: true, data: [], timestamp: new Date() };
       }
 
-      const scored: Array<{ row: any; score: number }> = [];
+      const scored: Array<{ row: RAGMessageRow; score: number }> = [];
       let skippedCount = 0;
 
       for (const row of rows) {
@@ -422,7 +448,7 @@ export class RAGService {
 
       return { success: true, data: results, timestamp: new Date() };
 
-    } catch (err: any) {
+      } catch (err: unknown) {
       return {
         success: false,
         error: err?.message || 'Semantic search failed',
@@ -525,7 +551,7 @@ export class RAGService {
         LIMIT ?
       `);
 
-      const rows = stmt.all(beforeTimestamp, limit) as any[];
+      const rows = stmt.all(beforeTimestamp, limit) as unknown[];
       const messages = rows.map(row => this.rowToMessage(row));
 
       return { success: true, data: messages, timestamp: new Date() };
@@ -549,7 +575,7 @@ export class RAGService {
   public async createSession(
     projectId: string,
     agentName: string,
-    metadata?: any
+    metadata?: unknown
   ): Promise<ServiceResponse<string>> {
     if (!this.db || !this.initialized) {
       return {
@@ -606,7 +632,7 @@ export class RAGService {
         SELECT * FROM v_message_stats WHERE session_id = ?
       `);
 
-      const row = stmt.get(sessionId) as any;
+      const row = stmt.get(sessionId) as SessionStatsRow;
 
       if (!row) {
         return { success: true, data: null, timestamp: new Date() };
@@ -639,7 +665,7 @@ export class RAGService {
   /**
    * Convert database row to RAGMessage object
    */
-  private rowToMessage(row: any): RAGMessage {
+  private rowToMessage(row: RAGMessageRow): RAGMessage {
     return {
       id: row.id,
       sessionId: row.session_id,

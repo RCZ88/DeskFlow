@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { 
+import {
   Settings, Database, Clock, Download, Trash2, RefreshCw, Terminal,
   ChevronRight, X, Plus, GripVertical, Palette, Check, ChevronDown, Globe,
   ChevronLeft, Search, AlertTriangle, Sparkles, ChevronUp,
-  Eye, EyeOff
+  Eye, EyeOff, DollarSign, Shield, Key
 } from 'lucide-react';
 import {
   DndContext,
@@ -27,9 +27,9 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
-import { PageShell } from '../components/PageShell';
+import { useNumberMask } from '../context/NumberMaskContext';
 import { GlassCard } from '../components/GlassCard';
-import { SectionHeader } from '../components/SectionHeader';
+import { PageShell } from '../components/PageShell';
 
 interface SettingsPageProps {
   logs: any[];
@@ -111,7 +111,7 @@ const PRESET_COLORS = [
 function ColorPicker({ value, onChange, size = 'md' }: { value: string; onChange: (color: string) => void; size?: 'sm' | 'md' }) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  
+
   useEffect(() => {
     if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -202,12 +202,12 @@ function ColorPicker({ value, onChange, size = 'md' }: { value: string; onChange
 }
 
 // Sortable category chip using dnd-kit
-function SortableChip({ 
-  id, 
+function SortableChip({
+  id,
   color,
   onRemove,
-}: { 
-  id: string; 
+}: {
+  id: string;
   color: string;
   onRemove?: () => void;
 }) {
@@ -238,7 +238,7 @@ function SortableChip({
       <GripVertical className="w-3 h-3 opacity-50" />
       <span>{id}</span>
       {onRemove && (
-        <button 
+        <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           className="ml-1 hover:opacity-70 transition-opacity"
         >
@@ -252,14 +252,14 @@ function SortableChip({
 // Tier container with droppable zone
 import { useDroppable } from '@dnd-kit/core';
 
-function TierContainer({ 
-  tier, 
-  color, 
+function TierContainer({
+  tier,
+  color,
   label,
   description,
   creditLabel,
   children
-}: { 
+}: {
   tier: 'productive' | 'neutral' | 'distracting';
   color: string;
   label: string;
@@ -269,25 +269,23 @@ function TierContainer({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: tier });
   const tierColor = tier === 'productive' ? '#22c55e' : tier === 'neutral' ? '#3b82f6' : '#ef4444';
-  
+
   return (
-    <div 
+    <div
       ref={setNodeRef}
-      className={`p-4 rounded-xl border transition-colors duration-150 ${
-        isOver ? 'border-2 border-solid' : ''
-      } ${
-        tier === 'productive' 
+      className={`p-4 rounded-xl border transition-colors duration-150 ${isOver ? 'border-2 border-solid' : ''
+        } ${tier === 'productive'
           ? 'bg-gradient-to-br from-emerald-500/10 to-transparent border-emerald-500/20'
           : tier === 'neutral'
             ? 'bg-gradient-to-br from-blue-500/10 to-transparent border-blue-500/20'
             : 'bg-gradient-to-br from-red-500/10 to-transparent border-red-500/20'
-      }`}
+        }`}
       style={isOver ? { borderColor: tierColor, borderWidth: 2 } : undefined}
     >
       <div className="flex items-center gap-3 mb-4">
-        <div 
+        <div
           className="w-4 h-4 rounded-full"
-          style={{ 
+          style={{
             background: `linear-gradient(135deg, ${tierColor} 0%, ${tierColor}88 100%)`,
             boxShadow: `0 0 10px ${tierColor}50`
           }}
@@ -310,9 +308,9 @@ export default function SettingsPage({
   appStats = [],
   storageStatus = { type: 'none', working: false, path: '', logCount: 0 },
   idleThreshold = 5,
-  setIdleThreshold = () => {},
+  setIdleThreshold = () => { },
   autoExport = false,
-  setAutoExport = () => {},
+  setAutoExport = () => { },
   onClearData,
   onExportData,
   onViewDatabase,
@@ -325,16 +323,16 @@ export default function SettingsPage({
   categoryOrder = DEFAULT_CATEGORIES.slice(0, 9),
   setCategoryOrder,
   autoStartEnabled: autoStartEnabledProp = false,
-  setAutoStartEnabled: setAutoStartEnabledProp = () => {},
+  setAutoStartEnabled: setAutoStartEnabledProp = () => { },
   timerBehavior: timerBehaviorProp = { neutralAction: 'pause', distractingAction: 'reset' },
-  setTimerBehavior: setTimerBehaviorProp = () => {},
+  setTimerBehavior: setTimerBehaviorProp = () => { },
   trackerAppMode: trackerAppModeProp = 'track',
-  setTrackerAppMode: setTrackerAppModeProp = () => {},
+  setTrackerAppMode: setTrackerAppModeProp = () => { },
   externalActivities = [],
   externalActivityTiers: externalActivityTiersProp = {},
   onExternalActivityTiersChange,
 }: Partial<SettingsPageProps> & { onRegisterSave: (fn: () => void) => void; onReloadData?: () => void }) {
-  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general' | 'tracking' | 'prompts'>(() => {
+  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general' | 'tracking' | 'prompts' | 'finance'>(() => {
     const saved = localStorage.getItem('settings-activeTab');
     return (saved as any) || 'category';
   });
@@ -378,19 +376,31 @@ export default function SettingsPage({
     }
     return externalActivityTiersProp;
   });
-  
+
+  // Finance password protection settings
+  const [financePasswordSettings, setFinancePasswordSettings] = useState({
+    overview: true,
+    accounts: true,
+    transactions: true,
+    categories: true,
+    masterPassword: '',
+  });
+
+  const { maskMode, setMaskMode, maskFixedValue, setMaskFixedValue } = useNumberMask();
+
   const allCategories = useMemo(() => [...DEFAULT_CATEGORIES, ...customCategories], [customCategories]);
-  
+
   // Sync tracker app mode from props when they change
   useEffect(() => {
     if (trackerAppModeProp !== trackerAppMode) {
       setTrackerAppMode(trackerAppModeProp);
     }
   }, [trackerAppModeProp]);
-  
+
   // Drag-and-drop state for dnd-kit
   const [activeId, setActiveId] = useState<string | null>(null);
-  
+  const [savedNotice, setSavedNotice] = useState(false);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -427,10 +437,10 @@ export default function SettingsPage({
 
     // Determine source and destination tiers
     const sourceTier = findTier(activeId);
-    
+
     // Check if overId is a tier name or a category
     let destTier: 'productive' | 'neutral' | 'distracting' | null = null;
-    
+
     if (overId === 'productive' || overId === 'neutral' || overId === 'distracting') {
       destTier = overId;
     } else {
@@ -452,7 +462,7 @@ export default function SettingsPage({
     onHasChangesChange(true);
   };
 
-const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
+  const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
     if (typeof window !== 'undefined') {
       return (localStorage.getItem('deskflow-animation-speed') as AnimationSpeed) || 'normal';
     }
@@ -461,12 +471,14 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
   const [appCategoryOverrides, setAppCategoryOverrides] = useState<Record<string, string>>({});
   const [domainCategoryOverrides, setDomainCategoryOverrides] = useState<Record<string, string>>({});
 
+
+
   // Load overrides from BOTH localStorage AND categoryConfig on mount
   useEffect(() => {
     const loadOverrides = async () => {
       const overrides: Record<string, string> = {};
       const domainOverrides: Record<string, string> = {};
-      
+
       // First load from localStorage
       if (typeof window !== 'undefined') {
         try {
@@ -478,7 +490,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
           if (saved) Object.assign(domainOverrides, JSON.parse(saved));
         } catch { /* ignore */ }
       }
-      
+
       // Also load from categoryConfig (for persistence across app restarts)
       if (window.deskflowAPI?.getCategoryConfig) {
         try {
@@ -503,7 +515,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
           }
         } catch { /* ignore */ }
       }
-      
+
       // Load tier assignments from backend (ensures custom categories are in tiers)
       if (window.deskflowAPI?.getTierAssignments) {
         try {
@@ -520,14 +532,14 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
           }
         } catch { /* ignore */ }
       }
-       
+
       // Load keyword-enabled domains and their keyword sets
       if (window.deskflowAPI?.getKeywordEnabledDomains) {
         try {
           const domains = await window.deskflowAPI.getKeywordEnabledDomains();
           setKeywordEnabledDomains(domains);
-          
-// Load keyword sets for each domain
+
+          // Load keyword sets for each domain
           const keywordSetsMap: Record<string, { category: string; keywords: string[] }[]> = {};
           for (const domain of domains) {
             if (window.deskflowAPI?.getDomainKeywordRules) {
@@ -556,7 +568,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
           if (topics?.length > 0) setInterestTopics(topics);
         } catch { /* ignore */ }
       }
-          // Load OpenRouter API key from preferences
+      // Load OpenRouter API key from preferences
       if (window.deskflowAPI?.getPreferences) {
         try {
           const prefs = await window.deskflowAPI.getPreferences();
@@ -573,7 +585,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
           }
         } catch { /* ignore */ }
       }
-      
+
       setAppCategoryOverrides(overrides);
       setDomainCategoryOverrides(domainOverrides);
     };
@@ -620,14 +632,14 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
     try {
       const appOverrides: Record<string, string> = {};
       const domainOverrides: Record<string, string> = {};
-      
+
       for (const [app, category] of Object.entries(appCategoryOverrides)) {
         appOverrides[app.toLowerCase()] = category;
       }
       for (const [domain, category] of Object.entries(domainCategoryOverrides)) {
         domainOverrides[domain.toLowerCase()] = category;
       }
-      
+
       const result = await window.deskflowAPI.updateCategoriesFromOverrides(appOverrides, domainOverrides);
       if (result.success) {
         setSyncStatus('success');
@@ -697,10 +709,8 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
   const saveChanges = async () => {
     if (window.deskflowAPI?.setTierAssignments) {
       await window.deskflowAPI.setTierAssignments(tierAssignments);
-      console.log('[Settings] Saved tier assignments:', tierAssignments);
     }
     localStorage.setItem('deskflow-tier-assignments', JSON.stringify(tierAssignments));
-    // Always save colors to localStorage (even if parent doesn't provide setter)
     localStorage.setItem('deskflow-planet-colors', JSON.stringify(localAppColors));
     if (setAppColors) {
       setAppColors(localAppColors);
@@ -712,25 +722,21 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
     localStorage.setItem('deskflow-app-category-overrides', JSON.stringify(appCategoryOverrides));
     localStorage.setItem('deskflow-domain-category-overrides', JSON.stringify(domainCategoryOverrides));
     localStorage.setItem('deskflow-animation-speed', animationSpeed);
-    
-    // Save tracker app mode to preferences
+
     if (window.deskflowAPI?.setPreference) {
       await window.deskflowAPI.setPreference('trackerAppMode', trackerAppMode);
     }
-    
-    // Save OpenRouter API key to preferences (strip quotes)
+
     if (openRouterApiKey && window.deskflowAPI?.setPreference) {
       const cleanKey = openRouterApiKey.trim().replace(/^["']|["']$/g, '');
       await window.deskflowAPI.setPreference('openrouterApiKey', cleanKey);
     }
-    
-    // Save AI config
+
     if (window.deskflowAPI?.saveAiConfig) {
       const cleanKey = openRouterApiKey.trim().replace(/^["']|["']$/g, '');
       await window.deskflowAPI.saveAiConfig({ ...aiConfig, apiKey: cleanKey });
     }
-    
-    // Notify parent component immediately
+
     try {
       if (typeof onCategoryOverridesChange === 'function') {
         onCategoryOverridesChange(appCategoryOverrides);
@@ -738,8 +744,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
     } catch (e) {
       console.error('[Settings] Error notifying parent:', e);
     }
-    
-    // Also trigger data reload via onReloadData
+
     try {
       if (typeof onReloadData === 'function') {
         onReloadData();
@@ -747,9 +752,22 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
     } catch (e) {
       console.error('[Settings] Error reloading data:', e);
     }
-    
+
+    if (window.deskflowAPI?.financeSetDisplayCurrency) {
+      await window.deskflowAPI.financeSetDisplayCurrency(financeCurrency);
+    }
+
+    // Save password requirements
+    if (window.deskflowAPI?.financeSetPasswordRequirement) {
+      for (const [key, value] of Object.entries(passwordReqs)) {
+        await window.deskflowAPI.financeSetPasswordRequirement(key, value);
+      }
+    }
+
     setHasChanges(false);
     onHasChangesChange(false);
+    setSavedNotice(true);
+    setTimeout(() => setSavedNotice(false), 2500);
   };
 
   const handleAppColorChange = (app: string, color: string) => {
@@ -802,13 +820,118 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
     }
   }, [tierAssignments, localAppColors, localCategoryOrder, animationSpeed, appCategoryOverrides, domainCategoryOverrides, onRegisterSave, saveChanges]);
 
+  const [securitySettings, setSecuritySettings] = useState<any>(null);
+  const [originalSecuritySettings, setOriginalSecuritySettings] = useState<any>(null);
+  const [financeCurrency, setFinanceCurrency] = useState('USD');
+  const [originalFinanceCurrency, setOriginalFinanceCurrency] = useState('USD');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [passwordReqs, setPasswordReqs] = useState<Record<string, boolean>>({
+    password_req_delete_account: true,
+    password_req_delete_wallet: true,
+    password_req_delete_transaction: true,
+  });
+
+  useEffect(() => {
+    // Load display currency
+    if (window.deskflowAPI?.financeGetDisplayCurrency) {
+      window.deskflowAPI.financeGetDisplayCurrency().then(result => {
+        if (result?.currency) {
+          setFinanceCurrency(result.currency);
+          setOriginalFinanceCurrency(result.currency);
+        }
+      }).catch(() => { });
+    }
+    // Load security settings
+    if (window.deskflowAPI?.financeGetSecuritySettings) {
+      window.deskflowAPI.financeGetSecuritySettings().then(settings => {
+        setSecuritySettings(settings);
+        setOriginalSecuritySettings(settings);
+      }).catch(() => { });
+    }
+    // Load password requirements
+    if (window.deskflowAPI?.financeGetPasswordRequirements) {
+      window.deskflowAPI.financeGetPasswordRequirements().then(reqs => {
+        if (reqs && Object.keys(reqs).length > 0) setPasswordReqs(reqs);
+      }).catch(() => { });
+    }
+  }, []);
+
+  const handleSetFinanceCurrency = (code: string) => {
+    setFinanceCurrency(code);
+    setHasChanges(true);
+    onHasChangesChange(true);
+  };
+
+  const handleSetRememberDevice = async (remember: boolean, days: number) => {
+    if (!securitySettings) return;
+    const expires = remember ? Date.now() + days * 24 * 60 * 60 * 1000 : null;
+    const updated = { ...securitySettings, rememberDevice: remember, rememberDeviceExpiry: expires };
+    setSecuritySettings(updated);
+    setHasChanges(true);
+    onHasChangesChange(true);
+    await window.deskflowAPI?.financeSetRememberDevice?.(remember, days);
+  };
+
+  const handleSetLockTimeout = async (timeoutMs: number) => {
+    if (!securitySettings) return;
+    const updated = { ...securitySettings, lockTimeout: timeoutMs };
+    setSecuritySettings(updated);
+    setHasChanges(true);
+    onHasChangesChange(true);
+    await window.deskflowAPI?.financeSetLockTimeout?.(timeoutMs);
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess('');
+    if (securitySettings?.hasPassword && !currentPassword) {
+      setPasswordError('Current password is required');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return;
+    }
+    if (newPassword.length < 4) {
+      setPasswordError('Password must be at least 4 characters');
+      return;
+    }
+    try {
+      const result = securitySettings?.hasPassword
+        ? await window.deskflowAPI?.financeChangePassword?.(currentPassword, newPassword) as { success: boolean }
+        : await window.deskflowAPI?.financeSetPassword?.(newPassword) as { success: boolean };
+      if (result?.success) {
+        setPasswordSuccess('Password updated successfully');
+        setNewPassword('');
+        setConfirmPassword('');
+        setCurrentPassword('');
+        // Refresh securitySettings so Password Protection card shows immediately
+        if (window.deskflowAPI?.financeGetSecuritySettings) {
+          window.deskflowAPI.financeGetSecuritySettings().then(settings => {
+            setSecuritySettings(settings);
+            setOriginalSecuritySettings(settings);
+          });
+        }
+      } else {
+        setPasswordError('Failed to update password');
+      }
+    } catch {
+      setPasswordError('Failed to update password');
+    }
+  };
+
   const tabs = [
     { id: 'category', label: 'Category' },
     { id: 'colors', label: 'Colors' },
     { id: 'ai', label: 'AI Assistant' },
     { id: 'general', label: 'General' },
     { id: 'tracking', label: 'Tracking' },
-    { id: 'prompts', label: 'System Prompts' }
+    { id: 'prompts', label: 'System Prompts' },
+    { id: 'finance', label: 'Finance' }
   ];
 
   const [domainStats, setDomainStats] = useState<any[]>([]);
@@ -867,14 +990,14 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
     anomalyModel: 'google/gemini-2.0-flash-001',
     autoGenerateBrief: true,
   });
-  
+
   // Keyword-based productivity categorization state
   // NEW structure: Record<domain, { category: string; keywords: string[] }[]>
   const [keywordEnabledDomains, setKeywordEnabledDomains] = useState<string[]>([]);
   const [editingKeywordDomain, setEditingKeywordDomain] = useState<string | null>(null);
   const [domainKeywordSets, setDomainKeywordSets] = useState<Record<string, { category: string; keywords: string[] }[]>>({});
   const [newKeywordDomain, setNewKeywordDomain] = useState('');
-  
+
   // Keyword set editing state
   const [editingKeywordSets, setEditingKeywordSets] = useState<{ category: string; keywords: string[] }[]>([]);
   const [tempKeywordInput, setTempKeywordInput] = useState('');
@@ -975,11 +1098,11 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
 
   const ITEMS_PER_PAGE = 5;
 
-  const filteredAppStats = appSearchFilter 
+  const filteredAppStats = appSearchFilter
     ? appStats.filter((a: any) => a.app.toLowerCase().includes(appSearchFilter.toLowerCase()))
     : appStats;
-    
-  const filteredDomainStats = domainSearchFilter 
+
+  const filteredDomainStats = domainSearchFilter
     ? domainStats.filter((s: any) => s.domain.toLowerCase().includes(domainSearchFilter.toLowerCase()))
     : domainStats;
 
@@ -1000,11 +1123,10 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${
-              activeTab === tab.id 
-                ? 'bg-zinc-800 text-white shadow-sm' 
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-            }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${activeTab === tab.id
+              ? 'bg-zinc-800 text-white shadow-sm'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+              }`}
           >
             {tab.label}
           </button>
@@ -1025,22 +1147,20 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
             <div className="flex gap-2">
               <button
                 onClick={() => setDataSyncMode('forward')}
-                className={`flex-1 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                  dataSyncMode === 'forward'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 border border-transparent'
-                }`}
+                className={`flex-1 px-4 py-3 rounded-xl text-sm font-medium transition ${dataSyncMode === 'forward'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 border border-transparent'
+                  }`}
               >
                 <div className="font-medium">Forward Only</div>
                 <div className="text-xs mt-1 opacity-70">New data uses updated categories</div>
               </button>
               <button
                 onClick={() => setDataSyncMode('refactor')}
-                className={`flex-1 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                  dataSyncMode === 'refactor'
-                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                    : 'bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 border border-transparent'
-                }`}
+                className={`flex-1 px-4 py-3 rounded-xl text-sm font-medium transition ${dataSyncMode === 'refactor'
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  : 'bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 border border-transparent'
+                  }`}
               >
                 <div className="font-medium">Refactor All Data</div>
                 <div className="text-xs mt-1 opacity-70">Update existing data to match categories</div>
@@ -1053,11 +1173,10 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
               </div>
             )}
             {syncStatus !== 'idle' && (
-              <div className={`mt-3 text-xs px-3 py-2 rounded-lg ${
-                syncStatus === 'success' ? 'bg-emerald-500/10 text-emerald-400' :
+              <div className={`mt-3 text-xs px-3 py-2 rounded-lg ${syncStatus === 'success' ? 'bg-emerald-500/10 text-emerald-400' :
                 syncStatus === 'error' ? 'bg-red-500/10 text-red-400' :
-                'bg-zinc-800/50 text-zinc-400'
-              }`}>
+                  'bg-zinc-800/50 text-zinc-400'
+                }`}>
                 {syncMessage}
               </div>
             )}
@@ -1222,7 +1341,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     const chipColor = tier === 'productive' ? '#22c55e' : tier === 'neutral' ? '#3b82f6' : '#ef4444';
                     return (
                       <div className="fixed px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 border cursor-grabbing z-[9999] pointer-events-none"
-                        style={{ 
+                        style={{
                           borderColor: `${chipColor}50`,
                           color: chipColor,
                           backgroundColor: `${chipColor}15`,
@@ -1253,16 +1372,16 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                   <span className="text-xs text-zinc-500 bg-zinc-800/50 px-2 py-1 rounded-md">{externalActivities.length} activities</span>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-2">
-                <button 
+                <button
                   onClick={() => { if (extCarouselIndex > 0) setExtCarouselIndex(extCarouselIndex - 1); }}
                   disabled={extCarouselIndex === 0}
                   className="flex-shrink-0 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                
+
                 <div className="flex-1 grid grid-cols-5 gap-2">
                   {externalActivities.slice(
                     extCarouselIndex * (extCarouselExpanded ? 15 : ITEMS_PER_PAGE),
@@ -1271,16 +1390,15 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     const currentTier = localExternalTiers[act.id] || (act.is_productive ? 'productive' : 'neutral');
                     const tierColor = currentTier === 'productive' ? '#22c55e' : currentTier === 'distracting' ? '#ef4444' : '#3b82f6';
                     const isEditing = editingExtActivity === act.id;
-                    
+
                     return (
                       <div key={act.id}>
                         <button
                           onClick={() => setEditingExtActivity(isEditing ? null : act.id)}
-                          className={`w-full flex flex-col items-center p-3 rounded-xl border transition-colors duration-150 group ${
-                            isEditing 
-                              ? 'bg-zinc-700/60 border-2 border-emerald-500/60' 
-                              : 'bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/30 hover:border-zinc-500'
-                          }`}
+                          className={`w-full flex flex-col items-center p-3 rounded-xl border transition-colors duration-150 group ${isEditing
+                            ? 'bg-zinc-700/60 border-2 border-emerald-500/60'
+                            : 'bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/30 hover:border-zinc-500'
+                            }`}
                         >
                           <div className="flex items-center justify-center gap-1.5 w-full">
                             <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tierColor }} />
@@ -1294,8 +1412,8 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     );
                   })}
                 </div>
-                
-                <button 
+
+                <button
                   onClick={() => {
                     const itemsPerView = extCarouselExpanded ? 15 : ITEMS_PER_PAGE;
                     const maxPage = Math.max(0, Math.ceil(externalActivities.length / itemsPerView) - 1);
@@ -1307,7 +1425,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
-              
+
               {/* Show More/Less Button */}
               {externalActivities.length > 5 && (
                 <button
@@ -1324,7 +1442,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                   )}
                 </button>
               )}
-              
+
               {/* Tier Selection Panel */}
               {editingExtActivity !== null && (
                 <motion.div
@@ -1346,9 +1464,8 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                             localStorage.setItem('deskflow-external-activity-tiers', JSON.stringify(updated));
                             onExternalActivityTiersChange?.(updated);
                           }}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${
-                            isSelected ? 'ring-2 ring-white/30' : 'hover:bg-zinc-800'
-                          }`}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${isSelected ? 'ring-2 ring-white/30' : 'hover:bg-zinc-800'
+                            }`}
                           style={{ backgroundColor: `${tierColors[tier]}15`, borderColor: isSelected ? tierColors[tier] : 'transparent', color: tierColors[tier] }}
                         >
                           <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: tierColors[tier] }} />
@@ -1358,7 +1475,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                       );
                     })}
                   </div>
-                  <button 
+                  <button
                     onClick={() => setEditingExtActivity(null)}
                     className="w-full mt-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-400 transition-colors duration-150"
                   >
@@ -1368,6 +1485,66 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
               )}
             </GlassCard>
           )}
+
+          {securitySettings && (
+            <GlassCard className="space-y-4 mt-4">
+              <div className="flex items-center gap-3">
+                <Shield className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h2 className="text-lg font-semibold">Security Settings</h2>
+                  <p className="text-xs text-zinc-500">Control device remembering and lock timeout</p>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-zinc-700/50" />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-400">Remember device</span>
+                  <button
+                    onClick={() => handleSetRememberDevice(!securitySettings.rememberDevice, 7)}
+                    className={`w-10 h-5 rounded-full transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950 ${securitySettings.rememberDevice ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${securitySettings.rememberDevice ? 'translate-x-5' : ''}`} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-400">Lock timeout</span>
+                  <select
+                    value={securitySettings.lockTimeout / (60 * 1000)}
+                    onChange={(e) => handleSetLockTimeout(parseInt(e.target.value) * 60 * 1000)}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                  >
+                    <option value="1">1 min</option>
+                    <option value="5">5 min</option>
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                  </select>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-400">Masking mode</span>
+                  <select
+                    value={maskMode}
+                    onChange={(e) => setMaskMode(e.target.value as MaskMode)}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                  >
+                    <option value="digits">Same digit count</option>
+                    <option value="fixed">Fixed number</option>
+                  </select>
+                </div>
+                {maskMode === 'fixed' && (
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-zinc-400">Display value</span>
+                    <input
+                      type="number"
+                      value={maskFixedValue}
+                      onChange={(e) => setMaskFixedValue(parseFloat(e.target.value) || 0)}
+                      className="w-24 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 text-right focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                    />
+                  </div>
+                )}
+              </div>
+            </GlassCard>
+          )}
+
 
           {/* Applications Section - Carousel with Expandable Grid */}
           <GlassCard>
@@ -1427,36 +1604,35 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                 )}
               </div>
             </div>
-            
+
             {filteredAppStats.length > 0 ? (
               <>
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => { const current = appCarouselIndex; if (current > 0) setAppCarouselIndex(current - 1); }}
                     disabled={appCarouselIndex === 0}
                     className="flex-shrink-0 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  
+
                   <div className={`flex-1 grid gap-2 ${appCarouselExpanded ? 'grid-cols-5' : 'grid-cols-5'}`}>
                     {filteredAppStats.slice(
-                      appCarouselIndex * (appCarouselExpanded ? 15 : ITEMS_PER_PAGE), 
+                      appCarouselIndex * (appCarouselExpanded ? 15 : ITEMS_PER_PAGE),
                       appCarouselIndex * (appCarouselExpanded ? 15 : ITEMS_PER_PAGE) + (appCarouselExpanded ? 15 : ITEMS_PER_PAGE)
                     ).map((app: any) => {
                       const displayCategory = getAppDisplayCategory(app);
                       const categoryColor = getCategoryColor(displayCategory);
                       const isEditing = editingAppCategory === app.app;
-                      
+
                       return (
                         <div key={app.app} className="relative">
                           <button
                             onClick={() => setEditingAppCategory(isEditing ? null : app.app)}
-                            className={`w-full flex flex-col items-center p-3 rounded-xl border transition-colors duration-150 group ${
-                              isEditing 
-                                ? 'bg-zinc-700/60 border-2 border-emerald-500/60' 
-                                : 'bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/30 hover:border-zinc-500'
-                            }`}
+                            className={`w-full flex flex-col items-center p-3 rounded-xl border transition-colors duration-150 group ${isEditing
+                              ? 'bg-zinc-700/60 border-2 border-emerald-500/60'
+                              : 'bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/30 hover:border-zinc-500'
+                              }`}
                           >
                             {/* Individual AI Sparkle Button */}
                             <button
@@ -1481,7 +1657,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                             >
                               <Sparkles className="w-3 h-3" />
                             </button>
-                            
+
                             <div className="flex items-center justify-center gap-1.5 w-full pr-5">
                               <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor }} />
                               <span className="text-xs text-zinc-200 group-hover:text-white truncate max-w-[calc(100%-16px)]">{app.app}</span>
@@ -1494,12 +1670,12 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                       );
                     })}
                   </div>
-                  
-                  <button 
-                    onClick={() => { 
+
+                  <button
+                    onClick={() => {
                       const itemsPerView = appCarouselExpanded ? 15 : ITEMS_PER_PAGE;
                       const maxPage = Math.max(0, Math.ceil(filteredAppStats.length / itemsPerView) - 1);
-                      if (appCarouselIndex < maxPage) setAppCarouselIndex(appCarouselIndex + 1); 
+                      if (appCarouselIndex < maxPage) setAppCarouselIndex(appCarouselIndex + 1);
                     }}
                     disabled={appCarouselIndex >= Math.max(0, Math.ceil(filteredAppStats.length / (appCarouselExpanded ? 15 : ITEMS_PER_PAGE)) - 1)}
                     className="flex-shrink-0 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
@@ -1507,7 +1683,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
-                
+
                 {/* Show More/Less Button */}
                 {filteredAppStats.length > 5 && (
                   <button
@@ -1537,7 +1713,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                 <p className="text-sm">{appSearchFilter ? 'No matching apps' : 'No apps tracked yet'}</p>
               </div>
             )}
-            
+
             {/* Full Category Selection Panel */}
             {editingAppCategory && (
               <motion.div
@@ -1565,9 +1741,8 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                       <button
                         key={cat}
                         onClick={() => changeAppCategory(editingAppCategory, cat)}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${
-                          isSelected ? 'ring-2 ring-white/30' : 'hover:bg-zinc-800'
-                        }`}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${isSelected ? 'ring-2 ring-white/30' : 'hover:bg-zinc-800'
+                          }`}
                         style={{ backgroundColor: `${catColor}15`, borderColor: isSelected ? catColor : 'transparent', color: catColor }}
                       >
                         <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: catColor }} />
@@ -1577,7 +1752,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     );
                   })}
                 </div>
-                <button 
+                <button
                   onClick={() => setEditingAppCategory(null)}
                   className="w-full mt-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-400 transition-colors duration-150"
                 >
@@ -1645,36 +1820,35 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                 )}
               </div>
             </div>
-            
+
             {filteredDomainStats.length > 0 ? (
               <>
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => { const current = domainCarouselIndex; if (current > 0) setDomainCarouselIndex(current - 1); }}
                     disabled={domainCarouselIndex === 0}
                     className="flex-shrink-0 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  
+
                   <div className="flex-1 grid grid-cols-5 gap-2">
                     {filteredDomainStats.slice(
-                      domainCarouselIndex * (domainCarouselExpanded ? 15 : ITEMS_PER_PAGE), 
+                      domainCarouselIndex * (domainCarouselExpanded ? 15 : ITEMS_PER_PAGE),
                       domainCarouselIndex * (domainCarouselExpanded ? 15 : ITEMS_PER_PAGE) + (domainCarouselExpanded ? 15 : ITEMS_PER_PAGE)
                     ).map((site: any) => {
                       const displayCategory = domainCategoryOverrides[site.domain] || site.category || 'Other';
                       const categoryColor = getCategoryColor(displayCategory);
                       const isEditing = editingDomainCategory === site.domain;
-                      
+
                       return (
                         <div key={site.domain} className="relative">
                           <button
                             onClick={() => setEditingDomainCategory(isEditing ? null : site.domain)}
-                            className={`w-full flex flex-col items-center p-3 rounded-xl border transition-colors duration-150 group ${
-                              isEditing 
-                                ? 'bg-zinc-700/60 border-2 border-emerald-500/60' 
-                                : 'bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/30 hover:border-zinc-500'
-                            }`}
+                            className={`w-full flex flex-col items-center p-3 rounded-xl border transition-colors duration-150 group ${isEditing
+                              ? 'bg-zinc-700/60 border-2 border-emerald-500/60'
+                              : 'bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/30 hover:border-zinc-500'
+                              }`}
                           >
                             {/* Individual AI Sparkle Button */}
                             <button
@@ -1705,7 +1879,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                             >
                               <Sparkles className="w-3 h-3" />
                             </button>
-                            
+
                             <div className="flex items-center justify-center gap-1.5 w-full pr-5">
                               <Globe className="w-3 h-3 text-zinc-500 flex-shrink-0" />
                               <span className="text-xs text-zinc-200 group-hover:text-white truncate max-w-[calc(100%-20px)]">{site.domain}</span>
@@ -1718,12 +1892,12 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                       );
                     })}
                   </div>
-                  
-                  <button 
-                    onClick={() => { 
+
+                  <button
+                    onClick={() => {
                       const itemsPerView = domainCarouselExpanded ? 15 : ITEMS_PER_PAGE;
                       const maxPage = Math.max(0, Math.ceil(filteredDomainStats.length / itemsPerView) - 1);
-                      if (domainCarouselIndex < maxPage) setDomainCarouselIndex(domainCarouselIndex + 1); 
+                      if (domainCarouselIndex < maxPage) setDomainCarouselIndex(domainCarouselIndex + 1);
                     }}
                     disabled={domainCarouselIndex >= Math.max(0, Math.ceil(filteredDomainStats.length / (domainCarouselExpanded ? 15 : ITEMS_PER_PAGE)) - 1)}
                     className="flex-shrink-0 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
@@ -1731,7 +1905,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
-                
+
                 {/* Show More/Less Button */}
                 {filteredDomainStats.length > 5 && (
                   <button
@@ -1761,7 +1935,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                 <p className="text-sm">{domainSearchFilter ? 'No matching sites' : 'No websites tracked yet'}</p>
               </div>
             )}
-            
+
             {/* Full Category Selection Panel */}
             {editingDomainCategory && (
               <motion.div
@@ -1798,9 +1972,8 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                           setHasChanges(true);
                           onHasChangesChange(true);
                         }}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${
-                          isSelected ? 'ring-2 ring-white/30' : 'hover:bg-zinc-800'
-                        }`}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${isSelected ? 'ring-2 ring-white/30' : 'hover:bg-zinc-800'
+                          }`}
                         style={{ backgroundColor: `${catColor}15`, borderColor: isSelected ? catColor : 'transparent', color: catColor }}
                       >
                         <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: catColor }} />
@@ -1810,7 +1983,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     );
                   })}
                 </div>
-                <button 
+                <button
                   onClick={() => setEditingDomainCategory(null)}
                   className="w-full mt-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-400 transition-colors duration-150"
                 >
@@ -1984,9 +2157,9 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                               <button
                                 onClick={() => {
                                   const updated = [...(editingKeywordDomain === 'new' ? editingKeywordSets : (domainKeywordSets[editingKeywordDomain] || []))];
-                                  updated[setIdx] = { 
-                                    ...updated[setIdx], 
-                                    keywords: (updated[setIdx].keywords || []).filter((_, i) => i !== kwIdx) 
+                                  updated[setIdx] = {
+                                    ...updated[setIdx],
+                                    keywords: (updated[setIdx].keywords || []).filter((_, i) => i !== kwIdx)
                                   };
                                   if (editingKeywordDomain === 'new') {
                                     setEditingKeywordSets(updated);
@@ -2003,6 +2176,27 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                           {(!set.keywords || set.keywords.length === 0) && (
                             <span className="text-xs text-zinc-500 italic">No keywords - will always use this category</span>
                           )}
+                          {/* Hide Numbers Toggle */}
+                          <GlassCard className="mt-4 p-4 bg-zinc-900/80 rounded-xl border border-zinc-700/50">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <Eye className="w-5 h-5 text-emerald-400" />
+                                <div>
+                                  <h2 className="text-lg font-semibold">Number Display</h2>
+                                  <p className="text-xs text-zinc-500">Choose whether monetary values are shown or replaced with asterisks.</p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => setShowNumbers(!showNumbers)}
+                                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950 ${showNumbers ? 'bg-emerald-500 text-white' : 'bg-zinc-800 text-zinc-300'}`}
+                                aria-pressed={showNumbers}
+                                aria-label="Toggle hide numbers"
+                              >
+                                {showNumbers ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                <span className="text-xs">{showNumbers ? 'Hide' : 'Show'} numbers</span>
+                              </button>
+                            </div>
+                          </GlassCard>
                         </div>
                         <div className="flex gap-2">
                           <input
@@ -2016,9 +2210,9 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                                 const updated = [...(editingKeywordDomain === 'new' ? editingKeywordSets : (domainKeywordSets[editingKeywordDomain] || []))];
                                 if (!updated[setIdx].keywords) updated[setIdx].keywords = [];
                                 if (!updated[setIdx].keywords.includes(newKeyword)) {
-                                  updated[setIdx] = { 
-                                    ...updated[setIdx], 
-                                    keywords: [...updated[setIdx].keywords, newKeyword] 
+                                  updated[setIdx] = {
+                                    ...updated[setIdx],
+                                    keywords: [...updated[setIdx].keywords, newKeyword]
                                   };
                                   if (editingKeywordDomain === 'new') {
                                     setEditingKeywordSets(updated);
@@ -2045,9 +2239,9 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     if (editingKeywordDomain === 'new') {
                       setEditingKeywordSets(prev => [...prev, newSet]);
                     } else {
-                      setDomainKeywordSets(prev => ({ 
-                        ...prev, 
-                        [editingKeywordDomain]: [...(prev[editingKeywordDomain] || []), newSet] 
+                      setDomainKeywordSets(prev => ({
+                        ...prev,
+                        [editingKeywordDomain]: [...(prev[editingKeywordDomain] || []), newSet]
                       }));
                       setEditingKeywordSets(prev => [...prev, newSet]);
                     }
@@ -2089,14 +2283,14 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
 
                     if (window.deskflowAPI?.addKeywordDomain) {
                       await window.deskflowAPI.addKeywordDomain(domain, keywordSets);
-                      
+
                       if (editingKeywordDomain === 'new') {
                         setDomainKeywordSets(prev => ({ ...prev, [domain]: keywordSets }));
                         setKeywordEnabledDomains(prev => [...prev, domain]);
                       } else {
                         setDomainKeywordSets(prev => ({ ...prev, [domain]: keywordSets }));
                       }
-                      
+
                       setEditingKeywordDomain(null);
                       setEditingKeywordSets([]);
                       setTempKeywordInput('');
@@ -2119,7 +2313,7 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
           <GlassCard className="space-y-4">
             <div>
               <h2 className="text-lg font-semibold mb-3">App Tracker Behavior</h2>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-zinc-400 mb-2 block">App Tracker Window Mode</label>
@@ -2133,11 +2327,10 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                           setHasChanges(true);
                           onHasChangesChange(true);
                         }}
-                        className={`px-3 py-2 rounded-lg text-sm font-medium transition flex-1 ${
-                          trackerAppMode === mode
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
-                        }`}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium transition flex-1 ${trackerAppMode === mode
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                          : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
+                          }`}
                       >
                         {mode === 'show-other' ? 'Show Other Apps' : mode === 'pause' ? 'Pause Timer' : 'Track as Normal'}
                       </button>
@@ -2161,11 +2354,10 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                           setHasChanges(true);
                           onHasChangesChange(true);
                         }}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                          idleThreshold === m
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${idleThreshold === m
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                          : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
+                          }`}
                       >
                         {m} min
                       </button>
@@ -2189,11 +2381,10 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                             window.deskflowAPI.setPreference('timerBehavior', newBehavior);
                           }
                         }}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                          localTimerBehavior.neutralAction === action
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${localTimerBehavior.neutralAction === action
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                          : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
+                          }`}
                       >
                         {action === 'pause' ? '⏸ Pause' : action === 'reset' ? '🔄 Reset' : '⏭ Ignore'}
                       </button>
@@ -2218,11 +2409,10 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                             window.deskflowAPI.setPreference('timerBehavior', newBehavior);
                           }
                         }}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                          localTimerBehavior.distractingAction === action
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${localTimerBehavior.distractingAction === action
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                          : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
+                          }`}
                       >
                         {action === 'pause' ? '⏸ Pause' : action === 'reset' ? '🔄 Reset' : '⏭ Ignore'}
                       </button>
@@ -2247,11 +2437,10 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                             onHasChangesChange(true);
                           }
                         }}
-                        className={`px-2 py-1 rounded text-xs font-medium transition ${
-                          m === 300
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
-                        }`}
+                        className={`px-2 py-1 rounded text-xs font-medium transition ${m === 300
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                          : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
+                          }`}
                       >
                         {m < 60 ? `${m}s` : m < 3600 ? `${m / 60}m` : `${m / 3600}h`}
                       </button>
@@ -2270,13 +2459,11 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                       setHasChanges(true);
                       onHasChangesChange(true);
                     }}
-                    className={`w-12 h-6 rounded-full transition-colors duration-150 relative ${
-                      autoExport ? 'bg-emerald-500' : 'bg-zinc-700'
-                    }`}
+                    className={`w-12 h-6 rounded-full transition-colors duration-150 relative ${autoExport ? 'bg-emerald-500' : 'bg-zinc-700'
+                      }`}
                   >
-                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-colors duration-150 ${
-                      autoExport ? 'left-7' : 'left-1'
-                    }`} />
+                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-colors duration-150 ${autoExport ? 'left-7' : 'left-1'
+                      }`} />
                   </button>
                 </div>
 
@@ -2296,13 +2483,11 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                         await window.deskflowAPI.setAutoStart(newValue);
                       }
                     }}
-                    className={`w-12 h-6 rounded-full transition-colors duration-150 relative ${
-                      autoStartEnabled ? 'bg-emerald-500' : 'bg-zinc-700'
-                    }`}
+                    className={`w-12 h-6 rounded-full transition-colors duration-150 relative ${autoStartEnabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                      }`}
                   >
-                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-colors duration-150 ${
-                      autoStartEnabled ? 'left-7' : 'left-1'
-                    }`} />
+                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-colors duration-150 ${autoStartEnabled ? 'left-7' : 'left-1'
+                      }`} />
                   </button>
                 </div>
 
@@ -2321,11 +2506,10 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                           setHasChanges(true);
                           onHasChangesChange(true);
                         }}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                          animationSpeed === speed
-                            ? 'bg-violet-500/20 text-violet-400 border border-violet-500/40'
-                            : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${animationSpeed === speed
+                          ? 'bg-violet-500/20 text-violet-400 border border-violet-500/40'
+                          : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
+                          }`}
                       >
                         {speed === 'slow' ? 'Slow' : speed === 'normal' ? 'Normal' : 'Off'}
                       </button>
@@ -2550,11 +2734,10 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                         setPromptHistoryLimit(n);
                         window.deskflowAPI?.setPreference?.('promptHistoryLimit', n);
                       }}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                        promptHistoryLimit === n
-                          ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
-                          : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
-                      }`}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${promptHistoryLimit === n
+                        ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                        : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'
+                        }`}
                     >
                       {n}
                     </button>
@@ -2698,8 +2881,8 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
               {Object.keys(CATEGORY_COLORS).map((category) => (
                 <div key={category} className="flex items-center gap-2 p-2.5 bg-zinc-800/40 hover:bg-zinc-800/70 rounded-lg border border-zinc-700/30 hover:border-zinc-600 transition-colors duration-150 group">
-                  <ColorPicker 
-                    value={getCategoryColor(category)} 
+                  <ColorPicker
+                    value={getCategoryColor(category)}
                     onChange={(color) => handleCategoryColorChange(category, color)}
                     size="sm"
                   />
@@ -2720,39 +2903,39 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     {(colorTab === 'apps' ? appStats : domainStats).length} {colorTab}
                   </span>
                   <button
-                  onClick={async () => {
-                    setPreAiColors({ ...localAppColors });
-                    setGeneratingColors(true);
-                    try {
-                      const appsToColor = colorTab === 'apps' 
-                        ? appStats.map((a: any) => a.app)
-                        : domainStats.map((d: any) => d.domain);
-                      if (window.deskflowAPI?.generateAIColors) {
-                        const generated = await window.deskflowAPI.generateAIColors(appsToColor);
-                        // Apply all generated colors in single state update
-                        const validColors: Record<string, string> = {};
-                        Object.entries(generated).forEach(([appName, color]) => {
-                          if (color && typeof color === 'string' && color.startsWith('#')) {
-                            validColors[appName] = color;
-                          }
-                        });
-                        setLocalAppColors(prev => ({ ...prev, ...validColors }));
-                        setHasChanges(true);
-                        onHasChangesChange(true);
+                    onClick={async () => {
+                      setPreAiColors({ ...localAppColors });
+                      setGeneratingColors(true);
+                      try {
+                        const appsToColor = colorTab === 'apps'
+                          ? appStats.map((a: any) => a.app)
+                          : domainStats.map((d: any) => d.domain);
+                        if (window.deskflowAPI?.generateAIColors) {
+                          const generated = await window.deskflowAPI.generateAIColors(appsToColor);
+                          // Apply all generated colors in single state update
+                          const validColors: Record<string, string> = {};
+                          Object.entries(generated).forEach(([appName, color]) => {
+                            if (color && typeof color === 'string' && color.startsWith('#')) {
+                              validColors[appName] = color;
+                            }
+                          });
+                          setLocalAppColors(prev => ({ ...prev, ...validColors }));
+                          setHasChanges(true);
+                          onHasChangesChange(true);
+                          setGeneratingColors(false);
+                        }
+                      } catch (err) {
+                        console.error('Magic Color failed:', err);
                         setGeneratingColors(false);
                       }
-                    } catch (err) {
-                      console.error('Magic Color failed:', err);
-                      setGeneratingColors(false);
-                    }
-                  }}
-                  disabled={generatingColors}
-                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-zinc-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors duration-150 flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  {generatingColors ? 'Generating...' : 'Magic Color'}
-                </button>
-              </div>
+                    }}
+                    disabled={generatingColors}
+                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-zinc-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors duration-150 flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    {generatingColors ? 'Generating...' : 'Magic Color'}
+                  </button>
+                </div>
               }
             />
             <p className="text-xs text-zinc-500 mb-3">Individual colors</p>
@@ -2761,21 +2944,19 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
             <div className="flex gap-1 bg-zinc-900/50 p-1 rounded-xl mb-4 w-fit">
               <button
                 onClick={() => setColorTab('apps')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 ${
-                  colorTab === 'apps' 
-                    ? 'bg-zinc-800 text-white shadow-sm' 
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 ${colorTab === 'apps'
+                  ? 'bg-zinc-800 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                  }`}
               >
                 Apps
               </button>
               <button
                 onClick={() => setColorTab('websites')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 ${
-                  colorTab === 'websites' 
-                    ? 'bg-zinc-800 text-white shadow-sm' 
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 ${colorTab === 'websites'
+                  ? 'bg-zinc-800 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                  }`}
               >
                 Websites
               </button>
@@ -2823,21 +3004,21 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                       >
                         <Sparkles className="w-3 h-3" />
                       </button>
-                      
+
                       {/* Color Bar at Top */}
                       <div className="mb-2">
-                        <ColorPicker 
-                          value={color} 
+                        <ColorPicker
+                          value={color}
                           onChange={(newColor) => handleAppColorChange(name, newColor)}
                           size="sm"
                         />
                       </div>
-                      
+
                       {/* App Name */}
                       <div className="text-xs text-zinc-300 group-hover:text-white font-medium truncate mb-1 pr-5">{name}</div>
-                      
+
                       {/* Category Badge */}
-                      <span 
+                      <span
                         className="text-[10px] px-1.5 py-0.5 rounded-md self-start"
                         style={{ backgroundColor: `${categoryColor}20`, color: categoryColor }}
                       >
@@ -3076,6 +3257,259 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
         </div>
       )}
 
+      {activeTab === 'finance' && (
+        <div className="space-y-4">
+          <GlassCard className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Finance Currency</h2>
+                <p className="text-xs text-zinc-500">Set the base display currency for the finance page</p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-zinc-700/50" />
+
+            <div>
+              <label className="text-sm font-medium text-zinc-400 mb-2 block">Base Currency</label>
+              <p className="text-xs text-zinc-500 mb-3">This currency is used as the default display currency on the finance page and persists across app restarts. You can also change it temporarily from the finance page.</p>
+              <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-1.5">
+                {[
+                  { code: 'USD', symbol: '$', name: 'US Dollar' },
+                  { code: 'IDR', symbol: 'Rp', name: 'Rupiah' },
+                  { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar' },
+                  { code: 'GBP', symbol: '£', name: 'Pound' },
+                  { code: 'EUR', symbol: '€', name: 'Euro' },
+                  { code: 'JPY', symbol: '¥', name: 'Yen' },
+                  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
+                  { code: 'CNY', symbol: '¥', name: 'Yuan' },
+                  { code: 'KRW', symbol: '₩', name: 'Won' },
+                  { code: 'INR', symbol: '₹', name: 'Rupee' },
+                  { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
+                  { code: 'CHF', symbol: 'Fr', name: 'Swiss Franc' },
+                  { code: 'MYR', symbol: 'RM', name: 'Ringgit' },
+                  { code: 'PHP', symbol: '₱', name: 'Peso' },
+                  { code: 'THB', symbol: '฿', name: 'Baht' },
+                  { code: 'VND', symbol: '₫', name: 'Dong' },
+                  { code: 'BRL', symbol: 'R$', name: 'Real' },
+                ].map(c => (
+                  <button
+                    key={c.code}
+                    onClick={() => handleSetFinanceCurrency(c.code)}
+                    className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg text-xs transition-colors ${financeCurrency === c.code
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 border border-transparent hover:border-zinc-700/50'
+                      }`}
+                    title={c.name}
+                  >
+                    <span className="text-sm font-medium">{c.symbol}</span>
+                    <span className="text-[10px]">{c.code}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </GlassCard>
+
+          {securitySettings && (
+            <GlassCard className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                  <Shield className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold">Finance Security</h2>
+                  <p className="text-xs text-zinc-500">Lock timeout, device remembering, and password</p>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-zinc-700/50" />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-400">Remember device</span>
+                  <button
+                    onClick={() => handleSetRememberDevice(!securitySettings.rememberDevice, 7)}
+                    className={`w-10 h-5 rounded-full transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950 ${securitySettings.rememberDevice ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${securitySettings.rememberDevice ? 'translate-x-5' : ''}`} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-400">Lock timeout</span>
+                  <select
+                    value={securitySettings.lockTimeout / (60 * 1000)}
+                    onChange={(e) => handleSetLockTimeout(parseInt(e.target.value) * 60 * 1000)}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                  >
+                    <option value="1">1 min</option>
+                    <option value="5">5 min</option>
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                  </select>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-400">Masking mode</span>
+                  <select
+                    value={maskMode}
+                    onChange={(e) => setMaskMode(e.target.value as MaskMode)}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                  >
+                    <option value="digits">Same digit count</option>
+                    <option value="fixed">Fixed number</option>
+                  </select>
+                </div>
+                {maskMode === 'fixed' && (
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-zinc-400">Display value</span>
+                    <input
+                      type="number"
+                      value={maskFixedValue}
+                      onChange={(e) => setMaskFixedValue(parseFloat(e.target.value) || 0)}
+                      className="w-24 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 text-right focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                    />
+                  </div>
+                )}
+              </div>
+            </GlassCard>
+          )}
+
+          {securitySettings && (
+            <GlassCard className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${securitySettings.hasPassword ? 'bg-red-500/15' : 'bg-zinc-700/30'}`}>
+                  <Shield className="w-4 h-4 text-red-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold">Password Protection</h2>
+                  <p className="text-xs text-zinc-500">Choose which actions require password confirmation{!securitySettings.hasPassword ? ' (set a password first)' : ''}</p>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-zinc-700/50" />
+              <div className="space-y-3">
+                {[
+                  { key: 'password_req_delete_account', label: 'Delete accounts' },
+                  { key: 'password_req_delete_wallet', label: 'Delete wallets' },
+                  { key: 'password_req_delete_transaction', label: 'Delete transactions' },
+                ].map(item => (
+                  <div key={item.key} className="flex items-center justify-between">
+                    <span className="text-[11px] text-zinc-400">{item.label}</span>
+                    <button
+                      onClick={() => {
+                        const next = !passwordReqs[item.key];
+                        setPasswordReqs(prev => ({ ...prev, [item.key]: next }));
+                        setHasChanges(true);
+                        onHasChangesChange(true);
+                      }}
+                      className={`w-10 h-5 rounded-full transition-colors ${passwordReqs[item.key] ? 'bg-emerald-500' : 'bg-zinc-700'
+                        }`}
+                    >
+                      <div className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${passwordReqs[item.key] ? 'translate-x-5' : ''
+                        }`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+          )}
+
+          {!securitySettings?.hasPassword && (
+            <GlassCard className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                  <Key className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold">Set Password</h2>
+                  <p className="text-xs text-zinc-500">Set a master password to protect your finance page</p>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-zinc-700/50" />
+              <div className="space-y-3">
+                {securitySettings?.hasPassword && (
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => { setCurrentPassword(e.target.value); setPasswordError(''); setPasswordSuccess(''); }}
+                    placeholder="Current password"
+                    className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  />
+                )}
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => { setNewPassword(e.target.value); setPasswordError(''); setPasswordSuccess(''); }}
+                  placeholder="New password"
+                  className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setPasswordError(''); setPasswordSuccess(''); }}
+                  placeholder="Confirm password"
+                  className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+                {passwordError && <p className="text-[11px] text-red-400">{passwordError}</p>}
+                {passwordSuccess && <p className="text-[11px] text-emerald-400">{passwordSuccess}</p>}
+                <button
+                  onClick={handleChangePassword}
+                  disabled={securitySettings?.hasPassword ? (!currentPassword || !newPassword || !confirmPassword) : (!newPassword || !confirmPassword)}
+                  className="px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 text-xs font-medium transition-colors disabled:opacity-40 focus-visible:ring-2 ring-emerald-500/50"
+                >
+                  Set Password
+                </button>
+              </div>
+            </GlassCard>
+          )}
+
+          {securitySettings?.hasPassword && (
+            <GlassCard className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center">
+                  <Key className="w-4 h-4 text-red-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold">Change Password</h2>
+                  <p className="text-xs text-zinc-500">Update your finance page password</p>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-zinc-700/50" />
+              <div className="space-y-3">
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => { setCurrentPassword(e.target.value); setPasswordError(''); setPasswordSuccess(''); }}
+                  placeholder="Current password"
+                  className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => { setNewPassword(e.target.value); setPasswordError(''); setPasswordSuccess(''); }}
+                  placeholder="New password"
+                  className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setPasswordError(''); setPasswordSuccess(''); }}
+                  placeholder="Confirm new password"
+                  className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+                {passwordError && <p className="text-[11px] text-red-400">{passwordError}</p>}
+                {passwordSuccess && <p className="text-[11px] text-emerald-400">{passwordSuccess}</p>}
+                <button
+                  onClick={handleChangePassword}
+                  disabled={!currentPassword || !newPassword || !confirmPassword}
+                  className="px-4 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 text-xs font-medium transition-colors disabled:opacity-40 focus-visible:ring-2 ring-emerald-500/50"
+                >
+                  Update Password
+                </button>
+              </div>
+            </GlassCard>
+          )}
+        </div>
+      )}
+
       {/* Discord-style Bottom Save Bar */}
       <AnimatePresence>
         {hasChanges && (
@@ -3094,7 +3528,6 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
-                    // Reset all changes to original state
                     setTierAssignments(() => {
                       if (typeof window !== 'undefined') {
                         const saved = localStorage.getItem('deskflow-tier-assignments');
@@ -3116,6 +3549,8 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                     setLocalCategoryOrder(categoryOrder);
                     setAppCategoryOverrides({});
                     setDomainCategoryOverrides({});
+                    setFinanceCurrency(originalFinanceCurrency);
+                    setSecuritySettings(originalSecuritySettings);
                     setHasChanges(false);
                     onHasChangesChange(false);
                   }}
@@ -3132,6 +3567,23 @@ const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>(() => {
                 </button>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Saved confirmation popup */}
+      <AnimatePresence>
+        {savedNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="fixed top-4 right-4 z-[60] bg-emerald-500/15 border border-emerald-500/25 rounded-lg px-4 py-3 flex items-center gap-2 shadow-lg"
+          >
+            <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center">
+              <Check className="w-3 h-3 text-white" />
+            </div>
+            <span className="text-sm text-emerald-300 font-medium">Settings saved</span>
           </motion.div>
         )}
       </AnimatePresence>

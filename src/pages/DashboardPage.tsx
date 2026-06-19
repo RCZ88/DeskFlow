@@ -146,6 +146,7 @@ interface DashboardPageProps {
   categoryOverrides?: Record<string, string>;
   timerBehavior?: TimerBehavior;
   selectedPeriod?: Period;
+  onSelectedPeriodChange?: (period: Period) => void;
   dateOffset?: number;
   onDateOffsetChange?: (offset: number) => void;
   trackingBrowser?: string;
@@ -204,6 +205,7 @@ export default function DashboardPage({
   categoryOverrides = {},
   timerBehavior = { neutralAction: 'ignore', distractingAction: 'ignore' },
   selectedPeriod = 'week',
+  onSelectedPeriodChange,
   dateOffset = 0,
   onDateOffsetChange,
   trackingBrowser = '',
@@ -2717,7 +2719,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
             {/* Two-Column Stats Section */}
            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-12">
               {/* Weekly Heatmap */}
-              <motion.div
+              <motion.div data-tutorial="dash.heatmap"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
@@ -2762,7 +2764,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                           description="Start using apps to see productivity data"
                         />
                       ) : (
-                        <div className="h-72">
+                        <div data-tutorial="dash.weekly" className="h-72">
                           <Bar
                             data={{
                               labels: chartBarsResult.chartBars.map(b => b.label),
@@ -3112,12 +3114,17 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                     
                     {/* OrbitSystem container */}
                     <Suspense fallback={<div className="h-[400px] flex items-center justify-center"><LoadingState variant="spinner" /></div>}>
-                      <div className={solarFullscreen ? 'w-full h-screen' : 'h-[500px] w-full'}>
+                      <div data-tutorial="dash.orbit" className={solarFullscreen ? 'w-full h-screen' : 'h-[500px] w-full'}>
                         <OrbitSystem 
                           logs={orbitLogs}
                           websiteLogs={orbitWebsiteLogs}
                           appColors={appColors}
                           categoryOverrides={categoryOverrides}
+                          selectedPeriod={selectedPeriod}
+                          onPeriodChange={(p) => {
+                            onSelectedPeriodChange?.(p as any);
+                            onDateOffsetChange?.(0);
+                          }}
                         />
                       </div>
                     </Suspense>
@@ -3126,47 +3133,13 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
               )}
             </AnimatePresence>
 
-          {/* Gap Indicator Widget */}
-          {unfilledMinutes > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.35 }}
-              className="mb-4"
-            >
-              <GlassCard>
-                <div className="flex items-center justify-between p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center ring-1 ring-amber-500/20">
-                      <Clock className="w-5 h-5 text-amber-400" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-100">
-                        {unfilledMinutes >= 60
-                          ? `${(unfilledMinutes / 60).toFixed(1)}h`
-                          : `${unfilledMinutes}m`} unfilled today
-                      </div>
-                      <p className="text-xs text-zinc-500 mt-0.5">{gapCount} time gap{gapCount !== 1 ? 's' : ''} detected</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => window.dispatchEvent(new CustomEvent('open-gap-panel'))}
-                    className="px-4 py-2 rounded-lg text-xs font-medium bg-amber-600/20 text-amber-400 hover:bg-amber-600/30 border border-amber-600/30 transition"
-                  >
-                    Fill Gaps
-                  </button>
-                </div>
-              </GlassCard>
-            </motion.div>
-          )}
-
           {/* Activity Feed */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
           >
-            <GlassCard>
+            <GlassCard data-tutorial="dash.sessions">
               <SectionHeader title="Recent Sessions" icon={<Clock className="w-5 h-5" />} />
               
 <div className="space-y-2">

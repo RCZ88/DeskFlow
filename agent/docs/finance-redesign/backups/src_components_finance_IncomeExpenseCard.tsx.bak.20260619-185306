@@ -1,0 +1,38 @@
+/**
+ * IncomeExpenseCard – shows today’s total income and expense.
+ * Assumes the caller provides pre‑computed totals.
+ */
+import { GlassCard } from '../GlassCard';
+import { ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { formatCurrency as fmtCurrency } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
+
+interface IncomeExpenseCardProps {
+  income: number;
+  expense: number;
+  currency: string;
+}
+
+export function IncomeExpenseCard({ income, expense, currency }: IncomeExpenseCardProps) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const incDisplay = showNumbers ? fmtCurrency(income, currency) : maskNumber(income, maskMode, maskFixedValue);
+  const expDisplay = showNumbers ? fmtCurrency(expense, currency) : maskNumber(expense, maskMode, maskFixedValue);
+
+  return (
+    <GlassCard className="p-4">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+          <span className="text-sm font-medium text-zinc-400">Today Income</span>
+        </div>
+        <p className="text-lg font-semibold tabular-nums text-emerald-400">{incDisplay}</p>
+        <div className="flex items-center gap-2 mt-2">
+          <ArrowDownLeft className="w-4 h-4 text-red-400" />
+          <span className="text-sm font-medium text-zinc-400">Today Expense</span>
+        </div>
+        <p className="text-lg font-semibold tabular-nums text-red-400">{expDisplay}</p>
+      </div>
+    </GlassCard>
+  );
+}

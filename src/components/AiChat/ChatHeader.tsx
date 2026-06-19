@@ -1,4 +1,5 @@
 import { type FC } from 'react'
+import { Sparkles, RotateCcw } from 'lucide-react'
 
 type Mode = 'morning' | 'in-progress' | 'review'
 type Status = 'ready' | 'thinking' | 'error'
@@ -12,53 +13,42 @@ type Props = {
   className?: string
 }
 
-const modeConfig: Record<Mode, { bg: string; text: string; ring: string }> = {
-  morning: { bg: 'bg-amber-500/10', text: 'text-amber-300', ring: 'ring-amber-500/20' },
-  'in-progress': { bg: 'bg-emerald-500/10', text: 'text-emerald-300', ring: 'ring-emerald-500/20' },
-  review: { bg: 'bg-pink-500/10', text: 'text-pink-300', ring: 'ring-pink-500/20' },
-}
-
 const statusDot: Record<Status, string> = {
-  ready: 'bg-emerald-400',
-  thinking: 'bg-amber-400 animate-pulse',
-  error: 'bg-red-400',
+  ready: 'bg-sage-400 animate-[breathe_3s_ease-in-out_infinite]',
+  thinking: 'bg-clay-400 animate-pulse',
+  error: 'bg-clay-600',
 }
 
-const modeLabel: Record<Mode, string> = {
-  morning: 'Morning',
-  'in-progress': 'Active',
-  review: 'Review',
-}
-
-export const ChatHeader: FC<Props> = ({ mode, dateLabel, status, toolsUsed, onReset, className }) => {
-  const c = modeConfig[mode]
+export const ChatHeader: FC<Props> = ({ dateLabel, status, onReset, className }) => {
   return (
-    <div className={`flex items-center justify-between px-5 h-11 border-b border-zinc-800/60 bg-zinc-950/90 ${className ?? ''}`}>
-      <div className="flex items-center gap-3">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${c.bg} ${c.text} ${c.ring}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${c.text.replace('text-', 'bg-').replace('300', '400')}`} />
-          {modeLabel[mode]}
-        </span>
-        <span className="text-zinc-500 text-xs">{dateLabel}</span>
-        {toolsUsed && (
-          <span className="text-zinc-400 text-xs ml-2">
-            Used: {toolsUsed}
-          </span>
-        )}
+    <div className={`relative flex items-center justify-between px-4 h-12 bg-stone-950/80 backdrop-blur-md ${className ?? ''}`}>
+      <div
+        className="absolute inset-x-0 bottom-0 h-px pointer-events-none"
+        style={{
+          background: 'linear-gradient(90deg, transparent, rgba(232,134,107,0.4), transparent)',
+        }}
+      />
+      <div className="flex items-center gap-2.5">
+        <div className="grid place-items-center w-7 h-7 rounded-lg bg-stone-800/60 border border-stone-700/40">
+          <Sparkles className="w-3.5 h-3.5 text-clay-300" />
+        </div>
+        <div>
+          <span className="font-serif text-glow text-[13px] font-semibold">AI Assistant</span>
+          <span className="text-[11px] text-stone-400 ml-2">{dateLabel}</span>
+        </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
         {onReset && (
           <button
             onClick={onReset}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors p-1"
+            className="flex items-center gap-1.5 text-[11px] font-mono text-stone-500 hover:text-stone-300 transition-colors px-2 py-1 rounded-md hover:bg-stone-800/50"
             title="Reset conversation"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
+            <RotateCcw className="w-3 h-3" />
+            Reset
           </button>
         )}
-        <span className={`size-2 rounded-full ${statusDot[status]}`} />
+        <span className={`w-2 h-2 rounded-full ${statusDot[status]}`} />
       </div>
     </div>
   )
