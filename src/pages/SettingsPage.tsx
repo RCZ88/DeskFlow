@@ -27,6 +27,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
+import { useLocation } from 'react-router-dom';
 import { useNumberMask } from '../context/NumberMaskContext';
 import { GlassCard } from '../components/GlassCard';
 import { PageShell } from '../components/PageShell';
@@ -332,10 +333,15 @@ export default function SettingsPage({
   externalActivityTiers: externalActivityTiersProp = {},
   onExternalActivityTiersChange,
 }: Partial<SettingsPageProps> & { onRegisterSave: (fn: () => void) => void; onReloadData?: () => void }) {
-  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general' | 'tracking' | 'prompts' | 'finance'>(() => {
+  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general' | 'tracking' | 'prompts' | 'finance' | 'ai'>(() => {
     const saved = localStorage.getItem('settings-activeTab');
     return (saved as any) || 'category';
   });
+  const location = useLocation();
+  useEffect(() => {
+    const tab = (location.state as any)?.tab;
+    if (tab) setActiveTab(tab);
+  }, []);
   const [tierAssignments, setTierAssignments] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('deskflow-tier-assignments');
@@ -375,6 +381,17 @@ export default function SettingsPage({
       }
     }
     return externalActivityTiersProp;
+  });
+
+  // AI Agent color overrides
+  const [agentColorOverrides, setAgentColorOverrides] = useState<Record<string, string>>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('deskflow-agent-colors');
+      if (saved) {
+        try { return JSON.parse(saved); } catch { /* ignore */ }
+      }
+    }
+    return {};
   });
 
   // Finance password protection settings
@@ -585,6 +602,25 @@ export default function SettingsPage({
           }
         } catch { /* ignore */ }
       }
+      if (window.deskflowAPI?.getAiProviders) {
+        try {
+          const state = await window.deskflowAPI.getAiProviders();
+          if (state?.providers) {
+            setAiProviders(state.providers);
+            setAiProviderRouting(state.routing || { default: { providerId: '', model: '' }, researchDigest: null, goalAssistant: null });
+          }
+        } catch { /* ignore */ }
+      }
+      // Load data access preferences
+      if (window.deskflowAPI?.getPreferences) {
+        try {
+          const prefs = await window.deskflowAPI.getPreferences();
+          if (prefs?.ai_dataAccess) {
+            const parsed = JSON.parse(prefs.ai_dataAccess);
+            setDataAccess(prev => ({ ...prev, ...parsed }));
+          }
+        } catch { /* ignore */ }
+      }
 
       setAppCategoryOverrides(overrides);
       setDomainCategoryOverrides(domainOverrides);
@@ -722,6 +758,7 @@ export default function SettingsPage({
     localStorage.setItem('deskflow-app-category-overrides', JSON.stringify(appCategoryOverrides));
     localStorage.setItem('deskflow-domain-category-overrides', JSON.stringify(domainCategoryOverrides));
     localStorage.setItem('deskflow-animation-speed', animationSpeed);
+    localStorage.setItem('deskflow-agent-colors', JSON.stringify(agentColorOverrides));
 
     if (window.deskflowAPI?.setPreference) {
       await window.deskflowAPI.setPreference('trackerAppMode', trackerAppMode);
@@ -735,6 +772,10 @@ export default function SettingsPage({
     if (window.deskflowAPI?.saveAiConfig) {
       const cleanKey = openRouterApiKey.trim().replace(/^["']|["']$/g, '');
       await window.deskflowAPI.saveAiConfig({ ...aiConfig, apiKey: cleanKey });
+    }
+
+    if (window.deskflowAPI?.saveAiProviders) {
+      await window.deskflowAPI.saveAiProviders({ providers: aiProviders, routing: aiProviderRouting });
     }
 
     try {
@@ -818,7 +859,7 @@ export default function SettingsPage({
     if (onRegisterSave) {
       onRegisterSave(saveChanges);
     }
-  }, [tierAssignments, localAppColors, localCategoryOrder, animationSpeed, appCategoryOverrides, domainCategoryOverrides, onRegisterSave, saveChanges]);
+  }, [tierAssignments, localAppColors, localCategoryOrder, animationSpeed, appCategoryOverrides, domainCategoryOverrides, agentColorOverrides, onRegisterSave, saveChanges]);
 
   const [securitySettings, setSecuritySettings] = useState<any>(null);
   const [originalSecuritySettings, setOriginalSecuritySettings] = useState<any>(null);
@@ -917,10 +958,10 @@ export default function SettingsPage({
           });
         }
       } else {
-        setPasswordError('Failed to update password');
+        setPasswordError((result as any)?.error || 'Failed to update password');
       }
-    } catch {
-      setPasswordError('Failed to update password');
+    } catch (e: any) {
+      setPasswordError(e?.message || 'Failed to update password');
     }
   };
 
@@ -989,6 +1030,15 @@ export default function SettingsPage({
     digestModel: 'google/gemini-2.0-flash-001',
     anomalyModel: 'google/gemini-2.0-flash-001',
     autoGenerateBrief: true,
+  });
+
+  const [aiProviders, setAiProviders] = useState<any[]>([]);
+  const [aiProviderRouting, setAiProviderRouting] = useState<any>({ default: { providerId: '', model: '' }, researchDigest: null, goalAssistant: null });
+  const [providerTestStatus, setProviderTestStatus] = useState<Record<string, 'idle' | 'testing' | 'success' | 'error'>>({});
+  const [providerTestMessages, setProviderTestMessages] = useState<Record<string, string>>({});
+  const [showProviderApiKeys, setShowProviderApiKeys] = useState<Record<string, boolean>>({});
+  const [dataAccess, setDataAccess] = useState<Record<string, boolean>>({
+    projects: true, problems: true, requests: true, aiUsage: true, dashboardStats: true, goals: true, finance: true,
   });
 
   // Keyword-based productivity categorization state
@@ -1135,7 +1185,7 @@ export default function SettingsPage({
 
       {/* Content based on active tab */}
       {activeTab === 'category' && (
-        <div className="space-y-4">
+        <div data-section="settings.category" className="space-y-4">
           {/* Data Sync Mode */}
           <GlassCard>
             <div className="flex items-center justify-between mb-4">
@@ -2309,7 +2359,7 @@ export default function SettingsPage({
       )}
 
       {activeTab === 'general' && (
-        <div className="space-y-4">
+        <div data-section="settings.general" className="space-y-4">
           <GlassCard className="space-y-4">
             <div>
               <h2 className="text-lg font-semibold mb-3">App Tracker Behavior</h2>
@@ -2563,7 +2613,7 @@ export default function SettingsPage({
       )}
 
       {activeTab === 'tracking' && (
-        <div className="space-y-4">
+        <div data-section="settings.tracking" className="space-y-4">
           <GlassCard className="space-y-6">
             <div>
               <h2 className="text-lg font-semibold mb-1">Tracking Settings</h2>
@@ -2765,7 +2815,7 @@ export default function SettingsPage({
       )}
 
       {activeTab === 'prompts' && (
-        <div className="space-y-4">
+        <div data-section="settings.prompts" className="space-y-4">
           <GlassCard>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -2870,7 +2920,7 @@ export default function SettingsPage({
       )}
 
       {activeTab === 'colors' && (
-        <div className="space-y-4">
+        <div data-section="settings.colors" className="space-y-4">
           {/* Category Colors Section */}
           <GlassCard>
             <SectionHeader
@@ -3033,7 +3083,7 @@ export default function SettingsPage({
       )}
 
       {activeTab === 'ai' && (
-        <div className="space-y-4">
+        <div data-section="settings.ai" className="space-y-4">
           <GlassCard className="space-y-6">
             <div>
               <h2 className="text-lg font-semibold mb-1">AI Assistant</h2>
@@ -3116,39 +3166,153 @@ export default function SettingsPage({
 
             <div className="pt-4 border-t border-zinc-700/50" />
 
-            {/* Brief Model — open-ended text input */}
+            {/* Multi-Provider Routing */}
             <div>
-              <label className="text-sm font-medium text-zinc-400 mb-2 block">Brief Generation Model</label>
-              <input
-                type="text"
-                value={aiConfig.briefModel}
-                onChange={(e) => {
-                  setAiConfig(prev => ({ ...prev, briefModel: e.target.value }));
-                  setHasChanges(true);
-                  onHasChangesChange(true);
-                }}
-                placeholder="google/gemini-2.0-flash-001"
-                className="w-full px-3 py-2 text-sm bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 font-mono"
-              />
-              <p className="text-xs text-zinc-500 mt-1">Used for daily briefs and anomaly detection. Any OpenRouter model slug.</p>
+              <label className="text-sm font-medium text-zinc-400 mb-1 block">Multi-Provider Routing</label>
+              <p className="text-xs text-zinc-500 mb-3">Enable free providers so the Research Digest doesn't need OpenRouter credits. Order controls fallback priority.</p>
+              <div className="space-y-2">
+                {aiProviders.map((prov, idx) => (
+                  <div key={prov.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-zinc-800/30 border border-zinc-700/30">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <button
+                        onClick={() => {
+                          const next = [...aiProviders];
+                          if (idx > 0) { [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]; }
+                          setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                        }}
+                        disabled={idx === 0}
+                        className="p-0.5 text-zinc-600 hover:text-zinc-300 disabled:opacity-20 disabled:cursor-not-allowed"
+                      ><ChevronUp className="w-3 h-3" /></button>
+                      <span className="text-[10px] text-zinc-600 font-mono">{idx + 1}</span>
+                      <button
+                        onClick={() => {
+                          const next = [...aiProviders];
+                          if (idx < next.length - 1) { [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]; }
+                          setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                        }}
+                        disabled={idx === aiProviders.length - 1}
+                        className="p-0.5 text-zinc-600 hover:text-zinc-300 disabled:opacity-20 disabled:cursor-not-allowed"
+                      ><ChevronDown className="w-3 h-3" /></button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = aiProviders.map(p => p.id === prov.id ? { ...p, enabled: !p.enabled } : p);
+                        setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                      }}
+                      className={`shrink-0 relative w-8 h-4.5 rounded-full transition-colors ${prov.enabled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                      style={{ height: '18px', width: '32px' }}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-white rounded-full transition-transform ${prov.enabled ? 'translate-x-3.5' : ''}`} />
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-zinc-300">{prov.label}</span>
+                        <span className={`text-[10px] px-1 py-0.5 rounded ${prov.enabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-700/50 text-zinc-500'}`}>{prov.enabled ? 'On' : 'Off'}</span>
+                      </div>
+                      {prov.enabled && (
+                        <div className="space-y-1.5 mt-1.5">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type={showProviderApiKeys[prov.id] ? 'text' : 'password'}
+                              placeholder="API key (leave blank if none needed)"
+                              value={prov.apiKey || ''}
+                              onChange={(e) => {
+                                const next = aiProviders.map(p => p.id === prov.id ? { ...p, apiKey: e.target.value } : p);
+                                setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                              }}
+                              className="flex-1 min-w-0 px-2 py-1 text-[11px] bg-zinc-800 border border-zinc-700/50 rounded text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-mono"
+                            />
+                            <button
+                              onClick={() => setShowProviderApiKeys(prev => ({ ...prev, [prov.id]: !prev[prov.id] }))}
+                              className="shrink-0 p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                            >
+                              {showProviderApiKeys[prov.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                            <button
+                              onClick={async () => {
+                                setProviderTestStatus(prev => ({ ...prev, [prov.id]: 'testing' }));
+                                setProviderTestMessages(prev => ({ ...prev, [prov.id]: 'Testing...' }));
+                                console.log(`[Settings] Testing provider: ${prov.id} (${prov.label})`);
+                                try {
+                                  const res = await window.deskflowAPI?.testAiProvider?.(prov.id);
+                                  console.log('[Settings] Test result:', res);
+                                  if (res?.success) {
+                                    setProviderTestStatus(prev => ({ ...prev, [prov.id]: 'success' }));
+                                    setProviderTestMessages(prev => ({ ...prev, [prov.id]: 'OK' }));
+                                  } else {
+                                    setProviderTestStatus(prev => ({ ...prev, [prov.id]: 'error' }));
+                                    setProviderTestMessages(prev => ({ ...prev, [prov.id]: res?.error || 'Failed' }));
+                                    console.error('[Settings] Provider test failed:', res?.error);
+                                  }
+                                } catch (err: any) {
+                                  setProviderTestStatus(prev => ({ ...prev, [prov.id]: 'error' }));
+                                  setProviderTestMessages(prev => ({ ...prev, [prov.id]: err.message }));
+                                  console.error('[Settings] Provider test error:', err.message);
+                                }
+                              }}
+                              disabled={providerTestStatus[prov.id] === 'testing'}
+                              className="shrink-0 px-2 py-1 text-[10px] bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-500 disabled:opacity-40 text-zinc-300 rounded transition-colors"
+                            >
+                              {providerTestStatus[prov.id] === 'testing' ? '...' : 'Test'}
+                            </button>
+                            {providerTestStatus[prov.id] === 'success' && <Check className="shrink-0 w-3 h-3 text-emerald-400" />}
+                            {providerTestStatus[prov.id] === 'error' && <AlertTriangle className="shrink-0 w-3 h-3 text-red-400" />}
+                            {providerTestStatus[prov.id] === 'error' && (
+                              <span className="text-[10px] text-red-400 truncate max-w-[160px]" title={providerTestMessages[prov.id]}>
+                                {providerTestMessages[prov.id]}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="Model (e.g. google/gemini-2.0-flash-001)"
+                              value={prov.models?.[0] || ''}
+                              onChange={(e) => {
+                                const next = aiProviders.map(p => p.id === prov.id ? { ...p, models: e.target.value ? [e.target.value] : [] } : p);
+                                setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                              }}
+                              className="flex-1 min-w-0 px-2 py-1 text-[11px] bg-zinc-800 border border-zinc-700/50 rounded text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-mono"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Base URL (optional)"
+                              value={prov.baseUrl || ''}
+                              onChange={(e) => {
+                                const next = aiProviders.map(p => p.id === prov.id ? { ...p, baseUrl: e.target.value } : p);
+                                setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                              }}
+                              className="flex-1 min-w-0 px-2 py-1 text-[11px] bg-zinc-800 border border-zinc-700/50 rounded text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-mono"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <label className="text-[10px] text-zinc-500 block mb-0.5">Digest</label>
+                      <button
+                        onClick={() => {
+                          const isNow = aiProviderRouting.researchDigest?.providerId !== prov.id;
+                          setAiProviderRouting(prev => ({ ...prev, researchDigest: isNow ? { providerId: prov.id, model: prov.models?.[0] || '' } : null }));
+                          setHasChanges(true); onHasChangesChange(true);
+                        }}
+                        disabled={!prov.enabled}
+                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors disabled:opacity-30 ${
+                          aiProviderRouting.researchDigest?.providerId === prov.id
+                            ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
+                            : 'bg-zinc-800/50 text-zinc-500 border border-zinc-700/30 hover:text-zinc-300'
+                        }`}
+                      >
+                        {aiProviderRouting.researchDigest?.providerId === prov.id ? 'Active' : 'Assign'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-zinc-500 mt-2">The Research Digest tries the <span className="text-violet-400">Active</span> provider first, then falls back through all enabled providers in order.</p>
             </div>
 
-            {/* Weekly & Digest Model — open-ended text input */}
-            <div>
-              <label className="text-sm font-medium text-zinc-400 mb-2 block">Weekly & Digest Model</label>
-              <input
-                type="text"
-                value={aiConfig.weeklyModel}
-                onChange={(e) => {
-                  setAiConfig(prev => ({ ...prev, weeklyModel: e.target.value }));
-                  setHasChanges(true);
-                  onHasChangesChange(true);
-                }}
-                placeholder="deepseek/deepseek-chat-v3-0324"
-                className="w-full px-3 py-2 text-sm bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 font-mono"
-              />
-              <p className="text-xs text-zinc-500 mt-1">Used for weekly reviews and topic research digests. Any OpenRouter model slug.</p>
-            </div>
+            <div className="pt-4 border-t border-zinc-700/50" />
 
             <div className="flex items-center justify-between py-2">
               <div>
@@ -3253,12 +3417,112 @@ export default function SettingsPage({
                 </div>
               </div>
             </div>
+
+            <div className="pt-4 border-t border-zinc-700/50" />
+
+            {/* Data Access */}
+            <div>
+              <label className="text-sm font-medium text-zinc-400 mb-2 block">Data Access</label>
+              <p className="text-xs text-zinc-500 mb-3">Control which data categories the AI Assistant can read when answering your questions.</p>
+              <div className="space-y-2">
+                {[
+                  { key: 'projects', label: 'Projects', desc: 'Project names, paths, health scores, commit stats' },
+                  { key: 'problems', label: 'Problems', desc: 'Tracked bugs, issues, and their statuses' },
+                  { key: 'requests', label: 'Requests', desc: 'Feature requests and their details' },
+                  { key: 'aiUsage', label: 'AI Usage', desc: 'Token usage, costs, and tool usage stats' },
+                  { key: 'dashboardStats', label: 'Dashboard Stats', desc: 'App activity, focus time, hourly stats' },
+                  { key: 'goals', label: 'Goals', desc: 'Daily goals, long-term goals, and reviews' },
+                  { key: 'finance', label: 'Finance', desc: 'Wallets, transactions, balances, and crypto' },
+                ].map(item => (
+                  <div key={item.key} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-zinc-800/30 border border-zinc-700/30">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-zinc-300">{item.label}</div>
+                      <div className="text-[10px] text-zinc-500 truncate">{item.desc}</div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        const next = { ...dataAccess, [item.key]: !dataAccess[item.key] };
+                        setDataAccess(next);
+                        if (window.deskflowAPI?.setPreference) {
+                          await window.deskflowAPI.setPreference('ai_dataAccess', JSON.stringify(next));
+                        }
+                      }}
+                      className={`shrink-0 relative w-11 h-6 rounded-full transition-colors ${dataAccess[item.key] !== false ? 'bg-violet-500' : 'bg-zinc-700'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${dataAccess[item.key] !== false ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-zinc-500 mt-3">When a category is disabled, the AI will return a privacy notice instead of the data. The AI Chat toggle is separate — it controls the chat UI visibility, not data access.</p>
+            </div>
+
+            <div className="pt-4 border-t border-zinc-700/50" />
+
+            {/* AI Agent Colors */}
+            <div>
+              <label className="text-sm font-medium text-zinc-400 mb-2 block">Agent Colors</label>
+              <p className="text-xs text-zinc-500 mb-3">Customize colors for each AI agent in charts and the donut distribution.</p>
+              <div className="space-y-2">
+                {Object.entries({
+                  'opencode': { name: 'OpenCode', default: '#3b82f6' },
+                  'claude-code': { name: 'Claude Code', default: '#f97316' },
+                  'gemini': { name: 'Gemini CLI', default: '#22c55e' },
+                  'codex': { name: 'Codex CLI', default: '#10b981' },
+                  'qwen': { name: 'Qwen CLI', default: '#f59e0b' },
+                  'cursor': { name: 'Cursor AI', default: '#a855f7' },
+                  'kilocode': { name: 'KiloCode', default: '#22c55e' },
+                  'aider': { name: 'Aider', default: '#f59e0b' },
+                }).map(([id, info]) => {
+                  const currentColor = agentColorOverrides[id] || info.default;
+                  return (
+                    <div key={id} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-zinc-800/30 border border-zinc-700/30">
+                      <div className="flex items-center gap-3">
+                        <div className="w-4 h-4 rounded-full border border-zinc-600" style={{ backgroundColor: currentColor }} />
+                        <div>
+                          <div className="text-xs font-medium text-zinc-300">{info.name}</div>
+                          <div className="text-[10px] text-zinc-500 font-mono">{currentColor}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={currentColor}
+                          onChange={(e) => {
+                            const next = { ...agentColorOverrides, [id]: e.target.value };
+                            setAgentColorOverrides(next);
+                            setHasChanges(true);
+                            onHasChangesChange(true);
+                          }}
+                          className="w-8 h-6 rounded border border-zinc-600 bg-transparent cursor-pointer"
+                        />
+                        {agentColorOverrides[id] && (
+                          <button
+                            onClick={() => {
+                              const next = { ...agentColorOverrides };
+                              delete next[id];
+                              setAgentColorOverrides(next);
+                              setHasChanges(true);
+                              onHasChangesChange(true);
+                            }}
+                            className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                            title="Reset to default"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </GlassCard>
         </div>
       )}
 
       {activeTab === 'finance' && (
-        <div className="space-y-4">
+        <div data-section="settings.finance" className="space-y-4">
           <GlassCard className="space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">

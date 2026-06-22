@@ -42,7 +42,7 @@ interface OverviewTabProps {
   baseCurrency: string;
   onCreateAccount?: (data: {
     name: string; type: FinanceAccount['type']; description?: string;
-    icon?: string; color?: string; currency?: string; balance?: number;
+    icon?: string; color?: string;
   }) => Promise<boolean>;
   // Adding transactions is handled by the global floating action button.
   // Kept here for API compatibility with the parent page.
@@ -142,7 +142,7 @@ export function OverviewTab({
         icon={<Wallet className="w-12 h-12" />}
         title="No accounts yet"
         description="Create your first account to start tracking your finances"
-        action={onCreateAccount ? { label: 'Create Account', onClick: () => onCreateAccount({ name: 'New Account', type: 'personal', currency: displayCurrency, balance: 0 }) } : undefined}
+        action={onCreateAccount ? { label: 'Create Account', onClick: () => onCreateAccount({ name: 'New Account', type: 'personal' }) } : undefined}
       />
     );
   }
@@ -300,7 +300,7 @@ export function OverviewTab({
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {personalAccounts.map(account => {
             const accountWallets = activeWallets.filter(w => w.account_id === account.id);
-            const convertedBalance = convertAmount(account.balance, account.currency, displayCurrency);
+            const convertedBalance = accountWallets.reduce((sum, w) => sum + convertAmount(w.balance, w.currency, displayCurrency), 0);
             return (
               <GlassSurface key={account.id} className="p-4 text-left">
                 <div className="flex items-start justify-between mb-2">
@@ -336,7 +336,8 @@ export function OverviewTab({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {custodialAccounts.map(account => {
-                const convertedBalance = convertAmount(account.balance, account.currency, displayCurrency);
+                const accountWallets = activeWallets.filter(w => w.account_id === account.id);
+                const convertedBalance = accountWallets.reduce((sum, w) => sum + convertAmount(w.balance, w.currency, displayCurrency), 0);
                 return (
                   <GlassSurface key={account.id} className="p-4 border-l-2 border-amber-500/40">
                     <div className="flex items-start justify-between">

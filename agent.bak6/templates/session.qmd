@@ -1,0 +1,61 @@
+---
+title: "AI Session - [DATE]"
+format:
+  html:
+    code-fold: true
+    toc: true
+---
+
+## Session Overview
+
+**Agent:** [AGENT_NAME]
+**Task:** [TASK_DESCRIPTION]
+**Duration:** [START] - [END]
+
+## Context
+
+```{python}
+#| echo: false
+context = {
+    "project": "[PROJECT_NAME]",
+    "version": "[VERSION]",
+    "problems_count": "[N]"
+}
+context
+```
+
+## Work Done
+
+### [Change 1]
+
+**Files Modified:**
+- `path/to/file1.ts`
+- `path/to/file2.ts`
+
+**Changes:**
+```{typescript}
+// Code changes here
+```
+
+## Tests Run
+
+```{bash}
+npm test
+```
+
+## Results
+
+| Test | Status |
+|------|--------|
+| Build | ✅ Pass |
+| Unit Tests | ✅ Pass |
+| Type Check | ✅ Pass |
+
+## Next Steps
+
+- [ ] Action 1
+- [ ] Action 2
+
+## Session Notes
+
+[Freeform notes]

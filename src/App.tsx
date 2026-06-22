@@ -262,7 +262,9 @@ declare global {
        saveAiConfig: (config: any) => Promise<{ success: boolean }>;
        getAiConfig: () => Promise<any>;
        getAiProviders: () => Promise<any>;
-       getInterestTopics: () => Promise<string[]>;
+       saveAiProviders: (state: any) => Promise<{ success: boolean }>;
+       testAiProvider: (providerId: string) => Promise<{ success: boolean; content?: string; error?: string }>;
+        getInterestTopics: () => Promise<string[]>;
        addInterestTopic: (topic: string) => Promise<{ success: boolean }>;
        removeInterestTopic: (topic: string) => Promise<{ success: boolean }>;
       // Planning.md
@@ -295,6 +297,7 @@ declare global {
       financeGetWallets: (accountId?: number) => Promise<any[]>;
       financeCreateWallet: (data: any) => Promise<any>;
       financeUpdateWallet: (data: any) => Promise<any>;
+      financeAdjustBalance: (id: number, newBalance: number) => Promise<any>;
       financeGetCategories: () => Promise<any[]>;
       financeCreateCategory: (data: any) => Promise<any>;
       financeUpdateCategory: (data: any) => Promise<any>;
@@ -1346,6 +1349,7 @@ function App() {
   const [showConfirmExport, setShowConfirmExport] = useState<'csv' | 'json' | null>(null);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+  const [showWorkspaceWarning, setShowWorkspaceWarning] = useState(false);
   const [settingsHasChanges, setSettingsHasChanges] = useState(false);
   const settingsSaveFnRef = useRef<(() => void) | null>(null);
   const [aiSummary, setAiSummary] = useState('');
@@ -2435,6 +2439,30 @@ Trend: +14% vs. yesterday. Keep it up!`;
     }
   }, [navigate, pendingNavigation]);
 
+  const handleWorkspaceSaveAndNavigate = useCallback(async () => {
+    setShowWorkspaceWarning(false);
+    const saveFn = (window as any).__workspaceSave;
+    if (saveFn) await saveFn();
+    if (pendingNavigation) {
+      navigate(pendingNavigation);
+      setPendingNavigation(null);
+    } else {
+      // Window close — allow Electron to close
+      (window as any).deskflowAPI?.workspaceAllowClose?.();
+    }
+  }, [navigate, pendingNavigation]);
+
+  const handleWorkspaceDiscardChanges = useCallback(() => {
+    setShowWorkspaceWarning(false);
+    if (pendingNavigation) {
+      navigate(pendingNavigation);
+      setPendingNavigation(null);
+    } else {
+      // Window close — allow Electron to close without saving
+      (window as any).deskflowAPI?.workspaceAllowClose?.();
+    }
+  }, [navigate, pendingNavigation]);
+
   const handleSaveAndNavigate = useCallback(() => {
     setShowUnsavedWarning(false);
     // Trigger save from settings via the stored ref
@@ -2464,8 +2492,27 @@ Trend: +14% vs. yesterday. Keep it up!`;
       setShowUnsavedWarning(true);
       return;
     }
+    // If on Terminal page with unsaved workspace changes, show warning
+    if (location.pathname === '/terminal' && (window as any).__workspaceHasUnsavedChanges) {
+      setPendingNavigation(path);
+      setShowWorkspaceWarning(true);
+      return;
+    }
     navigate(path);
-  }, [location.pathname, settingsHasChanges, navigate, setPendingNavigation, setShowUnsavedWarning]);
+  }, [location.pathname, settingsHasChanges, navigate]);
+
+  // Listen for main process requesting save on window close
+  useEffect(() => {
+    const unsub = (window as any).deskflowAPI?.onWorkspaceRequestSave?.(() => {
+      if ((window as any).__workspaceHasUnsavedChanges) {
+        setPendingNavigation(null); // not a navigation — it's a window close
+        setShowWorkspaceWarning(true);
+      } else {
+        (window as any).deskflowAPI?.workspaceAllowClose?.();
+      }
+    });
+    return () => { unsub?.(); };
+  }, []);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -2569,14 +2616,28 @@ Trend: +14% vs. yesterday. Keep it up!`;
           <div className="flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-800">
               <div className="flex items-center gap-1">
               <button
-                onClick={() => navigate('/ide')}
+                onClick={() => {
+                  if ((window as any).__workspaceHasUnsavedChanges) {
+                    setPendingNavigation('/ide');
+                    setShowWorkspaceWarning(true);
+                  } else {
+                    navigate('/ide');
+                  }
+                }}
                 className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
                 title="Back to IDE projects"
               >
                 <Minus className="w-5 h-5" />
               </button>
               <button
-                onClick={() => window.dispatchEvent(new CustomEvent('close-workspace'))}
+                onClick={() => {
+                  if ((window as any).__workspaceHasUnsavedChanges) {
+                    setPendingNavigation('/ide');
+                    setShowWorkspaceWarning(true);
+                  } else {
+                    navigate('/ide');
+                  }
+                }}
                 className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
                 title="Close workspace"
               >
@@ -2892,6 +2953,56 @@ Trend: +14% vs. yesterday. Keep it up!`;
                     </button>
                     <button
                       onClick={() => { setShowUnsavedWarning(false); setPendingNavigation(null); }}
+                      className="w-full py-2 rounded-xl text-zinc-500 hover:text-zinc-400 transition text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Workspace Unsaved Warning Modal ── */}
+          <AnimatePresence>
+            {showWorkspaceWarning && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center z-[66]" onClick={() => setShowWorkspaceWarning(false)}>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.92 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.92 }}
+                  className="glass rounded-3xl p-8 w-full max-w-sm"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                      <AlertTriangle className="w-5 h-5 text-amber-400" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-lg">Unsaved Workspace</div>
+                      <div className="text-xs text-zinc-400">You have open terminals.</div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 mb-6">
+                    <p>Save your workspace to preserve open terminals, layout, and sidebar config before leaving.</p>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={handleWorkspaceSaveAndNavigate}
+                      className="w-full py-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 transition text-sm font-medium border border-emerald-500/30"
+                    >
+                      {pendingNavigation ? 'Save & Navigate' : 'Save & Close'}
+                    </button>
+                    <button
+                      onClick={handleWorkspaceDiscardChanges}
+                      className="w-full py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition text-sm font-medium"
+                    >
+                      {pendingNavigation ? 'Discard & Navigate' : 'Discard & Close'}
+                    </button>
+                    <button
+                      onClick={() => { setShowWorkspaceWarning(false); setPendingNavigation(null); }}
                       className="w-full py-2 rounded-xl text-zinc-500 hover:text-zinc-400 transition text-xs"
                     >
                       Cancel

@@ -405,14 +405,20 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     let cancelled = false;
     (async () => {
       try {
+        console.log('[FROZEN-DBG] Dashboard fetch START period=', selectedPeriod, 'dateOffset=', dateOffset, 'weekOffset=', weekOffset);
+        const t0 = performance.now();
         const data = await window.deskflowAPI.getDashboardAggregates({
           period: selectedPeriod,
           dateOffset,
           weekOffset,
         });
         if (cancelled) return;
+        const t1 = performance.now();
+        console.log('[FROZEN-DBG] Dashboard fetch DONE in', Math.round(t1 - t0), 'ms');
         if (data.error) { console.error('[Dashboard] Aggregate error:', data.error); return; }
+        window.deskflowAPI.terminalLog('[FROZEN-DBG] Dashboard data received, setting state');
         setDashboardData(data);
+        console.log('[FROZEN-DBG] Dashboard setDashboardData done');
       } catch (err) {
         if (!cancelled) console.error('[Dashboard] Failed to fetch aggregates:', err);
       }
@@ -456,12 +462,12 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
           id: `init-${idx}-${Date.now()}`,
           timestamp,
           startTime: timestamp.getTime(),
-          type: s.is_browser_tracking ? 'browser' as const : 'app' as const,
+          type: (s.isBrowser || s.is_browser_tracking) ? 'browser' as const : 'app' as const,
           name: s.app || s.title || s.domain || 'Unknown',
           category: s.category || 'Unknown',
           tier: getTierFromCategory(s.category),
           isActive: false,
-          duration: s.durationSeconds || 0,
+          duration: s.durationSeconds || Math.round((s.duration_ms || 0) / 1000),
         };
       });
       if (feedItems.length > 0) {
@@ -587,7 +593,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
       const hour = parseInt(parts[3]);
       let key: string;
       if (selectedPeriod === 'today') key = `${hour}`;
-      else if (selectedPeriod === 'week' || selectedPeriod === 'month') key = dateStr;
+      else if (selectedPeriod === 'week' || selectedPeriod === 'month' || selectedPeriod === '7day' || selectedPeriod === '30day') key = dateStr;
       else key = `${parts[0]}-${parts[1]}`;
       finalData.set(key, (finalData.get(key) || 0) + sec);
     }
@@ -851,17 +857,19 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
       );
       
       if (isTrackingBrowser) {
-        console.log('[Focus] Browser detected — isInBrowser=true, currentApp unchanged');
+        console.log('[Focus] Browser detected — isInBrowser=true, preserving lastNonBrowserApp as currentApp');
         setIsInBrowser(true);
+        // Keep lastNonBrowserApp as currentApp fallback so timer doesn't freeze on "No App"
+        setCurrentApp(lnb || null);
         return;
       }
       
-      // No real app detected — reset and prompt user to switch to an app
+      // No real app detected — keep last known app as fallback to avoid "No App" freeze
       if (!data.app || data.isReal === false) {
-        console.log('[Focus] No real app — resetting, stopwatch paused');
+        console.log('[Focus] No real app — keeping last known app, isInBrowser=false');
         setIsInBrowser(false);
         setCurrentWebsite(null);
-        setCurrentApp(null);
+        setCurrentApp(lnb || null);
         return;
       }
       
@@ -938,7 +946,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
         const isTrackingBrowser = !!tb && !!(initialData.app) && isAppMatchingBrowserDashboard(initialData.app, tb);
         const isTrackerApp = !!(initialData.app) && (initialData.app.toLowerCase().includes('deskflow') || initialData.app.toLowerCase().includes('electron'));
 
-        if (isTrackingBrowser) { setIsInBrowser(true); return; }
+        if (isTrackingBrowser) { setIsInBrowser(true); setCurrentApp(lnb || null); return; }
         setIsInBrowser(false);
         setCurrentWebsite(null);
 
@@ -966,6 +974,35 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
       console.log('[Focus] Unsubscribing foreground listener');
       if (typeof unsubscribe === 'function') unsubscribe();
     };
+  }, []);
+  
+  // Periodic foreground refresh (every 30s) — recovers from missed foreground-changed events
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      if (!window.deskflowAPI?.getCurrentForeground) return;
+      window.deskflowAPI.getCurrentForeground().then((data: any) => {
+        if (!data?.app) return;
+        const tb = trackingBrowserRef.current;
+        const isTrackingBrowser = !!tb && isAppMatchingBrowserDashboard(data.app, tb);
+        const isTrackerApp = data.app.toLowerCase().includes('deskflow') || data.app.toLowerCase().includes('electron');
+        
+        if (isTrackerApp) return; // don't overwrite with tracker app
+        if (isTrackingBrowser) {
+          setIsInBrowser(true);
+          return;
+        }
+        // If we have a real non-browser app and currentApp is null or stale, refresh it
+        setCurrentApp(prev => {
+          if (!prev?.app || prev.app !== data.app) {
+            console.log('[Focus] Periodic refresh: updating currentApp to', data.app);
+            setLastNonBrowserApp(data);
+            return data;
+          }
+          return prev;
+        });
+      }).catch(() => {});
+    }, 30000);
+    return () => clearInterval(refreshInterval);
   }, []);
   
   const isInBrowserRef = useRef(isInBrowser);
@@ -1515,10 +1552,10 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     weekStart.setHours(0, 0, 0, 0);
     const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    const cellMap = new Map<string, { seconds: number; productive: number; apps: Record<string, number>; appSeconds: number; domainSeconds: number }>();
+    const cellMap = new Map<string, { seconds: number; productive: number; appBreakdown: Record<string, { seconds: number; category: string }>; appSeconds: number; domainSeconds: number }>();
     for (let d = 0; d < 7; d++) {
       for (let h = 0; h < 24; h++) {
-        cellMap.set(`${d}-${h}`, { seconds: 0, productive: 0, apps: {}, appSeconds: 0, domainSeconds: 0 });
+        cellMap.set(`${d}-${h}`, { seconds: 0, productive: 0, appBreakdown: {}, appSeconds: 0, domainSeconds: 0 });
       }
     }
 
@@ -1532,13 +1569,16 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       if (!entry) return;
       const secs = (log.duration_ms || 0) / 1000;
       entry.seconds += secs;
-      entry.productive += secs; // assume all time is productive for now
+      entry.productive += secs;
       if (log.is_browser_tracking) {
         entry.domainSeconds += secs;
-        entry.apps[log.domain] = (entry.apps[log.domain] || 0) + secs;
       } else {
         entry.appSeconds += secs;
-        entry.apps[log.app] = (entry.apps[log.app] || 0) + secs;
+        const appName = log.app;
+        if (!entry.appBreakdown[appName]) {
+          entry.appBreakdown[appName] = { seconds: 0, category: log.category || 'app' };
+        }
+        entry.appBreakdown[appName].seconds += secs;
       }
     });
 
@@ -1547,17 +1587,16 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       const [dayStr, hourStr] = key.split('-');
       const day = Number(dayStr);
       const hour = Number(hourStr);
-      const totalSeconds = v.appSeconds + v.domainSeconds;
-      const productivity = totalSeconds > 0 ? v.productive / totalSeconds : 0;
+      const productivity = v.appSeconds > 0 ? v.productive / v.appSeconds : 0;
       const extData = externalHourlyData.get(key);
       result.push({
         day,
         hour,
-        value: totalSeconds,
+        value: v.appSeconds,
         productivity,
-        deviceSeconds: totalSeconds,
+        deviceSeconds: v.appSeconds,
         externalSeconds: extData?.externalSeconds || 0,
-        deviceBreakdown: v.apps,
+        deviceBreakdown: v.appBreakdown,
         externalBreakdown: extData?.breakdown || {},
       });
     });

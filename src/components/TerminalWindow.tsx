@@ -100,6 +100,8 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [isDead, setIsDead] = useState(false);
+  const [exitWasCrash, setExitWasCrash] = useState(false);
+  const isManualKillRef = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current || terminalRef.current) return;
@@ -198,18 +200,22 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
       }
     });
 
-    const cleanupExit = window.deskflowAPI.onTerminalExit?.((id, exitCode) => {
+    const cleanupExit = window.deskflowAPI.onTerminalExit?.((id, exitCode, _signal, intentional) => {
       if (id === terminalId && terminalRef.current) {
-        terminalRef.current.write(`\r\n\x1b[31mProcess exited with code ${exitCode}\x1b[0m\r\n`);
+        const crashed = exitCode !== 0 && !isManualKillRef.current && !intentional;
+        terminalRef.current.write(`\r\n\x1b[${crashed ? '31' : '90'}mProcess exited with code ${exitCode}\x1b[0m\r\n`);
         terminalReadyStates.set(terminalId, false);
+        setExitWasCrash(crashed);
         setIsDead(true);
-        window.dispatchEvent(new CustomEvent('terminal:crashed', { detail: { terminalId: id, exitCode } }));
+        window.dispatchEvent(new CustomEvent('terminal:crashed', { detail: { terminalId: id, exitCode, crashed } }));
+        isManualKillRef.current = false;
       }
     });
 
     const cleanupReady = window.deskflowAPI.onTerminalReady?.((id) => {
       if (id === terminalId) {
         setIsDead(false);
+        setExitWasCrash(false);
         terminalReadyStates.set(terminalId, true);
         const buffer = inputBuffers.get(terminalId) || [];
         buffer.forEach((bufferedData) => {
@@ -250,12 +256,27 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
   useEffect(() => {
     if (isActive && terminalRef.current) {
       terminalRef.current.focus();
-      // Re-fit when becoming active (tab switch may have changed layout)
-      if (fitAddonRef.current) {
-        fitAddonRef.current.fit();
-      }
+      // [FIT-FIX] Defer the re-fit to after layout/paint. When a pane was display:none
+      // and just became visible (tab/group switch), the container has no dimensions in
+      // the same tick, so a synchronous fit() computes wrong rows/cols -> the terminal
+      // overflows its box and the viewport can't scroll. Double-rAF waits for real layout.
+      const doFit = () => {
+        const fa = fitAddonRef.current;
+        const t = terminalRef.current;
+        const c = containerRef.current;
+        if (!fa || !t || !c) return;
+        if (c.clientWidth > 0 && c.clientHeight > 0) {
+          try {
+            fa.fit();
+            window.deskflowAPI?.terminalResize?.(terminalId, t.cols, t.rows);
+            t.scrollToBottom();
+            console.log('[FIT-DBG] active re-fit', terminalId, 'cols', t.cols, 'rows', t.rows, 'containerH', c.clientHeight);
+          } catch (e) { /* fit can throw if detached */ }
+        }
+      };
+      requestAnimationFrame(() => requestAnimationFrame(doFit));
     }
-  }, [isActive]);
+  }, [isActive, terminalId]);
 
   return (
     <div
@@ -285,7 +306,7 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
             ⋯
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); onClose(terminalId); }}
+            onClick={(e) => { e.stopPropagation(); isManualKillRef.current = true; onClose(terminalId); }}
             className="p-1 bg-red-900/50 hover:bg-red-800 rounded text-xs text-red-400"
             title="Close"
           >
@@ -313,10 +334,10 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
       {isDead && (
         <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-zinc-900/90 backdrop-blur-sm rounded-full px-2.5 py-1 z-10 cursor-pointer"
              onClick={() => window.dispatchEvent(new CustomEvent('re-spawn-terminal', { detail: { terminalId } }))}>
-          <svg className="w-2.5 h-2.5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg className={`w-2.5 h-2.5 ${exitWasCrash ? 'text-red-400' : 'text-zinc-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          <span className="text-[10px] text-red-400 font-medium">Process crashed. Click to re-spawn.</span>
+          <span className={`text-[10px] font-medium ${exitWasCrash ? 'text-red-400' : 'text-zinc-400'}`}>{exitWasCrash ? 'Process crashed. Click to re-spawn.' : 'Process exited. Click to restart.'}</span>
         </div>
       )}
     </div>
@@ -507,6 +528,7 @@ export function TerminalLayout({
           onClick={() => {
             const newId = `term-${Date.now()}`;
             const agentType = getDefaultAgent();
+            spawnedTerminalsRef.current.add(newId);
             onLayoutChange({ type: 'leaf', terminalId: newId });
             spawnTerminal(newId, projectPath, agentType).then(() => {
               window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: newId } }));

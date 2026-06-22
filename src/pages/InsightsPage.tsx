@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { subDays, format } from 'date-fns';
 import type { Period } from '../lib/dateRange';
 import { getDateRange } from '../lib/dateRange';
@@ -162,6 +163,11 @@ export default function InsightsPage({
   const [typicalDayData, setTypicalDayData] = useState<TypicalDayData | null>(null);
   const [tooltip, setTooltip] = useState<{ day: number; hour: number; x: number; y: number } | null>(null);
   const [activeTab, setActiveTab] = useState<'typical' | 'weekly' | 'activities'>('typical');
+  const location = useLocation();
+  useEffect(() => {
+    const tab = (location.state as any)?.tab;
+    if (tab) setActiveTab(tab);
+  }, []);
   const [dailyStats, setDailyStats] = useState<any[]>([]);
 
   useEffect(() => {
@@ -440,6 +446,7 @@ export default function InsightsPage({
 
         {activeTab === 'typical' && (
           <motion.div
+            data-section="insights.day"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
           >
@@ -617,6 +624,7 @@ export default function InsightsPage({
 
         {activeTab === 'weekly' && (
           <motion.div
+            data-section="insights.weekly"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="space-y-6"
@@ -1094,6 +1102,7 @@ export default function InsightsPage({
 
         {activeTab === 'activities' && (
           <motion.div
+            data-section="insights.activities"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="space-y-6"

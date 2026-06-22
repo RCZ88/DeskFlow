@@ -1,0 +1,12 @@
+const Database = require('better-sqlite3');
+const path = require('path');
+const os = require('os');
+const dbPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+const db = new Database(dbPath, { readonly: true });
+const s = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='session'").get();
+console.log('SCHEMA:', s.sql);
+const c = db.prepare('PRAGMA table_info(session)').all();
+c.forEach(function(r) { console.log('COL:', r.name, r.type); });
+const r = db.prepare('SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_created DESC LIMIT 5').all();
+r.forEach(function(x) { console.log('ROW id=' + x.id + ' dir=' + JSON.stringify(x.directory) + ' title=' + JSON.stringify(x.title) + ' created=' + x.time_created + ' updated=' + x.time_updated); });
+db.close();

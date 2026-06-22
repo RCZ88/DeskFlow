@@ -1,0 +1,31 @@
+/**
+ * NetWorthCard – displays the current net‑worth.
+ * Uses NumberMaskContext to optionally mask the value.
+ */
+import { GlassCard } from '../GlassCard';
+import { Shield } from 'lucide-react';
+import { formatCurrency as fmtCurrency } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
+
+interface NetWorthCardProps {
+  netWorth: number;
+  currency: string;
+}
+
+export function NetWorthCard({ netWorth, currency }: NetWorthCardProps) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const display = showNumbers ? fmtCurrency(netWorth, currency) : maskNumber(netWorth, maskMode, maskFixedValue);
+
+  return (
+    <GlassCard className="flex items-center gap-3 p-4">
+      <Shield className="w-5 h-5 text-emerald-400" />
+      <div>
+        <h3 className="text-sm font-medium text-zinc-400">Net Worth</h3>
+        <p className={`text-lg font-semibold tabular-nums ${netWorth >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          {display}
+        </p>
+      </div>
+    </GlassCard>
+  );
+}

@@ -80,8 +80,16 @@ export class ToolRegistry {
 
 export const toolRegistry = new ToolRegistry()
 
-function wrap<T>(fn: (...args: any[]) => Promise<T>): (params: Record<string, any>) => Promise<T> {
-  return async (params: Record<string, any>) => fn(...Object.values(params))
+async function checkAccess(key: string): Promise<{ allowed: boolean; message?: string }> {
+  try {
+    const prefs = await api.getPreferences();
+    const encoded = prefs?.ai_dataAccess;
+    const access = encoded ? JSON.parse(encoded) : {};
+    const allowed = access[key] !== false;
+    return { allowed, message: allowed ? undefined : `Access to ${key} data is disabled. You can enable it in Settings → AI Assistant → Data Access.` };
+  } catch {
+    return { allowed: true };
+  }
 }
 
 function registerAll() {
@@ -90,25 +98,89 @@ function registerAll() {
   }
 
   // ========== Goals ==========
-  r('getGoals', 'Get goals for a specific date', { date: p('string', 'Date string YYYY-MM-DD', { required: true }) }, 'read', 'goals', p => api.getGoals(p.date))
-  r('getGoalsBatch', 'Get goals for a date range', { startDate: p('string', 'Start date YYYY-MM-DD', { required: true }), endDate: p('string', 'End date YYYY-MM-DD', { required: true }) }, 'read', 'goals', p => api.getGoalsBatch(p.startDate, p.endDate))
-  r('getLongtermGoals', 'Get long-term goals', {}, 'read', 'goals', () => api.getLongtermGoals())
+  r('getGoals', 'Get goals for a specific date', { date: p('string', 'Date string YYYY-MM-DD', { required: true }) }, 'read', 'goals', async p => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getGoals(p.date);
+  })
+  r('getGoalsBatch', 'Get goals for a date range', { startDate: p('string', 'Start date YYYY-MM-DD', { required: true }), endDate: p('string', 'End date YYYY-MM-DD', { required: true }) }, 'read', 'goals', async p => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getGoalsBatch(p.startDate, p.endDate);
+  })
+  r('getLongtermGoals', 'Get long-term goals', {}, 'read', 'goals', async () => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getLongtermGoals();
+  })
+  r('saveLongtermGoal', 'Create or update a long-term goal (strategic goals, milestones, life objectives)', {
+    id: p('string', 'Goal ID (omit for new goal, include to update existing)'),
+    title: p('string', 'Goal title', { required: true }),
+    description: p('string', 'Detailed description'),
+    category: p('string', 'Category: work, learning, health, finance, personal, etc.'),
+    priority: p('number', 'Priority (lower = higher priority, default 0)'),
+    status: p('string', 'Status: pending, in_progress, completed, abandoned', { enum: ['pending', 'in_progress', 'completed', 'abandoned'] }),
+  }, 'confirm', 'goals', async (params) => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    const id = params.id || `lt_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+    return api.saveGoal('2000-01-01', {
+      id,
+      title: params.title,
+      description: params.description || null,
+      category: params.category || 'personal',
+      target: { type: 'custom' },
+      status: params.status || 'pending',
+      period: 'longterm',
+      source: 'ai_assistant',
+      priority: params.priority ?? 0,
+    });
+  })
+  r('deleteLongtermGoal', 'Delete a long-term goal', { goalId: p('string', 'Long-term goal ID to delete', { required: true }) }, 'confirm', 'goals', async (params) => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.deleteGoal(params.goalId);
+  })
   r('saveGoal', 'Create or update a daily goal', { date: p('string', 'Date YYYY-MM-DD', { required: true }), goal: p('object', 'Goal object with id, text, etc.', { required: true }) }, 'confirm', 'goals', p => api.saveGoal(p.date, p.goal))
   r('deleteGoal', 'Delete a goal by ID', { goalId: p('string', 'Goal ID to delete', { required: true }) }, 'confirm', 'goals', p => api.deleteGoal(p.goalId))
   r('saveGoalReview', 'Save a goal review summary', { date: p('string', 'Date YYYY-MM-DD', { required: true }), reviewSummary: p('string', 'Review summary text', { required: true }) }, 'confirm', 'goals', p => api.saveGoalReview(p.date, p.reviewSummary))
-  r('getGoalContext', 'Get goal context for AI', {}, 'read', 'goals', () => api.getGoalContext())
+  r('getGoalContext', 'Get goal context for AI', {}, 'read', 'goals', async () => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getGoalContext();
+  })
 
   // ========== Projects ==========
-  r('getProjects', 'Get all projects (non-deleted)', {}, 'read', 'projects', () => api.getProjects())
-  r('getAllProjects', 'Get ALL projects including deleted', {}, 'read', 'projects', () => api.getAllProjects())
-  r('getProjectDetails', 'Get detailed project info', { projectId: p('string', 'Project ID', { required: true }) }, 'read', 'projects', p => api.getProjectDetails(p.projectId))
+  r('getProjects', 'Get all projects (non-deleted)', {}, 'read', 'projects', async () => {
+    const gate = await checkAccess('projects');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getProjects();
+  })
+  r('getAllProjects', 'Get ALL projects including deleted', {}, 'read', 'projects', async () => {
+    const gate = await checkAccess('projects');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getAllProjects();
+  })
+  r('getProjectDetails', 'Get detailed project info', { projectId: p('string', 'Project ID', { required: true }) }, 'read', 'projects', async p => {
+    const gate = await checkAccess('projects');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getProjectDetails(p.projectId);
+  })
   r('addProject', 'Create a new project', { name: p('string', 'Project name', { required: true }), path: p('string', 'File system path', { required: true }), repositoryUrl: p('string', 'Optional git URL'), vcsType: p('string', 'VCS type (git etc)'), primaryLanguage: p('string', 'Primary programming language'), defaultIde: p('string', 'Default IDE ID') }, 'confirm', 'projects', p => api.addProject(p))
   r('updateProject', 'Update project fields', { projectId: p('string', 'Project ID', { required: true }), name: p('string', 'New name'), path: p('string', 'New path'), repositoryUrl: p('string', 'Git URL'), vcsType: p('string', 'VCS type'), primaryLanguage: p('string', 'Language'), defaultIde: p('string', 'IDE ID') }, 'confirm', 'projects', p => api.updateProject(p.projectId, p))
   r('deleteProject', 'Soft-delete a project', { projectId: p('string', 'Project ID', { required: true }) }, 'confirm', 'projects', p => api.deleteProject(p.projectId))
   r('restoreProject', 'Restore a deleted project', { projectId: p('string', 'Project ID', { required: true }) }, 'confirm', 'projects', p => api.restoreProject(p.projectId))
   r('openProject', 'Open a project in its IDE', { projectId: p('string', 'Project ID', { required: true }), ideId: p('string', 'Optional specific IDE ID') }, 'confirm', 'projects', p => api.openProject(p.projectId, p.ideId))
-  r('calculateProjectHealth', 'Calculate project health score', { projectId: p('string', 'Project ID', { required: true }) }, 'read', 'projects', p => api.calculateProjectHealth(p.projectId))
-  r('getCommitStats', 'Get commit statistics for project(s)', { projectId: p('string', 'Optional project ID'), period: p('string', '"week" or "month"') }, 'read', 'projects', p => api.getCommitStats(p.projectId, p.period))
+  r('calculateProjectHealth', 'Calculate project health score', { projectId: p('string', 'Project ID', { required: true }) }, 'read', 'projects', async p => {
+    const gate = await checkAccess('projects');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.calculateProjectHealth(p.projectId);
+  })
+  r('getCommitStats', 'Get commit statistics for project(s)', { projectId: p('string', 'Optional project ID'), period: p('string', '"week" or "month"') }, 'read', 'projects', async p => {
+    const gate = await checkAccess('projects');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getCommitStats(p.projectId, p.period);
+  })
 
   // ========== External Activities ==========
   r('getExternalActivities', 'Get all external activities', {}, 'read', 'external', () => api.getExternalActivities())
@@ -144,11 +216,19 @@ function registerAll() {
   r('setTierAssignments', 'Bulk set tier assignments', { assignments: p('object', '{ productive: string[], neutral: string[], distracting: string[] }', { required: true }) }, 'confirm', 'categories', p => api.setTierAssignments(p.assignments))
 
   // ========== IDE / Terminal ==========
-  r('getIDEProjectsOverview', 'Get IDE projects overview', { period: p('string', 'Period string'), dateOffset: p('number', 'Days offset') }, 'read', 'ide', p => api.getIDEProjectsOverview(p.period, p.dateOffset))
+  r('getIDEProjectsOverview', 'Get IDE projects overview with token usage and costs', { period: p('string', 'Period string'), dateOffset: p('number', 'Days offset') }, 'read', 'ide', async p => {
+    const gate = await checkAccess('projects');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getIDEProjectsOverview(p.period, p.dateOffset);
+  })
   r('getTerminalSessions', 'Get terminal sessions', { projectId: p('string', 'Optional project ID'), limit: p('number', 'Max sessions') }, 'read', 'ide', p => api.getTerminalSessions(p.projectId, p.limit))
 
   // ========== Problems ==========
-  r('getProblems', 'Get problems for a project', { projectId: p('string', 'Optional project ID'), projectPath: p('string', 'Optional project path') }, 'read', 'problems', p => api.getProblems(p.projectId, p.projectPath))
+  r('getProblems', 'Get problems for a project', { projectId: p('string', 'Optional project ID'), projectPath: p('string', 'Optional project path') }, 'read', 'problems', async p => {
+    const gate = await checkAccess('problems');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getProblems(p.projectId, p.projectPath);
+  })
   r('updateProblemStatus', 'Update a problem status', { problemId: p('string', 'Problem ID', { required: true }), status: p('string', 'New status', { required: true }) }, 'confirm', 'problems', p => api.updateProblemStatus({ problemId: p.problemId, status: p.status }))
   r('deleteProblem', 'Delete a problem', { problemId: p('string', 'Problem ID', { required: true }) }, 'confirm', 'problems', p => api.deleteProblem(p.problemId))
 
@@ -161,6 +241,81 @@ function registerAll() {
 
   // ========== AI Context ==========
   r('getAiContext', 'Get AI context for agent', { projectId: p('string', 'Optional project ID'), since: p('string', 'ISO date filter'), limit: p('number', 'Max entries') }, 'read', 'ai', p => api.getAiContext(p))
+
+  // ========== Requests ==========
+  r('getRequests', 'Get all feature requests', { projectId: p('string', 'Optional project ID') }, 'read', 'requests', async params => {
+    const gate = await checkAccess('requests');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getRequests(params.projectId);
+  })
+
+  // ========== AI Usage ==========
+  r('getAIUsageSummary', 'Get AI usage summary (tokens, costs, sessions per tool)', { period: p('string', 'Period string like "day", "week", "month"'), dateOffset: p('number', 'Days offset'), projectId: p('string', 'Optional project ID') }, 'read', 'ai', async params => {
+    const gate = await checkAccess('aiUsage');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getAIUsageSummary(params.period, params.dateOffset, params.projectId);
+  })
+
+  // ========== Dashboard Aggregates ==========
+  r('getDashboardAggregates', 'Get dashboard aggregate stats (overview, app stats, hourly stats, focus time)', { period: p('string', 'Period string like "today", "week", "month", "all"', { required: true }), dateOffset: p('number', 'Days offset'), weekOffset: p('number', 'Weeks offset') }, 'read', 'stats', async params => {
+    const gate = await checkAccess('dashboardStats');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getDashboardAggregates(params);
+  })
+
+  // ========== Research Topics (AI Interests) ==========
+  r('getInterestTopics', 'Get all active research topics that AI uses for digest generation', {}, 'read', 'ai', () => api.getInterestTopics())
+  r('addInterestTopic', 'Add a new research topic for AI to track and include in digests', { topic: p('string', 'Research topic name (e.g. "React performance", "Rust async")', { required: true }) }, 'confirm', 'ai', async (params) => {
+    const gate = await checkAccess('aiUsage');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.addInterestTopic(params.topic);
+  })
+  r('removeInterestTopic', 'Remove a research topic from AI tracking', { topic: p('string', 'Topic name to remove', { required: true }) }, 'confirm', 'ai', async (params) => {
+    const gate = await checkAccess('aiUsage');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.removeInterestTopic(params.topic);
+  })
+
+  // ========== Workspace & Terminal State ==========
+  r('getWorkspaceState', 'Get all saved workspace layouts and configs', {}, 'read', 'ide', async () => {
+    try {
+      return await api.listAllWorkspaces();
+    } catch (err: any) {
+      return { error: err.message };
+    }
+  })
+  r('getTerminalSessionsRich', 'Get terminal sessions with details (topic, agent, status, tokens, cost)', { projectId: p('string', 'Optional project ID filter'), limit: p('number', 'Max sessions (default 20)') }, 'read', 'ide', async (params) => {
+    try {
+      return await api.getTerminalSessions(params.projectId, params.limit || 20);
+    } catch (err: any) {
+      return { error: err.message };
+    }
+  })
+  r('getTerminalMessages', 'Get messages from a specific terminal session', { sessionId: p('string', 'Terminal session ID', { required: true }) }, 'read', 'ide', async (params) => {
+    try {
+      return await api.getTerminalMessages(params.sessionId);
+    } catch (err: any) {
+      return { error: err.message };
+    }
+  })
+
+  // ========== Tutorials & Onboarding ==========
+  r('getTutorialStatus', 'Check which feature tutorials have been completed', {}, 'read', 'settings', async () => {
+    try {
+      const raw = localStorage.getItem('tutorial-completed')
+      const completed: string[] = raw ? JSON.parse(raw) : []
+      return { completed, features: ['dash.score', 'dash.timer', 'dash.sessions', 'prod.score', 'browser.track', 'ide.detect', 'ext.timer', 'sleep.track'] }
+    } catch {
+      return { completed: [], features: [] }
+    }
+  })
+  r('startFeatureTutorial', 'Start a guided tutorial for a specific app feature', {
+    featureId: p('string', 'Feature ID to start tutorial for (e.g. "dash.timer", "ide.detect")', { required: true, enum: ['dash.score', 'dash.timer', 'dash.sessions', 'prod.score', 'browser.track', 'ide.detect', 'ext.timer', 'sleep.track'] }),
+  }, 'confirm', 'settings', async (params) => {
+    // Write signal to localStorage so TutorialContext picks it up on next render
+    try { localStorage.setItem('tutorial:start', params.featureId) } catch {}
+    return { success: true, featureId: params.featureId, message: `Tutorial for ${params.featureId} will start. Look for the highlighted walkthrough on screen.` }
+  })
 }
 
 registerAll()

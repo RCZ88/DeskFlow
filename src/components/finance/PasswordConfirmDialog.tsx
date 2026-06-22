@@ -14,6 +14,7 @@ export function PasswordConfirmDialog({ open, onClose, onConfirm, title, descrip
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   if (!open) return null;
 
@@ -24,8 +25,12 @@ export function PasswordConfirmDialog({ open, onClose, onConfirm, title, descrip
     try {
       const ok = await onConfirm(password);
       if (ok) {
-        setPassword('');
-        onClose();
+        setSuccess(true);
+        setTimeout(() => {
+          setPassword('');
+          setSuccess(false);
+          onClose();
+        }, 400);
       } else {
         setError('Incorrect password');
       }
@@ -82,12 +87,17 @@ export function PasswordConfirmDialog({ open, onClose, onConfirm, title, descrip
             </motion.div>
           )}
           <motion.button
-            whileTap={{ scale: submitting ? 1 : 0.98 }}
+            whileTap={{ scale: submitting || success ? 1 : 0.98 }}
             onClick={handleSubmit}
-            disabled={submitting || !password}
+            disabled={submitting || success || !password}
             className="w-full py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {submitting ? (
+            {success ? (
+              <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex items-center gap-2">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                Verified
+              </motion.span>
+            ) : submitting ? (
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <>

@@ -49,6 +49,8 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [accountId, setAccountId] = useState<number | null>(null);
   const [walletId, setWalletId] = useState<number | null>(null);
+  const [fromWalletId, setFromWalletId] = useState<number | null>(null);
+  const [toWalletId, setToWalletId] = useState<number | null>(null);
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [showNote, setShowNote] = useState(false);
@@ -63,6 +65,8 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
       setCategoryId(null);
       setAccountId(accounts[0]?.id ?? null);
       setWalletId(null);
+      setFromWalletId(null);
+      setToWalletId(null);
       setDate(new Date().toISOString().split('T')[0]);
       setShowNote(false);
       setSaving(false);
@@ -79,7 +83,35 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
   const cfg = typeConfig[type];
 
   const handleSave = async () => {
-    if (!amount || !categoryId || !accountId) return;
+    if (!amount) return;
+    if (type === 'transfer') {
+      if (!fromWalletId || !toWalletId) return;
+      setSaving(true);
+      const amt = Math.abs(parseFloat(amount));
+      const srcWallet = wallets.find(w => w.id === fromWalletId);
+      const dstWallet = wallets.find(w => w.id === toWalletId);
+      if (!srcWallet || !dstWallet) { setSaving(false); return; }
+      const transferId = `txfer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const desc = description ? `: ${description}` : '';
+      const ok1 = await onSave({
+        account_id: srcWallet.account_id, wallet_id: fromWalletId,
+        category_id: categoryId || 0, type: 'expense', amount: -amt,
+        description: `Transfer to ${dstWallet.name}${desc}`, note, date,
+        to_wallet_id: toWalletId, transfer_id: transferId,
+      });
+      const ok2 = await onSave({
+        account_id: dstWallet.account_id, wallet_id: toWalletId,
+        category_id: categoryId || 0, type: 'income', amount: amt,
+        description: `Transfer from ${srcWallet.name}${desc}`, date,
+        from_wallet_id: fromWalletId, transfer_id: transferId,
+      });
+      if (ok1 && ok2) {
+        setSaving(false); setSuccess(true);
+        setTimeout(() => onClose(), 800);
+      } else { setSaving(false); }
+      return;
+    }
+    if (!categoryId || !accountId) return;
     setSaving(true);
     const ok = await onSave({
       account_id: accountId,
@@ -201,31 +233,47 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
                     />
                   </motion.div>
 
-                  <motion.div variants={stagger} custom={2} initial="hidden" animate="show" className="flex gap-2">
-                    <select
-                      value={accountId ?? ''}
-                      onChange={(e) => { setAccountId(Number(e.target.value)); setWalletId(null); }}
-                      className="flex-1 bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-                    >
-                      <option value="" disabled>Account</option>
-                      {accounts.filter(a => !a.is_archived).map(a => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
-
-                    {accountWallets.length > 0 && (
+                  {type === 'transfer' ? (
+                    <motion.div variants={stagger} custom={2} initial="hidden" animate="show" className="space-y-2">
+                      <select value={fromWalletId ?? ''} onChange={e => { const v = Number(e.target.value); setFromWalletId(v); if (v === toWalletId) setToWalletId(null); }}
+                        className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50">
+                        <option value="" disabled>From wallet...</option>
+                        {wallets.filter(w => !w.is_archived && w.id !== toWalletId).map(w => (<option key={w.id} value={w.id}>{w.name} ({w.type})</option>))}
+                      </select>
+                      <ArrowLeftRight className="w-4 h-4 mx-auto text-zinc-600" />
+                      <select value={toWalletId ?? ''} onChange={e => { const v = Number(e.target.value); setToWalletId(v); if (v === fromWalletId) setFromWalletId(null); }}
+                        className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50">
+                        <option value="" disabled>To wallet...</option>
+                        {wallets.filter(w => !w.is_archived && w.id !== fromWalletId).map(w => (<option key={w.id} value={w.id}>{w.name} ({w.type})</option>))}
+                      </select>
+                    </motion.div>
+                  ) : (
+                    <motion.div variants={stagger} custom={2} initial="hidden" animate="show" className="flex gap-2">
                       <select
-                        value={walletId ?? ''}
-                        onChange={(e) => setWalletId(e.target.value ? Number(e.target.value) : null)}
+                        value={accountId ?? ''}
+                        onChange={(e) => { setAccountId(Number(e.target.value)); setWalletId(null); }}
                         className="flex-1 bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
                       >
-                        <option value="">Wallet (opt)</option>
-                        {accountWallets.map(w => (
-                          <option key={w.id} value={w.id}>{w.name}</option>
+                        <option value="" disabled>Account</option>
+                        {accounts.filter(a => !a.is_archived).map(a => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
                         ))}
                       </select>
-                    )}
-                  </motion.div>
+
+                      {accountWallets.length > 0 && (
+                        <select
+                          value={walletId ?? ''}
+                          onChange={(e) => setWalletId(e.target.value ? Number(e.target.value) : null)}
+                          className="flex-1 bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                        >
+                          <option value="">Wallet (opt)</option>
+                          {accountWallets.map(w => (
+                            <option key={w.id} value={w.id}>{w.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </motion.div>
+                  )}
 
                   <motion.div variants={stagger} custom={3} initial="hidden" animate="show">
                     <input
@@ -288,7 +336,7 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
                     </button>
                     <button
                       onClick={handleSave}
-                      disabled={saving || !amount || !categoryId || !accountId}
+                      disabled={saving || !amount || (type === 'transfer' ? (!fromWalletId || !toWalletId) : (!categoryId || !accountId))}
                       className="flex-1 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                     >
                       {saving ? (

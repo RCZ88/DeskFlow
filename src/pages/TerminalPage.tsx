@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare } from 'lucide-react';
 import type { PaneNode } from '../components/TerminalWindow';
 import { TerminalLayout, insertIntoLayout, getLeafIds, getGroupTrees, updateGroupTree } from '../components/TerminalWindow';
@@ -257,11 +258,111 @@ function TabPanel({ accent, children }: { accent: string; children: React.ReactN
 	);
 }
 
+function WorkspacesPanel({ projectId, currentName, onLoad, onSaveCurrent }: {
+  projectId: string | null;
+  currentName: string;
+  onLoad: (name?: string) => Promise<void> | void;
+  onSaveCurrent: (name?: string) => Promise<void> | void;
+}) {
+  const [items, setItems] = useState<Array<{ name: string; isActive: boolean; activeTab?: string; updatedAt?: string }>>([]);
+  const [loading, setLoading] = useState(false);
+  const [newName, setNewName] = useState('');
+
+  const refresh = useCallback(async () => {
+    if (!projectId || !window.deskflowAPI?.listWorkspaces) { setItems([]); return; }
+    setLoading(true);
+    try {
+      const res = await window.deskflowAPI.listWorkspaces({ projectId });
+      console.log('[WORKSPACES-DBG] listWorkspaces ->', JSON.stringify(res));
+      if (res?.success && Array.isArray(res.data)) setItems(res.data);
+      else setItems([]);
+    } catch (e) {
+      console.warn('[WORKSPACES-DBG] list failed', e);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const handleDelete = useCallback(async (name: string) => {
+    if (!projectId || !window.deskflowAPI?.deleteWorkspace) return;
+    if (!window.confirm(`Delete saved workspace "${name}"?`)) return;
+    await window.deskflowAPI.deleteWorkspace({ projectId, name });
+    refresh();
+  }, [projectId, refresh]);
+
+  return (
+    <div className="relative flex-1 min-h-0">
+      <div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-zinc-500">Saved workspaces for this project</p>
+          <button onClick={refresh} className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded flex items-center gap-1">
+            <RefreshCw size={11} /> Refresh
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="New workspace name…"
+            className="flex-1 px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 focus:outline-none focus:border-green-500"
+          />
+          <button
+            onClick={async () => { await onSaveCurrent(newName.trim() || undefined); setNewName(''); refresh(); }}
+            className="px-2 py-1 bg-green-600/70 hover:bg-green-500/80 text-green-100 text-[10px] font-medium rounded flex items-center gap-1 whitespace-nowrap"
+          >
+            <Save size={11} /> Save current
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="text-xs text-zinc-600">Loading…</p>
+        ) : items.length === 0 ? (
+          <p className="text-xs text-zinc-600">No saved workspaces yet. Save the current layout above to create one.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {items.map((w) => (
+              <div key={w.name} className="flex items-center justify-between px-2.5 py-2 bg-zinc-800/60 border border-zinc-700 rounded-md">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-zinc-200 font-medium truncate">{w.name}</span>
+                    {w.isActive && <span className="text-[9px] text-green-400 border border-green-600/50 rounded px-1">active</span>}
+                    {w.name === currentName && <span className="text-[9px] text-blue-400 border border-blue-600/50 rounded px-1">current</span>}
+                  </div>
+                  {w.updatedAt && <div className="text-[10px] text-zinc-500 flex items-center gap-1 mt-0.5"><Clock size={9} /> {formatDate(w.updatedAt)}</div>}
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={() => onLoad(w.name)}
+                    className="px-2 py-0.5 bg-green-600/50 hover:bg-green-500/80 text-green-100 text-[10px] font-medium rounded transition-colors"
+                  >
+                    Load
+                  </button>
+                  <button
+                    onClick={() => handleDelete(w.name)}
+                    title="Delete workspace"
+                    className="px-2 py-0.5 bg-rose-600/50 hover:bg-rose-500/80 text-rose-200 text-[10px] font-medium rounded transition-colors flex items-center gap-1"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GroupPanel({ accent, children }: { accent: string; children: React.ReactNode }) {
 	return (
 		<div className="flex min-h-full">
 			<span className={`w-0.5 shrink-0 ${ACCENT_STRIP[accent]} opacity-60`} />
-			<div className="flex-1 px-3 py-3 space-y-3 min-w-0">
+			<div className="flex-1 px-3 py-3 min-w-0 flex flex-col">
 				{children}
 			</div>
 		</div>
@@ -317,6 +418,18 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     const saved = localStorage.getItem('terminal-activeGroup');
     return (saved as GroupKey) || 'setup';
   });
+  const location = useLocation();
+  useEffect(() => {
+    const group = (location.state as any)?.group;
+    if (group) setActiveGroup(group);
+    const subpage = (location.state as any)?.subpage;
+    if (subpage && typeof subpage === 'string') {
+      const [grp, sub] = subpage.split('/');
+      if (grp && sub) {
+        localStorage.setItem(`workspace-subtab-${grp}`, sub);
+      }
+    }
+  }, []);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showAddPreset, setShowAddPreset] = useState(false);
@@ -481,6 +594,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
   const [terminalTabs, setTerminalTabs] = useState<Record<string, TerminalTabInfo>>({});
   const terminalTabsRef = useRef(terminalTabs);
+  useEffect(() => { terminalTabsRef.current = terminalTabs; }, [terminalTabs]);
   const draggedTabRef = useRef<string | null>(null);
   // to hold onCloseWorkspace for IPC cleanup
   const onCloseWorkspaceRef = useRef(onCloseWorkspace);
@@ -649,10 +763,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       // ═══ VERIFY AGENT AVAILABILITY ═══
       if (window.deskflowAPI?.verifyAgent) {
         const verifyResult = await window.deskflowAPI.verifyAgent(agent);
+        console.log('[RESUME-DBG] verifyAgent', agent, JSON.stringify(verifyResult));
         if (!verifyResult?.found) {
-          console.warn('[TerminalPage] Agent not found on PATH:', agent);
-          showError(verifyResult?.installHint || `Agent '${agent}' not found. Install it and restart.`, 'warning');
-          return;
+          if (agent !== 'opencode') {
+            console.warn('[TerminalPage] Agent not found on PATH:', agent);
+            showError(verifyResult?.installHint || `Agent '${agent}' not found. Install it and restart.`, 'warning');
+            return;
+          }
+          console.log('[RESUME-DBG] Allowing opencode despite verifyAgent false-negative');
         }
       }
 
@@ -667,12 +785,22 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               resolve();
             }
           });
-          setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 8000);
+          setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 3000);
         });
       } catch {}
+      console.log('[RESUME-DBG] terminal-ready wait complete for', terminalId);
 
       // small pause to let shell render
       await new Promise(r => setTimeout(r, 200));
+
+      // ═══ WRITE BANNER ═══
+      let banner = `\r\n[resume] terminal ${terminalId} · looking up opencode session for ${projectPath || ''}…\r\n`;
+      if (resumeId) {
+        banner += `[resume] found opencode session ${resumeId} (source: db)\r\n`;
+      } else {
+        banner += `[resume] NO opencode session found — starting a FRESH session\r\n`;
+      }
+      (window.deskflowAPI as any)?.terminalWriteDisplay?.(terminalId, banner);
 
       // ═══ LAUNCH AGENT ═══
       const cdCmd = projectPath ? `cd "${projectPath}"\r\n` : '';
@@ -691,7 +819,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       } else {
         launchCommand = `${cdCmd}${agent}\r\n`;
       }
-      const r2 = await window.deskflowAPI?.terminalWrite?.(terminalId, launchCommand);
+      const r2 = await window.deskflowAPI?.terminalWriteRaw?.(terminalId, launchCommand);
       console.log('[TerminalPage] Wrote launch command:', JSON.stringify(launchCommand), 'result:', r2);
 
       // ═══ WAIT FOR AGENT TO BE READY ═══
@@ -712,7 +840,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         const hs = await window.deskflowAPI.armHandshake(terminalId);
         if (hs?.success && hs.token) {
           const writeData = hs.bracketedPaste ? `\x1b[200~${hs.token}\x1b[201~\r` : hs.token + '\r';
-          await window.deskflowAPI.terminalWrite(terminalId, writeData);
+          await window.deskflowAPI.terminalWriteRaw(terminalId, writeData);
           // Wait for handshake token to appear in agent output
           await new Promise<void>((resolve) => {
             let done = false;
@@ -951,7 +1079,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
       // ── 3. Generate session ID ──────────────────────────────
       const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const sesResumeId = `ses_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const sesResumeId = `local_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       // ── 4. Save session BEFORE terminal write ───────────────
       const existingSession = sessions.find(s => s.terminal_id === resolvedTargetId || s.id === resolvedTargetId);
@@ -1113,6 +1241,30 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       if (!saveResult?.success) {
         console.error('[handleCreateNewSession] Failed to save session:', saveResult?.error);
         showError(`Session save failed: ${saveResult?.error}`, 'warning');
+      }
+      const capturedSessionId = sessionId;
+      
+      // ═══ BACKGROUND CAPTURE opencode session ID ═══
+      if (cwd) {
+        (async () => {
+          await new Promise(r => setTimeout(r, 5000));
+          try {
+            if (!window.deskflowAPI) return;
+            const capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd);
+            if (capResult?.success && capResult.sessionId) {
+              await (window.deskflowAPI as any).updateSessionResumeId?.(capturedSessionId, capResult.sessionId);
+              console.log('[TerminalPage] Captured opencode session:', capResult.sessionId, 'for', cwd);
+              loadSessions();
+              // write banner to terminal
+              const updateBanner = `\r\n[resume] captured real opencode session ${capResult.sessionId} (source: db)\r\n`;
+              (window.deskflowAPI as any)?.terminalWriteDisplay?.(newTerminalId, updateBanner);
+            } else {
+              console.log('[TerminalPage] No opencode session found yet for', cwd, capResult?.reason);
+            }
+          } catch (e) {
+            console.warn('[TerminalPage] Background capture failed:', e);
+          }
+        })();
       }
       
       loadSessions();
@@ -1479,6 +1631,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   // Save workspace state on relevant changes (debounced)
   const saveWorkspaceDebounce = useRef<NodeJS.Timeout | null>(null);
 
+  // Track unsaved workspace changes for beforeunload + navigation guard
+  const hasUnsavedChanges = useMemo(() => Object.keys(terminalTabs).length > 0, [terminalTabs]);
+
+  useEffect(() => {
+    (window as any).__workspaceHasUnsavedChanges = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
+
+  // beforeunload handler — warns if terminals are open
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [hasUnsavedChanges]);
+
   const handleSaveWorkspace = useCallback(async (name?: string) => {
     const wsProjectId = propProjectId || selectedProject;
     if (!wsProjectId || !window.deskflowAPI?.saveWorkspace) return;
@@ -1525,6 +1695,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       showError(err?.message || 'Failed to save workspace', 'error');
     }
   }, [propProjectId, selectedProject, workspaceName, sidebarWidth, activeGroup, terminalTabs, terminalLayout, activeTerminalId, presets, analyticsPeriod, sessionCategoryFilter, modelReinjectThreshold, modelDefaultTier, modelDebugMode]);
+
+  // Expose save function for App.tsx navigation guard
+  useEffect(() => {
+    (window as any).__workspaceSave = handleSaveWorkspace;
+  }, [handleSaveWorkspace]);
 
   const handleLoadWorkspace = useCallback(async (name?: string) => {
     const wsProjectId = propProjectId || selectedProject;
@@ -1709,13 +1884,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     const handleCreateTerminal = async (e: CustomEvent) => {
       const d = e.detail as { terminalId: string; cwd?: string; agent?: string; sessionName?: string };
       userCreatedTerminalRef.current = true;
-      await spawnTerminal(d.terminalId, d.cwd || propProjectPath, d.agent);
       window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: d.terminalId } }));
+      await spawnTerminal(d.terminalId, d.cwd || propProjectPath, d.agent);
       window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: d.terminalId, agent: d.agent } }));
+      if (d.agent && d.agent.length > 0) {
+        await initializeTerminal(d.terminalId, d.agent, undefined, undefined, undefined, d.cwd || propProjectPath);
+      }
     };
     window.addEventListener('create-terminal', handleCreateTerminal as EventListener);
     return () => window.removeEventListener('create-terminal', handleCreateTerminal as EventListener);
-  }, [spawnTerminal, propProjectPath]);
+  }, [spawnTerminal, initializeTerminal, propProjectPath]);
 
   // Handle terminal crash events: clean up agent state
   useEffect(() => {
@@ -2022,6 +2200,35 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           topic: session.topic,
           workingDirectory: proj?.path || '',
         });
+      }
+
+      // ═══ CAPTURE real opencode session ID if we only have a fake local_ id ═══
+      if (cwd && (!resumeId || resumeId.startsWith('local_'))) {
+        const spawnTimestamp = Date.now();
+        (async () => {
+          try {
+            if (!window.deskflowAPI) return;
+            let capResult: any = null;
+            for (let attempt = 0; attempt < 10; attempt++) {
+              capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd, spawnTimestamp);
+              if (capResult?.sessionId) break;
+              await new Promise(r => setTimeout(r, 1000));
+            }
+            if (capResult?.sessionId && capResult.sessionId.startsWith('ses_')) {
+              await (window.deskflowAPI as any).updateSessionResumeId?.(session.id, capResult.sessionId);
+              console.log('[TerminalPage] Resume capture: updated resume_id', capResult.sessionId, 'for', session.id);
+              loadSessions();
+              const updateBanner = `\r\n[resume] found real opencode session ${capResult.sessionId} (source: db)\r\n`;
+              (window.deskflowAPI as any)?.terminalWriteDisplay?.(resolvedTerminalId!, updateBanner);
+            } else {
+              console.log('[TerminalPage] Resume capture: no real opencode session found after polling');
+              const warnBanner = `\r\n[resume] WARNING: no real opencode session in db — using LOCAL stub, resume WILL fail\r\n`;
+              (window.deskflowAPI as any)?.terminalWriteDisplay?.(resolvedTerminalId!, warnBanner);
+            }
+          } catch (e) {
+            console.warn('[TerminalPage] Resume capture failed:', e);
+          }
+        })();
       }
 
       loadSessions();
@@ -2342,6 +2549,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             isSending={isSending}
             projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path}
             systemPromptLayers={systemPromptLayers}
+            defaultSkills={composeSkills}
           />
         )}
 
@@ -2728,7 +2936,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       {/* Sidebar */}
       {sidebarOpen && (
         <div 
-          className="relative h-full shrink-0 bg-zinc-950 ws-sidebar-edge flex flex-col"
+          className="relative shrink-0 bg-zinc-950 ws-sidebar-edge flex flex-col"
           style={{ width: sidebarWidth }}
         >
           {/* Resize Handle */}
@@ -2752,10 +2960,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               <button
                 onClick={async () => { await handleSaveWorkspace(); }}
                 title={`Workspace: ${workspaceName} — click to save`}
-                className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+                className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] text-zinc-300 hover:text-white hover:bg-zinc-700/60 transition-colors border border-zinc-700/60"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                <Save className="w-3 h-3 text-zinc-400" />
                 <span className="max-w-[80px] truncate">{workspaceName}</span>
+                {hasUnsavedChanges && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" title="Unsaved changes — click to save" />}
               </button>
               <button onClick={() => setShowFeaturesDialog(true)} title="Workspace Features" className={WS_ICON_BTN}><Info className="w-3.5 h-3.5" /></button>
               <button onClick={() => setShowGeneralistDialog(true)} title="Skill Configuration" className={WS_ICON_BTN}><BookOpen className="w-3.5 h-3.5" /></button>
@@ -2763,7 +2972,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             </div>
           </header>
           {/* Group Tab Bar */}
-          <nav className="flex border-b border-zinc-800/60 gap-px px-2 pt-1.5">
+          <nav className="flex gap-px px-2 pt-1.5">
             {([
               { key: 'setup' as const, icon: Settings, label: 'Setup', accent: 'orange' },
               { key: 'work' as const, icon: Monitor, label: 'Work', accent: 'green' },
@@ -2793,7 +3002,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             })}
           </nav>
           {/* Accent connectivity strip */}
-          <div className={`h-0.5 ${ACCENT_STRIP[{setup:'orange',work:'green',insights:'purple',studio:'indigo',context:'amber'}[activeGroup]]} opacity-40`} />
+          <div className={`h-[3px] ${ACCENT_STRIP[{setup:'orange',work:'green',insights:'purple',studio:'indigo',context:'amber'}[activeGroup]]} opacity-60`}>
+            <div className={`h-full w-[18px] ${ACCENT_STRIP[{setup:'orange',work:'green',insights:'purple',studio:'indigo',context:'amber'}[activeGroup]]} opacity-80`} />
+          </div>
 
           {/* Content */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -3600,6 +3811,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 { key: 'sessions', icon: Clock, label: 'Sessions' },
                 { key: 'map', icon: Monitor, label: 'Map' },
                 { key: 'files', icon: Folder, label: 'Files' },
+                { key: 'workspaces', icon: Save, label: 'Workspaces' },
               ]} storageKey="work" render={(sub) => {
                 switch (sub) {
                   case 'sessions': return (
@@ -3814,7 +4026,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                               <span className="text-[10px] text-cyan-600/80">{session.product_area}</span>
                                             )}
                                             {session.resume_id && (
-                                              <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(0, 12)}&hellip;</span>
+                                              <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(-12)}&hellip;</span>
                                             )}
                                           </div>
                                           {tags.length > 0 && (
@@ -3901,6 +4113,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     </div>
                     </GroupPanel>
                   );
+                  case 'workspaces': return (
+                    <GroupPanel accent="green">
+                      <WorkspacesPanel
+                        projectId={propProjectId || selectedProject}
+                        currentName={workspaceName}
+                        onLoad={handleLoadWorkspace}
+                        onSaveCurrent={handleSaveWorkspace}
+                      />
+                    </GroupPanel>
+                  );
                   case 'map': return (
                     <GroupPanel accent="green">
                       <div className="relative flex-1 min-h-0">
@@ -3909,7 +4131,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         <div className="min-h-0 overflow-hidden" style={{ flex: mapListRatio }}>
                           {terminalLayout ? (
                             <TerminalMiniMap
-                              layouts={[terminalLayout]}
+                              layouts={getGroupTrees(terminalLayout)}
                               activeTerminalId={activeTerminalId}
                               onTerminalSelect={handleMiniMapTerminalSelect}
                               onTerminalMove={handleMiniMapTerminalMove}
@@ -4280,7 +4502,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   }
                 }
 
-                const sesResumeId = config.resumeId || `ses_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const sesResumeId = config.resumeId || `local_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const subtab = localStorage.getItem(`workspace-subtab-${activeGroup}`) || 'sessions';
                 const sessionResult = await window.deskflowAPI?.saveTerminalSession?.({
                   id: config.id,
@@ -4512,9 +4734,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             <p className="text-sm text-zinc-400 mb-6">Save a checkpoint before closing, or discard changes?</p>
             <div className="flex flex-col gap-2">
               <button
-                onClick={() => {
+                onClick={async () => {
                   setShowCloseWorkspaceDialog(false);
-                  handleSaveCheckpoint();
+                  await handleSaveWorkspace();
+                  onCloseWorkspace?.();
                 }}
                 className="w-full px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded text-sm font-medium"
               >

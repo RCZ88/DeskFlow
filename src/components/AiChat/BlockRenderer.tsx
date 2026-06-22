@@ -17,7 +17,7 @@ type Props = {
   nodes: WireNode[]
   refs: ParsedResponse['refs']
   onNewsClick?: () => void
-  onNavigate?: (page: string) => void
+  onNavigate?: (page: string, section?: string, tab?: string) => void
   onRetry?: () => void
 }
 
@@ -25,7 +25,7 @@ function BlockRouter({ block, refs, onNewsClick, onNavigate, onRetry, index }: {
   block: WireBlock
   refs: ParsedResponse['refs']
   onNewsClick?: () => void
-  onNavigate?: (page: string) => void
+  onNavigate?: (page: string, section?: string, tab?: string) => void
   onRetry?: () => void
   index: number
 }) {
@@ -46,7 +46,11 @@ function BlockRouter({ block, refs, onNewsClick, onNavigate, onRetry, index }: {
     case 'error':
       return <div className={priorityScale}><ErrorBlock block={block} onRetry={onRetry} /></div>
     case 'navigation':
-      return <div className={priorityScale}><NavigationBlock block={block} onClick={() => onNavigate?.(block.fields.page ?? block.fields.route ?? '')} /></div>
+      return <div className={priorityScale}><NavigationBlock block={block} onClick={() => onNavigate?.(
+        block.fields.page ?? block.fields.route ?? '',
+        (block.fields.section as string) || undefined,
+        (block.fields.tab as string) || undefined,
+      )} /></div>
     case 'table':
       return <div className={priorityScale}><TableBlock block={block} /></div>
     case 'confirm':

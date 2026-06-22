@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Target } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Target, BookOpen, Settings } from 'lucide-react';
 import { TopicDigestCard } from '../components/TopicDigestCard';
 import { DailyPlanCard } from '../components/DailyPlanCard';
 import { GoalHistoryCard } from '../components/GoalHistoryCard';
@@ -12,6 +13,7 @@ import { ProjectStatusCard } from '../components/ProjectStatusCard';
 import { useAiPageData } from '../hooks/useAiPageData';
 import { parseChecklist } from '../services/planningParser';
 import { AiChat } from '../components/AiChat';
+import { AIFeaturesModal } from '../components/AIFeaturesModal';
 const AI_CHAT_ENABLED = true;
 
 type GoalCategory = 'work' | 'personal' | 'health' | 'learning';
@@ -82,6 +84,8 @@ export function AiPage() {
   const [savingGoal, setSavingGoal] = useState(false);
   const [suggestions, setSuggestions] = useState<Array<{ title: string; category: GoalCategory }>>([]);
   const [planGoals, setPlanGoals] = useState<Array<{ title: string; targetSeconds?: number }>>([]);
+  const [showFeatures, setShowFeatures] = useState(false);
+  const navigate = useNavigate();
 
   const [digestTopics, setDigestTopics] = useState<any[]>([]);
   const [digestLoading, setDigestLoading] = useState(true);
@@ -275,27 +279,46 @@ export function AiPage() {
               <p className="text-xs text-zinc-500 mt-0.5">{dayLabel}</p>
             </div>
           </div>
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-            mc.accent === 'pink' ? 'bg-pink-500/10 text-pink-300 ring-1 ring-pink-500/20' :
-            mc.accent === 'amber' ? 'bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20' :
-            'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20'
-          }`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${
-              mc.accent === 'pink' ? 'bg-pink-400' :
-              mc.accent === 'amber' ? 'bg-amber-400' :
-              'bg-emerald-400'
-            }`} />
-            {mc.label}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                localStorage.setItem('settings-activeTab', 'ai');
+                navigate('/settings');
+              }}
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-zinc-800/60 text-zinc-300 ring-1 ring-zinc-700/40 hover:bg-zinc-700/60 hover:text-zinc-100 transition-colors"
+            >
+              <Settings className="w-3 h-3" />
+              Settings
+            </button>
+            <button
+              onClick={() => setShowFeatures(true)}
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-zinc-800/60 text-zinc-300 ring-1 ring-zinc-700/40 hover:bg-zinc-700/60 hover:text-zinc-100 transition-colors"
+            >
+              <BookOpen className="w-3 h-3" />
+              Features
+            </button>
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+              mc.accent === 'pink' ? 'bg-pink-500/10 text-pink-300 ring-1 ring-pink-500/20' :
+              mc.accent === 'amber' ? 'bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20' :
+              'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20'
+            }`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                mc.accent === 'pink' ? 'bg-pink-400' :
+                mc.accent === 'amber' ? 'bg-amber-400' :
+                'bg-emerald-400'
+              }`} />
+              {mc.label}
+            </span>
+          </div>
         </header>
 
         {AI_CHAT_ENABLED && (
-          <div className="mb-12 bg-zinc-950/50 border border-zinc-800/40 rounded-2xl flex flex-col h-[520px] min-h-[520px] shadow-sm shadow-zinc-950/50 overflow-hidden">
+          <div data-section="ai.chat" className="mb-12 bg-zinc-950/50 border border-zinc-800/40 rounded-2xl flex flex-col h-[520px] min-h-[520px] shadow-sm shadow-zinc-950/50 overflow-hidden">
             <AiChat />
           </div>
         )}
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
+        <div data-section="ai.summary" className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
           <TodayOverviewCard
             totalSeconds={todayTotalSeconds}
             sessionCount={todaySessionCount}
@@ -323,7 +346,7 @@ export function AiPage() {
           </div>
         </div>
 
-        <section className="mb-10">
+        <section data-section="ai.focus" className="mb-10">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-1 h-5 rounded-full bg-pink-500" />
             <div>
@@ -357,7 +380,7 @@ export function AiPage() {
           </div>
         </section>
 
-        <section className="mb-10">
+        <section data-section="ai.plan" className="mb-10">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-1 h-5 rounded-full bg-emerald-500" />
             <div>
@@ -377,7 +400,7 @@ export function AiPage() {
           </div>
         </section>
 
-        <section className="mb-10">
+        <section data-section="ai.reflect" className="mb-10">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-1 h-5 rounded-full bg-amber-500" />
             <div>
@@ -413,6 +436,8 @@ export function AiPage() {
           </div>
         </footer>
       </div>
+
+      <AIFeaturesModal open={showFeatures} onClose={() => setShowFeatures(false)} />
     </div>
   );
 }

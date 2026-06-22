@@ -1,0 +1,10 @@
+{
+  "id": "session-1780158257202",
+  "name": "test",
+  "agentType": "opencode",
+  "terminalMode": "select",
+  "selectedTerminal": "term-1780158242710",
+  "includeDefaultInit": true,
+  "problemIds": [],
+  "requestIds": []
+}

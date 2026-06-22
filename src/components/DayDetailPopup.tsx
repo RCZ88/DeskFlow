@@ -566,10 +566,34 @@ function RadarChart({ data }: { data: { hour: number; total: number }[] }) {
   );
 }
 
+function mergeTimelineItems(items: TimelineItem[], gapSeconds: number = 30): TimelineItem[] {
+  if (items.length === 0) return [];
+  const sorted = [...items].sort((a, b) => a.startHour - b.startHour);
+  const merged: TimelineItem[] = [];
+  let current = { ...sorted[0] };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const next = sorted[i];
+    const gapHours = next.startHour - current.endHour;
+    const sameApp = next.label === current.label;
+
+    if (sameApp && gapHours * 3600 <= gapSeconds) {
+      current.endHour = Math.max(current.endHour, next.endHour);
+      current.duration += next.duration;
+      current.id = `merged-${current.label}-${current.startHour}`;
+    } else {
+      merged.push(current);
+      current = { ...next };
+    }
+  }
+  merged.push(current);
+  return merged;
+}
+
 function CompressedTimeline({ items }: { items: TimelineItem[] }) {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
-  const groupedItems = useMemo(() => {
+  const mergedGroups = useMemo(() => {
     const groups: Record<string, TimelineItem[]> = {
       external: [],
       app: [],
@@ -579,7 +603,12 @@ function CompressedTimeline({ items }: { items: TimelineItem[] }) {
     items.forEach(item => {
       groups[item.category].push(item);
     });
-    return groups;
+    return {
+      external: mergeTimelineItems(groups.external),
+      app: mergeTimelineItems(groups.app, 60),
+      browser: mergeTimelineItems(groups.browser),
+      log: mergeTimelineItems(groups.log),
+    };
   }, [items]);
 
   const categories = ['external', 'app', 'browser'] as const;
@@ -599,7 +628,7 @@ function CompressedTimeline({ items }: { items: TimelineItem[] }) {
         <span>11pm</span>
       </div>
       {categories.map(cat => {
-        const catItems = groupedItems[cat];
+        const catItems = mergedGroups[cat];
         if (catItems.length === 0) return null;
 
         const totalDuration = catItems.reduce((sum, i) => sum + i.duration, 0);
@@ -618,11 +647,11 @@ function CompressedTimeline({ items }: { items: TimelineItem[] }) {
               <span style={{ color: CATEGORY_COLORS[cat] }}>{categoryIcons[cat]}</span>
               <span className="text-sm text-zinc-200 flex-1 text-left">{categoryLabels[cat]}</span>
               <span className="text-xs text-zinc-400 font-mono">{formatDuration(totalDuration)}</span>
-              <span className="text-xs text-zinc-500">({catItems.length})</span>
+              <span className="text-xs text-zinc-500">({catItems.length} segments)</span>
               <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
             </button>
 
-            <div className="relative h-12 mt-1">
+            <div className="relative h-10 mt-1">
               {catItems.map((item, i) => {
                 const left = Math.max(0, ((item.startHour - startHour) / totalHours) * 100);
                 const width = Math.min(100 - left, ((item.endHour - item.startHour) / totalHours) * 100);
@@ -632,21 +661,25 @@ function CompressedTimeline({ items }: { items: TimelineItem[] }) {
                     key={item.id}
                     initial={{ opacity: 0, scaleX: 0 }}
                     animate={{ opacity: 1, scaleX: 1 }}
-                    transition={{ delay: i * 0.05 }}
-                    className="absolute h-6 rounded-md cursor-pointer group"
+                    transition={{ delay: i * 0.03 }}
+                    className="absolute h-7 rounded-md cursor-pointer group"
                     style={{
                       left: `${left}%`,
-                      width: `${Math.max(width, 2)}%`,
+                      width: `${Math.max(width, 1.5)}%`,
                       backgroundColor: CATEGORY_COLORS[cat] + '40',
                       borderLeft: `3px solid ${CATEGORY_COLORS[cat]}`,
-                      top: isExpanded ? `${(i % 3) * 14}px` : '50%',
-                      transform: isExpanded ? 'none' : 'translateY(-50%)',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      zIndex: catItems.length - i,
                     }}
                   >
-                    <div className="px-2 py-0.5 text-xs text-zinc-200 truncate">{item.label}</div>
-                    <div className="absolute left-0 top-full mt-1 px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                    {width > 4 && (
+                      <div className="px-1.5 py-0.5 text-[10px] text-zinc-200 truncate leading-tight">{item.label}</div>
+                    )}
+                    <div className="absolute left-0 top-full mt-1 px-2 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-none">
                       <div className="font-medium text-white">{item.label}</div>
-                      <div className="text-zinc-400">{formatHour(Math.floor(item.startHour))} - {formatHour(Math.floor(item.endHour))} ({formatDuration(item.duration)})</div>
+                      <div className="text-zinc-400">{formatHour(Math.floor(item.startHour))} - {formatHour(Math.floor(item.endHour))}</div>
+                      <div className="text-zinc-400">{formatDuration(item.duration)}</div>
                     </div>
                   </motion.div>
                 );
@@ -658,18 +691,17 @@ function CompressedTimeline({ items }: { items: TimelineItem[] }) {
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                className="mt-2 p-3 space-y-2 rounded-xl border bg-zinc-950/90 backdrop-blur-xl border-zinc-800/50"
+                className="mt-2 p-3 space-y-1 rounded-xl border bg-zinc-950/90 backdrop-blur-xl border-zinc-800/50 max-h-64 overflow-y-auto"
               >
                 {catItems.map(item => (
-                  <div key={item.id} className="flex items-center justify-between p-2 rounded" style={{ backgroundColor: `${CATEGORY_COLORS[cat]}10` }}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[cat] }} />
-                      <span className="text-sm text-zinc-200">{item.label}</span>
-                      {item.details && <span className="text-xs text-zinc-500">({item.details})</span>}
+                  <div key={item.id} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-zinc-800/30 transition-colors" style={{ borderLeft: `3px solid ${CATEGORY_COLORS[cat]}` }}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm text-zinc-200 truncate">{item.label}</span>
+                      {item.details && <span className="text-xs text-zinc-500 truncate">({item.details})</span>}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-zinc-400 font-mono">{formatHour(Math.floor(item.startHour))} - {formatHour(Math.floor(item.endHour))}</span>
-                      <span className="text-xs text-zinc-400 font-mono">{formatDuration(item.duration)}</span>
+                    <div className="flex items-center gap-3 flex-shrink-0 ml-3">
+                      <span className="text-xs text-zinc-500 font-mono">{formatHour(Math.floor(item.startHour))} - {formatHour(Math.floor(item.endHour))}</span>
+                      <span className="text-xs text-zinc-400 font-mono w-14 text-right">{formatDuration(item.duration)}</span>
                     </div>
                   </div>
                 ))}

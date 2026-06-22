@@ -1,0 +1,27 @@
+{
+  "terminal_id": "term-001",
+  "actions": [
+    {
+      "type": "create_problem",
+      "title": "Cross-session sync config controls missing",
+      "priority": "high",
+      "category": "bug-fix",
+      "description": "Cross-session sync had no user-facing config. Added runtime config object, IPC handlers, preload bridges, type decls, 5 state vars, Configs tab card with master toggle/TTL slider/broadcast toggle/conflict mode dropdown/sync toggle"
+    },
+    {
+      "type": "create_problem",
+      "title": "Thought-process toggle feature",
+      "priority": "high",
+      "category": "bug-fix",
+      "description": "AI agents had no instruction to show reasoning. Added thoughtProcessEnabled toggle, Configs tab UI, injection in initializeTerminal that appends ## Thought Process instruction after system prompt"
+    }
+    ,
+    {
+      "type": "create_problem",
+      "title": "AI agent tool calls dropped during streaming",
+      "priority": "high",
+      "category": "bug-fix",
+      "description": "callLLM() SSE stream handler ignored delta.tool_calls, causing the AI to respond with truncated text and never complete tool-based actions like adding external activities. Fixed by adding tool call delta accumulation."
+    }
+  ]
+}

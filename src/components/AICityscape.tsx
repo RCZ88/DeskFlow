@@ -1,0 +1,490 @@
+import React, { useRef, useState, useMemo, useEffect, useCallback, Suspense } from 'react'
+import { Canvas } from '@react-three/fiber'
+import { OrbitControls, Html, Environment, Lightformer } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette, ToneMapping } from '@react-three/postprocessing'
+import * as THREE from 'three'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Play, Pause, X, TrendingUp, Layers, Clock } from 'lucide-react'
+import {
+  CityModel, PlacedBuilding, getWindowTexture, disposeWindowPool,
+  buildCityModel, extractDateRange, formatMetricValue, agentColor,
+} from './cityscape.utils'
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+type ViewMode = 'agent' | 'model' | 'time'
+
+interface AICityscapeProps {
+  agents: any[]
+  overview: any
+  metric: string
+  tokenDisplayMode: string
+  loading?: boolean
+  className?: string
+}
+
+/* ------------------------------------------------------------------ */
+/*  InstanceBuildings — the InstancedMesh group                        */
+/* ------------------------------------------------------------------ */
+
+interface IBProps {
+  model: CityModel
+  selectedId: string | null
+  hoveredId: string | null
+  metric: string
+  onHover: (id: string | null) => void
+  onSelect: (building: PlacedBuilding | null) => void
+}
+
+function InstanceBuildings({ model, selectedId, hoveredId, metric, onHover, onSelect }: IBProps) {
+  const meshRef = useRef<THREE.InstancedMesh>(null!)
+  const dummy = useMemo(() => new THREE.Object3D(), [])
+  const color = useMemo(() => new THREE.Color(), [])
+  const [over, setOver] = useState<number | null>(null)
+  const buildings = model.buildings
+
+  useEffect(() => {
+    if (!meshRef.current || buildings.length === 0) return
+    const m = meshRef.current
+    for (let i = 0; i < buildings.length; i++) {
+      const b = buildings[i]
+      dummy.position.set(b.x, b.height / 2, b.z)
+      dummy.scale.set(b.footprint, b.height || 0.01, b.footprint)
+      dummy.updateMatrix()
+      m.setMatrixAt(i, dummy.matrix)
+      if (m.instanceColor) {
+        const c = color.set(b.color)
+        if (selectedId === b.id) c.multiplyScalar(1.4)
+        else if (hoveredId === b.id) c.multiplyScalar(1.2)
+        m.instanceColor.setXYZ(i, c.r, c.g, c.b)
+      }
+    }
+    m.instanceMatrix.needsUpdate = true
+    if (m.instanceColor) m.instanceColor.needsUpdate = true
+  }, [buildings, selectedId, hoveredId])
+
+  const handlePointerMove = useCallback((e: any) => {
+    if (e.instanceId !== undefined && e.instanceId < buildings.length) {
+      onHover(buildings[e.instanceId].id)
+    } else {
+      onHover(null)
+    }
+  }, [buildings, onHover])
+
+  const handlePointerOut = useCallback(() => {
+    onHover(null)
+  }, [onHover])
+
+  const handleClick = useCallback((e: any) => {
+    if (e.instanceId !== undefined && e.instanceId < buildings.length) {
+      const b = buildings[e.instanceId]
+      onSelect(selectedId === b.id ? null : b)
+    } else {
+      onSelect(null)
+    }
+  }, [buildings, selectedId, onSelect])
+
+  if (buildings.length === 0) return null
+
+  return (
+    <>
+      <instancedMesh
+        ref={meshRef}
+        args={[undefined, undefined, buildings.length]}
+        onPointerMove={handlePointerMove}
+        onPointerOut={handlePointerOut}
+        onClick={handleClick}
+        frustumCulled={false}
+      >
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial
+          color="#0a0e18"
+          metalness={0.85}
+          roughness={0.32}
+          envMapIntensity={0.9}
+        />
+      </instancedMesh>
+      <instancedMesh
+        args={[undefined, undefined, buildings.length]}
+        frustumCulled={false}
+      >
+        <boxGeometry args={[1, 0.06, 1]} />
+        <meshBasicMaterial
+          toneMapped={false}
+          blending={THREE.AdditiveBlending}
+          color="#00eaff"
+        />
+      </instancedMesh>
+      {/* Hover label */}
+      {hoveredId && (() => {
+        const b = buildings.find(x => x.id === hoveredId)
+        if (!b) return null
+        return (
+          <Html
+            position={[b.x, b.height + 1.2, b.z]}
+            center
+            distanceFactor={14}
+            occlude={false}
+          >
+            <div className="bg-zinc-900/90 backdrop-blur-md border border-zinc-700/60 rounded-lg px-3 py-1.5 text-xs whitespace-nowrap pointer-events-none">
+              <div className="text-white font-medium">{b.label}</div>
+              <div className="text-zinc-400">{formatMetricValue(b.metricValue, metric)}{metric === 'tokens' ? ' tokens' : metric === 'cost' ? '' : ` ${metric}`}</div>
+            </div>
+          </Html>
+        )
+      })()}
+    </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  CityScene — everything inside the <Canvas> children                */
+/* ------------------------------------------------------------------ */
+
+interface CSProps {
+  model: CityModel
+  selectedId: string | null
+  hoveredId: string | null
+  metric: string
+  onHover: (id: string | null) => void
+  onSelect: (building: PlacedBuilding | null) => void
+}
+
+function CityScene({ model, selectedId, hoveredId, metric, onHover, onSelect }: CSProps) {
+  return (
+    <>
+      <hemisphereLight args={['#22305c', '#04050a', 0.4]} />
+      <directionalLight
+        position={[-34, 46, -22]}
+        intensity={0.55}
+        color="#6f8cff"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0004}
+      />
+      <directionalLight position={[28, 16, 26]} intensity={0.25} color="#ff3d81" />
+      <fogExp2 attach="fog" args={['#080a14', 0.02]} />
+
+      <Environment resolution={64} background={false} frames={1}>
+        <Lightformer form="rect" intensity={2.2} color="#00eaff" position={[0, 7, -14]} scale={[22, 7, 1]} />
+        <Lightformer form="rect" intensity={1.6} color="#ff2e88" position={[-12, 4, 9]} scale={[13, 4, 1]} />
+        <Lightformer form="ring" intensity={1.2} color="#a855f7" position={[14, 9, -4]} scale={[6, 6, 1]} />
+      </Environment>
+
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
+        <planeGeometry args={[200, 200]} />
+        <meshStandardMaterial color="#04060c" metalness={0.65} roughness={0.9} />
+      </mesh>
+
+      <InstanceBuildings
+        model={model}
+        selectedId={selectedId}
+        hoveredId={hoveredId}
+        metric={metric}
+        onHover={onHover}
+        onSelect={onSelect}
+      />
+
+      <OrbitControls
+        enableDamping
+        dampingFactor={0.06}
+        maxPolarAngle={Math.PI / 2.15}
+        minDistance={8}
+        maxDistance={80}
+      />
+
+      <EffectComposer multisampling={0} disableNormalPass>
+        <Bloom
+          mipmapBlur
+          luminanceThreshold={1}
+          luminanceSmoothing={0.18}
+          intensity={1.5}
+          radius={0.86}
+        />
+        <Vignette offset={0.26} darkness={0.9} />
+        <ToneMapping />
+      </EffectComposer>
+    </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  DetailPanel — slide-in from the right                              */
+/* ------------------------------------------------------------------ */
+
+function DetailPanel({ building, metric, onClose }: {
+  building: PlacedBuilding
+  metric: string
+  onClose: () => void
+}) {
+  return (
+    <motion.div
+      initial={{ x: 320 }}
+      animate={{ x: 0 }}
+      exit={{ x: 320 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className="absolute right-0 top-0 bottom-0 w-72 bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-800/60 p-5 z-20 overflow-y-auto"
+    >
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: building.color }} />
+          <h3 className="text-white font-semibold text-sm">{building.label}</h3>
+        </div>
+        <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        <MetricRow label="Tokens" value={formatMetricValue(building.metricValue, 'tokens')} raw={building.metricValue} color="text-violet-400" />
+        {metric === 'cost' && <MetricRow label="Cost" value={formatMetricValue(building.cost, 'cost')} raw={building.cost} color="text-amber-400" />}
+        {building.messageCount > 0 && <MetricRow label="Messages" value={building.messageCount.toLocaleString()} raw={building.messageCount} color="text-blue-400" />}
+        {building.sessions > 0 && <MetricRow label="Sessions" value={building.sessions.toLocaleString()} raw={building.sessions} color="text-emerald-400" />}
+        {building.models.length > 0 && (
+          <div>
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Models</div>
+            <div className="flex flex-wrap gap-1">
+              {building.models.map(m => (
+                <span key={m} className="text-[11px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded">{m}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {building.active && (
+          <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-lg">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Active in last 24h
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+function MetricRow({ label, value, raw, color }: { label: string; value: string; raw: number; color: string }) {
+  return (
+    <div className="flex items-center justify-between py-1.5 border-b border-zinc-800/40 last:border-0">
+      <span className="text-xs text-zinc-500">{label}</span>
+      <div className="text-right">
+        <div className={`text-sm font-semibold tabular-nums ${color}`}>{value}</div>
+        <div className="text-[10px] text-zinc-600">raw: {raw.toLocaleString()}</div>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Time-lapse controls                                                */
+/* ------------------------------------------------------------------ */
+
+function TimeControls({
+  dates, index, playing, onIndexChange, onTogglePlay,
+}: {
+  dates: string[]
+  index: number
+  playing: boolean
+  onIndexChange: (i: number) => void
+  onTogglePlay: () => void
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-zinc-900/80 backdrop-blur-md rounded-lg border border-zinc-800/60 px-3 py-2">
+      <button
+        onClick={onTogglePlay}
+        className="text-zinc-400 hover:text-white transition-colors"
+      >
+        {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={dates.length - 1}
+        value={index}
+        onChange={e => onIndexChange(Number(e.target.value))}
+        className="flex-1 h-1 accent-violet-500 cursor-pointer"
+      />
+      <span className="text-[11px] text-zinc-400 min-w-[80px] text-right tabular-nums">
+        {dates[index] || '—'}
+      </span>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main component                                                     */
+/* ------------------------------------------------------------------ */
+
+const VIEW_OPTIONS: { value: ViewMode; label: string; icon: React.ReactNode }[] = [
+  { value: 'agent', label: 'By Agent', icon: <Layers className="w-3.5 h-3.5" /> },
+  { value: 'model', label: 'By Model', icon: <TrendingUp className="w-3.5 h-3.5" /> },
+  { value: 'time', label: 'Time-lapse', icon: <Clock className="w-3.5 h-3.5" /> },
+]
+
+export default function AIUsageCityscape({ overview, metric, tokenDisplayMode, loading = false, className = '' }: AICityscapeProps) {
+  const [viewMode, setViewMode] = useState<ViewMode>('agent')
+  const [selectedBuilding, setSelectedBuilding] = useState<PlacedBuilding | null>(null)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [timeIndex, setTimeIndex] = useState(0)
+  const [timePlaying, setTimePlaying] = useState(false)
+  const timeRef = useRef<number | null>(null)
+
+  const dates = useMemo(() => extractDateRange(overview), [overview])
+  const timeDate = viewMode === 'time' && dates.length > 0 ? dates[timeIndex] : undefined
+
+  const cityModel = useMemo(
+    () => buildCityModel(overview, viewMode, metric, timeDate),
+    [overview, viewMode, metric, timeDate],
+  )
+
+  const activeCount = cityModel.buildings.length
+  const selectedId = selectedBuilding?.id || null
+
+  useEffect(() => {
+    if (!timePlaying || viewMode !== 'time') {
+      if (timeRef.current) { clearInterval(timeRef.current); timeRef.current = null }
+      return
+    }
+    timeRef.current = window.setInterval(() => {
+      setTimeIndex(prev => {
+        const next = prev + 1
+        if (next >= dates.length) { setTimePlaying(false); return dates.length - 1 }
+        return next
+      })
+    }, 400)
+    return () => { if (timeRef.current) { clearInterval(timeRef.current); timeRef.current = null } }
+  }, [timePlaying, viewMode, dates.length])
+
+  useEffect(() => {
+    if (viewMode === 'time' && timeIndex >= dates.length) {
+      setTimeIndex(Math.max(0, dates.length - 1))
+    }
+  }, [viewMode, dates.length])
+
+  useEffect(() => {
+    return () => { disposeWindowPool() }
+  }, [])
+
+  const handleCanvasClick = useCallback(() => {
+    setSelectedBuilding(null)
+  }, [])
+
+  return (
+    <div className={`relative rounded-xl overflow-hidden bg-zinc-950 min-h-[440px] ${className}`}>
+      {/* View mode pills */}
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-zinc-900/80 backdrop-blur-md rounded-lg border border-zinc-800/60 p-0.5">
+        {VIEW_OPTIONS.map(opt => (
+          <button
+            key={opt.value}
+            onClick={() => { setViewMode(opt.value); setSelectedBuilding(null) }}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition ${
+              viewMode === opt.value
+                ? 'bg-violet-500/20 text-violet-400'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            {opt.icon}
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Time-lapse controls */}
+      {viewMode === 'time' && dates.length > 1 && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
+          <TimeControls
+            dates={dates}
+            index={timeIndex}
+            playing={timePlaying}
+            onIndexChange={i => { setTimeIndex(i); setTimePlaying(false) }}
+            onTogglePlay={() => setTimePlaying(p => !p)}
+          />
+        </div>
+      )}
+
+      {/* Detail panel */}
+      <AnimatePresence>
+        {selectedBuilding && (
+          <DetailPanel
+            building={selectedBuilding}
+            metric={metric}
+            onClose={() => setSelectedBuilding(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Empty / loading state */}
+      {(loading || activeCount === 0) && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          {loading ? (
+            <div className="flex flex-col items-center gap-3">
+              <div className="grid grid-cols-5 gap-1.5">
+                {Array.from({ length: 9 }).map((_, i) => (
+                  <motion.div
+                    key={i}
+                    className="w-4 h-6 bg-zinc-800/80 rounded-sm"
+                    animate={{ opacity: [0.3, 0.7, 0.3] }}
+                    transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.1 }}
+                  />
+                ))}
+              </div>
+              <p className="text-zinc-500 text-xs">Building city...</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-zinc-500 text-sm">No AI agent data yet</p>
+              <p className="text-zinc-600 text-xs">Sync your agents to build the skyline</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stats legend */}
+      {activeCount > 0 && !loading && (
+        <div className="absolute bottom-3 right-3 z-10 bg-zinc-900/80 backdrop-blur-md rounded-lg border border-zinc-800/60 px-2.5 py-1.5">
+          <span className="text-[10px] text-zinc-500">{activeCount} buildings</span>
+        </div>
+      )}
+
+      {/* R3F Canvas */}
+      <Suspense fallback={null}>
+        <Canvas
+          shadows
+          dpr={[1, 1.75]}
+          gl={{
+            antialias: false,
+            powerPreference: 'high-performance',
+            toneMapping: THREE.ACESFilmicToneMapping,
+            toneMappingExposure: 1.05,
+            outputColorSpace: THREE.SRGBColorSpace,
+          }}
+          camera={{ position: [22, 13, 22], fov: 38, near: 0.1, far: 500 }}
+          style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
+        >
+          <CityScene
+            model={cityModel}
+            selectedId={selectedId}
+            hoveredId={hoveredId}
+            metric={metric}
+            onHover={setHoveredId}
+            onSelect={setSelectedBuilding}
+          />
+        </Canvas>
+      </Suspense>
+
+      {activeCount > 0 && !loading && (
+        <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2 bg-zinc-900/80 backdrop-blur-md rounded-lg border border-zinc-800/60 px-2.5 py-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#00eaff' }} />
+            <span className="text-[10px] text-zinc-500">Active</span>
+          </div>
+          <span className="text-zinc-700 text-[10px]">|</span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-zinc-700" />
+            <span className="text-[10px] text-zinc-500">Idle</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

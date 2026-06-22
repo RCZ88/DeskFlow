@@ -28,7 +28,15 @@ export async function callProvider(
         temperature: req.temperature ?? 0.4,
       };
 
-  const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  let response;
+  try {
+    response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!response.ok) {
     const errText = await response.text();
     const e = new Error(`${template.label} error ${response.status}: ${errText.slice(0, 200)}`);

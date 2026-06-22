@@ -1,0 +1,10 @@
+{
+  "id": "session-1780687290817",
+  "name": "Fix Something",
+  "agentType": "opencode",
+  "terminalMode": "create",
+  "selectedTerminal": "",
+  "includeDefaultInit": true,
+  "problemIds": [],
+  "requestIds": []
+}

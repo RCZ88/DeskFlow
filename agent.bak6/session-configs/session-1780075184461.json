@@ -1,0 +1,65 @@
+{
+  "id": "session-1780075184461",
+  "name": "TEST",
+  "agentType": "opencode",
+  "terminalMode": "create",
+  "selectedTerminal": "",
+  "includeDefaultInit": false,
+  "problemIds": [],
+  "requestIds": [],
+  "contextConfig": {
+    "total_token_budget": 7000,
+    "model_tier": "low",
+    "systems": {
+      "llm_wiki": {
+        "enabled": true,
+        "max_tokens": 2000
+      },
+      "obsidian_skills": {
+        "enabled": true,
+        "max_tokens": 500
+      },
+      "graphify": {
+        "enabled": true,
+        "include_summary": true,
+        "max_tokens": 500
+      },
+      "para": {
+        "enabled": true,
+        "max_tokens": 300
+      },
+      "qmd": {
+        "enabled": true,
+        "max_tokens": 200
+      },
+      "automations": {
+        "enabled": true,
+        "max_tokens": 100
+      },
+      "design_skills": {
+        "enabled": true,
+        "max_tokens": 800,
+        "skills": [
+          "frontend-design",
+          "impeccable",
+          "ui-ux-pro-max",
+          "taste-skill"
+        ],
+        "levels": {
+          "design_variance": 5,
+          "motion_intensity": 5,
+          "visual_density": 7
+        },
+        "include_references": true
+      }
+    },
+    "summarization": {
+      "enabled": true,
+      "message_threshold": 10
+    },
+    "deep_memory": {
+      "enabled": true,
+      "pattern_detection": true
+    }
+  }
+}

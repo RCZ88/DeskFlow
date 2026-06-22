@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
@@ -15,6 +16,13 @@ import { getCurrencyInfo, formatCurrency, convertAmount } from '../components/fi
 import { pageContainer, tabPanel, fab, DUR } from '../components/finance/_fx/financeMotion';
 import { QuickAddModal } from '../components/finance/QuickAddModal';
 import { ArchivedItemsModal } from '../components/finance/ArchivedItemsModal';
+import { PasswordConfirmDialog } from '../components/finance/PasswordConfirmDialog';
+import { WalletDetailView } from '../components/finance/WalletDetailView';
+import { CryptoMarketTab } from '../components/finance/CryptoMarketTab';
+import {
+  BankTransactionModal, DebitTransactionModal, CreditTransactionModal,
+  CryptoTransactionModal, PhysicalTransactionModal, CashTransactionModal, EwalletTransactionModal,
+} from '../components/finance/modals';
 import type {
   FinanceAccount, FinanceWallet, FinanceCategory, FinanceTransaction,
   FinanceSummary, FinanceSpendingByCategory, FinanceMonthlyTrend, FinanceTabKey
@@ -41,16 +49,25 @@ const SEED_CATEGORIES = [
 const tabs: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'overview', label: 'Overview', icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
   { key: 'accounts', label: 'Accounts', icon: <Wallet className="w-3.5 h-3.5" /> },
+  { key: 'crypto', label: 'Crypto', icon: <Wallet className="w-3.5 h-3.5" /> },
   { key: 'transactions', label: 'Transactions', icon: <ArrowUpRight className="w-3.5 h-3.5" /> },
   { key: 'categories', label: 'Categories', icon: <Tag className="w-3.5 h-3.5" /> },
 ];
+
+let pendingLockTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function FinancePage() {
   const [isLocked, setIsLocked] = useState(true);
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [lockError, setLockError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<FinanceTabKey>('overview');
+  const location = useLocation();
+  useEffect(() => {
+    const tab = (location.state as any)?.tab;
+    if (tab) setActiveTab(tab);
+  }, []);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [walletTxModal, setWalletTxModal] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedAccounts, setArchivedAccounts] = useState<FinanceAccount[]>([]);
   const [archivedWallets, setArchivedWallets] = useState<FinanceWallet[]>([]);
@@ -71,6 +88,9 @@ export function FinancePage() {
   const [pageAccess, setPageAccess] = useState<{ canAccess: boolean; requiresSetup: boolean; reason?: string } | null>(null);
   const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const securityCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const passwordResolveRef = useRef<((pw: string | null) => void) | null>(null);
+  const [selectedWalletId, setSelectedWalletId] = useState<number | null>(null);
 
   useEffect(() => {
     checkSetup();
@@ -94,10 +114,10 @@ export function FinancePage() {
 
   useEffect(() => {
     if (securitySettings) {
-      if (securitySettings.rememberDevice && securitySettings.rememberDeviceExpiry && Date.now() < securitySettings.rememberDeviceExpiry) {
-        setIsLocked(false);
-      } else if (securitySettings.locked) {
+      if (securitySettings.locked) {
         setIsLocked(true);
+      } else if (securitySettings.rememberDevice && securitySettings.rememberDeviceExpiry && Date.now() < securitySettings.rememberDeviceExpiry) {
+        setIsLocked(false);
       }
     }
   }, [securitySettings]);
@@ -111,8 +131,7 @@ export function FinancePage() {
         if (!setupResult.hasPassword) {
           setIsLocked(false);
         } else {
-          const lockResult = await window.deskflowAPI?.financeIsLocked() as { locked: boolean };
-          setIsLocked(lockResult?.locked ?? true);
+          setIsLocked(true);
         }
       }
     } catch {
@@ -172,15 +191,13 @@ export function FinancePage() {
 
   const resetLockTimer = useCallback(() => {
     if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
-    const timeoutMs = securitySettings?.lockTimeout || 5 * 60 * 1000;
-    lockTimerRef.current = setTimeout(() => {
-      handleLock();
-    }, timeoutMs);
-  }, [securitySettings]);
+    if (pendingLockTimer) { clearTimeout(pendingLockTimer); pendingLockTimer = null; }
+  }, []);
 
   useEffect(() => {
-    if (securitySettings?.hasPassword && !securitySettings?.locked) {
-      resetLockTimer();
+    if (pendingLockTimer) {
+      clearTimeout(pendingLockTimer);
+      pendingLockTimer = null;
     }
     securityCheckIntervalRef.current = setInterval(() => {
       if (window.deskflowAPI) {
@@ -190,8 +207,15 @@ export function FinancePage() {
       }
     }, 30000);
     return () => {
-      if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
       if (securityCheckIntervalRef.current) clearInterval(securityCheckIntervalRef.current);
+      if (securitySettings?.hasPassword && !securitySettings?.locked) {
+        const timeoutMs = securitySettings?.lockTimeout || 5 * 60 * 1000;
+        const handleLockClosure = handleLock;
+        pendingLockTimer = setTimeout(() => {
+          handleLockClosure();
+          pendingLockTimer = null;
+        }, timeoutMs);
+      }
     };
   }, [securitySettings, resetLockTimer]);
 
@@ -250,15 +274,25 @@ export function FinancePage() {
     setIsLocked(true);
   };
 
+  useEffect(() => {
+    if (selectedWalletId) {
+      const handleEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setSelectedWalletId(null);
+      };
+      window.addEventListener('keydown', handleEsc);
+      return () => window.removeEventListener('keydown', handleEsc);
+    }
+  }, [selectedWalletId]);
+
   const handleCreateAccount = async (data: {
     name: string; type: FinanceAccount['type']; description?: string;
-    icon?: string; color?: string; currency?: string; balance?: number;
+    icon?: string; color?: string;
   }): Promise<boolean> => {
     try {
       const result = await window.deskflowAPI?.financeCreateAccount({
         name: data.name, type: data.type, description: data.description || null,
         icon: data.icon || 'Wallet', color: data.color || '#10b981',
-        currency: data.currency || 'USD', balance: data.balance || 0,
+        currency: 'USD', balance: 0,
       }) as FinanceAccount;
       if (result) { await fetchData(); return true; }
       return false;
@@ -267,8 +301,9 @@ export function FinancePage() {
 
   const handleAddTransaction = async (data: {
     account_id: number; wallet_id: number | null; category_id: number;
-    type: 'income' | 'expense' | 'transfer'; amount: number;
-    description: string; note: string; date: string;
+    type: string; amount: number;
+    description: string; note?: string; date: string;
+    [key: string]: any;
   }): Promise<boolean> => {
     try {
       const result = await window.deskflowAPI?.financeCreateTransaction(data) as FinanceTransaction;
@@ -298,12 +333,27 @@ export function FinancePage() {
   const handleCreateWallet = async (data: {
     account_id: number; name: string; type: string; provider?: string;
     last_four?: string; balance?: number; currency?: string;
+    metadata?: Record<string, any>;
   }): Promise<boolean> => {
     try {
-      const result = await window.deskflowAPI?.financeCreateWallet(data) as { id: number };
-      if (result?.id) { await fetchData(); return true; }
+      const payload = {
+        account_id: data.account_id, name: data.name, type: data.type,
+        provider: data.provider, last_four: data.last_four,
+        balance: data.balance ?? 0, currency: data.currency,
+      };
+      console.log('[handleCreateWallet] sending:', JSON.stringify(payload));
+      const result = await window.deskflowAPI?.financeCreateWallet(payload) as { id: number };
+      console.log('[handleCreateWallet] result:', JSON.stringify(result), 'type of id:', typeof result?.id);
+      if (result?.id) {
+        if (data.metadata && Object.keys(data.metadata).length > 0) {
+          await window.deskflowAPI?.financeUpdateWalletMetadata({ id: result.id, metadata: data.metadata });
+        }
+        await fetchData();
+        return true;
+      }
+      console.warn('[handleCreateWallet] no result.id, returning false');
       return false;
-    } catch { return false; }
+    } catch (e) { console.error('[handleCreateWallet] error:', e); return false; }
   };
 
   const handleArchiveWallet = async (id: number): Promise<boolean> => {
@@ -316,13 +366,34 @@ export function FinancePage() {
 
   const hasPassword = securitySettings?.hasPassword ?? false;
 
+  const handlePasswordConfirm = async (pw: string): Promise<boolean> => {
+    const ok = await window.deskflowAPI?.financeVerifyPassword(pw) as { success: boolean };
+    if (ok?.success) {
+      const resolve = passwordResolveRef.current;
+      if (resolve) {
+        passwordResolveRef.current = null;
+        resolve(true);
+      }
+    }
+    return ok?.success ?? false;
+  };
+
+  const handlePasswordDialogClose = () => {
+    setShowPasswordDialog(false);
+    const resolve = passwordResolveRef.current;
+    if (resolve) {
+      passwordResolveRef.current = null;
+      resolve(false);
+    }
+  };
+
   const checkPasswordRequirement = async (action: string): Promise<boolean> => {
     if (!hasPassword) return true;
     if (passwordRequirements[`password_req_${action}`] !== false) {
-      const pw = window.prompt('Enter your finance password:');
-      if (!pw) return false;
-      const ok = await window.deskflowAPI?.financeVerifyPassword(pw) as { success: boolean };
-      return ok?.success ?? false;
+      return new Promise<boolean>((resolve) => {
+        passwordResolveRef.current = resolve;
+        setShowPasswordDialog(true);
+      });
     }
     return true;
   };
@@ -334,6 +405,18 @@ export function FinancePage() {
       if (result?.success) { await fetchData(); return true; }
       return false;
     } catch { return false; }
+  };
+
+  const handleSaveMetadata = async (id: number, metadata: Record<string, any>): Promise<boolean> => {
+    try {
+      const result = await window.deskflowAPI?.financeUpdateWalletMetadata({ id, metadata }) as any;
+      if (result?.id) { await fetchData(); return true; }
+      return false;
+    } catch { return false; }
+  };
+
+  const handleWalletClick = (id: number) => {
+    setSelectedWalletId(id);
   };
 
   const handleDeleteWallet = async (id: number): Promise<boolean> => {
@@ -383,8 +466,14 @@ export function FinancePage() {
   };
 
   const netWorth = useMemo(() =>
-    accounts.reduce((s, a) => s + convertAmount(a.type === 'custodial' ? 0 : a.balance, a.currency, displayCurrency), 0),
-    [accounts, displayCurrency]
+    accounts.reduce((s, a) => {
+      if (a.type === 'custodial') return s;
+      const walletSum = wallets
+        .filter(w => w.account_id === a.id && !w.is_archived)
+        .reduce((ws, w) => ws + convertAmount(w.balance, w.currency, displayCurrency), 0);
+      return s + walletSum;
+    }, 0),
+    [accounts, wallets, displayCurrency]
   );
 
   const trend = useMemo(() => {
@@ -449,132 +538,183 @@ export function FinancePage() {
             <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
               <Wallet className="w-4 h-4 text-emerald-400" />
             </div>
-            <h1 className="text-[15px] font-semibold text-white">Finance</h1>
+            <h1 className="text-[15px] font-semibold text-white">Finance <span className="text-[10px] text-emerald-400 font-mono ml-2 bg-emerald-500/10 px-1.5 py-0.5 rounded">BUILD MARKER v4</span></h1>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="relative">
-              <button
-                onClick={() => setShowCurrencyPicker(!showCurrencyPicker)}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-zinc-800/60 text-zinc-300 hover:text-white text-xs font-medium transition-colors border border-zinc-700/30 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+            <button
+              onClick={() => setShowCurrencyPicker(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-zinc-800/60 text-zinc-300 hover:text-white text-xs font-medium transition-colors border border-zinc-700/30 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+            >
+              <span>{getCurrencyInfo(displayCurrency).symbol}</span>
+              <span>{displayCurrency}</span>
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {showCurrencyPicker && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[var(--z-modal)] flex items-center justify-center p-5"
+                onClick={() => setShowCurrencyPicker(false)}
               >
-                <span>{getCurrencyInfo(displayCurrency).symbol}</span>
-                <span>{displayCurrency}</span>
-              </button>
-              <AnimatePresence>
-                {showCurrencyPicker && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -4, scale: 0.95 }}
-                    transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                    className="absolute top-full right-0 mt-1 w-36 max-h-48 overflow-y-auto bg-zinc-800 border border-zinc-700/50 rounded-lg z-10"
-                  >
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.92, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.92, y: 20 }}
+                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                  className="w-full max-w-xs bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-xl overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-4 pt-4 pb-2 border-b border-zinc-700/30">
+                    <h3 className="text-sm font-semibold text-white">Select Currency</h3>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">Display currency for all amounts</p>
+                  </div>
+                  <div className="p-2 max-h-72 overflow-y-auto">
                     {['USD', 'IDR', 'SGD', 'GBP', 'EUR', 'JPY', 'AUD', 'CNY', 'KRW', 'INR'].map(code => (
                       <button
                         key={code}
                         onClick={() => { setDisplayCurrency(code); setShowCurrencyPicker(false); window.deskflowAPI?.financeSetDisplayCurrency(code); }}
-                        className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-zinc-700 transition-colors ${displayCurrency === code ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-300'
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${displayCurrency === code ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-300 hover:bg-zinc-800/60'
                           }`}
                       >
-                        <span className="w-5 text-center">{getCurrencyInfo(code).symbol}</span>
-                        <span>{code}</span>
+                        <span className="w-6 text-center text-base">{getCurrencyInfo(code).symbol}</span>
+                        <span className="font-medium">{code}</span>
+                        <span className="text-[11px] text-zinc-500 ml-auto">{getCurrencyInfo(code).name}</span>
                       </button>
                     ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        <div className="mb-6">
-          <TabBar tabs={tabs} activeKey={activeTab} onTabChange={(k) => setActiveTab(k as FinanceTabKey)} />
+        <div className="mb-6" style={{ display: selectedWalletId ? 'none' : undefined }}>
+          <TabBar tabs={tabs} activeKey={activeTab} onTabChange={(k) => { setActiveTab(k as FinanceTabKey); setSelectedWalletId(null); }} />
         </div>
 
         <FinanceStickyHeader
-          isLocked={false}
+          isLocked={isLocked}
           netWorth={netWorth}
           displayCurrency={displayCurrency}
           onToggleLock={handleLock}
           trend={trend}
           monthlyTrends={monthlyTrends}
-          hasPassword={securitySettings?.hasPassword ?? false}
+          hasPassword={securitySettings?.hasPassword ?? true}
         />
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            variants={tabPanel}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {activeTab === 'overview' && (
-              <OverviewTab
-                summary={summary}
-                spendingByCategory={spendingByCategory}
-                monthlyTrends={monthlyTrends}
-                accounts={accounts}
-                recentTransactions={transactions.slice(0, 5)}
-                loading={loading}
-                error={fetchError}
-                onRetry={fetchData}
-                onCreateAccount={handleCreateAccount}
-                onAddTransaction={handleAddTransaction}
-                categories={categories}
-                wallets={wallets}
+        {(() => {
+          const dw = selectedWalletId ? wallets.find(x => x.id === selectedWalletId) : null;
+          const showDetail = dw !== undefined;
+          if (showDetail && dw) {
+            return (
+              <WalletDetailView
+                key={dw.id}
+                wallet={dw}
                 displayCurrency={displayCurrency}
-                baseCurrency={baseCurrency}
-              />
-            )}
-            {activeTab === 'accounts' && (
-              <AccountsTab
-                accounts={accounts}
-                wallets={wallets}
-                loading={loading}
-                displayCurrency={displayCurrency}
-                onCreateAccount={handleCreateAccount}
-                onCreateWallet={handleCreateWallet}
-                onArchiveWallet={handleArchiveWallet}
-                onUpdateWallet={handleUpdateWallet}
-                onDeleteAccount={handleDeleteAccount}
-                onDeleteWallet={handleDeleteWallet}
-                onViewArchived={handleViewArchived}
-                archivedCount={archivedAccounts.length + archivedWallets.length}
-                error={fetchError}
-                onRetry={fetchData}
-              />
-            )}
-            {activeTab === 'transactions' && (
-              <TransactionsTab
                 transactions={transactions}
-                accounts={accounts}
-                categories={categories}
                 wallets={wallets}
-                loading={loading}
-                displayCurrency={displayCurrency}
-                baseCurrency={baseCurrency}
-                onAddTransaction={handleAddTransaction}
-                onDeleteTransaction={handleDeleteTransaction}
-                onVerifyPassword={handleUnlock}
-                error={fetchError}
-                onRetry={fetchData}
+                onBack={() => setSelectedWalletId(null)}
+                onSaveMetadata={handleSaveMetadata}
+                onUpdateWallet={handleUpdateWallet}
+                onDeleteWallet={handleDeleteWallet}
+                onAddTransaction={(walletType) => setWalletTxModal(walletType as any)}
               />
-            )}
-            {activeTab === 'categories' && (
-              <CategoriesTab
-                categories={categories}
-                loading={loading}
-                displayCurrency={displayCurrency}
-                baseCurrency={baseCurrency}
-                onCreateCategory={handleCreateCategory}
-                error={fetchError}
-                onRetry={fetchData}
-              />
-            )}
-          </motion.div>
-        </AnimatePresence>
+            );
+          }
+          return (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                variants={tabPanel}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {activeTab === 'overview' && (
+                  <OverviewTab
+                    data-section="finance.overview"
+                    summary={summary}
+                    spendingByCategory={spendingByCategory}
+                    monthlyTrends={monthlyTrends}
+                    accounts={accounts}
+                    recentTransactions={transactions.slice(0, 5)}
+                    loading={loading}
+                    error={fetchError}
+                    onRetry={fetchData}
+                    onCreateAccount={handleCreateAccount}
+                    onAddTransaction={handleAddTransaction}
+                    categories={categories}
+                    wallets={wallets}
+                    displayCurrency={displayCurrency}
+                    baseCurrency={baseCurrency}
+                  />
+                )}
+                {activeTab === 'accounts' && (
+                  <AccountsTab
+                    data-section="finance.accounts"
+                    accounts={accounts}
+                    wallets={wallets}
+                    loading={loading}
+                    displayCurrency={displayCurrency}
+                    onCreateAccount={handleCreateAccount}
+                    onCreateWallet={handleCreateWallet}
+                    onArchiveWallet={handleArchiveWallet}
+                    onUpdateWallet={handleUpdateWallet}
+                    onDeleteAccount={handleDeleteAccount}
+                    onDeleteWallet={handleDeleteWallet}
+                    onViewArchived={handleViewArchived}
+                    archivedCount={archivedAccounts.length + archivedWallets.length}
+                    error={fetchError}
+                    onRetry={fetchData}
+                    onWalletClick={handleWalletClick}
+                  />
+                )}
+                {activeTab === 'crypto' && (
+                  <CryptoMarketTab
+                    data-section="finance.crypto"
+                    wallets={wallets.filter(w => w.type === 'crypto' && !w.is_archived)}
+                    displayCurrency={displayCurrency}
+                    loading={loading}
+                    onWalletClick={handleWalletClick}
+                  />
+                )}
+                {activeTab === 'transactions' && (
+                  <TransactionsTab
+                    data-section="finance.transactions"
+                    transactions={transactions}
+                    accounts={accounts}
+                    categories={categories}
+                    wallets={wallets}
+                    loading={loading}
+                    displayCurrency={displayCurrency}
+                    baseCurrency={baseCurrency}
+                    onAddTransaction={handleAddTransaction}
+                    onDeleteTransaction={handleDeleteTransaction}
+                    onVerifyPassword={handleUnlock}
+                    error={fetchError}
+                    onRetry={fetchData}
+                  />
+                )}
+                {activeTab === 'categories' && (
+                  <CategoriesTab
+                    data-section="finance.categories"
+                    categories={categories}
+                    loading={loading}
+                    displayCurrency={displayCurrency}
+                    baseCurrency={baseCurrency}
+                    onCreateCategory={handleCreateCategory}
+                    error={fetchError}
+                    onRetry={fetchData}
+                  />
+                )}
+              </motion.div>
+            </AnimatePresence>
+          );
+        })()}
       </div>
 
       <motion.button
@@ -583,7 +723,14 @@ export function FinancePage() {
         animate="show"
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        onClick={() => setShowQuickAdd(true)}
+        onClick={() => {
+          if (selectedWalletId) {
+            const w = wallets.find(x => x.id === selectedWalletId);
+            if (w) setWalletTxModal(w.type);
+          } else {
+            setShowQuickAdd(true);
+          }
+        }}
         className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white flex items-center justify-center z-[var(--z-elevated)] focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.35)]"
         title="New transaction (Ctrl+N)"
       >
@@ -602,6 +749,39 @@ export function FinancePage() {
           onSave={handleAddTransaction}
         />
       )}
+
+      {/* Wallet-type-specific transaction modals */}
+      {walletTxModal && (() => {
+        const w = wallets.find(x => x.id === selectedWalletId);
+        if (!w) return null;
+        const modalProps = {
+          open: true,
+          onClose: () => setWalletTxModal(null),
+          wallet: w,
+          categories,
+          wallets,
+          displayCurrency,
+          baseCurrency,
+          onSubmit: handleAddTransaction,
+          onCreateCategory: handleCreateCategory,
+        };
+        switch (walletTxModal) {
+          case 'bank': return <BankTransactionModal key={w.id} {...modalProps} />;
+          case 'debit_card': return <DebitTransactionModal key={w.id} {...modalProps} />;
+          case 'credit_card': return <CreditTransactionModal key={w.id} {...modalProps} />;
+          case 'crypto': return <CryptoTransactionModal key={w.id} {...modalProps} />;
+          case 'physical': return <PhysicalTransactionModal key={w.id} {...modalProps} />;
+          case 'cash': return <CashTransactionModal key={w.id} {...modalProps} />;
+          case 'ewallet': return <EwalletTransactionModal key={w.id} {...modalProps} />;
+          default: return <QuickAddModal open onClose={() => setWalletTxModal(null)} accounts={accounts} categories={categories} wallets={wallets} displayCurrency={displayCurrency} baseCurrency={baseCurrency} onSave={handleAddTransaction} />;
+        }
+      })()}
+
+      <PasswordConfirmDialog
+        open={showPasswordDialog}
+        onClose={handlePasswordDialogClose}
+        onConfirm={handlePasswordConfirm}
+      />
 
       <ArchivedItemsModal
         open={showArchived}

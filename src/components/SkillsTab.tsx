@@ -173,18 +173,17 @@ export const SkillsTab: React.FC<{
   };
 
   const handleDelete = async (skill: Skill) => {
+    if (!window.confirm(`Delete skill "${skill.name}"? This permanently removes the skill file.`)) return;
     try {
-      const result = await window.deskflowAPI?.updateSkill?.({
+      const result = await window.deskflowAPI?.deleteSkill?.({
         id: skill.id,
-        name: skill.name,
-        category: skill.category,
-        description: skill.description,
-        content: '',
         projectPath,
       });
       if (result?.success) {
         showNotify('Skill deleted', 'success');
         loadSkills();
+      } else {
+        showNotify(result?.error || 'Failed to delete skill', 'error');
       }
     } catch (e) {
       showNotify('Failed to delete skill', 'error');

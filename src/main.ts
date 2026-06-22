@@ -1389,11 +1389,15 @@ async parse(filePath: string): Promise<ParsedSession[]> {
         let cost: number | undefined;
         let totalInput = 0;
         let totalOutput = 0;
+        let lastModel: string | undefined;
         const re = /Current Cost:\s*\$([0-9]+(?:\.[0-9]+)?)/g;
         for (const msg of arr) {
             const content = Array.isArray(msg?.content) ? msg.content : [];
+            const role = msg?.role || '';
+            let msgChars = 0;
             for (const c of content) {
                 if (typeof c?.text === 'string') {
+                    msgChars += c.text.length;
                     let m: RegExpExecArray | null;
                     while ((m = re.exec(c.text)) !== null) {
                         const n = parseFloat(m[1]);
@@ -1401,16 +1405,22 @@ async parse(filePath: string): Promise<ParsedSession[]> {
                     }
                 }
             }
+            // Estimate tokens from character count (~4 chars per token for English)
+            const estTokens = Math.round(msgChars / 4);
+            if (role === 'user') totalInput += estTokens;
+            else if (role === 'assistant') totalOutput += estTokens;
+            // Try to extract model from assistant content
+            if (typeof msg?.model === 'string') lastModel = msg.model;
         }
         return [{
             sessionId: taskDir,
             timestamp: firstTs ? new Date(firstTs) : new Date(),
-            inputTokens: totalInput,
-            outputTokens: totalOutput,
+            inputTokens: totalInput || undefined,
+            outputTokens: totalOutput || undefined,
             messageCount: arr.length,
             projectPath: path_1.default.dirname(filePath),
             cost,
-            model: undefined,
+            model: lastModel,
             provider: 'kilocode',
         }];
     },
@@ -2539,6 +2549,57 @@ function initializeStorage() {
         db.exec('CREATE INDEX IF NOT EXISTS idx_finance_txn_type ON finance_transactions(type)');
         db.exec('CREATE INDEX IF NOT EXISTS idx_finance_wallet_account ON finance_wallets(account_id)');
 
+        // Safe migrations for existing databases
+        try { db.exec('ALTER TABLE finance_wallets ADD COLUMN metadata TEXT'); } catch { /* column exists */ }
+        // Add 'physical' to finance_wallets type CHECK constraint (old tables missing it)
+        try {
+          const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='finance_wallets'").get() as any;
+          if (row?.sql && !row.sql.includes("'physical'")) {
+            db.exec('ALTER TABLE finance_wallets RENAME TO finance_wallets_old');
+            db.exec(`
+              CREATE TABLE finance_wallets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL CHECK(type IN ('bank','debit_card','credit_card','crypto','cash','physical','ewallet','other')),
+                provider TEXT, last_four TEXT, balance REAL DEFAULT 0.0,
+                currency TEXT DEFAULT 'USD', is_archived INTEGER DEFAULT 0,
+                metadata TEXT,
+                created_at DATETIME DEFAULT (datetime('now','localtime')),
+                updated_at DATETIME DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
+              )
+            `);
+            db.exec('INSERT INTO finance_wallets SELECT id,account_id,name,type,provider,last_four,balance,currency,is_archived,metadata,created_at,updated_at FROM finance_wallets_old');
+            db.exec('DROP TABLE finance_wallets_old');
+            console.log('[DB MIGRATION] finance_wallets CHECK constraint updated to include physical');
+          }
+        } catch (e: any) { console.log('[DB MIGRATION] wallets CHECK skip:', e?.message); }
+
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS finance_crypto_prices (
+            coin_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            current_price REAL NOT NULL,
+            market_cap REAL,
+            total_volume REAL,
+            price_change_24h REAL,
+            price_change_percentage_24h REAL,
+            last_updated TEXT NOT NULL
+          )
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS finance_crypto_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            coin_id TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            price REAL NOT NULL,
+            UNIQUE(coin_id, timestamp)
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_finance_crypto_history_coin ON finance_crypto_history(coin_id)');
+
         // Seed default categories (only if empty)
         const existingCats = db.prepare('SELECT COUNT(*) as count FROM finance_categories').get() as { count: number };
         if (existingCats.count === 0) {
@@ -2582,6 +2643,8 @@ function initializeStorage() {
         db.exec('CREATE INDEX IF NOT EXISTS idx_stats_hourly_date_hour_type_sec ON stats_hourly(date, hour, app_type, total_seconds)');
         // Covering index for get-dashboard-data top-apps/top-domains queries
         db.exec('CREATE INDEX IF NOT EXISTS idx_stats_daily_date_type_name_sec ON stats_daily(date, app_type, app_name, total_seconds, session_count)');
+        // Covering index for get-dashboard-aggregates weekly heatmap (date + app_name + total_seconds)
+        db.exec('CREATE INDEX IF NOT EXISTS idx_stats_daily_date_app_sec ON stats_daily(date, app_name, total_seconds)');
 
         // Triggers for auto-aggregation
         db.exec(`
@@ -2886,6 +2949,7 @@ function updateAggregates(timestamp, app, category, duration_ms, domain, is_brow
                     session_count = session_count + 1
             `).run(date, browserAppName, duration_sec, duration_sec);
         }
+        markStatsDirty();
         console.log('[DeskFlow] ✅ Aggregates updated for', app);
     }
     catch (err) {
@@ -3440,6 +3504,7 @@ function saveWindowState(state: WindowState): void {
 }
 function createWindow() {
     electron_1.Menu.setApplicationMenu(null);
+    console.log('BUILD MARKER v4');
     const preloadPath = path_1.default.join(__dirname, 'preload.cjs');
     console.log('[DeskFlow] Preload path:', preloadPath);
     console.log('[DeskFlow] __dirname:', __dirname);
@@ -3478,13 +3543,37 @@ function createWindow() {
         mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     }
     else {
-        electron_1.protocol.handle('app', (request) => {
-            const url = new URL(request.url);
-            const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
-            const filePath = path_1.default.join(__dirname, '../dist', rel);
-            return electron_1.net.fetch(pathToFileURL(filePath).toString());
+        const dist = path_1.default.join(__dirname, '../dist');
+        const mimeTypes = {
+            '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
+            '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
+            '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+            '.woff': 'font/woff', '.woff2': 'font/woff2', '.map': 'application/json',
+        };
+        const server = http_1.default.createServer((req, res) => {
+            let rel = (req.url || '').split('?')[0].split('#')[0];
+            if (rel === '/') rel = '/index.html';
+            const filePath = path_1.default.join(dist, rel);
+            const ext = path_1.default.extname(filePath);
+            fs_1.default.readFile(filePath, (err, data) => {
+                if (err) {
+                    fs_1.default.readFile(path_1.default.join(dist, 'index.html'), (err2, data2) => {
+                        if (err2) { res.writeHead(500); res.end('Internal Server Error'); return; }
+                        res.writeHead(200, { 'Content-Type': 'text/html' });
+                        res.end(data2);
+                    });
+                    return;
+                }
+                res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+                res.end(data);
+            });
         });
-        mainWindow.loadURL('app://local/index.html');
+        server.listen(0, '127.0.0.1', () => {
+            const addr = server.address();
+            const port = addr && typeof addr === 'object' ? addr.port : 38123;
+            console.log('[DeskFlow] Serving on http://localhost:' + port);
+            mainWindow.loadURL('http://localhost:' + port + '/index.html');
+        });
     }
     // Log loading errors
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
@@ -3492,6 +3581,19 @@ function createWindow() {
     });
     mainWindow.webContents.on('did-finish-load', () => {
         console.log('[DeskFlow] Page loaded successfully');
+    });
+    
+    // Handle window close — ask renderer if unsaved changes exist first
+    let closingAllowed = false;
+    mainWindow.on('close', (event) => {
+        if (closingAllowed) return; // already confirmed
+        event.preventDefault();
+        mainWindow?.webContents.send('workspace-request-save');
+    });
+    // Listen for renderer saying "ok, close now"
+    electron_1.ipcMain.on('workspace-allow-close', () => {
+        closingAllowed = true;
+        mainWindow?.close();
     });
     
     // CRITICAL: Call pollForeground ONCE immediately on startup to detect current app
@@ -3614,9 +3716,9 @@ function createWindow() {
         checkSleepGap(lastFocusTime, Date.now());
     }
 
-    // Toggle DevTools with Ctrl+Shift+I - only when app window is focused
+    // Toggle DevTools with Ctrl+Shift+I
     mainWindow.webContents.on('before-input-event', (event, input) => {
-        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
             if (input.key === 'I' && input.control && input.shift) {
                 event.preventDefault();
                 if (mainWindow.webContents.isDevToolsOpened()) {
@@ -4552,7 +4654,8 @@ function computePeriodRange(period: string, dateOffset: number = 0): { start: st
             break;
         case 'week': {
             const day = now.getDay();
-            start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day);
+            const diff = day === 0 ? 6 : day - 1;
+            start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
             end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
             break;
         }
@@ -4746,162 +4849,255 @@ function buildHourlyHeatmap(logs: any[], tierMap: Map<string, string>, weekRange
     return grid;
 }
 
+// ── Freeze-resistant terminal logging ──────────────────────────────
+function frozenLog(...args: any[]) {
+  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a).substring(0,200) : String(a)).join(' ');
+  process.stderr.write(`[FROZEN-DBG] ${msg}\n`);
+  console.log(`[FROZEN-DBG] ${msg}`);
+}
+
+electron_1.ipcMain.handle('terminal:log', async (_, ...args: any[]) => {
+  frozenLog(...args);
+  return { success: true };
+});
+
+// ── Dashboard cache (period→data, invalidated on stats_daily write) ──
+let dashboardCache: { key: string; data: any; builtAt: number } | null = null;
+let statsDirty = true;
+const DASHBOARD_TTL_MS = 60_000;
+function markStatsDirty() { statsDirty = true; }
+
+// In-flight dedupe for overlapping requests
+const dashboardInFlight = new Map<string, Promise<any>>();
+
 // ── IPC: get-dashboard-aggregates ───────────────────────────────────
 electron_1.ipcMain.handle('get-dashboard-aggregates', async (_, request: { period: string; dateOffset?: number; weekOffset?: number }) => {
     ensureDb();
-    try {
-        const { period, dateOffset = 0, weekOffset = 0 } = request;
-        const periodRange = computePeriodRange(period, dateOffset);
-        const weekRange = computeWeekRange(period, dateOffset, weekOffset);
-        const tierMap = getTierMap(db);
+    const { period, dateOffset = 0, weekOffset = 0 } = request;
+    const cacheKey = `${period}|${dateOffset}|${weekOffset}`;
+    const t0 = Date.now();
+    frozenLog('get-dashboard-aggregates START', period, dateOffset, weekOffset);
 
-        // 1. Weekly heatmap
-        const weeklyRows = db.prepare(`
-            SELECT date, app_name, total_seconds FROM stats_daily
-            WHERE date >= ? AND date <= ?
-            ORDER BY date
-        `).all(periodRange.start, periodRange.end) as any[];
-        const weeklyHeatmap = buildWeeklyHeatmap(weeklyRows, tierMap);
+    // In-flight dedupe — share the same promise for identical in-flight requests
+    const existing = dashboardInFlight.get(cacheKey);
+    if (existing) {
+        frozenLog('get-dashboard-aggregates REUSING IN-FLIGHT');
+        return existing;
+    }
 
-        // 2. Hourly heatmap (raw logs for target week)
-        const hourlyLogs = db.prepare(`
-            SELECT timestamp, app, category, duration_ms, domain
-            FROM logs WHERE timestamp >= ? AND timestamp < ? AND duration_ms > 0
-            ORDER BY timestamp
-        `).all(weekRange.start, weekRange.end) as any[];
-        const hourlyHeatmap = buildHourlyHeatmap(hourlyLogs, tierMap, weekRange);
+    // Fresh cache check
+    const fresh = dashboardCache
+        && dashboardCache.key === cacheKey
+        && !statsDirty
+        && (Date.now() - dashboardCache.builtAt) < DASHBOARD_TTL_MS;
+    if (fresh) {
+        frozenLog('get-dashboard-aggregates CACHE HIT after', Date.now() - t0, 'ms');
+        return dashboardCache.data;
+    }
+    frozenLog('get-dashboard-aggregates CACHE MISS — running queries');
 
-        // 3. Website stats
-        const websiteStats = db.prepare(`
-            SELECT app_name as domain, category,
-                   SUM(total_seconds) as totalSeconds,
-                   SUM(session_count) as sessions
-            FROM stats_daily
-            WHERE date >= ? AND date < ? AND app_type = 'domain'
-            GROUP BY app_name, category
-            ORDER BY totalSeconds DESC
-        `).all(periodRange.start, periodRange.end);
+    const pInner = (async () => {
+        try {
+            const t1 = Date.now();
+            const periodRange = computePeriodRange(period, dateOffset);
+            frozenLog('computePeriodRange done in', Date.now() - t1, 'ms range:', periodRange.start, periodRange.end);
+            const weekRange = computeWeekRange(period, dateOffset, weekOffset);
+            const tierMap = getTierMap(db);
 
-        // 4. App stats
-        const appStatsRaw = db.prepare(`
-            SELECT app_name as app, category,
-                   SUM(total_seconds) as totalSeconds,
-                   SUM(session_count) as sessions
-            FROM stats_daily
-            WHERE date >= ? AND date < ? AND app_type = 'app'
-            GROUP BY app_name, category
-            ORDER BY totalSeconds DESC
-        `).all(periodRange.start, periodRange.end) as any[];
-        const appStats = appStatsRaw.map((row: any) => ({ ...row, tier: tierMap.get(row.app) || 'neutral' }));
+            // 1. Weekly heatmap (single-pass — tier breakdown merged into this loop)
+            const tQ1 = Date.now();
+            const weeklyRows = db.prepare(`
+                SELECT date, app_name, total_seconds FROM stats_daily
+                WHERE date >= ? AND date <= ?
+                ORDER BY date
+            `).all(periodRange.start, periodRange.end) as any[];
+            frozenLog('Q1 (stats_daily weekly) took', Date.now() - tQ1, 'ms rows:', weeklyRows.length);
+            const weeklyHeatmap = buildWeeklyHeatmap(weeklyRows, tierMap);
 
-        // 5. Overview stats
-        const overviewBase = db.prepare(`
-            SELECT SUM(total_seconds) as totalSeconds
-            FROM stats_daily
-            WHERE date >= ? AND date < ?
-        `).get(periodRange.start, periodRange.end) as any;
+            // 2. Hourly heatmap (raw logs for target week)
+            const tQ2 = Date.now();
+            const hourlyLogs = db.prepare(`
+                SELECT timestamp, app, category, duration_ms, domain
+                FROM logs WHERE timestamp >= ? AND timestamp < ? AND duration_ms > 0
+                ORDER BY timestamp
+            `).all(weekRange.start, weekRange.end) as any[];
+            frozenLog('Q2 (logs hourly) took', Date.now() - tQ2, 'ms rows:', hourlyLogs.length);
 
-        let productiveSeconds = 0, neutralSeconds = 0, distractingSeconds = 0;
-        for (const row of weeklyRows) {
-            const tier = tierMap.get(row.app_name) || 'neutral';
-            if (tier === 'productive') productiveSeconds += row.total_seconds;
-            else if (tier === 'distracting') distractingSeconds += row.total_seconds;
-            else neutralSeconds += row.total_seconds;
-        }
+            const hourlyHeatmap = buildHourlyHeatmap(hourlyLogs, tierMap, weekRange);
 
-        // 6. Recent sessions (LIMIT 15)
-        const recentSessionsRaw = db.prepare(`
-            SELECT id, timestamp, app, title, duration_ms, category, is_browser_tracking, domain, url
-            FROM logs ORDER BY id DESC LIMIT 15
-        `).all() as any[];
-        const recentSessions = recentSessionsRaw.map((s: any) => ({
-            id: s.id,
-            timestamp: s.timestamp,
-            app: s.app,
-            title: s.title,
-            durationSeconds: Math.round(s.duration_ms / 1000),
-            category: s.category || 'Other',
-            isBrowser: s.is_browser_tracking === 1,
-            domain: s.domain,
-            url: s.url,
-            elapsed: computeElapsed(s.timestamp),
-        }));
+            // 3. Website stats
+            const tQ3 = Date.now();
+            const websiteStats = db.prepare(`
+                SELECT app_name as domain, category,
+                       SUM(total_seconds) as totalSeconds,
+                       SUM(session_count) as sessions
+                FROM stats_daily
+                WHERE date >= ? AND date < ? AND app_type = 'domain'
+                GROUP BY app_name, category
+                ORDER BY totalSeconds DESC
+            `).all(periodRange.start, periodRange.end);
 
-        // 7. Fallback: if stats_daily is empty but logs have data, aggregate directly
-        const totalSeconds = overviewBase?.totalSeconds || 0;
-        if (totalSeconds === 0 || weeklyRows.length === 0) {
-            const logTotal = db.prepare(`
-                SELECT SUM(CAST(duration_ms AS REAL) / 1000.0) as totalSeconds
-                FROM logs WHERE duration_ms > 0 AND timestamp >= ? AND timestamp < ?
+            // 4. App stats
+            const appStatsRaw = db.prepare(`
+                SELECT app_name as app, category,
+                       SUM(total_seconds) as totalSeconds,
+                       SUM(session_count) as sessions
+                FROM stats_daily
+                WHERE date >= ? AND date < ? AND app_type = 'app'
+                GROUP BY app_name, category
+                ORDER BY totalSeconds DESC
+            `).all(periodRange.start, periodRange.end) as any[];
+            const appStats = appStatsRaw.map((row: any) => ({ ...row, tier: tierMap.get(row.app) || 'neutral' }));
+            frozenLog('Q3-4 (stats_daily group) took', Date.now() - tQ3, 'ms');
+
+            // 5. Overview stats
+            const overviewBase = db.prepare(`
+                SELECT SUM(total_seconds) as totalSeconds
+                FROM stats_daily
+                WHERE date >= ? AND date < ?
             `).get(periodRange.start, periodRange.end) as any;
-            if (logTotal?.totalSeconds) {
-                const fallbackRows = db.prepare(`
-                    SELECT DATE(timestamp) as date, COALESCE(domain, app) as app_name,
-                           SUM(CAST(duration_ms AS REAL) / 1000.0) as total_seconds
-                    FROM logs WHERE duration_ms > 0 AND timestamp >= ? AND timestamp <= ?
-                    GROUP BY DATE(timestamp), COALESCE(domain, app)
-                    ORDER BY date
-                `).all(periodRange.start, periodRange.end) as any[];
-                let fbProductive = 0, fbNeutral = 0, fbDistracting = 0;
-                let fbSample = '';
-                for (const row of fallbackRows) {
-                    const tier = tierMap.get(row.app_name) || 'neutral';
-                    if (!fbSample) fbSample = `app=${row.app_name} tier=${tier} secs=${row.total_seconds}`;
-                    if (tier === 'productive') fbProductive += row.total_seconds;
-                    else if (tier === 'distracting') fbDistracting += row.total_seconds;
-                    else fbNeutral += row.total_seconds;
-                }
-                console.log(`[DashFallback] rows=${fallbackRows.length} total=${logTotal.totalSeconds} productive=${fbProductive} neutral=${fbNeutral} distracting=${fbDistracting} sample="${fbSample}"`);
-                const fallbackWebsite = db.prepare(`
-                    SELECT domain, category,
-                           SUM(CAST(duration_ms AS REAL) / 1000.0) as totalSeconds,
-                           COUNT(*) as sessions
-                    FROM logs WHERE domain IS NOT NULL AND duration_ms > 0 AND timestamp >= ? AND timestamp < ?
-                    GROUP BY domain, category
-                    ORDER BY totalSeconds DESC
-                `).all(periodRange.start, periodRange.end);
-                const fallbackApps = db.prepare(`
-                    SELECT app, category,
-                           SUM(CAST(duration_ms AS REAL) / 1000.0) as totalSeconds,
-                           COUNT(*) as sessions
-                    FROM logs WHERE domain IS NULL AND duration_ms > 0 AND timestamp >= ? AND timestamp < ?
-                    GROUP BY app, category
-                    ORDER BY totalSeconds DESC
-                `).all(periodRange.start, periodRange.end) as any[];
-                return {
-                    weeklyHeatmap: buildWeeklyHeatmap(fallbackRows, tierMap),
-                    hourlyHeatmap,
-                    websiteStats: fallbackWebsite,
-                    appStats: fallbackApps.map((row: any) => ({ ...row, tier: tierMap.get(row.app) || 'neutral' })),
-                    overview: {
-                        totalSeconds: logTotal.totalSeconds,
-                        productiveSeconds: fbProductive,
-                        neutralSeconds: fbNeutral,
-                        distractingSeconds: fbDistracting,
-                    },
-                    recentSessions,
-                };
-            }
-        }
 
-        return {
-            weeklyHeatmap,
-            hourlyHeatmap,
-            websiteStats,
-            appStats,
-            overview: {
-                totalSeconds,
-                productiveSeconds,
-                neutralSeconds,
-                distractingSeconds,
-            },
-            recentSessions,
-        };
-    }
-    catch (err: any) {
-        console.error('[DeskFlow] get-dashboard-aggregates error:', err);
-        return { error: err.message };
-    }
+            let productiveSeconds = 0, neutralSeconds = 0, distractingSeconds = 0;
+            for (const row of weeklyRows) {
+                const tier = tierMap.get(row.app_name) || 'neutral';
+                if (tier === 'productive') productiveSeconds += row.total_seconds;
+                else if (tier === 'distracting') distractingSeconds += row.total_seconds;
+                else neutralSeconds += row.total_seconds;
+            }
+
+            // 6. Recent sessions — group consecutive same-app logs into sessions (LIMIT 20)
+            const t6 = Date.now();
+            const recentLogsRaw = db.prepare(`
+                SELECT id, timestamp, app, title, duration_ms, category, is_browser_tracking, domain, url
+                FROM logs ORDER BY id DESC LIMIT 200
+            `).all() as any[];
+            frozenLog('query 6 (recent logs 200) done in', Date.now() - t6, 'ms');
+
+            // Group consecutive same-app entries (within 10s gap) into sessions
+            const sessions: any[] = [];
+            for (const log of recentLogsRaw) {
+                const appName = log.is_browser_tracking ? (log.domain || log.app) : log.app;
+                const lastSession = sessions.length > 0 ? sessions[sessions.length - 1] : null;
+                const logTime = new Date(log.timestamp).getTime();
+
+                if (lastSession && lastSession.app === appName && lastSession.isBrowser === !!log.is_browser_tracking) {
+                    const gap = lastSession.startTime - logTime;
+                    if (gap < 10000) {
+                        lastSession.durationSeconds += Math.round((log.duration_ms || 0) / 1000);
+                        lastSession.startTime = logTime;
+                        lastSession.id = log.id;
+                        continue;
+                    }
+                }
+                sessions.push({
+                    id: log.id,
+                    timestamp: log.timestamp,
+                    app: appName,
+                    title: log.title || '',
+                    durationSeconds: Math.round((log.duration_ms || 0) / 1000),
+                    category: log.category || 'Other',
+                    isBrowser: !!log.is_browser_tracking,
+                    domain: log.domain,
+                    url: log.url,
+                    startTime: logTime,
+                });
+                if (sessions.length >= 15) break;
+            }
+            const recentSessions = sessions.map((s: any) => ({
+                ...s,
+                elapsed: computeElapsed(new Date(s.startTime).toISOString()),
+            }));
+
+            // 7. Fallback: if stats_daily is empty but logs have data, aggregate directly
+            const totalSeconds = overviewBase?.totalSeconds || 0;
+            if (totalSeconds === 0 || weeklyRows.length === 0) {
+                const logTotal = db.prepare(`
+                    SELECT SUM(CAST(duration_ms AS REAL) / 1000.0) as totalSeconds
+                    FROM logs WHERE duration_ms > 0 AND timestamp >= ? AND timestamp < ?
+                `).get(periodRange.start, periodRange.end) as any;
+                if (logTotal?.totalSeconds) {
+                    const fallbackRows = db.prepare(`
+                        SELECT DATE(timestamp) as date, COALESCE(domain, app) as app_name,
+                               SUM(CAST(duration_ms AS REAL) / 1000.0) as total_seconds
+                        FROM logs WHERE duration_ms > 0 AND timestamp >= ? AND timestamp <= ?
+                        GROUP BY DATE(timestamp), COALESCE(domain, app)
+                        ORDER BY date
+                    `).all(periodRange.start, periodRange.end) as any[];
+                    let fbProductive = 0, fbNeutral = 0, fbDistracting = 0;
+                    let fbSample = '';
+                    for (const row of fallbackRows) {
+                        const tier = tierMap.get(row.app_name) || 'neutral';
+                        if (!fbSample) fbSample = `app=${row.app_name} tier=${tier} secs=${row.total_seconds}`;
+                        if (tier === 'productive') fbProductive += row.total_seconds;
+                        else if (tier === 'distracting') fbDistracting += row.total_seconds;
+                        else fbNeutral += row.total_seconds;
+                    }
+                    console.log(`[DashFallback] rows=${fallbackRows.length} total=${logTotal.totalSeconds} productive=${fbProductive} neutral=${fbNeutral} distracting=${fbDistracting} sample="${fbSample}"`);
+                    const fallbackWebsite = db.prepare(`
+                        SELECT domain, category,
+                               SUM(CAST(duration_ms AS REAL) / 1000.0) as totalSeconds,
+                               COUNT(*) as sessions
+                        FROM logs WHERE domain IS NOT NULL AND duration_ms > 0 AND timestamp >= ? AND timestamp < ?
+                        GROUP BY domain, category
+                        ORDER BY totalSeconds DESC
+                    `).all(periodRange.start, periodRange.end);
+                    const fallbackApps = db.prepare(`
+                        SELECT app, category,
+                               SUM(CAST(duration_ms AS REAL) / 1000.0) as totalSeconds,
+                               COUNT(*) as sessions
+                        FROM logs WHERE domain IS NULL AND duration_ms > 0 AND timestamp >= ? AND timestamp < ?
+                        GROUP BY app, category
+                        ORDER BY totalSeconds DESC
+                    `).all(periodRange.start, periodRange.end) as any[];
+                    return {
+                        weeklyHeatmap: buildWeeklyHeatmap(fallbackRows, tierMap),
+                        hourlyHeatmap,
+                        websiteStats: fallbackWebsite,
+                        appStats: fallbackApps.map((row: any) => ({ ...row, tier: tierMap.get(row.app) || 'neutral' })),
+                        overview: {
+                            totalSeconds: logTotal.totalSeconds,
+                            productiveSeconds: fbProductive,
+                            neutralSeconds: fbNeutral,
+                            distractingSeconds: fbDistracting,
+                        },
+                        recentSessions,
+                    };
+                }
+            }
+
+            const totalMs = Date.now() - t0;
+            frozenLog('get-dashboard-aggregates TOTAL in', totalMs, 'ms');
+            return {
+                weeklyHeatmap,
+                hourlyHeatmap,
+                websiteStats,
+                appStats,
+                overview: {
+                    totalSeconds,
+                    productiveSeconds,
+                    neutralSeconds,
+                    distractingSeconds,
+                },
+                recentSessions,
+            };
+        }
+        catch (err: any) {
+            frozenLog('get-dashboard-aggregates ERROR:', err.message);
+            console.error('[DeskFlow] get-dashboard-aggregates error:', err);
+            return { error: err.message };
+        }
+    })();
+
+    pInner.then((response) => {
+        frozenLog('dashboard cache stored for', cacheKey);
+        dashboardCache = { key: cacheKey, data: response, builtAt: Date.now() };
+        if (period === 'all') statsDirty = false;
+        dashboardInFlight.delete(cacheKey);
+    }).catch(() => {
+        dashboardInFlight.delete(cacheKey);
+    });
+    dashboardInFlight.set(cacheKey, pInner);
+    return pInner;
 });
 
 // ── IPC: get-app-stats ──────────────────────────────────────────────
@@ -7693,6 +7889,8 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
 
         const aiUsage = db.prepare(`
             SELECT tool,
+                   SUM(input_tokens) as tokens_in,
+                   SUM(output_tokens) as tokens_out,
                    SUM(input_tokens + output_tokens) as tokens,
                    SUM(cost_usd) as cost,
                    COUNT(*) as session_count,
@@ -7712,6 +7910,8 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
         // Daily breakdown per tool for charts (real message_count)
         const aiUsageDaily = db.prepare(`
             SELECT tool, date,
+                   SUM(input_tokens) as tokens_in,
+                   SUM(output_tokens) as tokens_out,
                    SUM(input_tokens + output_tokens) as tokens,
                    SUM(cost_usd) as cost,
                    COUNT(*) as session_count,
@@ -7725,6 +7925,8 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
         // Project breakdown per tool
         const aiUsageProjects = db.prepare(`
             SELECT tool, project_path,
+                   SUM(input_tokens) as tokens_in,
+                   SUM(output_tokens) as tokens_out,
                    SUM(input_tokens + output_tokens) as tokens,
                    SUM(message_count) as messageCount,
                    COUNT(*) as session_count
@@ -7738,6 +7940,8 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
         // Model breakdown per tool
         const aiUsageModels = db.prepare(`
             SELECT tool, model,
+                   SUM(input_tokens) as tokens_in,
+                   SUM(output_tokens) as tokens_out,
                    SUM(input_tokens + output_tokens) as tokens,
                    SUM(message_count) as messageCount,
                    COUNT(*) as session_count
@@ -7746,6 +7950,22 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
             ${dateFilterSQL ? 'AND date >= ?' : ''}
             GROUP BY tool, model
             ORDER BY tokens DESC
+        `).all(...(dateFilterParam ? [dateFilterParam] : []));
+
+        // Daily model breakdown per tool (for model timeline chart)
+        const aiUsageModelDaily = db.prepare(`
+            SELECT tool, model, date,
+                   SUM(input_tokens) as tokens_in,
+                   SUM(output_tokens) as tokens_out,
+                   SUM(input_tokens + output_tokens) as tokens,
+                   SUM(message_count) as messageCount,
+                   COUNT(*) as session_count,
+                   SUM(cost_usd) as cost
+            FROM ai_usage
+            WHERE model IS NOT NULL AND model != ''
+            ${dateFilterSQL ? 'AND date >= ?' : ''}
+            GROUP BY tool, model, date
+            ORDER BY date ASC
         `).all(...(dateFilterParam ? [dateFilterParam] : []));
 
         const byTool: Record<string, any> = {};
@@ -7757,6 +7977,8 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
             const models = row.models ? row.models.split(',').filter((m: string) => m) : [];
             byTool[row.tool] = {
                 tokens: row.tokens || 0,
+                tokens_in: row.tokens_in || 0,
+                tokens_out: row.tokens_out || 0,
                 cost: row.cost || 0,
                 sessions: row.session_count || 0,
                 messageCount: row.messageCount || 0,
@@ -7764,7 +7986,8 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
                 models,
                 daily: {},
                 projects: [],
-                modelBreakdown: []
+                modelBreakdown: [],
+                modelDaily: {}
             };
             totalTokens += (row.tokens || 0);
             totalCost += (row.cost || 0);
@@ -7776,6 +7999,8 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
             if (byTool[row.tool]) {
                 byTool[row.tool].daily[row.date] = {
                     tokens: row.tokens || 0,
+                    tokens_in: row.tokens_in || 0,
+                    tokens_out: row.tokens_out || 0,
                     cost: row.cost || 0,
                     sessions: row.session_count || 0,
                     messageCount: row.messageCount || 0
@@ -7789,6 +8014,8 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
                 byTool[row.tool].projects.push({
                     path: row.project_path,
                     tokens: row.tokens || 0,
+                    tokens_in: row.tokens_in || 0,
+                    tokens_out: row.tokens_out || 0,
                     messageCount: row.messageCount || 0,
                     sessions: row.session_count || 0
                 });
@@ -7801,9 +8028,28 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
                 byTool[row.tool].modelBreakdown.push({
                     model: row.model,
                     tokens: row.tokens || 0,
+                    tokens_in: row.tokens_in || 0,
+                    tokens_out: row.tokens_out || 0,
                     messageCount: row.messageCount || 0,
                     sessions: row.session_count || 0
                 });
+            }
+        }
+
+        // Populate daily model breakdown
+        for (const row of aiUsageModelDaily) {
+            if (byTool[row.tool]) {
+                if (!byTool[row.tool].modelDaily[row.model]) {
+                    byTool[row.tool].modelDaily[row.model] = {};
+                }
+                byTool[row.tool].modelDaily[row.model][row.date] = {
+                    tokens: row.tokens || 0,
+                    tokens_in: row.tokens_in || 0,
+                    tokens_out: row.tokens_out || 0,
+                    messageCount: row.messageCount || 0,
+                    sessions: row.session_count || 0,
+                    cost: row.cost || 0
+                };
             }
         }
 
@@ -8375,18 +8621,24 @@ function markTaskCompleted(terminalId: string) {
 // Inline node-pty based TerminalManager
 const terminalManager = {
   terminals: new Map(),
+  intentionalKills: new Set<string>(),
+  spawnTimes: new Map<string, number>(),
   spawn(id: string, cwd: string, cols: number = 80, rows: number = 24) {
     try {
-      console.log('[TerminalManager] spawn called:', id, cwd, cols, rows);
+      console.log('[TerminalManager] spawn called:', id, 'cwd:', cwd, 'has:', this.terminals.has(id), 'existing keys:', Array.from(this.terminals.keys()));
       if (this.terminals.has(id)) {
+        console.log('[TerminalManager] DEDUPE KILL for:', id);
         this.kill(id);
       }
       const os = require('os');
+      const fs = require('fs');
       const pty = require('node-pty');
       const shell = process.platform === 'win32' ? (process.env.COMSPEC || 'powershell.exe') : (process.env.SHELL || '/bin/bash');
-      const workingDir = cwd && cwd.length > 0 ? cwd : os.homedir();
+      let workingDir = cwd && cwd.length > 0 ? cwd : os.homedir();
+      try { if (!fs.existsSync(workingDir)) { workingDir = os.homedir(); } } catch {}
       console.log('[TerminalManager] spawning shell:', shell, 'in', workingDir);
       const proc = pty.spawn(shell, [], { name: 'xterm-256color', cols, rows, cwd: workingDir, env: process.env });
+      this.spawnTimes.set(id, Date.now());
       console.log('[TerminalManager] PTY spawned, pid:', proc.pid);
       const ip: any = {
         write: (data: string) => proc.write(data),
@@ -8415,7 +8667,8 @@ const terminalManager = {
   },
   kill(id: string) {
     const t = this.terminals.get(id);
-    if (t) { try { t.pty.kill(); } catch {} this.terminals.delete(id); terminalMessageCounts.delete(id); releaseAllLocksForTerminal(id); clearTerminalReadyFallback(id); terminalReadySent.delete(id); return true; }
+    if (t) { console.log('[TerminalManager] KILL:', id); this.intentionalKills.add(id); this.spawnTimes.delete(id); try { t.pty.kill(); } catch {} this.terminals.delete(id); terminalMessageCounts.delete(id); releaseAllLocksForTerminal(id); clearTerminalReadyFallback(id); terminalReadySent.delete(id); return true; }
+    console.log('[TerminalManager] KILL: no terminal for', id);
     return false;
   },
   getDataHandler(id: string, cb: (d: string) => void) {
@@ -8626,7 +8879,11 @@ electron_1.ipcMain.handle('terminal:create', async (_event, id: string, cwd: str
             terminalManager.getExitHandler(id, (exitCode: number, signal: string) => {
                 clearAgentTimeout(id);
                 failPendingWrites(id);
-                broadcast('terminal:exit', id, exitCode, signal);
+                const intentional = terminalManager.intentionalKills.has(id);
+                const spawnTime = terminalManager.spawnTimes.get(id);
+                const isRecentSpawn = spawnTime && (Date.now() - spawnTime < 2000);
+                terminalManager.spawnTimes.delete(id);
+                broadcast('terminal:exit', id, exitCode, signal, intentional || !!isRecentSpawn);
             });
         }
         return result;
@@ -8647,6 +8904,7 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
             armTerminalReadyFallback(id);
 
             terminalManager.getDataHandler(id, function (data) {
+                console.log('[TERMINAL_DEBUG] C2 data callback FIRED for', id, 'data length:', data.length, 'data:', JSON.stringify(data.substring(0, 200)));
                 if (!terminalReadySent.has(id)) {
                     terminalReadySent.add(id);
                     clearTerminalReadyFallback(id);
@@ -8728,7 +8986,11 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
             terminalManager.getExitHandler(id, (exitCode: number, signal: string) => {
                 clearAgentTimeout(id);
                 failPendingWrites(id);
-                broadcast('terminal:exit', id, exitCode, signal);
+                const intentional = terminalManager.intentionalKills.has(id);
+                const spawnTime = terminalManager.spawnTimes.get(id);
+                const isRecentSpawn = spawnTime && (Date.now() - spawnTime < 2000);
+                terminalManager.spawnTimes.delete(id);
+                broadcast('terminal:exit', id, exitCode, signal, intentional || !!isRecentSpawn);
             });
         }
         return result;
@@ -8824,6 +9086,44 @@ electron_1.ipcMain.handle('agent:retry-launch', async (_event, terminalId: strin
 electron_1.ipcMain.handle('terminal:write-raw', async (_event, terminalId: string, data: string) => {
     const success = terminalManager.write(terminalId, data);
     return { success };
+});
+
+electron_1.ipcMain.handle('terminal:write-display', async (_event, terminalId: string, data: string) => {
+    broadcast('terminal:data', terminalId, data);
+    return { success: true };
+});
+
+electron_1.ipcMain.handle('capture-opencode-session-id', async (_event, workspaceDir: string, sinceTimestamp?: number) => {
+    try {
+        const homedir = require('os').homedir();
+        const dbPath = path_1.default.join(homedir, '.local', 'share', 'opencode', 'opencode.db');
+        if (!fs_1.default.existsSync(dbPath)) {
+            return { success: false, sessionId: null, source: 'generated', reason: 'opencode db not found at ' + dbPath };
+        }
+        const Database = require('better-sqlite3');
+        const odb = new Database(dbPath, { readonly: true });
+        try {
+            let row;
+            if (sinceTimestamp) {
+                const sinceISO = new Date(sinceTimestamp).toISOString();
+                row = odb.prepare('SELECT id FROM session WHERE directory = ? AND time_created >= ? ORDER BY time_created DESC LIMIT 1').get(workspaceDir, sinceISO);
+            } else {
+                row = odb.prepare('SELECT id FROM session WHERE directory = ? ORDER BY time_created DESC LIMIT 1').get(workspaceDir);
+            }
+            odb.close();
+            if (row && row.id) {
+                return { success: true, sessionId: row.id, source: 'db' };
+            }
+            return { success: false, sessionId: null, source: 'generated', reason: 'no session for directory ' + workspaceDir };
+        }
+        catch (e) {
+            odb.close();
+            return { success: false, sessionId: null, source: 'generated', reason: String(e) };
+        }
+    }
+    catch (err) {
+        return { success: false, sessionId: null, source: 'generated', error: String(err) };
+    }
 });
 
 electron_1.ipcMain.handle('write-terminal', async (_event, terminalId: string, data: string) => {
@@ -9202,7 +9502,7 @@ electron_1.ipcMain.handle('save-terminal-session', async (_event, session: any) 
     try {
         const id = session.id || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         // Generate a resume ID if this is a new session and one wasn't provided
-        const resumeId = session.resumeId || `ses_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const resumeId = session.resumeId || `local_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         console.log('[HealthDebug] save-terminal-session called:', { id, projectId: session.projectId, agent: session.agent, topic: session.topic, resumeId });
         const existing = db.prepare('SELECT created_at FROM terminal_sessions WHERE id = ?').get(id);
         const cat = session.category || 'other';
@@ -9236,6 +9536,17 @@ electron_1.ipcMain.handle('save-terminal-session', async (_event, session: any) 
         return { success: true, id, resumeId };
     } catch (err: any) {
         console.error('[DeskFlow] save-terminal-session error:', err.message);
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('update-session-resume-id', async (_event, sessionId: string, resumeId: string) => {
+    if (!db) return { success: false, error: 'no db' };
+    try {
+        db.prepare('UPDATE terminal_sessions SET resume_id = ? WHERE id = ?').run(resumeId, sessionId);
+        return { success: true };
+    } catch (err: any) {
+        console.error('[DeskFlow] update-session-resume-id error:', err.message);
         return { success: false, error: err.message };
     }
 });
@@ -9749,6 +10060,17 @@ electron_1.ipcMain.handle('workspace:delete', async (_event, data: { projectId: 
         return { success: true };
     } catch (err: any) {
         console.error('[DeskFlow] workspace:delete error:', err.message);
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('workspace:list-all', async () => {
+    if (!db) return { success: false, error: 'No database' };
+    try {
+        const rows = db.prepare('SELECT ws.name, ws.project_id, ws.is_active, ws.sidebar_width, ws.active_tab, ws.updated_at, p.name AS project_name FROM workspace_state ws LEFT JOIN projects p ON ws.project_id = p.id ORDER BY ws.updated_at DESC').all() as any[];
+        return { success: true, data: rows.map(r => ({ name: r.name, projectId: r.project_id, projectName: r.project_name || r.project_id, isActive: r.is_active === 1, sidebarWidth: r.sidebar_width, activeTab: r.active_tab, updatedAt: r.updated_at })) };
+    } catch (err: any) {
+        console.error('[DeskFlow] workspace:list-all error:', err.message);
         return { success: false, error: err.message };
     }
 });
@@ -10312,6 +10634,18 @@ electron_1.ipcMain.handle('get-session-messages', async (_event, sessionId: stri
     } catch (err: any) {
         console.error('[DeskFlow] get-session-messages error:', err.message);
         return { success: false, error: err.message, data: [] };
+    }
+});
+
+electron_1.ipcMain.handle('get-terminal-messages', async (_event, sessionId: string) => {
+    if (!db) return [];
+    try {
+        return db.prepare(
+            'SELECT role, content, created_at FROM terminal_messages WHERE session_id = ? ORDER BY created_at ASC'
+        ).all(sessionId) as { role: string; content: string; created_at: string }[];
+    } catch (err: any) {
+        console.error('[IPC] get-terminal-messages error:', err.message);
+        return [];
     }
 });
 
@@ -11699,19 +12033,33 @@ function computeCost(model: string, inputTokens: number, outputTokens: number): 
 // ─── Shared Brief Generation (used by both fetch and regenerate) ──
 // ─── Topic Digest IPC ────────────────────────
 electron_1.ipcMain.handle('get-topic-digest', async (_event) => {
+  console.log('[TopicDigest] get-topic-digest called');
   try {
     const topics = db!.prepare('SELECT topic FROM ai_interests WHERE enabled = 1 ORDER BY created_at DESC').all() as any[];
     const topicNames = topics.map((t: any) => t.topic);
-    if (topicNames.length === 0) return { success: true, topics: [] };
+    console.log('[TopicDigest] topicNames:', topicNames);
+    if (topicNames.length === 0) {
+      console.log('[TopicDigest] no topics configured, returning empty');
+      return { success: true, topics: [] };
+    }
 
     const today = getTodayStr();
     const cached = db!.prepare('SELECT content FROM ai_briefs WHERE type = ? AND date = ?').get('topic', today) as any;
     if (cached) {
-      const parsed = JSON.parse(cached.content);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return { success: true, topics: parsed };
+      console.log('[TopicDigest] found cached brief for today');
+      try {
+        const parsed = JSON.parse(cached.content);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log('[TopicDigest] returning cached brief with', parsed.length, 'topics');
+          return { success: true, topics: parsed };
+        }
+        console.log('[TopicDigest] cached brief invalid, deleting');
+      } catch (e: any) {
+        console.warn('[TopicDigest] cached brief parse failed:', e.message);
       }
       db!.prepare('DELETE FROM ai_briefs WHERE type = ? AND date = ?').run('topic', today);
+    } else {
+      console.log('[TopicDigest] no cached brief, generating new one');
     }
 
     const p = userPreferences || {};
@@ -11719,7 +12067,7 @@ electron_1.ipcMain.handle('get-topic-digest', async (_event) => {
 
     interface TopicItem { topic: string; summary?: string };
     const topicItems: TopicItem[] = topicNames.map((t: string) => ({ topic: t }));
-    const systemPrompt = `You are an AI research assistant. For each topic provided, write 1-2 paragraphs of current-state research. Format as a JSON array of { topic, summary }. Max 200 tokens. Today is ${today}.`;
+    const systemPrompt = `Output raw JSON array only. Each item: {"topic":"exact name","summary":"1-2 paragraph current-state research (under 100 words)","sources":[]}. If unknown, summary="No major recent developments reported". Never fabricate. Never use markdown or code fences. Today is ${today}.`;
     const userMsg = `Topics: ${topicItems.map(t => t.topic).join(', ')}`;
 
     let result: { content: string; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null = null;
@@ -11731,7 +12079,7 @@ electron_1.ipcMain.handle('get-topic-digest', async (_event) => {
         const { result: r } = await runWithFallback(chain, {
           systemPrompt,
           messages: [{ role: 'user', content: userMsg }],
-          maxTokens: 200,
+          maxTokens: 400,
           temperature: 0.4,
         });
         result = r;
@@ -11760,16 +12108,71 @@ electron_1.ipcMain.handle('get-topic-digest', async (_event) => {
       }
     }
 
-    let parsedContent: any[];
-    try { parsedContent = JSON.parse(result!.content); } catch { parsedContent = [{ topic: 'digest', summary: result!.content }]; }
-
     if (!result || !result.content) {
       return { success: false, error: 'Topic digest generation returned no content', topics: [] };
+    }
+
+    function cleanDigestJson(raw: string): string {
+      let s = raw.trim();
+      const cb = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (cb) s = cb[1].trim();
+      const fs = s.indexOf('[');
+      const fb = s.indexOf('{');
+      let start = -1;
+      if (fs !== -1 && (fb === -1 || fs < fb)) start = fs; else if (fb !== -1) start = fb;
+      if (start === -1) throw new Error('no JSON found');
+      let depth = 0, inStr = false, end = -1;
+      for (let i = start; i < s.length; i++) {
+        const c = s[i];
+        if (inStr) { if (c === '\\') i++; else if (c === '"') inStr = false; continue; }
+        if (c === '"') { inStr = true; continue; }
+        if (c === '{' || c === '[') depth++;
+        if (c === '}' || c === ']') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end === -1) throw new Error('unmatched bracket');
+      return s.slice(start, end + 1);
+    }
+
+    let parsedContent: any[];
+    const contentType = Array.isArray(result.content) ? 'array' : typeof result.content === 'string' ? 'string' : 'other';
+    console.log(`[TopicDigest] result.content type: ${contentType}, value:`, result.content);
+
+    if (Array.isArray(result.content)) {
+      console.log('[TopicDigest] content is already an array, using directly');
+      parsedContent = result.content;
+    } else if (typeof result.content === 'string') {
+      console.log('[TopicDigest] content is string, attempting JSON.parse');
+      try {
+        parsedContent = JSON.parse(result.content);
+        console.log('[TopicDigest] JSON.parse succeeded');
+      } catch {
+        console.log('[TopicDigest] JSON.parse failed, trying cleanDigestJson');
+        try {
+          const cleaned = cleanDigestJson(result.content);
+          parsedContent = JSON.parse(cleaned);
+          console.log('[TopicDigest] cleanDigestJson + JSON.parse succeeded');
+        } catch (e: any) {
+          console.warn('[TopicDigest] parse failed, wrapping raw content:', e.message);
+          parsedContent = [{ topic: 'digest', summary: String(result.content) }];
+        }
+      }
+    } else {
+      console.warn('[TopicDigest] content is neither array nor string, wrapping:', typeof result.content);
+      parsedContent = [{ topic: 'digest', summary: String(result.content) }];
+    }
+
+    if (!Array.isArray(parsedContent)) {
+      try { parsedContent = JSON.parse(parsedContent); } catch {}
+      if (!Array.isArray(parsedContent)) {
+        console.warn('[TopicDigest] parsedContent not an array, wrapping');
+        parsedContent = [{ topic: 'digest', summary: String(parsedContent) }];
+      }
     }
 
     db!.prepare('INSERT OR REPLACE INTO ai_briefs (type, date, content, model_used, tokens_used, created_at) VALUES (?, ?, ?, ?, ?, datetime(\'now\'))')
       .run('topic', today, JSON.stringify(parsedContent), digestModel, 0);
 
+    console.log('[TopicDigest] returning success with', parsedContent.length, 'topics');
     return { success: true, topics: parsedContent };
   } catch (err: any) {
     console.error('[TopicDigest] Error:', err.message);
@@ -12115,16 +12518,37 @@ Example format: [{"name": "app1", "category": "Productivity"}, {"name": "app2", 
     }
 });
 
+function migrateProviderNames(state: any): any {
+  if (!state || !state.providers) return state;
+  const oldToNew: Record<string, string> = { cloudflayer: 'cloudflare', ollamah: 'ollama' };
+  state.providers = state.providers.filter((p: any) => {
+    const lowId = (p.id || '').toLowerCase();
+    const lowTid = (p.templateId || '').toLowerCase();
+    return lowId !== 'invilier' && lowTid !== 'invilier';
+  });
+  for (const p of state.providers) {
+    const idFixed = oldToNew[(p.id || '').toLowerCase()];
+    const tidFixed = oldToNew[(p.templateId || '').toLowerCase()];
+    const fixed = idFixed || tidFixed;
+    if (fixed) {
+      p.id = fixed;
+      p.templateId = fixed;
+      p.label = ({ cloudflare: 'Cloudflare', ollama: 'Ollama' })[fixed] || p.label;
+      if (PROVIDER_TEMPLATES[fixed]?.defaultBaseUrl && !p.baseUrl?.trim()) p.baseUrl = '';
+    }
+  }
+  return state;
+}
+
 // ========== Multi‑Provider AI / Goal Features ==========
 electron_1.ipcMain.handle('get-ai-providers', async () => {
   const p = userPreferences || {};
   try {
-    return JSON.parse(p.aiProviders || 'null') || {
+    return migrateProviderNames(JSON.parse(p.aiProviders || 'null')) || {
       providers: [
         { id: 'openrouter', templateId: 'openrouter', label: 'OpenRouter', enabled: true, apiKey: getOpenRouterApiKey(), baseUrl: '', models: ['google/gemini-2.0-flash-001'], priority: 0 },
-        { id: 'cloudflayer', templateId: 'cloudflayer', label: 'CloudFlayer', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 1 },
-        { id: 'invilier', templateId: 'invilier', label: 'Invilier', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 2 },
-        { id: 'olamah', templateId: 'olamah', label: 'Olamah', enabled: false, apiKey: '', baseUrl: '', models: ['llama3.1'], priority: 3 },
+        { id: 'cloudflare', templateId: 'cloudflare', label: 'Cloudflare', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 1 },
+        { id: 'ollama', templateId: 'ollama', label: 'Ollama', enabled: false, apiKey: '', baseUrl: '', models: ['llama3.1'], priority: 2 },
         { id: 'custom', templateId: 'custom', label: 'Custom OpenAI-compatible', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 4 },
       ],
       routing: {
@@ -12148,12 +12572,12 @@ electron_1.ipcMain.handle('save-ai-providers', async (_event, state: any) => {
 electron_1.ipcMain.handle('test-ai-provider', async (_event, providerId: string) => {
   try {
     const p = userPreferences || {};
-    const pState = JSON.parse(p.aiProviders || 'null');
+    const pState = migrateProviderNames(JSON.parse(p.aiProviders || 'null'));
     if (!pState) return { success: false, error: 'No provider config' };
     const cfg = pState.providers.find((pr: any) => pr.id === providerId);
     if (!cfg) return { success: false, error: 'Provider not found' };
     const template = PROVIDER_TEMPLATES[cfg.templateId];
-    if (!template) return { success: false, error: 'Unknown template' };
+    if (!template) return { success: false, error: `Unknown template "${cfg.templateId}" — try re-saving the provider in Settings` };
     const { callProvider: call } = require('./services/providers/callProvider.cjs');
     const result = await call(
       { config: cfg, template },
@@ -12953,6 +13377,7 @@ function getBrowserCategoryStats(period, dateOffset = 0) {
 }
 electron_1.app.whenReady().then(() => {
     initializeStorage();
+    loadFinanceSettings();
     loadCategoryConfig();
     loadSleepState(); // Load sleep tracking state
     
@@ -15293,6 +15718,30 @@ electron_1.ipcMain.handle('update-skill', async (_, data: { id: string; name: st
 
 // ═══════════════════ File-backed Requests IPC (JSON source of truth, no DB) ═══════════════════
 
+electron_1.ipcMain.handle('delete-skill', async (_, data: { id: string; projectPath?: string }) => {
+  try {
+    const baseDir = data.projectPath || userDataPath;
+    const skillsDir = path_1.default.join(baseDir, 'agent', 'skills');
+    const flatPath = path_1.default.join(skillsDir, `${data.id}.md`);
+    const dirPath = path_1.default.join(skillsDir, data.id);
+    let removed = false;
+    if (fs_1.default.existsSync(flatPath)) {
+      fs_1.default.unlinkSync(flatPath);
+      removed = true;
+    }
+    if (fs_1.default.existsSync(dirPath) && fs_1.default.statSync(dirPath).isDirectory()) {
+      fs_1.default.rmSync(dirPath, { recursive: true, force: true });
+      removed = true;
+    }
+    if (!removed) {
+      return { success: false, error: 'Skill not found' };
+    }
+    return { success: true, data: { id: data.id } };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
 electron_1.ipcMain.handle('get-app-skills', async () => {
   try {
     const ss = new SkillsService(userDataPath);
@@ -15904,6 +16353,10 @@ async function runInitAll(baseDir: string, agent: string, projectId: string | un
     { id: 'skill-ui-ux-pro-max', label: 'ui-ux-pro-max/', type: 'folder', group: 'skills', path: 'agent/skills/ui-ux-pro-max/' },
     // -- graphify-out/ --
     { id: 'graphify-dir', label: 'graphify-out/', type: 'folder', group: 'graphify', path: 'graphify-out/' },
+    // -- automations/ --
+    { id: 'automations-dir', label: 'agent/automations/', type: 'folder', group: 'docs', path: 'agent/automations/' },
+    // -- design-references/ --
+    { id: 'design-refs-dir', label: 'agent/design-references/', type: 'folder', group: 'docs', path: 'agent/design-references/' },
   ];
 
   const send = (stepId: string | null, status: string, extra?: Record<string, any>) => {
@@ -16521,7 +16974,7 @@ const handleSubmit = useCallback((data: DataType) => {
 ### Request-Response
 \`\`\`ts
 // Main process
-ipcMain.handle('get-data', async (_, args) => {
+electron_1.ipcMain.handle('get-data', async (_, args) => {
   return { success: true, data: result };
 });
 
@@ -17247,16 +17700,107 @@ You communicate through:
     if (!fs_1.default.existsSync(docsDir)) fs_1.default.mkdirSync(docsDir, { recursive: true });
     send('docs-dir', 'done');
 
+    send('page-context-guide', 'creating');
+    const pageContextGuidePath = path_1.default.join(docsDir, 'PAGE_CONTEXT_GUIDE.md');
+    if (!fs_1.default.existsSync(pageContextGuidePath)) {
+      fs_1.default.writeFileSync(pageContextGuidePath, `# PAGE_CONTEXT_GUIDE.md
+
+**Purpose:** Format specification for PAGE_CONTEXT.md.
+
+## Structure
+
+Each page entry in PAGE_CONTEXT.md follows this structure:
+
+## Page: [Page Name]
+
+### Identity
+- **Route:** \`/[route]\`
+- **File:** \`src/pages/[file].tsx\`
+
+### Component Tree
+\\\`\\\`
+ComponentTree
+\\\`\\\`
+
+### IPC Endpoints Called
+| Channel | Direction | Purpose |
+
+### Data Flow
+- **Reads:**
+- **Writes:**
+
+### Update Conventions
+
+### Known Pitfalls
+
+---
+
+## Maintenance
+
+- Run \`node scripts/update-page-context.js\` after adding/moving pages
+- Keep IPC endpoint tables in sync with preload.ts changes
+- Update component trees when refactoring
+
+---
+*Auto-generated by Tracker Mind — ${today}*
+`, 'utf-8');
+    }
+    send('page-context-guide', 'done', { content: fs_1.default.readFileSync(pageContextGuidePath, 'utf-8') });
+
     send('templates-dir', 'creating');
     if (!fs_1.default.existsSync(templatesDir)) fs_1.default.mkdirSync(templatesDir, { recursive: true });
+    const templateQmdPath = path_1.default.join(templatesDir, 'template.qmd');
+    if (!fs_1.default.existsSync(templateQmdPath)) {
+      fs_1.default.writeFileSync(templateQmdPath, `---
+title: "Template"
+format: html
+---
+# Template
+
+Reusable template for agent-generated content.
+
+## Purpose
+
+Describe the purpose of this template.
+
+## Usage
+
+Fill in the sections below:
+- **Section 1:** Description
+- **Section 2:** Description
+
+---
+*Auto-generated by Tracker Mind — ${today}*
+`, 'utf-8');
+    }
     send('templates-dir', 'done');
 
     send('core-dir', 'creating');
     if (!fs_1.default.existsSync(coreDir)) fs_1.default.mkdirSync(coreDir, { recursive: true });
+    const coreReadmePath = path_1.default.join(coreDir, 'README.md');
+    if (!fs_1.default.existsSync(coreReadmePath)) {
+      fs_1.default.writeFileSync(coreReadmePath, `# Core
+
+**Purpose:** Core configuration and system files for agent workspace.
+
+This directory stores core system configurations, schemas, and essential agent metadata.
+
+---
+*Auto-generated by Tracker Mind — ${today}*
+`, 'utf-8');
+    }
     send('core-dir', 'done');
 
     send('context-dir', 'creating');
     if (!fs_1.default.existsSync(contextDir)) fs_1.default.mkdirSync(contextDir, { recursive: true });
+    const deepMemoryPath = path_1.default.join(contextDir, 'deep-memory.json');
+    if (!fs_1.default.existsSync(deepMemoryPath)) {
+      fs_1.default.writeFileSync(deepMemoryPath, JSON.stringify({ sessions: [], patterns: [] }, null, 2), 'utf-8');
+    }
+    const sessionSummariesPath = path_1.default.join(contextDir, 'session-summaries.json');
+    if (!fs_1.default.existsSync(sessionSummariesPath)) {
+      fs_1.default.writeFileSync(sessionSummariesPath, JSON.stringify({ summaries: [] }, null, 2), 'utf-8');
+    }
     send('context-dir', 'done');
 
     // Step 14: skills directory (moved after new config files)
@@ -17303,11 +17847,29 @@ Systematically analyze and fix issues in the codebase.
       'taste-skill', 'terminal-agent', 'ui-ux-pro-max',
     ];
     for (const sub of skillSubDirs) {
-      const stepId = `skill-${sub.replace(/-/g, '-')}`;
+      const stepId = `skill-${sub}`;
       send(stepId, 'creating');
       const subDir = path_1.default.join(skillsDir, sub);
       if (!fs_1.default.existsSync(subDir)) {
         fs_1.default.mkdirSync(subDir, { recursive: true });
+      }
+      const skillMdPath = path_1.default.join(subDir, 'SKILL.md');
+      if (!fs_1.default.existsSync(skillMdPath)) {
+        const skillLabel = sub.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        fs_1.default.writeFileSync(skillMdPath, `# ${skillLabel}
+
+## Purpose
+Scaffold skill — content will be populated by maintain-context workflow.
+
+## When to Use
+Use when working on tasks related to ${skillLabel.toLowerCase()}.
+
+## Usage
+Load this skill via the skill system when appropriate.
+
+---
+*Auto-generated by Tracker Mind — ${today}*
+`, 'utf-8');
       }
       send(stepId, 'done');
     }
@@ -17317,7 +17879,45 @@ Systematically analyze and fix issues in the codebase.
     if (!fs_1.default.existsSync(graphifyDir)) {
       fs_1.default.mkdirSync(graphifyDir, { recursive: true });
     }
+    const graphReportPath = path_1.default.join(graphifyDir, 'GRAPH_REPORT.md');
+    if (!fs_1.default.existsSync(graphReportPath)) {
+      fs_1.default.writeFileSync(graphReportPath, `# Graphify Report
+
+**Purpose:** Code architecture visualization generated by graphify.
+
+## Overview
+
+No graph report generated yet. Run \`python agent/skills/maintain-context/graphify_maintain.py build\` to generate.
+
+---
+*Auto-generated by Tracker Mind — ${today}*
+`, 'utf-8');
+    }
+    const graphJsonPath = path_1.default.join(graphifyDir, 'graph.json');
+    if (!fs_1.default.existsSync(graphJsonPath)) {
+      fs_1.default.writeFileSync(graphJsonPath, JSON.stringify({ nodes: [], edges: [], communities: [] }, null, 2), 'utf-8');
+    }
     send('graphify-dir', 'done');
+
+    // -- automations/ directory --
+    const automationsDir = path_1.default.join(agentDir, 'automations');
+    send('automations-dir', 'creating');
+    if (!fs_1.default.existsSync(automationsDir)) {
+      fs_1.default.mkdirSync(automationsDir, { recursive: true });
+    }
+    const automationsJsonPath = path_1.default.join(automationsDir, 'automations.json');
+    if (!fs_1.default.existsSync(automationsJsonPath)) {
+      fs_1.default.writeFileSync(automationsJsonPath, JSON.stringify({ automations: [] }, null, 2), 'utf-8');
+    }
+    send('automations-dir', 'done');
+
+    // -- design-references/ directory --
+    const designRefsDir = path_1.default.join(agentDir, 'design-references');
+    send('design-refs-dir', 'creating');
+    if (!fs_1.default.existsSync(designRefsDir)) {
+      fs_1.default.mkdirSync(designRefsDir, { recursive: true });
+    }
+    send('design-refs-dir', 'done');
 
     const allFiles = fs_1.default.readdirSync(agentDir).filter(f => f.endsWith('.md') || f.endsWith('.json'));
     event.sender.send(INIT_PROGRESS_CHANNEL, { type: 'complete', stats: { total: steps.length, created: allFiles.length } });
@@ -18282,8 +18882,6 @@ function verifyPassword(password: string): boolean {
   }
 }
 
-loadFinanceSettings();
-
 // ── Security ──
 electron_1.ipcMain.handle('finance:check-password-setup', async () => {
   return { hasPassword: !!financePasswordHash };
@@ -18504,10 +19102,18 @@ electron_1.ipcMain.handle('finance:archive-account', async (_event, id: number) 
 electron_1.ipcMain.handle('finance:get-wallets', async (_event, accountId?: number) => {
   if (!db) return [];
   try {
+    let rows: any[];
     if (accountId) {
-      return db.prepare('SELECT * FROM finance_wallets WHERE account_id = ? AND is_archived = 0 ORDER BY name').all(accountId);
+      rows = db.prepare('SELECT * FROM finance_wallets WHERE account_id = ? AND is_archived = 0 ORDER BY name').all(accountId) as any[];
+    } else {
+      rows = db.prepare('SELECT * FROM finance_wallets WHERE is_archived = 0 ORDER BY name').all() as any[];
     }
-    return db.prepare('SELECT * FROM finance_wallets WHERE is_archived = 0 ORDER BY name').all();
+    for (const row of rows) {
+      if (row.metadata) {
+        try { row.metadata = JSON.parse(row.metadata); } catch { row.metadata = null; }
+      }
+    }
+    return rows;
   } catch { return []; }
 });
 
@@ -18515,21 +19121,45 @@ electron_1.ipcMain.handle('finance:create-wallet', async (_event, data: any) => 
   if (!db) return null;
   try {
     const stmt = db.prepare(`
-      INSERT INTO finance_wallets (account_id, name, type, provider, last_four, balance, currency)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO finance_wallets (account_id, name, type, provider, last_four, balance, currency, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(data.account_id, data.name, data.type, data.provider || null, data.last_four || null, data.balance || 0, data.currency || 'USD');
-    return { id: result.lastInsertRowid, ...data };
-  } catch { return null; }
+    const metadata = data.metadata ? JSON.stringify(data.metadata) : null;
+    console.log('[finance:create-wallet] input:', JSON.stringify(data));
+    const result = stmt.run(data.account_id, data.name, data.type, data.provider || null, data.last_four || null, data.balance || 0, data.currency || 'USD', metadata);
+    console.log('[finance:create-wallet] stmt.run result:', { lastInsertRowid: result.lastInsertRowid, type: typeof result.lastInsertRowid });
+    const created = { id: Number(result.lastInsertRowid), ...data, metadata: data.metadata || null };
+    console.log('[finance:create-wallet] returning:', JSON.stringify(created));
+    return created;
+  } catch (e: any) {
+    console.error('[finance:create-wallet] ERROR:', e?.message);
+    return null;
+  }
 });
 
 electron_1.ipcMain.handle('finance:update-wallet', async (_event, data: any) => {
   if (!db) return null;
   try {
-    db.prepare(`
-      UPDATE finance_wallets SET name=?, type=?, provider=?, last_four=?, balance=?, currency=?, updated_at=datetime('now','localtime')
-      WHERE id=?
-    `).run(data.name, data.type, data.provider, data.last_four, data.balance, data.currency, data.id);
+    const hasBalance = typeof data.balance === 'number';
+    if (hasBalance) {
+      db.prepare(`
+        UPDATE finance_wallets SET name=?, type=?, provider=?, last_four=?, balance=?, currency=?, updated_at=datetime('now','localtime')
+        WHERE id=?
+      `).run(data.name, data.type, data.provider, data.last_four, data.balance, data.currency, data.id);
+    } else {
+      db.prepare(`
+        UPDATE finance_wallets SET name=?, type=?, provider=?, last_four=?, currency=?, updated_at=datetime('now','localtime')
+        WHERE id=?
+      `).run(data.name, data.type, data.provider, data.last_four, data.currency, data.id);
+    }
+    return { success: true };
+  } catch { return null; }
+});
+
+electron_1.ipcMain.handle('finance:adjust-balance', async (_event, { id, newBalance }: { id: number; newBalance: number }) => {
+  if (!db) return { success: false };
+  try {
+    db.prepare("UPDATE finance_wallets SET balance=?, updated_at=datetime('now','localtime') WHERE id=?").run(newBalance, id);
     return { success: true };
   } catch { return null; }
 });
@@ -18540,6 +19170,99 @@ electron_1.ipcMain.handle('finance:archive-wallet', async (_event, id: number) =
     db.prepare("UPDATE finance_wallets SET is_archived=1, updated_at=datetime('now','localtime') WHERE id=?").run(id);
     return { success: true };
   } catch { return null; }
+});
+
+electron_1.ipcMain.handle('finance:get-wallet', async (_event, id: number) => {
+  if (!db) return null;
+  try {
+    const wallet = db.prepare('SELECT * FROM finance_wallets WHERE id = ?').get(id) as any;
+    if (!wallet) return null;
+    if (wallet.metadata) {
+      try { wallet.metadata = JSON.parse(wallet.metadata); } catch { wallet.metadata = null; }
+    }
+    return wallet;
+  } catch { return null; }
+});
+
+electron_1.ipcMain.handle('finance:update-wallet-metadata', async (_event, { id, metadata }: { id: number; metadata: Record<string, any> }) => {
+  if (!db) return null;
+  try {
+    const existing = db.prepare('SELECT metadata FROM finance_wallets WHERE id = ?').get(id) as any;
+    if (!existing) return null;
+    let merged: Record<string, any> = {};
+    if (existing.metadata) {
+      try { merged = JSON.parse(existing.metadata); } catch { merged = {}; }
+    }
+    Object.assign(merged, metadata);
+    const json = JSON.stringify(merged);
+    db.prepare("UPDATE finance_wallets SET metadata=?, updated_at=datetime('now','localtime') WHERE id=?").run(json, id);
+    const updated = db.prepare('SELECT * FROM finance_wallets WHERE id = ?').get(id) as any;
+    if (updated?.metadata) {
+      try { updated.metadata = JSON.parse(updated.metadata); } catch { updated.metadata = null; }
+    }
+    return updated;
+  } catch { return null; }
+});
+
+electron_1.ipcMain.handle('finance:fetch-crypto-prices', async (_event, coinIds: string[]) => {
+  if (!db) return [];
+  try {
+    const ids = coinIds.join(',');
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const cached = db.prepare('SELECT * FROM finance_crypto_prices WHERE coin_id IN (' + coinIds.map(() => '?').join(',') + ')').all(...coinIds) as any[];
+      return cached;
+    }
+    const data = await res.json();
+    const results: any[] = [];
+    const upsert = db.prepare(`
+      INSERT OR REPLACE INTO finance_crypto_prices (coin_id, name, symbol, current_price, market_cap, total_volume, price_change_24h, price_change_percentage_24h, last_updated)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `);
+    for (const [coinId, priceData] of Object.entries(data)) {
+      const pd = priceData as any;
+      upsert.run(coinId, coinId, coinId.toUpperCase().slice(0, 10), pd.usd || 0, pd.usd_market_cap || 0, pd.usd_24h_vol || 0, pd.usd_24h_change || 0, pd.usd_24h_change || 0);
+      results.push({
+        coin_id: coinId,
+        name: coinId,
+        symbol: coinId.toUpperCase().slice(0, 10),
+        current_price: pd.usd || 0,
+        market_cap: pd.usd_market_cap || 0,
+        total_volume: pd.usd_24h_vol || 0,
+        price_change_24h: pd.usd_24h_change || 0,
+        price_change_percentage_24h: pd.usd_24h_change || 0,
+        last_updated: new Date().toISOString()
+      });
+    }
+    return results;
+  } catch {
+    try {
+      if (!coinIds.length) return [];
+      const cached = db.prepare('SELECT * FROM finance_crypto_prices WHERE coin_id IN (' + coinIds.map(() => '?').join(',') + ')').all(...coinIds) as any[];
+      return cached;
+    } catch { return []; }
+  }
+});
+
+electron_1.ipcMain.handle('finance:get-crypto-history', async (_event, coinId: string, days: number = 30) => {
+  if (!db) return [];
+  try {
+    const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+    const cached = db.prepare('SELECT timestamp, price FROM finance_crypto_history WHERE coin_id = ? AND timestamp >= ? ORDER BY timestamp ASC').all(coinId, cutoff) as any[];
+    if (cached.length > 1) return cached.map(r => ({ timestamp: r.timestamp, price: r.price }));
+    const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
+    const res = await fetch(url);
+    if (!res.ok) return cached;
+    const data = await res.json();
+    const points = (data.prices || []).map((p: [number, number]) => ({ timestamp: Math.floor(p[0] / 1000), price: p[1] }));
+    const insert = db.prepare('INSERT OR IGNORE INTO finance_crypto_history (coin_id, timestamp, price) VALUES (?, ?, ?)');
+    const insertMany = db.transaction((pts: { timestamp: number; price: number }[]) => {
+      for (const pt of pts) insert.run(coinId, pt.timestamp, pt.price);
+    });
+    insertMany(points);
+    return points;
+  } catch { return []; }
 });
 
 // ── Categories ──
@@ -18621,13 +19344,12 @@ electron_1.ipcMain.handle('finance:create-transaction', async (_event, data: any
       data.date, data.time || null
     );
 
-    // Update account balance
-    const sign = data.type === 'income' ? 1 : -1;
-    db.prepare('UPDATE finance_accounts SET balance = balance + (? * ?), updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(sign, data.amount, data.account_id);
+    // Update account balance (amount already has correct sign from renderer)
+    db.prepare('UPDATE finance_accounts SET balance = balance + ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(data.amount, data.account_id);
 
     // Update wallet balance if wallet specified
     if (data.wallet_id) {
-      db.prepare('UPDATE finance_wallets SET balance = balance + (? * ?), updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(sign, data.amount, data.wallet_id);
+      db.prepare('UPDATE finance_wallets SET balance = balance + ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(data.amount, data.wallet_id);
     }
 
     return { id: result.lastInsertRowid, ...data };
@@ -18654,11 +19376,10 @@ electron_1.ipcMain.handle('finance:delete-transaction', async (_event, id: numbe
     const txn = db.prepare('SELECT * FROM finance_transactions WHERE id = ?').get(id) as any;
     if (!txn) return { success: false };
 
-    // Reverse balance effect
-    const sign = txn.type === 'income' ? -1 : 1;
-    db.prepare('UPDATE finance_accounts SET balance = balance + (? * ?), updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(sign, txn.amount, txn.account_id);
+    // Reverse balance effect (negate amount since stored amount already has correct sign)
+    db.prepare('UPDATE finance_accounts SET balance = balance + ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(-txn.amount, txn.account_id);
     if (txn.wallet_id) {
-      db.prepare('UPDATE finance_wallets SET balance = balance + (? * ?), updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(sign, txn.amount, txn.wallet_id);
+      db.prepare('UPDATE finance_wallets SET balance = balance + ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(-txn.amount, txn.wallet_id);
     }
 
     db.prepare('DELETE FROM finance_transactions WHERE id = ?').run(id);
@@ -18723,7 +19444,13 @@ electron_1.ipcMain.handle('finance:get-archived-accounts', async () => {
 electron_1.ipcMain.handle('finance:get-archived-wallets', async () => {
   if (!db) return [];
   try {
-    return db.prepare('SELECT * FROM finance_wallets WHERE is_archived = 1 ORDER BY name').all();
+    const rows = db.prepare('SELECT * FROM finance_wallets WHERE is_archived = 1 ORDER BY name').all() as any[];
+    for (const row of rows) {
+      if (row.metadata) {
+        try { row.metadata = JSON.parse(row.metadata); } catch { row.metadata = null; }
+      }
+    }
+    return rows;
   } catch { return []; }
 });
 

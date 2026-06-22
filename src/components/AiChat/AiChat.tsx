@@ -10,6 +10,7 @@ import { parseStructuredResponse } from '../../services/parseBlocks'
 import type { ParsedResponse } from '../../services/wireFormat'
 import { aiAgentService } from '../../services/ai'
 import { useNavigate } from 'react-router-dom'
+import { navigateTo } from '../../lib/deepNav'
 
 type ChatMessage = {
   id: string
@@ -78,6 +79,8 @@ export const AiChat: FC<Props> = ({ today: todayProp }) => {
   const [streamedContent, setStreamedContent] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const toolsUsedRef = useRef<string[]>([])
+
+  const handleTypingDone = useCallback(() => setTypingId(null), [])
 
   useEffect(() => {
     saveThread(today, messages)
@@ -186,15 +189,15 @@ export const AiChat: FC<Props> = ({ today: todayProp }) => {
           return (
             <MessageBubble key={msg.id} role={msg.role}>
               {msg.role === 'assistant' && isTyping ? (
-                <TypewriterText
-                  nodes={msg.parsed.nodes}
-                  onDone={() => setTypingId(null)}
-                />
+<TypewriterText
+  nodes={msg.parsed.nodes}
+  onDone={handleTypingDone}
+/>
               ) : (
                 <BlockRenderer
                   nodes={msg.parsed.nodes}
                   refs={msg.parsed.refs}
-                  onNavigate={(page) => navigate(page)}
+                  onNavigate={(page, section, tab) => navigateTo({ route: page, section, tab }, navigate)}
                 />
               )}
             </MessageBubble>
@@ -207,7 +210,7 @@ export const AiChat: FC<Props> = ({ today: todayProp }) => {
                 <BlockRenderer
                   nodes={parseStructuredResponse(streamedContent).nodes}
                   refs={{}}
-                  onNavigate={(page) => navigate(page)}
+                  onNavigate={(page, section, tab) => navigateTo({ route: page, section, tab }, navigate)}
                 />
                 <span className="inline-block w-2 h-4 bg-amber-400/70 ml-0.5 animate-pulse" />
               </div>

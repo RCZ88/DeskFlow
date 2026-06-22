@@ -102,7 +102,7 @@ export function parseStructuredResponse(raw: string): ParsedResponse {
           Object.entries(b.fields).map(([k, v]) => [k, Array.isArray(v) ? '' : v])
         ),
         items: Array.isArray((b.fields as any).items) ? (b.fields as any).items : undefined,
-        prose: b.type === 'text' ? parseInline(String((b.fields as any).body ?? '')) : undefined,
+        prose: undefined,
       })),
     }
   }

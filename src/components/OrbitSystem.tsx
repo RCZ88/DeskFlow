@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Html, Line, PerformanceMonitor } from '@react-three/drei';
-import { EffectComposer, Bloom, ToneMapping, Vignette, ChromaticAberration } from '@react-three/postprocessing';
+import { EffectComposer, Bloom, ToneMapping, Vignette } from '@react-three/postprocessing';
 import { ToneMappingMode, BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,23 +22,26 @@ function GLCleanup() {
           if (object.material) {
             if (Array.isArray(object.material)) {
               object.material.forEach((material: any) => {
-                if (material.map) material.map.dispose();
-                if (material.normalMap) material.normalMap.dispose();
-                if (material.emissiveMap) material.emissiveMap.dispose();
+                if (material.map && !cacheOwnedTextures.has(material.map)) material.map.dispose();
+                if (material.normalMap && !cacheOwnedTextures.has(material.normalMap)) material.normalMap.dispose();
+                if (material.emissiveMap && !cacheOwnedTextures.has(material.emissiveMap)) material.emissiveMap.dispose();
                 if (material.alphaMap) material.alphaMap.dispose();
                 material.dispose();
               });
             } else {
               const material = object.material as any;
-              if (material.map) material.map.dispose();
-              if (material.normalMap) material.normalMap.dispose();
-              if (material.emissiveMap) material.emissiveMap.dispose();
+              if (material.map && !cacheOwnedTextures.has(material.map)) material.map.dispose();
+              if (material.normalMap && !cacheOwnedTextures.has(material.normalMap)) material.normalMap.dispose();
+              if (material.emissiveMap && !cacheOwnedTextures.has(material.emissiveMap)) material.emissiveMap.dispose();
               if (material.alphaMap) material.alphaMap.dispose();
               material.dispose();
             }
           }
         }
       });
+
+      // Dispose cache-owned textures (refcounted, single owner)
+      disposeAllPlanetTextures();
       
       // Dispose of render targets
       if (gl.getRenderTarget) {
@@ -62,6 +65,78 @@ function GLCleanup() {
   }, [gl, scene]);
   
   return null;
+}
+
+// ── Refcounted planet-texture cache (single owner of all planet textures) ──
+const cacheOwnedTextures = new WeakSet<THREE.Texture>();
+
+type CachedPlanetTextures = {
+  texture: THREE.CanvasTexture;
+  normalMap: THREE.CanvasTexture;
+  glowTexture: THREE.CanvasTexture;
+  refs: number;
+};
+const planetTextureCache = new Map<string, CachedPlanetTextures>();
+
+function makeGlowTexture(): THREE.CanvasTexture {
+  const glowCanvas = document.createElement('canvas');
+  glowCanvas.width = 128;
+  glowCanvas.height = 128;
+  const ctx = glowCanvas.getContext('2d');
+  if (ctx) {
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+  }
+  return new THREE.CanvasTexture(glowCanvas);
+}
+
+let _texGenCount = 0;
+let _texLogTime = 0;
+function acquirePlanetTextures(color: string, category: string, seed: number) {
+  const key = color + '|' + category + '|' + seed;
+  let entry = planetTextureCache.get(key);
+  if (!entry) {
+    const t = performance.now();
+    const texture = createProceduralTexture(color, category, seed);
+    const normalMap = createProceduralNormalMap(color, category, seed);
+    const glowTexture = makeGlowTexture();
+    _texGenCount++;
+    _texLogTime += performance.now() - t;
+    if (_texGenCount === 1 || _texGenCount % 10 === 0) {
+      console.log(`[FROZEN-DBG] Texture gen #${_texGenCount} done, cumulative ${Math.round(_texLogTime)}ms, key=${key.substring(0,30)}`);
+    }
+    cacheOwnedTextures.add(texture);
+    cacheOwnedTextures.add(normalMap);
+    cacheOwnedTextures.add(glowTexture);
+    entry = { texture, normalMap, glowTexture, refs: 0 };
+    planetTextureCache.set(key, entry);
+  }
+  entry.refs += 1;
+  return { key, texture: entry.texture, normalMap: entry.normalMap, glowTexture: entry.glowTexture };
+}
+
+function releasePlanetTextures(key: string) {
+  const entry = planetTextureCache.get(key);
+  if (!entry) return;
+  entry.refs -= 1;
+  if (entry.refs <= 0) {
+    entry.texture.dispose();
+    entry.normalMap.dispose();
+    entry.glowTexture.dispose();
+    planetTextureCache.delete(key);
+  }
+}
+
+function disposeAllPlanetTextures() {
+  for (const entry of planetTextureCache.values()) {
+    entry.texture.dispose();
+    entry.normalMap.dispose();
+    entry.glowTexture.dispose();
+  }
+  planetTextureCache.clear();
 }
 
 const seededRandom = (seed: number): number => {
@@ -611,13 +686,17 @@ function calculateOrbitalPeriod(radius: number): number {
 
 function computeEccentricity(planetIndex: number, totalPlanets: number): number {
   const t = planetIndex / Math.max(totalPlanets - 1, 1);
-  return 0.15 - 0.12 * t + (Math.random() - 0.5) * 0.03;
+  const noise = (seededRandom(planetIndex * 7.3 + 13.7) - 0.5) * 0.03;
+  return 0.15 - 0.12 * t + noise;
 }
 
 function computeInclination(planetName: string): number {
   const seed = hashString(planetName) % 1000;
   return (seed / 1000) * 6;
 }
+
+const MAX_RENDERED_PLANETS = 80;
+const MIN_PLANET_TIME_SECONDS = 30;
 
 function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>, categoryOverrides?: Record<string, string>): PlanetData[] {
   // Fallback: load category overrides directly from localStorage to ensure sync
@@ -674,7 +753,13 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
       const timeA = a.reduce((sum, l) => sum + (l.duration || 0), 0);
       const timeB = b.reduce((sum, l) => sum + (l.duration || 0), 0);
       return timeA - timeB; // ascending: smallest first (closest to sun)
-    });
+    })
+    // Performance cap: exclude trivial apps (< 30s) and limit to top 80
+    .filter(([, a]) => {
+      const time = a.reduce((sum, l) => sum + (l.duration || 0), 0);
+      return time >= MIN_PLANET_TIME_SECONDS;
+    })
+    .slice(-MAX_RENDERED_PLANETS);
 
   const categoryCount: Record<string, number> = {};
 
@@ -717,8 +802,8 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
     // Inclination — deterministic by name hash, ~0–6°
     const inclination = computeInclination(appName) * (Math.PI / 180);
 
-    // Longitude of perihelion (where in orbit planet starts)
-    const longitudeOfPerihelion = Math.random() * Math.PI * 2;
+    // Longitude of perihelion (where in orbit planet starts) — deterministic by index
+    const longitudeOfPerihelion = seededRandom(idx * 31.7 + 7.1) * Math.PI * 2;
 
     // Planet rotation speed (based on session length)
     const rotationRatio = maxTime > 0 ? avgSessionLength / (maxTime + 1) : 0.5;
@@ -1105,8 +1190,8 @@ function makeSeamlessHorizontal(ctx: CanvasRenderingContext2D, w: number, h: num
 // Reference: ORBITAL_IMPROVEMENTS.md → Issue #3 + Texture Variety
 function createProceduralTexture(color: string, category: string, seed: number): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 512;
+  canvas.width = 512;
+  canvas.height = 256;
   const ctx = canvas.getContext('2d');
 
   if (!ctx) {
@@ -1125,7 +1210,7 @@ function createProceduralTexture(color: string, category: string, seed: number):
 
   // Brighter space base for visibility against black space
   ctx.fillStyle = '#1e1e40';
-  ctx.fillRect(0, 0, 1024, 512);
+  ctx.fillRect(0, 0, 512, 256);
 
   const baseColor = color;
   const darkColor = adjustColor(color, -15);  // Less darkening
@@ -1139,7 +1224,7 @@ function createProceduralTexture(color: string, category: string, seed: number):
     baseGrad.addColorStop(0.5, baseColor);
     baseGrad.addColorStop(1, darkColor);
     ctx.fillStyle = baseGrad;
-    ctx.fillRect(0, 0, 1024, 512);
+    ctx.fillRect(0, 0, 512, 256);
 
     // Multiple colored bands
     const bandCount = 8 + Math.floor(rand() * 5);
@@ -1149,19 +1234,19 @@ function createProceduralTexture(color: string, category: string, seed: number):
       const c = rand() > 0.5 ? lightColor : lighterColor;
       ctx.fillStyle = c;
       ctx.globalAlpha = 0.7 + rand() * 0.3;
-      ctx.fillRect(0, y, 1024, h);
+      ctx.fillRect(0, y, 512, h);
     }
     ctx.globalAlpha = 1;
 
     // Turbulence lines
     for (let i = 0; i < 25; i++) {
-      const y = rand() * 512;
+      const y = rand() * 256;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2 + rand() * 4;
       ctx.globalAlpha = 0.3 + rand() * 0.3;
       ctx.beginPath();
       const phase = rand() * Math.PI * 2;
-      for (let x = 0; x < 1024; x += 8) {
+      for (let x = 0; x < 512; x += 8) {
         const offset = Math.sin(x * 0.015 + phase) * (8 + rand() * 8);
         if (x === 0) ctx.moveTo(x, y + offset);
         else ctx.lineTo(x, y + offset);
@@ -1180,7 +1265,7 @@ function createProceduralTexture(color: string, category: string, seed: number):
     bgGrad.addColorStop(0.5, baseColor);
     bgGrad.addColorStop(1, '#1e1e40');
     ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, 1024, 512);
+    ctx.fillRect(0, 0, 512, 256);
 
     // Spiral arms
     const armCount = 3 + Math.floor(rand() * 3);
@@ -1205,8 +1290,8 @@ function createProceduralTexture(color: string, category: string, seed: number):
     // Glowing nodes
     const nodeCount = 20 + Math.floor(rand() * 25);
     for (let i = 0; i < nodeCount; i++) {
-      const x = rand() * 1024;
-      const y = rand() * 512;
+      const x = rand() * 256;
+      const y = rand() * 256;
       const r = 8 + rand() * 15;
       const glowGrad = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
       glowGrad.addColorStop(0, '#ffffff');
@@ -1220,17 +1305,17 @@ function createProceduralTexture(color: string, category: string, seed: number):
 
   } else if (category === 'Browser' || category === 'Entertainment') {
     // Spotted/swirled pattern
-    const grad = ctx.createLinearGradient(0, 0, 1024, 512);
+    const grad = ctx.createLinearGradient(0, 0, 512, 256);
     grad.addColorStop(0, baseColor);
     grad.addColorStop(1, '#1a1a40');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 1024, 512);
+    ctx.fillRect(0, 0, 512, 256);
 
     // Colorful spots
     const spotCount = 25 + Math.floor(rand() * 30);
     for (let i = 0; i < spotCount; i++) {
-      const x = rand() * 1024;
-      const y = rand() * 512;
+      const x = rand() * 256;
+      const y = rand() * 256;
       const r = 40 + rand() * 80;
       const spotColor = rand() > 0.5 ? lighterColor : lightColor;
       const spotGrad = ctx.createRadialGradient(x, y, 0, x, y, r);
@@ -1245,12 +1330,12 @@ function createProceduralTexture(color: string, category: string, seed: number):
 
     // Flow lines
     for (let i = 0; i < 10; i++) {
-      const startY = rand() * 512;
+      const startY = rand() * 256;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 4 + rand() * 5;
       ctx.globalAlpha = 0.3 + rand() * 0.3;
       ctx.beginPath();
-      for (let x = 0; x < 1024; x += 8) {
+      for (let x = 0; x < 512; x += 8) {
         const y = startY + Math.sin(x * 0.01 + rand() * Math.PI * 2) * 30;
         if (x === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
@@ -1262,12 +1347,12 @@ function createProceduralTexture(color: string, category: string, seed: number):
   } else if (category === 'Communication') {
     // Network nodes pattern
     ctx.fillStyle = '#1a1a40';
-    ctx.fillRect(0, 0, 1024, 512);
+    ctx.fillRect(0, 0, 512, 256);
 
     const nodes: {x: number, y: number, r: number}[] = [];
     const nodeCount = 30 + Math.floor(rand() * 30);
     for (let i = 0; i < nodeCount; i++) {
-      nodes.push({ x: rand() * 1024, y: rand() * 512, r: 8 + rand() * 15 });
+      nodes.push({ x: rand() * 256, y: rand() * 256, r: 8 + rand() * 15 });
     }
 
     // Connections
@@ -1303,15 +1388,15 @@ function createProceduralTexture(color: string, category: string, seed: number):
 
   } else {
     // Other: Noise pattern
-    const grad = ctx.createLinearGradient(0, 0, 1024, 512);
+    const grad = ctx.createLinearGradient(0, 0, 512, 256);
     grad.addColorStop(0, baseColor);
     grad.addColorStop(1, '#222248');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 1024, 512);
+    ctx.fillRect(0, 0, 512, 256);
 
     for (let i = 0; i < 1000; i++) {
-      const x = rand() * 1024;
-      const y = rand() * 512;
+      const x = rand() * 256;
+      const y = rand() * 256;
       ctx.fillStyle = `rgba(255,255,255,${rand() * 0.4})`;
       ctx.fillRect(x, y, 4 + rand() * 4, 4 + rand() * 4);
     }
@@ -1320,7 +1405,7 @@ function createProceduralTexture(color: string, category: string, seed: number):
   // ── Seamless horizontal wrap ──
   // Blend left and right edges so there's no visible seam when wrapped on a sphere.
   // The leftmost column (x=0) and rightmost column (x=1024) become the same color.
-  makeSeamlessHorizontal(ctx, 1024, 512);
+  makeSeamlessHorizontal(ctx, 512, 256);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -1338,27 +1423,27 @@ function createProceduralTexture(color: string, category: string, seed: number):
 // Reference: ORBITAL_IMPROVEMENTS.md → Normal Maps
 function createProceduralNormalMap(color: string, category: string, seed: number): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 512;
+  canvas.width = 512;
+  canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
 
   const rand = createSeededRandom(seed);
   // Neutral normal map base (RGB = 0.5, 0.5, 1.0)
   ctx.fillStyle = '#8080ff';
-  ctx.fillRect(0, 0, 1024, 512);
+  ctx.fillRect(0, 0, 512, 256);
 
   if (category === 'IDE' || category === 'Productivity') {
     // Horizontal grooves for bands
     for (let i = 0; i < 18; i++) {
-      const y = rand() * 512;
+      const y = rand() * 256;
       ctx.fillStyle = '#4040c0'; // darker = depression
-      ctx.fillRect(0, y, 1024, 20 + rand() * 25);
+      ctx.fillRect(0, y, 512, 20 + rand() * 25);
     }
   } else if (category === 'AI Tools') {
     // Node bumps
     for (let i = 0; i < 50; i++) {
-      const x = rand() * 1024;
-      const y = rand() * 512;
+      const x = rand() * 256;
+      const y = rand() * 256;
       const r = 15 + rand() * 30;
       const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
       grad.addColorStop(0, '#c0c0ff');
@@ -1371,8 +1456,8 @@ function createProceduralNormalMap(color: string, category: string, seed: number
   } else if (category === 'Browser' || category === 'Entertainment') {
     // Craters/spots
     for (let i = 0; i < 60; i++) {
-      const x = rand() * 1024;
-      const y = rand() * 512;
+      const x = rand() * 256;
+      const y = rand() * 256;
       const r = 20 + rand() * 40;
       const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
       grad.addColorStop(0, '#a0a0e0');
@@ -1385,8 +1470,8 @@ function createProceduralNormalMap(color: string, category: string, seed: number
   } else if (category === 'Communication') {
     // Grid bumps
     for (let i = 0; i < 40; i++) {
-      const x = rand() * 1024;
-      const y = rand() * 512;
+      const x = rand() * 256;
+      const y = rand() * 256;
       const r = 10 + rand() * 20;
       ctx.fillStyle = '#9090ee';
       ctx.beginPath();
@@ -1396,8 +1481,8 @@ function createProceduralNormalMap(color: string, category: string, seed: number
   } else {
     // Noise for Other
     for (let i = 0; i < 600; i++) {
-      const x = rand() * 1024;
-      const y = rand() * 512;
+      const x = rand() * 256;
+      const y = rand() * 256;
       ctx.fillStyle = `rgba(${128 + rand() * 40 - 20}, ${128 + rand() * 40 - 20}, 255, 0.3)`;
       ctx.fillRect(x, y, 4, 4);
     }
@@ -1479,34 +1564,25 @@ function TexturedPlanet({
   const { geometry: lodGeo, setDetail: setLODDetail, detail: lodDetail } = useLODGeometry(data.radius);
   const lastLODDetailRef = useRef(0);
 
+  const texRef = useRef<{ disposer: (() => void) | null }>({ disposer: null });
   const { texture, normalMap, glowTexture } = useMemo(() => {
+    texRef.current.disposer?.();
     const seed = hashString(data.name);
-    const tex = createProceduralTexture(data.color, data.category, seed);
-    const nrm = createProceduralNormalMap(data.color, data.category, seed);
-
-    // Create glow texture (radial gradient sprite)
-    const glowCanvas = document.createElement('canvas');
-    glowCanvas.width = 128;
-    glowCanvas.height = 128;
-    const glowCtx = glowCanvas.getContext('2d')!;
-    const rgb = hexToRgb(data.color);
-    const grad = glowCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grad.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.6)`);
-    grad.addColorStop(0.3, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25)`);
-    grad.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
-    glowCtx.fillStyle = grad;
-    glowCtx.fillRect(0, 0, 128, 128);
-    const glowTex = new THREE.CanvasTexture(glowCanvas);
-    glowTex.needsUpdate = true;
-
-    return { texture: tex, normalMap: nrm, glowTexture: glowTex };
+    const acquired = acquirePlanetTextures(data.color, data.category, seed);
+    texRef.current.disposer = () => releasePlanetTextures(acquired.key);
+    return { texture: acquired.texture, normalMap: acquired.normalMap, glowTexture: acquired.glowTexture };
   }, [data.name, data.color, data.category]);
+  useEffect(() => () => texRef.current.disposer?.(), []);
 
   // Hologram wireframe geometry
-  const hologramGeo = useMemo(
-    () => new THREE.IcosahedronGeometry(data.radius * 1.6, 1),
-    [data.radius]
-  );
+  const hologramRef2 = useRef<{ disposer: (() => void) | null }>({ disposer: null });
+  const hologramGeo = useMemo(() => {
+    hologramRef2.current.disposer?.();
+    const geo = new THREE.IcosahedronGeometry(data.radius * 1.6, 1);
+    hologramRef2.current.disposer = () => geo.dispose();
+    return geo;
+  }, [data.radius]);
+  useEffect(() => () => hologramRef2.current.disposer?.(), []);
 
   useFrame(({ camera }, delta) => {
     if (!meshRef.current) return;
@@ -2459,7 +2535,10 @@ function computePlanetsFromStats(
       // Convert ms to seconds for the planet time
       time: Math.floor(data.total_ms / 1000)
     }))
-    .sort((a, b) => a.time - b.time); // ascending: smallest first (closest to sun)
+    .sort((a, b) => a.time - b.time) // ascending: smallest first (closest to sun)
+    // Performance cap: exclude trivial apps (< 30s) and limit to top 80
+    .filter(a => a.time >= MIN_PLANET_TIME_SECONDS)
+    .slice(-MAX_RENDERED_PLANETS);
 
   const maxTime = Math.max(...sortedApps.map(a => a.time), 1);
 
@@ -2485,10 +2564,10 @@ function computePlanetsFromStats(
     // Speed based on Keplerian formula
     const speed = calculateAngularSpeed(orbitRadius);
 
-    // Deterministic eccentricity and inclination
+    // Deterministic eccentricity, inclination, and longitude
     const eccentricity = computeEccentricity(idx, sortedApps.length);
     const inclination = computeInclination(appName);
-    const longitudeOfPerihelion = Math.random() * Math.PI * 2;
+    const longitudeOfPerihelion = seededRandom(idx * 31.7 + 7.1) * Math.PI * 2;
 
     // Rings (C1) — top 25% of apps by total time get deterministic rings
     const totalApps = sortedApps.length;
@@ -2663,9 +2742,19 @@ function computeWebsitePlanets(
       const timeA = a.reduce((sum, l) => sum + ((l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0), 0);
       const timeB = b.reduce((sum, l) => sum + ((l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0), 0);
       return timeA - timeB;
-    });
+    })
+    // Performance: exclude trivial domains (< 30s), limit to top 80
+    .filter(([, a]) => {
+      const time = a.reduce((sum, l) => sum + ((l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0), 0);
+      return time >= MIN_PLANET_TIME_SECONDS;
+    })
+    .slice(-MAX_RENDERED_PLANETS);
 
   const categoryCount: Record<string, number> = {};
+  // Pre-compute maxTime once (O(n)) instead of recalculating per planet (O(n²))
+  const wsMaxTime = sortedApps.length > 0 ? Math.max(...sortedApps.map(([, domainLogs]) =>
+    domainLogs.reduce((sum: number, l: any) => sum + ((l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0), 0)
+  ), 1) : 1;
 
   for (let idx = 0; idx < sortedApps.length; idx++) {
     const [domainName, domainLogs] = sortedApps[idx];
@@ -2681,11 +2770,6 @@ function computeWebsitePlanets(
       return sum + raw;
     }, 0);
     const sessions = domainLogs.length;
-
-    const maxTime = Math.max(...sortedApps.map(([, logs]) => logs.reduce((sum: number, l: any) => {
-      const raw = (l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0;
-      return sum + raw;
-    }, 0)), 1);
     
      // LN-based orbit spacing for websites (wider range than app planets)
     const wsMinR = 24;
@@ -2693,8 +2777,8 @@ function computeWebsitePlanets(
     const wsT = sortedApps.length > 1 ? idx / (sortedApps.length - 1) : 0.5;
     const orbitRadius = wsMinR + (wsMaxR - wsMinR) * Math.pow(wsT, 0.8);
     
-    // Calculate time ratio for planet size
-    const timeRatio = appTime / maxTime;
+    // Calculate time ratio for planet size (use pre-computed maxTime)
+    const timeRatio = appTime / wsMaxTime;
     
     // Cube root for gentle scaling
     const gentleRatio = Math.pow(timeRatio, 1/3);
@@ -3274,19 +3358,29 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   
   // Filter logs by selected period
   // NOTE: when externalPeriod is provided (from parent), data is already pre-filtered from backend
-  // The internal filter still runs as a safety net for direct prop changes
-  const filteredLogs = useMemo(() => filterLogsByPeriod(logs, activePeriod), [logs, activePeriod]);
-  const filteredWebsiteLogs = useMemo(() => filterLogsByPeriod(websiteLogs || [], activePeriod), [websiteLogs, activePeriod]);
+  // So skip client-side filter to avoid redundant O(n) pass on potentially large arrays
+  const filteredLogs = useMemo(() => {
+    if (externalPeriod) return logs || [];
+    return filterLogsByPeriod(logs, activePeriod);
+  }, [logs, activePeriod, externalPeriod]);
+  const filteredWebsiteLogs = useMemo(() => {
+    if (externalPeriod) return websiteLogs || [];
+    return filterLogsByPeriod(websiteLogs || [], activePeriod);
+  }, [websiteLogs, activePeriod, externalPeriod]);
   
   // App galaxy solar systems (period-filtered)
   const appSolarSystems = useMemo(() => {
+    const t = performance.now();
     const result = computeSolarSystems(filteredLogs, appColors, categoryOverrides);
+    console.log('[FROZEN-DBG] computeSolarSystems took', Math.round(performance.now() - t), 'ms, categories:', result.length, 'logs:', filteredLogs?.length);
     return result;
   }, [filteredLogs, appColors, categoryOverrides]);
   
   // Website galaxy solar systems (period-filtered)
   const websiteSolarSystems = useMemo(() => {
+    const t = performance.now();
     const result = computeWebsiteSolarSystems(filteredWebsiteLogs, websiteColors, websiteCategoryOverrides);
+    console.log('[FROZEN-DBG] computeWebsiteSolarSystems took', Math.round(performance.now() - t), 'ms, categories:', result.length, 'logs:', filteredWebsiteLogs?.length);
     return result;
   }, [filteredWebsiteLogs, websiteColors, websiteCategoryOverrides]);
   
@@ -3926,18 +4020,17 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                   <pointLight position={[0, 0, 0]} intensity={3} color="#ffaa00" distance={200} decay={1.5} />
                   <directionalLight position={[50, 30, 50]} intensity={0.5} color="#fff5e6" />
                   
-                  {/* Post-Processing Effects - Enhanced Graphics */}
+                  {/* Post-Processing Effects - Lighter for performance with many planets */}
                   <EffectComposer multisampling={0}>
                     <Bloom 
-                      intensity={1.8} 
-                      luminanceThreshold={0.7} 
-                      luminanceSmoothing={0.4}
-                      radius={0.85}
+                      intensity={1.2} 
+                      luminanceThreshold={0.6} 
+                      luminanceSmoothing={0.5}
+                      radius={0.5}
                       mipmapBlur 
                     />
                     <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-                    <Vignette offset={0.25} darkness={0.6} blendFunction={BlendFunction.NORMAL} />
-                    <ChromaticAberration offset={[0.0008, 0.0008]} blendFunction={BlendFunction.NORMAL} />
+                    <Vignette offset={0.25} darkness={0.5} blendFunction={BlendFunction.NORMAL} />
                   </EffectComposer>
                   
                   {/* FPS Counter - uses ref instead of state to avoid re-renders */}

@@ -1,0 +1,6 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]: Inspectable WebContents
+  - paragraph [ref=e4]:
+    - link "DeskFlow AI - Elite Productivity Tracker" [ref=e5] [cursor=pointer]:
+      - /url: https://chrome-devtools-frontend.appspot.com/serve_rev/@fd445576e470eaa9d0d55779a12ca46f8e8d3b73/inspector.html?ws=127.0.0.1:9223/devtools/page/4228B4A5BA71ECB38B7E74E9050ACAB9
+      - generic [ref=e6]: DeskFlow AI - Elite Productivity Tracker

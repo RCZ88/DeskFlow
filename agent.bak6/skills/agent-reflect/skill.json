@@ -1,0 +1,43 @@
+{
+  "name": "reflect",
+  "description": "Universal self-improvement skill for any AI agent. Extracts learnings from corrections and success patterns, permanently encoding them into agent definitions. Works with Claude Code, Cursor, Copilot, OpenCode, and generic agents.",
+  "version": "3.0.0",
+  "user-invocable": true,
+  "triggers": [
+    "reflect",
+    "self-reflect",
+    "review session",
+    "what did I learn",
+    "extract learnings",
+    "analyze corrections",
+    "self-improve"
+  ],
+  "allowed-tools": [
+    "Read",
+    "Write",
+    "Edit",
+    "Grep",
+    "Glob",
+    "Bash"
+  ],
+  "metadata": {
+    "emoji": "🪞",
+    "category": "meta",
+    "author": "Universal",
+    "license": "MIT",
+    "platforms": [
+      "claude-code",
+      "cursor",
+      "copilot",
+      "opencode",
+      "generic"
+    ],
+    "config": {
+      "stateDirs": [
+        "~/.agent-reflect"
+      ],
+      "defaultPlatform": "auto",
+      "autoReflect": false
+    }
+  }
+}

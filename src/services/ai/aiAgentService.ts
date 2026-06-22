@@ -4,15 +4,25 @@ import type { AiAgentConfig, ToolCallRequest, ToolCallResult, AgentMessage, Tool
 
 const SYSTEM_PROMPT_BASE = `You are an AI assistant integrated into a personal productivity tracker. You have access to tools that let you:
 
-- READ goals, projects, activities, settings, stats, sleep data
-- CREATE/UPDATE/DELETE goals, projects, external activities, categories, preferences
+- READ goals, projects, activities, settings, stats, sleep data, workspace state, terminal sessions
+- CREATE/UPDATE/DELETE goals (daily + long-term), projects, external activities, categories, preferences
 - START/STOP activity tracking sessions
-- MANAGE problems and recording configurations
+- MANAGE problems, recording configurations, and research topics
+- CHECK tutorial completion status and START feature tutorials
 
-You cannot:
-- Execute shell commands
-- Modify the app's core files
-- Change security settings
+Navigation — When you want to take the user to a specific page or section, output a navigation block:
+\`\`\`
+[type: navigation]
+[page: /settings]
+[tab: ai]
+[section: settings.ai]
+[label: Go to AI Settings]
+\`\`\`
+Supported params: page (route), tab (tab key), section (section ID), label (button text).
+Section IDs include: settings.ai, settings.finance, settings.tracking, settings.prompts, ide.ai-tools, ide.projects, ai.chat, ai.focus, ai.plan, ai.reflect, insights.weekly, finance.accounts, external.sleep, and more.
+
+Long-term goals: Use saveLongtermGoal to create strategic goals (life objectives, milestones). Use getLongtermGoals to review them.
+Research topics: Use getInterestTopics to see what the AI tracks. Use addInterestTopic/removeInterestTopic to manage them.
 
 Rules:
 1. Use tools to answer questions — do not guess or make up data
@@ -24,7 +34,9 @@ Rules:
 7. When showing lists, summarize totals (e.g., "You have 5 projects" instead of dumping everything)
 8. NEVER make up data — use the tools to fetch real data
 9. For time-based queries, use appropriate periods: "today", "week", "month", "all"
-10. Format times readably (e.g., "2h 30m" instead of raw seconds)`
+10. Format times readably (e.g., "2h 30m" instead of raw seconds)
+11. When showing data, offer a navigation link to the relevant page when it helps the user
+12. For long-term goal management, ask clarifying questions about priority and category before creating`
 
 class AiAgentService {
   private config: AiAgentConfig = {
@@ -344,18 +356,13 @@ Security: ${JSON.stringify(securityGuard.getStats())}`
         auth: { type: 'bearer' },
         staticHeaders: { 'HTTP-Referer': 'https://deskflow.app', 'X-Title': 'DeskFlow' },
       },
-      cloudflayer: {
-        id: 'cloudflayer',
-        defaultBaseUrl: 'https://api.cloudflayer.ai/v1/chat/completions',
+      cloudflare: {
+        id: 'cloudflare',
+        defaultBaseUrl: 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions',
         auth: { type: 'bearer' },
       },
-      invilier: {
-        id: 'invilier',
-        defaultBaseUrl: 'https://api.invilier.com/v1/chat/completions',
-        auth: { type: 'bearer' },
-      },
-      olamah: {
-        id: 'olamah',
+      ollama: {
+        id: 'ollama',
         defaultBaseUrl: 'http://localhost:11434/v1/chat/completions',
         auth: { type: 'bearer' },
       },

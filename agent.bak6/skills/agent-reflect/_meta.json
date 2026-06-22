@@ -1,0 +1,19 @@
+{
+  "owner": "universal",
+  "slug": "agent-reflect",
+  "displayName": "Reflect",
+  "latest": {
+    "version": "3.0.0",
+    "publishedAt": 1744828800000
+  },
+  "history": [
+    {
+      "version": "3.0.0",
+      "changes": "Universal platform support (Claude Code, Cursor, Copilot, OpenCode, Generic)"
+    },
+    {
+      "version": "2.0.0",
+      "changes": "Major refactor with skill generation and metrics"
+    }
+  ]
+}

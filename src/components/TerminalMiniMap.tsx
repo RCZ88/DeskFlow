@@ -84,7 +84,7 @@ export function TerminalMiniMap({
   const [selGroup, setSelGroup] = useState(0);
 
   // Number of groups: use layouts array length OR children count of the root tree
-  const groupCount = Math.max(layouts.length, currentLayout && currentLayout.children ? currentLayout.children.length : 1);
+  const groupCount = Math.max(layouts.length, layouts[0] && layouts[0].children ? layouts[0].children.length : 1);
 
   // Sync from parent
   const effectiveGroup = typeof activeGroupIndex === 'number' ? activeGroupIndex : selGroup;
@@ -218,12 +218,12 @@ export function TerminalMiniMap({
             </div>
             {onMoveToGroup && (
               <div className="flex gap-1 px-1 pb-1">
-                {getInternalGroups(currentLayout || layouts[0]).map((label, gi) => (
+                {Array.from({ length: groupCount }).map((_unused, gi) => (
                   <GroupDropTarget
                     key={gi}
                     groupIndex={gi}
-                    groupLabel={label}
-                    visible={!!draggedId && groupCount > 1}
+                    groupLabel={gi === effectiveGroup ? `G${gi + 1} (current)` : `→ G${gi + 1}`}
+                    visible={!!draggedId && groupCount > 1 && gi !== effectiveGroup}
                   />
                 ))}
               </div>

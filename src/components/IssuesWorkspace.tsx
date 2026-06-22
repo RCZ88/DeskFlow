@@ -813,7 +813,7 @@ function CombinedChecklist({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col flex-1 space-y-3 min-h-0">
       {/* ── Config bar ── */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -929,8 +929,8 @@ function CombinedChecklist({
 
       {/* ── Empty state ── */}
       {result.groups.length === 0 && (
-        <div className="text-center py-8">
-          <ListChecks className="w-6 h-6 text-zinc-700 mx-auto mb-2" />
+        <div className="flex flex-col items-center justify-center flex-1 text-center">
+          <ListChecks className="w-6 h-6 text-zinc-700 mx-auto mb-2 shrink-0" />
           <p className="text-xs text-zinc-500">No checks yet</p>
           <p className="text-[10px] text-zinc-600 mt-1">
             AI can add them with <code className="text-zinc-400">[add-check]</code> actions

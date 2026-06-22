@@ -11087,9 +11087,8 @@ electron_1.ipcMain.handle('get-ai-providers', async () => {
     return JSON.parse(p.aiProviders || 'null') || {
       providers: [
         { id: 'openrouter', templateId: 'openrouter', label: 'OpenRouter', enabled: true, apiKey: getOpenRouterApiKey(), baseUrl: '', models: ['google/gemini-2.0-flash-001'], priority: 0 },
-        { id: 'cloudflayer', templateId: 'cloudflayer', label: 'CloudFlayer', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 1 },
-        { id: 'invilier', templateId: 'invilier', label: 'Invilier', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 2 },
-        { id: 'olamah', templateId: 'olamah', label: 'Olamah', enabled: false, apiKey: '', baseUrl: '', models: ['llama3.1'], priority: 3 },
+        { id: 'cloudflare', templateId: 'cloudflare', label: 'Cloudflare', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 1 },
+        { id: 'ollama', templateId: 'ollama', label: 'Ollama', enabled: false, apiKey: '', baseUrl: '', models: ['llama3.1'], priority: 2 },
         { id: 'custom', templateId: 'custom', label: 'Custom OpenAI-compatible', enabled: false, apiKey: '', baseUrl: '', models: [], priority: 4 },
       ],
       routing: {

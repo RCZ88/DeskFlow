@@ -112,3 +112,24 @@ You can also signal important activity by including an `## Actions` block in you
 
 These actions will be automatically executed to keep the project board in sync.
 ---
+
+
+## TERMINOLOGY RESOLUTION (check before acting on any noun that names a place)
+
+Before you create, move, rename, or modify anything that lives "somewhere" — a page,
+route, session, chart, subtab, sidebar item, or file — resolve the word against
+`agent/dictionary.md` first.
+
+- "workspace" = the Terminal Workspace at `/terminal` and its internal subtabs, NOT the
+  app's router sidebar. Never create an app-level route/sidebar item for a "workspace" request.
+- "create a page in the workspace" = add a workspace subpage/subtab
+  (`terminal_sessions.subpage`), NOT a new app route.
+- "sidebar" is ambiguous — disambiguate workspace-sidebar vs app-sidebar before touching either.
+
+If a place-naming term is missing from `agent/dictionary.md` or is ambiguous, STOP and ask
+one short question rather than guessing. After a correction, fix the entry in `dictionary.md`.
+
+`agent/dictionary.md` is small and already in your context — rely on it directly; do NOT
+re-open or re-read it each turn. For "which page has feature X?", open
+`agent/FEATURE_TRACKER.md` ON DEMAND (only when you actually need it) — it is large and is
+NOT loaded every prompt.

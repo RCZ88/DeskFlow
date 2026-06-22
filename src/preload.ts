@@ -289,8 +289,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.on('terminal:data', handler);
     return () => ipcRenderer.removeListener('terminal:data', handler);
   },
-  onTerminalExit: (callback: (terminalId: string, exitCode: number, signal: string) => void) => {
-    const handler = (_event: any, terminalId: string, exitCode: number, signal: string) => callback(terminalId, exitCode, signal);
+  onTerminalExit: (callback: (terminalId: string, exitCode: number, signal: string, intentional: boolean) => void) => {
+    const handler = (_event: any, terminalId: string, exitCode: number, signal: string, intentional: boolean) => callback(terminalId, exitCode, signal, intentional);
     ipcRenderer.on('terminal:exit', handler);
     return () => ipcRenderer.removeListener('terminal:exit', handler);
   },
@@ -365,10 +365,15 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   saveTerminalSession: (session: { id?: string; projectId?: string; agent: string; resumeId?: string; topic?: string; workingDirectory?: string; totalTokens?: number; totalCost?: number; category?: string; status?: string; productArea?: string; description?: string; autoTags?: string[]; categoryConfirmed?: boolean }) =>
     ipcRenderer.invoke('save-terminal-session', session),
   getTerminalSessions: (projectId?: string, limit?: number) => ipcRenderer.invoke('get-terminal-sessions', projectId, limit),
+  getTerminalMessages: (sessionId: string) => ipcRenderer.invoke('get-terminal-messages', sessionId),
   deleteTerminalSession: (sessionId: string) => ipcRenderer.invoke('delete-terminal-session', sessionId),
   getTerminalSessionResumeId: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-resume-id', sessionId),
   getTerminalSessionById: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-by-id', sessionId),
   checkSessionExists: (sessionId: string) => ipcRenderer.invoke('check-session-exists', sessionId),
+  captureOpencodeSessionId: (workspaceDir: string) => ipcRenderer.invoke('capture-opencode-session-id', workspaceDir),
+  terminalWriteDisplay: (terminalId: string, data: string) => ipcRenderer.invoke('terminal:write-display', terminalId, data),
+  terminalLog: (...args: any[]) => ipcRenderer.invoke('terminal:log', ...args),
+  updateSessionResumeId: (sessionId: string, resumeId: string) => ipcRenderer.invoke('update-session-resume-id', sessionId, resumeId),
   getSessionMessages: (sessionId: string, agentType?: string) => ipcRenderer.invoke('get-session-messages', sessionId, agentType),
   summarizeSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke('summarize-session', sessionId, projectPath),
 
@@ -505,6 +510,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
        name?: string;
      }) => ipcRenderer.invoke('workspace:load', data),
     listWorkspaces: (data: { projectId: string }) => ipcRenderer.invoke('workspace:list', data),
+    listAllWorkspaces: () => ipcRenderer.invoke('workspace:list-all'),
     deleteWorkspace: (data: { projectId: string; name: string }) => ipcRenderer.invoke('workspace:delete', data),
 
   // ========= Tracker Mind - Problem Management =========
@@ -544,6 +550,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getWorkspaceSkills: (projectPath?: string) => ipcRenderer.invoke('get-workspace-skills', { projectPath }),
   createSkill: (data: { name: string; category: string; description: string; content: string; projectPath?: string }) => ipcRenderer.invoke('create-skill', data),
   updateSkill: (data: { id: string; name: string; category: string; description: string; content: string; projectPath?: string }) => ipcRenderer.invoke('update-skill', data),
+  deleteSkill: (data: { id: string; projectPath?: string }) => ipcRenderer.invoke('delete-skill', data),
   syncProblemsMd: () => ipcRenderer.invoke('sync-problems-md'),
   trackerMindSetup: (step: string, projectId?: string, agentName?: string) => ipcRenderer.invoke('tracker-mind-setup', { step, projectId, agentName }),
   onTrackerMindInitProgress: (callback: (data: any) => void) => {
@@ -748,6 +755,11 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeGetWallets: (accountId?: number) => ipcRenderer.invoke('finance:get-wallets', accountId),
   financeCreateWallet: (data: any) => ipcRenderer.invoke('finance:create-wallet', data),
   financeUpdateWallet: (data: any) => ipcRenderer.invoke('finance:update-wallet', data),
+  financeAdjustBalance: (id: number, newBalance: number) => ipcRenderer.invoke('finance:adjust-balance', { id, newBalance }),
+  financeGetWallet: (id: number) => ipcRenderer.invoke('finance:get-wallet', id),
+  financeUpdateWalletMetadata: (payload: { id: number; metadata: Record<string, any> }) => ipcRenderer.invoke('finance:update-wallet-metadata', payload),
+  financeFetchCryptoPrices: (coinIds: string[]) => ipcRenderer.invoke('finance:fetch-crypto-prices', coinIds),
+  financeGetCryptoHistory: (coinId: string, days?: number) => ipcRenderer.invoke('finance:get-crypto-history', coinId, days),
 
   financeGetCategories: () => ipcRenderer.invoke('finance:get-categories'),
   financeCreateCategory: (data: any) => ipcRenderer.invoke('finance:create-category', data),
@@ -788,4 +800,12 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeDeleteWallet: (id: number) => ipcRenderer.invoke('finance:delete-wallet', id),
   financeGetPasswordRequirements: () => ipcRenderer.invoke('finance:get-password-requirements'),
   financeSetPasswordRequirement: (key: string, value: boolean) => ipcRenderer.invoke('finance:set-password-requirement', key, value),
+
+  // ========== Workspace close guard ==========
+  onWorkspaceRequestSave: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('workspace-request-save', handler);
+    return () => { ipcRenderer.removeListener('workspace-request-save', handler); };
+  },
+  workspaceAllowClose: () => ipcRenderer.send('workspace-allow-close'),
 });

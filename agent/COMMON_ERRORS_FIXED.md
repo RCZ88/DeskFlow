@@ -269,8 +269,6 @@ Remove any **duplicate** inline accent strips in sub-tab renders — they're now
 
 **The pattern:** Layout bugs inside scroll containers are almost always about percentage height computation vs. flex stretch. When you need a child to always fill the container AND the container to grow with content, use `display: flex` + `min-h-full` on the parent, and let flex `align-items: stretch` handle the child sizing. Never force `position: absolute` with `top/bottom` for vertical stretching in dynamic-height containers.
 
----
-
 <aside>
 📌
 

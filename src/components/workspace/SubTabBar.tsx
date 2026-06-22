@@ -17,14 +17,26 @@ const SUBTAB_ACTIVE: Record<string, string> = {
   pink: 'bg-pink-950/40 text-pink-300',
 };
 
+const ACCENT_DOT: Record<string, string> = {
+  green: 'bg-green-400',
+  orange: 'bg-orange-400',
+  purple: 'bg-purple-400',
+  indigo: 'bg-indigo-400',
+  amber: 'bg-amber-400',
+  blue: 'bg-blue-400',
+  pink: 'bg-pink-400',
+};
+
 export function SubTabBar({ tabs, active, onChange, accent }: {
   tabs: SubTabDef[];
   active: string;
   onChange: (k: string) => void;
   accent?: string;
 }) {
+  const dotColor = accent ? ACCENT_DOT[accent] : 'bg-zinc-400';
+
   return (
-    <div role="tablist" className="flex items-center gap-1 px-4 py-2 border-b border-zinc-800/40">
+    <div role="tablist" className="flex items-center gap-1 py-2 pr-4">
       {tabs.map((t) => {
         const on = t.key === active;
         const Icon = t.icon;
@@ -42,6 +54,9 @@ export function SubTabBar({ tabs, active, onChange, accent }: {
                 : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40',
             ].join(' ')}
           >
+            {on && (
+              <span className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
+            )}
             <Icon size={13} /> {t.label}
           </button>
         );
