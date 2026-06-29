@@ -1,16 +1,29 @@
+import { useState } from 'react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { formatCurrency } from './currency-data';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
-import type { FinanceTransaction } from '../finance/finance-types';
+import { TransactionDetailModal } from './TransactionDetailModal';
+import type { FinanceTransaction, FinanceAccount, FinanceCategory, FinanceWallet } from '../finance/finance-types';
 
 interface RecentTxnsCardProps {
   transactions: FinanceTransaction[];
   displayCurrency: string;
+  baseCurrency?: string;
+  accounts?: FinanceAccount[];
+  categories?: FinanceCategory[];
+  wallets?: FinanceWallet[];
+  onDeleteTransaction?: (id: number) => Promise<boolean>;
+  onVerifyPassword?: (password: string) => Promise<boolean>;
 }
 
-export function RecentTxnsCard({ transactions, displayCurrency }: RecentTxnsCardProps) {
+export function RecentTxnsCard({
+  transactions, displayCurrency, baseCurrency = displayCurrency,
+  accounts = [], categories = [], wallets = [],
+  onDeleteTransaction, onVerifyPassword,
+}: RecentTxnsCardProps) {
   const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const [detailTxn, setDetailTxn] = useState<FinanceTransaction | null>(null);
 
   const getTimeAgo = (dateStr: string) => {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -38,7 +51,8 @@ export function RecentTxnsCard({ transactions, displayCurrency }: RecentTxnsCard
         recent.map((tx, i) => (
           <div
             key={tx.id}
-            className="flex items-center gap-3 py-2 border-b border-white/[0.03] last:border-0 hover:bg-white/[0.02] rounded-lg -mx-2 px-2 transition-colors"
+            onClick={() => setDetailTxn(tx)}
+            className="flex items-center gap-3 py-2 border-b border-white/[0.03] last:border-0 hover:bg-white/[0.02] rounded-lg -mx-2 px-2 transition-colors cursor-pointer"
           >
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-zinc-200 truncate">{tx.description || 'Transaction'}</p>
@@ -55,6 +69,18 @@ export function RecentTxnsCard({ transactions, displayCurrency }: RecentTxnsCard
           </div>
         ))
       )}
+
+      <TransactionDetailModal
+        transaction={detailTxn}
+        accounts={accounts}
+        categories={categories}
+        wallets={wallets}
+        displayCurrency={displayCurrency}
+        baseCurrency={baseCurrency}
+        onClose={() => setDetailTxn(null)}
+        onDelete={onDeleteTransaction}
+        onVerifyPassword={onVerifyPassword}
+      />
     </GlassSurface>
   );
 }

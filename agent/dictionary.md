@@ -195,3 +195,45 @@
 3. **Browser tab changes** → `onBrowserTrackingEvent` fires → show website
 4. **Switch away from browser** → set `isInBrowser = false`, resume app tracking
 5. **Timer logic** → uses `currentApp.category` OR `currentWebsite.category` depending on mode
+
+---
+
+## External Frontend Infrastructure Terms
+
+### frontend-external-infra skill
+- **Location:** `agent/skills/frontend-external-infra/SKILL.md`
+- **What it is:** A skill that connects MCP servers serving real component/icon/motion libraries, so the agent doesn't invent UI from zero ("AI slop")
+- **How it differs from other design skills:** Other design skills (frontend-design, impeccable, humancentred-UIUX) are *instructions* — they teach taste. This skill is the *inventory connector* — it tells the agent which MCP server to call for real building blocks.
+
+### MCP Servers for Frontend (configured in opencode.json)
+
+| Server | Package | Purpose |
+|--------|---------|---------|
+| **shadcn** | `npx shadcn@latest mcp` | Browse/search/read source of thousands of shadcn-compatible Tailwind+React components from any registered registry (shadcn/ui, Aceternity, etc.) |
+| **magicui** | `@magicuidesign/mcp` | 150+ animated React components: beams, particles, bento grids, text animations, backgrounds, device mocks |
+| **lucide** | `lucide-icons-mcp` | 1500+ SVG icon search — never guess icon names |
+| **@21st-dev/magic** | `@21st-dev/magic` | Prompt→polished-React-component generation for unique variations (API key from `.env`) |
+| **motion-dev** (community) | `github.com/Abhishekrajpurohit/motion-dev-mcp` | Offline Motion.dev docs + animation codegen for React/JS/Vue (free — clone+`npm run build`) |
+| **unsplash** | `unsplash-smart-mcp-server` | Search stock photography with auto-attribution (Unsplash API key from `.env`) |
+| **reactbits** | `reactbits-dev-mcp-server` | 135+ animated React components (CSS + Tailwind variants) |
+| **iconify** | `better-icons-mcp` | 200,000+ icons across 200+ icon sets |
+
+### AI Slop
+- **Definition:** Generic, mass-produced UI output that looks like the statistical average of training data — indistinguishable from every other AI build
+- **Root cause (in this context):** The agent invents UI patterns from scratch instead of pulling from real, curated, production-grade libraries
+- **Fix:** Connected MCP servers (shadcn, Magic UI, Lucide, 21st.dev, Motion community MCP, Unsplash, React Bits, Iconify) + re-skin rules + anti-slop checklist
+- **Reference:** `agent/docs/frontend-external-infra.md`
+
+### Source Routing
+- **Definition:** The decision table in the frontend-external-infra skill that tells the agent *which* MCP server to call for *what* kind of UI need (e.g., "standard block → shadcn", "animated effect → Magic UI", "icon → Lucide")
+- **Location:** `agent/skills/frontend-external-infra/SKILL.md` — "Source Routing" section
+
+### Re-Skin (or "re-skin rules")
+- **Definition:** After pulling a component from any external source, the agent must replace the source's original styling with the project's own design tokens
+- **For DeskFlow:** Replace colors with `--bg-primary`, `--accent-primary`, etc.; use `rounded-xl` max; use `p-5` padding; use Geist/JetBrains Mono fonts
+- **Why this matters:** Without re-skin rules, sourced components would look foreign and inconsistent with the rest of the app
+
+### Anti-Slop Checklist
+- **Location:** `agent/skills/frontend-external-infra/SKILL.md`
+- **What it is:** 10 checkpoints that block a PR if any fail — type, color, geometry, hero pattern, section labels, motion, imagery, empty states, icons, accessibility
+- **Purpose:** Guards against the recognizable signature of AI-generated UI (default fonts, purple gradients, same-radius-everything, hero clichés)

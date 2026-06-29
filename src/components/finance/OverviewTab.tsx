@@ -51,12 +51,14 @@ interface OverviewTabProps {
     type: 'income' | 'expense' | 'transfer'; amount: number;
     description: string; note: string; date: string;
   }) => Promise<boolean>;
+  onDeleteTransaction?: (id: number) => Promise<boolean>;
+  onVerifyPassword?: (password: string) => Promise<boolean>;
 }
 
 export function OverviewTab({
   summary, spendingByCategory, monthlyTrends, accounts, recentTransactions,
-  wallets, loading, error, onRetry, displayCurrency, baseCurrency,
-  onCreateAccount,
+  categories, wallets, loading, error, onRetry, displayCurrency, baseCurrency,
+  onCreateAccount, onDeleteTransaction, onVerifyPassword,
 }: OverviewTabProps) {
   const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
 
@@ -289,7 +291,16 @@ export function OverviewTab({
         </GlassSurface>
       </motion.div>
       <motion.div variants={riseItem} className="lg:col-span-2">
-        <RecentTxnsCard transactions={recentTransactions} displayCurrency={displayCurrency} />
+        <RecentTxnsCard
+          transactions={recentTransactions}
+          displayCurrency={displayCurrency}
+          baseCurrency={baseCurrency}
+          accounts={accounts}
+          categories={categories}
+          wallets={wallets}
+          onDeleteTransaction={onDeleteTransaction}
+          onVerifyPassword={onVerifyPassword}
+        />
       </motion.div>
 
       {/* Accounts */}

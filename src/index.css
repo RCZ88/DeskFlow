@@ -169,12 +169,49 @@ code, pre, .font-mono {
   to   { opacity: 1; transform: scale(1); }
 }
 
+@keyframes pop {
+  from { transform: scale(0.8); opacity: 0 }
+  to { transform: scale(1); opacity: 1 }
+}
+
+/* ===== Lyceum welcome animations ===== */
+@keyframes lyceum-gradient {
+  to { background-position: var(--bg-size, 300%) 0; }
+}
+.lyceum-animate-gradient {
+  animation: lyceum-gradient 8s linear infinite;
+}
+
+@keyframes lyceum-shiny-text {
+  0%, 90%, 100% { background-position: calc(-100% - var(--shiny-width, 120px)) 0; }
+  30%, 60%      { background-position: calc(100% + var(--shiny-width, 120px)) 0; }
+}
+.lyceum-animate-shiny-text {
+  animation: lyceum-shiny-text 8s ease-in-out infinite;
+}
+
+@keyframes lyceum-glow-breathe {
+  0%, 100% { opacity: 0.35; transform: translate(-50%, -50%) scale(1); }
+  50%      { opacity: 0.55; transform: translate(-50%, -50%) scale(1.08); }
+}
+.lyceum-ambient-glow {
+  transform: translate(-50%, -50%);
+  animation: lyceum-glow-breathe 9s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .lyceum-animate-gradient,
+  .lyceum-animate-shiny-text,
+  .lyceum-ambient-glow {
+    animation: none !important;
+  }
+  .lyceum-ambient-glow { opacity: 0.4; }
 }
 
 ::-webkit-scrollbar {

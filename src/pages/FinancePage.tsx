@@ -1,24 +1,22 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield } from 'lucide-react';
+import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { TabBar } from '../components/TabBar';
 import { GlassCard } from '../components/GlassCard';
 import { FinanceLockScreen } from '../components/finance/FinanceLockScreen';
 import { FinanceStickyHeader } from '../components/finance/FinanceStickyHeader';
 import { OverviewTab } from '../components/finance/OverviewTab';
-import { AccountsTab } from '../components/finance/AccountsTab';
+import { WalletsTab } from '../components/finance/WalletsTab';
 import { TransactionsTab } from '../components/finance/TransactionsTab';
 import { CategoriesTab } from '../components/finance/CategoriesTab';
 import { AuroraBackground } from '../components/finance/_fx/AuroraBackground';
 import { getCurrencyInfo, formatCurrency, convertAmount } from '../components/finance/currency-data';
 import { pageContainer, tabPanel, fab, DUR } from '../components/finance/_fx/financeMotion';
-import { QuickAddModal } from '../components/finance/QuickAddModal';
 import { ArchivedItemsModal } from '../components/finance/ArchivedItemsModal';
 import { PasswordConfirmDialog } from '../components/finance/PasswordConfirmDialog';
 import { WalletDetailView } from '../components/finance/WalletDetailView';
-import { CryptoMarketTab } from '../components/finance/CryptoMarketTab';
 import {
   BankTransactionModal, DebitTransactionModal, CreditTransactionModal,
   CryptoTransactionModal, PhysicalTransactionModal, CashTransactionModal, EwalletTransactionModal,
@@ -48,13 +46,10 @@ const SEED_CATEGORIES = [
 
 const tabs: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'overview', label: 'Overview', icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
-  { key: 'accounts', label: 'Accounts', icon: <Wallet className="w-3.5 h-3.5" /> },
-  { key: 'crypto', label: 'Crypto', icon: <Wallet className="w-3.5 h-3.5" /> },
+  { key: 'wallets', label: 'Wallets', icon: <Wallet className="w-3.5 h-3.5" /> },
   { key: 'transactions', label: 'Transactions', icon: <ArrowUpRight className="w-3.5 h-3.5" /> },
   { key: 'categories', label: 'Categories', icon: <Tag className="w-3.5 h-3.5" /> },
 ];
-
-let pendingLockTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function FinancePage() {
   const [isLocked, setIsLocked] = useState(true);
@@ -66,7 +61,8 @@ export function FinancePage() {
     const tab = (location.state as any)?.tab;
     if (tab) setActiveTab(tab);
   }, []);
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showWalletSelector, setShowWalletSelector] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [walletTxModal, setWalletTxModal] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedAccounts, setArchivedAccounts] = useState<FinanceAccount[]>([]);
@@ -136,7 +132,7 @@ export function FinancePage() {
       }
     } catch {
       setIsFirstTime(true);
-      setIsLocked(false);
+      setIsLocked(true);
     }
   };
 
@@ -191,33 +187,67 @@ export function FinancePage() {
 
   const resetLockTimer = useCallback(() => {
     if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
-    if (pendingLockTimer) { clearTimeout(pendingLockTimer); pendingLockTimer = null; }
+    lockTimerRef.current = null;
   }, []);
 
+  const startLockTimer = useCallback(() => {
+    resetLockTimer();
+    if (!securitySettings?.hasPassword || securitySettings?.locked) return;
+    const timeoutMs = securitySettings?.lockTimeout ?? 5 * 60 * 1000;
+    lockTimerRef.current = setTimeout(async () => {
+      if (isFirstTime) return;
+      await window.deskflowAPI?.financeLock();
+      setIsLocked(true);
+      lockTimerRef.current = null;
+    }, timeoutMs);
+  }, [securitySettings, resetLockTimer, isFirstTime]);
+
+  // Page visibility: pause timer when hidden, re-check + restart when visible
   useEffect(() => {
-    if (pendingLockTimer) {
-      clearTimeout(pendingLockTimer);
-      pendingLockTimer = null;
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        resetLockTimer();
+      } else {
+        // Re-check backend lock state immediately on return
+        if (window.deskflowAPI) {
+          window.deskflowAPI.financeIsLocked().then(result => {
+            const locked = result?.locked ?? true;
+            setIsLocked(locked);
+            if (!locked) startLockTimer();
+          });
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [resetLockTimer, startLockTimer]);
+
+  // Lock timer: runs only while page is unlocked AND visible
+  useEffect(() => {
+    if (!isLocked && securitySettings?.hasPassword && !securitySettings?.locked) {
+      startLockTimer();
+    } else {
+      resetLockTimer();
     }
+    return () => resetLockTimer();
+  }, [isLocked, securitySettings, startLockTimer, resetLockTimer]);
+
+  // 30s polling: sync with backend lock state (does NOT start timers)
+  useEffect(() => {
     securityCheckIntervalRef.current = setInterval(() => {
       if (window.deskflowAPI) {
         window.deskflowAPI.financeIsLocked().then(result => {
-          setIsLocked(result?.locked ?? true);
+          const locked = result?.locked ?? true;
+          setIsLocked(locked);
+          if (!locked) startLockTimer();
+          else resetLockTimer();
         });
       }
     }, 30000);
     return () => {
       if (securityCheckIntervalRef.current) clearInterval(securityCheckIntervalRef.current);
-      if (securitySettings?.hasPassword && !securitySettings?.locked) {
-        const timeoutMs = securitySettings?.lockTimeout || 5 * 60 * 1000;
-        const handleLockClosure = handleLock;
-        pendingLockTimer = setTimeout(() => {
-          handleLockClosure();
-          pendingLockTimer = null;
-        }, timeoutMs);
-      }
     };
-  }, [securitySettings, resetLockTimer]);
+  }, [startLockTimer, resetLockTimer]);
 
   const handleUnlock = async (password: string): Promise<boolean> => {
     try {
@@ -225,7 +255,7 @@ export function FinancePage() {
       const result = await window.deskflowAPI?.financeUnlock(password) as { success: boolean };
       if (result?.success) {
         setIsLocked(false);
-        resetLockTimer();
+        await checkPageAccess();
         return true;
       }
       setLockError('Wrong password');
@@ -243,7 +273,7 @@ export function FinancePage() {
       if (result?.success) {
         setIsFirstTime(false);
         setIsLocked(false);
-        resetLockTimer();
+        await checkPageAccess();
         return true;
       }
       setLockError('Failed to set password');
@@ -259,7 +289,7 @@ export function FinancePage() {
       const result = await window.deskflowAPI?.financeBiometricUnlock() as { success: boolean };
       if (result?.success) {
         setIsLocked(false);
-        resetLockTimer();
+        await checkPageAccess();
         return true;
       }
       return false;
@@ -273,6 +303,18 @@ export function FinancePage() {
     await window.deskflowAPI?.financeLock();
     setIsLocked(true);
   };
+
+  // Reset lock timer on any user interaction while unlocked
+  useEffect(() => {
+    const resetOnActivity = () => {
+      if (!isLocked && securitySettings?.hasPassword && !securitySettings?.locked) {
+        startLockTimer();
+      }
+    };
+    const events = ['mousedown', 'keydown', 'touchstart', 'wheel'];
+    events.forEach(e => document.addEventListener(e, resetOnActivity, { passive: true }));
+    return () => events.forEach(e => document.removeEventListener(e, resetOnActivity));
+  }, [isLocked, securitySettings, startLockTimer]);
 
   useEffect(() => {
     if (selectedWalletId) {
@@ -303,9 +345,37 @@ export function FinancePage() {
     account_id: number; wallet_id: number | null; category_id: number;
     type: string; amount: number;
     description: string; note?: string; date: string;
+    to_wallet_id?: number; fromWalletName?: string; toWalletName?: string;
     [key: string]: any;
   }): Promise<boolean> => {
     try {
+      if (data.type === 'transfer' && data.to_wallet_id) {
+        const result = await window.deskflowAPI?.financeCreateTransfer(data) as { transferId?: string; success?: boolean };
+        if (result?.success) {
+          // Merge dest_metadata (e.g. denomination counts for physical wallets) into destination wallet metadata
+          if (data.dest_metadata && data.to_wallet_id) {
+            const dstWallet = wallets.find(w => w.id === data.to_wallet_id);
+            if (dstWallet) {
+              let meta: Record<string, any> = {};
+              if (dstWallet.metadata) {
+                try { meta = typeof dstWallet.metadata === 'object' ? dstWallet.metadata : JSON.parse(dstWallet.metadata as string); } catch { meta = {}; }
+              }
+              const incomingDenoms = data.dest_metadata.denominations;
+              if (incomingDenoms) {
+                const existing = meta.denominations ?? {};
+                const merged: Record<string, number> = { ...existing };
+                for (const [d, n] of Object.entries(incomingDenoms)) {
+                  merged[+d] = (merged[+d] ?? 0) + (n as number);
+                }
+                meta.denominations = merged;
+                await window.deskflowAPI?.financeUpdateWalletMetadata({ id: data.to_wallet_id, metadata: meta });
+              }
+            }
+          }
+          await fetchData(); return true;
+        }
+        return false;
+      }
       const result = await window.deskflowAPI?.financeCreateTransaction(data) as FinanceTransaction;
       if (result) { await fetchData(); return true; }
       return false;
@@ -517,7 +587,7 @@ export function FinancePage() {
           </p>
           {pageAccess.reason === 'locked' && (
             <button
-              onClick={() => setIsFirstTime(true)}
+              onClick={() => { setIsLocked(true); checkPageAccess(); }}
               className="px-4 py-2 rounded-lg bg-[var(--page-accent)] hover:bg-[var(--page-accent)]/90 text-white text-sm font-medium transition-colors"
             >
               Unlock Now
@@ -532,7 +602,7 @@ export function FinancePage() {
     <PageShell page="finance" variant="sticky-header" style={{ ['--page-accent' as string]: '#10b981' }}>
       <AuroraBackground />
 
-      <div className="relative isolate min-h-full px-6 pb-28 pt-4 mx-auto w-full max-w-[1100px]">
+      <div className="relative isolate min-h-full px-6 pb-28 pt-4 mx-auto w-full max-w-full">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
@@ -592,7 +662,7 @@ export function FinancePage() {
         </div>
 
         <div className="mb-6" style={{ display: selectedWalletId ? 'none' : undefined }}>
-          <TabBar tabs={tabs} activeKey={activeTab} onTabChange={(k) => { setActiveTab(k as FinanceTabKey); setSelectedWalletId(null); }} />
+          <TabBar tabs={tabs} activeKey={activeTab} onTabChange={(k) => { if (isDirty && !window.confirm('Discard unsaved changes?')) return; setActiveTab(k as FinanceTabKey); setSelectedWalletId(null); setIsDirty(false); }} />
         </div>
 
         <FinanceStickyHeader
@@ -621,20 +691,21 @@ export function FinancePage() {
                 onUpdateWallet={handleUpdateWallet}
                 onDeleteWallet={handleDeleteWallet}
                 onAddTransaction={(walletType) => setWalletTxModal(walletType as any)}
+                onDirtyChange={setIsDirty}
               />
             );
           }
           return (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeTab}
-                variants={tabPanel}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-              >
-                {activeTab === 'overview' && (
+            <div className="mt-5">
+              {activeTab === 'overview' && (
+                <motion.div
+                  key="overview"
+                  variants={tabPanel}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                >
                   <OverviewTab
                     data-section="finance.overview"
                     summary={summary}
@@ -647,15 +718,26 @@ export function FinancePage() {
                     onRetry={fetchData}
                     onCreateAccount={handleCreateAccount}
                     onAddTransaction={handleAddTransaction}
+                    onDeleteTransaction={handleDeleteTransaction}
+                    onVerifyPassword={handleUnlock}
                     categories={categories}
                     wallets={wallets}
                     displayCurrency={displayCurrency}
                     baseCurrency={baseCurrency}
                   />
-                )}
-                {activeTab === 'accounts' && (
-                  <AccountsTab
-                    data-section="finance.accounts"
+                </motion.div>
+              )}
+              {activeTab === 'wallets' && (
+                <motion.div
+                  key="wallets"
+                  variants={tabPanel}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <WalletsTab
+                    data-section="finance.wallets"
                     accounts={accounts}
                     wallets={wallets}
                     loading={loading}
@@ -672,17 +754,17 @@ export function FinancePage() {
                     onRetry={fetchData}
                     onWalletClick={handleWalletClick}
                   />
-                )}
-                {activeTab === 'crypto' && (
-                  <CryptoMarketTab
-                    data-section="finance.crypto"
-                    wallets={wallets.filter(w => w.type === 'crypto' && !w.is_archived)}
-                    displayCurrency={displayCurrency}
-                    loading={loading}
-                    onWalletClick={handleWalletClick}
-                  />
-                )}
-                {activeTab === 'transactions' && (
+                </motion.div>
+              )}
+              {activeTab === 'transactions' && (
+                <motion.div
+                  key="transactions"
+                  variants={tabPanel}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                >
                   <TransactionsTab
                     data-section="finance.transactions"
                     transactions={transactions}
@@ -698,8 +780,17 @@ export function FinancePage() {
                     error={fetchError}
                     onRetry={fetchData}
                   />
-                )}
-                {activeTab === 'categories' && (
+                </motion.div>
+              )}
+              {activeTab === 'categories' && (
+                <motion.div
+                  key="categories"
+                  variants={tabPanel}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                >
                   <CategoriesTab
                     data-section="finance.categories"
                     categories={categories}
@@ -710,9 +801,9 @@ export function FinancePage() {
                     error={fetchError}
                     onRetry={fetchData}
                   />
-                )}
-              </motion.div>
-            </AnimatePresence>
+                </motion.div>
+              )}
+            </div>
           );
         })()}
       </div>
@@ -728,7 +819,7 @@ export function FinancePage() {
             const w = wallets.find(x => x.id === selectedWalletId);
             if (w) setWalletTxModal(w.type);
           } else {
-            setShowQuickAdd(true);
+            setShowWalletSelector(true);
           }
         }}
         className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white flex items-center justify-center z-[var(--z-elevated)] focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.35)]"
@@ -737,17 +828,67 @@ export function FinancePage() {
         <Plus className="w-5 h-5" />
       </motion.button>
 
-      {showQuickAdd && (
-        <QuickAddModal
-          open={showQuickAdd}
-          onClose={() => setShowQuickAdd(false)}
-          accounts={accounts}
-          categories={categories}
-          wallets={wallets}
-          displayCurrency={displayCurrency}
-          baseCurrency={baseCurrency}
-          onSave={handleAddTransaction}
-        />
+      {showWalletSelector && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[var(--z-modal)] flex items-end justify-center pb-24 sm:items-center sm:pb-0"
+          onClick={() => setShowWalletSelector(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 40, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.96 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-2xl p-4 w-full max-w-sm mx-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-3">Quick Transaction</p>
+            {(() => {
+              const activeWallets = wallets.filter(w => !w.is_archived);
+              if (activeWallets.length === 0) {
+                return <p className="text-xs text-zinc-600 text-center py-6">No wallets yet — create one first</p>;
+              }
+              const TYPE_EMOJI: Record<string, string> = {
+                bank: '🏦', debit_card: '💳', credit_card: '💳',
+                crypto: '₿', physical: '💵', cash: '💰', ewallet: '📱', other: '📦',
+              };
+              const TYPE_COLOR: Record<string, string> = {
+                bank: '#3B82F6', debit_card: '#10B981', credit_card: '#F59E0B',
+                crypto: '#8B5CF6', physical: '#F97316', cash: '#EC4899', ewallet: '#06B6D4', other: '#6B7280',
+              };
+              const fc = (v: number) => formatCurrency(convertAmount(v, baseCurrency, displayCurrency), displayCurrency);
+              return (
+                <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
+                  {activeWallets.map(w => {
+                    const color = TYPE_COLOR[w.type] || '#6B7280';
+                    return (
+                      <button
+                        key={w.id}
+                        onClick={() => {
+                          setSelectedWalletId(w.id);
+                          setWalletTxModal(w.type);
+                          setShowWalletSelector(false);
+                        }}
+                        className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50 hover:bg-zinc-700/50 transition-colors text-left focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                      >
+                        <span className="text-lg shrink-0">{TYPE_EMOJI[w.type] || '📦'}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-zinc-200 truncate">{w.name}</p>
+                          <p className="text-[10px] text-zinc-500">{accounts.find(a => a.id === w.account_id)?.name || ''}</p>
+                        </div>
+                        <span className="text-xs font-semibold tabular-nums shrink-0" style={{ color }}>
+                          {fc(w.balance)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </motion.div>
+        </motion.div>
       )}
 
       {/* Wallet-type-specific transaction modals */}
@@ -756,10 +897,11 @@ export function FinancePage() {
         if (!w) return null;
         const modalProps = {
           open: true,
-          onClose: () => setWalletTxModal(null),
+          onClose: () => { setWalletTxModal(null); },
           wallet: w,
           categories,
           wallets,
+          accounts,
           displayCurrency,
           baseCurrency,
           onSubmit: handleAddTransaction,
@@ -773,7 +915,6 @@ export function FinancePage() {
           case 'physical': return <PhysicalTransactionModal key={w.id} {...modalProps} />;
           case 'cash': return <CashTransactionModal key={w.id} {...modalProps} />;
           case 'ewallet': return <EwalletTransactionModal key={w.id} {...modalProps} />;
-          default: return <QuickAddModal open onClose={() => setWalletTxModal(null)} accounts={accounts} categories={categories} wallets={wallets} displayCurrency={displayCurrency} baseCurrency={baseCurrency} onSave={handleAddTransaction} />;
         }
       })()}
 

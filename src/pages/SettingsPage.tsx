@@ -27,8 +27,11 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
+import { migrateSystemPrompts, projectKey } from '../lib/promptAssembly';
 import { useLocation } from 'react-router-dom';
 import { useNumberMask } from '../context/NumberMaskContext';
+import { SectionHeader } from '../components/SectionHeader'
+import { ProviderDiagnostics } from '../components/ProviderDiagnostics';
 import { GlassCard } from '../components/GlassCard';
 import { PageShell } from '../components/PageShell';
 
@@ -403,7 +406,7 @@ export default function SettingsPage({
     masterPassword: '',
   });
 
-  const { maskMode, setMaskMode, maskFixedValue, setMaskFixedValue } = useNumberMask();
+  const { showNumbers, setShowNumbers, maskMode, setMaskMode, maskFixedValue, setMaskFixedValue } = useNumberMask();
 
   const allCategories = useMemo(() => [...DEFAULT_CATEGORIES, ...customCategories], [customCategories]);
 
@@ -775,7 +778,8 @@ export default function SettingsPage({
     }
 
     if (window.deskflowAPI?.saveAiProviders) {
-      await window.deskflowAPI.saveAiProviders({ providers: aiProviders, routing: aiProviderRouting });
+      const cleanProviders = aiProviders.map(({ _newModel, ...rest }) => rest);
+      await window.deskflowAPI.saveAiProviders({ providers: cleanProviders, routing: aiProviderRouting });
     }
 
     try {
@@ -1038,7 +1042,7 @@ export default function SettingsPage({
   const [providerTestMessages, setProviderTestMessages] = useState<Record<string, string>>({});
   const [showProviderApiKeys, setShowProviderApiKeys] = useState<Record<string, boolean>>({});
   const [dataAccess, setDataAccess] = useState<Record<string, boolean>>({
-    projects: true, problems: true, requests: true, aiUsage: true, dashboardStats: true, goals: true, finance: true,
+    projects: true, problems: true, requests: true, aiUsage: true, dashboardStats: true, goals: true, checklist: true, finance: true,
   });
 
   // Keyword-based productivity categorization state
@@ -1065,8 +1069,11 @@ export default function SettingsPage({
   const [systemPrompts, setSystemPrompts] = useState<Record<string, string>>({
     claude: '',
     opencode: '',
-    custom: ''
+    custom: '',
+    generalAdditions: ''
   });
+  const [promptProjectId, setPromptProjectId] = useState('');
+  const [promptProjects, setPromptProjects] = useState<{ id: string; name: string }[]>([]);
 
   // Load tracking settings on mount
   useEffect(() => {
@@ -1085,24 +1092,45 @@ export default function SettingsPage({
     loadTrackingSettings();
   }, []);
 
-  // Load system prompts on mount
+  // Load system prompts on mount with migration
   useEffect(() => {
     const loadPrompts = async () => {
       if (window.deskflowAPI?.getPreferences) {
         const prefs = await window.deskflowAPI.getPreferences();
         if (prefs?.systemPrompts) {
-          setSystemPrompts({ claude: '', opencode: '', custom: '', ...prefs.systemPrompts });
+          const migrated = migrateSystemPrompts(prefs.systemPrompts);
+          setSystemPrompts({ claude: '', opencode: '', custom: '', generalAdditions: '', ...migrated });
+          if (prefs.systemPrompts.__v !== '2' && window.deskflowAPI?.setPreference) {
+            await window.deskflowAPI.setPreference('systemPrompts', migrated);
+          }
         }
       }
     };
     loadPrompts();
   }, []);
 
-  const handleSaveSystemPrompt = async (agent: string, content: string) => {
-    const updated = { ...systemPrompts, [agent]: content };
+  // Load projects for project prompt selector
+  useEffect(() => {
+    const loadProjects = async () => {
+      if (window.deskflowAPI?.getProjects) {
+        const data = await window.deskflowAPI.getProjects();
+        if (Array.isArray(data)) {
+          setPromptProjects(data.filter((p: any) => !p.deleted_at).map((p: any) => ({ id: p.id, name: p.name })));
+          if (data.length > 0) setPromptProjectId(data[0].id);
+        }
+      }
+    };
+    loadProjects();
+  }, []);
+
+  const handleSaveSystemPrompt = async (key: string, content: string) => {
+    const updated = { ...systemPrompts, [key]: content };
     setSystemPrompts(updated);
     if (window.deskflowAPI?.setPreference) {
       await window.deskflowAPI.setPreference('systemPrompts', updated);
+    }
+    if (key === 'generalAdditions' && (window.deskflowAPI as any)?.writeAgentFile) {
+      (window.deskflowAPI as any).writeAgentFile({ relativePath: 'agent/GENERAL_ADDITIONS.md', content: content || '# General Additions\n\n> Auto-generated mirror of the `generalAdditions` preference. Edit in Settings → Prompts.\n' });
     }
   };
 
@@ -1535,66 +1563,6 @@ export default function SettingsPage({
               )}
             </GlassCard>
           )}
-
-          {securitySettings && (
-            <GlassCard className="space-y-4 mt-4">
-              <div className="flex items-center gap-3">
-                <Shield className="w-5 h-5 text-emerald-400" />
-                <div>
-                  <h2 className="text-lg font-semibold">Security Settings</h2>
-                  <p className="text-xs text-zinc-500">Control device remembering and lock timeout</p>
-                </div>
-              </div>
-              <div className="pt-2 border-t border-zinc-700/50" />
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-zinc-400">Remember device</span>
-                  <button
-                    onClick={() => handleSetRememberDevice(!securitySettings.rememberDevice, 7)}
-                    className={`w-10 h-5 rounded-full transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950 ${securitySettings.rememberDevice ? 'bg-emerald-500' : 'bg-zinc-700'}`}
-                  >
-                    <div className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${securitySettings.rememberDevice ? 'translate-x-5' : ''}`} />
-                  </button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-zinc-400">Lock timeout</span>
-                  <select
-                    value={securitySettings.lockTimeout / (60 * 1000)}
-                    onChange={(e) => handleSetLockTimeout(parseInt(e.target.value) * 60 * 1000)}
-                    className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-                  >
-                    <option value="1">1 min</option>
-                    <option value="5">5 min</option>
-                    <option value="15">15 min</option>
-                    <option value="30">30 min</option>
-                  </select>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-zinc-400">Masking mode</span>
-                  <select
-                    value={maskMode}
-                    onChange={(e) => setMaskMode(e.target.value as MaskMode)}
-                    className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-                  >
-                    <option value="digits">Same digit count</option>
-                    <option value="fixed">Fixed number</option>
-                  </select>
-                </div>
-                {maskMode === 'fixed' && (
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[11px] text-zinc-400">Display value</span>
-                    <input
-                      type="number"
-                      value={maskFixedValue}
-                      onChange={(e) => setMaskFixedValue(parseFloat(e.target.value) || 0)}
-                      className="w-24 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300 text-right focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-                    />
-                  </div>
-                )}
-              </div>
-            </GlassCard>
-          )}
-
 
           {/* Applications Section - Carousel with Expandable Grid */}
           <GlassCard>
@@ -2815,69 +2783,100 @@ export default function SettingsPage({
       )}
 
       {activeTab === 'prompts' && (
-        <div data-section="settings.prompts" className="space-y-4">
-          <GlassCard>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold">System Prompts</h2>
-                <p className="text-xs text-zinc-500">General prompts apply to all projects. Project-specific prompts can be set in each workspace.</p>
-              </div>
-            </div>
+        <div data-section="settings.prompts" className="space-y-6">
 
-            {/* Default prompt preview */}
-            <details className="mb-4 group">
+          {/* 1. DEFAULT (read-only) */}
+          <GlassCard>
+            <div>
+              <h3 className="text-cyan-400 font-semibold">Default · app baseline</h3>
+              <p className="text-sm text-zinc-500">Always applied first to every agent and project. Edit in agent/DEFAULT_SYSTEM_PROMPT.md.</p>
+            </div>
+            <details className="mt-2 group">
               <summary className="text-sm font-medium text-zinc-400 hover:text-zinc-300 cursor-pointer select-none list-none flex items-center gap-2">
                 <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
-                Default Prompt (always prepended)
+                View default prompt
               </summary>
               <div className="mt-2 bg-zinc-900/80 rounded-lg border border-zinc-700/50 p-3 max-h-48 overflow-y-auto">
                 <pre className="text-[11px] text-zinc-400 font-mono whitespace-pre-wrap">{DEFAULT_SYSTEM_PROMPT}</pre>
               </div>
             </details>
+          </GlassCard>
 
-            {['claude', 'opencode', 'custom'].map(agent => {
-              const additions = systemPrompts[agent] || '';
-              const merged = additions ? `${DEFAULT_SYSTEM_PROMPT}\n\n## Additional Instructions\n${additions}` : DEFAULT_SYSTEM_PROMPT;
-              return (
-                <div key={agent} className="mb-4 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700/30">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium text-zinc-300 capitalize">{agent === 'custom' ? 'Custom AI' : agent}</label>
-                    <button
-                      onClick={() => handleSaveSystemPrompt(agent, '')}
-                      className="px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-400 rounded transition-colors"
-                    >
-                      Clear additions
-                    </button>
-                  </div>
-                  <textarea
-                    value={additions}
-                    onChange={(e) => setSystemPrompts(prev => ({ ...prev, [agent]: e.target.value }))}
-                    onBlur={() => handleSaveSystemPrompt(agent, systemPrompts[agent])}
-                    placeholder="Add instructions that will be appended to the default prompt..."
-                    rows={4}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 font-mono placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-colors duration-150"
-                  />
-                  <div className="flex justify-between mt-1">
-                    <span className="text-[10px] text-zinc-600">Additions: {additions.length} chars | Merged: {merged.length} chars</span>
-                    <button
-                      onClick={() => handleSaveSystemPrompt(agent, systemPrompts[agent])}
-                      className="px-2 py-0.5 text-[10px] bg-cyan-600 hover:bg-cyan-500 text-white rounded transition-colors"
-                    >
-                      Save
-                    </button>
-                  </div>
-                  <details className="mt-2 group">
-                    <summary className="text-[11px] text-zinc-600 hover:text-zinc-500 cursor-pointer select-none list-none flex items-center gap-1">
-                      <ChevronRight className="w-3 h-3 transition-transform group-open:rotate-90" />
-                      Preview merged prompt
-                    </summary>
-                    <div className="mt-1 bg-zinc-900/80 rounded-lg border border-zinc-700/50 p-2 max-h-32 overflow-y-auto">
-                      <pre className="text-[10px] text-zinc-500 font-mono whitespace-pre-wrap">{merged}</pre>
+          {/* 2. GENERAL (generalAdditions) */}
+          <GlassCard>
+            <div>
+              <h3 className="text-blue-400 font-semibold">General · all projects · all agents</h3>
+              <p className="text-sm text-zinc-500">Reusable instructions saved to the app and applied on every project. This is the place for cross-project standards.</p>
+            </div>
+            <textarea
+              value={systemPrompts.generalAdditions || ''}
+              onChange={(e) => setSystemPrompts((p) => ({ ...p, generalAdditions: e.target.value }))}
+              onBlur={() => handleSaveSystemPrompt('generalAdditions', systemPrompts.generalAdditions || '')}
+              placeholder={'App-wide instructions appended after the default, before agent/project layers...'}
+              rows={4}
+              className="mt-2 w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 font-mono placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-colors duration-150"
+            />
+          </GlassCard>
+
+          {/* 3. AGENT-TYPE (claude/opencode/custom) */}
+          <GlassCard>
+            <div>
+              <h3 className="text-emerald-400 font-semibold">Agent-type · only this agent</h3>
+              <p className="text-sm text-zinc-500">Applied only when a session uses this agent type. Stacks on top of Default + General.</p>
+            </div>
+            <div className="mt-2 space-y-4">
+              {['claude', 'opencode', 'custom'].map((agent) => {
+                const additions = systemPrompts[agent] || '';
+                return (
+                  <div key={agent} className="p-3 bg-zinc-800/40 rounded-xl border border-zinc-700/30">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-zinc-300 capitalize">{agent === 'custom' ? 'Custom AI' : agent}</label>
+                      <button
+                        onClick={() => handleSaveSystemPrompt(agent, '')}
+                        className="px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-400 rounded transition-colors"
+                      >
+                        Clear
+                      </button>
                     </div>
-                  </details>
-                </div>
-              );
-            })}
+                    <textarea
+                      value={additions}
+                      onChange={(e) => setSystemPrompts(prev => ({ ...prev, [agent]: e.target.value }))}
+                      onBlur={() => handleSaveSystemPrompt(agent, systemPrompts[agent] || '')}
+                      placeholder={`Instructions applied only to ${agent} sessions...`}
+                      rows={4}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 font-mono placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-colors duration-150"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </GlassCard>
+
+          {/* 4. PROJECT (project:<id>) */}
+          <GlassCard>
+            <div>
+              <h3 className="text-purple-400 font-semibold">Project · only the selected project</h3>
+              <p className="text-sm text-zinc-500">Applied only to the chosen project. Highest precedence.</p>
+            </div>
+            <div className="mt-2">
+              <select
+                value={promptProjectId}
+                onChange={(e) => setPromptProjectId(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50"
+              >
+                {promptProjects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <textarea
+                value={systemPrompts[projectKey(promptProjectId)] || ''}
+                onChange={(e) => setSystemPrompts((p) => ({ ...p, [projectKey(promptProjectId)]: e.target.value }))}
+                onBlur={() => handleSaveSystemPrompt(projectKey(promptProjectId), systemPrompts[projectKey(promptProjectId)] || '')}
+                placeholder={'Instructions applied only to this project...'}
+                rows={4}
+                className="mt-2 w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 font-mono placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-colors duration-150"
+              />
+            </div>
           </GlassCard>
 
           <GlassCard>
@@ -3263,17 +3262,83 @@ export default function SettingsPage({
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              placeholder="Model (e.g. google/gemini-2.0-flash-001)"
-                              value={prov.models?.[0] || ''}
-                              onChange={(e) => {
-                                const next = aiProviders.map(p => p.id === prov.id ? { ...p, models: e.target.value ? [e.target.value] : [] } : p);
-                                setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
-                              }}
-                              className="flex-1 min-w-0 px-2 py-1 text-[11px] bg-zinc-800 border border-zinc-700/50 rounded text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-mono"
-                            />
+                          {prov.templateId === 'cloudflare' && (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                placeholder="Cloudflare Account ID (required)"
+                                value={prov.extraConfig?.cloudflareAccountId || ''}
+                                onChange={(e) => {
+                                  const next = aiProviders.map(p => p.id === prov.id ? { ...p, extraConfig: { ...p.extraConfig, cloudflareAccountId: e.target.value } } : p);
+                                  setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                                }}
+                                className="flex-1 min-w-0 px-2 py-1 text-[11px] bg-zinc-800 border border-zinc-700/50 rounded text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-mono"
+                              />
+                              <a
+                                href="https://dash.cloudflare.com"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-blue-400 hover:text-blue-300 shrink-0"
+                              >Find ID</a>
+                            </div>
+                          )}
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap gap-1">
+                              {(prov.models || []).map((m: string, mi: number) => (
+                                <span key={mi} className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono bg-zinc-800 border border-zinc-700/50 rounded text-zinc-300 group">
+                                  {m}
+                                  <button
+                                    onClick={() => {
+                                      const next = aiProviders.map(p =>
+                                        p.id === prov.id
+                                          ? { ...p, models: (p.models || []).filter((_: string, i: number) => i !== mi) }
+                                          : p
+                                      );
+                                      setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                                    }}
+                                    className="text-zinc-600 hover:text-red-400 transition-colors"
+                                  >×</button>
+                                </span>
+                              ))}
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  placeholder="Add model..."
+                                  value={((prov as any)._newModel) || ''}
+                                  onChange={(e) => {
+                                    const next = aiProviders.map(p =>
+                                      p.id === prov.id ? { ...p, _newModel: e.target.value } as any : p
+                                    );
+                                    setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && ((prov as any)._newModel || '').trim()) {
+                                      const val = ((prov as any)._newModel || '').trim();
+                                      const next = aiProviders.map(p =>
+                                        p.id === prov.id
+                                          ? { ...p, models: [...(p.models || []), val], _newModel: '' }
+                                          : p
+                                      );
+                                      setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                                    }
+                                  }}
+                                  className="w-24 px-1.5 py-0.5 text-[10px] bg-zinc-850 border border-zinc-700/30 rounded text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-mono"
+                                />
+                                <button
+                                  onClick={() => {
+                                    const val = ((prov as any)._newModel || '').trim();
+                                    if (!val) return;
+                                    const next = aiProviders.map(p =>
+                                      p.id === prov.id
+                                        ? { ...p, models: [...(p.models || []), val], _newModel: '' }
+                                        : p
+                                    );
+                                    setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                                  }}
+                                  className="text-[10px] px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 rounded transition-colors"
+                                >+</button>
+                              </div>
+                            </div>
                             <input
                               type="text"
                               placeholder="Base URL (optional)"
@@ -3288,28 +3353,11 @@ export default function SettingsPage({
                         </div>
                       )}
                     </div>
-                    <div className="shrink-0 text-right">
-                      <label className="text-[10px] text-zinc-500 block mb-0.5">Digest</label>
-                      <button
-                        onClick={() => {
-                          const isNow = aiProviderRouting.researchDigest?.providerId !== prov.id;
-                          setAiProviderRouting(prev => ({ ...prev, researchDigest: isNow ? { providerId: prov.id, model: prov.models?.[0] || '' } : null }));
-                          setHasChanges(true); onHasChangesChange(true);
-                        }}
-                        disabled={!prov.enabled}
-                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors disabled:opacity-30 ${
-                          aiProviderRouting.researchDigest?.providerId === prov.id
-                            ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
-                            : 'bg-zinc-800/50 text-zinc-500 border border-zinc-700/30 hover:text-zinc-300'
-                        }`}
-                      >
-                        {aiProviderRouting.researchDigest?.providerId === prov.id ? 'Active' : 'Assign'}
-                      </button>
-                    </div>
+                    <div className="shrink-0 text-right" />
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-zinc-500 mt-2">The Research Digest tries the <span className="text-violet-400">Active</span> provider first, then falls back through all enabled providers in order.</p>
+              <p className="text-xs text-zinc-500 mt-2">Providers configured here are available as presets on the AI Assistant page, where you can assign a specific provider + model per feature (Digest, Daily Plan).</p>
             </div>
 
             <div className="pt-4 border-t border-zinc-700/50" />
@@ -3432,6 +3480,8 @@ export default function SettingsPage({
                   { key: 'aiUsage', label: 'AI Usage', desc: 'Token usage, costs, and tool usage stats' },
                   { key: 'dashboardStats', label: 'Dashboard Stats', desc: 'App activity, focus time, hourly stats' },
                   { key: 'goals', label: 'Goals', desc: 'Daily goals, long-term goals, and reviews' },
+                  { key: 'checklist', label: 'Checklists', desc: 'Checklist items on problems and requests' },
+                  { key: 'prompts', label: 'Prompts', desc: 'Agent prompts, status, and progress' },
                   { key: 'finance', label: 'Finance', desc: 'Wallets, transactions, balances, and crypto' },
                 ].map(item => (
                   <div key={item.key} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-zinc-800/30 border border-zinc-700/30">
@@ -3517,6 +3567,14 @@ export default function SettingsPage({
                 })}
               </div>
             </div>
+          </GlassCard>
+        </div>
+      )}
+
+      {activeTab === 'ai' && (
+        <div data-section="settings.ai.diagnostics" className="space-y-4">
+          <GlassCard>
+            <ProviderDiagnostics />
           </GlassCard>
         </div>
       )}

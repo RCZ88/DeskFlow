@@ -1,3 +1,8 @@
+declare module "*.md?raw" {
+	const content: string
+	export default content
+}
+
 declare module 'node-pty' {
     export interface IPty {
         onData(callback: (data: string) => void): void;

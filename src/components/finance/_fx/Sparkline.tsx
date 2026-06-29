@@ -1,3 +1,4 @@
+import { maxOf, minOf } from '../../../utils/safeMath';
 // Shared sparkline used by the sticky header and KPI cards.
 // Single source of truth — do not redefine inline in tabs/components.
 interface SparklineProps {
@@ -19,8 +20,8 @@ export function Sparkline({
 }: SparklineProps) {
   if (!data || data.length < 2) return null;
 
-  const max = Math.max(...data, 1);
-  const min = Math.min(...data, 0);
+  const max = maxOf(data, 1);
+  const min = minOf(data, 0);
   const range = max - min || 1;
 
   const points = data

@@ -55,6 +55,7 @@ import {
   FileText,
   Lock,
   Unlock,
+  Play,
 } from 'lucide-react';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import {
@@ -72,7 +73,7 @@ import {
 } from 'chart.js';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
 import { format, subDays, eachDayOfInterval, formatDistanceToNow } from 'date-fns';
-import AnalyticsDashboard from '../components/AnalyticsDashboard';
+const AnalyticsDashboard = lazy(() => import('../components/AnalyticsDashboard'));
 import { StatsDashboard } from '../components/stats/StatsDashboard';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
@@ -364,6 +365,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const analyticsCacheRef = useRef<{ data: typeof workspaceAnalytics; timestamp: number } | null>(null);
+  const analyticsReqIdRef = useRef(0);
   const [contributorStats, setContributorStats] = useState<any>(null);
   const [doraMetrics, setDoraMetrics] = useState<any>(null);
   const [syncingGit, setSyncingGit] = useState(false);
@@ -377,7 +379,9 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [showAgentDebug, setShowAgentDebug] = useState(false);
   const [aiChartMode, setAiChartMode] = useState<'tokens' | 'messages' | 'cost' | 'sessions'>('tokens');
   const [tokenDisplayMode, setTokenDisplayMode] = useState<'combined' | 'input' | 'output'>('combined');
-  const [aiPeriod, setAiPeriod] = useState<'week' | 'month' | 'all'>('week');
+  const [aiPeriod, setAiPeriod] = useState<'week' | 'month' | 'all'>(() => {
+    try { return (localStorage.getItem('ide-projects-ai-period') as 'week' | 'month' | 'all') || 'week'; } catch { return 'week'; }
+  });
   const [selectedAgentDetail, setSelectedAgentDetail] = useState<AIAgent | null>(null);
   const [agentDetailPeriod, setAgentDetailPeriod] = useState<'week' | 'month' | 'all'>('week');
   const [agentDetailMetric, setAgentDetailMetric] = useState<'tokens' | 'messages' | 'sessions' | 'cost'>('tokens');
@@ -388,7 +392,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [timeLock, setTimeLock] = useState(() => localStorage.getItem('ide-projects-time-lock') === 'true');
   const [logScale, setLogScale] = useState(() => localStorage.getItem('ide-projects-log-scale') !== 'false');
   const [excludeOutliers, setExcludeOutliers] = useState(() => localStorage.getItem('ide-projects-exclude-outliers') === 'true');
-  const [showCityView, setShowCityView] = useState(true);
+  const [showCityView, setShowCityView] = useState(false);
 
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -396,19 +400,8 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [addingProject, setAddingProject] = useState(false);
   const [quickAddProjects, setQuickAddProjects] = useState<{ ide: string; projects: { name: string; path: string }[] }[]>([]);
   const [loadingQuickAdd, setLoadingQuickAdd] = useState(false);
-  const [savedCustomDirs, setSavedCustomDirs] = useState<string[]>(() => {
-    try {
-      const multi = localStorage.getItem('customScanDirs');
-      if (multi) return JSON.parse(multi);
-      const old = localStorage.getItem('customScanPath');
-      if (old) {
-        localStorage.setItem('customScanDirs', JSON.stringify([old]));
-        localStorage.removeItem('customScanPath');
-        return [old];
-      }
-      return [];
-    } catch { return []; }
-  });
+  const [selectedQuickProjects, setSelectedQuickProjects] = useState<Set<string>>(new Set());
+  const [savedCustomDirs, setSavedCustomDirs] = useState<string[]>([]);
   const [customDirResults, setCustomDirResults] = useState<Record<string, { name: string; path: string; languages: string[]; fileCount: number }[]>>({});
   const [scanningDirs, setScanningDirs] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -426,6 +419,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [projectLanguages, setProjectLanguages] = useState<Record<string, LanguageBreakdownItem[]>>({});
   const [projectLanguagesLoading, setProjectLanguagesLoading] = useState(false);
   const scannedPathsRef = useRef<Set<string>>(new Set());
+  const progressThrottleRef = useRef(0);
 
   useEffect(() => {
     const handler = (e: CustomEvent<{ status: 'idle' | 'provisioning' | 'provisioned' }>) => setProvisionStatus(e.detail.status);
@@ -450,13 +444,126 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [showTrashBin, setShowTrashBin] = useState(false);
   const [trashProjects, setTrashProjects] = useState<any[]>([]);
 
+  // Run Project feature state
+  const [runningTerminals, setRunningTerminals] = useState<Map<string, { terminalId: string; command: string; startedAt: number }>>(new Map());
+  const [showRunConfig, setShowRunConfig] = useState(false);
+  const [runConfigProject, setRunConfigProject] = useState<any>(null);
+  const [runConfigData, setRunConfigData] = useState<any>(null);
+  const [detectedScripts, setDetectedScripts] = useState<any>(null);
+  const [runningProjectLoading, setRunningProjectLoading] = useState<string | null>(null);
+
+  const loadRunningProjects = useCallback(async () => {
+    try {
+      const result = await window.deskflowAPI!.getRunningProjects();
+      if (result.success) {
+        const map = new Map<string, { terminalId: string; command: string; startedAt: number }>();
+        for (const r of result.running) {
+          map.set(r.projectId, { terminalId: r.terminalId, command: r.command, startedAt: r.startedAt });
+        }
+        setRunningTerminals(map);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadRunningProjects(); }, []);
+
+  // Load persisted custom scan directories from disk (not localStorage)
+  useEffect(() => {
+    window.deskflowAPI!.getCustomScanDirs().then((dirs: string[]) => {
+      if (dirs && dirs.length > 0) setSavedCustomDirs(dirs);
+    }).catch(() => {});
+  }, []);
+
+  const handleRunProject = async (project: any) => {
+    try {
+      setRunningProjectLoading(project.id);
+      // First check if we have a run config
+      const configResult = await window.deskflowAPI!.getProjectRunConfig(project.id);
+      if (configResult.success && configResult.config) {
+        // Run with existing config
+        const runResult = await window.deskflowAPI!.runProject(project.id, configResult.config);
+        if (runResult.success) {
+          await loadRunningProjects();
+          // If it's a web project with a port, open browser
+          if (configResult.config.single?.port) {
+            window.deskflowAPI!.openUrl(`http://localhost:${configResult.config.single.port}`);
+          }
+        }
+      } else {
+        // No config - try to detect scripts first
+        const detected = await window.deskflowAPI!.detectProjectScripts(project.path);
+        setDetectedScripts(detected);
+        setRunConfigProject(project);
+        if (detected.success && (detected.single || detected.frontend || detected.backend)) {
+          // Auto-run if detected
+          const autoConfig: any = {};
+          if (detected.single) autoConfig.single = { command: detected.single.command };
+          if (detected.frontend) autoConfig.frontend = { command: detected.frontend.command };
+          if (detected.backend) autoConfig.backend = { command: detected.backend.command };
+          const runResult = await window.deskflowAPI!.runProject(project.id, autoConfig);
+          if (runResult.success) {
+            await loadRunningProjects();
+            if (detected.single?.port) {
+              window.deskflowAPI!.openUrl(`http://localhost:${detected.single.port}`);
+            }
+          }
+        } else {
+          // Show config modal for manual setup
+          setShowRunConfig(true);
+        }
+      }
+    } catch (err: any) {
+      console.error('[Run Project] Error:', err);
+    } finally {
+      setRunningProjectLoading(null);
+    }
+  };
+
+  const handleStopProject = async (projectId: string) => {
+    try {
+      const terminal = runningTerminals.get(projectId);
+      if (terminal) {
+        await window.deskflowAPI!.stopProject(terminal.terminalId);
+        await loadRunningProjects();
+      }
+    } catch (err: any) {
+      console.error('[Stop Project] Error:', err);
+    }
+  };
+
+  const handleSaveRunConfig = async (config: any) => {
+    if (!runConfigProject) return;
+    try {
+      await window.deskflowAPI!.saveProjectRunConfig(runConfigProject.id, config);
+      setRunConfigData(config);
+      setShowRunConfig(false);
+      // Run with the new config
+      const runResult = await window.deskflowAPI!.runProject(runConfigProject.id, config);
+      if (runResult.success) {
+        await loadRunningProjects();
+        if (config.single?.port) {
+          window.deskflowAPI!.openUrl(`http://localhost:${config.single.port}`);
+        }
+      }
+    } catch (err: any) {
+      console.error('[Save Run Config] Error:', err);
+    }
+  };
+
+  const handleOpenInBrowser = async (port: number) => {
+    try {
+      await window.deskflowAPI!.openUrl(`http://localhost:${port}`);
+    } catch {}
+  };
+
   useEffect(() => {
     localStorage.setItem('ide-projects-onboarding-seen', 'true');
-    loadOverview(timeLock ? 'all' : selectedPeriod, timeLock ? 0 : dateOffset);
+    const p = timeLock ? 'all' : (activeTab === 'ai' ? aiPeriod : selectedPeriod);
+    loadOverview(p, timeLock ? 0 : dateOffset);
     window.deskflowAPI!.getAISyncStatus().then(status => {
       if (status?.lastRunAt) setAiLastSyncAt(status.lastRunAt);
     }).catch(() => {});
-  }, [timeLock, selectedPeriod, dateOffset]);
+  }, [timeLock, selectedPeriod, dateOffset, activeTab, aiPeriod]);
 
   useEffect(() => {
     if (activeTab === 'git' && overview?.projects && overview.projects.length > 0) {
@@ -486,6 +593,9 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     localStorage.setItem('ide-projects-time-lock', String(timeLock));
   }, [timeLock]);
   useEffect(() => {
+    localStorage.setItem('ide-projects-ai-period', aiPeriod);
+  }, [aiPeriod]);
+  useEffect(() => {
     localStorage.setItem('ide-projects-log-scale', String(logScale));
   }, [logScale]);
   useEffect(() => {
@@ -494,11 +604,13 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
   const fetchAnalytics = useCallback(async () => {
     if (!window.deskflowAPI) return;
+    const reqId = ++analyticsReqIdRef.current;
     setAnalyticsLoading(true);
     setAnalyticsError(null);
     try {
       // Use cache for all-time data if available and recent (less than 5 minutes old)
-      const effectivePeriod = timeLock ? 'all' : selectedPeriod;
+      const periodSource = activeTab === 'ai' ? aiPeriod : selectedPeriod;
+      const effectivePeriod = timeLock ? 'all' : periodSource;
       const effectiveOffset = timeLock ? 0 : dateOffset;
 
       if (timeLock && analyticsCacheRef.current && analyticsCacheRef.current.timestamp) {
@@ -537,6 +649,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
       // Progressive data rendering - process in chunks to prevent UI freezing
       setTimeout(() => {
+        if (reqId !== analyticsReqIdRef.current) return; // stale response
         const data = {
           aiUsage: aiUsageSummary || null,
           problems: problems?.data || problems || [],
@@ -550,6 +663,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       }, 100); // Small delay to allow UI to render loading state
 
     } catch (err) {
+      if (reqId !== analyticsReqIdRef.current) return; // stale
       console.error('[IDEProjectsPage] Failed to fetch workspace analytics:', err);
       setAnalyticsError(err instanceof Error ? err.message : 'Failed to load analytics');
       setAnalyticsLoading(false);
@@ -607,28 +721,16 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const loadOverview = async (period?: string, offset?: number) => {
     setLoading(true);
     try {
-      const effectivePeriod = period ?? (timeLock ? 'all' : selectedPeriod);
+      const fallbackPeriod = activeTab === 'ai' ? aiPeriod : selectedPeriod;
+      const effectivePeriod = period ?? (timeLock ? 'all' : fallbackPeriod);
       const effectiveOffset = offset ?? (timeLock ? 0 : dateOffset);
 
-      console.log('[IDEProjectsPage] Loading overview for period:', effectivePeriod, 'offset:', effectiveOffset);
+      console.log('[IDEProjectsPage] Loading overview for period:', effectivePeriod, 'offset:', effectiveOffset, 'timeLock:', timeLock, 'activeTab:', activeTab);
 
-      // Progressive loading for all-time data to prevent UI freezing
-      if (effectivePeriod === 'all') {
-        setTimeout(async () => {
-          try {
-            const data = await window.deskflowAPI!.getIDEProjectsOverview(effectivePeriod, effectiveOffset);
-            setOverview(data);
-          } catch (err) {
-            console.error('[IDEProjectsPage] Failed to load all-time overview:', err);
-          } finally {
-            setLoading(false);
-          }
-        }, 50); // Small delay to allow UI to show loading state
-      } else {
-        const data = await window.deskflowAPI!.getIDEProjectsOverview(effectivePeriod, effectiveOffset);
-        setOverview(data);
-        setLoading(false);
-      }
+      const data = await window.deskflowAPI!.getIDEProjectsOverview(effectivePeriod, effectiveOffset);
+      console.log('[IDEProjectsPage] Overview loaded, projects:', data?.projects?.length);
+      setOverview(data);
+      setLoading(false);
     } catch (err) {
       console.error('[IDEProjectsPage] Failed to load IDE projects overview:', err);
       setLoading(false);
@@ -689,6 +791,9 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     try {
       window.__probe?.expect?.('ai-sync-status', 'starting');
       cleanup = window.deskflowAPI!.onAISyncProgress((data: any) => {
+        const now = Date.now();
+        if (now - progressThrottleRef.current < 100) return;
+        progressThrottleRef.current = now;
         if (data.status === 'detecting') {
           setSyncProgress(`Detecting ${data.name}...`);
           window.__probe?.expect?.('ai-sync-' + data.name, { status: 'detecting', name: data.name });
@@ -717,6 +822,10 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           setAiLastSyncAt(status.lastRunAt);
           window.__probe?.expect?.('ai-sync-last-run', status.lastRunAt);
         }
+      } else {
+        setAiSyncResult({ success: false, agents: {} });
+        console.error('AI sync failed:', result.error || 'unknown error');
+        window.__probe?.expect?.('ai-sync-status', 'error');
       }
     } catch (err) {
       console.error('AI sync failed:', err);
@@ -753,22 +862,76 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   };
 
   const handleAddProject = async () => {
-    if (!newProject.name || !newProject.path) {
-      setAddProjectError('Project name and path are required');
-      return;
-    }
     setAddProjectError(null);
     setAddingProject(true);
 
     try {
-      const result = await window.deskflowAPI!.addProject(newProject);
-      if (result.success) {
+      // Collect all paths to add: selected quick-add projects + the manual form entry
+      const pathsToAdd: { name: string; path: string; repositoryUrl: string; defaultIde: string }[] = [];
+
+      // Gather all projects from quick-add selections and custom dir selections
+      const quickSelectedPaths = new Set(selectedQuickProjects);
+      const allScanProjects = [
+        ...(quickAddProjects?.flatMap(g => g.projects) ?? []),
+        ...Object.values(customDirResults).flat()
+      ];
+      const seen = new Set<string>();
+      for (const p of allScanProjects) {
+        if (quickSelectedPaths.has(p.path) && !seen.has(p.path)) {
+          pathsToAdd.push({ name: p.name, path: p.path, repositoryUrl: '', defaultIde: '' });
+          seen.add(p.path);
+        }
+      }
+
+      // Add the manual form entry if it's filled in and not already in the list
+      if (newProject.name && newProject.path) {
+        const alreadyInList = pathsToAdd.some(p => p.path === newProject.path);
+        if (!alreadyInList) {
+          pathsToAdd.push({ ...newProject });
+        }
+      }
+
+      if (pathsToAdd.length === 0) {
+        setAddProjectError('Select a project from the list above or fill in the form');
+        setAddingProject(false);
+        return;
+      }
+
+      // Pre-load ACTIVE project paths so we can skip duplicates silently
+      // (soft-deleted projects are NOT included — the backend will restore them)
+      let existingPaths: Set<string> = new Set();
+      try {
+        const existing = await window.deskflowAPI!.getProjects() as any[];
+        existingPaths = new Set(existing.map((p: any) => p.path));
+      } catch {}
+
+      let addedCount = 0;
+      let skippedCount = 0;
+      let lastError: string | null = null;
+      for (const proj of pathsToAdd) {
+        if (existingPaths.has(proj.path)) {
+          skippedCount++;
+          continue;
+        }
+        const result = await window.deskflowAPI!.addProject(proj);
+        if (!result.success) {
+          lastError = result.message || `Failed to add ${proj.name}`;
+        } else {
+          addedCount++;
+          existingPaths.add(proj.path);
+        }
+      }
+
+      if (lastError && addedCount === 0) {
+        setAddProjectError(lastError);
+      } else if (addedCount > 0 || skippedCount > 0) {
         setShowAddProject(false);
         setNewProject({ name: '', path: '', repositoryUrl: '', defaultIde: '' });
+        setSelectedQuickProjects(new Set());
         setAddProjectError(null);
+        console.log('[IDEProjectsPage] Added', addedCount, 'skipped', skippedCount, 'projects, refreshing overview');
         await loadOverview();
-      } else {
-        setAddProjectError(result.message || 'Failed to add project');
+        console.log('[IDEProjectsPage] Overview refresh complete');
       }
     } catch (err: any) {
       console.error('Failed to add project:', err);
@@ -1219,7 +1382,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   }
 
   return (
-    <PageShell page="ide-projects" className="max-w-7xl mx-auto space-y-6">
+    <PageShell page="ide-projects" className="max-w-7xl mx-auto space-y-6 overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -1748,22 +1911,51 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
                     {/* Quick Actions Row */}
                     <div className="flex items-center gap-3 mt-4">
-                      {project.default_ide && (
-                        <button
-                          onClick={() => handleOpenProject(project.id)}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-violet-300 rounded-xl transition-colors duration-150"
-                        >
-                          <Monitor className="w-4 h-4" />
-                          <span className="text-sm font-medium">Open in IDE</span>
-                        </button>
-                      )}
+                      {(() => {
+                        const isRunning = runningTerminals.has(project.id);
+                        return isRunning ? (
+                          <button
+                            onClick={() => handleStopProject(project.id)}
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-300 rounded-xl transition-colors duration-150"
+                          >
+                            <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+                            <span className="text-sm font-medium">Stop</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleRunProject(project)}
+                            disabled={runningProjectLoading === project.id}
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 rounded-xl transition-colors duration-150 disabled:opacity-50"
+                          >
+                            {runningProjectLoading === project.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Play className="w-4 h-4" />
+                            )}
+                            <span className="text-sm font-medium">{runningProjectLoading === project.id ? 'Starting...' : 'Run'}</span>
+                          </button>
+                        );
+                      })()}
+                      <button
+                        onClick={() => {
+                          if (project.default_ide) {
+                            handleOpenProject(project.id);
+                          } else {
+                            handleEditProjectClick(project);
+                          }
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-violet-300 rounded-xl transition-colors duration-150"
+                      >
+                        <Monitor className="w-4 h-4" />
+                        <span className="text-sm font-medium">{project.default_ide ? 'Open in IDE' : 'Set IDE'}</span>
+                      </button>
                       <button
                         onClick={() => {
                           setSelectedProject(project.id);
                           setWorkspaceProject(project);
                           setIsWorkspaceOpen(true);
                         }}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 rounded-xl transition-colors duration-150"
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-700/50 hover:bg-zinc-700 border border-zinc-600/50 text-zinc-300 rounded-xl transition-colors duration-150"
                       >
                         <Terminal className="w-4 h-4" />
                         <span className="text-sm font-medium">Open Workspace</span>
@@ -2511,6 +2703,8 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                       metric={aiChartMode}
                       tokenDisplayMode={tokenDisplayMode}
                       loading={loading}
+                      period={aiPeriod}
+                      timeLock={timeLock}
                     />
                   </div>
                 </Suspense>
@@ -3537,17 +3731,19 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
             </div>
           </div>
           {workspaceAnalytics ? (
-            <AnalyticsDashboard
-              aiUsage={workspaceAnalytics.aiUsage}
-              sessions={workspaceAnalytics.sessions}
-              problems={workspaceAnalytics.problems}
-              requests={workspaceAnalytics.requests}
-              promptHistory={workspaceAnalytics.promptHistory}
-              loading={analyticsLoading}
-              period={selectedPeriod}
-              variant="workspace"
-              projectLanguages={aggregatedProjectLanguages}
-            />
+            <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 text-violet-400 animate-spin" /><span className="ml-3 text-zinc-400 text-sm">Loading analytics...</span></div>}>
+              <AnalyticsDashboard
+                aiUsage={workspaceAnalytics.aiUsage}
+                sessions={workspaceAnalytics.sessions}
+                problems={workspaceAnalytics.problems}
+                requests={workspaceAnalytics.requests}
+                promptHistory={workspaceAnalytics.promptHistory}
+                loading={analyticsLoading}
+                period={selectedPeriod}
+                variant="workspace"
+                projectLanguages={aggregatedProjectLanguages}
+              />
+            </Suspense>
           ) : analyticsLoading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
@@ -4341,13 +4537,43 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   );
                 })()}
 
-                {/* Model Breakdown */}
+                {/* Model Breakdown — period-aware */}
                 {(() => {
-                  const models = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.modelBreakdown || [];
+                  const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 9999 };
+                  const numDays = daysMap[agentDetailPeriod] || 7;
+                  const cutoff = numDays >= 9999 ? null : subDays(new Date(), numDays - 1);
+                  const modelDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.modelDaily || {};
+
+                  // Aggregate modelBreakdown from modelDaily filtered by period
+                  const modelAgg: Record<string, { model: string; tokens: number; tokens_in: number; tokens_out: number; messageCount: number; sessions: number }> = {};
+                  for (const [model, dayRecords] of Object.entries(modelDaily)) {
+                    for (const [dateStr, dayData] of Object.entries(dayRecords as Record<string, any>)) {
+                      if (cutoff) {
+                        const d = new Date(dateStr);
+                        if (d < cutoff) continue;
+                      }
+                      if (!modelAgg[model]) {
+                        modelAgg[model] = { model, tokens: 0, tokens_in: 0, tokens_out: 0, messageCount: 0, sessions: 0 };
+                      }
+                      modelAgg[model].tokens += (dayData.tokens || 0);
+                      modelAgg[model].tokens_in += (dayData.tokens_in || 0);
+                      modelAgg[model].tokens_out += (dayData.tokens_out || 0);
+                      modelAgg[model].messageCount += (dayData.messageCount || 0);
+                      modelAgg[model].sessions += (dayData.sessions || 0);
+                    }
+                  }
+
+                  const models = Object.values(modelAgg).sort((a, b) => b.tokens - a.tokens);
                   if (models.length === 0) return null;
+
+                  const periodLabel = agentDetailPeriod === 'week' ? '7D' : agentDetailPeriod === 'month' ? '30D' : 'All Time';
+
                   return (
                     <div className="bg-zinc-800/50 rounded-xl p-4">
-                      <h4 className="text-sm font-medium text-zinc-400 mb-3">Model Breakdown</h4>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-medium text-zinc-400">Model Breakdown</h4>
+                        <span className="text-[10px] text-zinc-500 bg-zinc-700/50 px-2 py-0.5 rounded">{periodLabel}</span>
+                      </div>
                       <div className="space-y-2 max-h-48 overflow-y-auto">
                         {models.slice(0, 10).map((m: any, idx: number) => (
                           <div key={idx} className="flex items-center justify-between p-2 bg-zinc-900/40 rounded-lg">
@@ -4491,7 +4717,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => { setShowAddProject(false); setAddProjectError(null); }}
+            onClick={() => { setShowAddProject(false); setAddProjectError(null); setSelectedQuickProjects(new Set()); }}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -4506,7 +4732,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   Add New Project
                 </h3>
                 <button
-onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDirResults({}); }}
+                onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDirResults({}); setSelectedQuickProjects(new Set()); }}
   className="p-1 text-zinc-400 hover:text-white transition"
 >
   <X className="w-5 h-5" />
@@ -4533,22 +4759,48 @@ onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDi
                         <div key={group.ide}>
                           <div className="text-xs text-zinc-500 mb-1 ml-1">{group.ide}</div>
                           <div className="flex flex-wrap gap-1.5">
-                            {group.projects.map(p => (
+                            {group.projects.map(p => {
+                              const isSel = selectedQuickProjects.has(p.path);
+                              return (
                               <button
                                 key={p.path}
                                 onClick={() => {
+                                  setSelectedQuickProjects(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(p.path)) next.delete(p.path); else next.add(p.path);
+                                    return next;
+                                  });
                                   setNewProject({ name: p.name, path: p.path, repositoryUrl: '', defaultIde: '' });
                                 }}
-                                className="flex items-center gap-2 px-3 py-2 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg border border-zinc-700 hover:border-indigo-500/50 transition text-sm"
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition text-sm ${
+                                  isSel
+                                    ? 'bg-indigo-600/20 border-indigo-500 text-white'
+                                    : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border-zinc-700 hover:border-indigo-500/50'
+                                }`}
                               >
                                 <FolderOpen className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                                 <span className="truncate max-w-[200px]">{p.name}</span>
                               </button>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {selectedQuickProjects.size > 0 && (
+                  <div className="flex items-center justify-between px-3 py-2 bg-indigo-600/10 border border-indigo-500/30 rounded-lg">
+                    <span className="text-sm text-indigo-300">
+                      {selectedQuickProjects.size} project{selectedQuickProjects.size !== 1 ? 's' : ''} selected
+                    </span>
+                    <button
+                      onClick={() => setSelectedQuickProjects(new Set())}
+                      className="text-xs text-zinc-400 hover:text-white transition"
+                    >
+                      Clear selection
+                    </button>
                   </div>
                 )}
 
@@ -4575,7 +4827,7 @@ onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDi
                                   onClick={() => {
                                     const next = savedCustomDirs.filter(d => d !== dir);
                                     setSavedCustomDirs(next);
-                                    localStorage.setItem('customScanDirs', JSON.stringify(next));
+                                    window.deskflowAPI!.saveCustomScanDirs(next);
                                     const r = { ...customDirResults };
                                     delete r[dir];
                                     setCustomDirResults(r);
@@ -4594,21 +4846,35 @@ onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDi
                               </div>
                             ) : dirResults && dirResults.length > 0 ? (
                               <div className="flex flex-wrap gap-1.5 mt-1">
-                                {dirResults.map(p => (
-                                  <button
-                                    key={p.path}
-                                    onClick={() => setNewProject({ name: p.name, path: p.path, repositoryUrl: '', defaultIde: '' })}
-                                    className="flex flex-col items-start gap-0.5 px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg border border-zinc-700 hover:border-indigo-500/50 transition text-xs"
-                                  >
-                                    <span className="truncate max-w-[180px]">{p.name}</span>
-                                    <span className="text-[10px] text-zinc-500 flex flex-wrap gap-1">
-                                      {p.languages.slice(0, 3).map(lang => (
-                                        <span key={lang} className="px-1 py-0.5 bg-zinc-900 rounded text-zinc-400 border border-zinc-700">{lang}</span>
-                                      ))}
-                                      {p.languages.length > 3 && <span className="text-zinc-600">+{p.languages.length - 3}</span>}
-                                    </span>
-                                  </button>
-                                ))}
+                                {dirResults.map(p => {
+                              const isSel = selectedQuickProjects.has(p.path);
+                              return (
+                                <button
+                                  key={p.path}
+                                  onClick={() => {
+                                    setSelectedQuickProjects(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(p.path)) next.delete(p.path); else next.add(p.path);
+                                      return next;
+                                    });
+                                    setNewProject({ name: p.name, path: p.path, repositoryUrl: '', defaultIde: '' });
+                                  }}
+                                  className={`flex flex-col items-start gap-0.5 px-2.5 py-1.5 rounded-lg border transition text-xs ${
+                                    isSel
+                                      ? 'bg-indigo-600/20 border-indigo-500 text-white'
+                                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border-zinc-700 hover:border-indigo-500/50'
+                                  }`}
+                                >
+                                  <span className="truncate max-w-[180px]">{p.name}</span>
+                                  <span className="text-[10px] text-zinc-500 flex flex-wrap gap-1">
+                                    {p.languages.slice(0, 3).map(lang => (
+                                      <span key={lang} className="px-1 py-0.5 bg-zinc-900 rounded text-zinc-400 border border-zinc-700">{lang}</span>
+                                    ))}
+                                    {p.languages.length > 3 && <span className="text-zinc-600">+{p.languages.length - 3}</span>}
+                                  </span>
+                                </button>
+                              );
+                            })}
                               </div>
                             ) : (
                               <p className="text-[10px] text-zinc-600 mt-0.5">No coding projects found</p>
@@ -4628,7 +4894,7 @@ onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDi
                       if (savedCustomDirs.includes(result.path)) return;
                       const next = [...savedCustomDirs, result.path];
                       setSavedCustomDirs(next);
-                      localStorage.setItem('customScanDirs', JSON.stringify(next));
+                      window.deskflowAPI!.saveCustomScanDirs(next);
                       setScanningDirs(true);
                       try {
                         const scan = await window.deskflowAPI!.scanCustomDirectory(result.path);
@@ -4708,7 +4974,7 @@ onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDi
 
               <div className="flex justify-end gap-3 pt-4 border-t border-zinc-800">
                 <button
-                  onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDirResults({}); }}
+                  onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDirResults({}); setSelectedQuickProjects(new Set()); }}
                   className="px-4 py-2 text-zinc-400 hover:text-white transition"
                 >
                   Cancel
@@ -4958,6 +5224,142 @@ onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDi
         )}
       </AnimatePresence>
 
+      {/* Run Project Configuration Modal */}
+      <AnimatePresence>
+        {showRunConfig && runConfigProject && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowRunConfig(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Configure Run Commands</h2>
+                  <p className="text-sm text-zinc-500 mt-1">{runConfigProject.name}</p>
+                </div>
+                <button onClick={() => setShowRunConfig(false)} className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-lg transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {detectedScripts?.framework && (
+                <div className="mb-4 px-3 py-2 bg-indigo-500/10 border border-indigo-500/30 rounded-lg">
+                  <span className="text-xs text-indigo-400">Detected framework:</span>
+                  <span className="text-sm text-white ml-2 font-medium">{detectedScripts.framework}</span>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {/* Single command mode */}
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-1.5">Dev Command</label>
+                  <input
+                    type="text"
+                    defaultValue={detectedScripts?.single?.command || runConfigData?.single?.command || ''}
+                    id="run-cmd-single"
+                    placeholder="e.g., npm run dev"
+                    className="w-full px-3 py-2.5 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-emerald-500 focus:outline-none text-sm font-mono"
+                  />
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <label className="text-xs text-zinc-500">Port (optional):</label>
+                    <input
+                      type="number"
+                      defaultValue={detectedScripts?.single?.port || runConfigData?.single?.port || ''}
+                      id="run-port-single"
+                      placeholder="3000"
+                      className="w-24 px-2 py-1.5 bg-zinc-800 text-white rounded border border-zinc-700 focus:border-emerald-500 focus:outline-none text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t border-zinc-800 pt-4">
+                  <p className="text-xs text-zinc-500 mb-3">Or use separate frontend/backend commands:</p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-zinc-400 mb-1">Frontend Command</label>
+                      <input
+                        type="text"
+                        defaultValue={detectedScripts?.frontend?.command || runConfigData?.frontend?.command || ''}
+                        id="run-cmd-frontend"
+                        placeholder="e.g., npm run dev"
+                        className="w-full px-3 py-2 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-blue-500 focus:outline-none text-sm font-mono"
+                      />
+                      <input
+                        type="number"
+                        defaultValue={detectedScripts?.frontend?.port || runConfigData?.frontend?.port || ''}
+                        id="run-port-frontend"
+                        placeholder="Port (e.g., 5173)"
+                        className="w-full mt-1.5 px-2 py-1.5 bg-zinc-800 text-white rounded border border-zinc-700 focus:border-blue-500 focus:outline-none text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-400 mb-1">Backend Command</label>
+                      <input
+                        type="text"
+                        defaultValue={detectedScripts?.backend?.command || runConfigData?.backend?.command || ''}
+                        id="run-cmd-backend"
+                        placeholder="e.g., python manage.py runserver"
+                        className="w-full px-3 py-2 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-orange-500 focus:outline-none text-sm font-mono"
+                      />
+                      <input
+                        type="number"
+                        defaultValue={detectedScripts?.backend?.port || runConfigData?.backend?.port || ''}
+                        id="run-port-backend"
+                        placeholder="Port (e.g., 8000)"
+                        className="w-full mt-1.5 px-2 py-1.5 bg-zinc-800 text-white rounded border border-zinc-700 focus:border-orange-500 focus:outline-none text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-zinc-800">
+                <button
+                  onClick={() => setShowRunConfig(false)}
+                  className="px-4 py-2 text-zinc-400 hover:text-white transition text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const singleCmd = (document.getElementById('run-cmd-single') as HTMLInputElement)?.value;
+                    const singlePort = (document.getElementById('run-port-single') as HTMLInputElement)?.value;
+                    const feCmd = (document.getElementById('run-cmd-frontend') as HTMLInputElement)?.value;
+                    const fePort = (document.getElementById('run-port-frontend') as HTMLInputElement)?.value;
+                    const beCmd = (document.getElementById('run-cmd-backend') as HTMLInputElement)?.value;
+                    const bePort = (document.getElementById('run-port-backend') as HTMLInputElement)?.value;
+
+                    const config: any = {};
+                    if (singleCmd) {
+                      config.single = { command: singleCmd, port: singlePort ? parseInt(singlePort) : undefined };
+                    }
+                    if (feCmd) {
+                      config.frontend = { command: feCmd, port: fePort ? parseInt(fePort) : undefined };
+                    }
+                    if (beCmd) {
+                      config.backend = { command: beCmd, port: bePort ? parseInt(bePort) : undefined };
+                    }
+                    handleSaveRunConfig(config);
+                  }}
+                  className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition text-sm font-medium"
+                >
+                  Save & Run
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Terminal Workspace Modal */}
         {workspaceProject && (
           <motion.div
@@ -5093,7 +5495,7 @@ onClick={() => { setShowAddProject(false); setAddProjectError(null); setCustomDi
               {showSpecs && (
                 <div className="w-[45%] overflow-hidden border-l border-zinc-800">
                   <div className="h-full overflow-auto">
-                    <FeatureSpecPanel />
+                    <FeatureSpecPanel projectPath={workspaceProject?.path} />
                   </div>
                 </div>
               )}

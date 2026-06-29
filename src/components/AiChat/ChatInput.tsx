@@ -1,6 +1,7 @@
 import { type FC, useState, useRef, useCallback, type KeyboardEvent } from 'react'
 import { Send, Sparkles } from 'lucide-react'
 import { sanitizeInput, MAX_INPUT_LENGTH } from '../../services/chatSafety'
+import { VoiceInputButton } from '../VoiceInputButton'
 
 type Props = {
   onSend: (text: string) => void
@@ -69,6 +70,13 @@ export const ChatInput: FC<Props> = ({ onSend, disabled, placeholder, className 
             className="w-full resize-none bg-stone-900/70 border border-stone-800/50 focus:border-clay-400/40 focus:bg-stone-900/90 rounded-xl pr-4 pl-4 py-2.5 text-[13px] font-mono text-stone-100 placeholder:text-stone-500 outline-none transition-all duration-200 focus:ring-2 focus:ring-clay-400/20"
           />
         </div>
+        <VoiceInputButton
+          onTranscript={(t) => {
+            setText(prev => prev ? prev + ' ' + t : t)
+            textareaRef.current?.focus()
+          }}
+          disabled={disabled}
+        />
         <button
           onClick={handleSend}
           disabled={!canSend}

@@ -8,6 +8,8 @@ export interface ProviderTemplate {
   parseResponse?: (raw: any) => CanonicalResponse;
   suggestedModels?: string[];
   docsUrl?: string;
+  interpolateUrl?: (url: string, config: ProviderConfig) => string;
+  supportsStream?: boolean;
 }
 
 export interface CanonicalRequest {
@@ -40,6 +42,7 @@ export interface ProviderConfig {
   monthlyTokenBudget?: number;
   tokensUsedThisMonth?: number;
   budgetResetDate?: string;
+  extraConfig?: Record<string, string>;
 }
 
 export interface AiProvidersState {

@@ -8,11 +8,13 @@ interface GlassSurfaceProps {
   className?: string;
   children: ReactNode;
   onClick?: () => void;
+  onPointerDown?: (e: React.PointerEvent) => void
+  onPointerEnter?: () => void
   style?: React.CSSProperties;
 }
 
 export function GlassSurface({
-  tier = 1, accent, interactive, className = '', children, onClick, style,
+  tier = 1, accent, interactive, className = '', children, onClick, onPointerDown, onPointerEnter, style,
 }: GlassSurfaceProps) {
   const base = tier === 1
     ? 'backdrop-blur-2xl bg-zinc-900/55 border border-white/10'
@@ -33,6 +35,8 @@ export function GlassSurface({
   return (
     <Tag
       onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerEnter={onPointerEnter}
       className={`relative rounded-xl ${base} ${accentStyles} ${interactiveStyles} ${className}`}
       style={style}
     >

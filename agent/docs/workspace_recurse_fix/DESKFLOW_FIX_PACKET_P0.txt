@@ -1,0 +1,294 @@
+FIX PACKET P0 — Repair opencode initialization typing + false failure UI
+
+FILE(S):
+- src/main.ts
+  - Agent config/state area around AGENT_CONFIGS / AgentState / agentStates
+  - spawn-terminal and terminal:create data handlers around promptSeen / isAgentReady
+  - agent:send handler
+- src/pages/TerminalPage.tsx
+  - initializeTerminal around the agent-ready wait / agentSend call
+  - persistent onAgentReady/onAgentInitError listeners
+  - handleRetryAgentInit
+
+WHY:
+opencode is launching, but DeskFlow does not reliably mark it ready. The initialization prompt is then queued and later written raw, which breaks opencode's input behavior and produces visible "Agent initialization failed" UI even when there is no real console error. For bracketed-paste capable agents like opencode/claude, prompt sends must go through a safe paste+submit path, and readiness must not depend only on the old simple prompt regex.
+
+CHANGE:
+
+1. In src/main.ts, add these helpers near the AgentState / agentStates section.
+
+```ts
+function normalizeTerminalPasteText(data: string): string {
+  return String(data ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function buildAgentInputPayload(data: string, agentType?: string): string {
+  const normalized = normalizeTerminalPasteText(data);
+  const cfg = getAgentConfig(agentType);
+
+  // opencode / claude textareas handle bracketed paste correctly.
+  // This prevents multi-line prompts from being interpreted as many separate Enter presses.
+  if (cfg.bracketedPaste) {
+    return `\x1b[200~${normalized}\x1b[201~\r`;
+  }
+
+  return `${normalized}\r`;
+}
+
+function getLastNonEmptyTerminalLine(buffer: string): string {
+  const clean = stripAnsi(buffer);
+  const lines = clean.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  return lines[lines.length - 1] ?? '';
+}
+
+function flushPendingAgentWrites(id: string, st: AgentState) {
+  if (!st.pendingWrites || st.pendingWrites.length === 0) return;
+
+  const writes = [...st.pendingWrites];
+  st.pendingWrites = [];
+
+  for (const w of writes) {
+    terminalManager.write(id, buildAgentInputPayload(w, st.agentType));
+  }
+}
+
+function markAgentReady(id: string, st: AgentState) {
+  if (st.phase !== 'launching') return;
+
+  st.phase = 'ready';
+  clearAgentTimeout(id);
+  flushPendingAgentWrites(id, st);
+  broadcast('agent:ready', { terminalId: id });
+}
+
+function hasEnoughAgentOutputToAcceptInput(st: AgentState): boolean {
+  const cfg = getAgentConfig(st.agentType);
+  if (!cfg.bracketedPaste) return false;
+
+  const lastLine = getLastNonEmptyTerminalLine(st.dataBuffer);
+  if (!lastLine) return false;
+  if (looksLikeShell(lastLine)) return false;
+
+  // opencode can render dynamic/TUI text that does not match "opencode >".
+  // Once the process has emitted non-shell output, allow the paste path instead of timing out forever.
+  return st.dataBuffer.trim().length > 0;
+}
+```
+
+2. Extend `AgentState` with a timestamp.
+
+Find:
+
+```ts
+interface AgentState {
+  agentType: string;
+  phase: AgentPhase;
+  dataBuffer: string;
+  idleSeq: number;
+  handshakeToken?: string;
+  timeoutHandle?: ReturnType<typeof setTimeout>;
+  pendingWrites?: string[];
+}
+```
+
+Replace with:
+
+```ts
+interface AgentState {
+  agentType: string;
+  phase: AgentPhase;
+  dataBuffer: string;
+  idleSeq: number;
+  launchStartedAt: number;
+  handshakeToken?: string;
+  timeoutHandle?: ReturnType<typeof setTimeout>;
+  pendingWrites?: string[];
+}
+```
+
+3. Update both places that create agent state.
+
+Replace both occurrences like:
+
+```ts
+agentStates.set(id, { agentType: type, phase: 'launching', dataBuffer: '', idleSeq: 0 });
+```
+
+with:
+
+```ts
+agentStates.set(id, {
+  agentType: type,
+  phase: 'launching',
+  dataBuffer: '',
+  idleSeq: 0,
+  launchStartedAt: Date.now(),
+  pendingWrites: [],
+});
+```
+
+4. In both terminal data handlers, replace the duplicated ready block.
+
+Find each block shaped like this:
+
+```ts
+if (st.phase === 'launching' && isAgentReady()) {
+    st.phase = 'ready';
+    clearAgentTimeout(id);
+    if (st.pendingWrites && st.pendingWrites.length > 0) {
+        for (const w of st.pendingWrites) {
+            terminalManager.write(id, w);
+        }
+        st.pendingWrites = [];
+    }
+    broadcast('agent:ready', { terminalId: id });
+}
+```
+
+Replace with:
+
+```ts
+if (st.phase === 'launching' && (isAgentReady() || hasEnoughAgentOutputToAcceptInput(st))) {
+    markAgentReady(id, st);
+}
+```
+
+5. In both idle flush blocks, replace raw queued writes.
+
+Find each block shaped like:
+
+```ts
+if (st.pendingWrites && st.pendingWrites.length > 0) {
+    for (const w of st.pendingWrites) {
+        terminalManager.write(id, w);
+    }
+    st.pendingWrites = [];
+}
+```
+
+Replace with:
+
+```ts
+flushPendingAgentWrites(id, st);
+```
+
+6. In `agent:send`, replace direct terminal write.
+
+Find:
+
+```ts
+const success = terminalManager.write(terminalId, data + '\r\n');
+```
+
+Replace with:
+
+```ts
+const success = terminalManager.write(terminalId, buildAgentInputPayload(data, st.agentType || type));
+```
+
+Keep the existing queued branch, but make sure queued writes are flushed only through `flushPendingAgentWrites()`.
+
+7. In `agent:retry-launch`, reset timestamp and pending state.
+
+Inside the existing `if (st) { ... }`, make sure it sets:
+
+```ts
+st.phase = 'launching';
+st.dataBuffer = '';
+st.idleSeq = 0;
+st.launchStartedAt = Date.now();
+st.handshakeToken = undefined;
+st.pendingWrites = [];
+```
+
+8. In `src/pages/TerminalPage.tsx`, clear false red init UI when the agent becomes ready.
+
+Add a persistent effect near the existing agent init error / timeout listeners:
+
+```ts
+useEffect(() => {
+  if (!window.deskflowAPI?.onAgentReady) return;
+
+  const cleanup = window.deskflowAPI.onAgentReady((data: { terminalId: string }) => {
+    setAgentInitErrors(prev => {
+      const next = { ...prev };
+      delete next[data.terminalId];
+      return next;
+    });
+
+    setTerminalTimeouts(prev => {
+      const next = { ...prev };
+      delete next[data.terminalId];
+      return next;
+    });
+  });
+
+  return () => cleanup?.();
+}, []);
+```
+
+9. In `handleRetryAgentInit`, stop typing a second raw agent command into the opencode UI.
+
+Find:
+
+```ts
+const launchCommand = `${agentType}\r\n`;
+await window.deskflowAPI?.terminalWrite?.(terminalId, launchCommand);
+await initializeTerminal(terminalId, agentType);
+```
+
+Replace with:
+
+```ts
+await initializeTerminal(terminalId, agentType);
+```
+
+10. In `initializeTerminal`, after `agentSend`, check/report failures.
+
+Find:
+
+```ts
+await window.deskflowAPI.agentSend(terminalId, combined, agent);
+```
+
+Replace with:
+
+```ts
+const sendResult = await window.deskflowAPI.agentSend(terminalId, combined, agent);
+if (!sendResult?.success) {
+  showError(sendResult?.error || 'Failed to send initialization prompt to agent', 'error');
+}
+```
+
+COMMANDS:
+Run these from the repo root after editing:
+
+```bash
+cat package.json
+npx tsc --noEmit
+npm run build
+rg -n "terminalManager\.write\(id, w\)|data \+ '\\\\r\\\\n'|Agent initialization failed|handleRetryAgentInit|buildAgentInputPayload|markAgentReady|hasEnoughAgentOutputToAcceptInput" src/main.ts src/pages/TerminalPage.tsx
+```
+
+If `npm run build` is not the correct script, use the actual build script from package.json and report it.
+
+DONE WHEN:
+- Opening an opencode terminal no longer shows a false red "Agent initialization failed" banner after opencode is visibly running.
+- Initialization prompt is inserted into opencode's input box as one coherent prompt and submitted once.
+- The prompt does not push opencode downward line-by-line.
+- Retry does not type `opencode` into an already-open opencode UI.
+- Typecheck passes.
+- Build passes.
+- Real UI check passes: launch opencode, initialize, observe prompt delivery and no false failure banner.
+
+REPORT BACK:
+Paste:
+
+```plain text
+PACKET P0 RESULT
+DIFF: <files changed + key hunks>
+TYPECHECK: <pass/fail + errors>
+BUILD: <pass/fail + errors>
+UI CHECK: <what happened when launching opencode and initializing>
+STATUS: <In Progress | AI Attempted Fix | User Testing | Fixed | Won't Fix>
+``` 

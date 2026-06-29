@@ -7,7 +7,7 @@ import {
   Download, Trash2, Award, Zap, Users, Info, Database, CheckCircle, XCircle, AlertTriangle,
   Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard, Target,
   ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
-  X,   FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen, Wallet
+  X,   FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen, Wallet, GraduationCap
 } from 'lucide-react';
 import { format as dateFormat } from 'date-fns';
 import SettingsPage from './pages/SettingsPage';
@@ -18,6 +18,7 @@ import DatabasePage from './pages/DatabasePage';
 import IDEProjectsPage from './pages/IDEProjectsPage';
 import IDEHelpPage from './pages/IDEHelpPage';
 import TutorialPage from './pages/TutorialPage';
+import { LearnPage } from './components/learn/LearnPage';
 import GuidePage from './pages/GuidePage';
 import TerminalPage from './pages/TerminalPage';
 import ExternalPage from './pages/ExternalPage';
@@ -28,7 +29,6 @@ import { FinancePage } from './pages/FinancePage';
 import DashboardPage from './pages/DashboardPage';
 import FeatureSpecViewer from './components/FeatureSpecViewer';
 import AfkPromptModal from './components/AfkPromptModal';
-import GapPanel from './components/GapPanel';
 import { getDateRange } from './lib/dateRange';
 import type { Period } from './lib/dateRange';
 // Agent dashboard is disabled - file incomplete
@@ -161,6 +161,9 @@ declare global {
       // File operations
       saveFile: (options: { content: string; filename: string; fileType: string }) => Promise<{ success: boolean; path?: string; message?: string }>;
       pickFolder: () => Promise<{ success: boolean; path: string | null }>;
+      scanCustomDirectory: (rootDir: string) => Promise<{ success: boolean; projects: any[] }>;
+      getCustomScanDirs: () => Promise<string[]>;
+      saveCustomScanDirs: (dirs: string[]) => Promise<{ success: boolean }>;
       // IDE Projects
       detectIDEs: () => Promise<any[]>;
       getIDEs: () => Promise<any[]>;
@@ -178,6 +181,15 @@ declare global {
       getCommitStats: (projectId?: string, period?: string) => Promise<any>;
       getIDEProjectsOverview: (period?: string, dateOffset?: number) => Promise<any>;
       scanIdeDefaultProjects: () => Promise<{ ide: string; projects: { name: string; path: string }[] }[]>;
+      // Run Project Feature
+      detectProjectScripts: (projectPath: string) => Promise<any>;
+      getProjectRunConfig: (projectId: string) => Promise<any>;
+      saveProjectRunConfig: (projectId: string, config: any) => Promise<any>;
+      runProject: (projectId: string, config: any) => Promise<any>;
+      executeProjectCommand: (terminalId: string, command: string) => Promise<any>;
+      stopProject: (terminalId: string) => Promise<any>;
+      getRunningProjects: () => Promise<any>;
+      openUrl: (url: string) => Promise<any>;
       syncAIUsage: () => Promise<{ success: boolean; [key: string]: number | boolean | string }>;
       onAISyncProgress: (callback: (data: any) => void) => () => void;
       debugAIAgents: () => Promise<Record<string, { detected: boolean; paths: string[] }>>;
@@ -273,6 +285,16 @@ declare global {
       writeFeatureSpecFile: (content: string) => Promise<{ success: boolean; error?: string }>;
       getGoalContext: () => Promise<{ success: boolean; last7dByCategory?: any[]; yesterday?: any; error?: string }>;
       parseGoalFeedback: (data: { message: string; goals: string[] }) => Promise<{ completed: string[]; added: any[]; note: string }>;
+      // Connectors
+      connectors: {
+        list: () => Promise<{ success: boolean; connectors: any[]; error?: string }>;
+        add: (connector: { type: string; provider: string; displayName: string; config: any }) => Promise<{ success: boolean; connector?: any; error?: string }>;
+        remove: (id: string) => Promise<{ success: boolean; error?: string }>;
+        test: (id: string) => Promise<{ success: boolean; message: string; latencyMs?: number }>;
+        sync: (id: string) => Promise<{ success: boolean; itemsAdded: number; itemsUpdated: number; error?: string }>;
+        items: (id: string, opts?: { type?: string; limit?: number }) => Promise<{ success: boolean; items: any[]; error?: string }>;
+        status: (id: string) => Promise<{ success: boolean; status: string; lastSync?: string; errorMessage?: string }>;
+      };
       // Design Library Integration
       mcpListTools: (serverId: string) => Promise<{ success: boolean; tools: any[]; error?: string }>;
       mcpCallTool: (serverId: string, toolName: string, args: Record<string, any>) => Promise<{ success: boolean; result: any; error?: string }>;
@@ -305,6 +327,7 @@ declare global {
       financeCreateTransaction: (data: any) => Promise<any>;
       financeUpdateTransaction: (data: any) => Promise<any>;
       financeDeleteTransaction: (id: number) => Promise<any>;
+      financeBatchUpdateCategory: (ids: number[], categoryId: number) => Promise<{ success: boolean; updated?: number; error?: string }>;
       financeGetSummary: () => Promise<any>;
       financeGetSpendingByCategory: () => Promise<any[]>;
       financeGetMonthlyTrends: () => Promise<any[]>;
@@ -468,6 +491,7 @@ function isAppMatchingBrowserRenderer(appName: string, browserName: string): boo
 }
 
 import { GapBanner } from './components/GapBanner';
+import { GapFillDrawer } from './components/GapFillDrawer';
 import { TutorialProvider } from './contexts/TutorialContext';
 import TutorialOverlay from './components/TutorialOverlay';
 
@@ -583,8 +607,8 @@ function App() {
         // Debug: Log timestamp range
         if (formattedLogs.length > 0) {
           const dates = formattedLogs.map(l => l.timestamp.getTime());
-          const minDate = new Date(Math.min(...dates));
-          const maxDate = new Date(Math.max(...dates));
+          const minDate = new Date(dates.reduce((a, b) => Math.min(a, b), Infinity));
+          const maxDate = new Date(dates.reduce((a, b) => Math.max(a, b), -Infinity));
           console.log('[DeskFlow] Loaded logs:', formattedLogs.length, '| Date range:', minDate.toLocaleDateString(), 'to', maxDate.toLocaleDateString());
         }
         console.log('[DeskFlow] Loaded logs:', formattedLogs.length, 'entries', formattedLogs.map(l => l.app).filter((v, i, a) => a.indexOf(v) === i));
@@ -761,6 +785,8 @@ function App() {
           setCurrentApp(data.currentApp);
           currentForegroundAppRef.current = data.currentApp;
         }
+        // Store category for passive-active idle guard
+        if (data.currentCategory) currentCategoryRef.current = data.currentCategory;
         // Store OS-level idle seconds for idle detection
         if (typeof data.systemIdleSeconds === 'number') {
           systemIdleSecondsRef.current = data.systemIdleSeconds;
@@ -1370,7 +1396,7 @@ function App() {
     sessionId: number | null;
   }
   const [afkPromptQueue, setAfkPromptQueue] = useState<AfkPromptEntry[]>([]);
-  const [showGapPanel, setShowGapPanel] = useState(false);
+  const [showGapDrawer, setShowGapDrawer] = useState(false);
   const afkQueueIdRef = useRef(0);
   const afkPromptShownRef = useRef(false);
   const sleepDetectionPendingRef = useRef(false);
@@ -1488,32 +1514,15 @@ function App() {
     }
   }, []);
 
-  // Listen for gap-fill events from GapPanel
+  // Listen for gap-drawer open event
   useEffect(() => {
-    const handler = (e: CustomEvent) => {
-      const { start, end } = e.detail;
-      const totalDurationSeconds = Math.max(1, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000));
-      const entry: AfkPromptEntry = {
-        id: afkQueueIdRef.current++,
-        suggested: null,
-        duration: `${Math.floor(totalDurationSeconds / 60)}m`,
-        startedAt: start,
-        idleStartMs: new Date(start).getTime(),
-        returnMs: new Date(end).getTime(),
-        sessionId: null,
-      };
-      console.log('[DeskFlow] gap-fill: pushing entry', JSON.stringify(entry));
-      setAfkPromptQueue(prev => [...prev, entry]);
+    const handler = () => setShowGapDrawer(true);
+    window.addEventListener('open-gap-panel', handler);
+    window.addEventListener('open-gap-drawer', handler);
+    return () => {
+      window.removeEventListener('open-gap-panel', handler);
+      window.removeEventListener('open-gap-drawer', handler);
     };
-    window.addEventListener('fill-time-gap', handler as EventListener);
-    return () => window.removeEventListener('fill-time-gap', handler as EventListener);
-  }, []);
-
-  // Listen for gap-panel open event from External page
-  useEffect(() => {
-    const openGapHandler = () => setShowGapPanel(true);
-    window.addEventListener('open-gap-panel', openGapHandler);
-    return () => window.removeEventListener('open-gap-panel', openGapHandler);
   }, []);
   
   const [foregroundApps, setForegroundApps] = useState<string[]>([]);
@@ -1705,6 +1714,7 @@ function App() {
   const idleRef = useRef(isIdle);
   const trackingRef = useRef(isTracking);
   const systemIdleSecondsRef = useRef(0); // OS-level idle seconds (from main process)
+  const currentCategoryRef = useRef<string | null>(null); // Tracked app category for passive-active check
   const idleStartRef = useRef<number | null>(null); // When idle began (for AFK duration)
   const idleReturnFnRef = useRef<() => void>(() => {}); // Updated below to avoid stale closures
   
@@ -1883,8 +1893,11 @@ function App() {
 
         // Idle check: Use OS-level system idle time (from main process heartbeat)
         // This correctly detects idle even when DeskFlow is in the background
+        // Skip idle check for entertainment/gaming (YouTube, Netflix, games — user is watching, not AFK)
+        const PASSIVE_ACTIVE = new Set(['Entertainment', 'Gaming']);
+        const isPassiveActive = currentCategoryRef.current && PASSIVE_ACTIVE.has(currentCategoryRef.current);
         const idleMs = idleThreshold * 60 * 1000; // Convert minutes to ms
-        if (systemIdleSecondsRef.current * 1000 > idleMs) {
+        if (!isPassiveActive && systemIdleSecondsRef.current * 1000 > idleMs) {
           setIsIdle(true);
           idleStartRef.current = Date.now();
           // Auto-pause after idle
@@ -2548,11 +2561,12 @@ Trend: +14% vs. yesterday. Keep it up!`;
     { icon: Database, label: 'Database', path: '/database' },
     { icon: Settings, label: 'Settings', path: '/settings' },
     { icon: BookOpen, label: 'Guide', path: '/guide' },
+    { icon: GraduationCap, label: 'Learn', path: '/learn' },
   ];
 
   return (
     <TutorialProvider>
-    <div className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white">
+    <div className="flex h-screen overflow-hidden bg-[#121212] text-white">
       {/* Sidebar */}
       <div className="w-64 border-r border-zinc-800 flex flex-col h-full glass">
         <div className="p-5 flex items-center gap-3 border-b border-zinc-800 shrink-0">
@@ -2602,8 +2616,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             <GapBanner
               unfilledMinutes={unfilledMinutes}
               gapCount={gapCount}
-              onClose={() => {}}
-              onFillGaps={() => window.dispatchEvent(new CustomEvent('open-gap-panel'))}
+              onOpenDrawer={() => setShowGapDrawer(true)}
               onDismissForever={() => {
                 window.deskflowAPI?.setPreference('showGapBannerSetting', false);
                 setShowGapBannerSetting(false);
@@ -2889,6 +2902,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <Route path="/old-dashboard" element={<Navigate to="/external" replace />} />
 
               <Route path="/guide" element={<GuidePage />} />
+
+              <Route path="/learn" element={<LearnPage />} />
 
               <Route path="/ide-help" element={<IDEHelpPage />} />
 
@@ -3397,8 +3412,14 @@ Trend: +14% vs. yesterday. Keep it up!`;
             );
           })()}
 
-          {/* â”€â”€ Usage Gaps Panel â”€â”€ */}
-          {showGapPanel && <GapPanel onClose={() => setShowGapPanel(false)} />}
+          {/* â”€â”€ Smart Gap Fill Drawer â”€â”€ */}
+          {showGapDrawer && (
+            <GapFillDrawer
+              open={showGapDrawer}
+              onClose={() => setShowGapDrawer(false)}
+              onFilled={() => { fetchGaps(); }}
+            />
+          )}
         </div>
       </div>
       <TutorialOverlay />

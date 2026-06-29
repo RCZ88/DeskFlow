@@ -1,5 +1,5 @@
 import { type FC } from 'react'
-import { Sparkles, RotateCcw } from 'lucide-react'
+import { Sparkles, RotateCcw, Settings } from 'lucide-react'
 
 type Mode = 'morning' | 'in-progress' | 'review'
 type Status = 'ready' | 'thinking' | 'error'
@@ -10,6 +10,8 @@ type Props = {
   status: Status
   toolsUsed?: string
   onReset?: () => void
+  onConfigure?: () => void
+  providerBadge?: { label: string; color: string } | null
   className?: string
 }
 
@@ -19,7 +21,7 @@ const statusDot: Record<Status, string> = {
   error: 'bg-clay-600',
 }
 
-export const ChatHeader: FC<Props> = ({ dateLabel, status, onReset, className }) => {
+export const ChatHeader: FC<Props> = ({ dateLabel, status, onReset, onConfigure, providerBadge, className }) => {
   return (
     <div className={`relative flex items-center justify-between px-4 h-12 bg-stone-950/80 backdrop-blur-md ${className ?? ''}`}>
       <div
@@ -38,6 +40,16 @@ export const ChatHeader: FC<Props> = ({ dateLabel, status, onReset, className })
         </div>
       </div>
       <div className="flex items-center gap-2.5">
+        {onConfigure && (
+          <button
+            onClick={onConfigure}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-stone-500 hover:text-stone-300 transition-colors px-2 py-1 rounded-md hover:bg-stone-800/50"
+            title="Configure AI provider"
+          >
+            <Settings className="w-3 h-3" />
+            {providerBadge ? <span className={`max-w-[100px] truncate ${providerBadge.color}`}>{providerBadge.label}</span> : 'Provider'}
+          </button>
+        )}
         {onReset && (
           <button
             onClick={onReset}

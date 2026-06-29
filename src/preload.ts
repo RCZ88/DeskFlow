@@ -49,6 +49,10 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getAppStats: (request: { period: string; dateOffset?: number }) =>
     ipcRenderer.invoke('get-app-stats', request),
 
+  // Domain/website stats (aggregated in SQL)
+  getDomainStats: (request: { period: string; dateOffset?: number }) =>
+    ipcRenderer.invoke('get-domain-stats', request),
+
   // Get pre-computed dashboard data (single call replaces multiple fetches)
   getDashboardData: (params: { period: string; dateOffset?: number }) => ipcRenderer.invoke('get-dashboard-data', params),
 
@@ -181,7 +185,13 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.invoke('summarize-with-llm', prompt, options),
 
   // AI Digest & Config Features
-  getTopicDigest: () => ipcRenderer.invoke('get-topic-digest'),
+  getTopicDigest: (opts?: { force?: boolean }) => ipcRenderer.invoke('get-topic-digest', opts),
+  isDigestGenerating: () => ipcRenderer.invoke('is-digest-generating'),
+  onDigestGenerationComplete: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('digest-generation-complete', handler);
+    return () => ipcRenderer.removeListener('digest-generation-complete', handler);
+  },
   getAiConfig: () => ipcRenderer.invoke('get-ai-config'),
   saveAiConfig: (config: { apiKey?: string; enabled?: boolean; briefModel?: string; weeklyModel?: string; digestModel?: string; anomalyModel?: string; autoGenerateBrief?: boolean }) => ipcRenderer.invoke('save-ai-config', config),
   getInterestTopics: () => ipcRenderer.invoke('get-interest-topics'),
@@ -244,6 +254,18 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   detectProjectsLanguages: (projectPaths: string[]) => ipcRenderer.invoke('detect-projects-languages', projectPaths),
   scanIdeDefaultProjects: () => ipcRenderer.invoke('scan-ide-default-projects'),
   scanCustomDirectory: (rootDir: string) => ipcRenderer.invoke('scan-custom-directory', rootDir),
+  getCustomScanDirs: () => ipcRenderer.invoke('get-custom-scan-dirs'),
+  saveCustomScanDirs: (dirs: string[]) => ipcRenderer.invoke('save-custom-scan-dirs', dirs),
+
+  // Run Project Feature
+  detectProjectScripts: (projectPath: string) => ipcRenderer.invoke('detect-project-scripts', projectPath),
+  getProjectRunConfig: (projectId: string) => ipcRenderer.invoke('get-project-run-config', projectId),
+  saveProjectRunConfig: (projectId: string, config: any) => ipcRenderer.invoke('save-project-run-config', projectId, config),
+  runProject: (projectId: string, config: any) => ipcRenderer.invoke('run-project', projectId, config),
+  executeProjectCommand: (terminalId: string, command: string) => ipcRenderer.invoke('execute-project-command', terminalId, command),
+  stopProject: (terminalId: string) => ipcRenderer.invoke('stop-project', terminalId),
+  getRunningProjects: () => ipcRenderer.invoke('get-running-projects'),
+  openUrl: (url: string) => ipcRenderer.invoke('open-url', url),
 
   // AI & Git Metrics
   getAIUsageSummary: (period?: string, dateOffset?: number, projectId?: string) => ipcRenderer.invoke('get-ai-usage-summary', period, dateOffset, projectId),
@@ -643,6 +665,10 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   },
 
   // ========= Actions JSON Bridge =========
+  writeAgentFile: (data: { relativePath: string; content: string }) =>
+    ipcRenderer.invoke('write-agent-file', data),
+  assembleContext: (data: { projectId: string; problemIds?: string[]; requestIds?: string[]; tokenBudget?: number }) =>
+    ipcRenderer.invoke('assemble-context', data),
   writeAgentActions: (data: { projectPath: string; terminalId: string; actions: any[] }) =>
     ipcRenderer.invoke('write-agent-actions', data),
   setupActionsFileWatcher: (data: { projectPath: string; terminalId: string }) =>
@@ -727,6 +753,20 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getAiProviders: () => ipcRenderer.invoke('get-ai-providers'),
   saveAiProviders: (state: any) => ipcRenderer.invoke('save-ai-providers', state),
   testAiProvider: (providerId: string) => ipcRenderer.invoke('test-ai-provider', providerId),
+
+  // Streaming provider chat (AiChat)
+  providerChatCall: (data: { provider: any; messages: Array<{ role: string; content: string }>; model?: string; maxTokens?: number; temperature?: number }) =>
+    ipcRenderer.invoke('provider-chat-call', data),
+  providerChatBasic: (data: { provider: any; messages: Array<{ role: string; content: string }>; model?: string; maxTokens?: number; temperature?: number }) =>
+    ipcRenderer.invoke('provider-chat-basic', data),
+  onProviderChunk: (callback: (data: { delta?: string; done?: boolean; error?: string; full?: string; diagId?: string; durationMs?: number; providerId?: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('provider-chunk', handler);
+    return () => { ipcRenderer.removeListener('provider-chunk', handler); };
+  },
+  getProviderDiagnostics: () => ipcRenderer.invoke('get-provider-diagnostics'),
+  clearProviderLogs: () => ipcRenderer.invoke('clear-provider-logs'),
+
   getGoals: (date: string) => ipcRenderer.invoke('get-goals', date),
   getGoalsBatch: (startDate: string, endDate: string) => ipcRenderer.invoke('get-goals-batch', startDate, endDate),
   getLongtermGoals: () => ipcRenderer.invoke('get-longterm-goals'),
@@ -735,12 +775,38 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   saveGoalReview: (date: string, reviewSummary: string) => ipcRenderer.invoke('save-goal-review', date, reviewSummary),
   getGoalContext: () => ipcRenderer.invoke('get-goal-context'),
   parseGoalFeedback: (data: { message: string; goals: string[] }) => ipcRenderer.invoke('parse-goal-feedback', data),
+  parseGoalDump: (text: string) => ipcRenderer.invoke('parse-goal-dump', text),
   suggestGoals: (date: string, ctx?: any) => ipcRenderer.invoke('suggest-goals', date, ctx),
   reviewGoals: (date: string) => ipcRenderer.invoke('review-goals', date),
+
+  // Goal hierarchy (parent_id decomposition)
+  getGoal: (goalId: string) => ipcRenderer.invoke('get-goal', goalId),
+  getChildGoals: (parentId: string) => ipcRenderer.invoke('get-child-goals', parentId),
+  saveGoalsBatch: (goals: any[]) => ipcRenderer.invoke('save-goals-batch', goals),
+  linkGoalToEntity: (goalId: string, link: { type: 'problem' | 'request'; id: string; label?: string }) => ipcRenderer.invoke('link-goal-to-entity', goalId, link),
+  unlinkGoalFromEntity: (goalId: string, type: 'problem' | 'request', entityId: string) => ipcRenderer.invoke('unlink-goal-from-entity', goalId, type, entityId),
+
+  // Checklist CRUD (AI Assistant)
+  addProblemCheck: (data: { problemId: string; description: string; instruction?: string }) => ipcRenderer.invoke('add-problem-check', data),
+  addRequestCheck: (data: { requestId: string; description: string; instruction?: string }) => ipcRenderer.invoke('add-request-check', data),
+  completeCheck: (checkId: string) => ipcRenderer.invoke('complete-check', checkId),
+  getProblemChecks: (problemId: string) => ipcRenderer.invoke('get-problem-checks', problemId),
+  getRequestChecks: (requestId: string) => ipcRenderer.invoke('get-request-checks', requestId),
 
   // Planning.md
   readPlanningMd: () => ipcRenderer.invoke('read-planning-md'),
   writePlanningMd: (content: string) => ipcRenderer.invoke('write-planning-md', content),
+
+  // ========== Connectors ==========
+  connectors: {
+    list: () => ipcRenderer.invoke('connectors:list'),
+    add: (connector: { type: string; provider: string; displayName: string; config: any }) => ipcRenderer.invoke('connectors:add', connector),
+    remove: (id: string) => ipcRenderer.invoke('connectors:remove', id),
+    test: (id: string) => ipcRenderer.invoke('connectors:test', id),
+    sync: (id: string) => ipcRenderer.invoke('connectors:sync', id),
+    items: (id: string, opts?: { type?: string; limit?: number }) => ipcRenderer.invoke('connectors:items', id, opts),
+    status: (id: string) => ipcRenderer.invoke('connectors:status', id),
+  },
 
   // Feature Specs
   writeFeatureSpecFile: (content: string) => ipcRenderer.invoke('write-feature-spec-file', content),
@@ -758,8 +824,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeAdjustBalance: (id: number, newBalance: number) => ipcRenderer.invoke('finance:adjust-balance', { id, newBalance }),
   financeGetWallet: (id: number) => ipcRenderer.invoke('finance:get-wallet', id),
   financeUpdateWalletMetadata: (payload: { id: number; metadata: Record<string, any> }) => ipcRenderer.invoke('finance:update-wallet-metadata', payload),
-  financeFetchCryptoPrices: (coinIds: string[]) => ipcRenderer.invoke('finance:fetch-crypto-prices', coinIds),
-  financeGetCryptoHistory: (coinId: string, days?: number) => ipcRenderer.invoke('finance:get-crypto-history', coinId, days),
+  financeFetchCryptoPrices: (coinIds: string[], currency?: string) => ipcRenderer.invoke('finance:fetch-crypto-prices', coinIds, currency || 'usd'),
+  financeGetCryptoHistory: (coinId: string, days?: number, currency?: string) => ipcRenderer.invoke('finance:get-crypto-history', coinId, days, currency || 'usd'),
 
   financeGetCategories: () => ipcRenderer.invoke('finance:get-categories'),
   financeCreateCategory: (data: any) => ipcRenderer.invoke('finance:create-category', data),
@@ -767,8 +833,11 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   financeGetTransactions: (filters?: any) => ipcRenderer.invoke('finance:get-transactions', filters),
   financeCreateTransaction: (data: any) => ipcRenderer.invoke('finance:create-transaction', data),
+  financeCreateTransfer: (data: any) => ipcRenderer.invoke('finance:create-transfer', data),
   financeUpdateTransaction: (data: any) => ipcRenderer.invoke('finance:update-transaction', data),
   financeDeleteTransaction: (id: number) => ipcRenderer.invoke('finance:delete-transaction', id),
+  financeBatchUpdateCategory: (ids: number[], categoryId: number) =>
+    ipcRenderer.invoke('finance:batch-update-category', { ids, categoryId }),
 
   financeGetSummary: () => ipcRenderer.invoke('finance:get-summary'),
   financeGetSpendingByCategory: () => ipcRenderer.invoke('finance:get-spending-by-category'),
@@ -800,6 +869,67 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeDeleteWallet: (id: number) => ipcRenderer.invoke('finance:delete-wallet', id),
   financeGetPasswordRequirements: () => ipcRenderer.invoke('finance:get-password-requirements'),
   financeSetPasswordRequirement: (key: string, value: boolean) => ipcRenderer.invoke('finance:set-password-requirement', key, value),
+
+  // ========== Vision / Critique ==========
+  vision: {
+    health: () => ipcRenderer.invoke('vision:health'),
+    startSidecar: () => ipcRenderer.invoke('vision:start-sidecar'),
+    analyze: (request: any) => ipcRenderer.invoke('vision:analyze', request),
+    getResult: (jobId: string) => ipcRenderer.invoke('vision:get-result', jobId),
+    cancel: (jobId: string) => ipcRenderer.invoke('vision:cancel', jobId),
+    onProgress: (callback: (data: any) => void) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('vision:progress', handler);
+      return () => { ipcRenderer.removeListener('vision:progress', handler); };
+    },
+  },
+
+  // ========== Agent Prompts ==========
+  agentPrompts: {
+    list: (params?: { sessionId?: string; projectId?: string }) => ipcRenderer.invoke('prompts:list', params),
+    get: (id: string) => ipcRenderer.invoke('prompts:get', { id }),
+    create: (data: { sessionId?: string; projectId?: string; content: string; title?: string; category?: string; tags?: string[] }) => ipcRenderer.invoke('prompts:create', data),
+    update: (data: { id: string; status?: string; progress?: number; resultSummary?: string; title?: string; category?: string; tags?: string[] }) => ipcRenderer.invoke('prompts:update', data),
+    delete: (id: string) => ipcRenderer.invoke('prompts:delete', { id }),
+  },
+
+  // ========== Lyceum Learn Module ==========
+  learnImportLdoc: ({ json }: { json: unknown }) => ipcRenderer.invoke('learn:importLdoc', { json }),
+  learnValidate: ({ json }: { json: unknown }) => ipcRenderer.invoke('learn:validate', { json }),
+  learnListLessons: (params?: { part?: number }) => ipcRenderer.invoke('learn:listLessons', params || {}),
+  learnGetLesson: ({ lessonId }: { lessonId: string }) => ipcRenderer.invoke('learn:getLesson', { lessonId }),
+  learnGetNode: ({ nodeId }: { nodeId: string }) => ipcRenderer.invoke('learn:getNode', { nodeId }),
+  learnGetGraph: (params?: { part?: number }) => ipcRenderer.invoke('learn:getGraph', params || {}),
+  learnAskTutor: (params: { nodeId: string; blockId?: string; question: string }) => ipcRenderer.invoke('learn:askTutor', params),
+  learnSubmitQuiz: (params: { nodeId: string; blockId: string; response: string }) => ipcRenderer.invoke('learn:submitQuiz', params),
+  learnGetProgress: (params?: { nodeId?: string }) => ipcRenderer.invoke('learn:getProgress', params || {}),
+  learnGetDueReviews: () => ipcRenderer.invoke('learn:getDueReviews'),
+  learnPickFile: () => ipcRenderer.invoke('learn:pick-file'),
+  learnGetWorkedExample: () => ipcRenderer.invoke('learn:get-worked-example'),
+  learnGetSchema: () => ipcRenderer.invoke('learn:get-schema'),
+  learnGetAuthorGuide: () => ipcRenderer.invoke('learn:get-author-guide'),
+  learnBuildPrompt: (params: { userInput?: string; topic?: string; description?: string; contextDoc?: string; numNodes?: number; masteryTargets?: string[] }) =>
+    ipcRenderer.invoke('learn:buildPrompt', params),
+  learnGenerateLdoc: (params: { prompt: string; systemPrompt: string }) =>
+    ipcRenderer.invoke('learn:generateLdoc', params),
+
+  // ========== Smart Gap Fill ==========
+  getKnownApps: () => ipcRenderer.invoke('get-known-apps'),
+  predictGapFill: (start: string, end: string, mode?: 'combined' | 'separate') =>
+    ipcRenderer.invoke('predict-gap-fill', { start, end, mode: mode || 'combined' }),
+  confirmGapFill: (fills: Array<{ slotStart: string; slotEnd: string; app: string; category: string }>) =>
+    ipcRenderer.invoke('confirm-gap-fill', fills),
+  predictDayGaps: (date: string, mode?: 'combined' | 'separate') =>
+    ipcRenderer.invoke('predict-day-gaps', { date, mode: mode || 'combined' }),
+
+  // ========== Backup & Restore ==========
+  backup: {
+    create: () => ipcRenderer.invoke('backup:create'),
+    list: () => ipcRenderer.invoke('backup:list'),
+    restore: (name: string) => ipcRenderer.invoke('backup:restore', name),
+    exportJSON: () => ipcRenderer.invoke('backup:exportJSON'),
+    exportCSV: (tables: string[]) => ipcRenderer.invoke('backup:exportCSV', tables),
+  },
 
   // ========== Workspace close guard ==========
   onWorkspaceRequestSave: (callback: () => void) => {

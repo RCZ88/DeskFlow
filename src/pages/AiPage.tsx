@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { ProviderDiagnostics } from '../components/ProviderDiagnostics';
 import { useNavigate } from 'react-router-dom';
 import { Target, BookOpen, Settings } from 'lucide-react';
 import { TopicDigestCard } from '../components/TopicDigestCard';
@@ -14,6 +15,9 @@ import { useAiPageData } from '../hooks/useAiPageData';
 import { parseChecklist } from '../services/planningParser';
 import { AiChat } from '../components/AiChat';
 import { AIFeaturesModal } from '../components/AIFeaturesModal';
+import { AiProviderSelectModal, getProviderBadge } from '../components/AiProviderSelectModal';
+import { ConnectorsPanel } from '../components/ConnectorsPanel';
+import { ConnectorSetupModal } from '../components/ConnectorSetupModal';
 const AI_CHAT_ENABLED = true;
 
 type GoalCategory = 'work' | 'personal' | 'health' | 'learning';
@@ -90,6 +94,14 @@ export function AiPage() {
   const [digestTopics, setDigestTopics] = useState<any[]>([]);
   const [digestLoading, setDigestLoading] = useState(true);
   const [digestError, setDigestError] = useState<string | null>(null);
+  const [digestReason, setDigestReason] = useState<string | null>(null);
+  const digestPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [aiProviders, setAiProviders] = useState<Array<{ id: string; label: string; models: string[]; enabled: boolean }>>([]);
+  const [aiRouting, setAiRouting] = useState<Record<string, { providerId: string; model: string } | null>>({});
+  const [configuringFeature, setConfiguringFeature] = useState<'default' | 'researchDigest' | 'goalAssistant' | null>(null);
+  const [showDiag, setShowDiag] = useState(false);
+  const [showConnectorSetup, setShowConnectorSetup] = useState(false);
 
   const [unfinishedCount, setUnfinishedCount] = useState(0);
   const [completedThisWeek, setCompletedThisWeek] = useState(0);
@@ -125,7 +137,33 @@ export function AiPage() {
   const mode = determineMode(goals);
   const mc = modeConfig[mode];
 
+  // ── Consistent design tokens (Frontend Design / Impeccable skills) ──
+  const BTN = "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-zinc-900 text-zinc-300 ring-1 ring-zinc-800 hover:bg-zinc-800 hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/60 transition-colors";
+  const ACCENT_BAR: Record<string, string> = { pink: "bg-pink-500", emerald: "bg-emerald-500", amber: "bg-amber-500" };
+  const ACCENT_PILL: Record<string, string> = {
+    pink: "bg-pink-500/10 text-pink-300 ring-pink-500/20",
+    emerald: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20",
+    amber: "bg-amber-500/10 text-amber-300 ring-amber-500/20",
+  };
+  const ACCENT_DOT: Record<string, string> = { pink: "bg-pink-400", emerald: "bg-emerald-400", amber: "bg-amber-400" };
 
+  const pill = (accent: string, label: string) => (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${ACCENT_PILL[accent] || ACCENT_PILL.emerald}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${ACCENT_DOT[accent] || ACCENT_DOT.emerald}`} />
+      {label}
+    </span>
+  );
+
+  const sectionHead = (accent: string, title: string, desc: string, right?: any) => (
+    <div className="mb-5 flex items-center gap-3">
+      <div className={`h-8 w-1 rounded-full ${ACCENT_BAR[accent] || ACCENT_BAR.emerald}`} />
+      <div>
+        <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
+        <p className="mt-0.5 text-xs text-zinc-500">{desc}</p>
+      </div>
+      {right ? <div className="ml-auto flex items-center gap-2">{right}</div> : null}
+    </div>
+  );
 
   const loadGoals = useCallback(async () => {
     setGoalsLoading(true);
@@ -140,14 +178,20 @@ export function AiPage() {
     setGoalsLoading(false);
   }, [today]);
 
-  const loadDigest = useCallback(async (showLoader = true) => {
+  const loadDigest = useCallback(async (showLoader = true, force = false) => {
+    console.log('[DIGEST-RENDERER] loadDigest called, force=', force, 'showLoader=', showLoader);
     if (showLoader) setDigestLoading(true);
     setDigestError(null);
     try {
-      const r = await window.deskflowAPI!.getTopicDigest();
-      if (r.success) { setDigestTopics(r.topics || []); }
-      else { setDigestError(r.error || 'Failed to load digests'); }
-    } catch (err: any) { setDigestError(err.message); }
+      console.log('[DIGEST-RENDERER] Calling getTopicDigest IPC...');
+      const r = await window.deskflowAPI!.getTopicDigest(force ? { force: true } : undefined);
+      console.log('[DIGEST-RENDERER] IPC returned:', JSON.stringify({ success: r.success, error: r.error, reason: r.reason, topicCount: r.topics?.length, topics: r.topics?.slice(0, 2) }));
+      if (r.success) { setDigestTopics(r.topics || []); setDigestReason(r.reason || null); }
+      else { setDigestError(r.error || 'Failed to load digests'); setDigestReason(null); }
+    } catch (err: any) {
+      console.error('[DIGEST-RENDERER] IPC error:', err.message);
+      setDigestError(err.message);
+    }
     finally { if (showLoader) setDigestLoading(false); }
   }, []);
 
@@ -175,7 +219,54 @@ export function AiPage() {
     } catch {}
   }, [today]);
 
-  useEffect(() => { loadGoals(); loadDigest(); loadContext(); loadPlanGoals(); }, [loadGoals, loadDigest, loadContext]);
+  useEffect(() => {
+    loadGoals();
+    loadContext();
+    loadPlanGoals();
+    const initDigest = async () => {
+      const generating = await window.deskflowAPI!.isDigestGenerating();
+      if (generating) {
+        setDigestLoading(true);
+        setDigestTopics([]);
+        digestPollRef.current = setInterval(async () => {
+          try {
+            const r = await window.deskflowAPI!.getTopicDigest();
+            if (r.success && r.topics && r.topics.length > 0) {
+              setDigestTopics(r.topics);
+              setDigestLoading(false);
+              if (digestPollRef.current) { clearInterval(digestPollRef.current); digestPollRef.current = null; }
+            }
+          } catch {}
+        }, 3000);
+      } else {
+        await loadDigest();
+      }
+    };
+    initDigest();
+    const cleanup = window.deskflowAPI!.onDigestGenerationComplete((data: any) => {
+      if (digestPollRef.current) { clearInterval(digestPollRef.current); digestPollRef.current = null; }
+      if (data.success && data.topics) {
+        setDigestTopics(data.topics);
+        setDigestLoading(false);
+      }
+    });
+    return () => {
+      if (digestPollRef.current) { clearInterval(digestPollRef.current); digestPollRef.current = null; }
+      cleanup();
+    };
+  }, [loadGoals, loadDigest, loadContext]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const state = await window.deskflowAPI!.getAiProviders();
+        if (state?.providers) {
+          setAiProviders(state.providers.map((p: any) => ({ id: p.id, label: p.label, models: p.models || [], enabled: p.enabled })));
+          setAiRouting(state.routing || {});
+        }
+      } catch {}
+    })();
+  }, []);
 
   const loadPlanGoals = useCallback(async () => {
     try {
@@ -265,60 +356,66 @@ export function AiPage() {
     setSavingGoal(false);
   }, [today]);
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+  const handleRoutingSave = useCallback(async (feature: 'default' | 'researchDigest' | 'goalAssistant', entry: { providerId: string; model: string } | null) => {
+    try {
+      const state = await window.deskflowAPI!.getAiProviders();
+      const providers = state?.providers || [];
+      const routing = { ...(state?.routing || {}) };
+      routing[feature] = entry;
+      await window.deskflowAPI!.saveAiProviders({ providers, routing });
+      setAiRouting(routing);
+    } catch {}
+  }, []);
 
-        <header className="flex items-center justify-between mb-8">
+  const digestBadge = getProviderBadge(aiProviders, aiRouting.researchDigest);
+  const goalsBadge = getProviderBadge(aiProviders, aiRouting.goalAssistant);
+  const defaultBadge = getProviderBadge(aiProviders, aiRouting.default);
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="mx-auto max-w-6xl px-6 py-8 space-y-10">
+
+        {/* Header */}
+        <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="grid place-items-center h-10 w-10 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
-              <Target className="w-5 h-5 text-zinc-300" />
+            <div className="grid h-11 w-11 place-items-center rounded-xl bg-zinc-900 ring-1 ring-zinc-800">
+              <Target className="h-5 w-5 text-pink-400" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-white tracking-tight">AI Assistant</h1>
-              <p className="text-xs text-zinc-500 mt-0.5">{dayLabel}</p>
+              <h1 className="text-lg font-semibold tracking-tight text-zinc-50">AI Assistant</h1>
+              <p className="mt-0.5 text-xs text-zinc-500">{dayLabel}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                localStorage.setItem('settings-activeTab', 'ai');
-                navigate('/settings');
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-zinc-800/60 text-zinc-300 ring-1 ring-zinc-700/40 hover:bg-zinc-700/60 hover:text-zinc-100 transition-colors"
+              onClick={() => { localStorage.setItem("settings-activeTab", "ai"); navigate("/settings"); }}
+              className={BTN}
             >
-              <Settings className="w-3 h-3" />
+              <Settings className="h-3.5 w-3.5" />
               Settings
             </button>
-            <button
-              onClick={() => setShowFeatures(true)}
-              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-zinc-800/60 text-zinc-300 ring-1 ring-zinc-700/40 hover:bg-zinc-700/60 hover:text-zinc-100 transition-colors"
-            >
-              <BookOpen className="w-3 h-3" />
+            <button onClick={() => setShowFeatures(true)} className={BTN}>
+              <BookOpen className="h-3.5 w-3.5" />
               Features
             </button>
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-              mc.accent === 'pink' ? 'bg-pink-500/10 text-pink-300 ring-1 ring-pink-500/20' :
-              mc.accent === 'amber' ? 'bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20' :
-              'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20'
-            }`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${
-                mc.accent === 'pink' ? 'bg-pink-400' :
-                mc.accent === 'amber' ? 'bg-amber-400' :
-                'bg-emerald-400'
-              }`} />
-              {mc.label}
-            </span>
+            {pill(mc.accent, mc.label)}
           </div>
         </header>
 
+        {/* AI Chat */}
         {AI_CHAT_ENABLED && (
-          <div data-section="ai.chat" className="mb-12 bg-zinc-950/50 border border-zinc-800/40 rounded-2xl flex flex-col h-[520px] min-h-[520px] shadow-sm shadow-zinc-950/50 overflow-hidden">
-            <AiChat />
+          <div
+            data-section="ai.chat"
+            className="flex h-[520px] min-h-[520px] flex-col overflow-hidden rounded-xl bg-zinc-900/40 ring-1 ring-zinc-800"
+          >
+            <AiChat onConfigure={() => setConfiguringFeature("default")} providerBadge={defaultBadge} />
           </div>
         )}
 
-        <div data-section="ai.summary" className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
+        {/* Summary */}
+        <section data-section="ai.summary">
+          {sectionHead("pink", "Today at a glance", "Your key metrics right now")}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <TodayOverviewCard
             totalSeconds={todayTotalSeconds}
             sessionCount={todaySessionCount}
@@ -339,28 +436,19 @@ export function AiPage() {
             loading={projectsLoading}
           />
           <div data-tutorial="ai.context">
-            <ContextSummaryCard
-              unfinishedCount={unfinishedCount}
-              completedThisWeek={completedThisWeek}
-            />
+              <ContextSummaryCard unfinishedCount={unfinishedCount} completedThisWeek={completedThisWeek} />
+            </div>
           </div>
-        </div>
+        </section>
 
-        <section data-section="ai.focus" className="mb-10">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-1 h-5 rounded-full bg-pink-500" />
-            <div>
-              <h2 className="text-sm font-semibold text-white">Focus</h2>
-              <p className="text-xs text-zinc-500 mt-0.5">What needs your attention today</p>
-            </div>
-            <div className="ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-pink-500/10 text-pink-300 ring-1 ring-pink-500/20">
-              <span className="h-1.5 w-1.5 rounded-full bg-pink-400" />
-              {unfinishedCount > 0 ? `${unfinishedCount} active` : 'All clear'}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-5">
-            <div data-tutorial="ai.daily-plan">
-              <DailyPlanCard
+        {/* Connectors */}
+        <ConnectorsPanel onSetup={() => setShowConnectorSetup(true)} />
+
+        {/* Focus */}
+        <section data-section="ai.focus">
+          {sectionHead("pink", "Focus", "What needs your attention today", pill("pink", unfinishedCount > 0 ? `${unfinishedCount} active` : "All clear"))}
+          <div data-tutorial="ai.daily-plan">
+            <DailyPlanCard
                 goals={goals}
                 mode={mode}
                 suggestions={suggestions}
@@ -375,24 +463,16 @@ export function AiPage() {
                 onAccept={handleAccept}
                 onDismiss={handleDismiss}
                 onFeedback={handleFeedback}
+                onConfigure={() => setConfiguringFeature('goalAssistant')}
+                providerBadge={goalsBadge}
               />
-            </div>
           </div>
         </section>
 
-        <section data-section="ai.plan" className="mb-10">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-1 h-5 rounded-full bg-emerald-500" />
-            <div>
-              <h2 className="text-sm font-semibold text-white">Plan</h2>
-              <p className="text-xs text-zinc-500 mt-0.5">Your milestones and objectives</p>
-            </div>
-            <div className="ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              {planGoals.length > 0 ? `${planGoals.length} items` : 'Up to date'}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Plan */}
+        <section data-section="ai.plan">
+          {sectionHead("emerald", "Plan", "Your milestones and objectives", pill("emerald", planGoals.length > 0 ? `${planGoals.length} items` : "Up to date"))}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div data-tutorial="ai.my-plan">
               <MyPlanCard onPlanningSaved={handlePlanningSaved} />
             </div>
@@ -400,24 +480,38 @@ export function AiPage() {
           </div>
         </section>
 
-        <section data-section="ai.reflect" className="mb-10">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-1 h-5 rounded-full bg-amber-500" />
-            <div>
-              <h2 className="text-sm font-semibold text-white">Reflect</h2>
-              <p className="text-xs text-zinc-500 mt-0.5">Patterns and discoveries</p>
-            </div>
-            <div className="ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              {digestTopics.length > 0 ? `${digestTopics.length} topics` : 'No insights yet'}
-            </div>
-          </div>
-          <div className="space-y-5">
+        {showDiag && (
+          <section>
+            <ProviderDiagnostics />
+          </section>
+        )}
+
+        {/* Reflect */}
+        <section data-section="ai.reflect">
+          {sectionHead(
+            "amber",
+            "Reflect",
+            "Patterns and discoveries",
+            <>
+              {pill("amber", digestTopics.length > 0 ? `${digestTopics.length} topics` : "No insights yet")}
+              <button
+                onClick={() => setShowDiag(!showDiag)}
+                className="rounded-lg bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-400 ring-1 ring-zinc-800 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                title="Provider diagnostics"
+              >
+                Diag
+              </button>
+            </>
+          )}
+          <div className="space-y-4">
             <TopicDigestCard
               topics={digestTopics}
               loading={digestLoading}
               error={digestError || undefined}
-              onRefresh={() => loadDigest(true)}
+              reason={digestReason || undefined}
+              onRefresh={() => loadDigest(true, true)}
+              onConfigure={() => setConfiguringFeature('researchDigest')}
+              providerBadge={digestBadge}
             />
             <div data-tutorial="ai.review">
               <GoalHistoryCard />
@@ -425,19 +519,57 @@ export function AiPage() {
           </div>
         </section>
 
-        <footer className="pt-6 border-t border-zinc-800/30">
-          <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
-            <span className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/50" />
-              AI-powered daily planning
-            </span>
-            <span className="text-zinc-700">·</span>
-            <span>{mc.desc}</span>
-          </div>
+        {/* Footer */}
+        <footer className="flex items-center justify-center gap-3 border-t border-zinc-900 pt-6 text-xs text-zinc-500">
+          <span className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-pink-500/60" />
+            AI-powered daily planning
+          </span>
+          <span className="text-zinc-700">·</span>
+          <span>{mc.desc}</span>
         </footer>
       </div>
 
       <AIFeaturesModal open={showFeatures} onClose={() => setShowFeatures(false)} />
+
+      <ConnectorSetupModal
+        open={showConnectorSetup}
+        onClose={() => setShowConnectorSetup(false)}
+        onCreated={() => setShowConnectorSetup(false)}
+      />
+
+      <AiProviderSelectModal
+        open={configuringFeature === 'researchDigest'}
+        onClose={() => setConfiguringFeature(null)}
+        featureKey="researchDigest"
+        featureLabel="Research Digest"
+        accentColor="from-cyan-500 to-blue-500"
+        providers={aiProviders}
+        currentRouting={aiRouting.researchDigest}
+        onSave={(entry) => handleRoutingSave('researchDigest', entry)}
+      />
+
+      <AiProviderSelectModal
+        open={configuringFeature === 'goalAssistant'}
+        onClose={() => setConfiguringFeature(null)}
+        featureKey="goalAssistant"
+        featureLabel="Daily Plan"
+        accentColor="from-emerald-500 to-teal-500"
+        providers={aiProviders}
+        currentRouting={aiRouting.goalAssistant}
+        onSave={(entry) => handleRoutingSave('goalAssistant', entry)}
+      />
+
+      <AiProviderSelectModal
+        open={configuringFeature === 'default'}
+        onClose={() => setConfiguringFeature(null)}
+        featureKey="default"
+        featureLabel="AI Chat"
+        accentColor="from-violet-500 to-purple-500"
+        providers={aiProviders}
+        currentRouting={aiRouting.default}
+        onSave={(entry) => handleRoutingSave('default', entry)}
+      />
     </div>
   );
 }

@@ -16,7 +16,7 @@ function cacheKey(name: string, args: any[]): string {
 export function useAiPageData<T>(
   name: string,
   fetcher: () => Promise<T>,
-  options?: { ttl?: number; enabled?: boolean }
+  options?: { ttl?: number; enabled?: boolean; deps?: any[] }
 ) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,22 +24,30 @@ export function useAiPageData<T>(
   const mountedRef = useRef(true);
   const ttl = options?.ttl ?? DEFAULT_TTL;
   const enabled = options?.enabled ?? true;
+  const deps = options?.deps ?? [];
 
   const fetcherRef = useRef(fetcher);
   useEffect(() => { fetcherRef.current = fetcher; }, [fetcher]);
 
   const fetch = useCallback(async () => {
     if (!enabled) return;
-    const key = cacheKey(name, []);
+    const key = cacheKey(name, deps);
+    const now = Date.now();
     const cached = aiPageCache.get(key);
-    if (cached && Date.now() - cached.timestamp < ttl) {
+    if (cached && now - cached.timestamp < ttl) {
       setData(cached.data);
       setLoading(false);
       setError(null);
       return;
     }
-
-    setLoading(true);
+    // Stale-while-revalidate: show stale data immediately, refetch in background
+    if (cached) {
+      setData(cached.data);
+      setLoading(false);
+      setError(null);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const result = await fetcherRef.current();
@@ -54,7 +62,7 @@ export function useAiPageData<T>(
         setLoading(false);
       }
     }
-  }, [name, ttl, enabled]);
+  }, [name, ttl, enabled, ...deps]);
 
   useEffect(() => {
     mountedRef.current = true;

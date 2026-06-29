@@ -9,6 +9,7 @@ export const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
     staticHeaders: { 'HTTP-Referer': 'https://deskflow.app', 'X-Title': 'DeskFlow' },
     suggestedModels: ['google/gemini-2.0-flash-001', 'deepseek/deepseek-chat-v3-0324'],
     docsUrl: 'https://openrouter.ai/docs',
+    supportsStream: true,
   },
   cloudflare: {
     id: 'cloudflare',
@@ -18,6 +19,12 @@ export const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
     staticHeaders: { 'Content-Type': 'application/json' },
     suggestedModels: ['@cf/meta/llama-3.1-8b-instruct', '@cf/mistral/mistral-7b-instruct-v0.1'],
     docsUrl: 'https://developers.cloudflare.com/workers-ai/',
+    interpolateUrl: (url, config) => url.replace('{account_id}', config.extraConfig?.cloudflareAccountId || '{account_id}'),
+    parseResponse: (raw: any) => ({
+      content: raw.result?.response || raw.choices?.[0]?.message?.content || '',
+      usage: raw.result?.usage || raw.usage,
+    }),
+    supportsStream: false,
   },
   ollama: {
     id: 'ollama',
@@ -25,6 +32,7 @@ export const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
     defaultBaseUrl: 'http://localhost:11434/v1/chat/completions',
     auth: { type: 'bearer' },
     suggestedModels: ['llama3.1', 'qwen2.5'],
+    supportsStream: true,
   },
   github: {
     id: 'github',
@@ -34,6 +42,7 @@ export const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
     staticHeaders: { 'Accept': 'application/json' },
     suggestedModels: ['gpt-4o-mini', 'gpt-4o', 'DeepSeek-V3', 'Mistral-large', 'Llama-3.1-70B'],
     docsUrl: 'https://docs.github.com/github-models',
+    supportsStream: true,
   },
   gemini: {
     id: 'gemini',
@@ -42,6 +51,7 @@ export const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
     auth: { type: 'query', queryParam: 'key' },
     suggestedModels: ['gemini-2.0-flash', 'gemini-2.0-flash-lite'],
     docsUrl: 'https://ai.google.dev/gemini-api/docs/openai',
+    supportsStream: true,
   },
   custom: {
     id: 'custom',
@@ -49,5 +59,6 @@ export const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
     defaultBaseUrl: '',
     auth: { type: 'bearer' },
     suggestedModels: [],
+    supportsStream: true,
   },
 };

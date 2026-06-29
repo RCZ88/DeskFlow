@@ -102,6 +102,7 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
   const [isDead, setIsDead] = useState(false);
   const [exitWasCrash, setExitWasCrash] = useState(false);
   const isManualKillRef = useRef(false);
+  const userScrolledUpRef = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current || terminalRef.current) return;
@@ -150,7 +151,7 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
       }
     };
     requestAnimationFrame(tryFit);
-    setTimeout(() => {
+    const fitTimer = setTimeout(() => {
       if (fitAddonRef.current) fitAddonRef.current.fit();
     }, 300);
 
@@ -166,6 +167,7 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
     onTerminalReady(terminalId);
 
     return () => {
+      clearTimeout(fitTimer);
       terminal.dispose();
       terminalRef.current = null;
       inputBuffers.delete(terminalId);
@@ -190,6 +192,16 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
 
     return () => disposable.dispose();
   }, [terminalId]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    const disposable = terminal.onScroll((newY: number) => {
+      const buffer = terminal.buffer.active;
+      userScrolledUpRef.current = newY < buffer.baseY;
+    });
+    return () => disposable.dispose();
+  }, []);
 
   useEffect(() => {
     if (!window.deskflowAPI) return;
@@ -269,7 +281,9 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
           try {
             fa.fit();
             window.deskflowAPI?.terminalResize?.(terminalId, t.cols, t.rows);
-            t.scrollToBottom();
+            if (!userScrolledUpRef.current) {
+              t.scrollToBottom();
+            }
             console.log('[FIT-DBG] active re-fit', terminalId, 'cols', t.cols, 'rows', t.rows, 'containerH', c.clientHeight);
           } catch (e) { /* fit can throw if detached */ }
         }
@@ -411,16 +425,18 @@ function PaneRenderer({
 }) {
   if (node.type === 'leaf') {
     return (
-      <TerminalPane
-        terminalId={node.terminalId!}
-        isActive={node.terminalId === activeTerminalId}
-        onTerminalReady={onTerminalReady}
-        onSplit={onSplit}
-        onClose={onClose}
-        onFocus={onFocus}
-        agentStatus={agentStatuses?.[node.terminalId!]}
-        onRetryInit={onRetryInit}
-      />
+      <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+        <TerminalPane
+          terminalId={node.terminalId!}
+          isActive={node.terminalId === activeTerminalId}
+          onTerminalReady={onTerminalReady}
+          onSplit={onSplit}
+          onClose={onClose}
+          onFocus={onFocus}
+          agentStatus={agentStatuses?.[node.terminalId!]}
+          onRetryInit={onRetryInit}
+        />
+      </div>
     );
   }
 
@@ -433,7 +449,7 @@ function PaneRenderer({
       {children.map((child, i) => (
         <React.Fragment key={i}>
           {i > 0 && <SplitHandle direction={dir} onDrag={(delta) => onDragHandle(path, delta)} />}
-          <div className="min-h-0 overflow-hidden" style={{ flex: 1 }}>
+          <div className="min-h-0 min-w-0 overflow-hidden flex flex-col" style={{ flex: 1 }}>
             <PaneRenderer
               node={child}
               activeTerminalId={activeTerminalId}
@@ -543,7 +559,7 @@ export function TerminalLayout({
   }
 
   return (
-    <div className="w-full h-full bg-[#0d0d0d] overflow-hidden">
+    <div className="w-full h-full bg-[#0d0d0d] overflow-hidden flex flex-col">
       <PaneRenderer
         node={layout}
         activeTerminalId={activeTerminalId}

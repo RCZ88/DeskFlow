@@ -18,6 +18,7 @@ This is the **aggregated master design skill** for the DeskFlow agent workspace.
 2. **impeccable** — 7 domain references (typography, color, spatial, motion, interaction, responsive, UX writing), 23 commands, 27 anti-patterns
 3. **ui-ux-pro-max** — Industry-specific design rules, style library, color palettes, typography pairings
 4. **taste-skill** — Tunable knobs (variance, motion, density), aesthetic matrix, anti-repetition rules
+5. **frontend-external-infra** (v1.0.0) — Connected external libraries (shadcn MCP, Magic UI, Lucide, 21st.dev) for real component inventory, source routing table, anti-slop checklist, DeskFlow re-skin rules
 
 ## Active Design Configuration
 

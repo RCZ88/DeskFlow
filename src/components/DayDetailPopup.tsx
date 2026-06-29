@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { maxOf, maxBy } from '../utils/safeMath';
 
 interface TimelineItem {
   id: string;
@@ -145,7 +146,7 @@ export function DayDetailPopup({ date, items, onClose, onDateChange }: DayDetail
   ].filter(d => d.value > 0), [stats]);
 
   const donutTotal = categoryData.reduce((sum, d) => sum + d.value, 0);
-  const hourlyMax = Math.max(...hourlyData.map(h => h.total), 1);
+  const hourlyMax = maxBy(hourlyData, h => h.total, 1);
 
   const handlePrevDay = () => {
     const prevDay = addDays(dateObj, -1);
@@ -496,7 +497,7 @@ function RadarChart({ data }: { data: { hour: number; total: number }[] }) {
   const center = size / 2;
   const maxRadius = size / 2 - 20;
 
-  const maxValue = Math.max(...data.map(d => d.total), 1);
+  const maxValue = maxBy(data, d => d.total, 1);
   const points = data.map(d => {
     const angle = (d.hour / 24) * Math.PI * 2 - Math.PI / 2;
     const radius = (d.total / maxValue) * maxRadius;

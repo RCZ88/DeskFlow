@@ -269,6 +269,48 @@ Remove any **duplicate** inline accent strips in sub-tab renders — they're now
 
 **The pattern:** Layout bugs inside scroll containers are almost always about percentage height computation vs. flex stretch. When you need a child to always fill the container AND the container to grow with content, use `display: flex` + `min-h-full` on the parent, and let flex `align-items: stretch` handle the child sizing. Never force `position: absolute` with `top/bottom` for vertical stretching in dynamic-height containers.
 
+## Entry 8 — DB is 4KB (empty schema) but WAL is megabytes, queries return 0 rows
+
+**Symptom**
+
+App launches fine, DB connects (`✅ SQLite database initialized`), but all queries return 0 rows. `deskflow-data.db` is only 4KB (just schema), while `deskflow-data.db-wal` is 1-3MB. The terminal shows no errors.
+
+**Root cause**
+
+The SQLite Write-Ahead Log (WAL) contains all the real data, but better-sqlite3 in Electron can't read it — likely because the WAL was left uncommitted by a previous instance that crashed or was force-killed. The main DB file (4KB) is a freshly created schema-only file, and the WAL from the old instance isn't being merged.
+
+**Confirm it's this bug**
+
+```powershell
+Get-Item "$env:APPDATA\DeskFlow\deskflow-data.db*" | Select-Object Name, Length
+# deskflow-data.db      → ~4096 bytes (empty schema)
+# deskflow-data.db-wal  → 1,000,000+ bytes (real data stranded here)
+```
+
+**Fast fix** (PowerShell — kill Electron, checkpoint WAL via Python, restart)
+
+```powershell
+# 1. Kill all Electron processes (they lock the WAL)
+Get-Process -Name "electron" -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 2. Open DB with Python sqlite3 — this auto-checkpoints the WAL into the main DB
+python -c "import sqlite3; sqlite3.connect(r'$env:APPDATA\DeskFlow\deskflow-data.db').close()"
+
+# 3. Verify the DB grew (should be 100KB+ now, WAL/SHM files gone)
+Get-Item "$env:APPDATA\DeskFlow\deskflow-data.db*" | Select-Object Name, Length
+
+# 4. Restart the app
+npm start
+```
+
+**Prevention**
+
+- Never force-kill Electron (`taskkill /F`) — close it gracefully so the WAL checkpoints on shutdown.
+- If the app crashes, run the Python checkpoint fix before restarting.
+- Consider adding a WAL checkpoint on app startup: `db.pragma('wal_checkpoint(PASSIVE)')` in main.ts DB init.
+
+---
+
 <aside>
 📌
 

@@ -52,6 +52,15 @@ Toggled in Setup; when on, the system's digest is injected into your prompt.
 - **Automations** — `agent/automations/automations.json` (no engine yet — declarative until one ships).
 If a system you need is toggled off, say so; don't hallucinate its contents.
 
+## 5b. Frontend design skill (mandatory for all UI work)
+Before writing any UI component, page, modal, or screen, load the **humancentred-UIUX skill** (`agent/skills/humancentred-UIUX/SKILL.md`) and follow its 6 pillars, anti-patterns, and generation workflow. This is not optional — the skill catches the #1 failure mode of AI-generated UI (no loading/empty/error states, no feedback, no hierarchy). Always declare scope, cover all 4 states (empty/loading/error/populated), wire hover/focus/disabled, animate transitions, and humanize copy.
+
+## Scope & precedence
+You may receive layered instructions. Resolve conflicts by specificity, most specific wins:
+Project > Agent-type > General > Default (this baseline).
+Runtime "Session scope" blocks override all of the above for the bound item only.
+Never act outside the most specific scope you were given.
+
 ## 6. Testing layers (verify honestly)
 - An IPC probe proving the backend responds is NOT proof the UI works. Test the real UI: navigate the route, click the control, observe the rendered result.
 - Read `[TERMINAL_DEBUG]` / `[FIT-DBG]` / `[RESUME-DBG]` logs in renderer + main console.

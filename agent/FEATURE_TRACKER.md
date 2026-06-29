@@ -24,6 +24,7 @@
 | `/settings` | `SettingsPage` | 5-tab settings (Category/Colors/General/Tracking/Prompts) |
 | `/ide-help` | `IDEHelpPage` | IDE setup help documentation |
 | `/features` | `FeatureSpecViewer` | Hierarchical feature specs browser with sidebar + markdown copy |
+| `/learn` | `LearnPage` | Lyceum "Learn" module — living-textbook with AI tutor, mastery tracking, .ldoc import |
 
 ---
 
@@ -455,6 +456,32 @@
 - **Feature:** Clear separation of concerns
 - **Initialize:** Creates agent directory structure and scaffolding files
 - **Setup:** Configures workspace settings (systems, toggles, sliders)
+
+#### 5.20 AI Usage Cityscape (AI Tools subpage)
+- **Feature:** 3D skyline visualization of AI agent usage
+- **Technology:** React Three Fiber, Three.js InstancedMesh, custom ShaderMaterial
+- **Components:**
+  - `AICityscape.tsx` — main visualization component (873 lines)
+  - `cityscape.utils.ts` — data transforms, spiral layout, window atlas (300 lines)
+- **Visual features:**
+  - Window atlas with per-building lit density (5-step bucket from `getWindowTexture` pool)
+  - Patched `MeshStandardMaterial` via `onBeforeCompile`: emissive windows + neon edge trim + state glow
+  - Per-instance attributes: `aWin` (atlas column), `aTile` (window tiling), `aState` (hover/select), `aEmis` (base emissive)
+  - `NeonGround` procedural shader: cyan square grid + violet radial streets + pink travelling data pulses
+  - `Atmosphere` GPU-animated `Points` system: rain fall + ember rise (1400 particles, no per-frame JS writes)
+  - Post-processing: selective Bloom (threshold 0.95), ChromaticAberration, Noise (film grain), Vignette, SMAA
+  - Fog `exp2(#0a0c18, 0.025)`
+  - `RooftopSigns` — canvas-generated sprite textures on top 8 buildings, additive blending, neon agent-name labels
+  - `SmogClouds` — drei Cloud instances at opacity 0.04–0.06, color #1a2444, slow drift (Cinematic only)
+  - `MeshReflectorMaterial` — wet reflective ground plane, 512px resolution (Cinematic only)
+- **Interaction:**
+  - Hover → emissive bloom lerp (aState.x driven by useFrame)
+  - Click → selection pulse (aState.y `sin(uTime*4.0)`) + DetailPanel slide-in
+  - Morph transitions: height/footprint lerp on mode switch and time-lapse
+- **Draw calls:** 4 total (body + roof glow + ground + particles) regardless of city size
+- **View modes:** By Agent, By Model, Time-lapse (play/pause scrubber)
+- **Graphics quality:** Cinematic (full effects) / Balanced (no CA/no smog/no wet) / Performance (600 particles + stripped effects), persisted in localStorage `ai-city-quality`
+- **Cleanup:** `disposeWindowPool()` + `disposeWindowAtlas()` on unmount
 
 ---
 
@@ -1057,6 +1084,10 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 ---
 
 ## Recent Feature Additions
+
+### 2026-06-23:
+- AI Usage Cityscape visual overhaul: window atlas shader, neon edge trim, procedural NeonGround, GPU Atmosphere particles, morph transitions, chromatic aberration + noise + SMAA post-processing, hover/select pulse
+- Cityscape rooftop agent-name sprites, smog clouds, wet reflective ground, graphics quality toggle (Cinematic/Balanced/Performance)
 
 ### 2026-06-19:
 - Navigation redesign: browser-tab-style group tabs (rounded-t-lg, bg-zinc-800/80, -mb-px), chip-style sub-tabs (rounded-full pill, no border), accent connectivity strip between nav and content

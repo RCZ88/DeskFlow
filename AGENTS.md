@@ -19,9 +19,38 @@ Section 1 to recover state.**
 3. Read `agent/PROBLEMS.md` and `agent/FEATURE_TRACKER.md` (open issues).
 4. Determine: What cycle are we on? What FIX PACKET is open? What did I last verify?
 5. ONLY THEN act. If "What did we do so far?" is asked, ANSWER FROM THESE FILES.
+6. Do NOT read `agent/state-archive.md` during startup. It is deep history, read it
+   ONLY when you genuinely need a past cycle you cannot reconstruct otherwise.
+
+## 1b. STATE FILE CONTRACT — keep `agent/state.md` SHORT (HARD CAP: 40 lines)
+`agent/state.md` is a live whiteboard of the CURRENT moment ONLY. It is OVERWRITTEN
+every cycle, NEVER appended to. If it ever exceeds ~40 lines you have failed this
+contract and must trim it immediately. opencode auto-loads it, so every stale line you
+leave there is paid for on every single prompt — this is the #1 cause of the context
+window filling up right after compaction.
+
+state.md must contain ONLY this template and nothing else:
+```
+# DeskFlow — Current State   (OVERWRITE every cycle; max 40 lines)
+CYCLE: <n>
+ROLE: <what you are doing right now>
+FIX PACKET: <open packet id + 1-line goal | none>
+LAST VERIFIED: <feature + PASS/FAIL + cycle #>
+IN FLIGHT: <up to 5 bullets of what is open RIGHT NOW>
+NEXT ACTION: <the single next step>
+```
+Everything else has a home that is NOT state.md:
+- Durable lessons (still true next week) -> `MEMORY.md`
+- Per-cycle history (ONE line per cycle) -> `agent/state-archive.md` (append-only; never auto-read)
+- Open bugs / features -> `agent/PROBLEMS.md`, `agent/FEATURE_TRACKER.md`
+Before overwriting state.md, salvage anything worth keeping into one of those files,
+then DELETE it from state.md. When in doubt, cut it — state.md is a whiteboard, not a log.
 
 ## 2. SHUTDOWN RITUAL (do this at the end of EVERY cycle, no exceptions)
-1. Update `agent/state.md`: bump cycle #, current role, what's verified, what's open.
+1. REWRITE `agent/state.md` IN PLACE (overwrite, NEVER append) using the Section 1b
+   template. Before overwriting: move durable lessons to `MEMORY.md`, append ONE summary
+   line for this cycle to `agent/state-archive.md`, then drop that detail from state.md.
+   After rewriting, confirm state.md is under ~40 lines. If not, trim again — no exceptions.
 2. Append any new durable lesson to `MEMORY.md` (Section 4 rules).
 3. If you changed source files, RE-ZIP the source: `node scripts/zip-src.mjs` (or the
    documented zip command) so the Architect sees current code. Stale src.zip = the
@@ -68,6 +97,13 @@ Three layers — an IPC probe passing does NOT mean the feature works:
 - Terminal layer: read `[TERMINAL_DEBUG] C2 data callback FIRED ... data:` in MAIN
   console to prove terminal content actually rendered.
 VERDICT PASS requires the layer the feature actually lives in. Instrument, then re-run.
+
+## 5b. UI GENERATION RULE (never design from zero)
+When building or modifying any UI component, load the `frontend-external-infra` skill
+(`agent/skills/frontend-external-infra/SKILL.md`) FIRST. It connects the agent to real
+MCP-served component libraries (shadcn, Magic UI, Lucide, 21st.dev) and enforces the
+anti-slop checklist. Skills-only design (frontend-design, impeccable, humancentred-UIUX)
+teach taste but have no inventory — always pair them with external-infra.
 
 ## 6. HARD INVARIANTS (breaking these = regression, never "refactor" them away)
 - PTY event order is sacred: mark-spawned → spawn → created → initialize. NEVER reorder.

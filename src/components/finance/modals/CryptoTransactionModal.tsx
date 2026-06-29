@@ -1,168 +1,207 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Coins } from 'lucide-react';
-import { TransactionModalShell } from './TransactionModalShell';
-import { useFormattedAmount } from './useFormattedAmount';
-import { getCurrencyInfo } from '../currency-data';
-import { getLastType, getLastCategoryId, saveLastTxPrefs } from './txPrefs';
-import type { FinanceWallet, FinanceCategory, CryptoPrice } from '../finance-types';
+import React, { useEffect, useMemo, useState, useCallback } from 'react'
+import { Wallet, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react'
+import { TransactionModalShell } from './TransactionModalShell'
+import { useTransactionForm } from './useTransactionForm'
+import { ContextBand, TypeToggle, AdvancedToggle } from './modalParts'
+import { TransferWalletSelect } from './TransferWalletSelect'
+import { TransferDestinationPanel } from './TransferDestinationPanel'
+import { useCurrencyFormat, tint, parseMeta } from './modalUtils'
+import type { TxModalProps } from './modalUtils'
 
-interface Props {
-  open: boolean; onClose: () => void;
-  wallet: FinanceWallet; categories: FinanceCategory[]; displayCurrency: string; baseCurrency: string;
-  onSubmit: (data: Record<string, any>) => Promise<boolean>;
-}
+const ACCENT = '#8B5CF6'
+interface Asset { coinId: string; symbol: string; holdings: number }
 
-const TYPES = ['buy', 'sell', 'transfer'] as const;
+export const CryptoTransactionModal: React.FC<TxModalProps> = (props) => {
+	const f = useTransactionForm(props, ['expense', 'income', 'transfer'])
+	const meta = parseMeta(props.wallet)
+	const { format, symbol } = useCurrencyFormat(props.displayCurrency)
+	const [destWalletId, setDestWalletId] = useState<number | null>(null)
+	const [destMetadata, setDestMetadata] = useState<Record<string, any> | null>(null)
 
-export function CryptoTransactionModal({ open, onClose, wallet, categories, displayCurrency, baseCurrency, onSubmit }: Props) {
-  const sym = getCurrencyInfo(displayCurrency).symbol;
-  const meta = (wallet.metadata as any) || {};
-  const assets: { coin_id: string; symbol: string; amount: number; avg_buy_price: number }[] = useMemo(() => {
-    if (Array.isArray(meta.assets) && meta.assets.length > 0) return meta.assets.map((a: any) => ({
-      coin_id: a.coin_id || a.asset || '', symbol: (a.symbol || a.asset || '').toUpperCase(),
-      amount: Number(a.amount) || 0, avg_buy_price: Number(a.avg_buy_price || a.avgBuyPrice) || 0,
-    }));
-    if (meta.coin_id) return [{ coin_id: meta.coin_id, symbol: (meta.symbol || '').toUpperCase(), amount: Number(wallet.balance) || 0, avg_buy_price: Number(meta.acquisition_price) || 0 }];
-    return [];
-  }, [meta, wallet.balance]);
+	const destWallet = useMemo(() =>
+		props.wallets?.find(w => w.id === destWalletId), [props.wallets, destWalletId])
 
-  const [type, setType] = useState<'buy' | 'sell' | 'transfer'>('buy');
-  const [assetIdx, setAssetIdx] = useState(0);
-  const { display: qtyDisplay, setFormatted: setQty, numeric: qtyNumeric, inputRef: qtyInputRef } = useFormattedAmount();
-  const { display: priceDisplay, setFormatted: setPrice, numeric: priceNumeric, inputRef: priceInputRef } = useFormattedAmount();
-  const { display: feeDisplay, setFormatted: setFee, numeric: feeNumeric, inputRef: feeInputRef } = useFormattedAmount();
-  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-  const [prices, setPrices] = useState<CryptoPrice[]>([]);
+	const assets: Asset[] = useMemo(() => {
+		if (Array.isArray(meta.assets)) return meta.assets.map((a: any) => ({
+			coinId: a.coin_id || a.coinId || a.asset || '',
+			symbol: (a.symbol || a.asset || '').toUpperCase(),
+			holdings: Number(a.amount) || 0,
+		}))
+		if (meta.coin_id) return [{ coinId: meta.coin_id, symbol: (meta.symbol || '').toUpperCase(), holdings: Number(props.wallet.balance) || 0 }]
+		return []
+	}, [meta, props.wallet.balance])
 
-  const resetFields = useCallback(() => {
-    setQty(''); setPrice(''); setFee(''); setDate(new Date().toISOString().split('T')[0]);
-  }, [setQty, setPrice, setFee]);
+	const [assetIdx, setAssetIdx] = useState(0)
+	const asset = assets[assetIdx]
 
-  useEffect(() => {
-    if (open) {
-      const lastType = getLastType('crypto');
-      setType(lastType && (TYPES as readonly string[]).includes(lastType) ? lastType as any : 'buy');
-      const lastCat = getLastCategoryId('crypto');
-      setCategoryId(lastCat && categories.some(c => c.id === lastCat && !c.is_archived) ? lastCat : null);
-      resetFields();
-      if (assets.length > 0) {
-        const ids = assets.map(a => a.coin_id).filter(Boolean);
-        if (ids.length > 0) {
-          (window as any).deskflowAPI?.financeFetchCryptoPrices(ids).then((r: CryptoPrice[]) => {
-            if (r?.length) setPrices(r);
-          }).catch(() => {});
-        }
-      }
-    }
-  }, [open, assets, categories, resetFields]);
+	const [qty, setQty] = useState('')
+	const [price, setPrice] = useState('')
+	const [fee, setFee] = useState('')
+	const [priceState, setPriceState] = useState<'idle' | 'loading' | 'error'>('idle')
+	const [change24h, setChange24h] = useState<number | null>(null)
 
-  const selectedAsset = assets[assetIdx] || assets[0];
-  const currentPrice = prices.find(p => p.id === selectedAsset?.coin_id);
-  const livePrice = currentPrice?.current_price;
+	const fetchPrice = useCallback(async () => {
+		if (!asset) return
+		setPriceState('loading')
+		try {
+			const data = await (window as any).deskflowAPI?.financeFetchCryptoPrices([asset.coinId], props.displayCurrency)
+			const p = data?.[0]
+			if (!p || p.current_price == null) throw new Error('No price')
+			setPrice(String(p.current_price))
+			setChange24h(typeof p.price_change_percentage_24h === 'number' ? p.price_change_percentage_24h : null)
+			setPriceState('idle')
+		} catch { setPriceState('error') }
+	}, [asset, props.displayCurrency])
 
-  useEffect(() => { if (livePrice) setPrice(String(livePrice)); }, [livePrice, setPrice]);
+	useEffect(() => { if (f.type !== 'transfer') fetchPrice() }, [fetchPrice, f.type])
 
-  const total = qtyNumeric * priceNumeric;
-  const net = type === 'sell' ? total - feeNumeric : total + feeNumeric;
-  const filtered = categories.filter(c => (c.type === 'expense' || c.type === 'income') && !c.is_archived);
-  const hasAssets = assets.length > 0;
+	const qn = Number(qty) || 0, pn = Number(price) || 0, fn = Number(fee) || 0
+	const total = qn * pn
+	const net = f.type === 'income' ? total + fn : total - fn
+	const valid = f.type === 'transfer'
+		? !!destWallet && !!(f.description.trim())
+		: qn > 0 && pn > 0 && !!asset
 
-  const handleSubmit = async () => {
-    if (!qtyNumeric || !categoryId) return false;
-    const ok = await onSubmit({
-      account_id: wallet.account_id, wallet_id: wallet.id, category_id: categoryId,
-      type: type === 'sell' ? 'income' : 'expense', amount: type === 'sell' ? total : -total,
-      description: `${type.toUpperCase()} ${qtyNumeric} ${selectedAsset?.symbol}`,
-      date, metadata: { crypto_type: type, asset: selectedAsset?.coin_id, quantity: qtyNumeric, price_per_coin: priceNumeric, fee: feeNumeric, net },
-    });
-    if (ok) { saveLastTxPrefs('crypto', type, categoryId); resetFields(); setCategoryId(categoryId); }
-    return ok;
-  };
+	if (assets.length === 0) {
+		return (
+			<TransactionModalShell accent={ACCENT} icon={<Wallet size={18} />} typeBadge="Crypto"
+				title={props.wallet.name} onClose={props.onClose} onSubmit={async () => false}>
+				{({ setCanSubmit }) => {
+					useEffect(() => setCanSubmit(false), [setCanSubmit])
+					return (
+						<div className="py-6 text-center">
+							<p className="text-sm text-zinc-300">No assets tracked yet</p>
+							<p className="mt-1 text-xs text-zinc-500">Add an asset to this wallet before recording a trade.</p>
+						</div>
+					)
+				}}
+			</TransactionModalShell>
+		)
+	}
 
-  if (!hasAssets && open) {
-    return (
-      <TransactionModalShell open={open} onClose={onClose} accent="#8B5CF6" IconComponent={Coins} title="Add Transaction" typeLabel="Crypto"
-        onSubmit={async () => false}>
-        {() => (
-          <div className="flex flex-col items-center py-6 text-center">
-            <Coins className="w-10 h-10 text-zinc-600 mb-3" />
-            <p className="text-sm text-zinc-400 font-medium">No assets tracked</p>
-            <p className="text-[11px] text-zinc-500 mt-1">Add an asset to this crypto wallet first, then you can add transactions.</p>
-          </div>
-        )}
-      </TransactionModalShell>
-    );
-  }
+	return (
+		<TransactionModalShell
+			accent={ACCENT} icon={<Wallet size={18} />} typeBadge="Crypto"
+			title={props.wallet.name} onClose={props.onClose}
+			onSuccess={() => { f.reset(); setQty(''); setFee(''); setDestWalletId(null); setDestMetadata(null) }}
+			onSubmit={async () => {
+				f.persistPrefs()
+				if (f.type === 'transfer') {
+					return !!(await props.onSubmit(f.buildPayload({
+						to_wallet_id: destWalletId,
+						fromWalletName: props.wallet.name,
+						toWalletName: destWallet?.name || 'another wallet',
+						description: f.description.trim() || `Transfer to ${destWallet?.name || 'another wallet'}`,
+						amount: -f.numericAmount,
+						dest_metadata: destMetadata,
+					})))
+				}
+				return !!(await props.onSubmit(f.buildPayload({
+					amount: f.type === 'income' ? -net : net,
+					description: f.description.trim() || `${f.type === 'income' ? 'Buy' : 'Sell'} ${qn} ${asset.symbol}`,
+					metadata: { coinId: asset.coinId, symbol: asset.symbol, qty: qn, price: pn, fee: fn, total },
+				})))
+			}}
+		>
+			{({ setCanSubmit }) => {
+				useEffect(() => setCanSubmit(valid), [valid, setCanSubmit])
+				return (
+					<>
+						<ContextBand accent={ACCENT}>
+							<div className="flex items-center gap-2">
+								{f.type !== 'transfer' && (
+									<select value={assetIdx} onChange={(e) => setAssetIdx(Number(e.target.value))}
+										className="rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-2 py-1 text-xs text-white outline-none">
+										{assets.map((a, i) => <option key={a.coinId} value={i}>{a.symbol}</option>)}
+									</select>
+								)}
+								{f.type === 'transfer' && (
+									<span className="text-xs text-zinc-300">Send crypto</span>
+								)}
+								<div className="ml-auto text-right">
+									{f.type !== 'transfer' && priceState === 'loading' ? (
+										<div className="h-3 w-20 rounded bg-zinc-700/50 animate-pulse" />
+									) : priceState === 'error' ? (
+										<button onClick={fetchPrice} className="flex items-center gap-1 text-[11px] text-amber-400">
+											<RefreshCw size={11} /> Retry price
+										</button>
+									) : f.type !== 'transfer' ? (
+										<div className="flex items-center gap-1 justify-end">
+											<span className="font-mono text-xs text-white">{format(pn)}</span>
+											{change24h != null && (
+												<span className={`flex items-center text-[10px] ${change24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+													{change24h >= 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+													{Math.abs(change24h).toFixed(1)}%
+												</span>
+											)}
+										</div>
+									) : null}
+								</div>
+							</div>
+							{f.type !== 'transfer' && (
+								<div className="mt-1 text-[11px] text-zinc-500">You hold: <span className="font-mono text-zinc-300">{asset.holdings} {asset.symbol}</span></div>
+							)}
+						</ContextBand>
 
-  return (
-    <TransactionModalShell open={open} onClose={onClose} accent="#8B5CF6" IconComponent={Coins} title="Add Transaction" typeLabel="Crypto"
-      onSubmit={handleSubmit} onReset={resetFields}>
-      {() => (
-        <>
-          {selectedAsset && (
-            <div className="text-[11px] text-zinc-400 mb-1">
-              You hold: <span className="text-white tabular-nums font-medium">{selectedAsset.amount.toFixed(selectedAsset.amount < 1 ? 6 : 4)} {selectedAsset.symbol}</span>
-            </div>
-          )}
-          {assets.length > 1 && (
-            <select value={assetIdx} onChange={e => { setAssetIdx(Number(e.target.value)); setCategoryId(null); }}
-              className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/50">
-              {assets.map((a, i) => (
-                <option key={i} value={i}>{a.symbol} — {a.amount.toFixed(a.amount < 1 ? 6 : 4)} held</option>
-              ))}
-            </select>
-          )}
-          {livePrice && (
-            <div className="text-[11px] text-zinc-400">
-              1 {selectedAsset?.symbol} = <span className="text-white tabular-nums font-medium">{sym}{livePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</span>
-              {currentPrice?.price_change_percentage_24h != null && (
-                <span className={`ml-1.5 ${currentPrice.price_change_percentage_24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {currentPrice.price_change_percentage_24h >= 0 ? '+' : ''}{currentPrice.price_change_percentage_24h.toFixed(2)}%
-                </span>
-              )}
-            </div>
-          )}
-          <div className="flex items-center gap-1.5 mb-1">
-            {TYPES.map(t => (
-              <button key={t} onClick={() => { setType(t); setCategoryId(null); }}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all capitalize ${
-                  type === t ? 'bg-[#8B5CF6]/15 text-[#8B5CF6] border border-[#8B5CF6]/30' : 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 hover:text-zinc-200'
-                }`}>{t}</button>
-            ))}
-          </div>
-          <div className="flex items-center gap-3 bg-zinc-800/80 border border-zinc-700/50 rounded-lg pl-4 pr-3 py-3 focus-within:ring-2 focus-within:ring-[#8B5CF6]/50">
-            <span className="text-xs font-medium text-zinc-500 shrink-0">{selectedAsset?.symbol}</span>
-            <input type="text" inputMode="decimal" value={qtyDisplay} onChange={e => setQty(e.target.value)} placeholder="Quantity" autoFocus ref={qtyInputRef}
-              className="w-full bg-transparent text-xl font-semibold tabular-nums text-white placeholder-zinc-600 outline-none text-right" />
-          </div>
-          <div className="flex items-center gap-3 bg-zinc-800/80 border border-zinc-700/50 rounded-lg pl-4 pr-3 py-2 focus-within:ring-2 focus-within:ring-[#8B5CF6]/50">
-            <span className="text-sm font-medium text-zinc-500 tabular-nums shrink-0">{sym}</span>
-            <input type="text" inputMode="decimal" value={priceDisplay} onChange={e => setPrice(e.target.value)} placeholder="Price per coin" ref={priceInputRef}
-              className="w-full bg-transparent text-sm text-white placeholder-zinc-500 outline-none text-right" />
-          </div>
-          <div className="flex items-center gap-3 bg-zinc-800/80 border border-zinc-700/50 rounded-lg pl-4 pr-3 py-2 focus-within:ring-2 focus-within:ring-[#8B5CF6]/50">
-            <span className="text-sm font-medium text-zinc-500 tabular-nums shrink-0">{sym}</span>
-            <input type="text" inputMode="decimal" value={feeDisplay} onChange={e => setFee(e.target.value)} placeholder="Fee (optional)" ref={feeInputRef}
-              className="w-full bg-transparent text-sm text-white placeholder-zinc-500 outline-none text-right" />
-          </div>
-          <div className="rounded-lg p-3" style={{ backgroundColor: '#8B5CF610' }}>
-            <div className="flex justify-between text-[11px]"><span className="text-zinc-400">Qty × Price</span><span className="text-white tabular-nums font-medium">{sym}{total.toFixed(2)}</span></div>
-            {feeNumeric > 0 && <div className="flex justify-between text-[11px] mt-0.5"><span className="text-zinc-500">Fee</span><span className="text-zinc-400 tabular-nums">+{sym}{feeNumeric.toFixed(2)}</span></div>}
-            <div className="flex justify-between text-xs mt-1.5 pt-1.5 border-t border-zinc-700/30"><span className="text-zinc-300 font-medium">Net</span><span className="text-white tabular-nums font-bold">{sym}{net.toFixed(2)}</span></div>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {filtered.map(cat => (
-              <button key={cat.id} onClick={() => setCategoryId(cat.id)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
-                  categoryId === cat.id ? 'bg-[#8B5CF6]/15 text-[#8B5CF6] border border-[#8B5CF6]/30' : 'bg-zinc-800/60 text-zinc-400 hover:text-zinc-200 border border-transparent'
-                }`}>{cat.name}</button>
-            ))}
-          </div>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)}
-            className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/50" />
-        </>
-      )}
-    </TransactionModalShell>
-  );
+						<TypeToggle accent={ACCENT} value={f.type} onChange={f.setType}
+							options={[{ id: 'income', label: 'Buy' }, { id: 'expense', label: 'Sell' }, { id: 'transfer', label: 'Send' }]} />
+
+						{f.type === 'transfer' ? (
+							<>
+								<AmountInput accent={ACCENT} value={f.amount} onChange={f.setAmount} symbol={symbol} autoFocus />
+								<input value={f.description} onChange={(e) => f.setDescription(e.target.value)} placeholder="Transaction ID / destination address"
+									className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-zinc-500" />
+								<TransferWalletSelect
+									wallets={props.wallets || []}
+									accounts={props.accounts || []}
+									excludeWalletId={props.wallet.id}
+									selectedWalletId={destWalletId}
+									onSelect={setDestWalletId}
+									displayCurrency={props.displayCurrency}
+								/>
+								<TransferDestinationPanel
+									destWallet={destWallet}
+									accent={ACCENT}
+									format={format}
+									onMetadataChange={setDestMetadata}
+								/>
+							</>
+						) : (
+							<>
+								<div className="flex gap-2">
+									<label className="flex-1">
+										<span className="text-[11px] text-zinc-500">Quantity</span>
+										<input autoFocus inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="0.00"
+											className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 font-mono text-sm text-white outline-none focus:border-zinc-500" />
+									</label>
+									<label className="flex-1">
+										<span className="text-[11px] text-zinc-500">Price</span>
+										<input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00"
+											className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 font-mono text-sm text-white outline-none focus:border-zinc-500" />
+									</label>
+								</div>
+								<div className="rounded-lg p-3 space-y-1 font-mono text-xs" style={{ background: tint(ACCENT, 0.08) }}>
+									<div className="flex justify-between text-zinc-400"><span>{qn} × {format(pn)}</span><span className="text-white">{format(total)}</span></div>
+									<div className="flex justify-between text-zinc-400"><span>Fee {f.type === 'income' ? '+' : '−'}</span><span>{format(fn)}</span></div>
+									<div className="flex justify-between border-t border-white/10 pt-1 text-sm"><span className="text-zinc-300">Net</span><span className="font-semibold text-white">{format(net)}</span></div>
+								</div>
+							</>
+						)}
+
+						<AdvancedToggle open={f.showAdvanced} onToggle={() => f.setShowAdvanced(!f.showAdvanced)} />
+						{f.showAdvanced && (
+							<div className="flex gap-2">
+								{f.type !== 'transfer' && (
+									<input inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="Fee"
+										className="flex-1 rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 font-mono text-sm text-white outline-none focus:border-zinc-500" />
+								)}
+								<input type="date" value={f.date} onChange={(e) => f.setDate(e.target.value)}
+									className="flex-1 rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 text-sm text-white outline-none focus:border-zinc-500" />
+							</div>
+						)}
+					</>
+				)
+			}}
+		</TransactionModalShell>
+	)
 }

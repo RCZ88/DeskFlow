@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Loader2, CheckCircle2, Send, ChevronDown, Clock, Brain, ListChecks, TrendingUp, X, Circle } from 'lucide-react';
+import { Sparkles, Loader2, CheckCircle2, Send, ChevronDown, Clock, Brain, ListChecks, TrendingUp, X, Circle, Cpu } from 'lucide-react';
 import { GlassCard } from './GlassCard';
 import { LoadingState } from './LoadingState';
 import { EmptyState } from './EmptyState';
@@ -24,6 +24,8 @@ interface DailyPlanCardProps {
   onDismiss: (suggestion: { title: string; category: GoalCategory }) => void;
   onFeedback: (message: string) => void;
   onRefreshPlan?: () => void;
+  onConfigure?: () => void;
+  providerBadge?: { label: string; color: string } | null;
 }
 
 const modeConfig: Record<Mode, { label: string; pill: string; icon: any; bannerGrad: string; accent: string }> = {
@@ -42,7 +44,7 @@ const catAccent: Record<string, { dot: string; badge: string }> = {
 export function DailyPlanCard({
   goals, mode, suggestions = [], planGoals = [], review,
   loading = false, suggesting = false, saving = false, error = null,
-  onToggle, onSuggest, onAccept, onDismiss, onFeedback,
+  onToggle, onSuggest, onAccept, onDismiss, onFeedback, onConfigure, providerBadge,
 }: DailyPlanCardProps) {
   const [feedbackText, setFeedbackText] = useState('');
   const [showCompleted, setShowCompleted] = useState(false);
@@ -72,6 +74,11 @@ export function DailyPlanCard({
               <div className="flex items-center gap-2.5">
                 <h3 className="text-[15px] font-semibold text-white tracking-tight">Daily Plan</h3>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${mc.pill}`}>{mc.label}</span>
+                {providerBadge && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${providerBadge.color}`}>
+                    {providerBadge.label}
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-zinc-500 mt-0.5">
                 {mode === 'morning' ? dateStr : `${done.length} of ${goals.length} · ${progress}%`}
@@ -95,6 +102,15 @@ export function DailyPlanCard({
                   {Math.round(progress)}%
                 </text>
               </svg>
+            )}
+            {onConfigure && (
+              <button
+                onClick={onConfigure}
+                className="flex items-center gap-1 text-[10px] px-2 py-1.5 rounded-lg bg-zinc-800/50 text-zinc-500 border border-zinc-700/30 hover:text-zinc-300 hover:border-zinc-600/50 transition-all duration-150"
+                title="Configure provider"
+              >
+                <Cpu className="w-3 h-3" />
+              </button>
             )}
             {mode !== 'review' && (
               <button

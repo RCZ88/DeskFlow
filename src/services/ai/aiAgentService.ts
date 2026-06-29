@@ -4,8 +4,9 @@ import type { AiAgentConfig, ToolCallRequest, ToolCallResult, AgentMessage, Tool
 
 const SYSTEM_PROMPT_BASE = `You are an AI assistant integrated into a personal productivity tracker. You have access to tools that let you:
 
-- READ goals, projects, activities, settings, stats, sleep data, workspace state, terminal sessions
+- READ goals, projects, activities, settings, stats, sleep data, workspace state, terminal sessions, checks
 - CREATE/UPDATE/DELETE goals (daily + long-term), projects, external activities, categories, preferences
+- DECOMPOSE long-term goals into sub-goals for milestone tracking
 - START/STOP activity tracking sessions
 - MANAGE problems, recording configurations, and research topics
 - CHECK tutorial completion status and START feature tutorials
@@ -22,6 +23,13 @@ Supported params: page (route), tab (tab key), section (section ID), label (butt
 Section IDs include: settings.ai, settings.finance, settings.tracking, settings.prompts, ide.ai-tools, ide.projects, ai.chat, ai.focus, ai.plan, ai.reflect, insights.weekly, finance.accounts, external.sleep, and more.
 
 Long-term goals: Use saveLongtermGoal to create strategic goals (life objectives, milestones). Use getLongtermGoals to review them.
+
+Goal decomposition: Break a long-term goal into smaller sub-goals with decomposeGoal(parentId, children[]). Children get parent_id linking them to the parent. Use getChildGoals(parentId) to retrieve them. For example: create a long-term goal → decompose into weekly milestones → optionally decompose weekly into daily tasks.
+
+Goal linking: Use linkGoalToProblem / linkGoalToRequest to trace which problems or requests a goal relates to. The links appear in the goal's metadata. Use unlinkGoalFromProblem / unlinkGoalFromRequest to remove links.
+
+Checklists: Use addProblemCheck(problemId, description, instruction) to create verification steps on problems, and addRequestCheck for feature requests. Use completeCheck(checkId) to mark items done after verifying. Use getProblemChecks / getRequestChecks to list existing checks. The checks live on problems and requests and can be viewed in the workspace sidebar under the Work → Issues → Checklist subtab.
+
 Research topics: Use getInterestTopics to see what the AI tracks. Use addInterestTopic/removeInterestTopic to manage them.
 
 Rules:
@@ -36,7 +44,11 @@ Rules:
 9. For time-based queries, use appropriate periods: "today", "week", "month", "all"
 10. Format times readably (e.g., "2h 30m" instead of raw seconds)
 11. When showing data, offer a navigation link to the relevant page when it helps the user
-12. For long-term goal management, ask clarifying questions about priority and category before creating`
+12. For long-term goal management, ask clarifying questions about priority and category before creating
+13. When the user wants to break down a goal, use decomposeGoal to create sub-goals with appropriate periods (weekly for milestones, daily for actionable tasks)
+14. After decomposing a goal, link sub-goals to relevant problems or requests with linkGoalToProblem / linkGoalToRequest for full traceability
+15. Use addProblemCheck to create verification steps on problems — this is how the AI tracks whether a fix actually works
+16. When a user confirms a fix works, use completeCheck to mark the checklist item as done`
 
 class AiAgentService {
   private config: AiAgentConfig = {
@@ -193,7 +205,7 @@ Security: ${JSON.stringify(securityGuard.getStats())}`
   }
 
   private async callLLM(systemPrompt: string, tools: any[], round: number = 0, totalRounds: number = 1, onChunk?: (text: string) => void): Promise<any> {
-    console.log(`[AiAgent:callLLM] round=${round}/${totalRounds}, historyLen=${this.conversationHistory.length}`)
+    console.log('[AiAgent:callLLM] round=' + round + '/' + totalRounds + ' historyLen=' + this.conversationHistory.length)
     const api = (window as any).deskflowAPI
 
     let preferredModel = ''
@@ -202,12 +214,13 @@ Security: ${JSON.stringify(securityGuard.getStats())}`
       const aiConfig = await api.getAiConfig()
       if (aiConfig?.briefModel) preferredModel = aiConfig.briefModel
       state = await api.getAiProviders()
-    } catch {}
+    } catch (err) {
+      console.warn('[AiAgent] Failed to load provider config, falling back to OpenRouter:', err)
+    }
     if (!state) {
-      const defaultApiKey = await api?.getOpenRouterApiKey?.()
       state = {
         providers: [
-          { id: 'openrouter', templateId: 'openrouter', label: 'OpenRouter', enabled: true, apiKey: defaultApiKey || '', baseUrl: '', models: ['google/gemini-2.0-flash-001'], priority: 0 },
+          { id: 'openrouter', templateId: 'openrouter', label: 'OpenRouter', enabled: true, apiKey: '', baseUrl: '', models: ['google/gemini-2.0-flash-001'], priority: 0 },
         ],
         routing: { default: { providerId: 'openrouter', model: '' } },
       }
@@ -221,158 +234,70 @@ Security: ${JSON.stringify(securityGuard.getStats())}`
       ? enabled.find((p: any) => p.id === defaultRoute.providerId) || enabled[0]
       : enabled[0]
 
-    const template = this.getTemplate(target.templateId)
     const model = preferredModel || defaultRoute?.model || target.models[0] || 'gpt-3.5-turbo'
-    const baseUrl = target.baseUrl || template.defaultBaseUrl
-    if (!baseUrl) throw new Error(`Provider ${target.label} has no base URL`)
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...(template.staticHeaders || {}),
-    }
-    if (target.apiKey) {
-      if (template.auth.type === 'bearer') {
-        headers['Authorization'] = `Bearer ${target.apiKey}`
-      } else if (template.auth.type === 'header' && template.auth.headerName) {
-        headers[template.auth.headerName] = target.apiKey
-      }
-    }
-
-    let url = baseUrl
-    if (target.apiKey && template.auth.type === 'query' && template.auth.queryParam) {
-      url += `?${template.auth.queryParam}=${encodeURIComponent(target.apiKey)}`
-    }
 
     const messages = [
       { role: 'system', content: systemPrompt },
       ...this.convertToProviderMessages(this.conversationHistory),
     ]
 
-    const body: any = {
-      model,
-      messages,
-      max_tokens: this.config.maxTokens,
-      temperature: this.config.temperature,
-      stream: true,
+    if (!api.providerChatCall || !api.onProviderChunk) {
+      return await this.callLLMFallback(api, target, model, messages, tools, round, totalRounds, onChunk)
     }
 
-    if (tools && tools.length > 0) {
-      body.tools = tools
-    }
+    return new Promise((resolve, reject) => {
+      let fullContent = ''
+      const streamedToolCalls: Record<number, any> = {}
+      let cleanup: (() => void) | null = null
+      let timeout: ReturnType<typeof setTimeout> | null = null
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    })
-
-    if (!response.ok) {
-      const errText = await response.text()
-      throw new Error(`${target.label} error ${response.status}: ${errText.slice(0, 300)}`)
-    }
-
-    // Handle streaming response
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('Response body is not readable');
-    }
-    
-    const decoder = new TextDecoder();
-    let fullContent = '';
-    let usage = { prompt_tokens: 0, completion_tokens: 0 };
-    const streamedToolCalls: Record<number, any> = {};
-    
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') continue;
-          
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta;
-            
-            // Extract content from delta
-            if (delta?.content) {
-              fullContent += delta.content;
-              onChunk?.(delta.content);
-              this.progressCallback?.({ round, totalRounds, status: 'thinking', message: 'Generating response...', streamedContent: fullContent });
-            }
-            
-            // Extract tool calls from delta (OpenAI streaming format)
-            if (delta?.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (!streamedToolCalls[tc.index]) {
-                  streamedToolCalls[tc.index] = { id: '', type: 'function', function: { name: '', arguments: '' } };
-                }
-                if (tc.id) streamedToolCalls[tc.index].id = tc.id;
-                if (tc.function?.name) streamedToolCalls[tc.index].function.name += tc.function.name;
-                if (tc.function?.arguments) streamedToolCalls[tc.index].function.arguments += tc.function.arguments;
-              }
-            }
-            
-            // Extract usage information
-            if (parsed.usage) {
-              usage = {
-                prompt_tokens: parsed.usage.prompt_tokens || 0,
-                completion_tokens: parsed.usage.completion_tokens || 0,
-              };
-            }
-          } catch (e) {
-            // Skip invalid JSON lines
-            continue;
-          }
+      cleanup = api.onProviderChunk((data: any) => {
+        if (data.error) {
+          cleanup?.(); if (timeout) clearTimeout(timeout)
+          reject(new Error(data.error))
+          return
         }
-      }
-    }
+        if (data.delta) {
+          fullContent += data.delta
+          onChunk?.(data.delta)
+          this.progressCallback?.({ round, totalRounds, status: 'thinking', message: 'Generating response...', streamedContent: fullContent })
+        }
+        if (data.done) {
+          cleanup?.(); if (timeout) clearTimeout(timeout)
+          const toolCalls = Object.keys(streamedToolCalls).length > 0
+            ? Object.values(streamedToolCalls).filter((tc: any) => tc.id && tc.function.name)
+            : undefined
+          console.log('[AiAgent:callLLM] done, contentLen=' + fullContent.length + ' toolCalls=' + (toolCalls?.length || 0))
+          resolve({
+            choices: [{ message: { content: fullContent, ...(toolCalls ? { tool_calls: toolCalls } : {}) } }],
+            usage: { prompt_tokens: 0, completion_tokens: fullContent.length > 0 ? Math.ceil(fullContent.length / 4) : 0 },
+          })
+        }
+      })
 
-    const toolCalls = Object.keys(streamedToolCalls).length > 0
-      ? Object.values(streamedToolCalls).filter(tc => tc.id && tc.function.name)
-      : undefined
+      timeout = setTimeout(() => {
+        cleanup?.()
+        reject(new Error('Provider call timed out after 60s'))
+      }, 60000)
 
-    console.log(`[AiAgent:callLLM] done, contentLen=${fullContent.length}, toolCalls=${toolCalls?.length || 0}`)
-    return {
-      choices: [{
-        message: {
-          content: fullContent,
-          ...(toolCalls ? { tool_calls: toolCalls } : {}),
-        },
-      }],
-      usage,
-    };
+      api.providerChatCall({ provider: target, messages, model, maxTokens: this.config.maxTokens, temperature: this.config.temperature }).catch((err: any) => {
+        cleanup?.(); if (timeout) clearTimeout(timeout)
+        reject(err)
+      })
+    })
   }
 
-  private getTemplate(templateId: string): any {
-    const templates: Record<string, any> = {
-      openrouter: {
-        id: 'openrouter',
-        defaultBaseUrl: 'https://openrouter.ai/api/v1/chat/completions',
-        auth: { type: 'bearer' },
-        staticHeaders: { 'HTTP-Referer': 'https://deskflow.app', 'X-Title': 'DeskFlow' },
-      },
-      cloudflare: {
-        id: 'cloudflare',
-        defaultBaseUrl: 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions',
-        auth: { type: 'bearer' },
-      },
-      ollama: {
-        id: 'ollama',
-        defaultBaseUrl: 'http://localhost:11434/v1/chat/completions',
-        auth: { type: 'bearer' },
-      },
-      custom: {
-        id: 'custom',
-        defaultBaseUrl: '',
-        auth: { type: 'bearer' },
-      },
+  private async callLLMFallback(api: any, target: any, model: string, messages: Array<{ role: string; content: string }>, tools: any[], round: number, totalRounds: number, onChunk?: (text: string) => void): Promise<any> {
+    console.log('[AiAgent:callLLMFallback] using providerChatBasic')
+    const result = await api.providerChatBasic({ provider: target, messages, model, maxTokens: this.config.maxTokens, temperature: this.config.temperature })
+    if (!result?.success) throw new Error(result?.error || 'Provider call failed')
+    const fullContent = result.content || ''
+    if (onChunk) onChunk(fullContent)
+    this.progressCallback?.({ round, totalRounds, status: 'thinking', message: 'Generating response...', streamedContent: fullContent })
+    return {
+      choices: [{ message: { content: fullContent } }],
+      usage: { prompt_tokens: 0, completion_tokens: fullContent.length > 0 ? Math.ceil(fullContent.length / 4) : 0 },
     }
-    return templates[templateId] || templates.custom
   }
 
   private requestConfirm(toolName: string, args: Record<string, any>): Promise<boolean> {

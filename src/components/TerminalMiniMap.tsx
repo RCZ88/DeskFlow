@@ -6,6 +6,7 @@ import {
   useSensor,
   useSensors,
   useDroppable,
+  useDraggable,
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent, DragOverEvent } from '@dnd-kit/core';
 import type { PaneNode } from './TerminalWindow';
@@ -243,13 +244,7 @@ export function TerminalMiniMap({
             {dropMode === 'split-v' && <span className="text-[9px] text-green-400 bg-zinc-900/80 px-2 py-0.5 rounded">Split Vertically</span>}
             {dropMode === 'split-h' && <span className="text-[9px] text-green-400 bg-zinc-900/80 px-2 py-0.5 rounded">Split Horizontally</span>}
           </div>
-          {draggedId && onMoveToGroup && groupCount > 1 && (
-            <div className="flex gap-1">
-              {layouts.map((_, gi) => (
-                <GroupDropTarget key={gi} groupIndex={gi} isDragging={true} groupCount={groupCount} />
-              ))}
-            </div>
-          )}
+          
         </div>
       </div>
       <DragOverlay>
@@ -340,16 +335,25 @@ function LeafPane({
   onClick: () => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id });
+  const setRefs = useCallback((el: HTMLElement | null) => { setDragRef(el); setDropRef(el); }, [setDragRef, setDropRef]);
 
   return (
     <div
+      ref={setRefs}
       id={id}
-      draggable
+      {...attributes}
+      {...listeners}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={onClick}
-      className={`w-full h-full bg-zinc-800 rounded border cursor-pointer transition-all flex items-center justify-center ${
-        isActive
+      className={`w-full h-full bg-zinc-800 rounded border cursor-grab active:cursor-grabbing transition-all flex items-center justify-center select-none ${
+        isDragging
+          ? 'opacity-40 border-cyan-400'
+          : isOver
+          ? 'border-amber-400 bg-zinc-700/60'
+          : isActive
           ? 'border-green-500 bg-zinc-700'
           : isHovered
           ? 'border-zinc-500 bg-zinc-700/50'

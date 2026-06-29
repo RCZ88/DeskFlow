@@ -28,6 +28,7 @@ import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
 import { ProblemsTab, ProblemDetailModal, NewProblemDialog } from '../components/ProblemsTab';
 import { SkillsTab } from '../components/SkillsTab';
+import PromptHistoryTab from '../components/PromptHistoryTab';
 import { RequestsTab, RequestDetailModal, NewRequestDialog } from '../components/RequestsTab';
 import { FilesTab } from '../components/FilesTab';
 import { WorkspaceShell } from '../components/workspace/WorkspaceShell';
@@ -172,6 +173,16 @@ const ACCENT_STRIP: Record<string, string> = {
 	green: 'bg-green-500', emerald: 'bg-emerald-500', yellow: 'bg-yellow-500',
 	indigo: 'bg-indigo-500', pink: 'bg-pink-500', orange: 'bg-orange-500',
 	rose: 'bg-rose-500', amber: 'bg-amber-500', violet: 'bg-violet-500',
+};
+
+// Per-group accent classes for the sidebar nav (Frontend Design: per-section accents)
+const ACCENT_TEXT: Record<string, string> = {
+	orange: 'text-orange-300', green: 'text-green-300', purple: 'text-purple-300',
+	indigo: 'text-indigo-300', amber: 'text-amber-300',
+};
+const ACCENT_BORDER: Record<string, string> = {
+	orange: 'border-orange-500/50', green: 'border-green-500/50', purple: 'border-purple-500/50',
+	indigo: 'border-indigo-500/50', amber: 'border-amber-500/50',
 };
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
@@ -802,10 +813,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       }
       (window.deskflowAPI as any)?.terminalWriteDisplay?.(terminalId, banner);
 
-      // ═══ LAUNCH AGENT ═══
+      // ═══ LAUNCH AGENT (fresh — no -s unless explicit resume) ═══
       const cdCmd = projectPath ? `cd "${projectPath}"\r\n` : '';
       let launchCommand: string;
-      if (resumeId) {
+      if (resumeId && resumeId.trim().length > 0) {
+        // Only pass -s when user explicitly chose resume AND we have a real id
         let resumeCmd = `${agent} -s ${resumeId}`;
         try {
           const prefs = await window.deskflowAPI?.getPreferences?.();
@@ -817,12 +829,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         } catch {}
         launchCommand = `${cdCmd}${resumeCmd}\r\n`;
       } else {
+        // Fresh launch — no -s flag, let opencode create the session itself
         launchCommand = `${cdCmd}${agent}\r\n`;
       }
       const r2 = await window.deskflowAPI?.terminalWriteRaw?.(terminalId, launchCommand);
       console.log('[TerminalPage] Wrote launch command:', JSON.stringify(launchCommand), 'result:', r2);
 
-      // ═══ WAIT FOR AGENT TO BE READY ═══
+      // ═══ WAIT FOR AGENT TO BE READY (capped so the UI never freezes) ═══
       await new Promise<void>((resolve) => {
         let done = false;
         const remover = window.deskflowAPI?.onAgentReady?.((data: { terminalId: string }) => {
@@ -832,29 +845,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             resolve();
           }
         });
-        setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 15000);
+        // Cap at 5s: if the agent is slow we still proceed instead of hanging.
+        setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 5000);
       });
 
-      // ═══ ARM HANDSHAKE ═══
-      if (window.deskflowAPI?.armHandshake) {
-        const hs = await window.deskflowAPI.armHandshake(terminalId);
-        if (hs?.success && hs.token) {
-          const writeData = hs.bracketedPaste ? `\x1b[200~${hs.token}\x1b[201~\r` : hs.token + '\r';
-          await window.deskflowAPI.terminalWriteRaw(terminalId, writeData);
-          // Wait for handshake token to appear in agent output
-          await new Promise<void>((resolve) => {
-            let done = false;
-            const remover = window.deskflowAPI?.onAgentIdle?.((data: { terminalId: string }) => {
-              if (data.terminalId === terminalId && !done) {
-                done = true;
-                remover?.();
-                resolve();
-              }
-            });
-            setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 10000);
-          });
-        }
-      }
+      // ═══ SETTLE: let TUI fully grab the PTY before first flush ═══
+      await new Promise(r => setTimeout(r, 350));
+
+      // ═══ HANDSHAKE REMOVED ═══
+      // The bracketed-paste handshake was non-functional and added up to 10s of
+      // blocking latency on every launch. Removed to keep startup responsive.
 
       // ═══ WRITE SYSTEM PROMPT + INIT CONTENT AS SINGLE SEND ═══
       const parts: string[] = [];
@@ -874,7 +874,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       }
       if (parts.length > 0 && window.deskflowAPI?.agentSend) {
         const combined = parts.join('\n\n');
-        await window.deskflowAPI.agentSend(terminalId, combined, agent);
+        const sendResult = await window.deskflowAPI.agentSend(terminalId, combined, agent);
+        if (!sendResult?.success) {
+          showError(sendResult?.error || 'Failed to send initialization prompt to agent', 'error');
+        }
       }
     } catch (e) {
       console.error('[TerminalPage] initializeTerminal failed:', e);
@@ -930,6 +933,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     if (!window.deskflowAPI?.onAgentInitError) return;
     const cleanup = window.deskflowAPI.onAgentInitError((data) => {
       setAgentInitErrors(prev => ({ ...prev, [data.terminalId]: data }));
+    });
+    return () => cleanup?.();
+  }, []);
+
+  // Clear false red init UI when the agent becomes ready
+  useEffect(() => {
+    if (!window.deskflowAPI?.onAgentReady) return;
+    const cleanup = window.deskflowAPI.onAgentReady((data: { terminalId: string }) => {
+      setAgentInitErrors(prev => {
+        const next = { ...prev };
+        delete next[data.terminalId];
+        return next;
+      });
+      setTerminalTimeouts(prev => {
+        const next = { ...prev };
+        delete next[data.terminalId];
+        return next;
+      });
     });
     return () => cleanup?.();
   }, []);
@@ -1030,7 +1051,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     setIsSending(true);
     setShowInstructionPanel(false);
     try {
-      // ── 1. Resolve target terminal ──────────────────────────
+      // ── 1. Resolve target terminal ──────────────────���───────
       let resolvedTargetId = activeTerminalId || '';
       if (!resolvedTargetId && sendTargetSession) {
         const targetSession = sessions.find(s => s.id === sendTargetSession);
@@ -1173,8 +1194,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     if (window.deskflowAPI?.retryAgentLaunch) {
       await window.deskflowAPI.retryAgentLaunch(terminalId, agentType);
     }
-    const launchCommand = `${agentType}\r\n`;
-    await window.deskflowAPI?.terminalWrite?.(terminalId, launchCommand);
     await initializeTerminal(terminalId, agentType);
   }, [initializeTerminal]);
 
@@ -2430,24 +2449,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     </div>
                   )}
                 </div>
-                <ToolbarButton variant="primary" icon={Plus} onClick={async () => {
-                    if (!selectedProject) { alert('Please select a project first'); return; }
-                    const proj = projects.find(p => p.id === selectedProject);
-                    if (proj) {
-                      const agent = localStorage.getItem('terminal-defaultAgent') || 'claude';
-                      const termId = `term-${Date.now()}`;
-                      setTerminalTabs(prev => ({ ...prev, [termId]: { name: proj.name, agent, modelTier: 'mid' } }));
-                      setActiveTerminalId(termId);
-                      const updatedLayout = insertIntoLayout(terminalLayout, termId);
-                      setTerminalLayout(updatedLayout);
-                      saveLayout(updatedLayout);
-                      window.dispatchEvent(new CustomEvent('create-terminal', {
-                        detail: { terminalId: termId, cwd: proj.path, agent },
-                      }));
-                    }
-                  }}>
-                  Open Terminal
-                </ToolbarButton>
+                
               </div>
             )}
 
@@ -2988,11 +2990,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   onClick={() => { setFileChangedPulse(false); setActiveGroup(g.key); }}
                   title={g.label}
                   className={`relative flex items-center gap-1.5 px-4 h-8 rounded-t-lg text-[11px] font-semibold tracking-wider transition-all duration-150 ${active
-                    ? 'bg-zinc-800/80 text-zinc-100 border border-zinc-700/60 border-b-0 shadow-sm -mb-px'
+                    ? `bg-zinc-800/80 text-zinc-100 border ${ACCENT_BORDER[g.accent]} border-b-0 -mb-px`
                     : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30 border border-transparent'
                   }`}
                 >
-                  <Icon className={`w-3.5 h-3.5 ${active ? '' : 'opacity-80'}`} />
+                  <Icon className={`w-3.5 h-3.5 ${active ? ACCENT_TEXT[g.accent] : 'opacity-80'}`} />
                   <span>{g.label}</span>
                   {g.key === 'work' && fileChangedPulse && (
                     <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full animate-ping" />
@@ -3008,25 +3010,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
           {/* Content */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {/* Project Stats */}
-            {selectedProject && projects.find(p => p.id === selectedProject) && (
-              <SectionCard accent="green" title="Project Stats">
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-zinc-500">Language:</span>
-                    <span className="text-zinc-300">{projects.find(p => p.id === selectedProject)?.primary_language || 'N/A'}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-zinc-500">VCS:</span>
-                    <span className="text-zinc-300">{projects.find(p => p.id === selectedProject)?.vcs_type || 'N/A'}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-zinc-500">IDE:</span>
-                    <span className="text-zinc-300">{projects.find(p => p.id === selectedProject)?.default_ide || 'N/A'}</span>
-                    </div>
-                  </div>
-                 </SectionCard>
-            )}
             {activeGroup === 'setup' && (
               <WorkspaceShell accent="orange" tabs={[
                 { key: 'presets', icon: Zap, label: 'Presets' },
@@ -4275,6 +4258,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             {activeGroup === 'insights' && (
               <WorkspaceShell accent="purple" tabs={[
                 { key: 'analytics', icon: PieChart, label: 'Analytics' },
+                { key: 'history', icon: MessageSquare, label: 'Prompts' },
                 { key: 'issues', icon: ListChecks, label: 'Issues' },
                 { key: 'bugs', icon: Bug, label: 'Bugs' },
               ]} storageKey="insights" render={(sub) => {
@@ -4298,6 +4282,19 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         loading={analyticsLoading}
                         period={analyticsPeriod}
                         variant="full"
+                      />
+                    </GroupPanel>
+                  );
+                  case 'history': return (
+                    <GroupPanel accent="purple">
+                      <PromptHistoryTab
+                        projectId={selectedProject || undefined}
+                        projectPath={propProjectPath}
+                        onNavigateToSession={(sessionId) => {
+                          setActiveGroup('work');
+                          localStorage.setItem('workspace-subtab-work', 'sessions');
+                          setSelectedSessionDetail(sessionId);
+                        }}
                       />
                     </GroupPanel>
                   );

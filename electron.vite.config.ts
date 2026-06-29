@@ -32,5 +32,8 @@ export default defineConfig({
         input: 'index.html',
       },
     },
+    server: {
+      mimeTypes: { 'model/gltf-binary': ['glb'] },
+    },
   },
 });

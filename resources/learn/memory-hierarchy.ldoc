@@ -1,0 +1,15 @@
+{
+  "doc": "ldoc/1.0",
+  "lesson": { "id": "memory-hierarchy", "title": "The Memory Hierarchy", "part": 1, "version": "1.0.0", "summary": "Why computers stack registers, caches, RAM, and disk — and how locality makes it fast." },
+  "nodes": [
+    { "id": "why-hierarchy", "title": "Why a hierarchy?", "mastery_target": "L3", "blocks": [
+      { "id": "p1", "type": "prose", "md": "Fast memory is small and expensive; big memory is slow and cheap. A hierarchy gives the **illusion** of large + fast memory." },
+      { "id": "d1", "type": "mermaid", "src": "graph TD; CPU-->Registers-->L1-->L2-->L3-->RAM-->Disk", "caption": "Closer to the CPU = faster + smaller." },
+      { "id": "q1", "type": "quiz", "format": "mcq", "q": "Which is fastest?", "options": ["Disk","RAM","L1 cache","Registers"], "answer_key": 3, "level": "L2", "explain": "Registers sit inside the CPU core." }
+    ], "grounding": { "must_know": [{ "claim": "A memory hierarchy gives the illusion of fast large storage by combining small fast memory with large slow memory.", "source_id": "src1" }], "scope": { "includes": "Memory hierarchy fundamentals" }, "sources": [{ "id": "src1", "url": "https://en.wikipedia.org/wiki/Memory_hierarchy", "title": "Memory hierarchy - Wikipedia" }] }},
+    { "id": "locality", "title": "Locality of reference", "mastery_target": "L3", "prereq": ["why-hierarchy"], "blocks": [
+      { "id": "p2", "type": "prose", "md": "Temporal locality: recently used data is reused soon. Spatial locality: nearby data is used soon." },
+      { "id": "m1", "type": "math", "tex": "\\text{AMAT} = t_{hit} + \\text{miss rate}\\times t_{miss}", "caption": "Average memory access time." }
+    ], "grounding": { "must_know": [{ "claim": "Temporal locality means recently accessed data is likely to be accessed again soon.", "source_id": "src1" }], "scope": { "includes": "Locality of reference" }, "sources": [{ "id": "src1", "url": "https://en.wikipedia.org/wiki/Locality_of_reference", "title": "Locality of reference - Wikipedia" }] }}
+  ]
+}

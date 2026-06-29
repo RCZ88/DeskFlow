@@ -1,116 +1,120 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Smartphone, ArrowDownRight, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
-import { TransactionModalShell } from './TransactionModalShell';
-import { useFormattedAmount } from './useFormattedAmount';
-import { CategoryChipGrid } from './CategoryChipGrid';
-import { getCurrencyInfo } from '../currency-data';
-import { getLastType, getLastCategoryId, saveLastTxPrefs } from './txPrefs';
-import type { FinanceWallet, FinanceCategory } from '../finance-types';
+import React, { useEffect, useMemo, useState } from 'react'
+import { Banknote } from 'lucide-react'
+import { TransactionModalShell } from './TransactionModalShell'
+import { useTransactionForm } from './useTransactionForm'
+import { ContextBand, TypeToggle, AmountInput, AdvancedToggle, ProgressBar } from './modalParts'
+import { CategoryChipGrid } from './CategoryChipGrid'
+import { TransferWalletSelect } from './TransferWalletSelect'
+import { TransferDestinationPanel } from './TransferDestinationPanel'
+import { useCurrencyFormat, tint, parseMeta, thresholdColor } from './modalUtils'
+import type { TxModalProps } from './modalUtils'
 
-interface Props {
-  open: boolean; onClose: () => void;
-  wallet: FinanceWallet; categories: FinanceCategory[]; wallets: FinanceWallet[];
-  displayCurrency: string; baseCurrency: string;
-  onSubmit: (data: Record<string, any>) => Promise<boolean>;
-  onCreateCategory: (data: { name: string; type: string; icon?: string; color?: string }) => Promise<boolean>;
-}
+const ACCENT = '#06B6D4'
 
-const TYPES = ['expense', 'topup', 'transfer'] as const;
+export const EwalletTransactionModal: React.FC<TxModalProps> = (props) => {
+	const f = useTransactionForm(props, ['expense', 'income', 'transfer'])
+	const meta = parseMeta(props.wallet)
+	const { format, symbol } = useCurrencyFormat(props.displayCurrency)
+	const [destWalletId, setDestWalletId] = useState<number | null>(null)
+	const [destMetadata, setDestMetadata] = useState<Record<string, any> | null>(null)
 
-export function EwalletTransactionModal({ open, onClose, wallet, categories, wallets, displayCurrency, baseCurrency, onSubmit, onCreateCategory }: Props) {
-  const [type, setType] = useState<'expense' | 'topup' | 'transfer'>('expense');
-  const { display: amountDisplay, setFormatted: setAmount, numeric: amountNumeric, inputRef } = useFormattedAmount();
-  const [description, setDescription] = useState('');
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [toWalletId, setToWalletId] = useState<number | null>(null);
-  const [fromWalletId, setFromWalletId] = useState<number | null>(null);
-  const [transferId, setTransferId] = useState<string | null>(null);
+	const destWallet = useMemo(() =>
+		props.wallets?.find(w => w.id === destWalletId), [props.wallets, destWalletId])
 
-  const resetFields = useCallback(() => {
-    setAmount(''); setDescription(''); setDate(new Date().toISOString().split('T')[0]); setToWalletId(null);
-  }, [setAmount]);
+	const linked: string[] = meta.linked_methods ?? []
+	const [source, setSource] = useState(linked[0] ?? '')
+	const dailyLimit = Number(meta.daily_limit) || 0
+	const pct = dailyLimit > 0 ? (f.numericAmount / dailyLimit) * 100 : 0
+	const th = thresholdColor(pct)
+	const valid = f.numericAmount > 0 && (f.type !== 'transfer' || !!destWalletId)
 
-  useEffect(() => {
-    if (open) {
-      const lastType = getLastType('ewallet');
-      setType(lastType && (TYPES as readonly string[]).includes(lastType) ? lastType as any : 'expense');
-      const lastCat = getLastCategoryId('ewallet');
-      setCategoryId(lastCat && categories.some(c => c.id === lastCat && !c.is_archived) ? lastCat : null);
-      resetFields();
-      setFromWalletId(wallet.id);
-      setTransferId(crypto.randomUUID());
-    }
-  }, [open, categories, resetFields, wallet.id]);
+	return (
+		<TransactionModalShell
+			accent={ACCENT} icon={<Banknote size={18} />} typeBadge="E-Wallet"
+			title={props.wallet.name} onClose={props.onClose} onSuccess={f.reset}
+			onSubmit={async () => {
+				f.persistPrefs()
+				if (f.type === 'transfer') {
+					return !!(await props.onSubmit(f.buildPayload({
+						to_wallet_id: destWalletId,
+						fromWalletName: props.wallet.name,
+						toWalletName: destWallet?.name || 'another wallet',
+						description: f.description.trim() || `Transfer to ${destWallet?.name || 'another wallet'}`,
+						dest_metadata: destMetadata,
+					})))
+				}
+				return !!(await props.onSubmit(f.buildPayload(
+					f.type === 'income' && source ? { metadata: { topup_source: source } } : {},
+				)))
+			}}
+		>
+			{({ setCanSubmit }) => {
+				useEffect(() => setCanSubmit(valid), [valid, setCanSubmit])
+				return (
+					<>
+						<ContextBand accent={ACCENT}>
+							<div className="flex items-center justify-between">
+								<span className="text-xs font-medium text-white">{props.wallet.provider ?? meta.platform ?? 'E-Wallet'}</span>
+								<span className="text-xs tabular-nums text-zinc-300">{format(props.wallet.balance)}</span>
+							</div>
+							{linked.length > 0 && (
+								<div className="mt-1 flex flex-wrap gap-1">
+									{linked.map((m) => (
+										<span key={m} className="rounded-full px-2 py-0.5 text-[10px]"
+											style={{ background: tint(ACCENT, 0.1), color: ACCENT, border: `1px solid ${tint(ACCENT, 0.2)}` }}>{m}</span>
+									))}
+								</div>
+							)}
+							{dailyLimit > 0 && f.numericAmount > 0 && (
+								<div className="mt-1.5"><ProgressBar pct={pct} color={th.hex} /></div>
+							)}
+						</ContextBand>
 
-  const sym = getCurrencyInfo(displayCurrency).symbol;
-  const meta = (wallet.metadata as any) || {};
-  const catType = type === 'topup' ? 'income' : 'expense';
-  const filtered = categories.filter(c => c.type === catType && !c.is_archived);
-  const allWallets = wallets.filter(w => !w.is_archived);
-  const destOptions = allWallets.filter(w => w.id !== fromWalletId);
-  const srcOptions = allWallets.filter(w => w.id !== toWalletId);
+						<TypeToggle accent={ACCENT} value={f.type} onChange={f.setType}
+							options={[{ id: 'expense', label: 'Pay' }, { id: 'income', label: 'Top-up' }, { id: 'transfer', label: 'Transfer' }]} />
+						<AmountInput accent={ACCENT} value={f.amount} onChange={f.setAmount} symbol={symbol} autoFocus />
 
-  const handleSubmit = async () => {
-    if (!amountNumeric) return false;
-    if (type !== 'transfer' && !categoryId) return false;
-    if (type === 'transfer' && (!fromWalletId || !toWalletId)) return false;
-    const amt = Math.abs(amountNumeric);
-    if (type === 'transfer') {
-      const source = allWallets.find(w => w.id === fromWalletId);
-      const dest = allWallets.find(w => w.id === toWalletId);
-      if (!source || !dest) return false;
-      const desc = description ? `: ${description}` : '';
-      await onSubmit({ account_id: source.account_id, wallet_id: source.id, category_id: 0, type: 'expense', amount: -amt, description: `Transfer to ${dest.name}${desc}`, date, to_wallet_id: toWalletId, transfer_id: transferId });
-      await onSubmit({ account_id: dest.account_id, wallet_id: dest.id, category_id: 0, type: 'income', amount: amt, description: `Transfer from ${source.name}${desc}`, date, from_wallet_id: source.id, transfer_id: transferId });
-    } else {
-      await onSubmit({ account_id: wallet.account_id, wallet_id: wallet.id, category_id: categoryId!, type: catType, amount: type === 'expense' ? -amt : amt, description, date, metadata: { ewallet_type: type } });
-    }
-    saveLastTxPrefs('ewallet', type, categoryId);
-    resetFields(); setCategoryId(categoryId); setFromWalletId(wallet.id);
-    if (type === 'transfer') setTransferId(crypto.randomUUID());
-    return true;
-  };
+						{f.type === 'transfer' ? (
+							<>
+								<input value={f.description} onChange={(e) => f.setDescription(e.target.value)} placeholder="Description"
+									className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-zinc-500" />
+								<TransferWalletSelect
+									wallets={props.wallets || []}
+									accounts={props.accounts || []}
+									excludeWalletId={props.wallet.id}
+									selectedWalletId={destWalletId}
+									onSelect={setDestWalletId}
+									displayCurrency={props.displayCurrency}
+								/>
+								<TransferDestinationPanel
+									destWallet={destWallet}
+									accent={ACCENT}
+									format={format}
+									onMetadataChange={setDestMetadata}
+								/>
+							</>
+						) : f.type === 'income' && linked.length > 0 ? (
+							<select value={source} onChange={(e) => setSource(e.target.value)}
+								className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2.5 text-sm text-white outline-none">
+								{linked.map((m) => <option key={m} value={m}>Top-up from {m}</option>)}
+							</select>
+						) : (
+							<>
+								<input value={f.description} onChange={(e) => f.setDescription(e.target.value)} placeholder="Description"
+									className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-zinc-500" />
+								<CategoryChipGrid accent={ACCENT} categories={f.categoriesForType} selectedId={f.categoryId} onSelect={f.setCategoryId}
+									onCreateCategory={async () => false} categoryType={f.type} />
+							</>
+						)}
 
-  return (
-    <TransactionModalShell open={open} onClose={onClose} accent="#06B6D4" IconComponent={Smartphone} title="Add Transaction" typeLabel="E-Wallet" onSubmit={handleSubmit} onReset={resetFields}>
-      {() => (<>
-        {(meta.platform || meta.daily_limit) && (
-          <div className="flex items-center gap-2 px-3 py-2 mb-2 bg-[#06B6D4]/5 rounded-lg border border-[#06B6D4]/10 text-[11px]">
-            {meta.platform && <span className="font-medium text-zinc-300">{meta.platform}</span>}
-            {meta.daily_limit && <span className="ml-auto text-zinc-500">Daily limit: <span className="text-white font-medium tabular-nums">{sym}{Number(meta.daily_limit).toLocaleString()}</span></span>}
-          </div>
-        )}
-        <div className="flex items-center gap-1.5 mb-1">
-          {TYPES.map(t => (<button key={t} onClick={() => setType(t)} className={`flex-1 flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-medium transition-all capitalize ${type === t ? 'bg-[#06B6D4]/15 text-[#06B6D4] border border-[#06B6D4]/30' : 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 hover:text-zinc-200'}`}>{t === 'expense' ? <><ArrowDownRight className="w-3 h-3"/> Expense</> : t === 'topup' ? <><ArrowUpRight className="w-3 h-3"/> Top-up</> : <><ArrowLeftRight className="w-3 h-3"/> Transfer</>}</button>))}
-        </div>
-        {type === 'transfer' && (
-          <div className="space-y-2">
-            <select value={fromWalletId ?? ''} onChange={e => { const v = Number(e.target.value); setFromWalletId(v); if (v === toWalletId) setToWalletId(null); }}
-              className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#06B6D4]/50">
-              <option value="" disabled>From wallet...</option>
-              {srcOptions.map(w => (<option key={w.id} value={w.id}>{w.name} ({w.type})</option>))}
-            </select>
-            <span className="flex justify-center"><ArrowLeftRight className="w-4 h-4 text-zinc-600" /></span>
-            <select value={toWalletId ?? ''} onChange={e => { const v = Number(e.target.value); setToWalletId(v); if (v === fromWalletId) setFromWalletId(null); }}
-              className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#06B6D4]/50">
-              <option value="" disabled>To wallet...</option>
-              {destOptions.map(w => (<option key={w.id} value={w.id}>{w.name} ({w.type})</option>))}
-            </select>
-          </div>
-        )}
-        {type !== 'transfer' && (<>
-          <div className="flex items-center gap-3 bg-zinc-800/80 border border-zinc-700/50 rounded-lg pl-4 pr-3 py-3 focus-within:ring-2 focus-within:ring-[#06B6D4]/50"><span className="text-xl font-semibold text-zinc-500 tabular-nums shrink-0">{sym}</span><input type="text" inputMode="decimal" value={amountDisplay} onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus ref={inputRef} className="w-full bg-transparent text-xl font-semibold tabular-nums text-white placeholder-zinc-600 outline-none text-right"/></div>
-          <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Description" className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#06B6D4]/50"/>
-          <CategoryChipGrid categories={filtered} selectedId={categoryId} onSelect={setCategoryId} accent="#06B6D4" onCreateCategory={onCreateCategory} categoryType={catType}/>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#06B6D4]/50"/>
-        </>)}
-        {type === 'transfer' && (<>
-          <div className="flex items-center gap-3 bg-zinc-800/80 border border-zinc-700/50 rounded-lg pl-4 pr-3 py-3 focus-within:ring-2 focus-within:ring-[#06B6D4]/50"><span className="text-xl font-semibold text-zinc-500 tabular-nums shrink-0">{sym}</span><input type="text" inputMode="decimal" value={amountDisplay} onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus ref={inputRef} className="w-full bg-transparent text-xl font-semibold tabular-nums text-white placeholder-zinc-600 outline-none text-right"/></div>
-          <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Description" className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#06B6D4]/50"/>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#06B6D4]/50"/>
-        </>)}
-      </>)}
-    </TransactionModalShell>
-  );
+						<AdvancedToggle open={f.showAdvanced} onToggle={() => f.setShowAdvanced(!f.showAdvanced)} />
+						{f.showAdvanced && (
+							<input type="date" value={f.date} onChange={(e) => f.setDate(e.target.value)}
+								className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-500" />
+						)}
+					</>
+				)
+			}}
+		</TransactionModalShell>
+	)
 }

@@ -118,4 +118,4 @@ export interface FinanceBalanceHistory {
   balance: number;
 }
 
-export type FinanceTabKey = 'overview' | 'accounts' | 'transactions' | 'categories';
+export type FinanceTabKey = 'overview' | 'wallets' | 'transactions' | 'categories';

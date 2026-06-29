@@ -149,6 +149,57 @@ function registerAll() {
     if (!gate.allowed) return { _privacy: true, message: gate.message };
     return api.getGoalContext();
   })
+  r('getGoal', 'Get a single goal by its ID', { goalId: p('string', 'Goal ID', { required: true }) }, 'read', 'goals', async (params) => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getGoal(params.goalId);
+  })
+  r('getChildGoals', 'Get all child goals (decomposition) for a parent goal', { parentId: p('string', 'Parent goal ID', { required: true }) }, 'read', 'goals', async (params) => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getChildGoals(params.parentId);
+  })
+  r('decomposeGoal', 'Break a long-term or strategic goal into smaller sub-goals (weekly, monthly, or daily). Creates multiple child goals linked to the parent via parent_id.', {
+    parentId: p('string', 'ID of the parent goal to decompose', { required: true }),
+    children: p('array', 'Array of child goal definitions', { required: true, items: { type: 'object', description: '{ title, description?, category?, period: "daily"|"weekly"|"monthly"|"quarterly", priority?, status? }' } }),
+  }, 'confirm', 'goals', async (params) => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    const children = params.children.map((c: any) => ({
+      id: `child_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+      title: c.title,
+      description: c.description || null,
+      category: c.category || 'personal',
+      period: c.period || 'weekly',
+      status: c.status || 'pending',
+      source: 'ai_assistant',
+      parent_id: params.parentId,
+      priority: c.priority ?? 5,
+      target: { type: 'custom' },
+      date: '2000-01-01',
+    }));
+    return api.saveGoalsBatch(children);
+  })
+  r('linkGoalToProblem', 'Link a goal to a problem for traceability (goal will show the linked problem)', { goalId: p('string', 'Goal ID', { required: true }), problemId: p('string', 'Problem ID to link', { required: true }), label: p('string', 'Optional display label') }, 'confirm', 'goals', async (params) => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.linkGoalToEntity(params.goalId, { type: 'problem', id: params.problemId, label: params.label });
+  })
+  r('linkGoalToRequest', 'Link a goal to a feature request for traceability', { goalId: p('string', 'Goal ID', { required: true }), requestId: p('string', 'Request ID to link', { required: true }), label: p('string', 'Optional display label') }, 'confirm', 'goals', async (params) => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.linkGoalToEntity(params.goalId, { type: 'request', id: params.requestId, label: params.label });
+  })
+  r('unlinkGoalFromProblem', 'Remove a link between a goal and a problem', { goalId: p('string', 'Goal ID', { required: true }), problemId: p('string', 'Problem ID to unlink', { required: true }) }, 'confirm', 'goals', async (params) => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.unlinkGoalFromEntity(params.goalId, 'problem', params.problemId);
+  })
+  r('unlinkGoalFromRequest', 'Remove a link between a goal and a request', { goalId: p('string', 'Goal ID', { required: true }), requestId: p('string', 'Request ID to unlink', { required: true }) }, 'confirm', 'goals', async (params) => {
+    const gate = await checkAccess('goals');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.unlinkGoalFromEntity(params.goalId, 'request', params.requestId);
+  })
 
   // ========== Projects ==========
   r('getProjects', 'Get all projects (non-deleted)', {}, 'read', 'projects', async () => {
@@ -264,7 +315,11 @@ function registerAll() {
   })
 
   // ========== Research Topics (AI Interests) ==========
-  r('getInterestTopics', 'Get all active research topics that AI uses for digest generation', {}, 'read', 'ai', () => api.getInterestTopics())
+  r('getInterestTopics', 'Get all active research topics that AI uses for digest generation', {}, 'read', 'ai', async () => {
+    const gate = await checkAccess('aiUsage');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getInterestTopics();
+  })
   r('addInterestTopic', 'Add a new research topic for AI to track and include in digests', { topic: p('string', 'Research topic name (e.g. "React performance", "Rust async")', { required: true }) }, 'confirm', 'ai', async (params) => {
     const gate = await checkAccess('aiUsage');
     if (!gate.allowed) return { _privacy: true, message: gate.message };
@@ -274,6 +329,33 @@ function registerAll() {
     const gate = await checkAccess('aiUsage');
     if (!gate.allowed) return { _privacy: true, message: gate.message };
     return api.removeInterestTopic(params.topic);
+  })
+
+  // ========== Checklist CRUD (AI Assistant) ==========
+  r('addProblemCheck', 'Add a checklist item to a problem (tracking verification steps for bug fixes)', { problemId: p('string', 'Problem ID to add the check to', { required: true }), description: p('string', 'Short description of what to verify', { required: true }), instruction: p('string', 'Detailed verification instructions') }, 'confirm', 'checklist', async (params) => {
+    const gate = await checkAccess('checklist');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.addProblemCheck({ problemId: params.problemId, description: params.description, instruction: params.instruction });
+  })
+  r('addRequestCheck', 'Add a checklist item to a feature request (tracking implementation steps)', { requestId: p('string', 'Request ID to add the check to', { required: true }), description: p('string', 'Short description of what to verify', { required: true }), instruction: p('string', 'Detailed verification instructions') }, 'confirm', 'checklist', async (params) => {
+    const gate = await checkAccess('checklist');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.addRequestCheck({ requestId: params.requestId, description: params.description, instruction: params.instruction });
+  })
+  r('completeCheck', 'Mark a checklist item as completed after verifying it works', { checkId: p('string', 'Check item ID to mark completed', { required: true }) }, 'confirm', 'checklist', async (params) => {
+    const gate = await checkAccess('checklist');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.completeCheck(params.checkId);
+  })
+  r('getProblemChecks', 'Get all checklist items for a problem', { problemId: p('string', 'Problem ID', { required: true }) }, 'read', 'checklist', async (params) => {
+    const gate = await checkAccess('checklist');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getProblemChecks(params.problemId);
+  })
+  r('getRequestChecks', 'Get all checklist items for a request', { requestId: p('string', 'Request ID', { required: true }) }, 'read', 'checklist', async (params) => {
+    const gate = await checkAccess('checklist');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.getRequestChecks(params.requestId);
   })
 
   // ========== Workspace & Terminal State ==========
@@ -315,6 +397,23 @@ function registerAll() {
     // Write signal to localStorage so TutorialContext picks it up on next render
     try { localStorage.setItem('tutorial:start', params.featureId) } catch {}
     return { success: true, featureId: params.featureId, message: `Tutorial for ${params.featureId} will start. Look for the highlighted walkthrough on screen.` }
+  })
+
+  // ========== Agent Prompts ==========
+  r('getPrompts', 'Get agent prompts with status and progress info', { sessionId: p('string', 'Optional session ID filter'), projectId: p('string', 'Optional project ID filter') }, 'read', 'prompts', async params => {
+    const gate = await checkAccess('prompts');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.agentPrompts.list({ sessionId: params.sessionId, projectId: params.projectId });
+  })
+  r('createPrompt', 'Create a new agent prompt record linked to a session', { sessionId: p('string', 'Session ID this prompt belongs to'), projectId: p('string', 'Optional project ID'), content: p('string', 'The prompt content text', { required: true }), title: p('string', 'Short title for the prompt'), category: p('string', 'Category (e.g. debug, feature, review, research)') }, 'confirm', 'prompts', async params => {
+    const gate = await checkAccess('prompts');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.agentPrompts.create({ sessionId: params.sessionId, content: params.content, title: params.title, category: params.category, projectId: params.projectId });
+  })
+  r('updatePrompt', 'Update prompt status, progress percentage, and result summary', { id: p('string', 'Prompt ID to update', { required: true }), status: p('string', 'New status (pending, in_progress, completed, failed, cancelled)'), progress: p('number', 'Progress 0-100'), resultSummary: p('string', 'AI-generated summary of the prompt result') }, 'confirm', 'prompts', async params => {
+    const gate = await checkAccess('prompts');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return api.agentPrompts.update({ id: params.id, status: params.status, progress: params.progress, resultSummary: params.resultSummary });
   })
 }
 

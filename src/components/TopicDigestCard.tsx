@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Newspaper, ChevronDown, RefreshCw, ExternalLink, Brain, Sparkles, BookOpen } from 'lucide-react';
+import { Newspaper, ChevronDown, RefreshCw, ExternalLink, Brain, Sparkles, BookOpen, Cpu } from 'lucide-react';
 import { GlassCard } from './GlassCard';
 import { LoadingState } from './LoadingState';
 import { EmptyState } from './EmptyState';
@@ -20,7 +20,10 @@ interface TopicDigestCardProps {
   topics: TopicDigestItem[];
   loading: boolean;
   error?: string;
+  reason?: string;
   onRefresh: () => void;
+  onConfigure?: () => void;
+  providerBadge?: { label: string; color: string } | null;
 }
 
 const topicGradients = [
@@ -32,7 +35,7 @@ const topicGradients = [
   'from-indigo-500/[0.06] to-purple-500/[0.02]',
 ];
 
-export function TopicDigestCard({ topics, loading, error, onRefresh }: TopicDigestCardProps) {
+export function TopicDigestCard({ topics, loading, error, reason, onRefresh, onConfigure, providerBadge }: TopicDigestCardProps) {
   const [expandedTopic, setExpandedTopic] = useState<string | null>(null);
 
   return (
@@ -43,18 +46,36 @@ export function TopicDigestCard({ topics, loading, error, onRefresh }: TopicDige
             <Brain className="w-4 h-4 text-cyan-400" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-white">Research Digest</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white">Research Digest</h3>
+              {providerBadge && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${providerBadge.color}`}>
+                  {providerBadge.label}
+                </span>
+              )}
+            </div>
             <p className="text-[10px] text-zinc-500">AI-curated topic summaries</p>
           </div>
         </div>
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all duration-200 disabled:opacity-40"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          {!loading && 'Refresh'}
-        </button>
+        <div className="flex items-center gap-2">
+          {onConfigure && (
+            <button
+              onClick={onConfigure}
+              className="flex items-center gap-1 text-[10px] px-2 py-1.5 rounded-lg bg-zinc-800/50 text-zinc-500 border border-zinc-700/30 hover:text-zinc-300 hover:border-zinc-600/50 transition-all duration-150"
+              title="Configure provider"
+            >
+              <Cpu className="w-3 h-3" />
+            </button>
+          )}
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all duration-200 disabled:opacity-40"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {loading && (
@@ -73,7 +94,7 @@ export function TopicDigestCard({ topics, loading, error, onRefresh }: TopicDige
         <EmptyState
           icon={<BookOpen className="w-8 h-8 text-zinc-600" />}
           title="No research topics"
-          description="Add topics in Settings &rarr; AI Assistant to get daily digests."
+          description={reason || "Add topics in Settings → AI Assistant to get daily digests."}
         />
       )}
 

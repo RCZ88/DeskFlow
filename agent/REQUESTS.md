@@ -966,3 +966,22 @@ Three-part fix: (1) Sticky header scroll oscillation glitch — replace Intersec
 - Relabeled "Amount" → "Amount held" and "Avg buy price" → "Average buy price (optional)"
 - Added hint: "Track individual buys, sells, and fees from Transactions in the wallet popup"
 
+---
+
+### Request #059 — IDE Line Change Tracking (Lines Added/Removed Counter)
+
+**Status:** Pending
+**Priority:** Medium
+**Category:** Feature
+**Created:** 2026-06-23
+
+**Request:**
+"Ideas for a system that counts line changes related to the IDE — mainly lines added and removed."
+
+**Details:**
+- Track lines added and lines removed per session/file in the IDE
+- Could surface in the IDE page itself, in session stats, or in the Terminal Workspace sidebar (Insights tab)
+- Current idea only — no specific implementation decided yet
+- Would need: IDE file watcher or git diff integration to capture line-level changes
+- Potential metrics: total lines added/removed per session, per file, per day, per project
+

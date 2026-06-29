@@ -15,8 +15,9 @@ import {
   Edit3, Check, Plus, Minus, TrendingUp,
   Target, ZapCircle, RefreshCw, Clock3,
   ChevronLeft, ChevronRight, Maximize2, Minimize2,
-  BarChart3, Sparkles, Ban, Pause
+  BarChart3, Sparkles, Ban, Pause, Play
 } from 'lucide-react';
+import { maxOf, maxBy } from '../utils/safeMath';
 import { getDateRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
 
@@ -267,6 +268,11 @@ export default function DashboardPage({
   // Track last user interaction (mouse/keyboard) for idle detection
   const lastInteractionRef = useRef<number>(Date.now());
 
+  // ── Debounce period switches (must be before fetchSessions) ──
+  const [fetchPeriod, setFetchPeriod] = useState(selectedPeriod);
+  const periodTimerRef = useRef<number | null>(null);
+  const fetchReqId = useRef(0);
+
   // ── Focus Sessions state (extracted from IIFE for React hooks rules) ──
   const [sessionsData, setSessionsData] = useState<{ sessions: any[]; stats: { todayBest: number; weekBest: number; allTimeBest: number; todayTotal: number; weekTotal: number; longestStreak: number } }>({ sessions: [], stats: { todayBest: 0, weekBest: 0, allTimeBest: 0, todayTotal: 0, weekTotal: 0, longestStreak: 0 } });
   const [minDuration, setMinDuration] = useState(60);
@@ -275,10 +281,12 @@ export default function DashboardPage({
 
   const fetchSessions = useCallback(() => {
     if (!window.deskflowAPI?.getProductivitySessions) return;
-    window.deskflowAPI.getProductivitySessions({ period: selectedPeriod, dateOffset, minDuration }).then((data: any) => {
+    const thisReq = ++fetchReqId.current;
+    window.deskflowAPI.getProductivitySessions({ period: fetchPeriod, dateOffset, minDuration }).then((data: any) => {
+      if (thisReq !== fetchReqId.current) return;
       setSessionsData(data || { sessions: [], stats: { todayBest: 0, weekBest: 0, allTimeBest: 0, todayTotal: 0, weekTotal: 0, longestStreak: 0 } });
     }).catch(() => {});
-  }, [selectedPeriod, dateOffset, minDuration]);
+  }, [fetchPeriod, dateOffset, minDuration]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions, fetchKey]);
   useEffect(() => {
@@ -395,6 +403,17 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>(getPersistedActivityFeed());
   const activityFeedRef = useRef<ActivityFeedItem[]>(getPersistedActivityFeed());
 
+  // Debounce period switches: UI responds immediately, but data fetches settle
+  useEffect(() => {
+    if (periodTimerRef.current) clearTimeout(periodTimerRef.current);
+    periodTimerRef.current = window.setTimeout(() => {
+      setFetchPeriod(selectedPeriod);
+    }, 200);
+    return () => {
+      if (periodTimerRef.current) clearTimeout(periodTimerRef.current);
+    };
+  }, [selectedPeriod]);
+
   // Dashboard data from backend (replaces allLogs-based client-side computation)
   const [dashboardData, setDashboardData] = useState<any>(null);
 
@@ -403,16 +422,18 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   const [gapCount, setGapCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    const thisReq = ++fetchReqId.current;
     (async () => {
       try {
-        console.log('[FROZEN-DBG] Dashboard fetch START period=', selectedPeriod, 'dateOffset=', dateOffset, 'weekOffset=', weekOffset);
+        console.log('[FROZEN-DBG] Dashboard fetch START period=', fetchPeriod, 'dateOffset=', dateOffset, 'weekOffset=', weekOffset);
         const t0 = performance.now();
         const data = await window.deskflowAPI.getDashboardAggregates({
-          period: selectedPeriod,
+          period: fetchPeriod,
           dateOffset,
           weekOffset,
         });
         if (cancelled) return;
+        if (thisReq !== fetchReqId.current) return;
         const t1 = performance.now();
         console.log('[FROZEN-DBG] Dashboard fetch DONE in', Math.round(t1 - t0), 'ms');
         if (data.error) { console.error('[Dashboard] Aggregate error:', data.error); return; }
@@ -424,7 +445,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [selectedPeriod, dateOffset, weekOffset]);
+  }, [fetchPeriod, dateOffset, weekOffset]);
 
   // Fetch today's gap data for unfilled time indicator
   useEffect(() => {
@@ -1510,13 +1531,11 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       }
       
       // Escape to deselect
-      if (e.key === 'Escape') {
-        if (selectedExternalActivity) {
-          setSelectedExternalActivity(null);
-          setExternalSessionRunning(false);
-          console.log('[Dashboard] Escape: Deselected activity');
-        }
+    if (e.key === 'Escape') {
+      if (selectedExternalActivity) {
+        setSelectedExternalActivity(null);
       }
+    }
     };
     
     // Add to document with capture to ensure we get it
@@ -2036,7 +2055,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
   const solar = solarMode === 'websites'
     ? (computedWebsiteData.length > 0 ? computedWebsiteData : defaultSolarData)
     : (computedSolarData.length > 0 ? computedSolarData : defaultSolarData);
-  const maxUsage = Math.max(...solar.map(d => d.usage_ms), 1);
+  const maxUsage = maxBy(solar, d => d.usage_ms, 1);
 
   // Border colors for different states
   const borderColor = externalSessionRunning 
@@ -2056,7 +2075,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       return hours >= 1 ? `${hours.toFixed(1)}h` : `${Math.round(ms / (1000 * 60))}m`;
     };
     const longestFocusMs = sessionsData.sessions.length > 0
-      ? Math.max(...sessionsData.sessions.map((s: any) => (s.duration_seconds || 0) * 1000))
+      ? maxBy(sessionsData.sessions, (s: any) => (s.duration_seconds || 0) * 1000)
       : 0;
     if (!ov) {
       if (liveProductiveMs > 0) {
@@ -2429,23 +2448,71 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                         onClick={() => {
                           if (pinnedActivitiesEditMode) {
                             setPinnedActivities(prev => prev.filter(a => a.id !== activity.id));
+                          } else if (isSelected) {
+                            setSelectedExternalActivity(null);
                           } else {
                             handleSelectExternalActivity(activity);
                           }
                         }}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className={`w-full p-4 rounded-lg border transition-colors duration-150 text-center ${
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        className={`w-full rounded-xl border transition-all duration-200 text-center overflow-hidden ${
                           isSelected
-                            ? 'bg-emerald-500/15 border-emerald-500/50'
-                            : 'bg-zinc-500/10 border-zinc-500/20'
+                            ? 'bg-emerald-500/10 border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
+                            : 'bg-zinc-500/10 border-zinc-500/20 hover:border-zinc-500/30'
                         }`}
+                        style={{ padding: isSelected ? '12px 12px 8px' : '16px 12px' }}
                       >
-                        <Icon 
-                          className={`w-6 h-6 mx-auto mb-2 ${activity.is_productive ? 'text-emerald-500' : 'text-indigo-500'}`}
+                        {isSelected && externalSessionRunning && (
+                          <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            </span>
+                            <span className="text-[10px] font-medium text-emerald-400/80 uppercase tracking-wider">Tracking</span>
+                          </div>
+                        )}
+                        <Icon
+                          className={`w-6 h-6 mx-auto mb-1.5 transition-colors duration-200 ${
+                            isSelected
+                              ? 'text-emerald-400'
+                              : activity.is_productive ? 'text-emerald-500' : 'text-indigo-500'
+                          }`}
                         />
-                        <div className="text-xs font-semibold text-white">{activity.name}</div>
+                        <div className={`text-xs font-semibold transition-colors duration-200 ${
+                          isSelected ? 'text-emerald-300' : 'text-white'
+                        }`}>{activity.name}</div>
+                        {isSelected && externalSessionRunning && (
+                          <div className="text-lg font-mono font-bold text-emerald-400 mt-1.5 tabular-nums">
+                            {formatDuration(externalElapsedMs)}
+                          </div>
+                        )}
+                        {isSelected && !externalSessionRunning && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartExternalSession();
+                            }}
+                            className="mt-2 mb-0.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 hover:border-emerald-500/40 transition-all duration-150 cursor-pointer"
+                          >
+                            <Play className="w-2.5 h-2.5 fill-current" />
+                            Start
+                          </button>
+                        )}
                       </motion.button>
+                      {isSelected && externalSessionRunning && (
+                        <motion.button
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStopExternalSession();
+                          }}
+                          className="absolute -bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 px-3 py-1 rounded-full bg-red-500/90 text-white text-[10px] font-semibold uppercase tracking-wider shadow-lg shadow-red-500/20 hover:bg-red-500 transition-colors duration-150 whitespace-nowrap"
+                        >
+                          Stop
+                        </motion.button>
+                      )}
                       {pinnedActivitiesEditMode && (
                         <button
                           onClick={(e) => {
@@ -2488,56 +2555,6 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                   </motion.button>
                 )}
                 
-                {/* External Activity Controls */}
-                {selectedExternalActivity && !pinnedActivitiesEditMode && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="p-4 rounded-lg border max-w-md mx-auto"
-                  style={{
-                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                    borderColor: 'rgba(16, 185, 129, 0.3)'
-                  }}
-                >
-                  <div className="space-y-4">
-                    <div>
-                      <div className="text-sm font-semibold text-white">{selectedExternalActivity.name}</div>
-                      {externalSessionRunning && (
-                        <div className="text-2xl font-mono font-bold text-emerald-400 mt-2">
-                          {formatDuration(externalElapsedMs)}
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="flex gap-3">
-                      <button
-                        onClick={handleStartExternalSession}
-                        disabled={externalSessionRunning}
-                        className="flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition-colors duration-150 disabled:opacity-50"
-                        style={{
-                          backgroundColor: externalSessionRunning ? 'rgba(107, 114, 128, 0.2)' : 'rgba(16, 185, 129, 0.3)',
-                          color: externalSessionRunning ? '#6b7280' : '#10b981',
-                          border: `1px solid ${externalSessionRunning ? 'rgba(107, 114, 128, 0.2)' : 'rgba(16, 185, 129, 0.5)'}`
-                        }}
-                      >
-                        {externalSessionRunning ? 'Running...' : 'Start'}
-                      </button>
-                      <button
-                        onClick={handleStopExternalSession}
-                        disabled={!externalSessionRunning}
-                        className="flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition-colors duration-150 disabled:opacity-50"
-                        style={{
-                          backgroundColor: externalSessionRunning ? 'rgba(239, 68, 68, 0.3)' : 'rgba(107, 114, 128, 0.2)',
-                          color: externalSessionRunning ? '#ef4444' : '#6b7280',
-                          border: `1px solid ${externalSessionRunning ? 'rgba(239, 68, 68, 0.5)' : 'rgba(107, 114, 128, 0.2)'}`
-                        }}
-                      >
-                        Stop
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-)}
               </div>
             )}
             </div>

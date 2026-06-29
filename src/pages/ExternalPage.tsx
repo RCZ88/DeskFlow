@@ -27,6 +27,7 @@ import { DurationPicker, LatencyPicker } from '../components/DurationPicker';
 import { getDateRange, isInRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
 
+import { maxOf, maxBy } from '../utils/safeMath';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
@@ -331,7 +332,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     if (window.deskflowAPI?.getExternalActivities) {
       window.deskflowAPI.getExternalActivities().then((data) => {
         console.log('[ExternalPage] Loaded activities:', data.length);
-        setActivities(data);
+        setActivities(data.filter((a: any) => a.name !== 'AFK'));
         
         // After activities load, check for active session
         if (window.deskflowAPI?.getActiveExternalSession) {
@@ -554,7 +555,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     const handleSleepConfirmed = () => {
       refreshStats();
       if (window.deskflowAPI?.getExternalActivities) {
-        window.deskflowAPI.getExternalActivities().then(setActivities);
+        window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data.filter((a: any) => a.name !== 'AFK')));
       }
     };
     window.addEventListener('sleep-confirmed', handleSleepConfirmed);
@@ -566,7 +567,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     const handleExternalDataChanged = () => {
       refreshStats();
       if (window.deskflowAPI?.getExternalActivities) {
-        window.deskflowAPI.getExternalActivities().then(setActivities);
+        window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data.filter((a: any) => a.name !== 'AFK')));
       }
     };
     window.addEventListener('external-data-changed', handleExternalDataChanged);
@@ -688,7 +689,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
         // Reload activities
         if (window.deskflowAPI?.getExternalActivities) {
           const updated = await window.deskflowAPI.getExternalActivities();
-          setActivities(updated);
+          setActivities(updated.filter((a: any) => a.name !== 'AFK'));
         }
 
         setAddActivitySuccess(true);
@@ -1012,7 +1013,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                       {/* Y-Axis */}
                       <div className="flex flex-col justify-between items-end text-[9px] font-medium text-zinc-600 pr-1 flex-shrink-0 select-none leading-none" style={{ height: `${barChartMaxHeight}px` }}>
                         {(() => {
-                          const maxSec = Math.max(...(() => {
+                          const maxSec = maxOf((() => {
                             if (selectedPeriod === 'today') {
                               const now = new Date();
                               const todayStart = new Date(now);
@@ -1144,7 +1145,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                               });
                             }
 
-                            const maxSec = Math.max(...bars.map(b => b.seconds), 1);
+                            const maxSec = maxBy(bars, b => b.seconds, 1);
                             const niceMax = getNiceMax(maxSec);
                             return bars.map((bar, idx) => {
                               const h = (bar.seconds / (niceMax * 3600)) * barChartMaxHeight;
@@ -1190,7 +1191,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                       {(() => {
                         const hourCounts = new Array(24).fill(0);
                         filtered.forEach((s: any) => { const h = new Date(s.started_at).getHours(); hourCounts[h] += s.duration_seconds || 0; });
-                        const maxHour = Math.max(...hourCounts, 1);
+                        const maxHour = maxOf(hourCounts, 1);
                         const niceMax = getNiceMax(maxHour);
                         const step = niceMax / 4;
                         const ticks: number[] = [];
@@ -1210,7 +1211,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                         {(() => {
                           const hourCounts = new Array(24).fill(0);
                           filtered.forEach((s: any) => { const h = new Date(s.started_at).getHours(); hourCounts[h] += s.duration_seconds || 0; });
-                          const maxHour = Math.max(...hourCounts, 1);
+                          const maxHour = maxOf(hourCounts, 1);
                           const niceMax = getNiceMax(maxHour);
                           return hourCounts.map((sec, h) => {
                             const height = (sec / (niceMax * 3600)) * hourChartMaxHeight;
@@ -1416,24 +1417,37 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                     <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-colors duration-150 hover:ring-2 w-full h-[140px] ${selectedActivity?.id === activity.id ? 'ring-2' : ''} ${isOver ? 'ring-1 ring-white/10' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
                       <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: activity.color }}><Icon className="w-6 h-6 text-white" /></div>
                       <div className="text-center min-w-0"><div className="font-medium text-zinc-100 text-sm leading-tight truncate">{activity.name}</div><div className="text-xs text-zinc-400 mt-0.5">{formatHours(totalSeconds)}</div></div>
-                      <div className="w-full h-8 flex items-end gap-[2px] px-1">
-                        {(() => {
-                          const now = new Date();
-                          const dayData: number[] = [];
-                          for (let i = 6; i >= 0; i--) {
-                            const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-                            const dateStr = d.toISOString().split('T')[0];
-                            const daySec = actStats?.daily?.[dateStr] || 0;
-                            dayData.push(daySec);
-                          }
-                          const maxD = Math.max(...dayData, 1);
-                          return dayData.map((sec, dIdx) => (
+                      {(() => {
+                        const now = new Date();
+                        const dayData: number[] = [];
+                        for (let i = 6; i >= 0; i--) {
+                          const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+                          const dateStr = d.toISOString().split('T')[0];
+                          const daySec = actStats?.daily?.[dateStr] || 0;
+                          dayData.push(daySec);
+                        }
+                        const maxD = maxOf(dayData, 1);
+                        const hasData = maxD > 1;
+                        const linePoints = dayData.map((sec, i) => {
+                          const x = (i / (dayData.length - 1)) * 100;
+                          const y = hasData ? 28 - (sec / maxD) * 24 : 16;
+                          return `${x},${y}`;
+                        }).join(' ');
+                        return (
+                      <div className="relative w-full h-8 px-1">
+                        <div className="absolute inset-0 flex items-end gap-[2px] px-1">
+                          {dayData.map((sec, dIdx) => (
                             <div key={dIdx} className="flex-1 flex flex-col items-center">
                               <div style={{ height: `${Math.max(2, (sec / maxD) * 24)}px`, backgroundColor: dIdx === 6 ? '#FCD34D' : activity.color }} className="w-full rounded-t" />
                             </div>
-                          ));
-                        })()}
+                          ))}
+                        </div>
+                        <svg viewBox="0 0 100 32" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
+                          <polyline fill="none" stroke={activity.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity={hasData ? 0.6 : 0.35} strokeDasharray={hasData ? 'none' : '3 3'} points={linePoints} />
+                        </svg>
                       </div>
+                        );
+                      })()}
                     </motion.button>
                     <button onClick={(e) => { e.stopPropagation(); setEditingActivity(activity); }} className="absolute top-2 right-2 w-6 h-6 rounded-full bg-zinc-800/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-zinc-700"><Edit3 className="w-3 h-3 text-zinc-300" /></button>
                   </div>
@@ -1467,6 +1481,32 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                   <button onClick={() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); setManualSessionHours(0); setManualSessionMinutes(30); const d2 = new Date(); setManualSessionDate(`${d2.getFullYear()}-${String(d2.getMonth()+1).padStart(2,'0')}-${String(d2.getDate()).padStart(2,'0')}`); setManualSessionStartHours(n.getHours()); setManualSessionStartMinutes(n.getMinutes()); setManualSessionActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm font-medium flex items-center justify-center gap-2.5 text-zinc-300 hover:text-white bg-zinc-800/50 hover:bg-zinc-700/60 border border-zinc-700/50 hover:border-zinc-600/60"><Clock className="w-4 h-4" />Add Session</button>
                   <button onClick={() => setSelectedActivity(null)} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30">Cancel</button>
                 </div>
+                {(() => {
+                  const recent = (allSessions || [])
+                    .filter((s: any) => String(s.activity_id) === String(selectedActivity.id))
+                    .sort((a: any, b: any) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+                    .slice(0, 3);
+                  if (recent.length === 0) return null;
+                  return (
+                    <div className="mt-4 pt-4 border-t border-zinc-800">
+                      <div className="text-[11px] text-zinc-600 mb-2 tracking-wide uppercase">Recent</div>
+                      <div className="flex flex-col gap-1.5">
+                        {recent.map((s: any) => {
+                          const d = new Date(s.started_at);
+                          const dur = Math.floor(s.duration_seconds / 60);
+                          const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                          const timeStr = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                          return (
+                            <div key={s.id} className="flex items-center justify-between text-xs text-zinc-400">
+                              <span>{dateStr} {timeStr}</span>
+                              <span className="font-mono text-zinc-500">{Math.floor(dur / 60)}h {dur % 60}m</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="text-[11px] text-zinc-600 mt-4 text-center tracking-wide uppercase">Press ESC to close</div>
               </div>
             </motion.div>
@@ -1504,13 +1544,13 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     >
       <ChevronRight className="w-4 h-4" />
     </button>
-     <input
-       type="date"
-       ref={dateInputRef}
-       className="absolute inset-0 w-full h-full opacity-0"
-       value={manualSessionDate}
-       onChange={(e) => setManualSessionDate(e.target.value)}
-     />
+      <input
+        type="date"
+        ref={dateInputRef}
+        className="absolute inset-y-0 left-10 right-10 opacity-0 cursor-pointer"
+        value={manualSessionDate}
+        onChange={(e) => setManualSessionDate(e.target.value)}
+      />
   </div>
   <div className="text-xs text-zinc-500 mt-1 text-center">
     {dayName}
@@ -1579,7 +1619,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                           setManualSessionActivity(null);
                           refreshStats();
                           if (window.deskflowAPI?.getExternalActivities) {
-                            window.deskflowAPI.getExternalActivities().then(setActivities);
+                            window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data.filter((a: any) => a.name !== 'AFK')));
                           }
                         }
                       }
@@ -2322,7 +2362,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                           icon: editingActivity.icon
                         });
                         const updated = await window.deskflowAPI.getExternalActivities();
-                        setActivities(updated);
+                        setActivities(updated.filter((a: any) => a.name !== 'AFK'));
                         setEditingActivity(null);
                       } catch (err) {
                         setEditActivityError('Failed to update activity');
@@ -2384,7 +2424,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                           return;
                         }
                         const updated = await window.deskflowAPI.getExternalActivities();
-                        setActivities(updated);
+                        setActivities(updated.filter((a: any) => a.name !== 'AFK'));
                         setEditingActivity(null);
                         setShowDeleteConfirm(false);
                       } catch (err) {

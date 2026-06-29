@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Send, X, FileText, Folder, Copy, Check, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import SkillDynamicForm from './SkillDynamicForm';
+import type { PromptLayer } from '../lib/promptAssembly';
+import { renderSystemPrompt, scopeBlockFromSelected } from '../lib/promptAssembly';
 
 interface Problem {
   id: string;
@@ -36,11 +38,7 @@ interface InstructionConfig {
   agent?: string;
 }
 
-interface SystemPromptLayer {
-  label: string;
-  content: string;
-  color: string;
-}
+interface SystemPromptLayer extends PromptLayer {}
 
 interface InstructionPanelProps {
   problems: Problem[];
@@ -105,7 +103,7 @@ export function InstructionPanel({
   const [copied, setCopied] = useState(false);
   const [systemPromptExpanded, setSystemPromptExpanded] = useState(false);
   const [systemPromptIncluded, setSystemPromptIncluded] = useState(true);
-  const [layerToggles, setLayerToggles] = useState<Record<number, boolean>>({});
+  const [layerToggles, setLayerToggles] = useState<Partial<Record<string, boolean>>>({});
 
   useEffect(() => {
     const saved = localStorage.getItem(storageKey);
@@ -193,22 +191,20 @@ export function InstructionPanel({
   const generatePrompt = (): string => {
     const parts: string[] = [];
 
-    // ═══ NEW: System prompt layers ═══
+    // ═══ System prompt layers (via shared assembler) ═══
     if (systemPromptIncluded && systemPromptLayers && systemPromptLayers.length > 0) {
-        const includedContent = systemPromptLayers
-            .map((layer, i) => {
-                const toggled = layerToggles[i];
-                // Default to included unless explicitly toggled off
-                if (toggled === false) return '';
-                return layer.content?.trim() || '';
-            })
-            .filter(c => c.length > 0)
-            .join('\n\n---\n\n');
-
+        const includedContent = renderSystemPrompt(systemPromptLayers, {
+            layerToggles,
+            includeExternallyLoaded: false,
+        });
         if (includedContent) {
             parts.push(includedContent);
         }
     }
+
+    // ═══ Session scope block (when bound to a single problem/request) ═══
+    const sb = scopeBlockFromSelected(selectedProblems, selectedRequests, problems, requests);
+    if (sb) parts.push(sb);
 
     for (const skillId of selectedSkills) {
       const skill = skills.find(s => s.id === skillId);
@@ -348,12 +344,12 @@ export function InstructionPanel({
 
           {systemPromptExpanded && systemPromptIncluded && (
             <div className="space-y-1 pl-2 mt-1">
-              {systemPromptLayers.map((layer, i) => {
+              {systemPromptLayers.map((layer) => {
                 if (!layer.content?.trim()) return null;
-                const isOn = layerToggles[i] !== false;
+                const isOn = layerToggles[layer.id] !== false;
                 return (
                   <div
-                    key={i}
+                    key={layer.id}
                     className={`bg-zinc-900/50 rounded border border-zinc-800/50 overflow-hidden ${!isOn ? 'opacity-40' : ''}`}
                   >
                     <div className="flex items-center justify-between px-2 py-1.5">
@@ -369,7 +365,7 @@ export function InstructionPanel({
                         <input
                           type="checkbox"
                           checked={isOn}
-                          onChange={(e) => setLayerToggles(prev => ({ ...prev, [i]: e.target.checked }))}
+                          onChange={(e) => setLayerToggles(prev => ({ ...prev, [layer.id]: e.target.checked }))}
                           className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 text-cyan-500 cursor-pointer"
                         />
                       </label>

@@ -162,8 +162,8 @@ export function sortAndGroupChecks(
     });
   } else {
     groups.sort((a, b) => {
-      const aLatest = Math.max(...a.checks.map(c => new Date(c.updated_at).getTime()));
-      const bLatest = Math.max(...b.checks.map(c => new Date(c.updated_at).getTime()));
+      const aLatest = a.checks.map(c => new Date(c.updated_at).getTime()).reduce((a, b) => Math.max(a, b), -Infinity);
+      const bLatest = b.checks.map(c => new Date(c.updated_at).getTime()).reduce((a, b) => Math.max(a, b), -Infinity);
       return bLatest - aLatest;
     });
   }

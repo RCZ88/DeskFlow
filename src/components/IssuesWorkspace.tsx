@@ -95,8 +95,8 @@ export default function IssuesWorkspace({ projectId, projectPath, projects, onSe
   const [requests, setRequests] = useState<Request[]>([]);
   const [problemsLoading, setProblemsLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState('active');
-  const [hideFinished, setHideFinished] = useState(true);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [hideFinished, setHideFinished] = useState(false);
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   const [showNewProblem, setShowNewProblem] = useState(false);

@@ -6,6 +6,7 @@ import { ToneMappingMode, BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, RotateCcw, X, RefreshCw, Globe, ChevronDown, ChevronUp, Clock, Settings, Activity } from 'lucide-react';
+import { maxOf, maxBy } from '../utils/safeMath';
 
 // Cleanup component to properly dispose of WebGL resources
 function GLCleanup() {
@@ -154,9 +155,9 @@ function createSeededRandom(seed: number): () => number {
 }
 
 // Galaxy dust cloud component - creates a realistic 3D spiral galaxy with multiple arms
-function GalaxyDustCloud() {
+function GalaxyDustCloud({ perfMode = 'balanced' }: { perfMode?: string }) {
   const pointsRef = useRef<THREE.Points>(null!);
-  const particleCount = 6000;
+  const particleCount = perfMode === 'performance' ? 1000 : perfMode === 'balanced' ? 2500 : 6000;
   const maxRadius = 280;
   
   // Generate particle positions with seed-based random for stability
@@ -280,9 +281,9 @@ function GalaxyDustCloud() {
 }
 
 // Website Galaxy Dust Cloud - Electric Nebula style with dispersed particles
-function WebsiteGalaxyDustCloud() {
+function WebsiteGalaxyDustCloud({ perfMode = 'balanced' }: { perfMode?: string }) {
   const pointsRef = useRef<THREE.Points>(null!);
-  const particleCount = 5000;
+  const particleCount = perfMode === 'performance' ? 800 : perfMode === 'balanced' ? 2000 : 5000;
   const maxRadius = 280;
 
   // Generate nebula-style positions with seed
@@ -732,12 +733,12 @@ function computePlanets(logs: ActivityLog[], appColors?: Record<string, string>,
 
   // Calculate stats for meaningful planet properties
   const totalTime = validLogs.reduce((sum, l) => sum + (l.duration || 0), 0);
-  const maxTime = Math.max(...Object.values(
+  const maxTime = maxOf(Object.values(
     validLogs.reduce((acc: Record<string, number>, log) => {
       acc[log.app] = (acc[log.app] || 0) + (log.duration || 0);
       return acc;
     }, {})
-  ));
+  ), 1);
 
   // Group by app name
   const grouped: Record<string, any[]> = {};
@@ -2277,7 +2278,7 @@ function PortalRing({ sunColor, onComplete }: { sunColor: string; onComplete: ()
       }
       pos.needsUpdate = true;
       const pMat = particlesRef.current.material as THREE.PointsMaterial;
-      pMat.opacity = Math.max(...Array.from(particleOpacities.current));
+      pMat.opacity = maxOf(Array.from(particleOpacities.current));
     }
 
     if (t >= 1 && !doneRef.current) {
@@ -2540,7 +2541,7 @@ function computePlanetsFromStats(
     .filter(a => a.time >= MIN_PLANET_TIME_SECONDS)
     .slice(-MAX_RENDERED_PLANETS);
 
-  const maxTime = Math.max(...sortedApps.map(a => a.time), 1);
+  const maxTime = maxBy(sortedApps, a => a.time, 1);
 
   // Count apps per category for color assignment
   const categoryCount: Record<string, number> = {};
@@ -2752,9 +2753,9 @@ function computeWebsitePlanets(
 
   const categoryCount: Record<string, number> = {};
   // Pre-compute maxTime once (O(n)) instead of recalculating per planet (O(n²))
-  const wsMaxTime = sortedApps.length > 0 ? Math.max(...sortedApps.map(([, domainLogs]) =>
-    domainLogs.reduce((sum: number, l: any) => sum + ((l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0), 0)
-  ), 1) : 1;
+  const wsMaxTime = sortedApps.length > 0 ? maxBy(sortedApps, ([, domainLogs]) =>
+    (domainLogs as any[]).reduce((sum: number, l: any) => sum + ((l as any).duration_ms ? (l as any).duration_ms / 1000 : (l as any).duration || 0), 0), 1
+  ) : 1;
 
   for (let idx = 0; idx < sortedApps.length; idx++) {
     const [domainName, domainLogs] = sortedApps[idx];
@@ -2905,6 +2906,7 @@ function GalaxyView({
   onSelectSystem, 
   viewMode,
   animationSpeed,
+  perfMode = 'balanced',
 }: { 
   appSolarSystems: { category: string; totalTime: number; sunSize: number }[];
   websiteSolarSystems: { category: string; totalTime: number; sunSize: number }[];
@@ -2915,6 +2917,7 @@ function GalaxyView({
   onSelectSystem: (category: string) => void; 
   viewMode: string;
   animationSpeed: AnimationSpeed;
+  perfMode?: string;
 }) {
   const appsGroupRef = useRef<THREE.Group>(null!);
   const websitesGroupRef = useRef<THREE.Group>(null!);
@@ -3047,7 +3050,7 @@ function GalaxyView({
     <>
       {/* Apps Galaxy (Blue/Purple theme) */}
       <group ref={appsGroupRef} position={APPS_GALAXY_POS}>
-        <GalaxyDustCloud />
+        <GalaxyDustCloud perfMode={perfMode} />
         {appSolarSystems.map((system, idx) => {
           const config = appSunConfigs[system.category] || DEFAULT_SUN_CONFIG;
           const pos = getSystemPosition(idx, appSolarSystems.length, 0);
@@ -3057,7 +3060,7 @@ function GalaxyView({
       
       {/* Websites Galaxy (Cyan/Violet theme - Electric Nebula) */}
       <group ref={websitesGroupRef} position={WEBSITES_GALAXY_POS}>
-        <WebsiteGalaxyDustCloud />
+        <WebsiteGalaxyDustCloud perfMode={perfMode} />
         {websiteSolarSystems.map((system, idx) => {
           const config = websiteSunConfigs[system.category] || DEFAULT_WEBSITE_SUN_CONFIG;
           const pos = getSystemPosition(idx, websiteSolarSystems.length, 0);
@@ -3317,6 +3320,8 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   const [textureRefreshKey, setTextureRefreshKey] = useState(0);
   const [viewMode, setViewMode] = useState<'galaxy' | 'solarSystem'>('galaxy');
   const [galaxyType, setGalaxyType] = useState<'apps' | 'websites'>('apps');
+  const [perfMode, setPerfMode] = useState<'high' | 'balanced' | 'performance'>('balanced');
+  const [isVisible, setIsVisible] = useState(true);
   const cameraPosRef = useRef<[number, number, number]>([0, 100, 200]);
   const fpsDisplayRef = useRef<HTMLDivElement | null>(null);
   const fpsHistoryRef = useRef<number[]>([]);
@@ -3335,6 +3340,14 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
       if (stored) setCurrentCategory(stored);
     } catch { /* ignore */ }
   }, [galaxyType]);
+
+  // Visibility change → pause 3D rendering when tab hidden
+  useEffect(() => {
+    const handleVisibility = () => setIsVisible(!document.hidden);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
   const [selectedSystem, setSelectedSystem] = useState<{ category: string; planets: PlanetData[]; totalTime: number; sunSize: number } | null>(null);
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
   const [legendExpanded, setLegendExpanded] = useState(false);
@@ -3368,21 +3381,23 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
     return filterLogsByPeriod(websiteLogs || [], activePeriod);
   }, [websiteLogs, activePeriod, externalPeriod]);
   
-  // App galaxy solar systems (period-filtered)
+  // App galaxy solar systems (period-filtered) — only compute active galaxy
   const appSolarSystems = useMemo(() => {
+    if (galaxyType !== 'apps') return [];
     const t = performance.now();
     const result = computeSolarSystems(filteredLogs, appColors, categoryOverrides);
     console.log('[FROZEN-DBG] computeSolarSystems took', Math.round(performance.now() - t), 'ms, categories:', result.length, 'logs:', filteredLogs?.length);
     return result;
-  }, [filteredLogs, appColors, categoryOverrides]);
+  }, [filteredLogs, appColors, categoryOverrides, galaxyType]);
   
-  // Website galaxy solar systems (period-filtered)
+  // Website galaxy solar systems (period-filtered) — only compute active galaxy
   const websiteSolarSystems = useMemo(() => {
+    if (galaxyType !== 'websites') return [];
     const t = performance.now();
     const result = computeWebsiteSolarSystems(filteredWebsiteLogs, websiteColors, websiteCategoryOverrides);
     console.log('[FROZEN-DBG] computeWebsiteSolarSystems took', Math.round(performance.now() - t), 'ms, categories:', result.length, 'logs:', filteredWebsiteLogs?.length);
     return result;
-  }, [filteredWebsiteLogs, websiteColors, websiteCategoryOverrides]);
+  }, [filteredWebsiteLogs, websiteColors, websiteCategoryOverrides, galaxyType]);
   
   // Refs to track interaction state - prevent glitches during user interaction
   const isInteractingRef = useRef(false);
@@ -4006,10 +4021,15 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                   depth: true,
                   preserveDrawingBuffer: false,
                 }}
-                dpr={Math.min(window.devicePixelRatio, 1.5)}
-                frameloop="always"
+                dpr={Math.min(window.devicePixelRatio, perfMode === 'performance' ? 1 : 1.5)}
+                frameloop={isVisible ? 'always' : 'demand'}
               >
-                <PerformanceMonitor>
+                <PerformanceMonitor
+                  onDecline={() => {
+                    if (perfMode === 'high') setPerfMode('balanced');
+                    else if (perfMode === 'balanced') setPerfMode('performance');
+                  }}
+                >
                   <GLCleanup />
                   <color attach="background" args={['#0a0a14']} />
                   <fog attach="fog" args={['#0a0a14', 1500, 4500]} />
@@ -4020,17 +4040,21 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                   <pointLight position={[0, 0, 0]} intensity={3} color="#ffaa00" distance={200} decay={1.5} />
                   <directionalLight position={[50, 30, 50]} intensity={0.5} color="#fff5e6" />
                   
-                  {/* Post-Processing Effects - Lighter for performance with many planets */}
+                  {/* Post-Processing Effects - disabled in performance mode */}
                   <EffectComposer multisampling={0}>
-                    <Bloom 
-                      intensity={1.2} 
-                      luminanceThreshold={0.6} 
-                      luminanceSmoothing={0.5}
-                      radius={0.5}
-                      mipmapBlur 
-                    />
+                    {perfMode !== 'performance' && (
+                      <Bloom 
+                        intensity={1.2} 
+                        luminanceThreshold={0.6} 
+                        luminanceSmoothing={0.5}
+                        radius={0.5}
+                        mipmapBlur 
+                      />
+                    )}
                     <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-                    <Vignette offset={0.25} darkness={0.5} blendFunction={BlendFunction.NORMAL} />
+                    {perfMode !== 'performance' && (
+                      <Vignette offset={0.25} darkness={0.5} blendFunction={BlendFunction.NORMAL} />
+                    )}
                   </EffectComposer>
                   
                   {/* FPS Counter - uses ref instead of state to avoid re-renders */}
@@ -4048,6 +4072,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                       onSelectSystem={handleSelectSystem} 
                       viewMode={viewMode}
                       animationSpeed={animationSpeed}
+                      perfMode={perfMode}
                     />
                     <CameraTracker cameraPosRef={cameraPosRef} />
                     <Stars radius={5000} depth={250} count={5000} factor={7} fade speed={0.08} saturation={0.6} />

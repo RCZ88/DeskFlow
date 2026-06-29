@@ -22,6 +22,8 @@ type ChatMessage = {
 
 type Props = {
   today?: string
+  onConfigure?: () => void
+  providerBadge?: { label: string; color: string } | null
 }
 
 function getDayLabel(): string {
@@ -64,7 +66,7 @@ const GREETING = `Hello! I'm your AI assistant. I can access your goals, project
 - *How many goals did I complete this week?*
 - *What's my sleep trend?*`
 
-export const AiChat: FC<Props> = ({ today: todayProp }) => {
+export const AiChat: FC<Props> = ({ today: todayProp, onConfigure, providerBadge }) => {
   const today = todayProp ?? new Date().toISOString().slice(0, 10)
   const navigate = useNavigate()
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -152,6 +154,7 @@ export const AiChat: FC<Props> = ({ today: todayProp }) => {
       const msg = addMessage('assistant', response)
       setTypingId(msg.id)
     } catch (err: unknown) {
+      console.error('[AiChat] processMessage failed:', err)
       setStreamedContent('')
       const msg = err instanceof Error ? err.message : 'Something went wrong.'
       addMessage('assistant', `[type: error]\n[message: ${msg}]`)
@@ -180,6 +183,8 @@ export const AiChat: FC<Props> = ({ today: todayProp }) => {
         status={status}
         toolsUsed=""
         onReset={handleReset}
+        onConfigure={onConfigure}
+        providerBadge={providerBadge}
         className="flex-shrink-0"
       />
       <MessageList>

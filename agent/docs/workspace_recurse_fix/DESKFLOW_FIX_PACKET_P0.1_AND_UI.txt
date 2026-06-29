@@ -1,0 +1,200 @@
+=====================================================================
+DESKFLOW — FIX PACKET P0.1 (REVISED ROOT CAUSE) + UI/SPECS
+Supersedes the input/launch portion of P0. P0 typecheck/build passed but
+the UI check FAILED: the TUI still "pushes down" and the prompt still does
+not enter. Reason: P0 fixed plumbing but mis-diagnosed the root cause.
+Relay: Architect (Notion AI) -> Relay (CZ) -> Hands & Eyes (opencode).
+Apply order: SECTION A and B FIRST (they unblock all testing), then C,
+then D, then E. Report back per section using the REPORT BACK template.
+=====================================================================
+
+---------------------------------------------------------------------
+WHY P0 DID NOT WORK (corrected root cause, grounded in opencode docs+issues)
+---------------------------------------------------------------------
+opencode's TUI is a Bubble Tea full-screen app. In its input box:
+  * Enter  = CR (0x0D) = SUBMIT the message.
+  * Newline insert = Ctrl+J (0x0A) / Shift+Enter. (opencode docs: "Keybinds";
+    Shift+Enter is unreliable across terminals, Ctrl+J is the safe newline.)
+  * Bracketed paste (\x1b[200~ ... \x1b[201~) is UNRELIABLE in opencode v1
+    (known regression; Ctrl+V/paste partly unimplemented). opencode GitHub
+    issue #23524: when a multi-line blob arrives, "each \n triggers a separate
+    submit event -> multiple messages sent instead of one."
+
+That is EXACTLY the "pushes down like Enter in a Word doc" symptom:
+our init prompt contains newlines (\r\n / \n). Each newline is read by
+opencode as a SUBMIT, so it fires many submits, re-rendering and scrolling
+the conversation downward, and never types the prompt as one block.
+
+P0 wrapped the text in bracketed paste + a trailing \r. Because opencode v1
+does not honor bracketed paste reliably, the embedded newlines STILL submit
+per line. So P0 could not fix this. We must change the ENCODING, not wrap it.
+
+Second cause (push-down even before any prompt, at launch): we launch
+`opencode -s <resumeId>` with a resume id on a brand-new session, and/or we
+write to the PTY during the launch window before the TUI has taken over.
+That garbles the initial render. CZ's instinct is correct: launch opencode
+FRESH, let it create the session, and only resume with -s when we actually
+have a known existing session id.
+
+=====================================================================
+SECTION A — FIX TERMINAL INPUT ENCODING  (THE BLOCKER)
+File: src/main.ts  (helper buildAgentInputPayload added in P0)
+=====================================================================
+WHY: Newlines in the payload submit per-line in opencode. Bracketed paste
+is unreliable. We must send interior line breaks as Ctrl+J (0x0A) and submit
+exactly once with a single trailing CR (0x0D).
+
+CHANGE — rewrite buildAgentInputPayload(text, agent) so that, for agents
+whose AGENT_CONFIGS entry is a TUI (opencode AND claude):
+  1. Normalize first:  text = text.replace(/\r\n?/g, "\n")   // kill all CR
+  2. Trim trailing newlines/spaces from the end.
+  3. DO NOT wrap in bracketed paste. Remove the \x1b[200~ / \x1b[201~ wrap.
+  4. Body = the normalized text where every interior "\n" stays as "\n"
+     (0x0A = Ctrl+J = newline-insert in opencode). Do NOT convert "\n" to
+     "\r". There must be ZERO carriage returns inside the body.
+  5. Submit: append exactly ONE "\r" (0x0D) at the very end.
+     Final payload = body + "\r".
+  For NON-TUI / plain shell agents (if any), keep prior behavior (data + "\r").
+
+IMPORTANT: also fix agent:send so it does NOT append its own "\r\n".
+The single trailing \r must come only from buildAgentInputPayload. Search for
+any remaining `+ '\r\n'` or `+ "\n"` on the agent write path and remove it.
+
+OPTIONAL ROBUSTNESS (hands may evaluate): chunk the body so opencode's
+textarea ingests it as keystrokes, e.g. write body, then after a ~40ms
+settle write the lone \r. Only add if a single write still mis-submits.
+
+DONE WHEN:
+  - Sending a 3-paragraph prompt results in ONE message in opencode, typed
+    as a single multi-line block, submitted once. No per-line scroll/push.
+  - No \x1b[200~ / \x1b[201~ and no \r\n remain on the agent write path.
+
+=====================================================================
+SECTION B — LAUNCH FRESH, GATE READY, NO PREMATURE RESUME / WRITES
+Files: src/main.ts (launch + ready), src/pages/TerminalPage.tsx (initializeTerminal)
+=====================================================================
+WHY: Launching `opencode -s <resumeId>` on a new session with a stale/empty
+id, plus writing during the launch window, garbles the TUI (push-down at
+launch, before any prompt).
+
+CHANGE:
+  B1. New-session launch command: launch the agent FRESH with no -s flag.
+      i.e. build `cd <projectPath> && opencode`  (NOT `opencode -s <id>`).
+      Only append `-s <resumeId>` when ALL are true: user explicitly chose
+      "resume", resumeId is a non-empty validated id, and that session is
+      known to exist. Otherwise never pass -s.
+  B2. Do NOT write ANYTHING to the PTY between spawn and ready. Queue the
+      init prompt in pendingWrites and flush ONLY after markAgentReady().
+  B3. After ready fires, wait a short settle (~250-400ms) before the first
+      flush so the TUI has fully grabbed the PTY, then flushPendingAgentWrites().
+  B4. Resume id capture is OUT OF SCOPE here. Do not synthesize a resume id.
+      (Note for later: opencode sessions live in
+      ~/.local/share/opencode/opencode.db; resume retrieval is a future packet.)
+
+DONE WHEN:
+  - Creating a session runs `cd <dir> && opencode` with NO -s on first launch.
+  - opencode renders its prompt cleanly with no push-down at launch.
+  - The init prompt is sent only once, after ready + settle.
+
+=====================================================================
+SECTION C — DECOUPLE PLAIN TERMINAL (+) FROM AGENT SESSION
+File: src/pages/TerminalPage.tsx (+ main.ts agent state if needed)
+=====================================================================
+WHY: CZ: the (+) button must create a PLAIN terminal with no agent, and must
+NEVER show "Agent initialization failed." Only an explicit "Start session"
+should launch the agent + run readiness/timeout.
+
+CHANGE:
+  C1. Add a flag per terminal, e.g. `isAgentSession: boolean`.
+  C2. The (+) / New Terminal button creates a terminal with isAgentSession=false:
+      plain shell, NO cd-into-project auto agent launch, NO readiness watchdog,
+      NO startAgentTimeout, and it can NEVER populate agentInitErrors.
+  C3. "New Session" / "Start agent" creates a terminal with isAgentSession=true
+      and runs the full Section B launch flow.
+  C4. Guard ALL of these so they only run when isAgentSession === true:
+      readiness detection, startAgentTimeout, onAgentTimeout, agentInitErrors
+      render, onAgentInitError. Plain terminals are exempt.
+  C5. Remove the redundant "New Agent" button + open-new-agent event +
+      handleOpenNewAgent path. Keep ONE canonical "New Session" entry point.
+
+DONE WHEN:
+  - Clicking (+) opens a working plain shell with zero init-fail banner.
+  - Only "New Session" launches the agent; its failure can show the banner.
+  - No "New Agent" button remains.
+
+=====================================================================
+SECTION D — SPECS MUST BE PROJECT-SCOPED, EMPTY BY DEFAULT
+File: src/pages/FeatureSpecViewer.tsx ; src/data/feature-specs.ts
+=====================================================================
+WHY: The Specs button shows DeskFlow/app-tracker's OWN static specs
+(FEATURE_SPECS from src/data/feature-specs.ts). It must instead show the
+specs of the currently SELECTED PROJECT (e.g. a calculator project). If the
+project has no specs yet, it must be EMPTY with a Generate CTA.
+
+CONFIRM FIRST (hands, report these before/while implementing):
+  - Where does the init step write a project's spec files? (e.g.
+    <projectPath>/agent/*.md, an AGENTS.md, or a specs/ folder?) Give the
+    exact path + file format the init prompt/agent produces.
+  - Is there an existing reader for <projectPath> files we can reuse?
+
+CHANGE:
+  D1. FeatureSpecViewer must take the selected project's path and READ specs
+      from that project's on-disk agent/spec files (the path confirmed above),
+      NOT from the static FEATURE_SPECS constant.
+  D2. Default/empty state: if the project has no spec files, render an empty
+      state: "No specs yet for <project>" + a primary button "Generate specs"
+      that triggers spec generation (writes the spec files for that project).
+  D3. If specs exist, render them + a "Regenerate" button.
+  D4. Stop using FEATURE_SPECS for project specs. (Keep the file only if it is
+      still used elsewhere; otherwise remove the import here.)
+  D5. Document parsing in a short comment: which files are read, in what order,
+      and how headings/sections map to the viewer.
+
+DONE WHEN:
+  - Selecting a project with no specs shows the empty state + Generate.
+  - Selecting a project with specs shows THAT project's specs + Regenerate.
+  - The app-tracker's own specs never appear for an arbitrary project.
+
+=====================================================================
+SECTION E — VISIBLE UI REVAMP (sidebar + header dedupe)
+File: src/pages/TerminalPage.tsx + session sidebar component(s)
+=====================================================================
+WHY: CZ sees NO visible UI change. (Reason: every prior packet was gated
+behind the input fix; no UI work shipped. Fixing that now.)
+
+CHANGE (make these visibly different):
+  E1. Session sidebar list item redesign: each item shows project name (bold),
+      truncated project path (muted, smaller), and a STATUS BADGE:
+        - "Terminal" (plain, neutral) for isAgentSession=false
+        - "Initializing..." (amber) while launching
+        - "Ready" (green) once markAgentReady fired
+        - "Init failed" (red) only for agent sessions that errored
+      Add a clear active/selected highlight (left accent bar + bg).
+  E2. Replace the initialized-warning window.confirm() with a small readiness/
+      status panel/modal showing: project path, isAgentSession, readiness
+      state, which spec/agent files are present vs missing, and a
+      "Reinitialize" action. (No native window.confirm.)
+  E3. Header dedupe: the project name / path / project <select> currently
+      render twice (inner block duplicates the outer workspace header).
+      Keep ONE: the inner workflow control (project <select> + path). Remove
+      the duplicated static project name/path block.
+
+DONE WHEN:
+  - Sidebar items visibly show name + path + colored status badge + active state.
+  - No native window.confirm dialog for the initialized case.
+  - Project name/path/select appears only once.
+
+=====================================================================
+REPORT BACK (per section A/B/C/D/E)
+=====================================================================
+FILE(S): <changed files + hunk count>
+TYPECHECK: pass/fail
+BUILD: pass/fail (artifact sizes)
+UI CHECK: <what you SAW in the running app — required; IPC/build is NOT proof>
+STATUS: In Progress | AI Attempted Fix | User Testing | Fixed | Won't Fix
+NOTES/CONFIRMATIONS: (esp. Section D spec file path)
+
+CONSTRAINTS (unchanged): no new deps; Windows/CRLF; do not change the
+initializeTerminal signature; do not rename DEFAULT_SYSTEM_PROMPT in
+src/lib/defaults.ts; one coherent change per section; verify in the RUNNING
+app, not just the bundle.

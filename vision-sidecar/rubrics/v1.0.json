@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "description": "Default rubric for DeskFlow Critique — tied to DeskFlow design tokens",
+  "rules": {
+    "contrast_text_aa": 4.5,
+    "contrast_text_aaa": 7.0,
+    "contrast_large_text": 3.0,
+    "contrast_ui": 3.0,
+    "spacing_grid": 8,
+    "touch_target_min": 44,
+    "edge_padding": 16,
+    "max_accent_hues": 3,
+    "max_text_sizes": 5,
+    "gradient_max_hues": 2
+  },
+  "scoring": {
+    "contrast_weight": 0.35,
+    "spacing_weight": 0.2,
+    "layout_weight": 0.2,
+    "color_weight": 0.15,
+    "hierarchy_weight": 0.1
+  }
+}

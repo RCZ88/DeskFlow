@@ -1,6 +1,6 @@
 import { build as viteBuild } from 'vite';
 import { execSync } from 'child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs';
 import { resolve, dirname, relative } from 'path';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -62,6 +62,25 @@ async function main() {
     console.log(`  ${relative(SRC, tsFile)} → ${rel} (${(statSync(absOut).size / 1024).toFixed(0)} KB)`);
   }
 
+  // Copy non-TS runtime files (migrations, resources, etc.)
+  const nonTsDirs = [
+    { src: resolve(SRC, 'services/learn/db/migrations'), dest: resolve(OUT, 'services/learn/db/migrations') },
+    { src: resolve(SRC, 'schemas'), dest: resolve(OUT, 'schemas') },
+    { src: resolve(ROOT, 'resources/learn'), dest: resolve(OUT, 'resources/learn') },
+  ];
+  for (const dir of nonTsDirs) {
+    if (existsSync(dir.src)) {
+      mkdirSync(dir.dest, { recursive: true });
+      for (const entry of readdirSync(dir.src)) {
+        const srcPath = resolve(dir.src, entry);
+        if (statSync(srcPath).isFile()) {
+          copyFileSync(srcPath, resolve(dir.dest, entry));
+          console.log(`  ${entry} → ${relative(OUT, resolve(dir.dest, entry))}`);
+        }
+      }
+    }
+  }
+
   // Create .cjs shims for files required as .cjs by main.ts
   const cjsShimTargets = [
     'services/AIService.js',
@@ -69,6 +88,7 @@ async function main() {
     'services/providers/router.js',
     'services/providers/templates.js',
     'services/providers/callProvider.js',
+    'services/providers/providerLog.js',
     'services/ProblemsService.js',
     'services/RequestsService.js',
     'services/SkillsService.js',

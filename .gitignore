@@ -144,3 +144,7 @@ opencode.json
 # Lock files (keep package-lock.json, ignore others)
 yarn.lock
 pnpm-lock.yaml
+
+# Large files (use Git LFS or download separately)
+agent/docs/ai-usage-city-viz.zip
+public/cyber_assets.zip
