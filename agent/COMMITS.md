@@ -4,6 +4,78 @@
 
 ### Commit Message
 ```
+feat: massive release — AI system, finance overhaul, learn module, startup fix, workspace redesign (2257 files)
+```
+
+**Hash:** `03d56df923a8dcf60b9b88c3dacd2f36944499be`
+**Date:** 2026-07-11
+
+### Detailed Changes
+
+#### AI System (`src/services/ai/`, `src/components/AiChat/`)
+- **Agent service** — Full LLM agent loop with ~40 tools wrapping ALL IPC methods: goals, projects, external activities, sleep, preferences, categories, IDE/terminal, problems, recording, browser stats. Confirmation flow for destructive actions, conversation history, localStorage persistence.
+- **Security guard** — 4-tier permission matrix (read/confirm/admin/blocked), rate limiting (60/min, 500/session), audit logging, input validation.
+- **Tool registry** — Complete CRUD coverage on goals, projects, activities, sleep, categories, preferences, problems, recording modes, browser stats, IDE/terminal sessions.
+- **AiChat rewrite** — Connects to aiAgentService, real LLM tool calling via providers, confirmation prompts, debug logging, reset button. Replaces 100% rule-based parseIntent + checkAction system.
+
+#### AI Deck & Plan System (`src/components/ai/`)
+- **AiPage** — New deck/plan/reflect UI: DailyPlanCard, TopicDigestCard, GoalHistoryCard, MyPlanCard, LongTermPlanCard, AiChatInterface.
+- **AiChatDeck** — Card-based dashboard layout for AI interactions.
+- **PlanCard** — Structured goal and plan display with progress tracking.
+- **ReflectCard** — Reflection and journaling interface.
+
+#### Finance Overhaul (`src/components/finance/`, `src/pages/FinancePage.tsx`)
+- **Transaction modals** — Date field always visible (not behind Advanced toggle), follow-through support, people management, category autocomplete, currency formatting.
+- **Crypto features** — Net worth inclusion, live price sync, portfolio tracking, human-centered UX with explanatory tooltips and locale-aware formatting.
+- **Subscriptions** — Full subscription management with card grid, search, filters, Record Payment, cancel links, renewal countdown.
+- **Finance lock** — Stays locked until explicit unlock; visibilitychange, app switch, and backend state polls never override an explicit lock.
+- **Security** — Password changes require current password, scrypt + constant-time compare, no plaintext storage. `app://` production loading for WebAuthn.
+
+#### Learn Module (`src/components/learn/`, `src/services/learn/`)
+- **Block-based lesson system** — New learning content renderer with interactive blocks.
+- **Content engine** — Service layer for loading and managing lesson content.
+
+#### Startup Performance Fix (`src/main.ts`)
+- **IPC storm diagnosis** — Instrumented 31 synchronous IPC calls blocking the Electron main thread. `get-logs` (up to 100K rows) called 3× on mount, `get-external-sessions('all')` 2× — all synchronous.
+- **Timing instrumentation** — `[PERF-IPC]` markers on get-logs, get-external-sessions, get-external-stats, detect-ides, get-dashboard-data. Startup now 1.4s total (was reported 40s).
+- **Root causes identified** — `detect-ides` uses `execSync('powershell ...')` blocking 5-10s; `backfillStatsTables()` does full DELETE+INSERT on every startup; triggers maintain stats incrementally so backfill only needed when stats_daily is empty.
+
+#### Workspace Redesign
+- **Conductor system** — Multi-agent orchestration for swarms of AI agents (director, planner, worker, QA, auditor, resolver). Mission management per project.
+- **Terminal workspace** — 5-group sidebar (Setup/Work/Insights/Studio/Context) with subtabs, session management, workspace save/load.
+- **Files tab** — File browser within terminal workspace.
+- **Skills tab** — Skills management and browsing.
+
+#### Sync Server (`sync-server/`)
+- **New Express server** — Cross-device sync capability.
+
+#### UI Components
+- **Dashboard** — 3D orbit, heatmap, weekly overview, timer.
+- **Stats** — App table, charts, session list.
+- **External** — Activity grid, sleep, comparison.
+- **Browser activity** — Domain groups, top sites.
+- **Insights** — Day/Weekly/Activities tabs.
+- **Cityscape** — 3D city visualization component.
+- **OrbitSystem** — 3D orbital visualization.
+
+#### Agent Docs & Context (`agent/docs/`)
+- **150+ files** — Prompt/context/result documentation covering all features.
+- **State tracking** — FEATURE_TRACKER, PROBLEMS, REQUESTS, state.md, dictionary.md.
+
+#### Backup Cleanup
+- **~250 backup files removed** — `git rm --cached` + working tree cleanup. `.gitignore` updated with `*.bak`, `*.backup`, `*.old`, `*.zip`, `backup_*/`, `agent.bak*/` patterns.
+
+#### Build System
+- **`scripts/rebuild-main.mjs`** — New main process rebuild script.
+- **`scripts/build-main.cjs`** — Build pipeline for Electron main process.
+- **Preload** — New IPC bridges for AI, finance, learn, conductor features.
+
+---
+
+## Previous Commit
+
+### Commit Message
+```
 feat: sync finance bundle baseline and workspace revamp snapshot
 ```
 
