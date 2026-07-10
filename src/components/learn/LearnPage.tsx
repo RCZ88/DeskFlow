@@ -1,27 +1,48 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, ChevronLeft, Brain, Import, BarChart3, Grid3X3, Network, FileUp, FileCode2, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2, Keyboard, Wand2 } from 'lucide-react';
+import { BookOpen, ChevronLeft, Import, BarChart3, Grid3X3, Network, FileUp, FileCode2, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2, Keyboard, SlidersHorizontal } from 'lucide-react';
 import { BlockRenderer } from './blocks/BlockRenderer';
 import { OnboardingPanel } from './OnboardingPanel';
 import { CreateLessonDialog } from './CreateLessonDialog';
 import { ValidationReport } from './ValidationReport';
 import { TutorPanel } from './TutorPanel';
-import { SelectionFloatingPill } from './SelectionFloatingPill';
+
 import { MasteryRing } from './MasteryRing';
 import { CurriculumGraph } from './CurriculumGraph';
-import { BlurFade } from '../ui/blur-fade';
-import { ShinyButton } from '../ui/shiny-button';
-import { AnimatedGradientText } from '../ui/animated-gradient-text';
-import { AnimatedShinyText } from '../ui/animated-shiny-text';
-import { BorderBeam } from '../ui/border-beam';
-import type { LdocDocument, LessonSummary, LessonWithNodes, RenderableNode, TutorAnswer, Result, ValidationIssue, MasteryLevel, NodeProgress } from '../../shared/learn/types';
 
-type View = 'library' | 'reader' | 'dashboard' | 'import';
+import { WelcomeEmptyState } from './WelcomeEmptyState';
+import { LessonLibrary } from './LessonLibrary';
+import { CurriculumShowcase } from './CurriculumShowcase';
+import { LearnerSetup } from './LearnerSetup';
+import { LearnerProfilePanel } from './LearnerProfilePanel';
+import { TableOfContents, type TOCHeading } from './TableOfContents';
+import { ChecklistProgress } from './ChecklistProgress';
+import { AssessmentCard, AssessmentCardBlock, parseAssessmentBlock, type Question } from './AssessmentCard';
+import { useHighlights } from './useHighlights';
+import { SelectionActions } from './SelectionActions';
+import { ReaderView } from './ReaderView';
+import { ImportView } from './ImportView';
+import { TutorDashboardSection } from './TutorDashboardSection';
+import type { LessonSummary, LessonWithNodes, RenderableNode, TutorAnswer, Result, ValidationIssue, MasteryLevel, NodeProgress, LessonSeed } from '../../shared/learn/types';
+import { DEFAULT_PROFILE } from '../../shared/learn/types';
+import { CURRICULUM_BLUEPRINT, type CurriculumPart } from '../../services/learn/curriculum';
+import { getSystemPromptForSlug } from '../../services/learn/topicPrompts';
+import { useMasteryStats } from './useMasteryStats';
+import { hasProfile, saveProfile, syncProfileFromDB, isSetupComplete } from '../../services/learn/learnerProfile';
 
-const api = (window as any).deskflowAPI;
+export interface LessonSeed {
+  part: number;
+  title: string;
+  scope: string[];
+  topicPrompt: string;
+}
+
+type View = 'welcome' | 'showcase' | 'library' | 'reader' | 'import';
+
+const api = window.deskflowAPI;
 
 export function LearnPage() {
-  const [view, setView] = useState<View>('library');
+  const [view, setView] = useState<View>('welcome');
   const [lessons, setLessons] = useState<LessonSummary[]>([]);
   const [selectedLesson, setSelectedLesson] = useState<string | null>(null);
   const [lessonData, setLessonData] = useState<LessonWithNodes | null>(null);
@@ -44,10 +65,47 @@ export function LearnPage() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [selectedPart, setSelectedPart] = useState<CurriculumPart | null>(null);
+  const [lessonSeed, setLessonSeed] = useState<LessonSeed | null>(null);
+  const [completedParts, setCompletedParts] = useState<string[]>([]);
+  const [completedItems, setCompletedItems] = useState<string[]>([]);
+  const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
+  const setupChecked = useRef(false);
+
+  const stats = useMasteryStats(progress, lessons);
+
+  const readerContainerRef = useRef<HTMLDivElement>(null);
+  const highlights = useHighlights({
+    lessonId: selectedLesson ?? '',
+    partSlug: selectedPart?.slug ?? '',
+  });
 
   // Load lessons on mount
   useEffect(() => {
     loadLessons();
+  }, []);
+
+  // First-visit profile check (runs once, restores from DB if localStorage was cleared)
+  useEffect(() => {
+    if (setupChecked.current) return;
+    setupChecked.current = true;
+    (async () => {
+      // If setup was already completed before, never show again
+      if (isSetupComplete()) {
+        console.log('[LearnPage] Setup already completed — skipping');
+        return;
+      }
+      // Restore from DB — localStorage gets cleared on some Electron reloads
+      await syncProfileFromDB();
+      if (!hasProfile()) {
+        saveProfile({ ...DEFAULT_PROFILE });
+        setShowSetup(true);
+        console.log('[LearnPage] First visit — default profile saved to localStorage');
+      } else {
+        console.log('[LearnPage] Profile found — skipping setup');
+      }
+    })();
   }, []);
 
   // Keyboard shortcuts
@@ -133,8 +191,7 @@ export function LearnPage() {
   const handleImport = async () => {
     try {
       setLoading(true);
-      const json = JSON.parse(importText);
-      const result = await api.learnImportLdoc({ json });
+      const result = await api.learnImportLdoc({ source: importText });
       setImportResult(result);
       if (result.ok && result.data.lessonId) {
         loadLessons();
@@ -154,13 +211,12 @@ export function LearnPage() {
         setImportResult({ ok: false, error: 'Worked example not found. Run the build to bundle resources.' });
         return;
       }
-      const json = JSON.parse(content);
       setImportText(content);
-      const valResult = await api.learnValidate({ json });
+      const valResult = await api.learnValidate({ source: content });
       setImportErrors(valResult.ok ? [] : valResult.errors);
       setImportWarnings(valResult.warnings || []);
       if (valResult.ok) {
-        const r = await api.learnImportLdoc({ json });
+        const r = await api.learnImportLdoc({ source: content });
         setImportResult(r);
         if (r.ok && r.data.lessonId) {
           loadLessons();
@@ -187,8 +243,7 @@ export function LearnPage() {
       setImportMode('paste');
       setView('import');
       try {
-        const json = JSON.parse(result.content);
-        const valResult = await api.learnValidate({ json });
+        const valResult = await api.learnValidate({ source: result.content });
         setImportErrors(valResult.ok ? [] : valResult.errors);
         setImportWarnings(valResult.warnings || []);
       } catch {
@@ -204,12 +259,11 @@ export function LearnPage() {
     try {
       setLoading(true);
       setImportResult(null);
-      const json = JSON.parse(importText);
-      const valResult = await api.learnValidate({ json });
+      const valResult = await api.learnValidate({ source: importText });
       setImportErrors(valResult.ok ? [] : valResult.errors);
       setImportWarnings(valResult.warnings || []);
       if (valResult.ok) {
-        const r = await api.learnImportLdoc({ json });
+        const r = await api.learnImportLdoc({ source: importText });
         setImportResult(r);
         if (r.ok && r.data.lessonId) {
           loadLessons();
@@ -272,121 +326,75 @@ export function LearnPage() {
     }
   }, []);
 
+  // ── Tutor V2 callbacks ──
+
+  const handleApproveProposal = useCallback(async (blockId: string) => {
+    try {
+      await api.learnDecideProposal({ proposal_id: blockId, approved: true });
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleRejectProposal = useCallback(async (blockId: string, reason?: string) => {
+    try {
+      await api.learnDecideProposal({ proposal_id: blockId, approved: false, reason });
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleAddMessage = useCallback(async (blockId: string, text: string) => {
+    if (!selectedNode) return;
+    try {
+      await api.learnAddMessage({ nodeId: selectedNode, blockId, role: 'user', text });
+    } catch { /* ignore */ }
+  }, [selectedNode]);
+
+  const handleResolveConversation = useCallback(async (blockId: string) => {
+    try {
+      const conv = await api.learnGetConversation({ blockId });
+      if (conv && conv.id) {
+        await api.learnResolveConversation({ convId: conv.id });
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleAddNote = useCallback(async (blockId: string, text: string) => {
+    if (!selectedNode) return;
+    try {
+      await api.learnAddNote({ nodeId: selectedNode, text, blockRef: blockId });
+    } catch { /* ignore */ }
+  }, [selectedNode]);
+
+  const handleDeleteNote = useCallback(async (noteId: string) => {
+    try {
+      await api.learnDeleteNote({ noteId });
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleTogglePin = useCallback(async (noteId: string) => {
+    try {
+      const note = lessonData?.nodes.flatMap(n => n.blocks.filter((b: any) => b.type === 'notes').flatMap((b: any) => b.notes)).find((n: any) => n?.id === noteId);
+      await api.learnToggleNotePin({ noteId, pinned: !note?.pinned });
+    } catch { /* ignore */ }
+  }, [lessonData]);
+
   const currentNode = lessonData?.nodes.find((n) => n.id === selectedNode);
   const currentLevel = selectedNode ? progress[selectedNode]?.level : undefined;
 
-  // Empty state — L2 Responsive: onboarding/empty state moment
-  if (lessons.length === 0 && view === 'library') {
+  // Welcome landing — full editorial page, no chrome
+  if (view === 'welcome') {
     return (
-      <div className="relative flex min-h-full w-full items-center justify-center overflow-hidden px-6 py-16" data-page="learn" style={{ '--page-accent': '#6366f1' } as React.CSSProperties}>
-        {/* Ambient layer: static dot grid + ONE breathing glow */}
-        <div aria-hidden className="pointer-events-none absolute inset-0">
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage: 'radial-gradient(circle at center, rgba(244,244,245,0.06) 1px, transparent 1px)',
-              backgroundSize: '22px 22px',
-              WebkitMaskImage: 'radial-gradient(ellipse 60% 50% at 50% 42%, #000 0%, transparent 78%)',
-              maskImage: 'radial-gradient(ellipse 60% 50% at 50% 42%, #000 0%, transparent 78%)',
-            }}
-          />
-          <div
-            className="lyceum-ambient-glow absolute left-1/2 top-[38%] h-[420px] w-[620px]"
-            style={{
-              background: 'radial-gradient(circle at center, rgba(99,102,241,0.18) 0%, rgba(139,92,246,0.10) 35%, transparent 70%)',
-            }}
-          />
-        </div>
-
-        {/* Foreground: BlurFade cascade */}
-        <div className="relative z-10 flex w-full max-w-xl flex-col items-center text-center">
-          {/* Emblem */}
-          <BlurFade delay={0} direction="up" duration={0.45} blur="6px">
-            <div className="relative mb-8 inline-flex h-16 w-16 items-center justify-center rounded-xl border border-indigo-500/20 bg-indigo-500/10 backdrop-blur-xl">
-              <BookOpen className="h-7 w-7 text-indigo-300" strokeWidth={1.75} />
-              <span className="absolute -right-1.5 -bottom-1.5 inline-flex h-6 w-6 items-center justify-center rounded-lg border border-violet-400/30 bg-zinc-900/80 backdrop-blur-xl">
-                <Wand2 className="h-3 w-3 text-violet-300" strokeWidth={2} />
-              </span>
-            </div>
-          </BlurFade>
-
-          {/* Heading */}
-          <BlurFade delay={0.07} direction="up" duration={0.45} blur="6px">
-            <h1 className="text-4xl font-semibold tracking-tight">
-              Welcome to <AnimatedGradientText colorFrom="#6366f1" colorTo="#a78bfa">Lyceum</AnimatedGradientText>
-            </h1>
-          </BlurFade>
-
-          {/* Subtitle */}
-          <BlurFade delay={0.14} direction="up" duration={0.45} blur="6px">
-            <p className="mt-3 text-[15px] leading-relaxed">
-              <AnimatedShinyText shimmerWidth={120}>
-                Turn any topic into an interactive, AI-tutored lesson.
-              </AnimatedShinyText>
-            </p>
-          </BlurFade>
-
-          {/* Primary CTA (featured with BorderBeam) */}
-          <BlurFade delay={0.21} direction="up" duration={0.45} blur="6px">
-            <div className="relative mt-8 inline-flex rounded-xl">
-              <ShinyButton onClick={() => setShowCreateDialog(true)} className="px-6 py-3 text-sm font-medium">
-                <span className="inline-flex items-center gap-2">
-                  <Wand2 className="h-4 w-4" strokeWidth={2} />
-                  Create New Lesson
-                </span>
-              </ShinyButton>
-              <BorderBeam size={60} duration={6} colorFrom="#6366f1" colorTo="#a78bfa" borderWidth={1.5} />
-            </div>
-          </BlurFade>
-
-          {/* Divider */}
-          <BlurFade delay={0.28} direction="up" duration={0.45} blur="6px">
-            <div className="mt-8 mb-6 flex w-64 items-center gap-3">
-              <span className="h-px flex-1 bg-gradient-to-r from-transparent to-zinc-700/60" />
-              <span className="text-xs font-medium uppercase tracking-wider text-zinc-600">or</span>
-              <span className="h-px flex-1 bg-gradient-to-l from-transparent to-zinc-700/60" />
-            </div>
-          </BlurFade>
-
-          {/* Secondary actions (subordinate, ≥ 44px) */}
-          <BlurFade delay={0.35} direction="up" duration={0.45} blur="6px">
-            <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-3">
-              {[
-                { icon: Download, label: 'Try example', hint: 'One-click demo lesson', onClick: handleImportExample },
-                { icon: FileUp, label: 'Import file', hint: 'Open a .ldoc file', onClick: handlePickFile },
-                { icon: FileCode2, label: 'Paste .ldoc', hint: 'Paste lesson JSON', onClick: () => { setView('import'); setImportMode('paste'); } },
-              ].map(({ icon: Icon, label, hint, onClick }) => (
-                <motion.button
-                  key={label}
-                  onClick={onClick}
-                  whileHover={{ y: -2, scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                  className="flex flex-col items-start gap-2 rounded-xl border border-zinc-800/50 bg-zinc-900/50 p-5 py-4 text-left backdrop-blur-xl transition-colors hover:border-indigo-500/30 hover:bg-zinc-900/70"
-                >
-                  <Icon className="h-4 w-4 text-zinc-400" strokeWidth={1.75} />
-                  <span className="text-sm font-medium text-zinc-200">{label}</span>
-                  <span className="text-xs text-zinc-500">{hint}</span>
-                </motion.button>
-              ))}
-            </div>
-          </BlurFade>
-
-          {/* Tertiary link */}
-          <BlurFade delay={0.42} direction="up" duration={0.45} blur="6px">
-            <button
-              onClick={() => setShowOnboarding(true)}
-              className="mt-7 inline-flex items-center gap-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-            >
-              <HelpCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
-              How it works
-            </button>
-          </BlurFade>
-        </div>
-
+      <>
+        <WelcomeEmptyState
+          onCompose={() => setShowCreateDialog(true)}
+          onTryExample={handleImportExample}
+          onImport={() => setView('import')}
+          onPaste={() => { setView('import'); setImportMode('paste'); }}
+          onBrowse={() => setView('library')}
+        />
         <OnboardingPanel open={showOnboarding} onClose={() => setShowOnboarding(false)} />
-        <CreateLessonDialog open={showCreateDialog} onClose={() => setShowCreateDialog(false)} onImported={() => loadLessons()} />
-      </div>
+        <LearnerSetup open={showSetup} onClose={() => setShowSetup(false)} />
+        <LearnerProfilePanel open={showProfilePanel} onClose={() => setShowProfilePanel(false)} onRerunSetup={() => { setShowProfilePanel(false); setShowSetup(true); }} />
+        <CreateLessonDialog seed={lessonSeed} open={showCreateDialog} onClose={() => { setShowCreateDialog(false); setLessonSeed(null); }} onImported={() => { loadLessons(); setView('library'); }} />
+      </>
     );
   }
 
@@ -395,7 +403,7 @@ export function LearnPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
         <div className="flex items-center gap-3">
-          <BookOpen className="w-5 h-5 text-indigo-400" />
+          <BookOpen className="w-5 h-5 text-clay-400" />
           <h1 className="text-lg font-semibold text-zinc-100">Learn</h1>
           {view !== 'library' && (
             <button
@@ -408,28 +416,28 @@ export function LearnPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {view === 'library' && (
+          {(view === 'library' || view === 'showcase') && (
             <>
               <button
-                onClick={() => setShowCreateDialog(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 transition border border-indigo-500/20"
+                onClick={() => { setView('welcome'); setSelectedLesson(null); setLessonData(null); setSelectedNode(null); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30 transition"
               >
-                <Wand2 className="w-3.5 h-3.5" />
-                Create
+                <BookOpen className="w-3.5 h-3.5" />
+                Home
               </button>
               <button
-                onClick={() => setView('import')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50 transition"
+                onClick={() => setView('showcase')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30 transition"
               >
-                <Import className="w-3.5 h-3.5" />
-                Import
+                <BookOpen className="w-3.5 h-3.5" />
+                Curriculum
               </button>
               <button
-                onClick={() => setView('dashboard')}
+                onClick={() => setShowProfilePanel(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50 transition"
               >
-                <BarChart3 className="w-3.5 h-3.5" />
-                Dashboard
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                Profile
               </button>
               <button
                 onClick={() => setShowOnboarding(true)}
@@ -489,7 +497,7 @@ export function LearnPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-sm font-semibold text-zinc-100 mb-4 flex items-center gap-2">
-                <Keyboard className="w-4 h-4 text-indigo-400" />
+                <Keyboard className="w-4 h-4 text-clay-400" />
                 Keyboard Shortcuts
               </h3>
               <div className="space-y-2 text-xs">
@@ -515,14 +523,81 @@ export function LearnPage() {
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-auto">
         <AnimatePresence mode="wait">
-          {view === 'library' && (
-            <LibraryView
-              key="library"
-              lessons={lessons}
-              loading={loading}
-              error={error}
-              onSelect={loadLesson}
+          {view === 'showcase' && (
+            <CurriculumShowcase
+              key="showcase"
+              lessonsByPart={(() => {
+                const byPart: Record<number, { id: string; title: string }[]> = {};
+                lessons.forEach((l) => {
+                  const p = l.part ?? 0;
+                  if (!byPart[p]) byPart[p] = [];
+                  byPart[p].push({ id: l.id, title: l.title });
+                });
+                return byPart;
+              })()}
+              checklistByPart={(() => {
+                const byPart: Record<number, boolean[]> = {};
+                CURRICULUM_BLUEPRINT.forEach((p) => {
+                  byPart[p.part] = p.checklist.map((c) => completedItems.includes(c));
+                });
+                return byPart;
+              })()}
+              onGenerate={(part) => {
+                setSelectedPart(part);
+                setLessonSeed({
+                  part: part.part,
+                  title: part.title,
+                  scope: part.checklist,
+                  topicPrompt: getSystemPromptForSlug(part.slug),
+                });
+                setShowCreateDialog(true);
+              }}
+              onOpenLesson={(id) => loadLesson(id)}
+              onToggleChecklist={(part, i) => {
+                const item = CURRICULUM_BLUEPRINT[part]?.checklist[i];
+                if (item) {
+                  setCompletedItems((prev) =>
+                    prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item],
+                  );
+                }
+              }}
             />
+          )}
+          {view === 'library' && (
+            <>
+              <LessonLibrary
+                key="library"
+                lessons={lessons}
+                loading={loading}
+                onOpen={loadLesson}
+                onCompose={() => setShowCreateDialog(true)}
+                onImport={() => setView('import')}
+                onWelcome={() => setView('showcase')}
+                stats={stats}
+                onOpenProfile={() => setShowProfilePanel(true)}
+              />
+              {lessons.length > 0 && (
+                <div className="max-w-4xl mx-auto px-6 pb-8">
+                  <TutorDashboardSection
+                    getDashboard={async () => { const r = await api.learnGetTutorDashboard(); if (!r.ok) throw new Error(r.error); return r.data; }}
+                    onNavigateToNode={(nodeId) => {
+                      // Find which lesson contains this node and load it
+                      const loadFirstMatching = async () => {
+                        for (const l of lessons) {
+                          const r = await api.learnGetLesson({ lessonId: l.id });
+                          if (r.ok && r.data.nodes.some((n: any) => n.id === nodeId)) {
+                            loadLesson(l.id);
+                            setTimeout(() => setSelectedNode(nodeId), 100);
+                            break;
+                          }
+                        }
+                      };
+                      loadFirstMatching();
+                    }}
+                  />
+                </div>
+              )}
+            </>
           )}
           {view === 'reader' && lessonData && (
             <ReaderView
@@ -545,10 +620,23 @@ export function LearnPage() {
               progress={progress}
               mobileOutlineOpen={mobileOutlineOpen}
               setMobileOutlineOpen={setMobileOutlineOpen}
+              containerRef={readerContainerRef}
+              highlights={highlights}
+              completedItems={completedItems}
+              onToggleCheck={(id: string) => {
+                setCompletedItems((prev) =>
+                  prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+                );
+              }}
+              completedParts={completedParts}
+              onApproveProposal={handleApproveProposal}
+              onRejectProposal={handleRejectProposal}
+              onAddMessage={handleAddMessage}
+              onResolveConversation={handleResolveConversation}
+              onAddNote={handleAddNote}
+              onDeleteNote={handleDeleteNote}
+              onTogglePin={handleTogglePin}
             />
-          )}
-          {view === 'dashboard' && (
-            <DashboardView key="dashboard" progress={progress} lessons={lessons} onRefresh={() => loadLessons()} />
           )}
           {view === 'import' && (
             <ImportView
@@ -573,486 +661,9 @@ export function LearnPage() {
       </div>
 
       <OnboardingPanel open={showOnboarding} onClose={() => setShowOnboarding(false)} />
-      <CreateLessonDialog open={showCreateDialog} onClose={() => setShowCreateDialog(false)} onImported={() => loadLessons()} />
-    </div>
-  );
-}
-
-// ── Library View ──
-
-function LibraryView({ lessons, loading, error, onSelect }: {
-  lessons: LessonSummary[];
-  loading: boolean;
-  error: string | null;
-  onSelect: (id: string) => void;
-}) {
-  const grouped = lessons.reduce((acc, l) => {
-    const part = l.part;
-    if (!acc[part]) acc[part] = [];
-    acc[part].push(l);
-    return acc;
-  }, {} as Record<number, LessonSummary[]>);
-
-  return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {error && (
-        <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-          {error}
-        </div>
-      )}
-      {loading ? (
-        <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 rounded-xl bg-zinc-800/40 animate-pulse" />
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-8">
-          {Object.entries(grouped).sort(([a], [b]) => Number(a) - Number(b)).map(([part, partLessons]) => (
-            <div key={part}>
-              <h2 className="text-sm font-medium text-zinc-400 mb-3 uppercase tracking-wider">Part {part}</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {partLessons.map((lesson) => (
-                  <motion.button
-                    key={lesson.id}
-                    onClick={() => onSelect(lesson.id)}
-                    className="text-left p-5 rounded-xl border border-zinc-700/40 bg-zinc-900/50 backdrop-blur-sm hover:bg-zinc-800/60 hover:border-zinc-600/50 transition group cursor-pointer"
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.99 }}
-                  >
-                    <div className="font-medium text-zinc-200 group-hover:text-white transition truncate">
-                      {lesson.title}
-                    </div>
-                    <div className="flex items-center gap-2 mt-2 text-xs text-zinc-500">
-                      <span>{lesson.nodeCount} nodes</span>
-                      <span>·</span>
-                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-                        lesson.status === 'published' ? 'bg-emerald-500/15 text-emerald-400' :
-                        lesson.status === 'valid' ? 'bg-blue-500/15 text-blue-400' :
-                        'bg-zinc-700/50 text-zinc-500'
-                      }`}>
-                        {lesson.status}
-                      </span>
-                    </div>
-                  </motion.button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Reader View (3-pane with responsive behavior) ──
-
-function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, currentLevel, onAsk, onSelectionAsk, onQuizSubmit, tutorOpen, setTutorOpen, tutorQuestion, setTutorQuestion, tutorAnswer, tutorLoading, graphView, progress, mobileOutlineOpen, setMobileOutlineOpen }: {
-  lesson: LessonWithNodes;
-  selectedNode: string | null;
-  onSelectNode: (id: string) => void;
-  currentNode: RenderableNode | undefined;
-  currentLevel: string | undefined;
-  onAsk: (nodeId: string, question: string) => void;
-  onSelectionAsk: (text: string, mode: 'explain' | 'ask' | 'simpler' | 'deeper') => void;
-  onQuizSubmit: (nodeId: string, blockId: string, response: string) => void;
-  tutorOpen: boolean;
-  setTutorOpen: (v: boolean) => void;
-  tutorQuestion: string;
-  setTutorQuestion: (v: string) => void;
-  tutorAnswer: TutorAnswer | null;
-  tutorLoading: boolean;
-  graphView: 'grid' | 'graph';
-  progress: Record<string, NodeProgress>;
-  mobileOutlineOpen: boolean;
-  setMobileOutlineOpen: (v: boolean) => void;
-}) {
-  if (!selectedNode && lesson.nodes.length > 0) {
-    onSelectNode(lesson.nodes[0].id);
-    return null;
-  }
-
-  const levelOrder: MasteryLevel[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
-
-  return (
-    <>
-      {/* Selection floating pill */}
-      {currentNode && <SelectionFloatingPill onAsk={onSelectionAsk} />}
-
-      {/* Mobile outline dropdown */}
-      <div className="lg:hidden border-b border-zinc-800">
-        <button
-          onClick={() => setMobileOutlineOpen(!mobileOutlineOpen)}
-          className="w-full flex items-center justify-between px-4 py-3 text-sm text-zinc-300 bg-zinc-900/50"
-        >
-          <span className="truncate">{currentNode?.title || lesson.lesson.title}</span>
-          <span className="text-zinc-500 text-xs">{mobileOutlineOpen ? '▲' : '▼'}</span>
-        </button>
-        <AnimatePresence>
-          {mobileOutlineOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden border-t border-zinc-800"
-            >
-              <div className="p-2 space-y-0.5 bg-zinc-900/30">
-                {lesson.nodes.map((node) => {
-                  const nodeProgress = node.progress;
-                  const level = nodeProgress?.level || 'L0' as MasteryLevel;
-                  const isActive = node.id === selectedNode;
-                  return (
-                    <button
-                      key={node.id}
-                      onClick={() => { onSelectNode(node.id); setMobileOutlineOpen(false); }}
-                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition ${
-                        isActive ? 'bg-indigo-500/15 text-indigo-300' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
-                      }`}
-                    >
-                      <MasteryRing level={level} target={node.mastery_target} size={20} strokeWidth={2} />
-                      <span className="truncate">{node.title}</span>
-                      {node.prereq && node.prereq.length > 0 && !isActive && (
-                        <span className="text-[10px] text-zinc-600 ml-auto">{node.prereq.length} prereq</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      <div className="flex h-full">
-        {/* Left: Outline (desktop) */}
-        <div className="hidden lg:block w-56 shrink-0 border-r border-zinc-800 overflow-y-auto ws-scroll">
-          <div className="p-4">
-            <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3 truncate">{lesson.lesson.title}</h3>
-            <div className="space-y-0.5">
-              {lesson.nodes.map((node) => {
-                const nodeProgress = node.progress;
-                const level = nodeProgress?.level || 'L0' as MasteryLevel;
-                const isActive = node.id === selectedNode;
-                const isLocked = (node.prereq || []).some((p) => {
-                  const pNode = lesson.nodes.find((n) => n.id === p);
-                  const pLevel = pNode?.progress?.level || 'L0';
-                  return levelOrder.indexOf(pLevel) < levelOrder.indexOf(node.mastery_target);
-                });
-                return (
-                  <button
-                    key={node.id}
-                    onClick={() => onSelectNode(node.id)}
-                    disabled={isLocked && !isActive}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition flex items-center gap-2 ${
-                      isActive ? 'bg-indigo-500/15 text-indigo-300' :
-                      isLocked ? 'text-zinc-600 cursor-not-allowed' :
-                      'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
-                    }`}
-                  >
-                    <MasteryRing level={level} target={node.mastery_target} size={20} strokeWidth={2} animated={false} />
-                    <span className={`truncate ${isLocked ? 'opacity-50' : ''}`}>{node.title}</span>
-                    {isLocked && <span className="text-[10px] text-zinc-600 ml-auto">🔒</span>}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Center: Node content OR Graph view */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          {graphView === 'graph' ? (
-            <CurriculumGraph
-              nodes={lesson.nodes}
-              progress={progress}
-              selectedNode={selectedNode}
-              onSelectNode={onSelectNode}
-            />
-          ) : (
-            <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 ws-scroll">
-              {currentNode ? (
-                <div className="max-w-[72ch] mx-auto">
-                  <div className="flex items-center gap-3 mb-1">
-                    <MasteryRing level={currentLevel as MasteryLevel || 'L0'} target={currentNode.mastery_target} size={28} strokeWidth={2.5} />
-                    <div>
-                      <h2 className="text-xl font-semibold text-zinc-100">{currentNode.title}</h2>
-                      <div className="flex items-center gap-2 text-xs text-zinc-500 mt-0.5">
-                        <span>Target: {currentNode.mastery_target}</span>
-                        {currentLevel && (
-                          <>
-                            <span>·</span>
-                            <span>Your level: {currentLevel}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {currentNode.blocks.map((block) => (
-                    <BlockRenderer
-                      key={block.id}
-                      block={block}
-                      onAsk={(blockId, question) => onAsk(currentNode.id, question)}
-                      onQuizSubmit={(nid, bid, resp) => onQuizSubmit(nid, bid, resp)}
-                      currentLevel={currentLevel}
-                      nodeId={currentNode.id}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-full text-zinc-600 text-sm">
-                  Select a node from the outline
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Right: TutorPanel */}
-        <TutorPanel
-          open={tutorOpen}
-          onToggle={setTutorOpen}
-          nodeId={selectedNode || ''}
-          question={tutorQuestion}
-          onQuestionChange={setTutorQuestion}
-          answer={tutorAnswer}
-          loading={tutorLoading}
-          onAsk={onAsk}
-        />
-      </div>
-    </>
-  );
-}
-
-// ── Dashboard View ──
-
-function DashboardView({ progress, lessons, onRefresh }: { progress: Record<string, NodeProgress>; lessons: LessonSummary[]; onRefresh: () => void }) {
-  const totalNodes = lessons.reduce((sum, l) => sum + l.nodeCount, 0);
-  const masteredNodes = Object.values(progress).filter((p: any) => p.level === 'L5').length;
-  const dueNodes = Object.values(progress).filter((p: any) => {
-    if (!p.due_at) return false;
-    return new Date(p.due_at) <= new Date();
-  }).length;
-
-  const levelColors: Record<string, string> = {
-    L0: '#5B6472', L1: '#5B8DEF', L2: '#23B5B5',
-    L3: '#3CCB7F', L4: '#A78BFA', L5: '#F5C04E',
-  };
-
-  const levelOrder: MasteryLevel[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
-
-  return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-zinc-100">Mastery Dashboard</h2>
-        <button onClick={onRefresh} className="text-xs text-zinc-500 hover:text-zinc-300 transition">
-          Refresh
-        </button>
-      </div>
-
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <StatCard label="Total Nodes" value={totalNodes} />
-        <StatCard label="Mastered (L5)" value={masteredNodes} />
-        <StatCard label="Due for Review" value={dueNodes} />
-      </div>
-
-      {/* Level distribution with mastery rings */}
-      <div className="p-5 rounded-xl border border-zinc-700/40 bg-zinc-900/40 backdrop-blur-sm">
-        <h3 className="text-sm font-medium text-zinc-400 mb-4">Level Distribution</h3>
-        <div className="flex items-end gap-2">
-          {levelOrder.map((level) => {
-            const count = Object.values(progress).filter((p: any) => p.level === level).length;
-            const pct = totalNodes > 0 ? (count / totalNodes) * 100 : 0;
-            return (
-              <div key={level} className="flex-1 flex flex-col items-center gap-2">
-                <MasteryRing level={level} size={28} strokeWidth={2.5} animated={false} />
-                <div
-                  className="w-full rounded transition-all"
-                  style={{
-                    height: `${Math.max(4, pct * 1.5)}px`,
-                    backgroundColor: levelColors[level],
-                    opacity: count > 0 ? 0.8 : 0.15,
-                  }}
-                />
-                <div className="text-[10px] text-zinc-500">{level}</div>
-                <div className="text-xs font-medium text-zinc-400">{count}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Due reviews */}
-      <div className="mt-6 p-5 rounded-xl border border-zinc-700/40 bg-zinc-900/40 backdrop-blur-sm">
-        <h3 className="text-sm font-medium text-zinc-400 mb-3">Due Reviews</h3>
-        {dueNodes > 0 ? (
-          <div className="space-y-2">
-            {Object.entries(progress).filter(([, p]: [string, any]) => p.due_at && new Date(p.due_at) <= new Date()).slice(0, 10).map(([nodeId, p]: [string, any]) => (
-              <div key={nodeId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-zinc-800/30">
-                <span className="text-xs text-zinc-300 truncate">{nodeId}</span>
-                <span className="text-[10px] text-amber-400">Due {new Date(p.due_at).toLocaleDateString()}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 text-zinc-600 text-sm">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400/50" />
-            <span>No reviews due — you're up to date!</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="p-5 rounded-xl border border-zinc-700/40 bg-zinc-900/40 backdrop-blur-sm">
-      <div className="text-2xl font-semibold text-zinc-100">{value}</div>
-      <div className="text-xs text-zinc-500 mt-1">{label}</div>
-    </div>
-  );
-}
-
-// ── Import View ──
-
-function ImportView({ importText, setImportText, onImport, onPickFile, onImportExample, importingExample, loading, result, mode, setMode, errors, warnings, onJumpToNode, onShowOnboarding }: {
-  importText: string;
-  setImportText: (v: string) => void;
-  onImport: () => void;
-  onPickFile: () => void;
-  onImportExample: () => void;
-  importingExample: boolean;
-  loading: boolean;
-  result: any;
-  mode: 'pick' | 'paste' | null;
-  setMode: (m: 'pick' | 'paste' | null) => void;
-  errors: ValidationIssue[];
-  warnings: ValidationIssue[];
-  onJumpToNode: (nodeId: string) => void;
-  onShowOnboarding: () => void;
-}) {
-  return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-zinc-100">Import .ldoc</h2>
-        <button
-          onClick={onShowOnboarding}
-          className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition"
-        >
-          <HelpCircle className="w-3.5 h-3.5" />
-          How it works
-        </button>
-      </div>
-
-      <div className="space-y-6">
-        {/* Worked example */}
-        <div className="p-5 rounded-xl border border-zinc-700/40 bg-zinc-900/40 backdrop-blur-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-medium text-zinc-200">Start with the worked example</h3>
-              <p className="text-xs text-zinc-500 mt-1">Memory Hierarchy — demonstrates all 10 block types</p>
-            </div>
-            <button
-              onClick={onImportExample}
-              disabled={importingExample}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-sm font-medium transition border border-indigo-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {importingExample ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              {importingExample ? 'Importing...' : 'Import'}
-            </button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-zinc-800">
-          <button
-            onClick={() => setMode('pick')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition ${
-              mode === 'pick' ? 'bg-zinc-800/60 text-zinc-200 border-b-2 border-indigo-400' : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            <FileUp className="w-3.5 h-3.5 inline mr-1.5" />
-            Pick file
-          </button>
-          <button
-            onClick={() => setMode('paste')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition ${
-              mode === 'paste' ? 'bg-zinc-800/60 text-zinc-200 border-b-2 border-indigo-400' : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            <FileCode2 className="w-3.5 h-3.5 inline mr-1.5" />
-            Paste JSON
-          </button>
-        </div>
-
-        <AnimatePresence mode="wait">
-          {mode === 'pick' && (
-            <motion.div key="pick" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <button
-                onClick={onPickFile}
-                className="w-full flex flex-col items-center justify-center gap-3 px-6 py-12 rounded-xl border-2 border-dashed border-zinc-700/50 hover:border-zinc-600/50 hover:bg-zinc-800/20 transition text-zinc-400 hover:text-zinc-300 cursor-pointer"
-              >
-                <FileUp className="w-8 h-8" />
-                <div>
-                  <div className="text-sm font-medium">Click to select a .ldoc file</div>
-                  <div className="text-xs text-zinc-600 mt-1">.ldoc or .json extension</div>
-                </div>
-              </button>
-            </motion.div>
-          )}
-
-          {mode === 'paste' && (
-            <motion.div key="paste" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <textarea
-                value={importText}
-                onChange={(e) => setImportText(e.target.value)}
-                className="w-full h-64 px-4 py-3 rounded-xl bg-zinc-800/40 border border-zinc-700/50 text-zinc-200 text-sm font-mono focus:border-indigo-500/50 focus:outline-none resize-y placeholder:text-zinc-600 transition"
-                placeholder='{"doc": "ldoc/1.0", "lesson": {...}, "nodes": [...]}'
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Validation report */}
-        {(errors.length > 0 || warnings.length > 0) && (
-          <ValidationReport errors={errors} warnings={warnings} onJumpToNode={onJumpToNode} />
-        )}
-
-        {/* Import button */}
-        {importText && (
-          <button
-            onClick={onImport}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-indigo-300 font-medium transition border border-indigo-500/30"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Import className="w-4 h-4" />}
-            {loading ? 'Validating & importing...' : 'Validate & Import'}
-          </button>
-        )}
-
-        {/* Result feedback */}
-        {result && (
-          <div className={`p-5 rounded-xl border ${result.ok ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
-            {result.ok ? (
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <div>
-                  <div className="text-sm text-emerald-400 font-medium">Import successful</div>
-                  {result.data.lessonId && <div className="text-xs text-zinc-500 mt-1">Lesson: {result.data.lessonId}</div>}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                <div>
-                  <div className="text-sm text-red-400 font-medium">Import failed</div>
-                  <div className="text-xs text-zinc-500 mt-1">{result.error}</div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <LearnerSetup open={showSetup} onClose={() => setShowSetup(false)} />
+      <LearnerProfilePanel open={showProfilePanel} onClose={() => setShowProfilePanel(false)} onRerunSetup={() => { setShowProfilePanel(false); setShowSetup(true); }} />
+      <CreateLessonDialog seed={lessonSeed} open={showCreateDialog} onClose={() => { setShowCreateDialog(false); setLessonSeed(null); }} onImported={() => { loadLessons(); setView('library'); }} />
     </div>
   );
 }

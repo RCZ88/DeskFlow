@@ -1,8 +1,8 @@
 ﻿# PROBLEMS.md
 
 > **Purpose:** Issue tracker for AI agents and humans ΓÇö all known bugs, feature requests, and their resolution status.
-> **Last Updated:** 2026-06-21 (Terminal PTY data flow)
-> **Total Issues:** 124
+> **Last Updated:** 2026-07-03 (Research Digest Overhaul)
+> **Total Issues:** 125
 > **Parse Priority:** High
 
 ---
@@ -925,3 +925,32 @@
 - **Source:** Debug session observations
 - **Ready-to-use artifacts:** `agent/docs/terminal-data-flow-fix/CONTEXT_BUNDLE.md` + `prompt.md`
 - **Files:** `src/main.ts`, `src/preload.ts`, `src/components/TerminalWindow.tsx`, `src/pages/TerminalPage.tsx`
+
+---
+
+## 🚀 2026-07-03 — Research Digest Overhaul (Feature Request)
+
+### Issue #136: Research Digest Overhaul — Data-Driven News-Style Presentation
+
+- **Status:** NEW
+- **Priority:** High
+- **Category:** Feature
+- **User said:** "Current digest is just plain text with collapsible keywords — no credibility, no dates, no sources, no numerical data, no images. It's not convincing and doesn't feel like a proper news/digest system. Needs to feel like The Browser or a terminal-first news experience with authority markers, metadata, and data-oriented presentation."
+- **Problems with current system:**
+  1. **Too text/keyword heavy** — topic name + plain text summary in collapsible cards, no interesting presentation
+  2. **Too many dropdowns** — collapsible sections for every topic lead to a list of long keywords with no visual hierarchy
+  3. **No credibility markers** — no publication dates, no source authority indicators, no accuracy scores
+  4. **No numerical/data elements** — no percentages, metrics, statistics, trend indicators
+  5. **No visual content** — no images, charts, or rich media; pure plain text
+  6. **Sources are buried** — sources exist but feel tacked-on with no dates or context
+  7. **Not convincing** — presentation lacks the feel of a real curated digest/terminal news feed
+- **Desired outcomes:**
+  1. News-style card layout with headlines, metadata bars (date, source, credibility score)
+  2. Data-oriented presentation: numerical summaries, trend arrows, percentage changes, statistics
+  3. Source credibility indicators: domain authority, fact-check status, publish date prominence
+  4. Visual hierarchy: topic → story → key metrics → source attribution
+  5. Terminal-friendly formatting: compact, scannable, data-rich layout
+  6. Images/charts where relevant (e.g., chart of trending topics over time)
+  7. Less collapsible nesting, more immediate info-at-a-glance
+- **Research area:** Investigate how modern digests (The Browser, TLDR, Techmeme, Feedly, terminal-based news readers) present information and adapt best practices to DeskFlow's digest system.
+- **Files:** `src/components/ai/digest/DailyDigestBoard.tsx`, `src/components/ai/chat/renderers/DigestTopicCard.tsx`, `src/services/AIService.ts` (digest generation prompt)

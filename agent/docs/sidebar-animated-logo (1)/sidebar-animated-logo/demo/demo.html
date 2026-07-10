@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body{margin:0;background:#09090b;font-family:'Inter',system-ui,sans-serif;display:flex;flex-direction:column;gap:40px;padding:60px;}
+  .row{display:flex;gap:60px;align-items:center;}
+  .label{color:#71717a;font-size:12px;width:160px;font-family:monospace;}
+
+  /* ---- sidebar mock, header + nav, to check containment/fit ---- */
+  .sidebar-mock{width:256px;background:#0c0c0e;border:1px solid #27272a;border-radius:8px;overflow:hidden;}
+  .sidebar-header{padding:18px 20px;border-bottom:1px solid #27272a;display:flex;align-items:center;}
+  .sidebar-nav{padding:10px;display:flex;flex-direction:column;gap:4px;}
+  .nav-item{height:34px;border-radius:6px;background:#18181b;display:flex;align-items:center;padding:0 10px;color:#71717a;font-size:12px;}
+
+  /* ================= LIVE LOGO LOCKUP (v4) ================= */
+  .sidebar-logo{display:inline-flex;align-items:center;gap:10px;cursor:pointer;isolation:isolate;-webkit-tap-highlight-color:transparent}
+
+  /* --- icon: real inline SVG (vectorized placeholder for the spiral glyph), NOT a PNG --- */
+  .sidebar-logo__icon{width:30px;height:30px;flex-shrink:0;animation:sidebarIconSpin 12s linear infinite}
+  .sidebar-logo:hover .sidebar-logo__icon{animation-duration:4s}
+  @keyframes sidebarIconSpin{100%{transform:rotate(360deg)}}
+
+  /* --- text: real HTML text, not baked into the image --- */
+  .sidebar-logo__text{
+    font-family:'Inter',system-ui,sans-serif;font-weight:800;font-size:21px;letter-spacing:0.02em;
+    background:linear-gradient(90deg,#f4f4f5 0%,#ec4899 25%,#22d3ee 50%,#f4f4f5 75%,#f4f4f5 100%);
+    background-size:250% 100%;
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:sidebarTextSheen 6s ease-in-out infinite;
+  }
+  .sidebar-logo:hover .sidebar-logo__text{animation-duration:2.2s}
+  @keyframes sidebarTextSheen{
+    0%{background-position:0% 50%}
+    50%{background-position:100% 50%}
+    100%{background-position:0% 50%}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .sidebar-logo__icon{animation:none}
+    .sidebar-logo__text{animation:none;background-position:0% 50%}
+  }
+</style>
+</head>
+<body>
+
+<div class="row">
+  <div class="label">in-context<br>(sidebar mock)</div>
+  <div class="sidebar-mock">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <svg class="sidebar-logo__icon" viewBox="0 0 32 32" fill="none">
+          <path d="M16 3 C22 3 27 8 27 15 C27 20.5 22.8 24.8 17.3 24.8 C13.3 24.8 10.1 22 10.1 18.2 C10.1 15 12.5 12.6 15.5 12.6 C17.8 12.6 19.6 14.3 19.6 16.4"
+            stroke="url(#g)" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+          <defs>
+            <linearGradient id="g" x1="3" y1="3" x2="27" y2="27">
+              <stop offset="0" stop-color="#ec4899"/>
+              <stop offset="1" stop-color="#22d3ee"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <span class="sidebar-logo__text">RHEO</span>
+      </div>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-item">Dashboard</div>
+      <div class="nav-item">Projects</div>
+      <div class="nav-item">Reports</div>
+      <div class="nav-item">Settings</div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="label">isolated, larger<br>(fills header spot)</div>
+  <div style="transform:scale(2);transform-origin:left center;">
+    <div class="sidebar-logo">
+      <svg class="sidebar-logo__icon" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3 C22 3 27 8 27 15 C27 20.5 22.8 24.8 17.3 24.8 C13.3 24.8 10.1 22 10.1 18.2 C10.1 15 12.5 12.6 15.5 12.6 C17.8 12.6 19.6 14.3 19.6 16.4"
+          stroke="url(#g2)" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+        <defs>
+          <linearGradient id="g2" x1="3" y1="3" x2="27" y2="27">
+            <stop offset="0" stop-color="#ec4899"/>
+            <stop offset="1" stop-color="#22d3ee"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <span class="sidebar-logo__text">RHEO</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

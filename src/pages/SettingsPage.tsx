@@ -34,6 +34,7 @@ import { SectionHeader } from '../components/SectionHeader'
 import { ProviderDiagnostics } from '../components/ProviderDiagnostics';
 import { GlassCard } from '../components/GlassCard';
 import { PageShell } from '../components/PageShell';
+import { DevicesPanel } from '../components/DevicesPanel';
 
 interface SettingsPageProps {
   logs: any[];
@@ -336,7 +337,7 @@ export default function SettingsPage({
   externalActivityTiers: externalActivityTiersProp = {},
   onExternalActivityTiersChange,
 }: Partial<SettingsPageProps> & { onRegisterSave: (fn: () => void) => void; onReloadData?: () => void }) {
-  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general' | 'tracking' | 'prompts' | 'finance' | 'ai'>(() => {
+  const [activeTab, setActiveTab] = useState<'category' | 'colors' | 'general' | 'tracking' | 'prompts' | 'finance' | 'ai' | 'devices'>(() => {
     const saved = localStorage.getItem('settings-activeTab');
     return (saved as any) || 'category';
   });
@@ -976,7 +977,8 @@ export default function SettingsPage({
     { id: 'general', label: 'General' },
     { id: 'tracking', label: 'Tracking' },
     { id: 'prompts', label: 'System Prompts' },
-    { id: 'finance', label: 'Finance' }
+    { id: 'finance', label: 'Finance' },
+    { id: 'devices', label: 'Devices' }
   ];
 
   const [domainStats, setDomainStats] = useState<any[]>([]);
@@ -3483,6 +3485,7 @@ export default function SettingsPage({
                   { key: 'checklist', label: 'Checklists', desc: 'Checklist items on problems and requests' },
                   { key: 'prompts', label: 'Prompts', desc: 'Agent prompts, status, and progress' },
                   { key: 'finance', label: 'Finance', desc: 'Wallets, transactions, balances, and crypto' },
+                  { key: 'connectors', label: 'Connectors', desc: 'Email, calendar, and other external synced data' },
                 ].map(item => (
                   <div key={item.key} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-zinc-800/30 border border-zinc-700/30">
                     <div className="min-w-0">
@@ -3829,6 +3832,12 @@ export default function SettingsPage({
               </div>
             </GlassCard>
           )}
+        </div>
+      )}
+
+      {activeTab === 'devices' && (
+        <div data-section="settings.devices" className="space-y-4">
+          <DevicesPanel />
         </div>
       )}
 

@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Search, Trash2, Lock as LockIcon, Calendar, X } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Search, Trash2, Lock as LockIcon, Calendar, X, Handshake, CircleCheck } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
@@ -16,6 +16,7 @@ import { useDragSelect } from './_fx/useDragSelect';
 import { SelectionAggregatePanel } from './SelectionAggregatePanel';
 import { BatchRecategorizeModal } from './modals/BatchRecategorizeModal';
 import { exportTransactionsCsv } from './csvExport';
+import { getRepaymentStatus, getFtPerson } from '../../lib/receivables';
 
 interface TransactionsTabProps {
   transactions: FinanceTransaction[];
@@ -33,7 +34,9 @@ interface TransactionsTabProps {
     description: string; note: string; date: string;
   }) => Promise<boolean>;
   onDeleteTransaction: (id: number) => Promise<boolean>;
+  onUpdateTransaction?: (id: number, data: Record<string, any>) => Promise<boolean>;
   onVerifyPassword?: (password: string) => Promise<boolean>;
+  onRecordFtRepayment?: (data: { originalTxId: number; personId?: number; amount: number; date: string; walletId?: number; description?: string; isOverpayment?: boolean }) => Promise<boolean>;
 }
 
 const formatDateLabel = (dateStr: string) => {
@@ -50,6 +53,7 @@ const typeFilters = [
   { key: 'income' as const, label: 'Income', color: 'emerald' },
   { key: 'expense' as const, label: 'Expense', color: 'red' },
   { key: 'transfer' as const, label: 'Transfer', color: 'amber' },
+  { key: 'ft' as const, label: 'Follow Through', color: 'amber' },
 ];
 
 const typeColors: Record<string, { icon: string; bg: string; border: string; text: string }> = {
@@ -67,11 +71,11 @@ const WALLET_TYPE_COLOR: Record<string, string> = {
   cash: '#EC4899', physical: '#F97316', ewallet: '#06B6D4', other: '#6B7280',
 };
 
-export function TransactionsTab({ transactions, accounts, categories, wallets, loading, error, onRetry, displayCurrency, baseCurrency, onAddTransaction, onDeleteTransaction, onVerifyPassword }: TransactionsTabProps) {
+export function TransactionsTab({ transactions, accounts, categories, wallets, loading, error, onRetry, displayCurrency, baseCurrency, onAddTransaction, onDeleteTransaction, onUpdateTransaction, onVerifyPassword }: TransactionsTabProps) {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchRef = useRef<ReturnType<typeof setTimeout>>();
-  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'transfer' | 'ft'>('all');
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
@@ -90,7 +94,13 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
 
   const filtered = useMemo(() => {
     let list = transactions;
-    if (typeFilter !== 'all') list = list.filter(t => t.type === typeFilter);
+    if (typeFilter !== 'all') {
+      if (typeFilter === 'ft') {
+        list = list.filter(t => t.on_behalf_of === 1 && t.type === 'expense');
+      } else {
+        list = list.filter(t => t.type === typeFilter);
+      }
+    }
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       list = list.filter(t => (t.description?.toLowerCase() || '').includes(q));
@@ -177,6 +187,44 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
       alert('Recategorize failed — try again')
     }
   }
+
+  const applyFollowThrough = async (value: 0 | 1) => {
+    const ids = [...derivedSelectedIds]
+    if (!onUpdateTransaction || ids.length === 0) return
+    setBatchBusy(true)
+    let ok = 0
+    for (const id of ids) {
+      const r = await onUpdateTransaction(id, { on_behalf_of: value })
+      if (r) ok++
+    }
+    setBatchBusy(false)
+    if (ok > 0) api.clear()
+  }
+
+  const applyMarkRepaid = async () => {
+    const ids = [...derivedSelectedIds].filter(id => {
+      const tx = transactions.find(t => t.id === id)
+      return tx && tx.on_behalf_of === 1 && tx.type === 'expense'
+    })
+    if (!onUpdateTransaction || ids.length === 0) return
+    setBatchBusy(true)
+    let ok = 0
+    for (const id of ids) {
+      const tx = transactions.find(t => t.id === id)
+      if (!tx) continue
+      const currentTags = tx.tags ?? ''
+      const repaidTag = `ft_repaid:${id}`
+      const newTags = currentTags ? `${currentTags},${repaidTag}` : repaidTag
+      const r = await onUpdateTransaction(id, { tags: newTags })
+      if (r) ok++
+    }
+    setBatchBusy(false)
+    if (ok > 0) api.clear()
+  }
+
+  const hasUnrepaidFT = useMemo(() => {
+    return transactions.some(t => t.on_behalf_of === 1 && t.type === 'expense' && derivedSelectedIds.has(t.id))
+  }, [transactions, derivedSelectedIds])
 
   const handleExport = () => {
     const rows = transactions.filter((t) => derivedSelectedIds.has(t.id))
@@ -384,17 +432,24 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                     const wallet = getWallet(txn.wallet_id);
                     const tc = typeColors[txn.type] || typeColors.expense;
                     const { onPointerDown, onPointerEnter } = drag.getRowHandlers(txn.id)
-                  return (
+                    const isFT = txn.on_behalf_of === 1 && txn.type === 'expense';
+                    const ftPerson = isFT ? getFtPerson(txn) : null;
+                    const repayment = isFT ? getRepaymentStatus(txn, transactions) : null;
+                    return (
                     <GlassSurface
                       key={txn.id}
                       interactive
                       onPointerDown={onPointerDown}
                       onPointerEnter={onPointerEnter}
-                      onClick={() => {
+                      onClick={(e: React.MouseEvent) => {
                         if (drag.wasDragging()) return
+                        // Don't open detail modal if clicking a real button/input inside the row
+                        const target = e.target as HTMLElement;
+                        const closest = target.closest('button, input, a, select, textarea');
+                        if (closest) return;
                         setDetailTxn(txn)
                       }}
-                      className={`!p-3.5 border-l-2 ${tc.border} mx-0.5 transition-all duration-150 group relative`}
+                      className={`!p-3.5 border-l-2 ${isFT ? 'border-l-amber-400 bg-amber-500/[0.03]' : tc.border} mx-0.5 transition-all duration-150 group relative`}
                     >
                       {/* Checkbox — absolutely positioned so it NEVER pushes content */}
                       <div className="absolute left-2.5 top-1/2 -translate-y-1/2 z-10">
@@ -411,10 +466,16 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
 
                       <div className="flex items-center gap-3 pl-7">
                         {/* Type icon */}
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${tc.bg}`}>
-                          {txn.type === 'income' && <ArrowUpRight className="w-4 h-4 text-emerald-400" />}
-                          {txn.type === 'expense' && <ArrowDownRight className="w-4 h-4 text-red-400" />}
-                          {txn.type === 'transfer' && <ArrowLeftRight className="w-4 h-4 text-amber-400" />}
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isFT ? 'bg-amber-500/15' : tc.bg}`}>
+                          {isFT ? (
+                            <Handshake className="w-4 h-4 text-amber-400" />
+                          ) : txn.type === 'income' ? (
+                            <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+                          ) : txn.type === 'expense' ? (
+                            <ArrowDownRight className="w-4 h-4 text-red-400" />
+                          ) : (
+                            <ArrowLeftRight className="w-4 h-4 text-amber-400" />
+                          )}
                         </div>
 
                         {/* Wallet title + description + meta */}
@@ -442,6 +503,22 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                                 {cat.name}
                               </span>
                             )}
+                            {isFT ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">
+                                {ftPerson ? `for ${ftPerson}` : 'Follow Through'}
+                              </span>
+                            ) : null}
+                            {isFT && repayment && (
+                              repayment.repaid ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-500/15 text-emerald-400 inline-flex items-center gap-0.5">
+                                  <CircleCheck className="w-2.5 h-2.5" /> Repaid
+                                </span>
+                              ) : (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/10 text-amber-400/60">
+                                  Awaiting repayment
+                                </span>
+                              )
+                            )}
                             <span className="text-[10px] text-zinc-600">
                               {acct?.name}
                             </span>
@@ -449,6 +526,9 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                               <span className="text-[10px] text-zinc-600">
                                 {txn.time}
                               </span>
+                            )}
+                            {txn.fee > 0 && (
+                              <span className="text-[10px] text-zinc-500">fee: {fc(txn.fee)}</span>
                             )}
                           </div>
                         </div>
@@ -490,7 +570,7 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                                     )}
                                   </div>
                                   <button
-                                    onClick={() => handlePasswordDelete(txn.id)}
+                                    onClick={(e) => { e.stopPropagation(); handlePasswordDelete(txn.id); }}
                                     disabled={deleting || !deletePassword}
                                     className="px-2 py-1 rounded-lg text-[10px] font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-40 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
                                   >
@@ -506,7 +586,8 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                               ) : (
                                 <div className="flex items-center gap-1">
                                   <button
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       if (onVerifyPassword) {
                                         setDeletePasswordTarget(txn.id);
                                         setDeletePassword('');
@@ -530,14 +611,16 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                               )}
                             </motion.div>
                           ) : (
-                            <motion.button
+                            <div
                               key="trash"
-                              layout
-                              onClick={() => setConfirmingDeleteId(txn.id)}
-                              className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-lg text-zinc-700 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all duration-150 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(txn.id); }}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setConfirmingDeleteId(txn.id); } }}
+                              className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-lg text-zinc-700 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all duration-150 cursor-pointer focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                            </motion.button>
+                            </div>
                           )}
                         </AnimatePresence>
                       </div>
@@ -559,6 +642,9 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
         onDelete={requestBatchDelete}
         onRecategorize={() => setRecatOpen(true)}
         onExport={handleExport}
+        onSetFollowThrough={applyFollowThrough}
+        onMarkRepaid={applyMarkRepaid}
+        hasUnrepaidFT={hasUnrepaidFT}
       />
 
       <BatchRecategorizeModal
@@ -575,10 +661,12 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
         accounts={accounts}
         categories={categories}
         wallets={wallets}
+        allTransactions={transactions}
         displayCurrency={displayCurrency}
         baseCurrency={baseCurrency}
         onClose={() => setDetailTxn(null)}
         onDelete={onDeleteTransaction}
+        onUpdate={onUpdateTransaction}
         onVerifyPassword={onVerifyPassword}
       />
     </div>

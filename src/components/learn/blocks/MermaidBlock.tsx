@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { MermaidBlock } from '../../../shared/learn/types';
+import { ZoomPan } from './ZoomPan';
 
 interface Props {
   block: MermaidBlock;
@@ -20,12 +21,24 @@ export function MermaidBlock({ block, onAsk }: Props) {
         startOnLoad: false,
         theme: 'dark',
         securityLevel: 'loose',
+        flowchart: { useMaxWidth: true, htmlLabels: true },
+        sequence: { useMaxWidth: true },
       });
 
       try {
         const { svg } = await mermaid.default.render(`mermaid-${block.id}`, block.src);
         if (mounted && containerRef.current) {
           containerRef.current.innerHTML = svg;
+          const svgEl = containerRef.current.querySelector('svg');
+          if (svgEl) {
+            svgEl.removeAttribute('height');
+            svgEl.removeAttribute('width');
+            svgEl.style.removeProperty('max-width');
+            svgEl.style.width = '100%';
+            svgEl.style.height = 'auto';
+            svgEl.style.maxWidth = '100%';
+            svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+          }
           setLoading(false);
         }
       } catch (err: any) {
@@ -43,7 +56,7 @@ export function MermaidBlock({ block, onAsk }: Props) {
     <div className="my-6 py-4 px-4 rounded-xl bg-zinc-800/30 border border-zinc-700/40 group relative" data-block-id={block.id}>
       {loading && (
         <div className="h-40 flex items-center justify-center">
-          <div className="w-8 h-8 border-2 border-zinc-600 border-t-indigo-400 rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-zinc-600 border-t-clay-400 rounded-full animate-spin" />
         </div>
       )}
       {error && (
@@ -52,7 +65,11 @@ export function MermaidBlock({ block, onAsk }: Props) {
           <pre className="mt-2 text-xs bg-zinc-900/50 p-2 rounded overflow-x-auto">{block.src}</pre>
         </div>
       )}
-      <div ref={containerRef} className="overflow-x-auto" />
+      {!error && (
+        <ZoomPan minH={220}>
+          <div ref={containerRef} />
+        </ZoomPan>
+      )}
       {block.caption && (
         <div className="mt-2 text-sm text-zinc-500 italic text-center">{block.caption}</div>
       )}

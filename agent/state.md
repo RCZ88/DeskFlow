@@ -1,12 +1,12 @@
-﻿# DeskFlow — Current State   (OVERWRITE every cycle; max 40 lines)
-CYCLE: 78
-ROLE: Generated context bundle + design prompt for Lyceum Learn UI redesign
+# DeskFlow — Current State   (OVERWRITE every cycle; max 40 lines)
+CYCLE: 163
+ROLE: Startup freeze diagnosis & IPC storm profiling
 FIX PACKET: none
-LAST VERIFIED: Build OK — renderer 5331 modules, preload 57.1KB (cycle 78)
+LAST VERIFIED: main.cjs rebuilt — IPC timing instrumentation live
 IN FLIGHT:
-- Lyceum Learn UI redesign: CONTEXT_BUNDLE.md + PROMPT.md created at agent/docs/learn-redesign-v3/
-- Prompt covers: welcome screen, CreateLessonDialog, JSON generation fix
-- All frontend skills referenced: impeccable, humancentred-UIUX, frontend-design, frontend-external-infra, motion-alive
-- MCP components researched: AnimatedGradientText, AnimatedShinyText, BorderBeam, NeonGradientCard
-- BlurFade + ShinyButton already created at src/components/ui/
-NEXT ACTION: Send PROMPT.md + CONTEXT_BUNDLE.md to Architect AI
+  - Added [PERF-IPC] timing to: get-logs, get-external-sessions, get-external-stats, detect-ides, get-dashboard-data
+  - Startup now 1.4s total (was reported 40s)
+  - get-logs returns 7670 rows in 19-31ms each (4 calls on mount)
+  - get-external-sessions: 1ms, get-external-stats: 1ms
+  - detect-ides uses execSync — still a risk on cold start
+NEXT ACTION: Evaluate if freeze is fixed or investigate remaining detect-ides blocking

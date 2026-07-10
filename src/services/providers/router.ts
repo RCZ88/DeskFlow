@@ -49,6 +49,7 @@ export function buildChain(
 async function callWithTokenTiers(
   provider: ResolvedProvider,
   req: CanonicalRequest,
+  externalSignal?: AbortSignal,   // ADDED
 ): Promise<CanonicalResponse> {
   const cfg = provider.config;
 
@@ -65,7 +66,7 @@ async function callWithTokenTiers(
   for (const maxTokens of tiers) {
     try {
       console.log(`[PROV] ${cfg.id}: trying tier maxTokens=${maxTokens}`);
-      const res = await callProvider(provider, { ...req, maxTokens });
+      const res = await callProvider(provider, { ...req, maxTokens }, externalSignal);
       const used = (res.usage?.prompt_tokens ?? 0) + (res.usage?.completion_tokens ?? 0);
       cfg.tokensUsedThisMonth = (cfg.tokensUsedThisMonth ?? 0) + used;
       console.log(`[PROV] ${cfg.id}: tier maxTokens=${maxTokens} SUCCEEDED, used=${used} tokens`);
@@ -73,7 +74,9 @@ async function callWithTokenTiers(
     } catch (err: any) {
       lastErr = err;
       console.log(`[PROV] ${cfg.id}: tier maxTokens=${maxTokens} FAILED status=${err.status} msg=${err.message?.slice(0, 120)}`);
-      if (err.status !== 402) throw err;
+      // CHANGED — AbortError is now retryable (treated like 402 budget exhaustion)
+      const isRetryable = err?.status === 402 || err?.name === 'AbortError' || (err?.status >= 500 && err?.status < 600);
+      if (!isRetryable) throw err;
     }
   }
 
@@ -84,27 +87,34 @@ async function callWithTokenTiers(
 export async function runWithFallback(
   chain: ReturnType<typeof buildChain>,
   req: Omit<CanonicalRequest, 'model'>,
+  externalSignal?: AbortSignal,   // ADDED
 ): Promise<{ result: CanonicalResponse; usedProviderId: string }> {
   console.log(`[PROV] runWithFallback: chain has ${chain.length} providers`);
   for (const [i, link] of chain.entries()) {
     console.log(`[PROV] chain[${i}]: ${link.provider.config.id} model=${link.model}`);
   }
   let lastErr: any;
-  const errors: string[] = [];
+  const errors: { name: string; error: string; kind: 'timeout' | 'failure' }[] = [];
   for (const [i, link] of chain.entries()) {
     try {
       console.log(`[PROV] runWithFallback: trying chain[${i}] ${link.provider.config.id} model=${link.model}`);
-      const result = await callWithTokenTiers(link.provider, { ...req, model: link.model });
+      const result = await callWithTokenTiers(link.provider, { ...req, model: link.model }, externalSignal);
       console.log(`[PROV] runWithFallback: chain[${i}] ${link.provider.config.id} SUCCEEDED`);
       return { result, usedProviderId: link.provider.config.id };
     } catch (err: any) {
       console.log(`[PROV] runWithFallback: chain[${i}] ${link.provider.config.id} FAILED: ${err.message?.slice(0, 150)}`);
       lastErr = err;
-      errors.push(`${link.provider.config.label || link.provider.config.id}: ${err.message}`);
+      const kind: 'timeout' | 'failure' = err?.name === 'AbortError' ? 'timeout' : 'failure';
+      errors.push({ name: link.provider.config.label || link.provider.config.id, error: err.message || String(err), kind });
     }
   }
   console.log(`[PROV] runWithFallback: ALL providers failed`);
-  // Aggregate every provider's failure so the real cause isn't masked by the last link.
-  if (errors.length) throw new Error(`All ${errors.length} provider(s) failed — ${errors.join(' | ')}`);
+  // CHANGED — distinguish timeouts from failures in the aggregate message
+  const timeouts = errors.filter(e => e.kind === 'timeout');
+  const failures = errors.filter(e => e.kind === 'failure');
+  const parts: string[] = [];
+  if (timeouts.length) parts.push(`${timeouts.length} timed out (${timeouts.map(e => e.name).join(', ')})`);
+  if (failures.length) parts.push(`${failures.length} failed (${failures.map(e => `${e.name}: ${e.error}`).join('; ')})`);
+  if (errors.length) throw new Error(`All ${errors.length} provider(s) exhausted — ${parts.join('; ')}`);
   throw lastErr ?? new Error('No providers available');
 }

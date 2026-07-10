@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  X, Sparkles, Wand2, BookOpen, RefreshCw,
+  X, Sparkles, Wand2, BookOpen, Paintbrush, LayoutPanelTop, Code2, Rabbit, RefreshCw,
   Trash2, Play, Square, CheckCircle2, AlertCircle, Loader2
 } from 'lucide-react';
 
-type LibraryId = '21st-dev' | 'aceternity' | 'refero';
+type LibraryId = string;
 
 interface SourceConfig {
   enabled: boolean;
@@ -27,19 +27,35 @@ interface LibraryConfigModalProps {
 const SOURCES: { id: LibraryId; label: string; accent: string; icon: any; desc: string }[] = [
   { id: '21st-dev', label: '21st.dev', accent: '#22d3ee', icon: Sparkles, desc: 'MCP-based component library' },
   { id: 'aceternity', label: 'Aceternity UI', accent: '#a78bfa', icon: Wand2, desc: 'HTTP registry-based library' },
-  { id: 'refero', label: 'Refero', accent: '#34d399', icon: BookOpen, desc: 'MCP-based design system browser' },
+  { id: 'refero', label: 'Refero', accent: '#34d399', icon: BookOpen, desc: 'MCP-based design system browser (Pro)' },
+  { id: 'cult-ui', label: 'Cult UI', accent: '#f97316', icon: Paintbrush, desc: 'Premium shadcn registry components' },
+  { id: 'fragments-ui', label: 'Fragments UI', accent: '#06b6d4', icon: LayoutPanelTop, desc: '66 components, 11 MCP tools, free' },
+  { id: 'shadcn-ui-mcp', label: 'shadcn/ui MCP', accent: '#38bdf8', icon: Code2, desc: 'Multi-framework component docs' },
+  { id: 'aidesigner', label: 'AIDesigner', accent: '#c084fc', icon: Sparkles, desc: 'Generate/refine designs via MCP' },
+  { id: 'reactbits', label: 'React Bits', accent: '#f472b6', icon: Rabbit, desc: '135+ animated components, no API key' },
 ];
 
 function defaultConfig(id: LibraryId): SourceConfig {
-  const cmdMap: Record<LibraryId, string> = {
+  const cmdMap: Record<string, string> = {
     '21st-dev': 'npx -y @21st-dev/magic@latest',
     aceternity: '',
     refero: 'npx -y @refero/mcp@latest',
+    'fragments-ui': 'npx -y @usefragments/mcp',
+    'shadcn-ui-mcp': 'npx -y @jpisnice/shadcn-ui-mcp-server',
+    'aidesigner': '',
+    'reactbits': '',
+    'cult-ui': '',
   };
+  const registryUrls: Record<string, string> = {
+    aceternity: 'https://ui.aceternity.com/registry',
+    'cult-ui': 'https://www.cult-ui.com/r',
+    'reactbits': 'https://reactbits.dev/registry',
+  };
+  const apiKeys = ['21st-dev', 'refero', 'aidesigner'];
   return {
     enabled: false,
-    apiKey: '',
-    registryUrl: id === 'aceternity' ? 'https://ui.aceternity.com/registry' : undefined,
+    apiKey: apiKeys.includes(id) ? '' : undefined,
+    registryUrl: registryUrls[id],
     mcpCommand: cmdMap[id],
     autoStart: false,
   };
@@ -69,21 +85,23 @@ export default function LibraryConfigModal({ open, onClose, config: externalConf
 
   useEffect(() => {
     if (!open) return;
-    const merged: Record<LibraryId, SourceConfig> = {
-      '21st-dev': { ...defaultConfig('21st-dev'), ...(externalConfig?.sources?.['21st-dev'] || {}) },
-      aceternity: { ...defaultConfig('aceternity'), ...(externalConfig?.sources?.aceternity || {}) },
-      refero: { ...defaultConfig('refero'), ...(externalConfig?.sources?.refero || {}) },
-    };
+    const allIds = SOURCES.map(s => s.id);
+    const merged = Object.fromEntries(allIds.map(id => [
+      id,
+      { ...defaultConfig(id), ...(externalConfig?.sources?.[id] || {}) },
+    ] as [string, SourceConfig])) as Record<LibraryId, SourceConfig>;
     setSources(merged);
-    setConnStatus({ '21st-dev': 'idle', aceternity: 'idle', refero: 'idle' });
-    setConnMsg({ '21st-dev': '', aceternity: '', refero: '' });
-    setLoading({ '21st-dev': false, aceternity: false, refero: false });
+    const idle = Object.fromEntries(allIds.map(id => [id, 'idle' as const]));
+    const empty = Object.fromEntries(allIds.map(id => [id, '']));
+    setConnStatus(idle);
+    setConnMsg(empty);
+    setLoading(Object.fromEntries(allIds.map(id => [id, false])));
     loadCurrentStatus();
   }, [open, externalConfig]);
 
   const loadCurrentStatus = async () => {
     const dapi = (window as any).deskflowAPI;
-    for (const id of ['21st-dev', 'aceternity', 'refero'] as LibraryId[]) {
+    for (const id of SOURCES.map(s => s.id)) {
       try {
         const status = await dapi?.mcpServerStatus?.(id);
         if (status?.status === 'running') {

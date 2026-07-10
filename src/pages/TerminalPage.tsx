@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare } from 'lucide-react';
+import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, GitBranch } from 'lucide-react';
 import type { PaneNode } from '../components/TerminalWindow';
 import { TerminalLayout, insertIntoLayout, getLeafIds, getGroupTrees, updateGroupTree } from '../components/TerminalWindow';
 import { MapEditor, swapLeavesInTree } from '../components/MapEditor';
@@ -18,6 +18,7 @@ import ContextSidebar from '../components/ContextSidebar';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
 import GeneralistDialog from '../components/GeneralistDialog';
+import { AnomalyBadge } from '../components/AnomalyBadge';
 import { RoutingDisambiguationDialog } from '../components/RoutingDisambiguationDialog';
 import { RoutingToast } from '../components/RoutingToast';
 import { SessionEditDialog } from '../components/SessionEditDialog';
@@ -27,6 +28,7 @@ import { notificationService } from '../services/NotificationService';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
 import { ProblemsTab, ProblemDetailModal, NewProblemDialog } from '../components/ProblemsTab';
+import BackupPanel from '../components/BackupPanel';
 import { SkillsTab } from '../components/SkillsTab';
 import PromptHistoryTab from '../components/PromptHistoryTab';
 import { RequestsTab, RequestDetailModal, NewRequestDialog } from '../components/RequestsTab';
@@ -34,6 +36,7 @@ import { FilesTab } from '../components/FilesTab';
 import { WorkspaceShell } from '../components/workspace/WorkspaceShell';
 import { usePersistentSubTab } from '../hooks/usePersistentSubTab';
 import PageContextPanel from '../components/PageContextPanel';
+import ConductorPanel from '../components/conductor/ConductorPanel';
 import '@xterm/xterm/css/xterm.css';
 
 function generateTerminalId(): string {
@@ -133,6 +136,7 @@ const SUBPAGE_LABELS: Record<string, string> = {
   'insights/bugs': 'Insights / Bugs',
   'studio/skills': 'Studio / Skills',
   'studio/design': 'Studio / Design',
+  'work/run-configs': 'Work / Run Configs',
   'context/context': 'Context / Context',
   'context/context-maintenance': 'Context / Maintenance',
   'context/page-context': 'Context / Page Context',
@@ -149,6 +153,305 @@ function CategoryBadge({ category }: { category?: string }) {
   );
 }
 
+function ModelSwitcher({ terminalId, agent }: { terminalId: string; agent: string }) {
+  const [open, setOpen] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [current, setCurrent] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [meta, setMeta] = useState<{ installed: boolean; source: string } | null>(null);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const api: any = (window as any).deskflowAPI;
+      const r = await api?.detectModels?.(agent);
+      if (r?.success) { setModels(r.models || []); setMeta({ installed: !!r.installed, source: r.source || 'fallback' }); }
+    } catch (e) {} finally { setLoading(false); }
+  }, [agent]);
+  useEffect(() => {
+    const api: any = (window as any).deskflowAPI;
+    if (!api?.onModelChanged) return;
+    const unsub = api.onModelChanged((d: any) => { if (d && d.terminalId === terminalId && d.model) setCurrent(d.model); });
+    return typeof unsub === 'function' ? unsub : undefined;
+  }, [terminalId]);
+  const pick = useCallback(async (m: string) => {
+    setOpen(false);
+    setCurrent(m);
+    try { await (window as any).deskflowAPI?.setSessionModel?.(terminalId, m, agent); } catch (e) {}
+  }, [terminalId, agent]);
+  return (
+    <div className="relative">
+      <button
+        onClick={() => { const n = !open; setOpen(n); if (n && models.length === 0) load(); }}
+        className="flex items-center gap-1 px-2 py-1 text-[11px] rounded-md bg-zinc-800/70 ring-1 ring-inset ring-zinc-700 text-zinc-300 hover:ring-[color:var(--page-accent)]/50 hover:text-white transition-colors duration-150"
+        title="Switch model for this session"
+      >
+        <Cpu className="w-3 h-3" />
+        <span className="max-w-[140px] truncate">{current || 'Model'}</span>
+        <ChevronDown className="w-3 h-3 opacity-70" />
+      </button>
+      {open ? (
+        <div className="absolute right-0 mt-1 z-50 w-56 max-h-72 overflow-auto rounded-lg bg-zinc-900 ring-1 ring-inset ring-zinc-700 shadow-xl p-1">
+          <div className="flex items-center justify-between px-2 py-1 text-[10px] text-zinc-500">
+            <span>{loading ? 'Detecting...' : (meta ? (meta.source === 'detected' ? 'Detected' : 'Suggested') : 'Models')}</span>
+            {meta && !meta.installed ? <span className="text-amber-400">CLI not found</span> : null}
+          </div>
+          {models.length === 0 && !loading ? (
+            <div className="px-2 py-2 text-[11px] text-zinc-500">No models found</div>
+          ) : null}
+          {models.map((m) => (
+            <button
+              key={m}
+              onClick={() => pick(m)}
+              className={'w-full text-left px-2 py-1.5 text-[11px] rounded-md hover:bg-zinc-800 transition-colors ' + (m === current ? 'text-[color:var(--page-accent)]' : 'text-zinc-300')}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SessionResourceStats({ stats }: { stats?: { pid: number | null; alive: boolean; memMB: number; cpuPct: number; eventLoopLagMs: number; ts: number } }) {
+  if (!stats || !stats.alive) return null;
+  const laggy = stats.eventLoopLagMs > 200 || stats.cpuPct > 90;
+  const warm = !laggy && (stats.cpuPct > 60 || stats.memMB > 1500);
+  const healthColor = laggy ? 'text-red-400' : warm ? 'text-amber-400' : 'text-emerald-400';
+  const dotColor = laggy ? 'bg-red-500' : warm ? 'bg-amber-500' : 'bg-emerald-500';
+  const memLabel = stats.memMB >= 1024 ? (stats.memMB / 1024).toFixed(1) + ' GB' : Math.round(stats.memMB) + ' MB';
+  return (
+    <div className="flex items-center gap-2 mt-1" title={'PID ' + (stats.pid != null ? stats.pid : '?') + '  |  event-loop lag ' + Math.round(stats.eventLoopLagMs) + 'ms'}>
+      <span className={'flex items-center gap-1 text-[10px] font-medium ' + healthColor}>
+        <span className={'w-1.5 h-1.5 rounded-full ' + dotColor + (laggy ? ' animate-pulse' : '')} />
+        {laggy ? 'Laggy' : warm ? 'Busy' : 'Smooth'}
+      </span>
+      <span className="text-[10px] text-zinc-500 font-mono">{Math.round(stats.cpuPct)}% CPU</span>
+      <span className="text-[10px] text-zinc-500 font-mono">{memLabel}</span>
+    </div>
+  );
+}
+
+const SettingsIcon = Settings;
+function ConfigGenerator({ agent, baseDir }: { agent: string; baseDir: string }) {
+  const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState<'project' | 'global' | 'custom'>('project');
+  const [customDir, setCustomDir] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const run = async () => {
+    const api: any = (window as any).deskflowAPI;
+    if (!api || !api.generateAgentConfigs) { setResult('Config API unavailable'); return; }
+    setBusy(true); setResult(null);
+    try {
+      const r = await api.generateAgentConfigs({ agent: agent || 'all', scope: scope, baseDir: baseDir, customDir: customDir || undefined });
+      if (r && r.success) {
+        const written = (r.files || []).filter((f: any) => f.status === 'written').length;
+        const skipped = (r.files || []).filter((f: any) => f.status === 'skipped').length;
+        setResult('Wrote ' + written + ', skipped ' + skipped + ' -> ' + (r.root || '?'));
+      } else { setResult((r && r.error) || 'Failed'); }
+    } catch (e: any) { setResult(String((e && e.message) || e)); }
+    setBusy(false);
+  };
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-zinc-800/70 ring-1 ring-inset ring-zinc-700 text-zinc-300 hover:ring-[color:var(--page-accent)]/50 hover:text-white transition-colors duration-150" title="Generate CLI config files (opencode.json, GEMINI.md, CLAUDE.md, codex)">
+        <SettingsIcon className="w-3 h-3" />
+        <span>Configs</span>
+      </button>
+      {open ? (
+        <div className="absolute bottom-full mb-1 right-0 z-50 w-64 rounded-lg ring-1 ring-inset ring-zinc-700 bg-zinc-900 p-3 shadow-xl">
+          <div className="text-[11px] font-semibold text-zinc-200 mb-2">Generate CLI configs</div>
+          <div className="flex flex-col gap-1 mb-2">
+            {(['project', 'global', 'custom'] as const).map((s) => (
+              <label key={s} className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer">
+                <input type="radio" name="cfg-scope" checked={scope === s} onChange={() => setScope(s)} />
+                <span>{s === 'project' ? 'Project (this repo)' : s === 'global' ? 'Global (home dir)' : 'Custom directory'}</span>
+              </label>
+            ))}
+          </div>
+          {scope === 'custom' ? (
+            <input value={customDir} onChange={(e) => setCustomDir(e.target.value)} placeholder="/path/to/dir" className="w-full mb-2 px-2 py-1 text-[11px] rounded bg-zinc-800 border border-zinc-700 text-zinc-200" />
+          ) : null}
+          <button onClick={run} disabled={busy} className="w-full px-2 py-1 rounded-md text-[11px] font-semibold text-white bg-[color:var(--page-accent)] hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {busy ? 'Generating...' : 'Generate for ' + (agent || 'all')}
+          </button>
+          {result ? <div className="mt-2 text-[10px] text-zinc-400 break-words">{result}</div> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RunConfigsPanel({ projectId, projectPath, projects }: { projectId: string; projectPath: string; projects: Array<{ id: string; name: string; path: string }> }) {
+  const [configs, setConfigs] = useState<Array<{ projectId: string; name: string; path: string; config: any }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState<Record<string, boolean>>({});
+  const [editProject, setEditProject] = useState<{ id: string; name: string; path: string } | null>(null);
+  const [editConfig, setEditConfig] = useState<any>(null);
+  const [result, setResult] = useState('');
+
+  const loadConfigs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const api = (window as any).deskflowAPI;
+      if (!api?.getAllRunConfigs) return;
+      const r = await api.getAllRunConfigs();
+      if (r.success) setConfigs(r.configs || []);
+    } catch (e) { console.error('[RunConfigs] load error:', e); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadConfigs(); }, [loadConfigs]);
+
+  const handleRun = useCallback(async (cfg: { projectId: string; name: string; path: string; config: any }) => {
+    const api = (window as any).deskflowAPI;
+    if (!api?.runProject) return;
+    setRunning(prev => ({ ...prev, [cfg.projectId]: true }));
+    try {
+      const r = await api.runProject(cfg.projectId, cfg.config);
+      if (r.success) {
+        setResult(`Running ${cfg.name}...`);
+      } else {
+        setResult(r.message || 'Failed to start');
+      }
+    } catch (e: any) { setResult(e.message || 'Error'); }
+    setTimeout(() => setRunning(prev => ({ ...prev, [cfg.projectId]: false })), 2000);
+  }, []);
+
+  const handleStop = useCallback(async (projectId: string) => {
+    const api = (window as any).deskflowAPI;
+    if (!api?.stopProject) return;
+    try {
+      const r = await api.stopProject(projectId);
+      if (r.success) setResult('Stopped');
+      else setResult(r.message || 'Stop failed');
+    } catch (e: any) { setResult(e.message || 'Error'); }
+  }, []);
+
+  const handleEdit = useCallback(async (p: { id: string; name: string; path: string }) => {
+    try {
+      const api = (window as any).deskflowAPI;
+      if (!api?.getProjectRunConfig) return;
+      const r = await api.getProjectRunConfig(p.id);
+      if (r.success) {
+        setEditConfig(r.config || { single: { command: '', port: '', cwd: '' }, frontend: { command: '', port: '', cwd: '' }, backend: { command: '', port: '', cwd: '' } });
+        setEditProject(p);
+      }
+    } catch (e) { console.error('[RunConfigs] edit error:', e); }
+  }, []);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editProject || !editConfig) return;
+    try {
+      const api = (window as any).deskflowAPI;
+      if (!api?.saveProjectRunConfig) return;
+      await api.saveProjectRunConfig(editProject.id, editConfig);
+      setEditProject(null);
+      setEditConfig(null);
+      loadConfigs();
+    } catch (e) { console.error('[RunConfigs] save error:', e); }
+  }, [editProject, editConfig, loadConfigs]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold text-zinc-300">Run Configurations</h3>
+        <button onClick={loadConfigs} className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors" title="Refresh">
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+      {result ? (
+        <div className="px-2 py-1 rounded text-[10px] bg-green-500/10 text-green-400 border border-green-500/20">{result}</div>
+      ) : null}
+      {configs.length === 0 && !loading ? (
+        <div className="text-[11px] text-zinc-500 text-center py-6">No run configurations found.<br />Configure them in IDE Projects → Run Config.</div>
+      ) : null}
+      {configs.map(cfg => {
+        const hasSingle = cfg.config?.single?.command;
+        const hasFrontend = cfg.config?.frontend?.command;
+        const hasBackend = cfg.config?.backend?.command;
+        return (
+          <div key={cfg.projectId} className="bg-zinc-800/40 border border-zinc-700/30 rounded-lg p-3 space-y-2 hover:border-zinc-600/50 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-zinc-200 truncate">{cfg.name}</div>
+                <div className="text-[10px] text-zinc-500 truncate">{cfg.path}</div>
+              </div>
+              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                <button
+                  onClick={() => handleRun(cfg)}
+                  disabled={running[cfg.projectId]}
+                  className="px-2 py-1 rounded text-[10px] font-medium bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/30 hover:border-green-500/50 disabled:opacity-50 transition-colors flex items-center gap-1"
+                >
+                  <Play className="w-3 h-3" />
+                  {running[cfg.projectId] ? 'Starting...' : 'Run'}
+                </button>
+                <button
+                  onClick={() => handleStop(cfg.projectId)}
+                  className="px-2 py-1 rounded text-[10px] font-medium bg-red-600/20 text-red-400 border border-red-500/30 hover:bg-red-600/30 hover:border-red-500/50 transition-colors"
+                >
+                  Stop
+                </button>
+                <button
+                  onClick={() => handleEdit({ id: cfg.projectId, name: cfg.name, path: cfg.path })}
+                  className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {hasSingle ? <span className="px-1.5 py-0.5 rounded bg-zinc-700/50 text-[9px] text-zinc-400">Single: {cfg.config.single.command}</span> : null}
+              {hasFrontend ? <span className="px-1.5 py-0.5 rounded bg-zinc-700/50 text-[9px] text-zinc-400">FE: {cfg.config.frontend.command}</span> : null}
+              {hasBackend ? <span className="px-1.5 py-0.5 rounded bg-zinc-700/50 text-[9px] text-zinc-400">BE: {cfg.config.backend.command}</span> : null}
+            </div>
+          </div>
+        );
+      })}
+
+      {editProject && editConfig ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setEditProject(null); setEditConfig(null); }}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 w-full max-w-md mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h4 className="text-sm font-semibold text-zinc-200 mb-3">Edit Run Config — {editProject.name}</h4>
+            {(['single', 'frontend', 'backend'] as const).map(section => (
+              <div key={section} className="mb-3 p-2 bg-zinc-800/40 rounded-lg border border-zinc-700/30">
+                <label className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1 block">{section === 'single' ? 'Single Command' : section === 'frontend' ? 'Frontend' : 'Backend'}</label>
+                <div className="space-y-1.5">
+                  <input
+                    placeholder="Command (e.g. npm run dev)"
+                    value={editConfig[section]?.command || ''}
+                    onChange={e => setEditConfig((prev: any) => ({ ...prev, [section]: { ...prev[section], command: e.target.value } }))}
+                    className="w-full px-2 py-1 text-[11px] rounded bg-zinc-900 border border-zinc-700/50 text-zinc-200 placeholder-zinc-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/25 focus:outline-none transition-colors"
+                  />
+                  <div className="flex gap-1.5">
+                    <input
+                      placeholder="Port (optional)"
+                      value={editConfig[section]?.port || ''}
+                      onChange={e => setEditConfig((prev: any) => ({ ...prev, [section]: { ...prev[section], port: e.target.value } }))}
+                      className="flex-1 px-2 py-1 text-[11px] rounded bg-zinc-900 border border-zinc-700/50 text-zinc-200 placeholder-zinc-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/25 focus:outline-none transition-colors"
+                    />
+                    <input
+                      placeholder="Working dir (optional)"
+                      value={editConfig[section]?.cwd || ''}
+                      onChange={e => setEditConfig((prev: any) => ({ ...prev, [section]: { ...prev[section], cwd: e.target.value } }))}
+                      className="flex-1 px-2 py-1 text-[11px] rounded bg-zinc-900 border border-zinc-700/50 text-zinc-200 placeholder-zinc-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/25 focus:outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div className="flex gap-2 justify-end mt-2">
+              <button onClick={() => { setEditProject(null); setEditConfig(null); }} className="px-3 py-1.5 rounded text-[11px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">Cancel</button>
+              <button onClick={handleSaveEdit} className="px-3 py-1.5 rounded text-[11px] font-medium text-white bg-green-600 hover:bg-green-500 transition-colors">Save</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function StatusDot({ status, size }: { status?: string; size?: 'sm' | 'md' }) {
   const style = SESSION_STATUS_STYLES[status || 'active'] || SESSION_STATUS_STYLES.active;
   const dims = size === 'md' ? 'w-2.5 h-2.5' : 'w-1.5 h-1.5';
@@ -157,9 +460,16 @@ function StatusDot({ status, size }: { status?: string; size?: 'sm' | 'md' }) {
 
 // ── Workspace UI Primitives ──
 
+const GROUP_ACCENT_HEX: Record<string, string> = {
+	green: '#34d399', emerald: '#34d399', teal: '#2dd4bf', cyan: '#22d3ee', blue: '#3b82f6',
+	indigo: '#818cf8', violet: '#a78bfa', purple: '#c084fc', pink: '#f472b6', rose: '#fb7185',
+	amber: '#fbbf24', yellow: '#facc15', orange: '#fb923c',
+};
+const accentStyle = (accent: string): React.CSSProperties => ({ ['--page-accent' as string]: GROUP_ACCENT_HEX[accent] || '#22d3ee' } as React.CSSProperties);
+
 const WS_ICON_BTN = 'p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors duration-150 active:scale-95';
 
-const WS_SELECT = 'h-7 w-full rounded-md bg-zinc-900 border border-zinc-800/60 px-2 pr-7 text-[11px] text-zinc-200 appearance-none bg-no-repeat bg-[right_0.5rem_center] hover:border-zinc-700 focus:border-cyan-500/60 focus:outline-none transition-colors duration-150';
+const WS_SELECT = 'h-7 w-full rounded-md bg-zinc-900 border border-zinc-800/60 px-2 pr-7 text-[11px] text-zinc-200 appearance-none bg-no-repeat bg-[right_0.5rem_center] hover:border-zinc-700 focus:border-[color:var(--page-accent)]/60 focus:ring-1 focus:ring-[color:var(--page-accent)]/25 focus:outline-none transition-colors duration-150';
 
 const TAB_ACTIVE: Record<string, string> = {
 	green: 'text-green-400 border-green-500', emerald: 'text-emerald-400 border-emerald-500',
@@ -190,7 +500,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 		<button
 			role="switch" aria-checked={checked} aria-label={label}
 			onClick={() => onChange(!checked)}
-			className={`relative inline-flex items-center w-9 h-5 rounded-full shrink-0 transition-colors duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${checked ? 'bg-cyan-600' : 'bg-zinc-700'}`}
+			className={`relative inline-flex items-center w-9 h-5 rounded-full shrink-0 transition-colors duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--page-accent)]/40 ${checked ? 'bg-[color:var(--page-accent)]' : 'bg-zinc-700'}`}
 		>
 			<span className={`inline-block w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-150 ${checked ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
 		</button>
@@ -222,7 +532,7 @@ function ToolbarButton({ variant = 'secondary', icon: Icon, children, ...props }
 	return (
 		<button
 			{...props}
-			className={`inline-flex items-center gap-1.5 h-7 px-3 rounded-lg text-[11px] font-medium transition-colors duration-150 active:scale-95 ${variant === 'primary' ? 'bg-cyan-600 hover:bg-cyan-500 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'}`}
+			className={`inline-flex items-center gap-1.5 h-7 px-3 rounded-lg text-[11px] font-medium transition-colors duration-150 active:scale-95 ${variant === 'primary' ? 'bg-[color:var(--page-accent)] text-zinc-950 font-semibold ring-1 ring-inset ring-white/15 shadow-sm shadow-black/40 hover:brightness-110' : 'bg-zinc-800/70 ring-1 ring-zinc-700/60 hover:bg-zinc-700/70 text-zinc-200 backdrop-blur-sm'}`}
 		>
 			{Icon && <Icon className="w-3.5 h-3.5" />}
 			{children}
@@ -234,7 +544,7 @@ function Modal({ open, onClose, title, children, footer, width = 'max-w-md' }: {
 	if (!open) return null;
 	return (
 		<div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[var(--z-overlay)] flex items-center justify-center p-4" onClick={onClose}>
-			<div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} className={`w-full ${width} rounded-xl border border-zinc-800/60 bg-zinc-900 animate-[ws-modal-in_250ms_cubic-bezier(0.2,0,0,1)]`}>
+			<div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} style={accentStyle('cyan')} className={`w-full ${width} rounded-xl border border-zinc-800/60 bg-zinc-900 animate-[ws-modal-in_250ms_cubic-bezier(0.2,0,0,1)]`}>
 				<header className="flex items-center justify-between px-4 h-11 border-b border-zinc-800/60">
 					<h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
 					<button onClick={onClose} className={WS_ICON_BTN}><X className="w-4 h-4" /></button>
@@ -248,7 +558,7 @@ function Modal({ open, onClose, title, children, footer, width = 'max-w-md' }: {
 
 function SectionCard({ accent, title, children }: { accent: string; title: string; children: React.ReactNode }) {
 	return (
-		<section className="rounded-lg border border-zinc-800/60 bg-zinc-900">
+		<section style={accentStyle(accent)} className="rounded-xl ring-1 ring-inset ring-zinc-800/70 bg-zinc-900/50 backdrop-blur-sm">
 			<header className="flex items-center gap-1.5 px-3 h-9 border-b border-zinc-800/60">
 				<span className={`w-1.5 h-1.5 rounded-full ${ACCENT_STRIP[accent]}`} />
 				<span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{title}</span>
@@ -371,7 +681,7 @@ function WorkspacesPanel({ projectId, currentName, onLoad, onSaveCurrent }: {
 
 function GroupPanel({ accent, children }: { accent: string; children: React.ReactNode }) {
 	return (
-		<div className="flex min-h-full">
+		<div className="flex min-h-full" style={accentStyle(accent)}>
 			<span className={`w-0.5 shrink-0 ${ACCENT_STRIP[accent]} opacity-60`} />
 			<div className="flex-1 px-3 py-3 min-w-0 flex flex-col">
 				{children}
@@ -532,6 +842,22 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [showInstructionInput, setShowInstructionInput] = useState(false);
   const [showInstructionPanel, setShowInstructionPanel] = useState(false);
   const [composeSkills, setComposeSkills] = useState<string[]>([]);
+  const [resourceStats, setResourceStats] = useState<Record<string, { pid: number | null; alive: boolean; memMB: number; cpuPct: number; eventLoopLagMs: number; ts: number }>>({});
+  useEffect(() => {
+    const api: any = (window as any).deskflowAPI;
+    if (!api || typeof api.onResourceStats !== 'function') return;
+    const unsub = api.onResourceStats((stats: any) => setResourceStats(stats || {}));
+    return typeof unsub === 'function' ? unsub : undefined;
+  }, []);
+  const [terminalAnomalies, setTerminalAnomalies] = useState<Record<string, { kind: string; type: string; severity: 'low' | 'medium' | 'high'; detail: string; ts: number }>>({});
+  const [cliUpdates, setCliUpdates] = useState<Array<{ agent: string; current: string; latest: string; pkg: string }>>([]);
+  useEffect(() => {
+    const api: any = (window as any).deskflowAPI;
+    const subs: Array<() => void> = [];
+    if (api && api.onTerminalAnomaly) subs.push(api.onTerminalAnomaly((d: any) => { setTerminalAnomalies((prev) => ({ ...prev, [d.terminalId]: { kind: d.kind, type: d.type, severity: d.severity, detail: d.detail, ts: d.ts } })); }));
+    if (api && api.onCliUpdateAvailable) subs.push(api.onCliUpdateAvailable((list: any) => { setCliUpdates(Array.isArray(list) ? list : []); }));
+    return () => { subs.forEach((u) => { try { u(); } catch (_e) { } }); };
+  }, []);
   const [instructionText, setInstructionText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [terminalError, setTerminalError] = useState<string | null>(null);
@@ -544,6 +870,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [workspaceName, setWorkspaceName] = useState<string>('default');
   const [showWorkspaceSaveAsDialog, setShowWorkspaceSaveAsDialog] = useState(false);
   const [workspaceSaveAsName, setWorkspaceSaveAsName] = useState('');
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => localStorage.getItem('workspace-auto-save') === 'true');
   const [showWorkspaceLoadDialog, setShowWorkspaceLoadDialog] = useState(false);
   const [workspaceList, setWorkspaceList] = useState<Array<{ name: string; isActive: boolean; sidebarWidth: number; activeTab: string; updatedAt: string }>>([]);
   const [workspaceListLoading, setWorkspaceListLoading] = useState(false);
@@ -803,6 +1130,21 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
       // small pause to let shell render
       await new Promise(r => setTimeout(r, 200));
+
+      // ═══ VERIFY resumeId against opencode's session list ═══
+      // If the stored id no longer exists in opencode, discard it and start fresh.
+      // This is the single gate for ALL resume paths (new session, dialog, resume list).
+      if (resumeId && resumeId.trim().length > 0) {
+        try {
+          const checkResult = await (window.deskflowAPI as any)?.checkSessionExists?.(resumeId);
+          if (checkResult && !checkResult.exists) {
+            console.log('[RESUME-DBG] Stored resumeId', resumeId, 'not found in opencode — starting fresh');
+            resumeId = undefined;
+          }
+        } catch (e) {
+          console.warn('[RESUME-DBG] Resume validation error, proceeding with resumeId:', e);
+        }
+      }
 
       // ═══ WRITE BANNER ═══
       let banner = `\r\n[resume] terminal ${terminalId} · looking up opencode session for ${projectPath || ''}…\r\n`;
@@ -1100,7 +1442,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
       // ── 3. Generate session ID ──────────────────────────────
       const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const sesResumeId = `local_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       // ── 4. Save session BEFORE terminal write ───────────────
       const existingSession = sessions.find(s => s.terminal_id === resolvedTargetId || s.id === resolvedTargetId);
@@ -1108,7 +1449,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         id: existingSession?.id || sessionId,
         projectId: selectedProject,
         agent: existingSession?.agent || 'claude',
-        resumeId: sesResumeId,
+        resumeId: undefined,
         terminalId: resolvedTargetId,
         topic,
         workingDirectory: cwd || '',
@@ -1153,7 +1494,30 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         console.error('[InstructionSend] Binding update failed:', err);
       }
 
-      // ── 7. Feedback ─────────────────────────────────────────
+      // ── 7. Background capture real opencode session ID ──────
+      if (cwd && !config.resumeId) {
+        const savedSessionId = existingSession?.id || sessionId;
+        (async () => {
+          await new Promise(r => setTimeout(r, 5000));
+          try {
+            if (!window.deskflowAPI) return;
+            const capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd);
+            if (capResult?.success && capResult.sessionId) {
+              await (window.deskflowAPI as any).updateSessionResumeId?.(savedSessionId, capResult.sessionId);
+              console.log('[InstructionSend] Captured opencode session:', capResult.sessionId, 'for', cwd);
+              loadSessions();
+              const updateBanner = `\r\n[resume] captured real opencode session ${capResult.sessionId} (source: db)\r\n`;
+              (window.deskflowAPI as any)?.terminalWriteDisplay?.(resolvedTargetId, updateBanner);
+            } else {
+              console.log('[InstructionSend] No opencode session found yet for', cwd, capResult?.reason);
+            }
+          } catch (e) {
+            console.warn('[InstructionSend] Background capture failed:', e);
+          }
+        })();
+      }
+
+      // ── 8. Feedback ─────────────────────────────────────────
       loadTerminalBindings();
       loadSessions();
       const toastMsg = `Sent to terminal (${config.problems.length} problems, ${config.requests.length} requests)`;
@@ -1651,13 +2015,26 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const saveWorkspaceDebounce = useRef<NodeJS.Timeout | null>(null);
 
   // Track unsaved workspace changes for beforeunload + navigation guard
-  const hasUnsavedChanges = useMemo(() => Object.keys(terminalTabs).length > 0, [terminalTabs]);
+  const savedStateHash = useRef<string>('');
+  const getWorkspaceStateHash = useCallback(() => {
+    const sig = {
+      tabs: Object.keys(terminalTabs).sort().map(id => `${id}:${terminalTabs[id].name}:${terminalTabs[id].agent}:${terminalTabs[id].modelTier || ''}`),
+      layout: terminalLayout ? JSON.stringify(terminalLayout) : '',
+      sidebarWidth,
+      activeGroup,
+      presetCount: presets.length,
+    };
+    return JSON.stringify(sig);
+  }, [terminalTabs, terminalLayout, sidebarWidth, activeGroup, presets]);
+
+  const hasUnsavedChanges = useMemo(() => {
+    return getWorkspaceStateHash() !== savedStateHash.current;
+  }, [getWorkspaceStateHash]);
 
   useEffect(() => {
     (window as any).__workspaceHasUnsavedChanges = hasUnsavedChanges;
   }, [hasUnsavedChanges]);
 
-  // beforeunload handler — warns if terminals are open
   useEffect(() => {
     if (!hasUnsavedChanges) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -1667,6 +2044,19 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [hasUnsavedChanges]);
+
+  // Auto-save: debounce save when changes occur and auto-save is enabled
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (!autoSaveEnabled || !hasUnsavedChanges || !workspaceName) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => {
+      handleSaveWorkspace(workspaceName);
+    }, 3000);
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+  }, [autoSaveEnabled, hasUnsavedChanges, workspaceName]);
 
   const handleSaveWorkspace = useCallback(async (name?: string) => {
     const wsProjectId = propProjectId || selectedProject;
@@ -1706,6 +2096,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       });
       if (result?.success) {
         setWorkspaceName(saveName);
+        savedStateHash.current = JSON.stringify({
+          tabs: Object.keys(terminalTabs).sort().map(id => `${id}:${terminalTabs[id].name}:${terminalTabs[id].agent}:${terminalTabs[id].modelTier || ''}`),
+          layout: terminalLayout ? JSON.stringify(terminalLayout) : '',
+          sidebarWidth,
+          activeGroup,
+          presetCount: presets.length,
+        });
         showError(`Workspace "${saveName}" saved`, 'info');
       } else {
         showError(result?.error || 'Failed to save workspace', 'error');
@@ -1778,6 +2175,20 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         if (savedTabs.length > 0 && !userCreatedTerminalRef.current) {
           const proj = projects.find(p => p.id === wsProjectId);
           const cwd = proj?.path || '';
+
+          // First: populate terminalTabs so the tab bar shows them immediately
+          const restoredTabs: Record<string, { name: string; agent: string; modelTier?: string }> = {};
+          for (const terminalId of savedTabs) {
+            const info = terminalInfo[terminalId];
+            restoredTabs[terminalId] = {
+              name: info?.name || 'Terminal',
+              agent: info?.agent || 'opencode',
+              modelTier: info?.modelTier || 'mid',
+            };
+          }
+          setTerminalTabs(restoredTabs);
+
+          // Second: spawn terminal processes
           for (const terminalId of savedTabs) {
             if (!terminalTabsRef.current[terminalId]) {
               const info = terminalInfo[terminalId];
@@ -1791,6 +2202,17 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         if (result.data.activeTerminalId) {
           setActiveTerminalId(result.data.activeTerminalId);
         }
+
+        // Mark loaded state as clean
+        setTimeout(() => {
+          savedStateHash.current = JSON.stringify({
+            tabs: Object.keys(terminalTabs).sort().map(id => `${id}:${terminalTabs[id].name}:${terminalTabs[id].agent}:${terminalTabs[id].modelTier || ''}`),
+            layout: terminalLayout ? JSON.stringify(terminalLayout) : '',
+            sidebarWidth,
+            activeGroup,
+            presetCount: presets.length,
+          });
+        }, 100);
       }
     } catch (err: any) {
       showError(err?.message || 'Failed to load workspace', 'error');
@@ -2172,10 +2594,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const handleResumeSession = useCallback(async (session: Session, targetTerminalId?: string) => {
     if (!window.deskflowAPI) return;
     try {
-      const resumeId = session.resume_id || (await window.deskflowAPI.getTerminalSessionResumeId(session.id));
+      let resumeId = session.resume_id || (await window.deskflowAPI.getTerminalSessionResumeId(session.id)) || undefined;
       const proj = projects.find(p => p.id === selectedProject);
       const cwd = proj?.path || '';
       let resolvedTerminalId = targetTerminalId;
+
+      // ═══ VERIFY stored resumeId against opencode's session list ═══
+      // If the session no longer exists in opencode, discard it and start fresh.
+      if (resumeId && !resumeId.startsWith('local_')) {
+        try {
+          const checkResult = await (window.deskflowAPI as any)?.checkSessionExists?.(resumeId);
+          if (checkResult && !checkResult.exists) {
+            console.log('[RESUME-DBG] Resume: stored id', resumeId, 'not found in opencode — starting fresh');
+            resumeId = undefined;
+          }
+        } catch (e) {
+          console.warn('[RESUME-DBG] Resume validation error, proceeding with resumeId:', e);
+        }
+      }
 
       // Load saved session config for init content
       let savedInitContent: string | undefined;
@@ -2412,7 +2848,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   return (
     <PageShell page="terminal" className="flex-1 flex bg-black text-white !p-0 !space-y-0 relative overflow-hidden">
       {/* Main Terminal Area */}
-      <div className="flex-1 flex flex-col bg-zinc-950">
+      <div style={accentStyle('cyan')} className="flex-1 flex flex-col bg-zinc-950">
         <div className="flex items-center justify-between px-4 py-2 bg-zinc-950 border-b border-zinc-800/60">
           <div className="flex items-center gap-3">
             <Monitor className="w-4 h-4 text-green-500" />
@@ -2691,6 +3127,21 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 <ToolbarButton icon={Save} onClick={handleSaveCheckpoint}>
                   Save
                 </ToolbarButton>
+                  {activeTerminalId ? <ModelSwitcher terminalId={activeTerminalId} agent={terminalTabs[activeTerminalId]?.agent || 'opencode'} /> : null}
+                <div className="h-6 w-px bg-zinc-700/50" />
+                {activeTerminalId && terminalAnomalies[activeTerminalId] ? (
+                  <AnomalyBadge anomalies={[{ severity: terminalAnomalies[activeTerminalId].severity, detail: (terminalAnomalies[activeTerminalId].kind === 'update' ? 'Update: ' : (terminalAnomalies[activeTerminalId].type + ': ')) + terminalAnomalies[activeTerminalId].detail }]} loading={false} onDismiss={() => setTerminalAnomalies((prev) => { const n = Object.assign({}, prev); delete n[activeTerminalId]; return n; })} />
+                ) : null}
+                {cliUpdates.length > 0 ? (
+                  <div className="h-6 w-px bg-zinc-700/50" />
+                ) : null}
+                {cliUpdates.length > 0 ? (
+                  <button onClick={() => (window as any).deskflowAPI && (window as any).deskflowAPI.checkCliUpdates && (window as any).deskflowAPI.checkCliUpdates()} title={cliUpdates.map((u) => u.agent + ' ' + u.current + ' -> ' + u.latest).join(', ')} className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-[color:var(--page-accent)]/10 text-[color:var(--page-accent)] ring-1 ring-inset ring-[color:var(--page-accent)]/30 hover:ring-[color:var(--page-accent)]/60 transition-colors duration-150">
+                    <RefreshCw className="w-3 h-3" />
+                    <span>{cliUpdates.length === 1 ? (cliUpdates[0].agent + ' update') : (cliUpdates.length + ' CLI updates')}</span>
+                  </button>
+                ) : null}
+                <ConfigGenerator agent={activeTerminalId ? (terminalTabs[activeTerminalId]?.agent || 'opencode') : 'all'} baseDir={propProjectPath || ''} />
                <button className={WS_ICON_BTN} onClick={() => { setShowInstructionInput(false); setInstructionText(''); }}>
                   <X className="w-4 h-4" />
                 </button>
@@ -2751,6 +3202,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   {sessionInTab && <StatusDot status={sessionInTab.status} />}
                   {sessionInTab?.status === 'action_required' && (
                     <AlertTriangle className="w-3.5 h-3.5 text-orange-500 animate-pulse ml-0.5" />
+                  )}
+                  {terminalAnomalies[id] && (
+                    <AlertCircle className={"w-3.5 h-3.5 ml-0.5 " + (terminalAnomalies[id].severity === 'high' ? 'text-red-500 animate-pulse' : 'text-amber-500')} />
                   )}
                   <span>{tab.name}</span>
                   {tab.modelTier && (
@@ -3014,8 +3468,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               <WorkspaceShell accent="orange" tabs={[
                 { key: 'presets', icon: Zap, label: 'Presets' },
                 { key: 'configs', icon: Settings, label: 'Configs' },
+                { key: 'backup', icon: Database, label: 'Backup' },
               ]} storageKey="setup" render={(sub) => {
                 switch (sub) {
+                  case 'backup': return (
+                    <GroupPanel accent="orange">
+                      <BackupPanel />
+                    </GroupPanel>
+                  );
                   case 'presets': return (
                     <GroupPanel accent="green">
                       <ToolbarButton variant="primary" icon={Plus} onClick={() => setShowAddPreset(true)}>
@@ -3048,7 +3508,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                           <div className="flex gap-1">
                             <button
                               onClick={handleAddPreset}
-                              className="flex-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded"
+                              className="flex-1 px-2 py-1 bg-[color:var(--page-accent)] text-zinc-950 font-semibold hover:brightness-110 text-xs rounded-md ring-1 ring-inset ring-white/15 transition"
                             >
                               Save
                             </button>
@@ -3066,7 +3526,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         <EmptyState iconComponent={TerminalIcon} title="No presets yet" hint="Add a preset to quickly execute commands." />
                       ) : (
                         presets.map((preset) => (
-                          <div key={preset.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900 p-2 group">
+                          <div key={preset.id} className="rounded-lg ring-1 ring-inset ring-zinc-800/70 bg-zinc-900/50 backdrop-blur-sm p-2.5 group hover:ring-[color:var(--page-accent)]/35 hover:bg-zinc-900/70 transition-all duration-150">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-medium text-zinc-200">
                                 {preset.isBuiltIn && <span className="text-[10px] text-blue-400 mr-1">[SYSTEM]</span>}
@@ -3724,6 +4184,30 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                           )}
                         </div>
                       </SectionCard>
+
+                      {/* Auto-Save Toggle */}
+                      <SectionCard accent="orange" title="Auto-Save">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-xs text-zinc-300">Auto-save workspace</span>
+                            <p className="text-[9px] text-zinc-600 mt-1">Automatically save workspace changes after 3s of inactivity</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const v = !autoSaveEnabled;
+                              setAutoSaveEnabled(v);
+                              localStorage.setItem('workspace-auto-save', String(v));
+                            }}
+                            className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${
+                              autoSaveEnabled ? 'bg-orange-500/30 border border-orange-500/40' : 'bg-zinc-700 border border-zinc-600'
+                            }`}
+                          >
+                            <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${
+                              autoSaveEnabled ? 'translate-x-4 bg-orange-400' : 'translate-x-0.5 bg-zinc-400'
+                            }`} />
+                          </button>
+                        </div>
+                      </SectionCard>
                     </GroupPanel>
                   );
                   default: return null;
@@ -3791,15 +4275,33 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
             {activeGroup === 'work' && (
               <WorkspaceShell accent="green" tabs={[
-                { key: 'sessions', icon: Clock, label: 'Sessions' },
-                { key: 'map', icon: Monitor, label: 'Map' },
-                { key: 'files', icon: Folder, label: 'Files' },
-                { key: 'workspaces', icon: Save, label: 'Workspaces' },
-              ]} storageKey="work" render={(sub) => {
+                 { key: 'sessions', icon: Clock, label: 'Sessions' },
+                 { key: 'swarm', icon: GitBranch, label: 'Swarm' },
+                 { key: 'map', icon: Monitor, label: 'Map' },
+                 { key: 'files', icon: Folder, label: 'Files' },
+                 { key: 'workspaces', icon: Save, label: 'Workspaces' },
+                 { key: 'run-configs', icon: Play, label: 'Run' },
+               ]} storageKey="work" render={(sub) => {
                 switch (sub) {
-                  case 'sessions': return (
-                    <GroupPanel accent="green">
-                      <div data-tutorial="term.sessions" className="relative flex-1 min-h-0">
+                   case 'swarm': return (
+                     <GroupPanel accent="green">
+                       <div className="relative flex-1 min-h-0">
+                         <div className="h-full overflow-y-auto ws-scroll px-3 py-3">
+                           {propProjectId || selectedProject ? (
+                             <ConductorPanel
+                               projectId={propProjectId || selectedProject}
+                               projectPath={propProjectPath || (projects.find(p => p.id === selectedProject)?.path || '')}
+                             />
+                           ) : (
+                             <div className="text-[11px] text-zinc-500 text-center py-8">Select a project to start swarming.</div>
+                           )}
+                         </div>
+                       </div>
+                     </GroupPanel>
+                   );
+                   case 'sessions': return (
+                     <GroupPanel accent="green">
+                       <div data-tutorial="term.sessions" className="relative flex-1 min-h-0">
                         <div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
                          {selectedSessionDetail ? (
                            <div>
@@ -3981,7 +4483,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                             return (
                                     <div key={session.id}
                                          onClick={async () => { setSelectedSessionDetail(session.id); setSessionMessages([]); try { const r = await window.deskflowAPI?.getSessionMessages?.(session.id, session.agent); if (r?.success) setSessionMessages(r.data || []); } catch {} }}
-                                         className="mb-2 p-2 bg-zinc-800 rounded group hover:bg-zinc-750 transition-colors border-l-2 cursor-pointer"
+                                         className="mb-2 p-2.5 bg-zinc-900/50 backdrop-blur-sm ring-1 ring-inset ring-zinc-800/70 rounded-lg group hover:ring-[color:var(--page-accent)]/35 hover:bg-zinc-900/70 transition-all duration-150 border-l-2 cursor-pointer"
                                          style={{ borderLeftColor: terminalInfo ? 'rgb(34 197 94 / 0.4)' : 'rgb(113 113 122 / 0.2)' }}
                                     >
                                       <div className="flex items-start justify-between">
@@ -4003,6 +4505,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                           {session.description && (
                                             <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1">{session.description}</div>
                                           )}
+                                          <SessionResourceStats stats={session.terminal_id ? resourceStats[session.terminal_id] : undefined} />
                                           <div className="flex items-center gap-2 mt-0.5">
                                             <span className="text-[10px] text-zinc-500">{formatDate(session.created_at)}</span>
                                             {session.product_area && (
@@ -4248,6 +4751,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   case 'files': return (
                     <GroupPanel accent="yellow">
                       <FilesTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
+                    </GroupPanel>
+                  );
+                  case 'run-configs': return (
+                    <GroupPanel accent="green">
+                      <div className="relative flex-1 min-h-0">
+                        <div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
+                          <RunConfigsPanel projectId={selectedProject} projectPath={propProjectPath} projects={projects} />
+                        </div>
+                      </div>
                     </GroupPanel>
                   );
                   default: return null;
@@ -4499,7 +5011,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   }
                 }
 
-                const sesResumeId = config.resumeId || `local_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const sesResumeId = config.resumeId || undefined;
                 const subtab = localStorage.getItem(`workspace-subtab-${activeGroup}`) || 'sessions';
                 const sessionResult = await window.deskflowAPI?.saveTerminalSession?.({
                   id: config.id,
@@ -4521,6 +5033,28 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 } else {
                   setSessions(prev => prev.filter(s => s.id !== config.id));
                   showError('Failed to save session', 'error');
+                }
+
+                // ═══ BACKGROUND CAPTURE real opencode session ID (only for new sessions) ═══
+                if (cwd && !config.resumeId) {
+                  (async () => {
+                    await new Promise(r => setTimeout(r, 5000));
+                    try {
+                      if (!window.deskflowAPI) return;
+                      const capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd);
+                      if (capResult?.success && capResult.sessionId) {
+                        await (window.deskflowAPI as any).updateSessionResumeId?.(config.id, capResult.sessionId);
+                        console.log('[TerminalPage] Captured opencode session:', capResult.sessionId, 'for', cwd);
+                        loadSessions();
+                        const updateBanner = `\r\n[resume] captured real opencode session ${capResult.sessionId} (source: db)\r\n`;
+                        (window.deskflowAPI as any)?.terminalWriteDisplay?.(targetTerminalId, updateBanner);
+                      } else {
+                        console.log('[TerminalPage] No opencode session found yet for', cwd, capResult?.reason);
+                      }
+                    } catch (e) {
+                      console.warn('[TerminalPage] Background capture failed:', e);
+                    }
+                  })();
                 }
               }}
               problems={allProblems}
@@ -4728,26 +5262,57 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]" onClick={() => setShowCloseWorkspaceDialog(false)}>
           <GlassCard className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-base font-bold text-white mb-2">Close Workspace</h2>
-            <p className="text-sm text-zinc-400 mb-6">Save a checkpoint before closing, or discard changes?</p>
+            <p className="text-sm text-zinc-400 mb-3">Save a checkpoint before closing, or discard changes?</p>
+            {hasUnsavedChanges && (
+              <div className="mb-4 p-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/40 space-y-1.5 text-[11px]">
+                <div className="flex items-center justify-between text-zinc-400">
+                  <span>Terminal tabs</span>
+                  <span className="text-zinc-200 font-medium">{Object.keys(terminalTabs).length}</span>
+                </div>
+                <div className="flex items-center justify-between text-zinc-400">
+                  <span>Sidebar width</span>
+                  <span className="text-zinc-200 font-medium">{sidebarWidth}px</span>
+                </div>
+                <div className="flex items-center justify-between text-zinc-400">
+                  <span>Active tab</span>
+                  <span className="text-zinc-200 font-medium capitalize">{activeGroup}</span>
+                </div>
+                {workspaceName && (
+                  <div className="flex items-center justify-between text-zinc-400">
+                    <span>Saved as</span>
+                    <span className="text-zinc-200 font-medium">{workspaceName}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {!hasUnsavedChanges && (
+              <p className="text-sm text-zinc-500 mb-4">No unsaved changes. Workspace is up to date.</p>
+            )}
             <div className="flex flex-col gap-2">
-              <button
-                onClick={async () => {
-                  setShowCloseWorkspaceDialog(false);
-                  await handleSaveWorkspace();
-                  onCloseWorkspace?.();
-                }}
-                className="w-full px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded text-sm font-medium"
-              >
-                Save & Close
-              </button>
+              {hasUnsavedChanges && (
+                <button
+                  onClick={async () => {
+                    setShowCloseWorkspaceDialog(false);
+                    await handleSaveWorkspace();
+                    onCloseWorkspace?.();
+                  }}
+                  className="w-full px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded text-sm font-medium"
+                >
+                  Save & Close
+                </button>
+              )}
               <button
                 onClick={() => {
                   setShowCloseWorkspaceDialog(false);
                   onCloseWorkspace?.();
                 }}
-                className="w-full px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm"
+                className={`w-full px-4 py-2 rounded text-sm font-medium ${
+                  hasUnsavedChanges
+                    ? 'bg-zinc-700 hover:bg-zinc-600 text-zinc-300'
+                    : 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white'
+                }`}
               >
-                Discard & Close
+                {hasUnsavedChanges ? 'Discard & Close' : 'Close Workspace'}
               </button>
               <button
                 onClick={() => setShowCloseWorkspaceDialog(false)}

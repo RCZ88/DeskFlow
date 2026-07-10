@@ -3,12 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, ArrowUpRight, ArrowDownRight, ArrowLeftRight,
   Calendar, Clock, Wallet, Landmark, Tag, RefreshCw,
-  FileText, Hash, Trash2, Lock as LockIcon,
+  FileText, Hash, Trash2, Lock as LockIcon, Pencil,
   ShoppingCart, Home, Car, Heart, Book, Coffee, Zap, Gift,
   Plane, Smartphone, Shirt, Utensils, Music, Gamepad, Monitor,
   Dumbbell, Droplets, Leaf, Wifi, Film, Train, Briefcase,
   DollarSign, PiggyBank, CreditCard, Banknote, Gem,
-  Receipt, TrendingUp, TrendingDown,
+  Receipt, TrendingUp, TrendingDown, Check, X as XIcon,
+  Handshake, CircleCheck, BadgePercent,
 } from 'lucide-react';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
@@ -16,17 +17,22 @@ import { convertAmount, formatCurrency as fmtCurrency } from './currency-data';
 import type {
   FinanceTransaction, FinanceAccount, FinanceCategory, FinanceWallet,
 } from './finance-types';
+import { getRepaymentStatus, getFtPerson, ftRepaidTag } from '../../lib/receivables';
+import { RepaymentModal } from './RepaymentModal';
 
 interface TransactionDetailModalProps {
   transaction: FinanceTransaction | null;
   accounts: FinanceAccount[];
   categories: FinanceCategory[];
   wallets: FinanceWallet[];
+  allTransactions?: FinanceTransaction[];
   displayCurrency: string;
   baseCurrency: string;
   onClose: () => void;
   onDelete?: (id: number) => Promise<boolean>;
+  onUpdate?: (id: number, data: Record<string, any>) => Promise<boolean>;
   onVerifyPassword?: (password: string) => Promise<boolean>;
+  onRecordFtRepayment?: (data: { originalTxId: number; personId?: number; amount: number; date: string; walletId?: number; description?: string; isOverpayment?: boolean }) => Promise<boolean>;
 }
 
 const ease = [0.16, 1, 0.3, 1];
@@ -85,11 +91,14 @@ export function TransactionDetailModal({
   accounts,
   categories,
   wallets,
+  allTransactions = [],
   displayCurrency,
   baseCurrency,
   onClose,
   onDelete,
+  onUpdate,
   onVerifyPassword,
+  onRecordFtRepayment,
 }: TransactionDetailModalProps) {
   const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [mounted, setMounted] = useState(false);
@@ -97,6 +106,10 @@ export function TransactionDetailModal({
   const [deletePassword, setDeletePassword] = useState('');
   const [deletePasswordError, setDeletePasswordError] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editData, setEditData] = useState<Record<string, any>>({});
+  const [saving, setSaving] = useState(false);
+  const [repaymentOpen, setRepaymentOpen] = useState(false);
 
   useEffect(() => {
     if (transaction) {
@@ -141,6 +154,30 @@ export function TransactionDetailModal({
     }
     setDeletePassword('');
     await handleDelete();
+  };
+
+  const startEditing = useCallback(() => {
+    if (!transaction) return;
+    setEditData({
+      description: transaction.description || '',
+      note: transaction.note || '',
+      date: transaction.date,
+      category_id: transaction.category_id,
+      on_behalf_of: transaction.on_behalf_of || 0,
+      on_behalf_of_label: transaction.on_behalf_of_label || '',
+    });
+    setEditing(true);
+  }, [transaction]);
+
+  const handleSave = async () => {
+    if (!transaction || !onUpdate) return;
+    setSaving(true);
+    const ok = await onUpdate(transaction.id, editData);
+    setSaving(false);
+    if (ok) {
+      setEditing(false);
+      close();
+    }
   };
 
   if (!transaction) return null;
@@ -301,7 +338,7 @@ export function TransactionDetailModal({
               </div>
 
               {/* Details section */}
-              {(transaction.note || tags.length > 0 || transaction.is_recurring) && (
+              {(transaction.note || tags.length > 0 || transaction.is_recurring || true) && (
                 <div className="mb-5 space-y-3">
                   {transaction.note && (
                     <div className="flex items-start gap-3 py-2 px-3 rounded-lg bg-zinc-800/40">
@@ -312,6 +349,16 @@ export function TransactionDetailModal({
                       </div>
                     </div>
                   )}
+
+                  <div className="flex items-center gap-3 py-2 px-3 rounded-lg bg-zinc-800/40">
+                      <BadgePercent className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] text-red-400/70">Fee</p>
+                        <p className={`text-xs font-medium tabular-nums ${transaction.fee > 0 ? 'text-red-400' : 'text-zinc-600'}`}>
+                          {transaction.fee > 0 ? `−${fmtCurrency(transaction.fee, displayCurrency)}` : fmtCurrency(0, displayCurrency)}
+                        </p>
+                      </div>
+                    </div>
 
                   {tags.length > 0 && (
                     <div className="flex items-start gap-3 py-2 px-3 rounded-lg bg-zinc-800/40">
@@ -373,91 +420,290 @@ export function TransactionDetailModal({
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="flex items-center gap-2">
-                {onDelete && (
-                  <AnimatePresence mode="popLayout">
-                    {confirmDelete ? (
-                      <motion.div
-                        key="confirm"
-                        initial={{ opacity: 0, x: 4 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 4 }}
-                        transition={{ duration: 0.15, ease }}
-                        className="flex items-center gap-2 flex-1"
-                      >
-                        {onVerifyPassword ? (
-                          <div className="flex items-center gap-2 flex-1">
-                            <div className="relative flex-1">
-                              <input
-                                type="password"
-                                value={deletePassword}
-                                onChange={(e) => { setDeletePassword(e.target.value); setDeletePasswordError(''); }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && deletePassword) handlePasswordDelete();
-                                  if (e.key === 'Escape') { setConfirmDelete(false); setDeletePassword(''); setDeletePasswordError(''); }
-                                }}
-                                placeholder="Password"
-                                autoFocus
-                                className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-red-500/50"
-                              />
-                              {deletePasswordError && (
-                                <p className="absolute top-full left-0 text-[9px] text-red-400 mt-0.5">{deletePasswordError}</p>
-                              )}
+              {/* Repayment status for Follow Through expenses */}
+              {transaction.on_behalf_of === 1 && transaction.type === 'expense' && !editing && (() => {
+                const ftPerson = getFtPerson(transaction);
+                const repayment = getRepaymentStatus(transaction, allTransactions);
+                const handleUnmarkRepaid = async () => {
+                  if (!onUpdate || repayment.repaymentTxs.length === 0) return;
+                  const lastRepay = repayment.repaymentTxs[repayment.repaymentTxs.length - 1];
+                  const rTags = lastRepay.tags ?? '';
+                  const newTags = rTags.split(',').filter(t => t.trim() !== ftRepaidTag(transaction.id) && !t.trim().startsWith('ft_overpayment:')).join(',');
+                  await onUpdate(lastRepay.id, { tags: newTags });
+                };
+                return (
+                  <div className="border-t border-white/5 pt-4 mb-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Handshake className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Repayment Status</span>
+                    </div>
+                    {(() => {
+                      const stillOwed = Math.abs(transaction.amount) - repayment.totalRepaid;
+                      if (repayment.repaid) {
+                        return (
+                          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <CircleCheck className="w-4 h-4 text-emerald-400" />
+                              <span className="text-sm font-medium text-emerald-400">Repaid</span>
                             </div>
-                            <button
-                              onClick={handlePasswordDelete}
-                              disabled={deleting || !deletePassword}
-                              className="px-3 py-2 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-40 focus-visible:ring-2 ring-red-500/50 ring-offset-2 ring-offset-zinc-950"
-                            >
-                              {deleting ? '...' : 'Confirm'}
-                            </button>
-                            <button
-                              onClick={() => { setConfirmDelete(false); setDeletePassword(''); setDeletePasswordError(''); }}
-                              className="px-3 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-                            >
-                              Cancel
-                            </button>
+                            {repayment.repaymentTxs.length === 1 && (
+                              <p className="text-[11px] text-zinc-400">
+                                Repaid on {formatTimestamp(repayment.repaymentTxs[0].date)}{ftPerson ? ` by ${ftPerson}` : ''} &mdash; {fmtCurrency(repayment.totalRepaid, displayCurrency)}
+                              </p>
+                            )}
+                            {repayment.repaymentTxs.length > 1 && (
+                              <p className="text-[11px] text-zinc-400">
+                                Repaid in {repayment.repaymentTxs.length} payment{repayment.repaymentTxs.length > 1 ? 's' : ''} ({fmtCurrency(repayment.totalRepaid, displayCurrency)})
+                              </p>
+                            )}
+                            {onUpdate && (
+                              <button onClick={handleUnmarkRepaid} className="mt-2 text-[10px] text-zinc-500 hover:text-zinc-300 underline">
+                                Undo last repayment
+                              </button>
+                            )}
                           </div>
-                        ) : (
-                          <>
+                        );
+                      }
+                      return (
+                        <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                            <span className="text-sm font-medium text-amber-400">Awaiting repayment</span>
+                          </div>
+                          {repayment.totalRepaid > 0 && (
+                            <p className="text-[11px] text-zinc-400 mb-1">
+                              {fmtCurrency(repayment.totalRepaid, displayCurrency)} repaid so far &mdash; {fmtCurrency(stillOwed, displayCurrency)} still owed
+                            </p>
+                          )}
+                          {ftPerson && (
+                            <p className="text-[11px] text-zinc-400 mb-2">{ftPerson} owes you {fmtCurrency(stillOwed, displayCurrency)}</p>
+                          )}
+                          {onRecordFtRepayment && (
                             <button
-                              onClick={handleDelete}
-                              disabled={deleting}
-                              className="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-40 focus-visible:ring-2 ring-red-500/50 ring-offset-2 ring-offset-zinc-950"
+                              onClick={() => setRepaymentOpen(true)}
+                              className="text-[11px] px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors font-medium"
                             >
-                              {deleting ? 'Deleting...' : 'Confirm Delete'}
+                              Record Repayment
                             </button>
-                            <button
-                              onClick={() => setConfirmDelete(false)}
-                              className="px-3 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        )}
-                      </motion.div>
-                    ) : (
-                      <motion.button
-                        key="delete"
-                        layout
-                        onClick={() => setConfirmDelete(true)}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors focus-visible:ring-2 ring-red-500/50 ring-offset-2 ring-offset-zinc-950"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Delete
-                      </motion.button>
-                    )}
-                  </AnimatePresence>
-                )}
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              })()}
 
-                <button
-                  onClick={close}
-                  className="ml-auto px-4 py-2 rounded-lg text-xs font-medium bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700/80 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-                >
-                  Close
-                </button>
-              </div>
+              {repaymentOpen && transaction && (
+                <RepaymentModal
+                  open={repaymentOpen}
+                  onClose={() => setRepaymentOpen(false)}
+                  personName={getFtPerson(transaction) ?? 'Someone'}
+                  totalAmount={Math.abs(transaction.amount)}
+                  amountOwed={Math.abs(transaction.amount) - (repayment?.totalRepaid ?? 0)}
+                  txIds={[transaction.id]}
+                  originalTx={transaction}
+                  wallets={wallets}
+                  displayCurrency={displayCurrency}
+                  onConfirm={async (data) => {
+                    const ok = await onRecordFtRepayment?.({
+                      originalTxId: transaction.id,
+                      personId: data.personId,
+                      amount: data.amount,
+                      date: data.date,
+                      walletId: data.walletId,
+                      description: data.description,
+                      isOverpayment: data.isOverpayment,
+                    });
+                    if (ok) setRepaymentOpen(false);
+                    return ok ?? false;
+                  }}
+                />
+              )}
+
+              {/* Edit mode fields */}
+              {editing ? (
+                <>
+                  <div className="space-y-3 mb-5">
+                    <div>
+                      <label className="block text-[11px] text-zinc-500 mb-1">Description</label>
+                      <input
+                        value={editData.description || ''}
+                        onChange={e => setEditData(p => ({ ...p, description: e.target.value }))}
+                        className="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-zinc-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-zinc-500 mb-1">Note</label>
+                      <textarea
+                        value={editData.note || ''}
+                        onChange={e => setEditData(p => ({ ...p, note: e.target.value }))}
+                        rows={2}
+                        className="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-zinc-500 resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-zinc-500 mb-1">Date</label>
+                      <input
+                        type="date"
+                        value={editData.date || ''}
+                        onChange={e => setEditData(p => ({ ...p, date: e.target.value }))}
+                        className="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-zinc-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-zinc-500 mb-1">Category</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {categories.filter(c => c.type === transaction.type).map(cat => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setEditData(p => ({ ...p, category_id: cat.id }))}
+                            className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                              editData.category_id === cat.id
+                                ? 'bg-zinc-600 text-white'
+                                : 'bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700/60'
+                            }`}
+                          >
+                            {cat.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {transaction.type === 'expense' && (
+                      <div className="pt-1">
+                        <label className="flex items-center gap-2.5 cursor-pointer group">
+                          <div onClick={(e) => { e.stopPropagation(); setEditData(p => ({ ...p, on_behalf_of: p.on_behalf_of ? 0 : 1 })); }}
+                            className={`w-9 h-5 rounded-full transition-colors duration-200 relative ${editData.on_behalf_of ? 'bg-amber-500' : 'bg-zinc-700/60'}`}>
+                            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-200 ${editData.on_behalf_of ? 'left-[18px]' : 'left-0.5'}`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[11px] text-zinc-400 group-hover:text-zinc-300 transition-colors">
+                              <span className="text-amber-400 font-medium">Follow Through</span> — Is this for someone else?
+                            </div>
+                            {editData.on_behalf_of === 1 && (
+                              <input value={editData.on_behalf_of_label || ''} onChange={e => setEditData(p => ({ ...p, on_behalf_of_label: e.target.value }))}
+                                placeholder="Who? (e.g. Mom's groceries)"
+                                className="mt-1.5 w-full rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-xs text-white placeholder-zinc-600 outline-none focus:border-amber-500/50" />
+                            )}
+                          </div>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-40"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      {saving ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => setEditing(false)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+                    >
+                      <XIcon className="w-3.5 h-3.5" />
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                /* Actions */
+                <div className="flex items-center gap-2">
+                  {onUpdate && !confirmDelete && (
+                    <button
+                      onClick={startEditing}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-zinc-700/40 text-zinc-300 hover:bg-zinc-700/60 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Edit
+                    </button>
+                  )}
+                  {onDelete && (
+                    <AnimatePresence mode="popLayout">
+                      {confirmDelete ? (
+                        <motion.div
+                          key="confirm"
+                          initial={{ opacity: 0, x: 4 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: 4 }}
+                          transition={{ duration: 0.15, ease }}
+                          className="flex items-center gap-2 flex-1"
+                        >
+                          {onVerifyPassword ? (
+                            <div className="flex items-center gap-2 flex-1">
+                              <div className="relative flex-1">
+                                <input
+                                  type="password"
+                                  value={deletePassword}
+                                  onChange={(e) => { setDeletePassword(e.target.value); setDeletePasswordError(''); }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && deletePassword) handlePasswordDelete();
+                                    if (e.key === 'Escape') { setConfirmDelete(false); setDeletePassword(''); setDeletePasswordError(''); }
+                                  }}
+                                  placeholder="Password"
+                                  autoFocus
+                                  className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-red-500/50"
+                                />
+                                {deletePasswordError && (
+                                  <p className="absolute top-full left-0 text-[9px] text-red-400 mt-0.5">{deletePasswordError}</p>
+                                )}
+                              </div>
+                              <button
+                                onClick={handlePasswordDelete}
+                                disabled={deleting || !deletePassword}
+                                className="px-3 py-2 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-40 focus-visible:ring-2 ring-red-500/50 ring-offset-2 ring-offset-zinc-950"
+                              >
+                                {deleting ? '...' : 'Confirm'}
+                              </button>
+                              <button
+                                onClick={() => { setConfirmDelete(false); setDeletePassword(''); setDeletePasswordError(''); }}
+                                className="px-3 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={handleDelete}
+                                disabled={deleting}
+                                className="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-40 focus-visible:ring-2 ring-red-500/50 ring-offset-2 ring-offset-zinc-950"
+                              >
+                                {deleting ? 'Deleting...' : 'Confirm Delete'}
+                              </button>
+                              <button
+                                onClick={() => setConfirmDelete(false)}
+                                className="px-3 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          )}
+                        </motion.div>
+                      ) : (
+                        <motion.button
+                          key="delete"
+                          layout
+                          onClick={() => setConfirmDelete(true)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors focus-visible:ring-2 ring-red-500/50 ring-offset-2 ring-offset-zinc-950"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Delete
+                        </motion.button>
+                      )}
+                    </AnimatePresence>
+                  )}
+
+                  <button
+                    onClick={close}
+                    className="ml-auto px-4 py-2 rounded-lg text-xs font-medium bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700/80 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         </motion.div>

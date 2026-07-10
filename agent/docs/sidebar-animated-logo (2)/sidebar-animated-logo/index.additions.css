@@ -1,0 +1,50 @@
+/* ================= Sidebar Wordmark v9 (FINAL) — Dark Titanium + Left→Right Shine =================
+   - Darker brushed-titanium base (silver top edge -> near-black bottom).
+   - Heavier (900) + widened letterforms for a more dominant wordmark.
+   - A bright specular shine that travels LEFT -> RIGHT across the letters, pauses, repeats.
+   - No glow / ambient light — only a subtle dark depth shadow.
+
+   Two stacked background layers, both clipped to the glyphs:
+     layer 1 = moving bright shine band (animated)
+     layer 2 = static dark-titanium gradient (stays put = the metal look) */
+
+.sidebar-logo{
+  display:inline-flex;align-items:center;cursor:pointer;
+  isolation:isolate;-webkit-tap-highlight-color:transparent;
+}
+
+.sidebar-logo__text{
+  font-family:'Arial Black','Inter',system-ui,sans-serif;
+  font-weight:900;font-size:26px;letter-spacing:0.09em;
+  transform:scaleX(1.10);transform-origin:left center; /* wider, more dominant */
+  color:transparent;
+  background-image:
+    /* (1) moving shine band */
+    linear-gradient(100deg,
+      rgba(255,255,255,0) 44%,
+      rgba(255,255,255,0.60) 48%,
+      rgba(255,255,255,0.98) 50%,
+      rgba(255,255,255,0.60) 52%,
+      rgba(255,255,255,0) 56%),
+    /* (2) static DARK titanium base */
+    linear-gradient(180deg,
+      #cfd3d8 0%, #9498a0 22%, #565b63 46%, #34383f 62%, #1c1e22 100%);
+  background-size:220% 100%, 100% 100%;
+  background-position:150% 0, 0 0;
+  background-repeat:no-repeat;
+  -webkit-background-clip:text;background-clip:text;
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.6)); /* depth only — NO glow */
+  animation:sidebarShine 3.2s cubic-bezier(.4,0,.2,1) infinite;
+}
+.sidebar-logo:hover .sidebar-logo__text{animation-duration:1.2s}
+
+/* decreasing position moves the highlight LEFT -> RIGHT across the word */
+@keyframes sidebarShine{
+  0%{background-position:150% 0, 0 0}   /* shine enters from the left */
+  45%{background-position:-70% 0, 0 0}  /* shine has exited to the right */
+  100%{background-position:-70% 0, 0 0} /* hold — pause before next pass */
+}
+
+@media (prefers-reduced-motion:reduce){
+  .sidebar-logo__text{animation:none;background-position:-70% 0,0 0}
+}

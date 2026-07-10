@@ -1,0 +1,212 @@
+/* Lyceum Learn — feature styles for the curriculum showcase, table of contents,
+   checklist, assessment card, selection pill, and highlights.
+   Uses the warm editorial tokens defined in index.css (@theme).
+   Import once, e.g. in LearnPage.tsx: import '../../styles/lyceum-learn-features.css'; */
+
+/* ---------- Table of contents ---------- */
+.lyceum-toc {
+  position: sticky;
+  top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--ws-surface, #18181b) 80%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-clay-400, #e8866b) 14%, transparent);
+}
+.lyceum-toc-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.25rem 0.4rem 0.5rem;
+}
+.lyceum-toc-head-text { display: flex; flex-direction: column; }
+.lyceum-toc-title { font-family: var(--font-serif, Georgia, serif); font-size: 0.95rem; font-weight: 600; }
+.lyceum-toc-sub { font-size: 0.72rem; opacity: 0.6; }
+.lyceum-toc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.lyceum-toc-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+.lyceum-toc-item:hover { background: color-mix(in oklab, var(--color-clay-400, #e8866b) 10%, transparent); }
+.lyceum-toc-item.is-active { background: color-mix(in oklab, var(--color-clay-500, #d96846) 16%, transparent); }
+.lyceum-toc-rail {
+  position: absolute; left: 0; top: 12%; bottom: 12%; width: 3px; border-radius: 3px;
+  background: transparent; transition: background 160ms ease;
+}
+.lyceum-toc-item.is-active .lyceum-toc-rail { background: var(--color-clay-500, #d96846); }
+.lyceum-toc-index { font-family: var(--font-mono, monospace); font-size: 0.7rem; opacity: 0.5; }
+.lyceum-toc-label { font-size: 0.85rem; line-height: 1.25; }
+.lyceum-toc-item.is-active .lyceum-toc-label { font-weight: 600; }
+
+/* ---------- Curriculum showcase (the "shelf of books") ---------- */
+.lyceum-showcase { display: flex; flex-direction: column; gap: 2.5rem; padding: 1.5rem 0 4rem; }
+.lyceum-showcase-hero { max-width: 46rem; }
+.lyceum-showcase-title {
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  font-weight: 600; line-height: 1.1; margin: 0 0 0.5rem;
+}
+.lyceum-showcase-sub { font-size: 1rem; line-height: 1.55; opacity: 0.72; margin: 0; }
+.lyceum-showcase-phase { display: flex; flex-direction: column; gap: 1rem; }
+.lyceum-showcase-phase-head { display: flex; align-items: baseline; gap: 0.75rem; }
+.lyceum-showcase-phase-title { font-family: var(--font-serif, Georgia, serif); font-size: 1.15rem; font-weight: 600; margin: 0; }
+.lyceum-showcase-phase-window { font-size: 0.78rem; opacity: 0.55; font-family: var(--font-mono, monospace); }
+.lyceum-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.1rem;
+}
+
+/* Part card — evokes a book: cloth spine + paper body */
+.lyceum-part-card {
+  position: relative;
+  display: flex;
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--ws-surface, #18181b) 86%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-clay-400, #e8866b) 12%, transparent);
+  box-shadow: 0 14px 30px -22px rgba(0,0,0,0.8);
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+}
+.lyceum-part-card:hover { transform: translateY(-3px); box-shadow: 0 22px 44px -24px rgba(0,0,0,0.9); }
+.lyceum-part-spine { width: 8px; flex: 0 0 8px; background: linear-gradient(180deg, var(--color-clay-400, #e8866b), var(--color-clay-600, #c2553a)); }
+.lyceum-part-card.rarity-5 .lyceum-part-spine { background: linear-gradient(180deg, var(--color-amber-400, #fbbf24), var(--color-clay-600, #c2553a)); }
+.lyceum-part-card.rarity-5 { border-color: color-mix(in oklab, var(--color-amber-400, #fbbf24) 30%, transparent); }
+.lyceum-part-body { padding: 1.1rem 1.2rem 1.2rem; display: flex; flex-direction: column; gap: 0.7rem; flex: 1; }
+.lyceum-part-top { display: flex; align-items: center; gap: 0.5rem; }
+.lyceum-part-emoji { font-size: 1.4rem; }
+.lyceum-part-num { font-family: var(--font-mono, monospace); font-size: 0.72rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.04em; }
+.lyceum-part-rarity { margin-left: auto; color: var(--color-amber-400, #fbbf24); font-size: 0.85rem; letter-spacing: 1px; }
+.lyceum-part-title { font-family: var(--font-serif, Georgia, serif); font-size: 1.25rem; font-weight: 600; margin: 0; line-height: 1.15; }
+.lyceum-part-intro { font-size: 0.85rem; line-height: 1.5; opacity: 0.72; margin: 0; }
+.lyceum-part-trailer { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.2rem 0; }
+.lyceum-part-trailer > div { display: grid; grid-template-columns: 3.2rem 1fr; gap: 0.5rem; }
+.lyceum-part-trailer dt { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5; font-family: var(--font-mono, monospace); padding-top: 0.1rem; }
+.lyceum-part-trailer dd { margin: 0; font-size: 0.8rem; line-height: 1.4; opacity: 0.85; }
+.lyceum-part-actions { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
+
+.lyceum-btn-primary {
+  appearance: none; border: 0; cursor: pointer;
+  padding: 0.5rem 0.95rem; border-radius: 9px;
+  font-size: 0.85rem; font-weight: 600;
+  color: #1a1207;
+  background: linear-gradient(180deg, var(--color-clay-300, #f0a892), var(--color-clay-500, #d96846));
+  transition: filter 160ms ease, transform 160ms ease;
+}
+.lyceum-btn-primary:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.lyceum-btn-ghost {
+  appearance: none; cursor: pointer;
+  padding: 0.5rem 0.85rem; border-radius: 9px; font-size: 0.85rem;
+  background: transparent; color: inherit;
+  border: 1px solid color-mix(in oklab, var(--color-clay-400, #e8866b) 30%, transparent);
+}
+.lyceum-btn-ghost:hover { background: color-mix(in oklab, var(--color-clay-400, #e8866b) 10%, transparent); }
+
+/* ---------- Checklist ---------- */
+.lyceum-checklist { display: flex; flex-direction: column; gap: 0.6rem; }
+.lyceum-checklist-head { display: flex; align-items: center; gap: 0.6rem; }
+.lyceum-checklist-label { font-size: 0.8rem; font-weight: 600; }
+.lyceum-checklist-sub { font-size: 0.72rem; opacity: 0.6; }
+.lyceum-checklist-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.lyceum-checklist-item {
+  display: flex; align-items: flex-start; gap: 0.5rem; width: 100%;
+  padding: 0.35rem 0.4rem; border: 0; background: transparent; color: inherit;
+  text-align: left; border-radius: 7px; cursor: pointer; font-size: 0.8rem; line-height: 1.4;
+}
+.lyceum-checklist-item:hover:not(:disabled) { background: color-mix(in oklab, var(--color-sage-400, #6fb38f) 10%, transparent); }
+.lyceum-checklist-item:disabled { cursor: default; }
+.lyceum-checklist-box {
+  flex: 0 0 1rem; width: 1rem; height: 1rem; margin-top: 0.1rem;
+  border-radius: 5px; border: 1.5px solid color-mix(in oklab, var(--color-clay-400, #e8866b) 45%, transparent);
+  display: grid; place-items: center; font-size: 0.7rem; color: #0c0c0c;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.lyceum-checklist-item.is-done .lyceum-checklist-box { background: var(--color-sage-400, #6fb38f); border-color: var(--color-sage-400, #6fb38f); }
+.lyceum-checklist-item.is-done .lyceum-checklist-text { opacity: 0.5; text-decoration: line-through; }
+.lyceum-checklist-compact { display: inline-flex; align-items: center; gap: 0.4rem; }
+.lyceum-checklist-count { font-size: 0.75rem; font-family: var(--font-mono, monospace); opacity: 0.7; }
+.lyceum-checklist-ring { color: var(--color-sage-400, #6fb38f); }
+.lyceum-checklist-ring-track { color: color-mix(in oklab, currentColor 18%, transparent); }
+.lyceum-checklist-ring-fill { transition: stroke-dashoffset 500ms ease; }
+.lyceum-checklist-ring-text { fill: currentColor; font-size: 0.62rem; font-family: var(--font-mono, monospace); }
+
+/* ---------- Assessment card ---------- */
+.lyceum-assess {
+  display: flex; flex-direction: column; gap: 0.9rem;
+  padding: 1.1rem 1.2rem; border-radius: 14px;
+  background: color-mix(in oklab, var(--ws-surface, #18181b) 88%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-clay-400, #e8866b) 16%, transparent);
+}
+.lyceum-assess-head { display: flex; align-items: center; gap: 0.8rem; }
+.lyceum-assess-topic { font-family: var(--font-serif, Georgia, serif); font-size: 1.05rem; font-weight: 600; }
+.lyceum-assess-level { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.2rem; }
+.lyceum-assess-chip {
+  font-family: var(--font-mono, monospace); font-size: 0.72rem; font-weight: 700;
+  padding: 0.1rem 0.4rem; border-radius: 6px; color: #0b0b0b; background: var(--color-clay-400, #e8866b);
+}
+.lyceum-assess-chip.lvl-L0 { background: #5B6472; color: #fff; }
+.lyceum-assess-chip.lvl-L1 { background: #5B8DEF; color: #fff; }
+.lyceum-assess-chip.lvl-L2 { background: #23B5B5; }
+.lyceum-assess-chip.lvl-L3 { background: #3CCB7F; }
+.lyceum-assess-chip.lvl-L4 { background: #A78BFA; color: #fff; }
+.lyceum-assess-chip.lvl-L5 { background: #F5C04E; }
+.lyceum-assess-levelname { font-size: 0.8rem; opacity: 0.75; }
+.lyceum-assess-target { font-size: 0.72rem; opacity: 0.5; font-family: var(--font-mono, monospace); margin-left: auto; }
+.lyceum-assess-body { display: flex; flex-direction: column; gap: 0.55rem; margin: 0; }
+.lyceum-assess-row { display: grid; grid-template-columns: 6.5rem 1fr; gap: 0.6rem; }
+.lyceum-assess-row dt { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; font-family: var(--font-mono, monospace); padding-top: 0.1rem; }
+.lyceum-assess-row dd { margin: 0; font-size: 0.85rem; line-height: 1.45; }
+.lyceum-assess-row.tone-good dt { color: var(--color-sage-400, #6fb38f); opacity: 0.9; }
+.lyceum-assess-row.tone-warn dt { color: var(--color-amber-400, #fbbf24); opacity: 0.9; }
+.lyceum-assess-row.tone-action dt { color: var(--color-clay-400, #e8866b); opacity: 0.9; }
+.lyceum-assess-foot { font-size: 0.7rem; opacity: 0.45; font-family: var(--font-mono, monospace); }
+
+/* ---------- Selection pill ---------- */
+.lyceum-selection-pill {
+  position: fixed; z-index: 60;
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.35rem 0.45rem; border-radius: 12px;
+  background: color-mix(in oklab, #1b1b1f 88%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-clay-400, #e8866b) 22%, transparent);
+  box-shadow: 0 16px 38px -18px rgba(0,0,0,0.85);
+  animation: lyceum-pill-in 140ms ease;
+}
+@keyframes lyceum-pill-in { from { opacity: 0; transform: translate(-50%, -100%) translateY(4px); } to { opacity: 1; } }
+.lyceum-selection-modes, .lyceum-selection-colors { display: flex; align-items: center; gap: 0.2rem; }
+.lyceum-selection-divider { width: 1px; align-self: stretch; margin: 0.15rem 0.1rem; background: color-mix(in oklab, var(--color-clay-400, #e8866b) 25%, transparent); }
+.lyceum-selection-btn {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  border: 0; background: transparent; color: #f3ede6; cursor: pointer;
+  font-size: 0.78rem; padding: 0.3rem 0.5rem; border-radius: 8px;
+}
+.lyceum-selection-btn:hover { background: color-mix(in oklab, var(--color-clay-400, #e8866b) 18%, transparent); }
+.lyceum-selection-swatch {
+  width: 1.1rem; height: 1.1rem; border-radius: 50%; cursor: pointer;
+  border: 1.5px solid rgba(255,255,255,0.25); padding: 0;
+}
+.lyceum-selection-swatch:hover { transform: scale(1.12); }
+
+/* ---------- Highlights (the persistent marks) ---------- */
+mark.lyceum-hl { border-radius: 3px; padding: 0 1px; color: inherit; background: transparent; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+mark.lyceum-hl-amber { background: color-mix(in oklab, #fbbf24 38%, transparent); }
+mark.lyceum-hl-clay { background: color-mix(in oklab, #e8866b 40%, transparent); }
+mark.lyceum-hl-sage { background: color-mix(in oklab, #6fb38f 40%, transparent); }
+mark.lyceum-hl-sky { background: color-mix(in oklab, #5ab0c9 40%, transparent); }
+mark.lyceum-hl[title]:hover { outline: 1.5px dashed color-mix(in oklab, currentColor 40%, transparent); outline-offset: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lyceum-part-card, .lyceum-btn-primary, .lyceum-toc-item, .lyceum-checklist-ring-fill, .lyceum-selection-pill { transition: none; animation: none; }
+}

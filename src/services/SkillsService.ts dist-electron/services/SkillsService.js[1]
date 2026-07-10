@@ -1,0 +1,197 @@
+"use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var SkillsService_exports = {};
+__export(SkillsService_exports, {
+  SkillsService: () => SkillsService
+});
+module.exports = __toCommonJS(SkillsService_exports);
+var fs = __toESM(require("fs"), 1);
+var path = __toESM(require("path"), 1);
+const { enhanceSkillWithDSL } = require("./SkillDSLParser.cjs");
+class SkillsService {
+  baseDir;
+  skillsDir;
+  constructor(baseDir) {
+    this.baseDir = baseDir || this.getDefaultBaseDir();
+    this.skillsDir = path.join(this.baseDir, "agent", "skills");
+  }
+  getDefaultBaseDir() {
+    return path.join(process.cwd());
+  }
+  ensureSkillsDir() {
+    if (!fs.existsSync(this.skillsDir)) {
+      fs.mkdirSync(this.skillsDir, { recursive: true });
+    }
+  }
+  getSkills() {
+    this.ensureSkillsDir();
+    const skills = [];
+    if (!fs.existsSync(this.skillsDir)) {
+      return skills;
+    }
+    const entries = fs.readdirSync(this.skillsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const skillPath = path.join(this.skillsDir, entry.name, "SKILL.md");
+        if (fs.existsSync(skillPath)) {
+          const skill = this.loadSkillFromFile(skillPath);
+          if (skill) skills.push(skill);
+        }
+      } else if (entry.name.endsWith(".md") && entry.name !== "README.md") {
+        const skillPath = path.join(this.skillsDir, entry.name);
+        const skill = this.loadSkillFromFile(skillPath);
+        if (skill) skills.push(skill);
+      }
+    }
+    return skills;
+  }
+  loadSkillFromFile(filePath) {
+    try {
+      const content = fs.readFileSync(filePath, "utf-8");
+      const frontmatterMatch = content.trimStart().match(/^---\n([\s\S]*?)\n---/);
+      const frontmatter = frontmatterMatch ? frontmatterMatch[1] : "";
+      let id = path.basename(path.dirname(filePath));
+      let name = id.replace(/-/g, " ").replace(/_/g, " ");
+      let description = "";
+      let category = "general";
+      const nameMatch = content.match(/^#\s+(.+?)\n/m) || frontmatter.match(/^name:\s*(.+?)$/m);
+      if (nameMatch) name = nameMatch[1].trim();
+      const descMatch = frontmatter.match(/^description:\s*(.+?)$/m);
+      if (descMatch) description = descMatch[1].trim();
+      const catMatch = frontmatter.match(/^category:\s*(.+?)$/m);
+      if (catMatch) category = catMatch[1].trim();
+      const inputs = parseFrontmatterList(frontmatter, "inputs");
+      const outputs = parseFrontmatterList(frontmatter, "outputs");
+      const components = parseFrontmatterList(frontmatter, "components");
+      const result = {
+        id,
+        name,
+        description: description || this.generateDescription(content),
+        category,
+        content,
+        filePath,
+        inputs: inputs.length > 0 ? inputs : void 0,
+        outputs: outputs.length > 0 ? outputs : void 0,
+        components: components.length > 0 ? components : void 0
+      };
+      return enhanceSkillWithDSL(result);
+    } catch (err) {
+      console.error("[SkillsService] Failed to load skill:", filePath, err);
+      return null;
+    }
+  }
+  generateDescription(content) {
+    const lines = content.split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#") && !trimmed.startsWith("---") && trimmed.length > 10) {
+        return trimmed.substring(0, 150);
+      }
+    }
+    return "No description available";
+  }
+  getSkillById(id) {
+    const skills = this.getSkills();
+    return skills.find((s) => s.id === id) || null;
+  }
+  getSkillContext(skillId) {
+    const skill = this.getSkillById(skillId);
+    if (!skill) return "";
+    const lines = skill.content.split("\n");
+    const contextLines = [];
+    let inKeySection = false;
+    for (const line of lines) {
+      if (line.startsWith("---") || line.startsWith("# ") || line.match(/^(name|description|category):/i)) {
+        continue;
+      }
+      if (line.startsWith("## ") || line.startsWith("### ")) {
+        if (line.toLowerCase().includes("instructions") || line.toLowerCase().includes("task") || line.toLowerCase().includes("workflow")) {
+          inKeySection = true;
+        }
+        contextLines.push(line);
+      } else if (inKeySection && line.trim()) {
+        contextLines.push(line);
+      }
+    }
+    return `[Skill: ${skill.name}]
+${contextLines.slice(0, 50).join("\n")}`;
+  }
+}
+function parseFrontmatterList(frontmatter, key) {
+  const lines = frontmatter.split("\n");
+  const results = [];
+  let inSection = false;
+  let currentItem = null;
+  for (const line of lines) {
+    if (line === `${key}:` || new RegExp(`^${key}:\\s*$`).test(line)) {
+      inSection = true;
+      continue;
+    }
+    if (inSection && /^\w[\w-]*:/.test(line) && !line.startsWith(" ")) {
+      if (currentItem && Object.keys(currentItem).length > 0) {
+        results.push(currentItem);
+      }
+      currentItem = null;
+      inSection = false;
+      continue;
+    }
+    if (!inSection) continue;
+    if (line.trim() === "") continue;
+    const newItemMatch = line.match(/^  - (\w+):\s*(.+)$/);
+    if (newItemMatch) {
+      if (currentItem && Object.keys(currentItem).length > 0) {
+        results.push(currentItem);
+      }
+      currentItem = {};
+      let val = newItemMatch[2].trim();
+      if (val === "true") val = true;
+      else if (val === "false") val = false;
+      currentItem[newItemMatch[1]] = val;
+      continue;
+    }
+    const propMatch = line.match(/^    (\w+):\s*(.+)$/);
+    if (propMatch && currentItem) {
+      let val = propMatch[2].trim();
+      if (val === "true") val = true;
+      else if (val === "false") val = false;
+      else if (val.startsWith("[") && val.endsWith("]")) {
+        val = val.slice(1, -1).split(",").map((s) => s.trim());
+      }
+      currentItem[propMatch[1]] = val;
+    }
+  }
+  if (currentItem && Object.keys(currentItem).length > 0) {
+    results.push(currentItem);
+  }
+  return results;
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  SkillsService
+});

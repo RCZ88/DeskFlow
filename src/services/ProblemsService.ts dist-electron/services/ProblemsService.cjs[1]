@@ -1,0 +1,346 @@
+"use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/services/ProblemsService.ts
+var ProblemsService_exports = {};
+__export(ProblemsService_exports, {
+  ProblemsService: () => ProblemsService
+});
+module.exports = __toCommonJS(ProblemsService_exports);
+var fs = __toESM(require("fs"), 1);
+var path = __toESM(require("path"), 1);
+var ProblemsService = class {
+  baseDir;
+  jsonFile;
+  mdFile;
+  projectId;
+  constructor(baseDir, projectId) {
+    this.projectId = projectId || null;
+    this.baseDir = baseDir || this.getDefaultBaseDir();
+    this.jsonFile = path.join(this.baseDir, "agent", "problems.json");
+    this.mdFile = path.join(this.baseDir, "agent", "PROBLEMS.md");
+  }
+  setProjectId(projectId) {
+    this.projectId = projectId;
+  }
+  getProjectId() {
+    return this.projectId;
+  }
+  getProjectPath() {
+    return this.baseDir;
+  }
+  getDefaultBaseDir() {
+    return path.join(process.cwd());
+  }
+  ensureAgentDir() {
+    const agentDir = path.join(this.baseDir, "agent");
+    if (!fs.existsSync(agentDir)) {
+      fs.mkdirSync(agentDir, { recursive: true });
+    }
+  }
+  getNextIssueNumber(problems) {
+    let maxNum = 0;
+    for (const p of problems) {
+      const match = p.id.match(/^(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    }
+    return maxNum + 1;
+  }
+  migrateFromMd() {
+    const mdPath = this.mdFile;
+    if (!fs.existsSync(mdPath)) return [];
+    try {
+      const content = fs.readFileSync(mdPath, "utf-8");
+      const problems = this.parseProblemsLegacy(content);
+      if (problems.length > 0) {
+        fs.writeFileSync(this.jsonFile, JSON.stringify(problems, null, 2), "utf-8");
+        console.log(`[ProblemsService] Migrated ${problems.length} problems from markdown to JSON`);
+      }
+      return problems;
+    } catch (e) {
+      console.error("[ProblemsService] Migration failed:", e);
+      return [];
+    }
+  }
+  writeJson(problems) {
+    this.ensureAgentDir();
+    fs.writeFileSync(this.jsonFile, JSON.stringify(problems, null, 2), "utf-8");
+  }
+  writeMarkdown(problems) {
+    this.ensureAgentDir();
+    let md = "# PROBLEMS.md\n\n";
+    md += "> **Purpose:** Issue tracker for AI agents and humans \u2014 all known bugs, feature requests, and their resolution status.\n";
+    md += "> **Last Updated:** " + (/* @__PURE__ */ new Date()).toISOString().split("T")[0] + "\n\n";
+    md += "---\n\n";
+    for (const problem of problems) {
+      md += `### Issue #${problem.id}: ${problem.title}
+`;
+      md += `- Status: ${problem.status}
+`;
+      md += `- Priority: ${problem.priority}
+`;
+      md += `- Category: ${problem.category}
+`;
+      if (problem.terminal_id) md += `- Terminal: ${problem.terminal_id}
+`;
+      if (problem.skill_used) md += `- Skill Used: ${problem.skill_used}
+`;
+      if (problem.session_id && problem.session_name) md += `- Session: ${problem.session_name} (${problem.session_id})
+`;
+      else if (problem.session_id) md += `- Session: ${problem.session_id}
+`;
+      if (problem.files.length > 0) md += `- Files: \`${problem.files.join("`, `")}\`
+`;
+      md += `- Created: ${problem.created_at}
+`;
+      md += `- Updated: ${problem.updated_at}
+`;
+      if (problem.description) {
+        md += `- Description: ${problem.description}
+`;
+      }
+      if (problem.user_notes) {
+        md += `- User Notes: ${problem.user_notes}
+`;
+      }
+      if (problem.fix_description) {
+        md += `- Fix Description: ${problem.fix_description}
+`;
+      }
+      if (problem.root_cause) {
+        md += `- Root Cause: ${problem.root_cause}
+`;
+      }
+      md += "\n---\n\n";
+    }
+    fs.writeFileSync(this.mdFile, md, "utf-8");
+  }
+  getProblems() {
+    this.ensureAgentDir();
+    if (fs.existsSync(this.jsonFile)) {
+      try {
+        const content = fs.readFileSync(this.jsonFile, "utf-8");
+        const problems = JSON.parse(content);
+        if (Array.isArray(problems) && problems.length > 0) return problems;
+        if (Array.isArray(problems) && problems.length === 0) {
+          const migrated2 = this.migrateFromMd();
+          if (migrated2.length > 0) return migrated2;
+        }
+      } catch (e) {
+        console.error("[ProblemsService] Failed to parse problems.json:", e);
+      }
+    }
+    const migrated = this.migrateFromMd();
+    if (migrated.length > 0) return migrated;
+    this.writeJson([]);
+    this.writeMarkdown([]);
+    return [];
+  }
+  getProblem(id) {
+    const problems = this.getProblems();
+    return problems.find((p) => p.id === id) || null;
+  }
+  createProblem(data) {
+    this.ensureAgentDir();
+    const problems = this.getProblems();
+    const nextNum = this.getNextIssueNumber(problems);
+    const subNum = problems.filter((p) => p.id.startsWith(`${nextNum}.`)).length + 1;
+    const id = `${nextNum}.${subNum}`;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const problem = {
+      id,
+      title: data.title,
+      status: "NEW",
+      priority: data.priority || "medium",
+      category: data.category || "other",
+      terminal_id: null,
+      skill_used: null,
+      user_notes: null,
+      session_id: data.sessionId || null,
+      session_name: data.sessionName || null,
+      description: data.description || null,
+      root_cause: data.root_cause || null,
+      fix_description: null,
+      files: [],
+      checks: [],
+      created_at: now,
+      updated_at: now
+    };
+    problems.push(problem);
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return problem;
+  }
+  updateStatus(id, status) {
+    const problems = this.getProblems();
+    const idx = problems.findIndex((p) => p.id === id);
+    if (idx === -1) return false;
+    problems[idx].status = status;
+    problems[idx].updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return true;
+  }
+  updateProblem(id, updates) {
+    const problems = this.getProblems();
+    const idx = problems.findIndex((p) => p.id === id);
+    if (idx === -1) return false;
+    problems[idx] = { ...problems[idx], ...updates, updated_at: (/* @__PURE__ */ new Date()).toISOString() };
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return true;
+  }
+  deleteProblem(id) {
+    const problems = this.getProblems();
+    const filtered = problems.filter((p) => p.id !== id);
+    if (filtered.length === problems.length) return false;
+    this.writeJson(filtered);
+    this.writeMarkdown(filtered);
+    return true;
+  }
+  addCheck(problemId, description, instruction) {
+    const problems = this.getProblems();
+    const problem = problems.find((p) => p.id === problemId);
+    if (!problem) return null;
+    if (!problem.checks) problem.checks = [];
+    const checkNum = problem.checks.length + 1;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const check = {
+      id: `${problem.id}-check-${checkNum}`,
+      description,
+      instruction,
+      status: "pending",
+      created_at: now,
+      updated_at: now
+    };
+    problem.checks.push(check);
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return check;
+  }
+  updateCheck(problemId, checkId, updates) {
+    const problems = this.getProblems();
+    const problem = problems.find((p) => p.id === problemId);
+    if (!problem?.checks) return null;
+    const check = problem.checks.find((c) => c.id === checkId);
+    if (!check) return null;
+    Object.assign(check, updates, { updated_at: (/* @__PURE__ */ new Date()).toISOString() });
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return check;
+  }
+  completeCheck(problemId, checkId, feedback) {
+    const problems = this.getProblems();
+    const problem = problems.find((p) => p.id === problemId);
+    if (!problem?.checks) return null;
+    const check = problem.checks.find((c) => c.id === checkId);
+    if (!check) return null;
+    check.status = "completed";
+    check.updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    if (feedback) check.feedback = feedback;
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return check;
+  }
+  addCheckFeedback(problemId, checkId, feedback) {
+    const problems = this.getProblems();
+    const problem = problems.find((p) => p.id === problemId);
+    if (!problem?.checks) return null;
+    const check = problem.checks.find((c) => c.id === checkId);
+    if (!check) return null;
+    check.feedback = feedback;
+    check.updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    this.writeJson(problems);
+    this.writeMarkdown(problems);
+    return check;
+  }
+  parseProblemsLegacy(content) {
+    const problems = [];
+    content = content.replace(/\r\n/g, "\n");
+    const sectionDates = [];
+    const sectionRe = /^##\s.*?(\d{4}-\d{2}-\d{2}).*$/gm;
+    let secMatch;
+    while ((secMatch = sectionRe.exec(content)) !== null) {
+      sectionDates.push({ pos: secMatch.index, date: secMatch[1] });
+    }
+    const pattern4 = /### Issue #([\d.]+):\s*(.+?)\n([\s\S]*?)(?=\n### Issue #|\n## |\n---+\n|$)/gi;
+    let match;
+    while ((match = pattern4.exec(content)) !== null) {
+      const id = match[1];
+      const title = match[2].trim();
+      const body = match[3] || "";
+      if (problems.some((p) => p.id === id || p.id === `${id}.1`)) continue;
+      const statusMatch = body.match(/(?:^|\n)-\s*Status:\s*(.+?)(?:\n|$)/i);
+      const filesMatch = body.match(/(?:^|\n)-\s*Files:\s*(.+?)(?:\n|$)/i);
+      const userNotesMatch = body.match(/(?:^|\n)-\s*User said:\s*(.+?)(?:\n|$)/i);
+      const fixMatch = body.match(/(?:^|\n)-\s*Fix:\s*([\s\S]*?)(?=\n-\s+(?:Status|User|Files|Root|Category|Priority|Created|Updated)\b|\n###|\n##|\n---+\n|$)/i);
+      const categoryMatch = body.match(/(?:^|\n)-\s*Category:\s*(.+?)(?:\n|$)/i);
+      const createdMatch = body.match(/(?:^|\n)-\s*Created:\s*(.+?)(?:\n|$)/i);
+      const updatedMatch = body.match(/(?:^|\n)-\s*Updated:\s*(.+?)(?:\n|$)/i);
+      let sectionDate = "";
+      for (let i = sectionDates.length - 1; i >= 0; i--) {
+        if (sectionDates[i].pos < match.index) {
+          sectionDate = sectionDates[i].date;
+          break;
+        }
+      }
+      let files = [];
+      if (filesMatch?.[1]) {
+        const filesStr = filesMatch[1].trim().replace(/`/g, "");
+        files = filesStr.split(",").map((f) => f.trim()).filter((f) => f.length > 0);
+      }
+      const dateFallback = sectionDate ? `${sectionDate}T00:00:00.000Z` : (/* @__PURE__ */ new Date()).toISOString();
+      problems.push({
+        id,
+        title,
+        status: statusMatch?.[1]?.trim() || "NEW",
+        priority: "medium",
+        category: categoryMatch?.[1]?.trim() || "other",
+        terminal_id: null,
+        session_id: null,
+        session_name: null,
+        skill_used: null,
+        user_notes: userNotesMatch?.[1]?.trim() || null,
+        fix_description: fixMatch?.[1]?.trim() || null,
+        files,
+        checks: [],
+        created_at: createdMatch?.[1]?.trim() || dateFallback,
+        updated_at: updatedMatch?.[1]?.trim() || dateFallback
+      });
+    }
+    return problems;
+  }
+};
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  ProblemsService
+});

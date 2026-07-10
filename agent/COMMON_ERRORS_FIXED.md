@@ -311,6 +311,67 @@ npm start
 
 ---
 
+---
+
+## Entry 9 — Black screen on launch: app opens but window shows nothing (no content, no error)
+
+**Symptom**
+
+`[DeskFlow] Page loaded successfully` appears in the terminal, but the Electron window is completely black — no dashboard, no sidebar, no fallback error overlay. The DevTools console shows nothing because no JS executed. This is the **#1 regression** in DeskFlow.
+
+**Root cause A — VITE_DEV_SERVER_URL pollution (most common)**
+
+`.env` or an environment variable has `VITE_DEV_SERVER_URL=http://localhost:5173` left from a dev setup. `main.ts` checks this flag and calls `mainWindow.loadURL('http://localhost:5173')`. When Vite isn't running, it fails with `ERR_CONNECTION_REFUSED`. The `did-fail-load` handler then retries with `mainWindow.loadFile('dist/index.html')` — but because the window has `webSecurity: true`, Chromium blocks `crossorigin` module scripts loaded from the `file://` protocol. The HTML renders the fallback `<div>` but the JS bundle never executes.
+
+**Confirm it's this bug:**
+- Terminal shows `[DeskFlow] Failed to load (attempt 1): -102 ERR_CONNECTION_REFUSED`
+- Then shows `[DeskFlow] Page loaded successfully` (from `did-finish-load` after `loadFile`)
+- But the window is black
+- `.env` contains `VITE_DEV_SERVER_URL=http://localhost:5173`
+
+**Fast fix:**
+```powershell
+# Remove VITE_DEV_SERVER_URL from .env, or clear it in PowerShell before launching:
+$env:VITE_DEV_SERVER_URL = ""; npx electron .
+```
+
+Or update `start-dev.ps1` to clear it:
+```powershell
+Remove-Item Env:VITE_DEV_SERVER_URL -ErrorAction SilentlyContinue
+```
+
+**Permanent fix (code):** The `did-fail-load` handler should start the production HTTP server (`startProdServer`) instead of using `loadFile`. This loads the app over `http://localhost:<port>` where `crossorigin` module scripts work correctly. See `src/main.ts` — `startProdServer()` factory + fallback logic.
+
+---
+
+**Root cause B — EPIPE uncaught exception (crashes main process after window loads)**
+
+`console.log("[DeskFlow] Browser data received:", data.domain, ...)` in the browser tracking HTTP server (port 54321) writes to `process.stdout`. When the stdout pipe breaks (terminal host closes, parent process exits), Node.js throws an **EPIPE** error. Without an `uncaughtException` handler, this kills the **entire Electron main process** — the BrowserWindow closes instantly, leaving a black/frozen screen. No error appears in the app window because the main process is dead.
+
+**Confirm it's this bug:**
+- Window appeared briefly then vanished
+- Terminal shows an EPIPE stack trace or an "Uncaught Exception" error dialog
+- `process.on('uncaughtException')` is not registered in `main.ts`
+
+**Fast fix:**
+```typescript
+// Add at top of app.whenReady() in main.ts — prevents EPIPE from killing the process
+if (process.stdout) process.stdout.on('error', () => {});
+if (process.stderr) process.stderr.on('error', () => {});
+process.on('uncaughtException', (err) => {
+    console.error('[DeskFlow] Uncaught exception:', err.message);
+});
+```
+
+**Prevention (both causes — this is the checklist to run EVERY cycle):**
+
+1. **Check `.env` for `VITE_DEV_SERVER_URL`** — if set and Vite isn't meant to be running, clear it. Add `Remove-Item Env:VITE_DEV_SERVER_URL` to `start-dev.ps1`.
+2. **Verify the `did-fail-load` fallback** uses `startProdServer()` (HTTP), NOT `loadFile()` (file://). `loadFile` breaks `crossorigin` module scripts under `webSecurity: true`.
+3. **Check `process.stdout.on('error')` and `process.on('uncaughtException')`** exist in `main.ts` `app.whenReady()`. Without them, an EPIPE on any `console.log` kills the main process.
+4. **Build + launch** — run the full build pipeline (`vite build` → `rebuild-main.mjs` → `npx electron .`), then verify the window shows real content. Do NOT claim VERDICT PASS without visual verification.
+
+---
+
 <aside>
 📌
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import type { QuizBlock } from '../../../shared/learn/types';
 
 interface Props {
@@ -37,10 +38,10 @@ export function QuizBlock({ block, onSubmit }: Props) {
   };
 
   return (
-    <div className="my-6 p-5 rounded-xl border border-indigo-500/20 bg-indigo-500/5" data-block-id={block.id}>
+    <div className="my-6 p-5 rounded-xl border border-amber-500/20 bg-amber-500/5" data-block-id={block.id}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-lg">📝</span>
-        <span className="text-sm font-medium text-indigo-300">
+        <span className="text-sm font-medium text-amber-300">
           Quiz · {block.format.toUpperCase()} · Target: {block.level}
         </span>
       </div>
@@ -50,31 +51,36 @@ export function QuizBlock({ block, onSubmit }: Props) {
       {/* MCQ */}
       {block.format === 'mcq' && block.options && (
         <div className="space-y-2 mb-4">
-          {block.options.map((opt, i) => (
-            <button
-              key={i}
-              onClick={() => !submitted && setSelected(i)}
-              className={`w-full text-left px-4 py-3 rounded-lg border transition text-sm ${
-                submitted
-                  ? i === (block.answer_key as number)
-                    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
-                    : i === selected
-                    ? 'border-red-500/50 bg-red-500/10 text-red-300'
-                    : 'border-zinc-700/40 text-zinc-500'
-                  : selected === i
-                  ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-200'
-                  : 'border-zinc-700/40 text-zinc-300 hover:border-zinc-600'
-              }`}
-              disabled={submitted}
-            >
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-zinc-600 text-xs mr-2 shrink-0">
-                {String.fromCharCode(65 + i)}
-              </span>
-              {opt}
-              {submitted && i === (block.answer_key as number) && <span className="ml-2 text-emerald-400">✓</span>}
-              {submitted && i === selected && i !== (block.answer_key as number) && <span className="ml-2 text-red-400">✗</span>}
-            </button>
-          ))}
+          {block.options.map((opt, i) => {
+            const isCorrectAnswer = submitted && i === (block.answer_key as number);
+            const isWrongAnswer = submitted && i === selected && i !== (block.answer_key as number);
+            return (
+              <motion.button
+                key={i}
+                onClick={() => !submitted && setSelected(i)}
+                animate={isCorrectAnswer ? { scale: [1, 1.03, 1], boxShadow: ['0 0 0px rgba(52,211,153,0)', '0 0 12px rgba(52,211,153,0.4)', '0 0 0px rgba(52,211,153,0)'] } : isWrongAnswer ? { x: [0, -2, 2, -2, 2, 0] } : {}}
+                transition={isCorrectAnswer ? { duration: 0.6 } : isWrongAnswer ? { duration: 0.3 } : {}}
+                className={`w-full text-left px-4 py-3 rounded-lg border transition text-sm ${
+                  submitted
+                    ? isCorrectAnswer
+                      ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
+                      : isWrongAnswer
+                      ? 'border-red-500/50 bg-red-500/10 text-red-300'
+                      : 'border-zinc-700/40 text-zinc-500'
+                    : selected === i
+                    ? 'border-amber-500/50 bg-amber-500/15 text-amber-200'
+                    : 'border-zinc-700/40 text-zinc-300 hover:border-zinc-600'
+                }`}
+                disabled={submitted}
+              >
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-zinc-600 text-xs mr-2 shrink-0">
+                  {String.fromCharCode(65 + i)}
+                </span>
+                {opt}
+                {isCorrectAnswer && <span className="ml-2 text-emerald-400">✓</span>}
+                {isWrongAnswer && <span className="ml-2 text-red-400">✗</span>}
+              </motion.button>
+            );})}
         </div>
       )}
 
@@ -85,7 +91,7 @@ export function QuizBlock({ block, onSubmit }: Props) {
             type="number"
             value={textAnswer}
             onChange={(e) => setTextAnswer(e.target.value)}
-            className="w-full max-w-[200px] px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-sm focus:border-indigo-500/50 focus:outline-none"
+            className="w-full max-w-[200px] px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-sm focus:border-amber-500/50 focus:outline-none"
             placeholder="Enter number..."
             disabled={submitted}
           />
@@ -98,7 +104,7 @@ export function QuizBlock({ block, onSubmit }: Props) {
           <textarea
             value={textAnswer}
             onChange={(e) => setTextAnswer(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-sm focus:border-indigo-500/50 focus:outline-none resize-y min-h-[80px]"
+            className="w-full px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-sm focus:border-amber-500/50 focus:outline-none resize-y min-h-[80px]"
             placeholder="Write your answer..."
             disabled={submitted}
           />
@@ -118,7 +124,7 @@ export function QuizBlock({ block, onSubmit }: Props) {
       {!submitted && (
         <button
           onClick={handleSubmit}
-          className="px-4 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-sm font-medium transition border border-indigo-500/30"
+          className="px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-sm font-medium transition border border-amber-500/30"
         >
           Submit Answer
         </button>

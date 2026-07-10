@@ -1,0 +1,70 @@
+/* Lyceum editorial / "booky" surface treatments.
+   Append this to src/index.css (after the @theme block). All colours reference
+   the warm tokens already defined there (clay / sage / amber / glow). */
+
+/* ---- Welcome ambient wash ---------------------------------------------- */
+.lyceum-welcome-glow {
+  background:
+    radial-gradient(60% 55% at 78% 22%, rgba(217, 104, 70, 0.20), transparent 70%),
+    radial-gradient(50% 50% at 12% 88%, rgba(111, 179, 143, 0.12), transparent 72%);
+  filter: saturate(1.05);
+}
+
+/* ---- Cloth-bound hardcover --------------------------------------------- */
+.lyceum-book-cloth {
+  position: relative;
+  isolation: isolate;
+}
+.lyceum-book-cloth::after {
+  /* woven cloth grain */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 3px);
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  z-index: 1;
+}
+.lyceum-book-cover > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* page edges peeking from under the cover */
+.lyceum-book-pages {
+  background: linear-gradient(
+    90deg,
+    #efe7d6 0%, #d9cfba 18%, #efe7d6 36%, #d9cfba 54%, #efe7d6 72%, #d9cfba 90%, #efe7d6 100%
+  );
+  box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.5);
+}
+
+/* soft drop shadow where the book meets the shelf */
+.lyceum-book-shadow {
+  background: radial-gradient(50% 100% at 50% 0%, rgba(0, 0, 0, 0.45), transparent 70%);
+  filter: blur(2px);
+}
+
+/* hover lift gets a warmer shadow */
+.lyceum-book:hover .lyceum-book-cover {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset -14px 0 22px -18px rgba(0, 0, 0, 0.55),
+    0 26px 50px -24px rgba(0, 0, 0, 0.7);
+}
+
+/* ---- Wooden shelf rail under each part --------------------------------- */
+.lyceum-shelf-rail {
+  background: linear-gradient(180deg, #6b4a2f 0%, #4a3220 60%, #2f2014 100%);
+  box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ---- Paper grain for the reader (optional) ----------------------------- */
+.lyceum-paper {
+  background-color: var(--color-glow, #f7f3ee);
+  background-image: radial-gradient(rgba(120, 90, 60, 0.05) 1px, transparent 1px);
+  background-size: 4px 4px;
+}

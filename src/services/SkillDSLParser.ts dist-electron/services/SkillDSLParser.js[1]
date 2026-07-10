@@ -1,0 +1,195 @@
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var SkillDSLParser_exports = {};
+__export(SkillDSLParser_exports, {
+  enhanceSkillWithDSL: () => enhanceSkillWithDSL,
+  parseSkillDSL: () => parseSkillDSL
+});
+module.exports = __toCommonJS(SkillDSLParser_exports);
+function inferWidget(input) {
+  if (input.widget) return input.widget;
+  const type = input.type || "text";
+  switch (type) {
+    case "enum":
+      return "select";
+    case "multienum":
+      return "tags";
+    case "boolean":
+      return "switch";
+    case "number":
+      return input.min !== void 0 && input.max !== void 0 ? "slider" : "text";
+    case "text":
+      return "text";
+    case "textarea":
+      return "textarea";
+    case "code":
+      return "code";
+    case "file":
+      return "file";
+    case "markdown":
+      return "textarea";
+    case "list":
+      return "tags";
+    default:
+      return "text";
+  }
+}
+function coerceValue(raw, propName) {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  if (propName === "min" || propName === "max" || propName === "step") {
+    const num = Number(raw);
+    return isNaN(num) ? raw : num;
+  }
+  if (propName === "default") {
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    const num = Number(raw);
+    if (!isNaN(num) && raw.trim() !== "") return num;
+  }
+  return raw;
+}
+function parseFrontmatterSection(frontmatter, key) {
+  const lines = frontmatter.split("\n");
+  const results = [];
+  let inSection = false;
+  let currentItem = null;
+  let lastKey = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === `${key}:` || new RegExp(`^${key}:\\s*$`).test(line)) {
+      inSection = true;
+      continue;
+    }
+    if (inSection && /^\w[\w-]*:/.test(line) && !line.startsWith(" ")) {
+      if (currentItem) results.push(currentItem);
+      currentItem = null;
+      inSection = false;
+      continue;
+    }
+    if (!inSection) continue;
+    if (line.trim() === "" || line.trim() === "#") continue;
+    const newItemMatch = line.match(/^  - (\w[\w-]*):\s*(.*)$/);
+    if (newItemMatch) {
+      if (currentItem) results.push(currentItem);
+      currentItem = {};
+      lastKey = newItemMatch[1];
+      currentItem[lastKey] = coerceValue(newItemMatch[2].trim(), lastKey);
+      continue;
+    }
+    const propMatch = line.match(/^    (\w[\w-]*):\s*(.*)$/);
+    if (propMatch && currentItem) {
+      lastKey = propMatch[1];
+      let val = propMatch[2].trim();
+      if (val === "true") val = true;
+      else if (val === "false") val = false;
+      else if (val.startsWith("[") && val.endsWith("]")) {
+        val = val.slice(1, -1).split(",").map((s) => s.trim().replace(/^['"]|['"]$/g, ""));
+      }
+      currentItem[lastKey] = coerceValue(String(val), lastKey);
+      continue;
+    }
+    const listValueMatch = line.match(/^      - (.+)$/);
+    if (listValueMatch && currentItem) {
+      const value = listValueMatch[1].trim().replace(/^['"]|['"]$/g, "");
+      if (!Array.isArray(currentItem[lastKey])) {
+        currentItem[lastKey] = [value];
+      } else {
+        currentItem[lastKey].push(value);
+      }
+      continue;
+    }
+    const continuationMatch = line.match(/^      (.+)$/);
+    if (continuationMatch && currentItem && typeof currentItem[lastKey] === "string") {
+      currentItem[lastKey] += " " + continuationMatch[1].trim();
+    }
+  }
+  if (currentItem) results.push(currentItem);
+  return results;
+}
+function parseSkillDSL(frontmatter) {
+  const warnings = [];
+  const rawInputs = parseFrontmatterSection(frontmatter, "inputs");
+  const rawOutputs = parseFrontmatterSection(frontmatter, "outputs");
+  const rawComponents = parseFrontmatterSection(frontmatter, "components");
+  const inputs = rawInputs.map((raw) => {
+    const input = {
+      name: raw.name || "Unnamed",
+      type: raw.type || "text",
+      description: raw.description,
+      required: raw.required === true,
+      source: raw.source,
+      widget: raw.widget,
+      choices: Array.isArray(raw.choices) ? raw.choices : void 0,
+      default: raw.default,
+      placeholder: raw.placeholder,
+      min: typeof raw.min === "number" ? raw.min : void 0,
+      max: typeof raw.max === "number" ? raw.max : void 0,
+      step: typeof raw.step === "number" ? raw.step : void 0,
+      validation: raw.validation,
+      validationMessage: raw.validationMessage,
+      group: raw.group,
+      language: raw.language
+    };
+    input.widget = inferWidget(input);
+    if ((input.type === "enum" || input.type === "multienum") && (!input.choices || input.choices.length === 0)) {
+      warnings.push(`Input "${input.name}": type is ${input.type} but no choices provided`);
+    }
+    if (input.widget === "slider" && (input.min === void 0 || input.max === void 0)) {
+      warnings.push(`Input "${input.name}": widget is slider but min/max not set, falling back to text input`);
+      input.widget = "text";
+    }
+    return input;
+  });
+  const outputs = rawOutputs.map((raw) => ({
+    name: raw.name || "Unnamed",
+    type: raw.type || "text",
+    description: raw.description,
+    preview: raw.preview === true
+  }));
+  const components = rawComponents.map((raw) => ({
+    name: raw.name || "Unnamed",
+    description: raw.description,
+    type: raw.type,
+    required: raw.required === true,
+    source: raw.source
+  }));
+  return { inputs, outputs, components, warnings };
+}
+function enhanceSkillWithDSL(skill) {
+  if (!skill.content) return skill;
+  const frontmatterMatch = skill.content.trimStart().match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatterMatch) return skill;
+  const parsed = parseSkillDSL(frontmatterMatch[1]);
+  const result = {
+    ...skill,
+    inputs: parsed.inputs.length > 0 ? parsed.inputs : skill.inputs,
+    outputs: parsed.outputs.length > 0 ? parsed.outputs : skill.outputs,
+    components: parsed.components.length > 0 ? parsed.components : skill.components
+  };
+  if (parsed.warnings.length > 0) {
+    result._dslWarnings = parsed.warnings;
+  }
+  return result;
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  enhanceSkillWithDSL,
+  parseSkillDSL
+});

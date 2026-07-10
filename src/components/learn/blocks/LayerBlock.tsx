@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { LayerBlock, LdocBlock } from '../../../shared/learn/types';
 import { BlockRenderer } from './BlockRenderer';
+import { reveal } from '../../learn/motion';
 
 interface Props {
   block: LayerBlock;
@@ -45,7 +47,15 @@ export function LayerBlock({ block, currentLevel, onAsk, onQuizSubmit, nodeId }:
           )}
         </button>
       ) : (
-        <div className="rounded-xl border border-zinc-700/30 bg-zinc-800/20 p-4">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key="content"
+            initial={reveal.initial}
+            animate={reveal.animate}
+            exit={reveal.exit}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="rounded-xl border border-zinc-700/30 bg-zinc-800/20 p-4 overflow-hidden"
+          >
           <div className="flex items-center gap-2 mb-3 text-xs text-zinc-500">
             <span>{icon}</span>
             <span>{label} · {block.reveal_at}</span>
@@ -65,7 +75,8 @@ export function LayerBlock({ block, currentLevel, onAsk, onQuizSubmit, nodeId }:
               />
             ))}
           </div>
-        </div>
+          </motion.div>
+        </AnimatePresence>
       )}
     </div>
   );

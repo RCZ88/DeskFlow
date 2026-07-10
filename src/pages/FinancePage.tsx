@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown, Bell, RefreshCw, History } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { TabBar } from '../components/TabBar';
 import { GlassCard } from '../components/GlassCard';
@@ -11,12 +11,18 @@ import { OverviewTab } from '../components/finance/OverviewTab';
 import { WalletsTab } from '../components/finance/WalletsTab';
 import { TransactionsTab } from '../components/finance/TransactionsTab';
 import { CategoriesTab } from '../components/finance/CategoriesTab';
+import { SubscriptionRenewalBanner } from '../components/finance/SubscriptionRenewalBanner';
 import { AuroraBackground } from '../components/finance/_fx/AuroraBackground';
 import { getCurrencyInfo, formatCurrency, convertAmount } from '../components/finance/currency-data';
 import { pageContainer, tabPanel, fab, DUR } from '../components/finance/_fx/financeMotion';
 import { ArchivedItemsModal } from '../components/finance/ArchivedItemsModal';
 import { PasswordConfirmDialog } from '../components/finance/PasswordConfirmDialog';
+import { RecalculateBalanceModal, type RecalculateBreakdown } from '../components/finance/RecalculateBalanceModal';
 import { WalletDetailView } from '../components/finance/WalletDetailView';
+import { SubscriptionsTab } from '../components/finance/SubscriptionsTab';
+import { SubscriptionsPageView } from './SubscriptionsPage';
+import { AuditLogTab } from '../components/finance/AuditLogTab';
+import { followThroughReceivable, netWorthWithReceivable } from '../lib/netWorth';
 import {
   BankTransactionModal, DebitTransactionModal, CreditTransactionModal,
   CryptoTransactionModal, PhysicalTransactionModal, CashTransactionModal, EwalletTransactionModal,
@@ -49,6 +55,8 @@ const tabs: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'wallets', label: 'Wallets', icon: <Wallet className="w-3.5 h-3.5" /> },
   { key: 'transactions', label: 'Transactions', icon: <ArrowUpRight className="w-3.5 h-3.5" /> },
   { key: 'categories', label: 'Categories', icon: <Tag className="w-3.5 h-3.5" /> },
+  { key: 'subscriptions', label: 'Subscriptions', icon: <Bell className="w-3.5 h-3.5" /> },
+  { key: 'audit', label: 'Audit Log', icon: <Shield className="w-3.5 h-3.5" /> },
 ];
 
 export function FinancePage() {
@@ -79,14 +87,28 @@ export function FinancePage() {
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
   const [spendingByCategory, setSpendingByCategory] = useState<FinanceSpendingByCategory[]>([]);
   const [monthlyTrends, setMonthlyTrends] = useState<FinanceMonthlyTrend[]>([]);
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [upcomingRenewals, setUpcomingRenewals] = useState<any[]>([]);
+  const [ftPersons, setFtPersons] = useState<{ id: number; name: string }[]>([]);
+  const [onBehalfOfSummary, setOnBehalfOfSummary] = useState<{ totalExpense: number; breakdown: { label: string; total: number; count: number }[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [pageAccess, setPageAccess] = useState<{ canAccess: boolean; requiresSetup: boolean; reason?: string } | null>(null);
   const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const securityCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const userLockedRef = useRef(false);
+  const lockedRef = useRef(true);
+  const [attemptsLeft, setAttemptsLeft] = useState(3);
+  const [maxAttempts] = useState(3);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const passwordResolveRef = useRef<((pw: string | null) => void) | null>(null);
   const [selectedWalletId, setSelectedWalletId] = useState<number | null>(null);
+  const [showSubscriptionsPage, setShowSubscriptionsPage] = useState(false);
+  const [showRecalculateModal, setShowRecalculateModal] = useState(false);
+  const [recalculateData, setRecalculateData] = useState<{ walletId: number; walletName: string; initialBalance: number; currentBalance: number; computedBalance: number; breakdown: RecalculateBreakdown[] } | null>(null);
+  const [notifMsg, setNotifMsg] = useState<string | null>(null);
+
+  useEffect(() => { lockedRef.current = isLocked; }, [isLocked]);
 
   useEffect(() => {
     checkSetup();
@@ -105,6 +127,11 @@ export function FinancePage() {
     if (window.deskflowAPI) {
       window.deskflowAPI.financeGetSecuritySettings().then(setSecuritySettings);
       window.deskflowAPI.financeGetPasswordRequirements().then(setPasswordRequirements);
+      window.deskflowAPI.financeGetLockState().then((state: any) => {
+        if (state) {
+          setAttemptsLeft(state.attemptsLeft);
+        }
+      }).catch(() => {});
     }
   }, []);
 
@@ -114,6 +141,10 @@ export function FinancePage() {
         setIsLocked(true);
       } else if (securitySettings.rememberDevice && securitySettings.rememberDeviceExpiry && Date.now() < securitySettings.rememberDeviceExpiry) {
         setIsLocked(false);
+      }
+      if (securitySettings.displayCurrency) {
+        setDisplayCurrency(securitySettings.displayCurrency);
+        setBaseCurrency(securitySettings.displayCurrency);
       }
     }
   }, [securitySettings]);
@@ -152,7 +183,7 @@ export function FinancePage() {
     setLoading(true);
     setFetchError(null);
     try {
-      const [accts, wals, cats, txns, sum, spend, trends] = await Promise.all([
+      const [accts, wals, cats, txns, sum, spend, trends, subs, obSummary, ftPersonsData, renewals] = await Promise.all([
         (window.deskflowAPI?.financeGetAccounts() as Promise<FinanceAccount[]>) ?? Promise.resolve([]),
         (window.deskflowAPI?.financeGetWallets() as Promise<FinanceWallet[]>) ?? Promise.resolve([]),
         (window.deskflowAPI?.financeGetCategories() as Promise<FinanceCategory[]>) ?? Promise.resolve([]),
@@ -160,19 +191,27 @@ export function FinancePage() {
         (window.deskflowAPI?.financeGetSummary() as Promise<FinanceSummary>) ?? Promise.resolve({ totalIncome: 0, totalExpense: 0, netBalance: 0 }),
         (window.deskflowAPI?.financeGetSpendingByCategory() as Promise<FinanceSpendingByCategory[]>) ?? Promise.resolve([]),
         (window.deskflowAPI?.financeGetMonthlyTrends() as Promise<FinanceMonthlyTrend[]>) ?? Promise.resolve([]),
+        (window.deskflowAPI?.subscriptionsList() as Promise<any[]>) ?? Promise.resolve([]),
+        (window.deskflowAPI?.financeGetOnBehalfOfSummary() as Promise<any>) ?? Promise.resolve({ totalExpense: 0, breakdown: [] }),
+        (window.deskflowAPI?.financeGetFtPersons() as Promise<any[]>) ?? Promise.resolve([]),
+        (window.deskflowAPI?.subscriptionsGetUpcomingRenewals(7) as Promise<any[]>) ?? Promise.resolve([]),
       ]);
       setAccounts(accts);
       setWallets(wals);
       setCategories(cats);
       setTransactions(txns);
+      setSubscriptions(subs);
+      setUpcomingRenewals(renewals);
       setSummary(sum);
-      const totalExpenseAmt = spend.reduce((s, c) => s + Math.abs(c.amount), 0);
+      setFtPersons(ftPersonsData);
+      const totalExpenseAmt = spend.reduce((s, c) => s + c.amount, 0);
       setSpendingByCategory(spend.map(c => ({
         ...c,
-        amount: Math.abs(c.amount),
-        percentage: totalExpenseAmt > 0 ? Math.abs(c.amount) / totalExpenseAmt * 100 : 0,
+        amount: c.amount,
+        percentage: totalExpenseAmt > 0 ? c.amount / totalExpenseAmt * 100 : 0,
       })));
       setMonthlyTrends(trends);
+      setOnBehalfOfSummary(obSummary);
     } catch (err) {
       console.error('[FinancePage] fetch error:', err);
       setFetchError('Could not load finance data');
@@ -202,25 +241,25 @@ export function FinancePage() {
     }, timeoutMs);
   }, [securitySettings, resetLockTimer, isFirstTime]);
 
-  // Page visibility: pause timer when hidden, re-check + restart when visible
+  // Page visibility: never unlocks an already-locked page
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.hidden) {
-        resetLockTimer();
+        // Timer keeps running — it will fire even while the page is hidden.
       } else {
-        // Re-check backend lock state immediately on return
+        if (userLockedRef.current) return;
+        if (lockedRef.current) return; // already locked locally — stay locked
         if (window.deskflowAPI) {
           window.deskflowAPI.financeIsLocked().then(result => {
             const locked = result?.locked ?? true;
             setIsLocked(locked);
-            if (!locked) startLockTimer();
           });
         }
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [resetLockTimer, startLockTimer]);
+  }, []);
 
   // Lock timer: runs only while page is unlocked AND visible
   useEffect(() => {
@@ -232,31 +271,34 @@ export function FinancePage() {
     return () => resetLockTimer();
   }, [isLocked, securitySettings, startLockTimer, resetLockTimer]);
 
-  // 30s polling: sync with backend lock state (does NOT start timers)
+  // 30s polling: sync with backend lock state (sync only, no timer management)
   useEffect(() => {
     securityCheckIntervalRef.current = setInterval(() => {
-      if (window.deskflowAPI) {
+      if (window.deskflowAPI && !userLockedRef.current && !lockedRef.current) {
         window.deskflowAPI.financeIsLocked().then(result => {
           const locked = result?.locked ?? true;
           setIsLocked(locked);
-          if (!locked) startLockTimer();
-          else resetLockTimer();
         });
       }
     }, 30000);
     return () => {
       if (securityCheckIntervalRef.current) clearInterval(securityCheckIntervalRef.current);
     };
-  }, [startLockTimer, resetLockTimer]);
+  }, []);
 
   const handleUnlock = async (password: string): Promise<boolean> => {
     try {
       setLockError(null);
-      const result = await window.deskflowAPI?.financeUnlock(password) as { success: boolean };
+      const result = await window.deskflowAPI?.financeUnlock(password) as { success: boolean; attemptsLeft?: number };
       if (result?.success) {
+        userLockedRef.current = false;
         setIsLocked(false);
+        setAttemptsLeft(3);
         await checkPageAccess();
         return true;
+      }
+      if (result?.attemptsLeft !== undefined) {
+        setAttemptsLeft(result.attemptsLeft);
       }
       setLockError('Wrong password');
       return false;
@@ -288,6 +330,7 @@ export function FinancePage() {
     try {
       const result = await window.deskflowAPI?.financeBiometricUnlock() as { success: boolean };
       if (result?.success) {
+        userLockedRef.current = false;
         setIsLocked(false);
         await checkPageAccess();
         return true;
@@ -300,6 +343,7 @@ export function FinancePage() {
 
   const handleLock = async () => {
     if (isFirstTime) return;
+    userLockedRef.current = true;
     await window.deskflowAPI?.financeLock();
     setIsLocked(true);
   };
@@ -390,6 +434,14 @@ export function FinancePage() {
     } catch { return false; }
   };
 
+  const handleUpdateTransaction = async (id: number, data: Record<string, any>): Promise<boolean> => {
+    try {
+      await window.deskflowAPI?.financeUpdateTransaction(id, data);
+      await fetchData();
+      return true;
+    } catch { return false; }
+  };
+
   const handleCreateCategory = async (data: {
     name: string; type: FinanceCategory['type']; icon?: string; color?: string;
   }): Promise<boolean> => {
@@ -398,6 +450,96 @@ export function FinancePage() {
       if (result) { await fetchData(); return true; }
       return false;
     } catch { return false; }
+  };
+
+  useEffect(() => { lockedRef.current = isLocked; }, [isLocked]);
+
+  const handleRecordFtRepayment = useCallback(async (data: { originalTxId: number; personId?: number; amount: number; date: string; walletId?: number; description?: string; isOverpayment?: boolean }): Promise<boolean> => {
+    try {
+      const result = await (window as any).deskflowAPI?.financeRecordFtRepayment(data);
+      if (result?.success) { fetchData(); return true; }
+      return false;
+    } catch { return false; }
+  }, [fetchData]);
+
+  const handleGenerateSubscriptions = useCallback(async () => {
+    try {
+      const result = await (window as any).deskflowAPI?.subscriptionsGenerateDueTransactions();
+      if (result) { fetchData(); return result; }
+      return { created: 0, subscriptions: [] };
+    } catch { return { created: 0, subscriptions: [] }; }
+  }, [fetchData]);
+
+  const handleSkipRenewal = useCallback(async (id: number): Promise<boolean> => {
+    try {
+      const result = await (window as any).deskflowAPI?.subscriptionsSkipRenewal(id);
+      if (result?.success) { fetchData(); return true; }
+      return false;
+    } catch { return false; }
+  }, [fetchData]);
+
+  const handleEditTransaction = async (id: number, data: Record<string, any>): Promise<boolean> => {
+    try {
+      const txn = transactions.find(t => t.id === id);
+      if (!txn) return false;
+      const payload = { id, account_id: txn.account_id, wallet_id: txn.wallet_id, category_id: data.category_id ?? txn.category_id, type: txn.type, amount: txn.amount, description: data.description ?? txn.description, note: data.note ?? txn.note, date: data.date ?? txn.date, time: txn.time };
+      const result = await window.deskflowAPI?.financeUpdateTransaction(payload);
+      if (result?.success) { await fetchData(); return true; }
+      return false;
+    } catch { return false; }
+  };
+
+  const handleCreateSubscription = async (data: any): Promise<boolean> => {
+    try { const result = await window.deskflowAPI?.subscriptionsCreate(data); if (result) { await fetchData(); return true; } return false; } catch { return false; }
+  };
+
+  const handleUpdateSubscription = async (data: any): Promise<boolean> => {
+    try { const result = await window.deskflowAPI?.subscriptionsUpdate(data); if (result?.success) { await fetchData(); return true; } return false; } catch { return false; }
+  };
+
+  const handleDeleteSubscription = async (id: number): Promise<boolean> => {
+    try { const result = await window.deskflowAPI?.subscriptionsDelete(id); if (result?.success) { await fetchData(); return true; } return false; } catch { return false; }
+  };
+
+  const handleRecalculateBalance = async (walletId?: number): Promise<boolean> => {
+    if (!walletId) return false;
+    try {
+      const result = await window.deskflowAPI?.financeRecalculateBalances(walletId, true);
+      if (result?.success && result?.breakdown) {
+        setRecalculateData({ walletId, walletName: result.walletName || '', initialBalance: result.initialBalance || 0, currentBalance: result.oldBalance || 0, computedBalance: result.newBalance || 0, breakdown: result.breakdown });
+        setShowRecalculateModal(true);
+        return true;
+      }
+      return false;
+    } catch { return false; }
+  };
+
+  const handleApplyRecalculatedBalance = async () => {
+    if (!recalculateData) return;
+    try {
+      const result = await window.deskflowAPI?.financeApplyRecalculatedBalance(recalculateData.walletId);
+      if (result?.success) {
+        setShowRecalculateModal(false);
+        setRecalculateData(null);
+        await fetchData();
+      }
+    } catch {}
+  };
+
+  const handleRecalculateAllBalances = async () => {
+    try {
+      const result = await window.deskflowAPI?.financeRecalculateAllBalances();
+      if (result?.success && result?.results) {
+        const updated = result.results.filter(r => r.success && r.difference !== 0).length;
+        if (updated > 0) {
+          setNotifMsg(`Updated ${updated} wallet${updated > 1 ? 's' : ''}`);
+        } else {
+          setNotifMsg('All wallets already balanced');
+        }
+        setTimeout(() => setNotifMsg(null), 3000);
+        await fetchData();
+      }
+    } catch {}
   };
 
   const handleCreateWallet = async (data: {
@@ -540,10 +682,26 @@ export function FinancePage() {
       if (a.type === 'custodial') return s;
       const walletSum = wallets
         .filter(w => w.account_id === a.id && !w.is_archived)
-        .reduce((ws, w) => ws + convertAmount(w.balance, w.currency, displayCurrency), 0);
+        .reduce((ws, w) => {
+          const wb = (w.type === 'physical' || w.type === 'cash') && w.metadata?.denominations
+            ? (Array.isArray(w.metadata.denominations)
+                ? w.metadata.denominations.reduce((sx: number, d: any) => sx + (d.value || 0) * (d.count || 0), 0)
+                : (w.balance ?? 0))
+            : (w.balance ?? 0);
+          return ws + convertAmount(wb, w.currency, displayCurrency);
+        }, 0);
       return s + walletSum;
     }, 0),
     [accounts, wallets, displayCurrency]
+  );
+
+  const ftReceivable = useMemo(
+    () => followThroughReceivable(transactions),
+    [transactions],
+  );
+  const netWorthTotal = useMemo(
+    () => netWorthWithReceivable(netWorth, ftReceivable),
+    [netWorth, ftReceivable],
   );
 
   const trend = useMemo(() => {
@@ -567,6 +725,8 @@ export function FinancePage() {
           onBiometricUnlock={handleBiometricUnlock}
           isFirstTime={false}
           error={lockError}
+          attemptsLeft={attemptsLeft}
+          maxAttempts={maxAttempts}
         />
       </div>
     );
@@ -667,12 +827,20 @@ export function FinancePage() {
 
         <FinanceStickyHeader
           isLocked={isLocked}
-          netWorth={netWorth}
+          netWorth={netWorthTotal}
           displayCurrency={displayCurrency}
           onToggleLock={handleLock}
           trend={trend}
           monthlyTrends={monthlyTrends}
           hasPassword={securitySettings?.hasPassword ?? true}
+        />
+
+        <SubscriptionRenewalBanner
+          upcomingRenewals={upcomingRenewals}
+          displayCurrency={displayCurrency}
+          onGenerateTransactions={handleGenerateSubscriptions}
+          onSkipRenewal={handleSkipRenewal}
+          onRefresh={fetchData}
         />
 
         {(() => {
@@ -692,6 +860,8 @@ export function FinancePage() {
                 onDeleteWallet={handleDeleteWallet}
                 onAddTransaction={(walletType) => setWalletTxModal(walletType as any)}
                 onDirtyChange={setIsDirty}
+                onRecalculateBalance={handleRecalculateBalance}
+                subscriptions={subscriptions}
               />
             );
           }
@@ -713,6 +883,7 @@ export function FinancePage() {
                     monthlyTrends={monthlyTrends}
                     accounts={accounts}
                     recentTransactions={transactions.slice(0, 5)}
+                    allTransactions={transactions}
                     loading={loading}
                     error={fetchError}
                     onRetry={fetchData}
@@ -722,8 +893,12 @@ export function FinancePage() {
                     onVerifyPassword={handleUnlock}
                     categories={categories}
                     wallets={wallets}
+                    subscriptions={subscriptions}
                     displayCurrency={displayCurrency}
                     baseCurrency={baseCurrency}
+                    currentNetWorth={netWorthTotal}
+                    onBehalfOfSummary={onBehalfOfSummary}
+                    onRecordFtRepayment={handleRecordFtRepayment}
                   />
                 </motion.div>
               )}
@@ -753,6 +928,7 @@ export function FinancePage() {
                     error={fetchError}
                     onRetry={fetchData}
                     onWalletClick={handleWalletClick}
+                    onRecalculateBalance={async () => { await handleRecalculateAllBalances(); return true; }}
                   />
                 </motion.div>
               )}
@@ -776,6 +952,7 @@ export function FinancePage() {
                     baseCurrency={baseCurrency}
                     onAddTransaction={handleAddTransaction}
                     onDeleteTransaction={handleDeleteTransaction}
+                    onUpdateTransaction={handleUpdateTransaction}
                     onVerifyPassword={handleUnlock}
                     error={fetchError}
                     onRetry={fetchData}
@@ -800,6 +977,83 @@ export function FinancePage() {
                     onCreateCategory={handleCreateCategory}
                     error={fetchError}
                     onRetry={fetchData}
+                  />
+                </motion.div>
+              )}
+              {activeTab === 'people' && (
+                <motion.div
+                  key="people"
+                  variants={tabPanel}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <PeopleTab
+                    persons={ftPersons}
+                    transactions={transactions}
+                    wallets={wallets}
+                    displayCurrency={displayCurrency}
+                    onRefresh={fetchData}
+                  />
+                </motion.div>
+              )}
+              {activeTab === 'subscriptions' && !showSubscriptionsPage && (
+                <motion.div
+                  key="subscriptions"
+                  variants={tabPanel}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <SubscriptionsTab
+                    data-section="finance.subscriptions"
+                    subscriptions={subscriptions}
+                    wallets={wallets}
+                    categories={categories}
+                    displayCurrency={displayCurrency}
+                    onRefresh={fetchData}
+                    onGenerateTransactions={handleGenerateSubscriptions}
+                    onSkipRenewal={handleSkipRenewal}
+                    onViewAll={() => setShowSubscriptionsPage(true)}
+                  />
+                </motion.div>
+              )}
+              {activeTab === 'subscriptions' && showSubscriptionsPage && (
+                <motion.div
+                  key="subscriptions-full"
+                  variants={tabPanel}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <SubscriptionsPageView
+                    data-section="finance.subscriptions.full"
+                    subscriptions={subscriptions}
+                    wallets={wallets}
+                    categories={categories}
+                    displayCurrency={displayCurrency}
+                    onRefresh={fetchData}
+                    onGenerateTransactions={handleGenerateSubscriptions}
+                    onSkipRenewal={handleSkipRenewal}
+                    onBack={() => setShowSubscriptionsPage(false)}
+                  />
+                </motion.div>
+              )}
+              {activeTab === 'audit' && (
+                <motion.div
+                  key="audit"
+                  variants={tabPanel}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <AuditLogTab
+                    data-section="finance.audit"
+                    displayCurrency={displayCurrency}
                   />
                 </motion.div>
               )}
@@ -906,6 +1160,16 @@ export function FinancePage() {
           baseCurrency,
           onSubmit: handleAddTransaction,
           onCreateCategory: handleCreateCategory,
+          ftPersons,
+          onAddFtPerson: async (name: string) => {
+            const result = await window.deskflowAPI?.financeCreateFtPerson({ name });
+            if (result) {
+              setFtPersons(prev => {
+                if (prev.some(p => p.id === result.id)) return prev;
+                return [...prev, result].sort((a, b) => a.name.localeCompare(b.name));
+              });
+            }
+          },
         };
         switch (walletTxModal) {
           case 'bank': return <BankTransactionModal key={w.id} {...modalProps} />;
@@ -940,6 +1204,31 @@ export function FinancePage() {
         }}
         passwordRequired={passwordRequirements['password_req_delete_account'] !== false}
       />
+
+      {recalculateData && (
+        <RecalculateBalanceModal
+          open={showRecalculateModal}
+          onClose={() => { setShowRecalculateModal(false); setRecalculateData(null); }}
+          walletName={recalculateData.walletName}
+          initialBalance={recalculateData.initialBalance}
+          currentBalance={recalculateData.currentBalance}
+          computedBalance={recalculateData.computedBalance}
+          breakdown={recalculateData.breakdown}
+          displayCurrency={displayCurrency}
+          onApply={handleApplyRecalculatedBalance}
+        />
+      )}
+
+      {notifMsg && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-6 right-6 z-[200] px-4 py-2.5 rounded-xl bg-zinc-800/90 border border-zinc-700/50 text-xs text-white shadow-lg backdrop-blur-sm"
+        >
+          {notifMsg}
+        </motion.div>
+      )}
     </PageShell>
   );
 }

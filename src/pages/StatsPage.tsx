@@ -1,14 +1,26 @@
 import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Clock, TrendingUp, Zap, Calendar, BarChart3, X, Monitor,
+  Clock, Zap, BarChart3, X, Monitor,
   ChevronRight, ChevronLeft, Award, Activity, TrendingUp as TrendingUpIcon,
-  Pencil, Trash2, Save, Terminal, Lock, Unlock
+  Pencil, Trash2, Save, Terminal, Lock, Unlock,
+  MonitorSmartphone, Radio, ScrollText,
+  Search, Filter, Trophy, AppWindow, Tags, FolderTree, Timer, LayoutGrid,
+  ChartPie, LineChart, Globe, Flame, Hourglass, Gauge,
+  Check, Layers, Repeat, ListOrdered
 } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { LoadingState } from '../components/LoadingState';
+import { SectionState } from '../components/SectionState';
+import { Input } from '../components/ui/input';
+import { Select, SelectItem } from '../components/ui/select';
+import { Badge } from '../components/ui/badge';
+import { Toggle } from '../components/ui/toggle';
+import { BorderBeam } from '../components/ui/border-beam';
+import { NumberTicker } from '../components/ui/number-ticker';
+import { DotPattern } from '../components/ui/dot-pattern';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -24,9 +36,10 @@ import {
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import { format, subDays, eachDayOfInterval, startOfWeek, addWeeks } from 'date-fns';
 import { getDateRange } from '../lib/dateRange';
+import { glassBackdrop, centerText, makeGradient, sharedTooltipStyle, sharedScales, barAnimation, pieAnimation } from '../lib/chart-plugins';
 import type { Period } from '../lib/dateRange';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler, glassBackdrop, centerText);
 
 interface AppStat {
   app: string;
@@ -39,6 +52,7 @@ interface AppStat {
 }
 
 interface StatsPageProps {
+  embedded?: boolean;
   appStats: AppStat[];
   logs: unknown[];
   allLogs?: unknown[];
@@ -78,7 +92,7 @@ function formatDuration(seconds: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments, liveActivityLogs }: StatsPageProps) {
+export default function StatsPage({ embedded, appStats, logs, allLogs, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments, liveActivityLogs }: StatsPageProps) {
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   const [detailPeriod, setDetailPeriod] = useState<Period>('week');
   const [detailDateOffset, setDetailDateOffset] = useState(0);
@@ -89,7 +103,9 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
   const [localAppLogs, setLocalAppLogs] = useState<any[]>([]);
   const [liveCurrentApp, setLiveCurrentApp] = useState<{ app: string; category: string; title?: string } | null>(null);
   const [liveElapsed, setLiveElapsed] = useState(0);
-  const [liveLogs, setLiveLogs] = useState<Array<{ id: string; timestamp: number; app: string; category: string; level: string }>>([]);
+  const [liveLogs, setLiveLogs] = useState<Array<{ id: string; timestamp: number; app: string; category: string; level: string; appLevel?: string }>>([]);
+  const [liveSearchQuery, setLiveSearchQuery] = useState('');
+  const [liveLevelFilter, setLiveLevelFilter] = useState('all');
   const liveSessionStartRef = useRef<number>(Date.now());
   const scrollPosRef = useRef(0);
 
@@ -164,18 +180,21 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
 
   // Pie chart data for app distribution (from sortedApps)
   const pieData = useMemo(() => {
+    const colors = sortedApps.map((s, i) => {
+      const catColor = CATEGORY_COLORS[s.category];
+      if (catColor) return catColor + 'cc';
+      const palette = ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#3b82f6', '#14b8a6', '#f43f5e', '#84cc16', '#a855f7'];
+      return palette[i % palette.length] + 'cc';
+    });
     return {
       labels: sortedApps.map(s => s.app),
       datasets: [{
         data: sortedApps.map(s => s.total_ms / 1000),
-        backgroundColor: sortedApps.map((s, i) => {
-          const catColor = CATEGORY_COLORS[s.category];
-          if (catColor) return catColor + 'cc';
-          const palette = ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#3b82f6', '#14b8a6', '#f43f5e', '#84cc16', '#a855f7'];
-          return palette[i % palette.length] + 'cc';
-        }),
+        backgroundColor: colors,
+        hoverBackgroundColor: colors.map((c: string) => c.replace('cc', 'aa')),
         borderColor: '#0a0a0a',
         borderWidth: 2,
+        hoverOffset: 6,
       }]
     };
   }, [sortedApps]);
@@ -188,7 +207,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
       const hourBuckets = Array.from({ length: 24 }, () => 0);
 
       for (const log of (filteredLogs as any[])) {
-        const sessionStart = new Date(log.timestamp).getTime();
+        const sessionStart = log.timestamp.getTime();
         const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
 
         let currentMs = sessionStart;
@@ -218,7 +237,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     // Build date-keyed map once (single pass) for all multi-day periods
     const logsByDate = new Map<string, number>();
     for (const log of (filteredLogs as any[])) {
-      const key = format(new Date(log.timestamp), 'yyyy-MM-dd');
+      const key = format(log.timestamp, 'yyyy-MM-dd');
       logsByDate.set(key, (logsByDate.get(key) || 0) + (log.duration || 0));
     }
 
@@ -280,7 +299,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     // 'all'
     const monthMap: Record<string, { total: number }> = {};
     (filteredLogs as any[]).forEach(log => {
-      const key = format(new Date(log.timestamp), 'yyyy-MM');
+      const key = format(log.timestamp, 'yyyy-MM');
       if (!monthMap[key]) monthMap[key] = { total: 0 };
       monthMap[key].total += log.duration || 0;
     });
@@ -301,7 +320,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
 
     for (const log of (filteredLogs as any[])) {
       if (log.is_browser_tracking) continue;
-      const sessionStart = new Date(log.timestamp).getTime();
+      const sessionStart = log.timestamp.getTime();
       const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
 
       let currentMs = sessionStart;
@@ -332,7 +351,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
 
     // Session timeline - filter filteredLogs for this app
     const appLogs = (filteredLogs as any[]).filter(log => log.app === selectedApp).sort((a, b) =>
-      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      a.timestamp.getTime() - b.timestamp.getTime()
     );
 
     // Daily breakdown for this app - ALWAYS 7 days (single-pass Map, no nested filter)
@@ -530,7 +549,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     if (liveActivityLogs) {
       const appEntries = liveActivityLogs
         .filter(e => e.type === 'app')
-        .map(e => ({ id: e.id, timestamp: e.timestamp, app: e.name, category: e.category || 'Other', level: 'info' as const }));
+        .map(e => ({ id: e.id, timestamp: e.timestamp, app: e.name, category: e.category || 'Other', level: 'info' as const, appLevel: e.type as string }));
       setLiveLogs(appEntries);
     }
   }, [liveActivityLogs]);
@@ -550,11 +569,15 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     datasets: [{
       label: 'Daily Usage',
       data: dailyUsage.map(d => d.minutes),
-      backgroundColor: 'rgba(99, 102, 241, 0.5)',
+      backgroundColor: (ctx: any) => makeGradient(ctx, '#6366f1'),
       borderColor: '#6366f1',
       borderWidth: 2,
       fill: true,
       tension: 0.4,
+      borderRadius: 6,
+      borderSkipped: false,
+      categoryPercentage: 0.7,
+      barPercentage: 0.8,
     }]
   }), [dailyUsage]);
 
@@ -562,30 +585,12 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
+      glassBackdrop: true,
       legend: { display: false },
-      tooltip: {
-        backgroundColor: 'rgba(24, 24, 27, 0.95)',
-        titleColor: '#fff',
-        bodyColor: '#a1a1aa',
-        borderColor: '#3f3f46',
-        borderWidth: 1,
-        padding: 12,
-        callbacks: {
-          label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}`,
-        }
-      }
+      tooltip: { ...sharedTooltipStyle, callbacks: { label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}` } }
     },
-    scales: {
-      x: {
-        grid: { color: '#27272a' },
-        ticks: { color: '#71717a', maxTicksLimit: 10 }
-      },
-      y: {
-        grid: { color: '#27272a' },
-        ticks: { color: '#71717a', callback: (v: any) => formatDuration(v) },
-        beginAtZero: true,
-      }
-    },
+    scales: sharedScales,
+    animation: barAnimation,
   }), []);
 
   const hourlyChartData = useMemo(() => ({
@@ -593,16 +598,19 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     datasets: [{
       label: 'Minutes',
       data: hourlyDistribution.map(h => h.minutes),
-      backgroundColor: hourlyDistribution.map((_, i) => {
+      backgroundColor: (ctx: any) => {
         const currentHour = new Date().getHours();
-        return i === currentHour ? '#10b981' : 'rgba(99, 102, 241, 0.6)';
-      }),
+        return ctx.dataIndex === currentHour ? makeGradient(ctx, '#10b981') : makeGradient(ctx, '#6366f1');
+      },
       borderColor: hourlyDistribution.map((_, i) => {
         const currentHour = new Date().getHours();
         return i === currentHour ? '#059669' : '#6366f1';
       }),
       borderWidth: 1,
-      borderRadius: 4,
+      borderRadius: 6,
+      borderSkipped: false,
+      categoryPercentage: 0.7,
+      barPercentage: 0.8,
     }]
   }), [hourlyDistribution]);
 
@@ -610,30 +618,12 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
+      glassBackdrop: true,
       legend: { display: false },
-      tooltip: {
-        backgroundColor: 'rgba(24, 24, 27, 0.95)',
-        titleColor: '#fff',
-        bodyColor: '#a1a1aa',
-        borderColor: '#3f3f46',
-        borderWidth: 1,
-        padding: 12,
-        callbacks: {
-          label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}`,
-        }
-      }
+      tooltip: { ...sharedTooltipStyle, callbacks: { label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}` } }
     },
-    scales: {
-      x: {
-        grid: { display: false },
-        ticks: { color: '#71717a', maxTicksLimit: 12 }
-      },
-      y: {
-        grid: { color: '#27272a' },
-        ticks: { color: '#71717a', callback: (v: any) => formatDuration(v) },
-        beginAtZero: true,
-      }
-    },
+    scales: sharedScales,
+    animation: barAnimation,
   }), []);
 
   const hourlyLineChartData = useMemo(() => ({
@@ -642,19 +632,14 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
       label: 'Minutes',
       data: hourlyDistribution.map(h => h.minutes),
       borderColor: '#6366f1',
-      backgroundColor: 'rgba(99, 102, 241, 0.2)',
+      backgroundColor: (ctx: any) => makeGradient(ctx, '#6366f1'),
       fill: true,
-      tension: 0.3,
-      pointBackgroundColor: hourlyDistribution.map((_, i) => {
-        const currentHour = new Date().getHours();
-        return i === currentHour ? '#10b981' : '#6366f1';
-      }),
-      pointBorderColor: hourlyDistribution.map((_, i) => {
-        const currentHour = new Date().getHours();
-        return i === currentHour ? '#059669' : '#6366f1';
-      }),
-      pointRadius: 4,
-      pointHoverRadius: 6,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      pointBackgroundColor: '#6366f1',
+      pointBorderColor: '#6366f1',
+      borderWidth: 2,
     }]
   }), [hourlyDistribution]);
 
@@ -662,45 +647,25 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
+      glassBackdrop: true,
       legend: { display: false },
-      tooltip: {
-        backgroundColor: 'rgba(24, 24, 27, 0.95)',
-        titleColor: '#fff',
-        bodyColor: '#a1a1aa',
-        borderColor: '#3f3f46',
-        borderWidth: 1,
-        padding: 12,
-        callbacks: {
-          label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}`,
-        }
-      }
+      tooltip: { ...sharedTooltipStyle, callbacks: { label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}` } }
     },
-    scales: {
-      x: {
-        grid: { display: false },
-        ticks: { color: '#71717a', maxTicksLimit: 12 }
-      },
-      y: {
-        grid: { color: '#27272a' },
-        ticks: { color: '#71717a', callback: (v: any) => formatDuration(v) },
-        beginAtZero: true,
-      }
-    },
+    scales: sharedScales,
+    animation: barAnimation,
   }), []);
 
   // Memoized Pie chart options (was inline in JSX, causing re-renders)
   const pieChartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
+    cutout: '64%',
     plugins: {
+      glassBackdrop: true,
+      centerText: { enabled: true },
       legend: { position: 'bottom' as const, labels: { color: '#a1a1aa', padding: 18, usePointStyle: true } },
       tooltip: {
-        backgroundColor: 'rgba(24, 24, 27, 0.95)',
-        titleColor: '#fff',
-        bodyColor: '#a1a1aa',
-        borderColor: '#3f3f46',
-        borderWidth: 1,
-        padding: 12,
+        ...sharedTooltipStyle,
         callbacks: {
           label: (ctx: any) => {
             const total = (ctx.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0);
@@ -710,98 +675,192 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
           }
         }
       }
-    }
+    },
+    animation: pieAnimation,
+    hover: {
+      mode: 'index' as const,
+      intersect: false,
+    },
   }), []);
 
   // Memoized summary cards — was inline array created every render
   // Memoized reversed live logs — avoiding slice().reverse() every render
   const reversedLiveLogs = useMemo(() => liveLogs.slice().reverse(), [liveLogs]);
 
+  // Filtered view for live detection panel
+  const displayedLogs = useMemo(() => {
+    let filtered = reversedLiveLogs;
+    if (liveLevelFilter !== 'all') {
+      filtered = filtered.filter(l => (l.appLevel || 'info') === liveLevelFilter);
+    }
+    if (liveSearchQuery.trim()) {
+      const q = liveSearchQuery.toLowerCase();
+      filtered = filtered.filter(l => l.app.toLowerCase().includes(q) || l.category.toLowerCase().includes(q));
+    }
+    return filtered;
+  }, [reversedLiveLogs, liveLevelFilter, liveSearchQuery]);
+
   const summaryCards = useMemo(() => [
-    { label: 'Total Time', value: `${Math.floor(totals.totalTime / 3600000)}h ${Math.floor((totals.totalTime % 3600000) / 60000)}m`, icon: Clock, color: 'text-emerald-400' },
-    { label: 'Total Sessions', value: totals.totalSessions, icon: Activity, color: 'text-indigo-400' },
-    { label: 'Avg Session', value: `${Math.floor(totals.avgSession / 60000)}m`, icon: TrendingUp, color: 'text-violet-400' },
-    { label: 'Active Apps', value: totals.uniqueApps, icon: Monitor, color: 'text-amber-400' },
+    { label: 'Total Time', value: totals.totalTime, display: `${Math.floor(totals.totalTime / 3600000)}h ${Math.floor((totals.totalTime % 3600000) / 60000)}m`, numeric: false, icon: Clock, accentColor: 'indigo', chipBg: 'rgba(99,102,241,0.14)', iconColor: '#6366f1' },
+    { label: 'Total Sessions', value: totals.totalSessions, display: String(totals.totalSessions), numeric: true, icon: Activity, accentColor: 'blue', chipBg: 'rgba(59,130,246,0.14)', iconColor: '#3b82f6' },
+    { label: 'Avg Session', value: `${Math.floor(totals.avgSession / 60000)}m`, display: `${Math.floor(totals.avgSession / 60000)}m`, numeric: false, icon: Timer, accentColor: 'violet', chipBg: 'rgba(139,92,246,0.14)', iconColor: '#8b5cf6' },
+    { label: 'Active Apps', value: totals.uniqueApps, display: String(totals.uniqueApps), numeric: true, icon: LayoutGrid, accentColor: 'emerald', chipBg: 'rgba(16,185,129,0.14)', iconColor: '#10b981' },
   ], [totals.totalTime, totals.totalSessions, totals.avgSession, totals.uniqueApps]);
 
   const effectivePeriod = timeLock ? 'all' : selectedPeriod;
 
-  return (
-    <PageShell page="stats">
-    {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Applications</h1>
-          <p className="text-sm text-zinc-500 mt-1">Track your application usage</p>
-        </div>
-        <div data-tutorial="stats.period" className="flex items-center gap-3">
-          <button
-            onClick={() => setTimeLock(!timeLock)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-              timeLock
-                ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
-                : 'text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700'
-            }`}
-            title={timeLock ? 'Unlock timeframe (use nav)' : 'Lock to All Time'}
-          >
-            {timeLock ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-            <span>All Time</span>
-          </button>
-          <span className="text-sm font-medium px-2 text-zinc-400">
-            {timeLock ? 'All Time' : viewLabel}
-          </span>
+  const pageContent = (
+    <>
+      {!embedded && (
+      <div className="sticky top-0 z-30 -mx-5 px-5 bg-zinc-900/20 backdrop-blur-md border-b border-zinc-800/50 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl grid place-items-center bg-[rgba(99,102,241,0.14)]">
+              <Layers className="w-5 h-5 text-[#6366f1]" />
+            </div>
+            <h1 className="text-3xl font-semibold tracking-tight">Applications</h1>
+            <span className="text-sm text-zinc-500 font-mono tabular-nums">{timeLock ? 'All Time' : viewLabel}</span>
+          </div>
+          <div data-tutorial="stats.period" className="flex items-center gap-3">
+            <motion.button
+              onClick={() => setTimeLock(!timeLock)}
+              whileTap={{ scale: 0.98 }}
+              className={`flex items-center gap-1.5 px-4 min-h-[44px] rounded-lg text-xs font-medium transition-colors ${
+                timeLock
+                  ? 'bg-[rgba(99,102,241,0.14)] border border-[rgba(99,102,241,0.40)] text-indigo-300'
+                  : 'bg-zinc-900/40 border border-zinc-800/50 text-zinc-400 hover:text-white'
+              }`}
+              title={timeLock ? 'Unlock timeframe (use nav)' : 'Lock to All Time'}
+            >
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={timeLock ? 'lock' : 'unlock'}
+                  initial={{ opacity: 0, rotate: -90 }}
+                  animate={{ opacity: 1, rotate: 0 }}
+                  exit={{ opacity: 0, rotate: 90 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex items-center gap-1.5"
+                >
+                  {timeLock ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                  <span>All Time</span>
+                </motion.div>
+              </AnimatePresence>
+            </motion.button>
+          </div>
         </div>
       </div>
-
-      {/* Live tracking indicator */}
-      {liveCurrentApp && (
-        <GlassCard>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse shadow-emerald-500/30" />
-              <div>
-                <div className="text-xs text-zinc-400 uppercase tracking-wider">Currently Tracking</div>
-                <div className="text-xl font-semibold text-white">{liveCurrentApp.app}</div>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-3xl font-mono font-bold text-emerald-400 tabular-nums">{formatDuration(liveElapsed)}</div>
-              <div className="text-xs text-zinc-500 mt-1">{liveCurrentApp.category}</div>
-            </div>
-          </div>
-        </GlassCard>
       )}
 
-      {/* Live Detection Panel */}
+      {/* Live tracking indicator — now playing banner */}
+      <AnimatePresence>
+        {liveCurrentApp && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <GlassCard>
+              <div className="relative pl-4">
+                <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-emerald-500" />
+                <div className="absolute inset-0 rounded-xl opacity-[0.08] pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,#10b981,transparent_60%)]" />
+                <div className="relative flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse shadow-emerald-500/30" />
+                    <div>
+                      <div className="text-xs text-zinc-500 uppercase tracking-wider font-medium">Now Tracking</div>
+                      <div className="text-xl font-semibold text-white">{liveCurrentApp.app}</div>
+                    </div>
+                    <Badge
+                      variant="default"
+                      style={{
+                        backgroundColor: `${CATEGORY_COLORS[liveCurrentApp.category] || '#64748b'}22`,
+                        color: CATEGORY_COLORS[liveCurrentApp.category] || '#64748b',
+                        borderColor: `${CATEGORY_COLORS[liveCurrentApp.category] || '#64748b'}40`,
+                      }}
+                    >
+                      {liveCurrentApp.category}
+                    </Badge>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-3xl font-mono font-bold text-emerald-400 tabular-nums tracking-tight">{formatDuration(liveElapsed)}</div>
+                    <div className="text-xs text-zinc-500 mt-1">elapsed</div>
+                  </div>
+                </div>
+              </div>
+            </GlassCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Live Detection Panel — terminal surface */}
       <GlassCard>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Terminal className="w-5 h-5 text-emerald-400" />
-            <span className="font-medium">Live Detection</span>
+        <SectionHeader
+          title="Live Detection"
+          icon={<Terminal className="w-5 h-5 text-emerald-400" />}
+          action={
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
+            </div>
+          }
+        />
+        <div className="mb-3 flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+            <Input
+              value={liveSearchQuery}
+              onChange={e => setLiveSearchQuery(e.target.value)}
+              placeholder="Search logs..."
+              className="pl-8 text-xs"
+            />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
-          </div>
+          <Select
+            value={liveLevelFilter}
+            onValueChange={(v: string) => setLiveLevelFilter(v)}
+          >
+            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="info">Info</SelectItem>
+            <SelectItem value="app">App</SelectItem>
+            <SelectItem value="browser">Browser</SelectItem>
+            <SelectItem value="ide">IDE</SelectItem>
+          </Select>
         </div>
-        <div className="bg-zinc-950 rounded-xl border border-zinc-800/50 p-3 h-48 overflow-y-auto font-mono text-xs">
-          {liveLogs.length === 0 ? (
-            <div className="text-zinc-500 text-center py-8">
-              Waiting for app activity...
+        <div className="bg-zinc-950/60 rounded-xl border border-zinc-800/50 h-48 overflow-y-auto font-mono text-xs">
+          {displayedLogs.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <div className="text-zinc-500">{liveLogs.length === 0 ? 'Waiting for activity...' : 'No matching logs'}</div>
+                {liveLogs.length === 0 && (
+                  <div className="mt-2 text-zinc-600 animate-pulse">_</div>
+                )}
+              </div>
             </div>
           ) : (
-            <div className="space-y-1">
-              {reversedLiveLogs.map((log) => (
-                <div key={log.id} className="flex items-start gap-2">
-                  <span className="text-zinc-600 shrink-0">
-                    {new Date(log.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </span>
-                  <span className="shrink-0 px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
-                    INFO
-                  </span>
-                  <span className="text-blue-400">{log.app}</span>
-                  <span className="text-zinc-500 truncate">{log.category}</span>
-                </div>
-              ))}
+            <div className="space-y-0.5">
+              {displayedLogs.map((log) => {
+                const levelColor = log.appLevel === 'app' ? '#6366f1' : log.appLevel === 'browser' ? '#3b82f6' : log.appLevel === 'ide' ? '#8b5cf6' : '#3b82f6';
+                return (
+                  <motion.div
+                    key={log.id}
+                    initial={{ opacity: 0, translateY: -6 }}
+                    animate={{ opacity: 1, translateY: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="grid grid-cols-[auto_auto_1fr_auto] gap-3 items-start py-1.5 px-3 hover:bg-white/[0.02]"
+                  >
+                    <span className="text-zinc-600">
+                      {new Date(log.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                    <span
+                      className="shrink-0 px-1.5 py-0.5 rounded font-sans text-[10px] font-medium"
+                      style={{ backgroundColor: levelColor + '20', color: levelColor }}
+                    >
+                      {log.level}
+                    </span>
+                    <span className="text-blue-400 truncate">{log.app}</span>
+                    <span className="text-zinc-600 truncate">{log.category}</span>
+                  </motion.div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -827,40 +886,65 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
               <Pie data={pieData} options={pieChartOptions} />
             </div>
           ) : (
-            <div className="text-center py-16 text-zinc-500">
-              No data available yet
-            </div>
+            <SectionState kind="empty" chart="pie" message="No usage recorded for this period" />
           )}
         </GlassCard>
 
         <div className="flex-1 space-y-4">
           <GlassCard>
-            <div className="text-xl font-semibold mb-6">Top Applications</div>
-            {sortedApps.slice(0, 6).map((app) => {
-              const catColor = CATEGORY_COLORS[app.category] || '#64748b';
-              const pct = totals.totalTime > 0 ? Math.round((app.total_ms / totals.totalTime) * 100) : 0;
-              return (
-                <div key={app.app} className="flex items-center py-4 border-b border-zinc-800 last:border-none">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: catColor + '22' }}>
-                    <Monitor className="w-4 h-4" style={{ color: catColor }} />
-                  </div>
-                  <div className="ml-4 flex-1">
-                    <div className="font-medium">{app.app}</div>
-                    <div className="text-xs" style={{ color: catColor }}>{app.category}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-mono tabular-nums">
-                      {Math.floor(app.total_ms / 3600000)}h {Math.floor((app.total_ms % 3600000) / 60000)}m
-                    </div>
-                    <div className="text-xs text-emerald-400">{pct}%</div>
-                  </div>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-lg bg-[rgba(99,102,241,0.14)] grid place-items-center">
+                  <ListOrdered className="w-4 h-4 text-[#6366f1]" />
                 </div>
-              );
-            })}
-            {sortedApps.length === 0 && (
-              <div className="text-center py-8 text-zinc-500">
-                No applications tracked yet
+                <span className="text-xl font-semibold">Top Applications</span>
               </div>
+            </div>
+            {sortedApps.length > 0 ? (
+              <motion.div initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}>
+                {sortedApps.slice(0, 6).map((app, idx) => {
+                  const catColor = CATEGORY_COLORS[app.category] || '#64748b';
+                  const pct = totals.totalTime > 0 ? Math.round((app.total_ms / totals.totalTime) * 100) : 0;
+                  return (
+                    <motion.div
+                      key={app.app}
+                      variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] } } }}
+                      className="group relative flex items-center py-2.5 px-3 rounded-lg hover:bg-white/[0.02] transition-colors"
+                    >
+                      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(99,102,241,0.04),transparent_60%)]" />
+                      <span className="w-6 font-mono text-xs text-zinc-600 shrink-0">{(idx + 1).toString().padStart(2, '0')}</span>
+                      <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0" style={{ background: catColor + '22' }}>
+                        <Monitor className="w-3.5 h-3.5" style={{ color: catColor }} />
+                      </div>
+                      <div className="ml-3 flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate group-hover:translate-x-0.5 transition-transform duration-150">{app.app}</div>
+                        <div className="text-xs" style={{ color: catColor }}>{app.category}</div>
+                      </div>
+                      <div className="relative ml-4 flex-1 max-w-[120px] self-center">
+                        <div className="h-1.5 bg-zinc-800/60 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-transform duration-600"
+                            style={{
+                              transform: `scaleX(${pct / 100})`,
+                              transformOrigin: 'left',
+                              backgroundColor: catColor + '38',
+                              borderRight: `1px solid ${catColor}`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="text-right ml-4 shrink-0">
+                        <div className="font-mono text-sm tabular-nums text-white">
+                          {Math.floor(app.total_ms / 3600000)}h {Math.floor((app.total_ms % 3600000) / 60000)}m
+                        </div>
+                        <div className="text-xs text-zinc-500">{pct}%</div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            ) : (
+              <SectionState kind="empty" message="No applications tracked yet" hint="Start using apps to see them here" />
             )}
           </GlassCard>
         </div>
@@ -875,13 +959,19 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.05 }}
           >
-            <GlassCard>
-              <div className="flex items-center justify-between mb-4">
-                <stat.icon className={`w-5 h-5 ${stat.color}`} />
-                <div className="text-xs text-zinc-500">LIVE</div>
+            <GlassCard className="group relative overflow-hidden border-zinc-800/50 hover:border-zinc-700/80 transition-colors duration-300">
+              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(99,102,241,0.12),transparent_60%)]" />
+              <div className="relative">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-9 w-9 rounded-lg grid place-items-center" style={{ background: stat.chipBg }}>
+                    <stat.icon className="w-4.5 h-4.5" style={{ color: stat.iconColor }} />
+                  </div>
+                </div>
+                <div className="text-3xl font-semibold tabular-nums tracking-tight text-white">
+                  {stat.numeric ? <NumberTicker value={stat.value as number} /> : stat.display}
+                </div>
+                <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mt-1">{stat.label}</div>
               </div>
-              <div className={`text-3xl font-semibold tabular-nums tracking-tight ${stat.color}`}>{stat.value}</div>
-              <div className="text-sm text-zinc-400 mt-1">{stat.label}</div>
             </GlassCard>
           </motion.div>
         ))}
@@ -889,7 +979,7 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
 
 {/* Hourly Distribution */}
       <GlassCard data-tutorial="stats.charts">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             {hourlyChartMode === 'bar' ? (
               <BarChart3 className="w-5 h-5 text-emerald-400" />
@@ -901,47 +991,57 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
                 {selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
               </div>
               <div className="text-sm text-zinc-500">
-                {selectedPeriod === 'today' ? 'Activity by hour of day' : `${selectedPeriod === 'week' ? '7 days' : selectedPeriod === '7day' ? '7 days' : selectedPeriod === 'month' ? 'all days' : selectedPeriod === '30day' ? '30 days' : 'all time'} of activity`}
+                {selectedPeriod === 'today' ? 'Activity by hour of day' : 'Activity over time'}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
-            <button
-              onClick={() => setHourlyChartMode('bar')}
-              className={`p-2 rounded-md transition-colors duration-150 ${
-                hourlyChartMode === 'bar'
-                  ? 'bg-emerald-500/20 text-emerald-400'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-              title="Bar Chart"
+            <Toggle
+              pressed={hourlyChartMode === 'bar'}
+              onPressedChange={() => setHourlyChartMode('bar')}
+              className={`${hourlyChartMode === 'bar' ? 'bg-emerald-500/20 text-emerald-400' : ''}`}
+              aria-label="Bar Chart"
             >
               <BarChart3 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setHourlyChartMode('line')}
-              className={`p-2 rounded-md transition-colors duration-150 ${
-                hourlyChartMode === 'line'
-                  ? 'bg-indigo-500/20 text-indigo-400'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-              title="Line Chart"
+            </Toggle>
+            <Toggle
+              pressed={hourlyChartMode === 'line'}
+              onPressedChange={() => setHourlyChartMode('line')}
+              className={`${hourlyChartMode === 'line' ? 'bg-indigo-500/20 text-indigo-400' : ''}`}
+              aria-label="Line Chart"
             >
               <TrendingUpIcon className="w-4 h-4" />
-            </button>
+            </Toggle>
           </div>
         </div>
-        <div className="h-56">
+        <div className="relative h-56">
           {hourlyChartMode === 'bar' ? (
             selectedPeriod === 'today' ? (
-              <Bar data={hourlyChartData} options={hourlyChartOptions} />
+              hourlyChartData?.labels?.length ? (
+                <Bar data={hourlyChartData} options={hourlyChartOptions} />
+              ) : (
+                <SectionState kind="empty" chart="bar" message="No hourly data yet" />
+              )
             ) : (
-              <Bar data={dailyChartData} options={dailyChartOptions} />
+              dailyChartData?.labels?.length ? (
+                <Bar data={dailyChartData} options={dailyChartOptions} />
+              ) : (
+                <SectionState kind="empty" chart="bar" message="No daily data yet" />
+              )
             )
           ) : (
             selectedPeriod === 'today' ? (
-              <Line data={hourlyLineChartData} options={hourlyLineChartOptions} />
+              hourlyLineChartData?.labels?.length ? (
+                <Line data={hourlyLineChartData} options={hourlyLineChartOptions} />
+              ) : (
+                <SectionState kind="empty" chart="line" message="No hourly data yet" />
+              )
             ) : (
-              <Line data={dailyChartData} options={dailyChartOptions} />
+              dailyChartData?.labels?.length ? (
+                <Line data={dailyChartData} options={dailyChartOptions} />
+              ) : (
+                <SectionState kind="empty" chart="line" message="No daily data yet" />
+              )
             )
           )}
         </div>
@@ -949,99 +1049,129 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
 
       {/* Category Breakdown */}
       <GlassCard>
-        <h2 className="text-xl font-semibold mb-6">Category Breakdown</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {categoryBreakdown.map(({ category, total_ms, pct }) => (
-            <div key={category} className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50">
-              <div className="flex items-center gap-2 mb-2">
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: CATEGORY_COLORS[category] || '#64748b' }}
-                />
-                <span className="text-sm font-medium">{category}</span>
-              </div>
-              <div className="text-2xl font-semibold tabular-nums">
-                {Math.floor(total_ms / 60000)}m
-              </div>
-              <div className="text-xs text-zinc-500 mt-1">{pct.toFixed(1)}% of total</div>
-              <div className="mt-2 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-colors duration-150"
-                  style={{ width: `${pct}%`, backgroundColor: CATEGORY_COLORS[category] || '#64748b' }}
-                />
-              </div>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-[rgba(99,102,241,0.14)] grid place-items-center">
+              <Tags className="w-4 h-4 text-[#6366f1]" />
             </div>
-          ))}
+            <div>
+              <div className="text-xl font-semibold">Category Breakdown</div>
+              <div className="text-sm text-zinc-500">{viewLabel}</div>
+            </div>
+          </div>
+          <div className="text-xs text-zinc-500">{categoryBreakdown.length} categories</div>
         </div>
+        {categoryBreakdown.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {categoryBreakdown.map(({ category, total_ms, pct }) => {
+              const catColor = CATEGORY_COLORS[category] || '#64748b';
+              return (
+                <motion.div
+                  key={category}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="group relative overflow-hidden bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 hover:border-zinc-700 transition-all"
+                >
+                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(99,102,241,0.06),transparent_60%)]" />
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: catColor }} />
+                    <span className="text-sm font-medium capitalize">{category}</span>
+                  </div>
+                  <div className="text-xl font-semibold tabular-nums text-white">
+                    {Math.floor(total_ms / 60000)}m
+                  </div>
+                  <div className="text-xs text-zinc-500 mt-0.5">{pct.toFixed(1)}% of total</div>
+                  <div className="mt-3 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500 group-hover:opacity-80"
+                      style={{ transform: `scaleX(${pct / 100})`, transformOrigin: 'left', backgroundColor: catColor }}
+                    />
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        ) : (
+          <SectionState kind="empty" message="No category data yet" hint="Categories appear once apps are tracked" />
+        )}
       </GlassCard>
 
       {/* Per-App Cards */}
       <GlassCard data-tutorial="stats.list">
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-semibold">Application Statistics</h2>
-            <p className="text-sm text-zinc-500 mt-1">Click an app to view detailed stats</p>
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-[rgba(99,102,241,0.14)] grid place-items-center">
+              <AppWindow className="w-4 h-4 text-[#6366f1]" />
+            </div>
+            <div>
+              <div className="text-xl font-semibold">Application Statistics</div>
+              <div className="text-sm text-zinc-500">Click an app to view detailed stats</div>
+            </div>
           </div>
           <div className="text-xs text-zinc-500">{sortedApps.length} apps</div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sortedApps.map((stat) => {
-            const catColor = CATEGORY_COLORS[stat.category] || '#64748b';
-            const isSelected = selectedApp === stat.app;
-            return (
-              <motion.div
-                key={stat.app}
-                className={`rounded-xl p-5 border cursor-pointer transition ${
-                  isSelected
-                    ? 'bg-zinc-800/80 border-indigo-500/50 shadow-indigo-500/10'
-                    : 'bg-zinc-900/30 border-zinc-800/50 hover:border-zinc-700'
-                }`}
-                onClick={() => setSelectedApp(isSelected ? null : stat.app)}
-                whileHover={{ y: -2 }}
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center"
-                      style={{ backgroundColor: catColor + '22' }}
-                    >
-                      <Monitor className="w-5 h-5" style={{ color: catColor }} />
+        {sortedApps.length > 0 ? (
+          <motion.div
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+            initial="hidden"
+            animate="visible"
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.03 } } }}
+          >
+            {sortedApps.map((stat) => {
+              const catColor = CATEGORY_COLORS[stat.category] || '#64748b';
+              const isSelected = selectedApp === stat.app;
+              return (
+                <motion.div
+                  key={stat.app}
+                  variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } } }}
+                  className={`group relative overflow-hidden rounded-xl p-5 border cursor-pointer transition-all duration-200 ${
+                    isSelected
+                      ? 'bg-zinc-800/80 border-indigo-500/50'
+                      : 'bg-zinc-900/30 border-zinc-800/50 hover:border-zinc-700 hover:bg-zinc-900/50'
+                  }`}
+                  onClick={() => setSelectedApp(isSelected ? null : stat.app)}
+                  whileHover={{ y: -2 }}
+                >
+                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(99,102,241,0.06),transparent_60%)]" />
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: catColor + '22' }}
+                      >
+                        <Monitor className="w-5 h-5" style={{ color: catColor }} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm truncate max-w-[120px]" title={stat.app}>{stat.app}</div>
+                        <div className="text-xs" style={{ color: catColor }}>{stat.category}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="font-medium text-sm truncate max-w-[140px]" title={stat.app}>{stat.app}</div>
-                      <div className="text-xs" style={{ color: catColor }}>{stat.category}</div>
+                    <ChevronRight className={`w-4 h-4 mt-1 shrink-0 transition-transform duration-200 ${isSelected ? 'rotate-90 text-indigo-400' : 'text-zinc-600'}`} />
+                  </div>
+
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-zinc-500">Total Time</span>
+                      <span className="font-mono text-white tabular-nums">
+                        {Math.floor(stat.total_ms / 3600000)}h {Math.floor((stat.total_ms % 3600000) / 60000)}m
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-zinc-500">Sessions</span>
+                      <span className="font-mono tabular-nums" style={{ color: catColor }}>{stat.sessions}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-zinc-500">Avg Session</span>
+                      <span className="font-mono text-zinc-300 tabular-nums">{Math.floor(stat.avg_session_ms / 60000)}m</span>
                     </div>
                   </div>
-                  <ChevronRight className={`w-4 h-4 transition-transform ${isSelected ? 'rotate-90' : ''}`} />
-                </div>
-
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Total Time</span>
-                    <span className="font-mono text-white">
-                      {Math.floor(stat.total_ms / 3600000)}h {Math.floor((stat.total_ms % 3600000) / 60000)}m
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Sessions</span>
-                    <span className="font-mono text-emerald-400">{stat.sessions}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Avg Session</span>
-                    <span className="font-mono text-zinc-300">{Math.floor(stat.avg_session_ms / 60000)}m</span>
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-
-        {sortedApps.length === 0 && (
-          <div className="text-center py-16 text-zinc-500">
-            <BarChart3 className="w-12 h-12 mx-auto mb-4 text-zinc-700" />
-            <p>No statistics available yet. Start using your computer to collect data.</p>
-          </div>
+                </motion.div>
+              );
+            })}
+          </motion.div>
+        ) : (
+          <SectionState kind="empty" message="No application data yet" hint="Start using your computer to collect data" />
         )}
       </GlassCard>
 
@@ -1059,6 +1189,8 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
               onClick={e => e.stopPropagation()}
               className="w-full max-w-3xl max-h-[85vh] overflow-y-auto"
             >
+              <div className="relative overflow-hidden rounded-xl">
+              <BorderBeam size={120} duration={8} colorFrom="#6366f1" colorTo="#8b5cf6" />
               <GlassCard variant="elevated">
               {/* Header */}
               <div className="flex items-start justify-between mb-8">
@@ -1074,9 +1206,16 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
                   </div>
                   <div>
                     <h2 className="text-2xl font-semibold">{selectedAppData.stat.app}</h2>
-                    <div className="text-sm" style={{ color: CATEGORY_COLORS[selectedAppData.stat.category] || '#64748b' }}>
+                    <Badge
+                      variant="default"
+                      style={{
+                        backgroundColor: `${CATEGORY_COLORS[selectedAppData.stat.category] || '#64748b'}20`,
+                        color: CATEGORY_COLORS[selectedAppData.stat.category] || '#64748b',
+                        borderColor: `${CATEGORY_COLORS[selectedAppData.stat.category] || '#64748b'}40`,
+                      }}
+                    >
                       {selectedAppData.stat.category}
-                    </div>
+                    </Badge>
                   </div>
                 </div>
                 <button onClick={() => setSelectedApp(null)} className="text-zinc-400 hover:text-white">
@@ -1087,35 +1226,17 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
               {/* Key Metrics Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 {[
-                  {
-                    label: 'Total Time',
-                    value: `${Math.floor(selectedAppData.stat.total_ms / 3600000)}h ${Math.floor((selectedAppData.stat.total_ms % 3600000) / 60000)}m`,
-                    icon: Clock,
-                    color: 'text-emerald-400'
-                  },
-                  {
-                    label: 'Sessions',
-                    value: selectedAppData.totalSessions,
-                    icon: Activity,
-                    color: 'text-indigo-400'
-                  },
-                  {
-                    label: 'Peak Hour',
-                    value: `${selectedAppData.peakHour.hour.toString().padStart(2, '0')}:00`,
-                    icon: Zap,
-                    color: 'text-amber-400'
-                  },
-                  {
-                    label: 'Longest Session',
-                    value: formatDuration(selectedAppData.longestSession),
-                    icon: Award,
-                    color: 'text-violet-400'
-                  },
+                  { label: 'Total Time', value: `${Math.floor(selectedAppData.stat.total_ms / 3600000)}h ${Math.floor((selectedAppData.stat.total_ms % 3600000) / 60000)}m`, icon: Clock, accentColor: 'indigo', chipBg: 'rgba(99,102,241,0.14)', iconColor: '#6366f1' },
+                  { label: 'Sessions', value: selectedAppData.totalSessions, icon: Activity, accentColor: 'emerald', chipBg: 'rgba(16,185,129,0.14)', iconColor: '#10b981' },
+                  { label: 'Peak Hour', value: `${selectedAppData.peakHour.hour.toString().padStart(2, '0')}:00`, icon: Zap, accentColor: 'amber', chipBg: 'rgba(245,158,11,0.14)', iconColor: '#f59e0b' },
+                  { label: 'Longest Session', value: formatDuration(selectedAppData.longestSession), icon: Award, accentColor: 'violet', chipBg: 'rgba(139,92,246,0.14)', iconColor: '#8b5cf6' },
                 ].map((metric, idx) => (
                   <div key={idx} className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50">
-                    <metric.icon className={`w-5 h-5 ${metric.color} mb-2`} />
-                    <div className={`text-xl font-semibold tabular-nums ${metric.color}`}>{metric.value}</div>
-                    <div className="text-xs text-zinc-500 mt-1">{metric.label}</div>
+                    <div className="h-8 w-8 rounded-lg grid place-items-center mb-2.5" style={{ background: metric.chipBg }}>
+                      <metric.icon className="w-4.5 h-4.5" style={{ color: metric.iconColor }} />
+                    </div>
+                    <div className="text-xl font-semibold tabular-nums text-white">{metric.value}</div>
+                    <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mt-1">{metric.label}</div>
                   </div>
                 ))}
               </div>
@@ -1422,10 +1543,14 @@ export default function StatsPage({ appStats, logs, allLogs, selectedPeriod = 'w
                 )}
               </div>
               </GlassCard>
+              </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-    </PageShell>
+    </>
   );
+
+  if (embedded) return pageContent;
+  return <PageShell page="stats">{pageContent}</PageShell>;
 }

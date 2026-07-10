@@ -175,6 +175,46 @@ The prompt you generate should equip the receiving AI with context and then task
 2. Add entry: what problem is being solved, mark **IN PROGRESS**.
 3. Then proceed.
 
+## MANDATORY FOR FRONTEND PROMPTS: Add MCP Inventory + Skills List
+
+When generating a prompt for a **frontend/UI task**, you MUST include these sections in the prompt:
+
+### A. List ALL frontend design skills (verbatim names + what they do):
+1. **Frontend Design** — DeskFlow-specific component patterns, tokens, spacing, typography, glass cards
+2. **Human-Centric UX** — empty/loading/error states, progressive disclosure, visual hierarchy, feedback
+3. **Impeccable** — 7 design dimensions (typography, color, spatial, motion, interaction, responsive, UX writing), 27 anti-patterns
+4. **Motion — Bring the UI Alive** — Liveliness Levels (L1 Composed / L2 Responsive / L3 Expressive), motion taxonomy, recipes
+5. **UI UX Pro Max** — industry-specific design rules (dev tools, AI/ML, financial), style library
+6. **Design Taste System** — master aggregator, design variance knobs, anti-repetition rules
+7. **frontend-external-infra** — source routing, re-skin rules, anti-slop checklist
+
+### B. Query ALL MCP servers and list their real inventory in the prompt:
+YOU (the agent generating the prompt) must query each MCP and include ACTUAL component names in the prompt. Do not just say "use shadcn components" — list WHAT components.
+
+1. **shadcn MCP** → Run `npx -y shadcn@latest search '@shadcn'` and `npx -y shadcn@latest view '@shadcn/<component>'` for relevant ones. Include real component names, props, variants.
+2. **Magic UI MCP** → Fetch from https://magicui.design/docs/components/ to get the real component list. Include names like Animated Beam, Border Beam, Number Ticker, Particles, etc.
+3. **Lucide MCP** — List specific icon names relevant to the task (Bot, Send, Sparkles, Target, etc.)
+4. **React Bits MCP** — Note that 135+ components are available
+5. **Iconify MCP** — 200k+ icons as fallback
+
+Create a table in the prompt for each MCP showing:
+```
+| Component | Source | Use for |
+|-----------|--------|---------|
+| card | shadcn | Standard UI cards |
+| dialog | shadcn | Modals |
+| Animated Beam | Magic UI | Connecting lines |
+| Bot | Lucide | AI icon |
+```
+
+### C. Include the Anti-Slop Checklist:
+After any MCP-sourced component, the target AI must:
+1. Re-skin to DeskFlow tokens (colors → --bg-primary, --accent-primary, etc.)
+2. Max rounded-xl, p-5 padding
+3. Dark mode only
+4. Geist + JetBrains Mono fonts
+5. Glass layer (bg-zinc-900/80 backdrop-blur-xl)
+
 ## What to Gather
 
 1. **Project context:** `agent/state.md`, `agent/context.md`, relevant `PLANNING.md`.
@@ -206,6 +246,45 @@ Save to `agent/docs/<relevant-dir>/CONTEXT_BUNDLE.md` and include:
 The bundle must be **self-contained**. The target AI should be able to design the complete solution using only this file, without needing to read the codebase itself.
 
 **If you cannot gather all context autonomously** (e.g., a file is too large, or the relevant section isn't obvious), include a step in the prompt that asks the user to provide specific files or code sections.
+
+#### Context Bundle Requirements — MUST Include Actual Source Code (Not Descriptions)
+
+The single biggest failure mode is writing CONTEXT_BUNDLE.md with prose descriptions of code shapes instead of actual source. The target AI will produce "plausible-sounding instead of correct" specs. **Every context bundle MUST include the actual source code for each of the following** (where applicable to the task):
+
+1. **Current type/interface definitions** — The exact TypeScript interfaces the spec will modify. Include all fields, not a summary. Example: if the task modifies TutorAnswer, include the full interface with all 9 fields, not just `{ answer_md, citations, ... }`.
+
+2. **Current implementation of every affected function** — The full function body with line numbers. Do NOT summarize logic as "does X, Y, Z" — include the actual `.replace()` calls, actual `if/else` branches, actual SQL queries. The target AI needs to see the current code to know what to change and what not to break.
+
+3. **End-to-end IPC wiring example** — Show the complete chain for ONE working IPC channel: preload.ts bridge → main.ts handler → service method → DB call. Include the `ipcRenderer.invoke()`, the `ipcMain.handle()`, the service method signature, and the repo/database call. This teaches the target AI the exact conventions to follow for new channels.
+
+4. **DB access pattern** — Show the actual repository file (repo.ts or similar) with prepared statements, transactions, and error handling. Show one complete migration SQL file. The target AI needs to see how migrations are applied (`PRAGMA user_version` increment) and how queries are written (prepared statements with `?` placeholders).
+
+5. **Result/error wrapper type** — Include `type Result<T> = { ok: true, data: T } | { ok: false, error: string }` or whatever pattern is used. Every IPC handler returns this.
+
+6. **Current UI component source** — For every component the spec touches, include the full source (props interface, all states, rendering logic). Do NOT describe what the component does — paste the actual `return()` JSX.
+
+7. **Design tokens** — Include the actual Tailwind config theme extension or CSS custom properties. Hex codes, font stacks, spacing values, breakpoints. Not a summary like "uses dark zinc palette" — the actual `colors: { clay: { 400: '#...' } }` values.
+
+8. **AI/provider call chain** — Show how the LLM is actually called. Is it a direct main-process function call? HTTP fetch? SSE stream? Include the actual provider wrapper code so the target AI knows what streaming capabilities exist and which don't.
+
+9. **Database schema** — Include the actual CREATE TABLE statements from migration files. Every column name, type, default, FK constraint. Not a summary table.
+
+10. **Current state management** — Show the actual state variables, hooks, and their types. Include the full useState declarations if relevant.
+
+Each item above must include the exact file path and line number range, e.g.:
+```markdown
+### src/components/learn/TutorPanel.tsx (lines 56-63):
+function renderAnswerHtml(md: string): string {
+  return md
+    .replace(/```(\w+)?\n([\s\S]*?)```/g, '...')
+    .replace(/`([^`]+)`/g, '...')
+    .replace(/\*\*(.+?)\*\*/g, '...')
+    .replace(/\*(.+?)\*/g, '...')
+    .replace(/\n/g, '<br/>');
+}
+```
+
+**If any of these items is missing from the context bundle, the prompt will produce unreliable output.** Do not skip this step.
 
 ## What the Generated Prompt Should Include
 

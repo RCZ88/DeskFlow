@@ -1,0 +1,682 @@
+﻿src/
+├── __lmd_debug.ts
+├── __lmd_verify.ts
+├── App.css
+├── App.tsx
+├── App.tsx.backup
+├── App.tsx.bak.20260607-210956
+├── App.tsx.broken
+├── App.tsx.corrupted
+├── App.tsx.test
+├── codex history chats.txt
+├── gameDetection.ts
+├── index.css
+├── main.ts
+├── main.ts.backup
+├── main.ts.bak
+├── main.ts.bak.20260528-011034
+├── main.ts.bak.20260607-210956
+├── main.tsx
+├── node-pty.d.ts
+├── preload.ts
+├── preload.ts.backup
+├── preload.ts.bak.20260528-011034
+├── preload.ts.bak.20260607-210956
+├── preload2.ts
+├── preload-old.ts
+├── assets/
+│   └── react.svg
+├── backups/
+│   ├── GapPanel.tsx
+│   └── GapPredictorPanel.tsx
+├── components/
+│   ├── AfkPromptModal.tsx
+│   ├── AiBriefCard.tsx.bak.20260607-210956
+│   ├── AICityscape.tsx
+│   ├── AICityscape.tsx.bak
+│   ├── AIFeaturesModal.tsx
+│   ├── AiProviderSelectModal.tsx
+│   ├── AiUsageCard.tsx
+│   ├── AnalyticsDashboard.tsx
+│   ├── AnomalyBadge.tsx
+│   ├── BackupPanel.tsx
+│   ├── BasicMarkdownViewer.tsx
+│   ├── BugReportPanel.tsx
+│   ├── CategoryColors.tsx
+│   ├── ChartContainer.tsx
+│   ├── CheckFeedbackControls.tsx
+│   ├── cityscape.utils.ts.bak
+│   ├── ConfirmDialog.tsx
+│   ├── ConnectorSetupModal.tsx
+│   ├── ConnectorsPanel.tsx
+│   ├── ContextMaintenanceTab.tsx
+│   ├── ContextSidebar.tsx
+│   ├── ContextSummaryCard.tsx
+│   ├── DailyPlanCard.tsx
+│   ├── DayDetailPopup.tsx
+│   ├── DayGanttChart.tsx
+│   ├── DevicesPanel.tsx
+│   ├── DSLGenerationModal.tsx
+│   ├── DurationPicker.tsx
+│   ├── EmptyState.tsx
+│   ├── ErrorBoundary.tsx
+│   ├── FeatureSpecPanel.tsx
+│   ├── FeatureSpecViewer.tsx
+│   ├── FilesTab.tsx
+│   ├── finance.zip
+│   ├── GapBanner.tsx
+│   ├── GapFillDrawer.tsx
+│   ├── GapFillModal.tsx
+│   ├── GeneralistDialog.tsx
+│   ├── GlassCard.tsx
+│   ├── GlassCard.tsx.bak.20260607-210956
+│   ├── GoalHistoryCard.tsx
+│   ├── ImportSessionsDialog.tsx
+│   ├── InitializeProgressModal.tsx
+│   ├── InstructionPanel.tsx
+│   ├── IssuesWorkspace.tsx
+│   ├── KnobSlider.tsx
+│   ├── LoadingState.tsx
+│   ├── LongTermPlanCard.tsx
+│   ├── MapEditor.tsx
+│   ├── MarkdownPreview.tsx
+│   ├── ModalOverlay.tsx
+│   ├── MyPlanCard.tsx
+│   ├── NewSessionDialog.tsx
+│   ├── NewSessionDialog.tsx.backup-pre-setup-init-2026-05-27
+│   ├── OrbitSystem.tsx
+│   ├── PageContextPanel.tsx
+│   ├── PageShell.tsx
+│   ├── PairPhoneModal.tsx
+│   ├── PatternCard.tsx.bak.20260607-210956
+│   ├── ProblemsTab.tsx
+│   ├── ProjectStatusCard.tsx
+│   ├── PromptDesignDialog.tsx
+│   ├── PromptHistoryTab.tsx
+│   ├── PromptsWorkspace.tsx
+│   ├── ProviderDiagnostics.tsx
+│   ├── RequestsTab.tsx
+│   ├── RoutingDisambiguationDialog.tsx
+│   ├── RoutingToast.tsx
+│   ├── SectionHeader.tsx
+│   ├── SectionState.tsx
+│   ├── SessionCard.tsx
+│   ├── SessionEditDialog.tsx
+│   ├── SidebarLogo.tsx
+│   ├── SkillDynamicForm.tsx
+│   ├── SkillsTab.tsx
+│   ├── SleepCard.tsx.bak.20260607-210956
+│   ├── SleepDetectionModal.tsx
+│   ├── StatCard.tsx
+│   ├── StickyHeader.tsx
+│   ├── SystemCard.tsx
+│   ├── TabBar.tsx
+│   ├── TerminalMiniMap.tsx
+│   ├── TerminalTab.tsx
+│   ├── TerminalWindow.tsx
+│   ├── TodayOverviewCard.tsx
+│   ├── TopicDigestCard.tsx
+│   ├── TransferSessionModal.tsx
+│   ├── TutorialOverlay.tsx
+│   ├── VoiceInputButton.tsx
+│   ├── WeeklyReviewCard.tsx.bak.20260607-210956
+│   ├── WorkspaceSettingsDialog.tsx
+│   ├── WorkspaceSettingsDialog.tsx.bak.20260527-224500
+│   ├── ai/
+│   │   ├── GlassCard.tsx
+│   │   ├── IconButton.tsx
+│   │   ├── index.ts
+│   │   ├── MetricCard.tsx
+│   │   ├── SectionHead.tsx
+│   │   ├── StateShell.tsx
+│   │   ├── StatusDot.tsx
+│   │   ├── tokens.ts
+│   │   ├── types.ts
+│   │   ├── chat/
+│   │   │   ├── AgentProgressBar.tsx
+│   │   │   ├── CharCountRing.tsx
+│   │   │   ├── ChatEmptyState.tsx
+│   │   │   ├── ChatInput.tsx
+│   │   │   ├── ChatPanel.tsx
+│   │   │   ├── MessageBubble.tsx
+│   │   │   ├── parsed.ts
+│   │   │   ├── ParsedMessageRouter.tsx
+│   │   │   ├── ThinkingIndicator.tsx
+│   │   │   ├── TypewriterText.tsx
+│   │   │   └── renderers/
+│   │   │       ├── ActionListCard.tsx
+│   │   │       ├── CardShell.tsx
+│   │   │       ├── ChartDataCard.tsx
+│   │   │       ├── ConnectorStatusCard.tsx
+│   │   │       ├── DigestTopicCard.tsx
+│   │   │       ├── ErrorCard.tsx
+│   │   │       ├── FormFillCard.tsx
+│   │   │       ├── GoalSuggestionCard.tsx
+│   │   │       ├── PlanUpdateCard.tsx
+│   │   │       └── StatsSummaryCard.tsx
+│   │   ├── connectors/
+│   │   │   └── ConnectorsPanel.tsx
+│   │   ├── deck/
+│   │   │   ├── AiPageDeck.tsx
+│   │   │   └── deck.css
+│   │   ├── digest/
+│   │   │   └── DailyDigestBoard.tsx
+│   │   ├── focus/
+│   │   │   ├── FocusBoard.tsx
+│   │   │   └── GoalRow.tsx
+│   │   ├── lib/
+│   │   │   ├── cn.ts
+│   │   │   └── motion.ts
+│   │   ├── plan/
+│   │   │   ├── BulkImportDialog.tsx
+│   │   │   └── PlanBoard.tsx
+│   │   ├── primitives/
+│   │   │   ├── CheckDraw.tsx
+│   │   │   ├── Collapsible.tsx
+│   │   │   ├── CountUp.tsx
+│   │   │   ├── Dialog.tsx
+│   │   │   ├── Progress.tsx
+│   │   │   ├── Segmented.tsx
+│   │   │   └── Skeleton.tsx
+│   │   ├── reflect/
+│   │   │   └── ReflectFeed.tsx
+│   │   ├── styles/
+│   │   │   └── aurora.css
+│   │   └── summary/
+│   │       └── SummaryGrid.tsx
+│   ├── AiChat/
+│   │   ├── AgentProgressBar.tsx
+│   │   ├── AiChat.tsx
+│   │   ├── BlockRenderer.tsx
+│   │   ├── ChatEmptyState.tsx
+│   │   ├── ChatErrorRow.tsx
+│   │   ├── ChatHeader.tsx
+│   │   ├── ChatInput.tsx
+│   │   ├── DetailPanel.tsx
+│   │   ├── index.ts
+│   │   ├── MessageBubble.tsx
+│   │   ├── MessageList.tsx
+│   │   ├── ThinkingIndicator.tsx
+│   │   ├── TypewriterText.tsx
+│   │   └── blocks/
+│   │       ├── ConfirmBlock.tsx
+│   │       ├── DataSummaryBlock.tsx
+│   │       ├── ErrorBlock.tsx
+│   │       ├── GoalCreateBlock.tsx
+│   │       ├── GoalDeleteBlock.tsx
+│   │       ├── GoalListBlock.tsx
+│   │       ├── GroupShell.tsx
+│   │       ├── Inline.tsx
+│   │       ├── NavigationBlock.tsx
+│   │       ├── NewsItemBlock.tsx
+│   │       ├── SourcesBlock.tsx
+│   │       ├── TableBlock.tsx
+│   │       └── TextBlock.tsx
+│   ├── cityscape/
+│   │   └── v3/
+│   │       ├── CityCars.tsx
+│   │       ├── CityLighting.tsx
+│   │       ├── cityMaterials.ts
+│   │       ├── CityPostFX.tsx
+│   │       ├── CityScene.tsx
+│   │       ├── dataAdapter.ts
+│   │       ├── GraphicsMenu.tsx
+│   │       ├── graphicsPresets.ts
+│   │       ├── Ground.tsx
+│   │       ├── HeroOverlays.tsx
+│   │       ├── index.ts
+│   │       ├── InstancedSkyline.tsx
+│   │       ├── metropolis.ts
+│   │       ├── palette.ts
+│   │       ├── proceduralTextures.ts
+│   │       ├── SkyDome.tsx
+│   │       ├── StatsPanel.tsx
+│   │       └── TronGround.tsx
+│   ├── conductor/
+│   │   ├── ApprovalInbox.tsx
+│   │   ├── ConductorPanel.tsx
+│   │   ├── OrgTreeGraph.tsx
+│   │   ├── SwarmTrace.tsx
+│   │   └── types.ts
+│   ├── context-ui/
+│   │   ├── ActiveContextsList.tsx
+│   │   ├── CompactionsPanel.tsx
+│   │   ├── ContextSearchBar.tsx
+│   │   ├── MemoryStatusCard.tsx
+│   │   ├── RecentChatHistory.tsx
+│   │   └── SettingsPanel.tsx
+│   ├── dashboard/
+│   │   ├── DrillDownCard.tsx
+│   │   └── FinanceOverviewSection.tsx
+│   ├── finance/
+│   │   ├── AccountsTab.tsx
+│   │   ├── ArchivedItemsModal.tsx
+│   │   ├── AuditLogTab.tsx
+│   │   ├── CategoriesTab.tsx
+│   │   ├── CryptoMarketTab.tsx
+│   │   ├── csvExport.ts
+│   │   ├── currency-data.ts
+│   │   ├── EmptyState.tsx
+│   │   ├── FinanceInsightsCard.tsx
+│   │   ├── FinanceLockScreen.tsx
+│   │   ├── FinanceStickyHeader.tsx
+│   │   ├── finance-types.ts
+│   │   ├── FollowThroughCard.tsx
+│   │   ├── FTPersonCombobox.tsx
+│   │   ├── IncomeExpenseBarChart.tsx
+│   │   ├── IncomeExpenseCard.tsx
+│   │   ├── NetWorthCard.tsx
+│   │   ├── NetWorthLineChart.tsx
+│   │   ├── OverviewTab.tsx
+│   │   ├── PasswordConfirmDialog.tsx
+│   │   ├── PaymentAllocationModal.tsx
+│   │   ├── PeopleTab.tsx
+│   │   ├── PersonCard.tsx
+│   │   ├── PersonDetailModal.tsx
+│   │   ├── QuickAddModal.tsx
+│   │   ├── RecentTxnsCard.tsx
+│   │   ├── RepaymentModal.tsx
+│   │   ├── SelectionAggregatePanel.tsx
+│   │   ├── SpendingCategoryChart.tsx
+│   │   ├── SpendingSplitCard.tsx
+│   │   ├── SubscriptionModal.tsx
+│   │   ├── SubscriptionRenewalBanner.tsx
+│   │   ├── SubscriptionsTab.tsx
+│   │   ├── TransactionDetailModal.tsx
+│   │   ├── TransactionsTab.tsx
+│   │   ├── WalletDetailView.tsx
+│   │   ├── WalletsTab.tsx
+│   │   ├── _fx/
+│   │   │   ├── AnimatedAmount.tsx
+│   │   │   ├── AuroraBackground.tsx
+│   │   │   ├── categoryVisual.ts
+│   │   │   ├── ChartTheme.tsx
+│   │   │   ├── financeMotion.ts
+│   │   │   ├── GlassSurface.tsx
+│   │   │   ├── Sparkline.tsx
+│   │   │   ├── TabHeader.tsx
+│   │   │   ├── TransactionCheckbox.tsx
+│   │   │   ├── useCountUp.ts
+│   │   │   ├── useDragSelect.ts
+│   │   │   ├── useSelectionAggregate.ts
+│   │   │   ├── useTransactionSelection.ts
+│   │   │   └── VaultSeal.tsx
+│   │   └── modals/
+│   │       ├── autoFill.ts
+│   │       ├── BankTransactionModal.tsx
+│   │       ├── BatchRecategorizeModal.tsx
+│   │       ├── CashTransactionModal.tsx
+│   │       ├── CategoryChipGrid.tsx
+│   │       ├── CreditTransactionModal.tsx
+│   │       ├── CryptoTransactionModal.tsx
+│   │       ├── DebitTransactionModal.tsx
+│   │       ├── DenominationPicker.tsx
+│   │       ├── EwalletTransactionModal.tsx
+│   │       ├── index.ts
+│   │       ├── modalParts.tsx
+│   │       ├── modalUtils.ts
+│   │       ├── PhysicalTransactionModal.tsx
+│   │       ├── TransactionModalShell.tsx
+│   │       ├── TransferDestinationPanel.tsx
+│   │       ├── TransferWalletSelect.tsx
+│   │       ├── txPrefs.ts
+│   │       ├── useFormattedAmount.ts
+│   │       └── useTransactionForm.ts
+│   ├── focus/
+│   │   ├── DeepFocusPanel.tsx
+│   │   ├── FocusRankingsCard.tsx
+│   │   ├── FocusSessionCard.tsx
+│   │   └── QuickFocusCard.tsx
+│   ├── insights/
+│   │   ├── FocusEmber.tsx
+│   │   ├── FunFactHero.tsx
+│   │   ├── GoalRing.tsx
+│   │   └── SummaryCard.tsx
+│   ├── learn/
+│   │   ├── AssessmentCard.tsx
+│   │   ├── BookCard.tsx
+│   │   ├── ChecklistProgress.tsx
+│   │   ├── CitationChip.tsx
+│   │   ├── CreateLessonDialog.tsx
+│   │   ├── CurriculumGraph.tsx
+│   │   ├── CurriculumShowcase.tsx
+│   │   ├── ImportView.tsx
+│   │   ├── LearnerProfilePanel.tsx
+│   │   ├── LearnerSetup.tsx
+│   │   ├── LearnPage.tsx
+│   │   ├── LessonLibrary.tsx
+│   │   ├── MasteryRing.tsx
+│   │   ├── MasteryStrip.tsx
+│   │   ├── motion.ts
+│   │   ├── NotesPanel.tsx
+│   │   ├── OnboardingPanel.tsx
+│   │   ├── PermissionSettings.tsx
+│   │   ├── ProposalCard.tsx
+│   │   ├── ReaderView.tsx
+│   │   ├── SelectionActions.tsx
+│   │   ├── SelectionFloatingPill.tsx
+│   │   ├── TableOfContents.tsx
+│   │   ├── TutorDashboardSection.tsx
+│   │   ├── TutorPanel.tsx
+│   │   ├── useHighlights.ts
+│   │   ├── useMasteryStats.ts
+│   │   ├── ValidationReport.tsx
+│   │   ├── WelcomeEmptyState.tsx
+│   │   ├── WidgetHost.tsx
+│   │   └── blocks/
+│   │       ├── BlockRenderer.tsx
+│   │       ├── CalloutBlock.tsx
+│   │       ├── ChartBlock.tsx
+│   │       ├── CodeBlock.tsx
+│   │       ├── ConversationBlock.tsx
+│   │       ├── FinChartBlock.tsx
+│   │       ├── FlowBlock.tsx
+│   │       ├── ImageBlock.tsx
+│   │       ├── LayerBlock.tsx
+│   │       ├── MathBlock.tsx
+│   │       ├── MermaidBlock.tsx
+│   │       ├── NotesBlock.tsx
+│   │       ├── ProposalBlock.tsx
+│   │       ├── ProseBlock.tsx
+│   │       ├── QuizBlock.tsx
+│   │       ├── SvgBlock.tsx
+│   │       ├── TableBlock.tsx
+│   │       ├── TutorBlock.tsx
+│   │       ├── VideoBlock.tsx
+│   │       └── ZoomPan.tsx
+│   ├── rail/
+│   │   └── QuickCommands.tsx
+│   ├── stats/
+│   │   ├── ChartCard.tsx
+│   │   ├── ChartsSection.tsx
+│   │   ├── deriveStats.ts
+│   │   ├── KpiCard.tsx
+│   │   ├── KpiRow.tsx
+│   │   └── StatsDashboard.tsx
+│   ├── ui/
+│   │   ├── accordion.tsx
+│   │   ├── alert-dialog.tsx
+│   │   ├── animated-circular-progress-bar.tsx
+│   │   ├── animated-gradient-text.tsx
+│   │   ├── animated-shiny-text.tsx
+│   │   ├── badge.tsx
+│   │   ├── blur-fade.tsx
+│   │   ├── border-beam.tsx
+│   │   ├── button.tsx
+│   │   ├── collapsible.tsx
+│   │   ├── dialog.tsx
+│   │   ├── dot-pattern.tsx
+│   │   ├── dropdown-menu.tsx
+│   │   ├── input.tsx
+│   │   ├── number-ticker.tsx
+│   │   ├── particles.tsx
+│   │   ├── progress.tsx
+│   │   ├── scroll-area.tsx
+│   │   ├── select.tsx
+│   │   ├── separator.tsx
+│   │   ├── shiny-button.tsx
+│   │   ├── skeleton.tsx
+│   │   ├── tabs.tsx
+│   │   ├── toggle.tsx
+│   │   └── tooltip.tsx
+│   └── workspace/
+│       ├── ColorPicker.tsx
+│       ├── ComponentBrowserModal.tsx
+│       ├── CultUIRegistry.tsx
+│       ├── DesignComposeOutlet.tsx
+│       ├── DesignLibrarySources.tsx
+│       ├── LibraryConfigModal.tsx
+│       ├── MotionExplorer.tsx
+│       ├── StyleDescription.tsx
+│       ├── StyleReferences.tsx
+│       ├── SubTabBar.tsx
+│       ├── TasteKnobs.tsx
+│       ├── WorkspaceShell.tsx
+│       └── _ds/
+│           ├── controls.tsx
+│           ├── motion.ts
+│           └── primitives.tsx
+├── context/
+│   └── NumberMaskContext.tsx
+├── contexts/
+│   └── TutorialContext.tsx
+├── data/
+│   ├── feature-specs.ts
+│   └── tutorial-steps.ts
+├── db/
+│   └── rag-schema.sql
+├── domains/
+│   └── focus/
+│       ├── focusManager.ts
+│       └── focusSchema.ts
+├── features/
+│   ├── covenant/
+│   │   ├── CommitmentCard.tsx
+│   │   ├── ConstellationHero.tsx
+│   │   ├── covenantColors.ts
+│   │   ├── covenantCopy.ts
+│   │   ├── CovenantPage.tsx
+│   │   ├── GraceResetMoment.tsx
+│   │   ├── JournalDrawer.tsx
+│   │   ├── MilestoneCelebration.tsx
+│   │   ├── NewCommitmentModal.tsx
+│   │   ├── prompts.ts
+│   │   ├── ReflectionEcho.tsx
+│   │   ├── ReflectionPromptCard.tsx
+│   │   ├── storage.ts
+│   │   ├── streak.ts
+│   │   ├── StreakFlame.tsx
+│   │   ├── TotalPracticeStat.tsx
+│   │   ├── types.ts
+│   │   ├── useCommitmentDetection.ts
+│   │   ├── useCovenant.ts
+│   │   ├── useJournalEntry.ts
+│   │   └── voiceJournal.ts
+│   ├── critique/
+│   │   ├── CritiquePage.tsx
+│   │   └── types.ts
+│   ├── focus/
+│   │   ├── focusConfetti.ts
+│   │   ├── focusHelpers.ts
+│   │   ├── FocusHistory.tsx
+│   │   ├── FocusInsights.tsx
+│   │   ├── FocusSection.tsx
+│   │   ├── FocusStats.tsx
+│   │   └── FocusTimer.tsx
+│   ├── memories/
+│   │   ├── mediaStore.ts
+│   │   ├── MemoriesPage.tsx
+│   │   ├── MemoryCard.tsx
+│   │   ├── MemoryCollageGrid.tsx
+│   │   ├── MemoryReel.tsx
+│   │   ├── MemoryReveal.tsx
+│   │   ├── MemoryTimeline.tsx
+│   │   ├── MemoryUploader.tsx
+│   │   ├── OnThisDayCard.tsx
+│   │   ├── PersonChip.tsx
+│   │   ├── RecapPlayer.tsx
+│   │   ├── types.ts
+│   │   ├── useMemories.ts
+│   │   └── videoThumbnail.ts
+│   └── warmth/
+│       ├── celebrate.ts
+│       ├── LifePage.tsx
+│       ├── localBlobStore.ts
+│       ├── WarmCard.tsx
+│       └── warmth-tokens.css
+├── graphify-out/
+│   └── cache/
+│       ├── 174f2a1d88ac22dcbcc63662f5add69d10bcbfef3d4e1f0542d2fd11918224fd.json
+│       └── 4f26168c52ad34466fc6d091b8f25f12da781162cdd295f83066e52c872d560f.json
+├── hooks/
+│   ├── useAiChat.ts
+│   ├── useAiPageData.ts
+│   ├── useAppContext.ts
+│   ├── useConnectorItems.ts
+│   ├── useCountUp.ts
+│   ├── useDeepFocus.ts
+│   ├── useFocusSession.ts
+│   ├── useGapPredictions.ts
+│   ├── useHomeSummary.ts
+│   ├── usePersistentSubTab.ts
+│   ├── useStableMemo.ts
+│   ├── useTerminalLayout.ts
+│   ├── useTutorial.ts
+│   └── useVoiceInput.ts
+├── lib/
+│   ├── awaitApi.ts
+│   ├── chart-plugins.ts
+│   ├── checklistAlgorithm.ts
+│   ├── dateRange.ts
+│   ├── deepNav.ts
+│   ├── defaults.ts
+│   ├── fingerprint.ts
+│   ├── gapMapping.ts
+│   ├── netWorth.ts
+│   ├── paymentAllocation.ts
+│   ├── promptAssembly.ts
+│   ├── receivables.ts
+│   ├── sessionResolution.ts
+│   ├── subscriptions.ts
+│   ├── tooltipAnchor.ts
+│   └── utils.ts
+├── main/
+│   ├── syncAgent.ts
+│   ├── terminalRelay.ts
+│   └── backup/
+│       └── BackupService.ts
+├── pages/
+│   ├── ActivityPage.tsx
+│   ├── AiPage.tsx
+│   ├── AiPage.tsx.bak.20260607-210956
+│   ├── BrowserActivityPage.tsx
+│   ├── ConductorPage.tsx
+│   ├── DashboardPage.tsx
+│   ├── DatabasePage.tsx
+│   ├── DesignWorkspacePage.tsx
+│   ├── ExternalPage.tsx
+│   ├── FinancePage.backup.tsx
+│   ├── FinancePage.tsx
+│   ├── GuidePage.tsx
+│   ├── IDEHelpPage.tsx
+│   ├── IDEProjectsPage.tsx
+│   ├── IDEProjectsPage.tsx.backup-pre-setup-init-2026-05-27
+│   ├── InsightsPage.tsx
+│   ├── ProductivityPage.tsx
+│   ├── SettingsPage.tsx
+│   ├── StatsPage.tsx
+│   ├── SubscriptionsPage.tsx
+│   ├── TerminalPage.tsx
+│   ├── TerminalPage.tsx.backup
+│   ├── TerminalPage.tsx.backup-2026-05-26
+│   ├── TerminalPage.tsx.backup-pre-setup-init-2026-05-27
+│   ├── TutorialPage.tsx
+│   ├── WorkspacesPage.tsx
+│   └── dashboard/
+│       ├── HeroBand.tsx
+│       ├── PinnedActivities.tsx
+│       ├── ProductivityFocusZone.tsx
+│       ├── Sparkline.tsx
+│       ├── StopwatchTimer.tsx
+│       └── SummaryStrip.tsx
+├── schemas/
+│   └── ldoc-1.0.json
+├── services/
+│   ├── AgentHostService.ts
+│   ├── aiContextBundle.ts
+│   ├── AIService.ts
+│   ├── AIService.ts.bak.20260607-210956
+│   ├── chatIntent.ts
+│   ├── chatPersistence.ts
+│   ├── chatSafety.ts
+│   ├── CompactionService.ts
+│   ├── CompactionService.ts.bak.20260528-011034
+│   ├── ContextAssemblyService.ts
+│   ├── ContextConfig.ts
+│   ├── ContextService.ts
+│   ├── GoalStore.ts
+│   ├── newsDetection.ts
+│   ├── NotificationService.ts
+│   ├── parseBlocks.legacy.ts
+│   ├── parseBlocks.ts
+│   ├── planningParser.ts
+│   ├── ProblemsParser.ts
+│   ├── ProblemsService.ts
+│   ├── ProblemsSyncService.ts
+│   ├── ProjectContextService.ts
+│   ├── RAGService.ts
+│   ├── RAGService.ts.bak.20260528-011034
+│   ├── RequestsService.ts
+│   ├── SessionContextService.ts
+│   ├── SkillDSLParser.ts
+│   ├── SkillsService.ts
+│   ├── wireFormat.ts
+│   ├── WorkspaceRegistry.ts
+│   ├── ai/
+│   │   ├── aiAgentService.test.ts
+│   │   ├── aiAgentService.ts
+│   │   ├── index.ts
+│   │   ├── securityGuard.ts
+│   │   ├── toolRegistry.ts
+│   │   └── types.ts
+│   ├── conductor/
+│   │   └── ConductorService.ts
+│   ├── insights/
+│   │   ├── detectors.ts
+│   │   └── engine.ts
+│   ├── learn/
+│   │   ├── curriculum.ts
+│   │   ├── curriculumState.ts
+│   │   ├── highlightAnchor.ts
+│   │   ├── index.ts
+│   │   ├── learnerProfile.ts
+│   │   ├── lessonInput.ts
+│   │   ├── parseLessonMarkdown.ts
+│   │   ├── profileSignals.ts
+│   │   ├── promptLibrary.ts
+│   │   ├── topicPrompts.ts
+│   │   ├── ai/
+│   │   │   └── providerStream.ts
+│   │   ├── db/
+│   │   │   ├── repo.ts
+│   │   │   └── migrations/
+│   │   │       ├── 001_learn.sql
+│   │   │       ├── 002_learn_profile.sql
+│   │   │       └── 003_learn_tutor_v2.sql
+│   │   ├── services/
+│   │   │   ├── content.service.ts
+│   │   │   ├── conversation.service.ts
+│   │   │   ├── dashboard.service.ts
+│   │   │   ├── grounding.service.ts
+│   │   │   ├── import.service.ts
+│   │   │   ├── note.service.ts
+│   │   │   ├── permission.service.ts
+│   │   │   ├── progress.service.ts
+│   │   │   ├── tutor.service.ts
+│   │   │   └── tutorV2.service.ts
+│   │   └── validator/
+│   │       └── validate.ts
+│   ├── providers/
+│   │   ├── callProvider.ts
+│   │   ├── providerLog.ts
+│   │   ├── router.ts
+│   │   ├── templates.ts
+│   │   └── types.ts
+│   └── vision/
+│       └── index.ts
+├── shared/
+│   ├── insights.ts
+│   └── learn/
+│       └── types.ts
+├── styles/
+│   ├── finance-glass.css
+│   └── lyceum-learn-features.css
+├── types/
+│   ├── connectors.ts
+│   ├── context.ts
+│   ├── deskflow-api.d.ts
+│   ├── gaps.ts
+│   └── SkillPlugin.ts
+└── utils/
+    ├── maskNumber.ts
+    └── safeMath.ts

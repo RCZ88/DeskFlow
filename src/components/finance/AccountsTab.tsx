@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Wallet, Banknote, CreditCard, Landmark, PiggyBank, X, Edit3, Archive, Trash2, ArchiveRestore, ChevronDown, ChevronRight, WalletCards } from 'lucide-react';
+import { Plus, Wallet, Banknote, CreditCard, Landmark, PiggyBank, X, Edit3, Archive, Trash2, ArchiveRestore, ChevronDown, ChevronRight, WalletCards, TrendingUp } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
 import { getCurrencyInfo, convertAmount, formatCurrency as fmtCurrency } from './currency-data';
+import { formatWithCommas, stripFormatting } from './modals/modalParts';
 import type { FinanceAccount, FinanceWallet } from './finance-types';
 
 interface AccountsTabProps {
@@ -53,6 +54,7 @@ const walletMeta: Record<string, { icon: any; label: string; color: string }> = 
   debit_card: { icon: CreditCard, label: 'Debit Card', color: '#10B981' },
   credit_card: { icon: CreditCard, label: 'Credit Card', color: '#F59E0B' },
   crypto: { icon: Wallet, label: 'Crypto', color: '#8B5CF6' },
+  investment: { icon: TrendingUp, label: 'Investment', color: '#14B8A6' },
   cash: { icon: PiggyBank, label: 'Cash', color: '#EC4899' },
   physical: { icon: WalletCards, label: 'Physical', color: '#F97316' },
   ewallet: { icon: Banknote, label: 'E-Wallet', color: '#06B6D4' },
@@ -69,6 +71,16 @@ export function AccountsTab({ accounts, wallets, loading, error, onRetry, displa
 
   const formatConverted = (amount: number, fromCurrency: string) => {
     return fmtCurrency(convertAmount(amount, fromCurrency, displayCurrency), displayCurrency);
+  };
+
+  const walletEffectiveBalance = (w: FinanceWallet): number => {
+    if ((w.type === 'physical' || w.type === 'cash') && w.metadata?.denominations) {
+      const denoms = Array.isArray(w.metadata.denominations) ? w.metadata.denominations : [];
+      if (denoms.length > 0) {
+        return denoms.reduce((s: number, d: any) => s + (d.value || 0) * (d.count || 0), 0);
+      }
+    }
+    return w.balance ?? 0;
   };
 
   const handleSwipeArchive = async (w: FinanceWallet) => {
@@ -155,7 +167,7 @@ export function AccountsTab({ accounts, wallets, loading, error, onRetry, displa
           const accountWallets = wallets.filter(w => w.account_id === account.id && !w.is_archived);
           const isExpanded = expandedId === account.id;
           const accent = accountTypeColor[account.type] as any;
-          const computedBalance = accountWallets.reduce((sum, w) => sum + convertAmount(w.balance, w.currency || account.currency, displayCurrency), 0);
+          const computedBalance = accountWallets.reduce((sum, w) => sum + convertAmount(walletEffectiveBalance(w), w.currency || account.currency, displayCurrency), 0);
 
           return (
             <motion.div
@@ -263,8 +275,8 @@ export function AccountsTab({ accounts, wallets, loading, error, onRetry, displa
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0">
-                                    <span className={`text-xs font-medium tabular-nums ${w.balance >= 0 ? 'text-zinc-200' : 'text-red-400'}`}>
-                                      {showNumbers ? formatConverted(w.balance, w.currency || account.currency) : maskNumber(formatConverted(w.balance, w.currency || account.currency), maskMode, maskFixedValue)}
+                                    <span className={`text-xs font-medium tabular-nums ${walletEffectiveBalance(w) >= 0 ? 'text-zinc-200' : 'text-red-400'}`}>
+                                      {showNumbers ? formatConverted(walletEffectiveBalance(w), w.currency || account.currency) : maskNumber(formatConverted(walletEffectiveBalance(w), w.currency || account.currency), maskMode, maskFixedValue)}
                                     </span>
                                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                                       <button
@@ -457,7 +469,7 @@ export function CreateWalletModal({ accountId, onClose, onSave, displayCurrency 
       account_id: accountId, name, type,
       provider: provider || undefined,
       last_four: lastFour || undefined,
-      balance: balance ? parseFloat(balance) : 0,
+      balance: balance ? parseFloat(stripFormatting(balance)) : 0,
       currency: displayCurrency,
     });
     setSaving(false);
@@ -535,10 +547,10 @@ export function CreateWalletModal({ accountId, onClose, onSave, displayCurrency 
               {getCurrencyInfo(displayCurrency).symbol}
             </span>
             <input
-              type="number"
-              step="0.01"
-              value={balance}
-              onChange={(e) => setBalance(e.target.value)}
+              type="text"
+              inputMode="decimal"
+              value={formatWithCommas(balance)}
+              onChange={(e) => setBalance(stripFormatting(e.target.value))}
               placeholder="0.00"
               className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg pl-8 pr-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
             />
@@ -554,6 +566,20 @@ export function CreateWalletModal({ accountId, onClose, onSave, displayCurrency 
               </div>
               <p className="text-[10px] text-zinc-400 leading-relaxed">
                 A crypto wallet holds <strong className="text-zinc-300">multiple coins</strong> (e.g. Bitcoin, Ethereum, Solana). After creating this wallet, open it to add the coins you own. Live prices are fetched automatically from CoinGecko.
+              </p>
+            </div>
+          )}
+
+          {type === 'investment' && (
+            <div className="rounded-lg bg-[#14B8A6]/10 border border-[#14B8A6]/20 p-3 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded bg-[#14B8A6]/20 flex items-center justify-center">
+                  <TrendingUp className="w-3 h-3 text-[#14B8A6]" />
+                </div>
+                <span className="text-[11px] font-medium text-[#5EEAD4]">Investment Portfolio</span>
+              </div>
+              <p className="text-[10px] text-zinc-400 leading-relaxed">
+                Track a portfolio of <strong className="text-zinc-300">stocks, ETFs, gold, and more</strong>. Search across all markets (Yahoo Finance + CoinGecko). Live prices auto-refresh every 90 seconds.
               </p>
             </div>
           )}

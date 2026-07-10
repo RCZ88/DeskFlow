@@ -117,7 +117,7 @@ export default function InitializeProgressModal({
     setAgentTerminalId(null);
 
     const api = (window as any).deskflowAPI;
-    const agent = localStorage.getItem('terminal-defaultAgent') || 'claude';
+    const agent = seedAgent || localStorage.getItem('terminal-defaultAgent') || 'claude';
 
     const unsub = api?.onTrackerMindInitProgress?.((data: InitProgressEvent) => {
       if (cancelledRef.current) return;
@@ -327,7 +327,7 @@ export default function InitializeProgressModal({
                     <select
                       value={seedAgent}
                       onChange={e => setSeedAgent(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200"
+                      className="w-full bg-zinc-900/60 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-600/60 focus:border-zinc-600 transition-colors"
                     >
                       {SUPPORTED_AGENTS.map(a => (
                         <option key={a.id} value={a.id}>{a.name}</option>

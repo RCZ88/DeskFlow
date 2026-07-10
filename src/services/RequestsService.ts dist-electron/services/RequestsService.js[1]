@@ -1,0 +1,311 @@
+"use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var RequestsService_exports = {};
+__export(RequestsService_exports, {
+  RequestsService: () => RequestsService
+});
+module.exports = __toCommonJS(RequestsService_exports);
+var fs = __toESM(require("fs"), 1);
+var path = __toESM(require("path"), 1);
+class RequestsService {
+  baseDir;
+  jsonFile;
+  mdFile;
+  constructor(baseDir) {
+    this.baseDir = baseDir || this.getDefaultBaseDir();
+    this.jsonFile = path.join(this.baseDir, "agent", "requests.json");
+    this.mdFile = path.join(this.baseDir, "agent", "REQUESTS.md");
+  }
+  getDefaultBaseDir() {
+    return path.join(process.cwd());
+  }
+  ensureAgentDir() {
+    const agentDir = path.join(this.baseDir, "agent");
+    if (!fs.existsSync(agentDir)) {
+      fs.mkdirSync(agentDir, { recursive: true });
+    }
+  }
+  migrateFromMd() {
+    const mdPath = this.mdFile;
+    if (!fs.existsSync(mdPath)) return [];
+    try {
+      const content = fs.readFileSync(mdPath, "utf-8");
+      const requests = this.parseRequestsLegacy(content);
+      if (requests.length > 0) {
+        fs.writeFileSync(this.jsonFile, JSON.stringify(requests, null, 2), "utf-8");
+        console.log(`[RequestsService] Migrated ${requests.length} requests from markdown to JSON`);
+      }
+      return requests;
+    } catch (e) {
+      console.error("[RequestsService] Migration failed:", e);
+      return [];
+    }
+  }
+  writeJson(requests) {
+    this.ensureAgentDir();
+    fs.writeFileSync(this.jsonFile, JSON.stringify(requests, null, 2), "utf-8");
+  }
+  writeMarkdown(requests) {
+    this.ensureAgentDir();
+    let md = "# \u{1F4CB} User Requests Log\n\n";
+    md += "> **DO NOT EDIT MANUALLY** - This file is managed by Tracker Mind.\n\n";
+    md += "> Last sync: " + (/* @__PURE__ */ new Date()).toISOString() + "\n\n";
+    md += "## \u{1F4DD} How to Use This File\n\n";
+    md += "### Adding New Requests:\n";
+    md += "```markdown\n";
+    md += "### Request #XXX - [Short Title]\n\n";
+    md += "**Status:** Pending\n";
+    md += "**Priority:** High\n";
+    md += "**Category:** Feature\n\n";
+    md += "**Request:** \n";
+    md += '"What the user asked for"\n';
+    md += "```\n\n";
+    md += "---\n\n";
+    for (const req of requests) {
+      md += `### Request #${req.id} - ${req.title}
+
+`;
+      md += `**Status:** ${req.status}
+`;
+      md += `**Priority:** ${req.priority}
+`;
+      md += `**Category:** ${req.category}
+`;
+      md += `**Created:** ${req.created_at}
+`;
+      md += `**Updated:** ${req.updated_at}
+`;
+      if (req.session_id && req.session_name) {
+        md += `**Session:** ${req.session_name} (${req.session_id})
+`;
+      } else if (req.session_id) {
+        md += `**Session:** ${req.session_id}
+`;
+      }
+      if (req.description) {
+        md += `
+**Request:** 
+${req.description}
+`;
+      }
+      if (req.linked_problems.length > 0) {
+        md += `
+**Linked Issues:** ${req.linked_problems.map((p) => `#${p}`).join(", ")}
+`;
+      }
+      md += "\n---\n\n";
+    }
+    fs.writeFileSync(this.mdFile, md, "utf-8");
+  }
+  getRequests() {
+    this.ensureAgentDir();
+    if (fs.existsSync(this.jsonFile)) {
+      try {
+        const content = fs.readFileSync(this.jsonFile, "utf-8");
+        const requests = JSON.parse(content);
+        if (Array.isArray(requests) && requests.length > 0) {
+          return requests.map((r) => ({
+            ...r,
+            session_id: r.session_id || null,
+            session_name: r.session_name || null
+          }));
+        }
+        if (Array.isArray(requests) && requests.length === 0) {
+          const migrated2 = this.migrateFromMd();
+          if (migrated2.length > 0) return migrated2;
+        }
+      } catch (e) {
+        console.error("[RequestsService] Failed to parse requests.json:", e);
+      }
+    }
+    const migrated = this.migrateFromMd();
+    if (migrated.length > 0) return migrated;
+    const empty = [];
+    this.writeJson(empty);
+    this.writeMarkdown(empty);
+    return empty;
+  }
+  getRequest(id) {
+    const requests = this.getRequests();
+    return requests.find((r) => r.id === id) || null;
+  }
+  addCheck(requestId, description, instruction) {
+    const requests = this.getRequests();
+    const idx = requests.findIndex((r) => r.id === requestId);
+    if (idx === -1) return null;
+    const checks = requests[idx].checks || [];
+    const checkNum = checks.length + 1;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const check = {
+      id: `${requestId}-check-${checkNum}`,
+      description,
+      instruction,
+      status: "pending",
+      created_at: now,
+      updated_at: now
+    };
+    checks.push(check);
+    requests[idx].checks = checks;
+    requests[idx].updated_at = now;
+    this.writeJson(requests);
+    this.writeMarkdown(requests);
+    return check;
+  }
+  updateCheck(requestId, checkId, updates) {
+    const requests = this.getRequests();
+    const rIdx = requests.findIndex((r) => r.id === requestId);
+    if (rIdx === -1) return false;
+    const checks = requests[rIdx].checks || [];
+    const cIdx = checks.findIndex((c) => c.id === checkId);
+    if (cIdx === -1) return false;
+    checks[cIdx] = { ...checks[cIdx], ...updates, updated_at: (/* @__PURE__ */ new Date()).toISOString() };
+    requests[rIdx].checks = checks;
+    requests[rIdx].updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    this.writeJson(requests);
+    this.writeMarkdown(requests);
+    return true;
+  }
+  completeCheck(requestId, checkId) {
+    return this.updateCheck(requestId, checkId, { status: "completed" });
+  }
+  addCheckFeedback(requestId, checkId, feedback) {
+    const requests = this.getRequests();
+    const request = requests.find((r) => r.id === requestId);
+    if (!request?.checks) return null;
+    const check = request.checks.find((c) => c.id === checkId);
+    if (!check) return null;
+    check.feedback = feedback;
+    check.updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    this.writeJson(requests);
+    this.writeMarkdown(requests);
+    return check;
+  }
+  createRequest(data) {
+    this.ensureAgentDir();
+    const requests = this.getRequests();
+    const maxId = requests.reduce((max, r) => Math.max(max, parseInt(r.id) || 0), 0);
+    const id = String(maxId + 1);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const request = {
+      id,
+      title: data.title,
+      description: data.description || "",
+      status: "Pending",
+      priority: data.priority || "Medium",
+      category: data.category || "Feature",
+      linked_problems: [],
+      session_id: data.sessionId || null,
+      session_name: data.sessionName || null,
+      checks: [],
+      created_at: now,
+      updated_at: now
+    };
+    requests.push(request);
+    this.writeJson(requests);
+    this.writeMarkdown(requests);
+    return request;
+  }
+  updateStatus(id, status) {
+    const requests = this.getRequests();
+    const idx = requests.findIndex((r) => r.id === id);
+    if (idx === -1) return false;
+    requests[idx].status = status;
+    requests[idx].updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    this.writeJson(requests);
+    this.writeMarkdown(requests);
+    return true;
+  }
+  linkProblem(requestId, problemId) {
+    const requests = this.getRequests();
+    const idx = requests.findIndex((r) => r.id === requestId);
+    if (idx === -1) return false;
+    if (!requests[idx].linked_problems.includes(problemId)) {
+      requests[idx].linked_problems.push(problemId);
+      requests[idx].updated_at = (/* @__PURE__ */ new Date()).toISOString();
+      this.writeJson(requests);
+      this.writeMarkdown(requests);
+    }
+    return true;
+  }
+  unlinkProblem(requestId, problemId) {
+    const requests = this.getRequests();
+    const idx = requests.findIndex((r) => r.id === requestId);
+    if (idx === -1) return false;
+    const before = requests[idx].linked_problems.length;
+    requests[idx].linked_problems = requests[idx].linked_problems.filter((p) => p !== problemId);
+    if (requests[idx].linked_problems.length < before) {
+      requests[idx].updated_at = (/* @__PURE__ */ new Date()).toISOString();
+      this.writeJson(requests);
+      this.writeMarkdown(requests);
+    }
+    return true;
+  }
+  deleteRequest(id) {
+    const requests = this.getRequests();
+    const filtered = requests.filter((r) => r.id !== id);
+    if (filtered.length === requests.length) return false;
+    this.writeJson(filtered);
+    this.writeMarkdown(filtered);
+    return true;
+  }
+  parseRequestsLegacy(content) {
+    const requests = [];
+    content = content.replace(/\r\n/g, "\n");
+    const pattern1 = /### Request #(\d+)\s*-\s*(.+?)\n([\s\S]*?)(?=### Request #|\n## |\n---\n$|$)/gi;
+    let match;
+    while ((match = pattern1.exec(content)) !== null) {
+      const id = match[1];
+      const title = match[2].trim();
+      const body = match[3] || "";
+      const statusMatch = body.match(/\*\*Status:\*\*\s*(.+?)(?:\n|$)/i);
+      const priorityMatch = body.match(/\*\*Priority:\*\*\s*(.+?)(?:\n|$)/i);
+      const categoryMatch = body.match(/\*\*Category:\*\*\s*(.+?)(?:\n|$)/i);
+      const descMatch = body.match(/\*\*(?:Request|What's Needed):\*\*\s*\n(.+?)(?=\*\*|$)/is);
+      requests.push({
+        id,
+        title,
+        description: descMatch?.[1]?.trim() || "",
+        status: statusMatch?.[1]?.trim() || "Pending",
+        priority: priorityMatch?.[1]?.trim() || "Medium",
+        category: categoryMatch?.[1]?.trim() || "Feature",
+        linked_problems: [],
+        session_id: null,
+        session_name: null,
+        checks: [],
+        created_at: (/* @__PURE__ */ new Date()).toISOString(),
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    return requests;
+  }
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  RequestsService
+});

@@ -16,7 +16,7 @@ export default function DatabasePage() {
   const [tableDataPage, setTableDataPage] = useState(0);
   const TABLE_PAGE_SIZE = 50;
 
-  const api = (window as any).deskflowAPI;
+  const api = window.deskflowAPI;
 
   const fetchTables = useCallback(async () => {
     if (!api?.getDatabaseTables) return;
@@ -86,7 +86,7 @@ export default function DatabasePage() {
     <PageShell page="database" variant="sticky-header">
       <SectionHeader title="Database" icon={<Database className="w-5 h-5" />} />
 
-      <div className="flex gap-4 flex-1 min-h-0 overflow-hidden p-5" data-tutorial="db.charts">
+      <div className="flex gap-4 flex-1 min-h-0 p-5" data-tutorial="db.charts">
         <GlassCard className="w-64 flex-shrink-0 p-3 h-full min-h-0 flex flex-col" data-tutorial="db.browser">
           <div className="relative mb-2">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />

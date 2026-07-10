@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import type { MasteryLevel } from '../../shared/learn/types';
 
 const LEVEL_COLORS: Record<MasteryLevel, string> = {
@@ -27,6 +27,8 @@ export function MasteryRing({ level, target, size = 32, strokeWidth = 3, animate
   const targetIndex = target ? LEVEL_ORDER.indexOf(target) : 5;
   const fillPercent = targetIndex > 0 ? levelIndex / targetIndex : 0;
   const [offset, setOffset] = useState(animated ? circumference : circumference * (1 - fillPercent));
+  const prevLevel = useRef(level);
+  const [pulse, setPulse] = useState(false);
 
   useEffect(() => {
     if (animated) {
@@ -38,6 +40,17 @@ export function MasteryRing({ level, target, size = 32, strokeWidth = 3, animate
       setOffset(circumference * (1 - fillPercent));
     }
   }, [fillPercent, circumference, animated]);
+
+  useEffect(() => {
+    if (level !== prevLevel.current) {
+      prevLevel.current = level;
+      if (level === 'L5') {
+        setPulse(true);
+        const timer = setTimeout(() => setPulse(false), 1500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [level]);
 
   const color = LEVEL_COLORS[level];
   const targetColor = target ? LEVEL_COLORS[target] : '#3f3f46';
@@ -74,6 +87,12 @@ export function MasteryRing({ level, target, size = 32, strokeWidth = 3, animate
           className={animated ? 'transition-all duration-1000 ease-out' : ''}
         />
       </svg>
+      {pulse && (
+        <div
+          className="absolute inset-0 rounded-full animate-ping opacity-40"
+          style={{ backgroundColor: color, animationDuration: '1.2s' }}
+        />
+      )}
       <span className="absolute text-[10px] font-bold leading-none" style={{ color }}>
         {level.replace('L', '')}
       </span>

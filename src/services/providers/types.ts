@@ -43,6 +43,7 @@ export interface ProviderConfig {
   tokensUsedThisMonth?: number;
   budgetResetDate?: string;
   extraConfig?: Record<string, string>;
+  timeoutMs?: number;        // ADDED — bounded per-provider timeout
 }
 
 export interface AiProvidersState {

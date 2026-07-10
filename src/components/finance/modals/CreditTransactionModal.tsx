@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { CreditCard } from 'lucide-react'
 import { TransactionModalShell } from './TransactionModalShell'
 import { useTransactionForm } from './useTransactionForm'
-import { ContextBand, TypeToggle, AmountInput, AdvancedToggle, ProgressBar } from './modalParts'
+import { ContextBand, TypeToggle, AmountInput, AdvancedToggle, ProgressBar, OnBehalfOfSection } from './modalParts'
 import { CategoryChipGrid } from './CategoryChipGrid'
 import { useCurrencyFormat, parseMeta, thresholdColor } from './modalUtils'
 import type { TxModalProps } from './modalUtils'
@@ -60,9 +60,14 @@ export const CreditTransactionModal: React.FC<TxModalProps> = (props) => {
 						<CategoryChipGrid accent={ACCENT} categories={f.categoriesForType} selectedId={f.categoryId} onSelect={f.setCategoryId}
 							onCreateCategory={async () => false} categoryType={f.type} />
 
+						{f.type === 'expense' && (
+							<OnBehalfOfSection accent={ACCENT} value={f.onBehalfOf} personId={f.ftPersonId} onValueChange={f.setOnBehalfOf} onPersonChange={(id, _name) => f.setFtPersonId(id)} persons={props.ftPersons} onAddPerson={props.onAddFtPerson} />
+						)}
+						<input type="date" value={f.date} onChange={(e) => f.setDate(e.target.value)}
+							className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-500" />
 						<AdvancedToggle open={f.showAdvanced} onToggle={() => f.setShowAdvanced(!f.showAdvanced)} />
 						{f.showAdvanced && (
-							<div className="space-y-2">
+							<>
 								{f.type === 'expense' && (
 									<label className="flex items-center justify-between text-xs text-zinc-400">
 										Installments
@@ -77,9 +82,7 @@ export const CreditTransactionModal: React.FC<TxModalProps> = (props) => {
 										{format(f.numericAmount / installments)} / month for {installments} months
 									</div>
 								)}
-								<input type="date" value={f.date} onChange={(e) => f.setDate(e.target.value)}
-									className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-500" />
-							</div>
+							</>
 						)}
 					</>
 				)

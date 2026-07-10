@@ -48,34 +48,47 @@ export function FinanceStickyHeader({
   const { showNumbers, setShowNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [shrunk, setShrunk] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const shrunkRef = useRef(false);
 
   /*
-   * Detect when the header becomes sticky using a sentinel element placed
-   * directly before it. IntersectionObserver is more robust than scroll
-   * listeners because it works regardless of which ancestor scrolls.
+   * Scroll-based collapse with hysteresis:
+   *  - Collapse when scrolled past 64px
+   *  - Expand when scrolled back above 24px
+   * This 40px gap prevents flicker at the boundary.
    */
   useEffect(() => {
     const sentinel = sentinelRef.current;
     const scrollContainer = getScrollParent(sentinel);
     if (!sentinel || !scrollContainer) return;
 
-    let rafId: number | null = null;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (rafId !== null) return;
-        rafId = requestAnimationFrame(() => {
-          rafId = null;
-          setShrunk(!entry.isIntersecting);
-        });
-      },
-      { root: scrollContainer, rootMargin: '2px 0px 0px 0px', threshold: 0 }
-    );
+    let ticking = false;
+    const COLLAPSE_THRESHOLD = 64;
+    const EXPAND_THRESHOLD = 24;
 
-    observer.observe(sentinel);
-    return () => {
-      observer.disconnect();
-      if (rafId !== null) cancelAnimationFrame(rafId);
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        const scrollTop = scrollContainer === document.documentElement
+          ? window.scrollY
+          : scrollContainer.scrollTop;
+        const shouldShrink = scrollTop > COLLAPSE_THRESHOLD;
+        const shouldExpand = scrollTop < EXPAND_THRESHOLD;
+        // Only update if decisively past the threshold — not in the dead zone
+        if (shouldShrink && !shrunkRef.current) {
+          shrunkRef.current = true;
+          setShrunk(true);
+        } else if (shouldExpand && shrunkRef.current) {
+          shrunkRef.current = false;
+          setShrunk(false);
+        }
+      });
     };
+
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true });
+    onScroll(); // check initial state
+    return () => scrollContainer.removeEventListener('scroll', onScroll);
   }, []);
 
   const heroDisplay = useCountUp(netWorth);
@@ -130,7 +143,7 @@ export function FinanceStickyHeader({
                       {trend.value >= 0 ? '+' : ''}{fmtCurrency(trend.value, displayCurrency)}
                     </span>
                     <span className={`text-[11px] ${trend.value >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
-                      ({trend.percent >= 0 ? '+' : ''}{trend.percent.toFixed(1)}%)
+                      ({trend.percent >= 0 ? '+' : ''}{isFinite(trend.percent) ? trend.percent.toFixed(1) : '—'}%)
                     </span>
                   </div>
                 )}
@@ -177,7 +190,7 @@ export function FinanceStickyHeader({
                 <span className={`text-[15px] leading-[18px] font-bold ${colorClass} truncate`}>{valueStr}</span>
                 {trend && (
                   <span className={`hidden sm:inline text-[11px] tabular-nums ${trend.value >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
-                    {trend.value >= 0 ? '+' : ''}{trend.percent.toFixed(1)}%
+                    {trend.value >= 0 ? '+' : ''}{isFinite(trend.percent) ? trend.percent.toFixed(1) : '—'}%
                   </span>
                 )}
               </div>

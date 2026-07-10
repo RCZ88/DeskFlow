@@ -33,6 +33,10 @@ components, blocks, icons, and animations.
 | **unsplash** (`unsplash-smart-mcp-server`) | Search/download stock photography with auto-attribution | When real imagery is needed (hero backgrounds, section illustrations). Requires Unsplash API key in `.env`. |
 | **reactbits** (`reactbits-dev-mcp-server`) | 135+ animated React components (CSS + Tailwind variants) | Text animations, particle effects, background effects, hover interactions. No API key needed. |
 | **iconify** (`better-icons-mcp`) | 200,000+ icons across 200+ sets (Lucide, Material, Heroicons, Tabler, etc.) | When lucide lacks the icon you need. Check lucide first; fall back to iconify. No API key needed. |
+| **fragments-ui** (`@usefragments/mcp`) | 66 accessible React components + 80 design tokens + 11 MCP tools for token audit, a11y checks, component discovery, browser rendering | AI-native design system. .fragment.tsx metadata files guide the agent on implementation. Free. |
+| **shadcn-ui-mcp** (`@jpisnice/shadcn-ui-mcp-server`) | Multi-framework shadcn component docs with smart caching. Supports React, Svelte, Vue, React Native. | When you need shadcn component docs with usage examples across frameworks. Faster than the generic shadcn MCP. |
+| **refero-mcp** (`@refero/mcp`) | 135,000+ screens and 10,000+ real product flows (onboarding, checkout, tables, paywalls) | Research phase: find real-world UI references before writing layout code. Requires Pro subscription. |
+| **aidesigner** (URL MCP) | MCP tools to generate_design, refine_design, clone_design from any live URL | When you want to generate, clone, or refine production-ready web designs in a live editor session. |
 
 ## Source Routing (what to reach for, in order)
 
@@ -48,6 +52,13 @@ components, blocks, icons, and animations.
 | Real photography | `unsplash` MCP — search stock photos with attribution (needs Unsplash API key in `.env`) |
 | An icon lucide doesn't have | `iconify` MCP — 200k+ icons across 200+ sets |
 | Theme/palette generation | Use tweakcn.com (web tool). Paste generated CSS vars over DeskFlow's `:root` in index.css. |
+| AI-native components with metadata | `fragments-ui` MCP — 66 accessible components, 80 design tokens, .fragment.tsx metadata. Free. |
+| Multi-framework shadcn docs | `shadcn-ui-mcp` — component docs with usage for React, Svelte, Vue, React Native |
+| Real-world UI research / inspiration | `refero-mcp` — search 135k+ screens and 10k+ flows. Pro key required. |
+| Generate a design from scratch or refine existing | `aidesigner` MCP — call generate_design or refine_design from a live URL |
+| Motion / kinetic typography | Swishy.ai (web tool) — text-to-motion with CSS + Framer Motion output. Search for kinetic typography patterns. |
+| Visual theme exploration / layout ideas | Variant.com (web canvas) — generate infinite layout ideas by visual theme. Feed screenshots into agent vision. |
+| Premium shadcn motion components | Cult UI — `npx shadcn@latest add https://www.cult-ui.com/r/<component>.json`. Dynamic Islands, Family Buttons, rich animations. |
 
 ## DeskFlow Re-Skin Rules
 

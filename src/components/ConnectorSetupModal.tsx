@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Mail, Calendar, Loader2, Check, AlertCircle, ArrowRight, Server, User, Lock } from 'lucide-react';
+import { X, Mail, Calendar, Loader2, Check, AlertCircle, ArrowRight, Server, User, Lock, Shield, Info, ExternalLink } from 'lucide-react';
 
 interface ConnectorSetupModalProps {
   open: boolean;
@@ -27,6 +27,27 @@ const PROVIDER_DEFAULTS: Record<string, { hosts: { label: string; host: string; 
       { label: 'Nextcloud / Owncloud', url: '', host: '', port: 443 },
       { label: 'Custom CalDAV', url: '', host: '', port: 443 },
     ],
+  },
+};
+
+const PROVIDER_INFO: Record<string, { securityNote: string; setupGuide: string; appPasswordUrl?: string }> = {
+  'Gmail': {
+    securityNote: 'Google blocks regular passwords for third-party apps. An App Password is a one-time-use credential you can revoke anytime.',
+    setupGuide: 'Go to myaccount.google.com → Security → 2-Step Verification → App passwords → Generate one for "Mail"',
+    appPasswordUrl: 'https://myaccount.google.com/apppasswords',
+  },
+  'Outlook / Microsoft 365': {
+    securityNote: 'Microsoft may require you to enable "Less secure app access" or generate an app password.',
+    setupGuide: 'Settings → Mail → Sync email → Generate an app password, or enable IMAP in your account settings.',
+  },
+  'Yahoo Mail': {
+    securityNote: 'Yahoo requires an app-specific password for third-party email clients.',
+    setupGuide: 'Account Security → Generate app password → Select "Mail" → Copy the generated password.',
+  },
+  'Google Calendar (CalDAV)': {
+    securityNote: 'CalDAV uses your Google account credentials. We recommend an App Password for enhanced security.',
+    setupGuide: 'Same as Gmail — generate an App Password at myaccount.google.com/apppasswords',
+    appPasswordUrl: 'https://myaccount.google.com/apppasswords',
   },
 };
 
@@ -96,6 +117,10 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
     setTesting(false);
   };
 
+  const currentProvider = providerIdx !== null ? PROVIDER_DEFAULTS[connectorType!].hosts[providerIdx] : null;
+  const providerName = currentProvider?.label || '';
+  const providerInfo = PROVIDER_INFO[providerName];
+
   if (!open) return null;
 
   return (
@@ -123,7 +148,7 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                 <p className="text-xs text-zinc-500 mt-0.5">
                   {step === 'type' && 'Choose what to connect'}
                   {step === 'provider' && 'Select your provider'}
-                  {step === 'credentials' && 'Enter connection details'}
+                  {step === 'credentials' && 'Enter your credentials securely'}
                   {step === 'testing' && 'Testing connection...'}
                   {step === 'done' && 'Connected successfully!'}
                 </p>
@@ -131,6 +156,14 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
               <button onClick={handleClose} className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
                 <X className="h-4 w-4" />
               </button>
+            </div>
+
+            {/* Security Badge */}
+            <div className="px-5 py-2 flex items-center gap-2 bg-emerald-500/5 border-b border-zinc-800">
+              <Shield size={14} className="text-emerald-400" />
+              <span className="text-[11px] text-emerald-300/80">
+                Your credentials are encrypted and stored locally — never sent to DeskFlow
+              </span>
             </div>
 
             {/* Progress */}
@@ -149,6 +182,10 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
               <AnimatePresence mode="wait">
                 {step === 'type' && (
                   <motion.div key="type" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-3">
+                    <p className="text-xs text-zinc-500 mb-4">
+                      Connectors let DeskFlow read your email and calendar to power smarter planning.
+                      Your data stays on your device — we never see your messages or events.
+                    </p>
                     <button onClick={() => selectType('email')} className="w-full flex items-center gap-3 p-4 rounded-lg bg-zinc-800/40 ring-1 ring-zinc-700/30 hover:bg-zinc-800/60 hover:ring-zinc-600/50 transition-all text-left">
                       <div className="grid h-10 w-10 place-items-center rounded-lg bg-pink-500/10 ring-1 ring-pink-500/20">
                         <Mail className="h-5 w-5 text-pink-400" />
@@ -189,6 +226,34 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
 
                 {step === 'credentials' && (
                   <motion.div key="creds" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-3">
+                    {/* Provider-Specific Guidance */}
+                    {providerInfo && (
+                      <div className="rounded-lg bg-zinc-800/30 px-3 py-3 ring-1 ring-zinc-700/30 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <Info size={14} className="text-cyan-400 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-[12px] font-medium text-zinc-300 mb-1">How to connect {providerName}</p>
+                            <p className="text-[11px] text-zinc-500 leading-relaxed">{providerInfo.setupGuide}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <Shield size={14} className="text-emerald-400 mt-0.5 shrink-0" />
+                          <p className="text-[11px] text-zinc-500 leading-relaxed">{providerInfo.securityNote}</p>
+                        </div>
+                        {providerInfo.appPasswordUrl && (
+                          <a
+                            href={providerInfo.appPasswordUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors"
+                          >
+                            Open {providerName} App Passwords page
+                            <ExternalLink size={10} />
+                          </a>
+                        )}
+                      </div>
+                    )}
+
                     <div>
                       <label className="text-xs text-zinc-500 mb-1 block">Display Name</label>
                       <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="w-full rounded-lg bg-zinc-800/60 px-3 py-2 text-sm text-zinc-100 ring-1 ring-zinc-700/50 focus:outline-none focus:ring-2 focus:ring-pink-500/50 placeholder:text-zinc-600" placeholder="My Email" />
@@ -207,7 +272,7 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                         </div>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} className="rounded border-zinc-600 bg-zinc-800 text-pink-500 focus:ring-pink-500/50" />
-                          <span className="text-xs text-zinc-400">Use TLS/SSL</span>
+                          <span className="text-xs text-zinc-400">Use TLS/SSL (recommended)</span>
                         </label>
                       </>
                     )}
@@ -225,15 +290,17 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                       </div>
                     </div>
                     <div>
-                      <label className="text-xs text-zinc-500 mb-1 block">App Password</label>
+                      <label className="text-xs text-zinc-500 mb-1 block">
+                        {connectorType === 'email' ? 'App Password' : 'Password'}
+                      </label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-600" />
                         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-lg bg-zinc-800/60 pl-9 pr-3 py-2 text-sm text-zinc-100 ring-1 ring-zinc-700/50 focus:outline-none focus:ring-2 focus:ring-pink-500/50 placeholder:text-zinc-600" placeholder="xxxx-xxxx-xxxx-xxxx" />
                       </div>
                       <p className="text-[10px] text-zinc-600 mt-1">
                         {connectorType === 'email'
-                          ? 'Gmail: enable 2FA → generate App Password at myaccount.google.com/apppasswords'
-                          : 'Generate an app password from your provider\'s security settings'}
+                          ? 'For Gmail: use an App Password, not your regular password (see guide above)'
+                          : 'Enter your account password or app password'}
                       </p>
                     </div>
 
@@ -269,7 +336,14 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                       <Check className="h-6 w-6 text-emerald-400" />
                     </div>
                     <p className="text-sm font-medium text-zinc-100">{displayName} connected!</p>
-                    <p className="text-xs text-zinc-500 mt-1">Data will sync automatically</p>
+                    <p className="text-xs text-zinc-500 mt-1">Data will sync automatically in the background</p>
+                    <div className="mt-4 rounded-lg bg-zinc-800/30 px-4 py-3 text-left">
+                      <p className="text-[11px] text-zinc-500 leading-relaxed">
+                        <span className="font-medium text-zinc-400">What happens next:</span> DeskFlow will periodically
+                        sync your {connectorType === 'email' ? 'emails' : 'calendar events'} to provide context
+                        for your daily planning. You can disconnect anytime from the Connectors panel.
+                      </p>
+                    </div>
                     <button onClick={handleClose} className="mt-4 rounded-lg px-6 py-2 text-sm font-medium bg-zinc-800 text-zinc-300 ring-1 ring-zinc-700 hover:bg-zinc-700 transition-colors">
                       Done
                     </button>

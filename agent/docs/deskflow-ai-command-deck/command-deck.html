@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DeskFlow AI — Command Deck</title>
+<style>
+  :root{
+    --canvas:#09090b;          /* zinc-950, never pure black */
+    --surface:rgba(24,24,27,.72);
+    --surface-2:#151518;
+    --raised:rgba(39,39,42,.7);
+    --line:rgba(255,255,255,.07);
+    --line-2:rgba(255,255,255,.12);
+    --tp:#fafafa;              /* text primary */
+    --ts:rgba(250,250,250,.60);/* secondary */
+    --tm:rgba(250,250,250,.38);/* muted */
+    --pink:#ec4899; --emerald:#34d399; --amber:#fbbf24;
+    --violet:#a78bfa; --cyan:#22d3ee; --red:#f87171; --blue:#60a5fa;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--canvas);color:var(--tp);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+  body{
+    position:relative;
+    background:
+      radial-gradient(1200px 480px at 78% -8%, rgba(236,72,153,.14), transparent 60%),
+      radial-gradient(900px 420px at 8% -4%, rgba(167,139,250,.12), transparent 60%),
+      var(--canvas);
+    padding:28px 34px 40px;
+  }
+  /* faint engineered grid */
+  body::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);
+    background-size:44px 44px;mask-image:linear-gradient(180deg,rgba(0,0,0,.7),transparent 70%);}
+  .wrap{max-width:1372px;margin:0 auto;position:relative}
+
+  /* ---------- top bar ---------- */
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}
+  .brand{display:flex;align-items:center;gap:13px}
+  .logo{width:38px;height:38px;border-radius:11px;position:relative;
+    background:linear-gradient(140deg,#f472b6,#a78bfa 60%,#22d3ee);
+    display:grid;place-items:center;color:#0b0b0d;font-weight:800;font-size:19px}
+  .logo::after{content:"";position:absolute;inset:0;border-radius:11px;border:1px solid rgba(255,255,255,.25)}
+  .brand h1{font-size:16.5px;font-weight:650;letter-spacing:-.2px;display:flex;align-items:center;gap:9px}
+  .brand .sub{font-family:var(--mono);font-size:11px;color:var(--tm);letter-spacing:.5px}
+  .barR{display:flex;align-items:center;gap:10px}
+  .chip{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border-radius:9px;
+    border:1px solid var(--line-2);background:var(--surface);font-size:12px;color:var(--ts);backdrop-filter:blur(12px)}
+  .chip .dot{width:6px;height:6px;border-radius:50%}
+  .chip.mode{color:var(--tp)}
+  .chip.mode .dot{background:var(--amber);box-shadow:0 0 0 3px rgba(251,191,36,.18)}
+  .chip.prov .dot{background:var(--violet)}
+  .chip.live .dot{background:var(--emerald);box-shadow:0 0 0 3px rgba(52,211,153,.18)}
+
+  /* ---------- layout ---------- */
+  .grid{display:grid;grid-template-columns:1fr 400px;gap:20px;align-items:start}
+  .col{display:flex;flex-direction:column;gap:20px}
+
+  .microlabel{font-family:var(--mono);font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--tm);
+    display:flex;align-items:center;gap:10px;margin:2px 0 2px}
+  .microlabel::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line-2),transparent)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;backdrop-filter:blur(14px);position:relative;overflow:hidden}
+  .card.acc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
+  .acc.pink::before{background:var(--pink)} .acc.emerald::before{background:var(--emerald)}
+  .acc.amber::before{background:var(--amber)} .acc.violet::before{background:var(--violet)}
+  .acc.cyan::before{background:var(--cyan)} .acc.red::before{background:var(--red)}
+
+  /* ---------- command deck (chat) ---------- */
+  .deck{padding:0}
+  .deckhead{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+  .deckhead .t{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px}
+  .deckhead .ic{width:26px;height:26px;border-radius:8px;background:rgba(236,72,153,.14);display:grid;place-items:center;color:var(--pink);font-size:14px}
+  .deckhead .meta{font-family:var(--mono);font-size:11px;color:var(--tm)}
+  .stream{padding:20px 18px;display:flex;flex-direction:column;gap:18px}
+
+  .msg{display:flex;gap:11px;max-width:92%}
+  .msg.user{align-self:flex-end;flex-direction:row-reverse;max-width:74%}
+  .av{width:26px;height:26px;border-radius:8px;flex:none;display:grid;place-items:center;font-size:12px;font-weight:700}
+  .av.ai{background:linear-gradient(140deg,#f472b6,#a78bfa);color:#0b0b0d}
+  .av.me{background:var(--raised);color:var(--ts);border:1px solid var(--line-2)}
+  .bubble{font-size:13.5px;line-height:1.55;color:var(--tp)}
+  .msg.user .bubble{background:var(--raised);border:1px solid var(--line-2);padding:9px 13px;border-radius:13px 13px 4px 13px;color:#f4f4f5}
+  .msg.ai .bubble{padding-top:3px;color:rgba(250,250,250,.86)}
+  .bubble .k{color:var(--tp);font-weight:600}
+
+  /* structured instrument card (inline in chat) */
+  .inst{margin-top:11px;border:1px solid var(--line-2);border-radius:14px;background:rgba(15,15,18,.6);overflow:hidden}
+  .inst .ib{padding:13px 15px}
+  .inst .ihead{display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid var(--line)}
+  .inst .ihead .lt{display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:600}
+  .inst .badge{font-family:var(--mono);font-size:10px;letter-spacing:.6px;text-transform:uppercase;padding:3px 7px;border-radius:6px;border:1px solid var(--line-2);color:var(--ts)}
+  .tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:6px;font-size:11px;font-weight:600}
+  .tag.work{background:rgba(236,72,153,.14);color:#f9a8d4} .tag.learn{background:rgba(34,211,238,.13);color:#67e8f9}
+  .tag.health{background:rgba(52,211,153,.14);color:#6ee7b7} .tag.pers{background:rgba(167,139,250,.15);color:#c4b5fd}
+  .btn{height:30px;padding:0 13px;border-radius:8px;font-size:12px;font-weight:600;border:1px solid var(--line-2);background:var(--raised);color:var(--tp);cursor:pointer}
+  .btn.pri{background:var(--pink);border-color:transparent;color:#1a0b12}
+  .btn.ghost{background:transparent;color:var(--ts)}
+  .btn.mini{height:26px;padding:0 10px;font-size:11px}
+
+  /* stats grid */
+  .mgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .metric{border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.02);padding:12px 13px}
+  .metric .top{display:flex;align-items:center;justify-content:space-between}
+  .metric .lab{font-size:11px;color:var(--tm);display:flex;align-items:center;gap:6px}
+  .metric .mi{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:11px}
+  .metric .val{font-size:21px;font-weight:680;letter-spacing:-.5px;margin-top:7px;font-variant-numeric:tabular-nums}
+  .trend{font-family:var(--mono);font-size:10.5px;padding:2px 6px;border-radius:5px}
+  .trend.up{background:rgba(52,211,153,.14);color:#6ee7b7} .trend.dn{background:rgba(248,113,113,.14);color:#fca5a5}
+
+  /* goal rows */
+  .grow{display:flex;gap:11px;padding:11px 0;border-top:1px solid var(--line)}
+  .grow:first-child{border-top:0}
+  .grow .body{flex:1}
+  .grow .gt{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .grow .gr{font-size:11.5px;color:var(--ts);margin-top:3px;line-height:1.45}
+  .grow .act{display:flex;gap:7px;align-items:flex-start}
+
+  /* plan diff */
+  .diff{display:flex;flex-direction:column}
+  .drow{display:flex;align-items:center;gap:11px;padding:9px 0;border-top:1px solid var(--line);font-size:12.5px}
+  .drow:first-child{border-top:0}
+  .sig{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-family:var(--mono);font-weight:700;font-size:12px;flex:none}
+  .sig.add{background:rgba(52,211,153,.15);color:#6ee7b7} .sig.mod{background:rgba(251,191,36,.15);color:#fcd34d} .sig.done{background:rgba(52,211,153,.15);color:#6ee7b7}
+  .drow .dl{flex:1}
+  .drow.doneline .dl{color:var(--tm);text-decoration:line-through}
+  .pri{font-family:var(--mono);font-size:10px;color:var(--tm);border:1px solid var(--line-2);border-radius:5px;padding:2px 6px}
+
+  /* chart card */
+  .chart{display:flex;align-items:flex-end;gap:10px;height:140px;padding:6px 2px 0}
+  .bar{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:7px}
+  .bar .fill{width:100%;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,var(--cyan),rgba(34,211,238,.25))}
+  .bar .dl{font-family:var(--mono);font-size:10px;color:var(--tm)}
+
+  /* command line input */
+  .cmd{margin:4px 14px 16px;border:1px solid var(--line-2);border-radius:13px;background:rgba(10,10,12,.7);padding:11px 12px 11px 14px;display:flex;align-items:center;gap:11px}
+  .cmd .pc{color:var(--pink);font-family:var(--mono);font-weight:700}
+  .cmd .ph{flex:1;color:var(--tm);font-size:13.5px;font-family:var(--mono)}
+  .cmd .tools{display:flex;align-items:center;gap:8px;color:var(--tm)}
+  .iconbtn{width:32px;height:32px;border-radius:9px;border:1px solid var(--line-2);background:var(--raised);display:grid;place-items:center;color:var(--ts);font-size:14px}
+  .iconbtn.send{background:var(--pink);color:#1a0b12;border-color:transparent}
+
+  /* right rail cards */
+  .sec{padding:15px 16px}
+  .sechead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .sechead .t{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600}
+  .sechead .ic{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-size:12px}
+  .glancegrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+  .topic{border-top:1px solid var(--line);padding:11px 0;display:flex;align-items:center;justify-content:space-between}
+  .topic:first-of-type{border-top:0}
+  .topic .tt{font-size:12.5px;font-weight:600}
+  .topic .ts{font-size:11px;color:var(--ts);margin-top:2px}
+  .chev{color:var(--tm);font-size:13px}
+
+  .conn{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
+  .conn:first-of-type{border-top:0}
+  .conn .l{display:flex;align-items:center;gap:10px}
+  .conn .ci{width:28px;height:28px;border-radius:8px;background:var(--raised);border:1px solid var(--line-2);display:grid;place-items:center;font-size:13px}
+  .conn .nm{font-size:12.5px;font-weight:600}
+  .conn .st{font-size:10.5px;color:var(--tm);font-family:var(--mono)}
+  .sdot{width:7px;height:7px;border-radius:50%}
+  .sdot.ok{background:var(--emerald);box-shadow:0 0 0 3px rgba(52,211,153,.16)}
+  .sdot.off{background:var(--tm)}
+
+  /* bottom strip: focus / plan / reflect */
+  .strip{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:20px}
+  .frow{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:12.5px}
+  .frow:first-of-type{border-top:0}
+  .cbox{width:17px;height:17px;border-radius:5px;border:1.5px solid var(--line-2);flex:none;display:grid;place-items:center;font-size:11px}
+  .cbox.on{background:var(--emerald);border-color:transparent;color:#08120d}
+  .frow.on .fl{color:var(--tm);text-decoration:line-through}
+  .fl{flex:1}
+  .ring{--p:72;width:44px;height:44px;border-radius:50%;flex:none;
+    background:conic-gradient(var(--emerald) calc(var(--p)*1%),rgba(255,255,255,.08) 0);
+    display:grid;place-items:center;font-family:var(--mono);font-size:10.5px;font-weight:700}
+  .ring span{width:34px;height:34px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center}
+  .tl{display:flex;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+  .tl:first-of-type{border-top:0}
+  .tld{font-size:11px;color:var(--tm);font-family:var(--mono)}
+  .tlt{font-size:12.5px;color:var(--ts);margin-top:3px;line-height:1.45}
+  .tlt b{color:var(--tp)}
+  .foot{margin-top:26px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--tm);letter-spacing:.4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">D</div>
+      <div>
+        <h1>DeskFlow AI <span class="sub">// command deck</span></h1>
+      </div>
+    </div>
+    <div class="barR">
+      <span class="chip mode"><span class="dot"></span>In progress</span>
+      <span class="chip prov"><span class="dot"></span>Claude Sonnet</span>
+      <span class="chip live"><span class="dot"></span>Connected</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- ================= LEFT: COMMAND DECK ================= -->
+    <div class="col">
+      <div class="microlabel">Assistant · structured command deck</div>
+      <div class="card acc pink deck">
+        <div class="deckhead">
+          <div class="t"><span class="ic">◈</span> Ask anything about your day</div>
+          <div class="meta">thread · today · 12 msgs</div>
+        </div>
+
+        <div class="stream">
+          <!-- user -->
+          <div class="msg user">
+            <div class="av me">CZ</div>
+            <div class="bubble">How am I tracking toward my goals this week?</div>
+          </div>
+
+          <!-- ai + stats card -->
+          <div class="msg ai">
+            <div class="av ai">✦</div>
+            <div style="flex:1">
+              <div class="bubble">You're <span class="k">ahead of last week</span>. Focus time is up and distractions are down — here's the snapshot:</div>
+              <div class="inst">
+                <div class="ihead"><div class="lt">📊 Weekly performance</div><span class="badge">stats_summary</span></div>
+                <div class="ib">
+                  <div class="mgrid">
+                    <div class="metric"><div class="top"><span class="lab"><span class="mi" style="background:rgba(236,72,153,.14);color:#f9a8d4">⏱</span>Focus time</span><span class="trend up">▲ 14%</span></div><div class="val">6h 12m</div></div>
+                    <div class="metric"><div class="top"><span class="lab"><span class="mi" style="background:rgba(52,211,153,.14);color:#6ee7b7">◎</span>Goals done</span><span class="trend up">▲ 2</span></div><div class="val">5 / 8</div></div>
+                    <div class="metric"><div class="top"><span class="lab"><span class="mi" style="background:rgba(251,191,36,.14);color:#fcd34d">△</span>Deep-work streak</span><span class="trend up">▲ 1d</span></div><div class="val">4 days</div></div>
+                    <div class="metric"><div class="top"><span class="lab"><span class="mi" style="background:rgba(248,113,113,.14);color:#fca5a5">⚡</span>Distraction</span><span class="trend dn">▼ 22%</span></div><div class="val">41m</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- user -->
+          <div class="msg user">
+            <div class="av me">CZ</div>
+            <div class="bubble">Nice. Suggest goals for today based on that.</div>
+          </div>
+
+          <!-- ai + goal suggestions -->
+          <div class="msg ai">
+            <div class="av ai">✦</div>
+            <div style="flex:1">
+              <div class="bubble">Given your streak and lighter calendar, three high-leverage picks:</div>
+              <div class="inst">
+                <div class="ihead"><div class="lt">◎ Suggested goals · today</div><span class="badge">goal_suggestion</span></div>
+                <div class="ib">
+                  <div class="grow">
+                    <div class="body">
+                      <div class="gt">Ship AI page v2 <span class="tag work">work</span></div>
+                      <div class="gr">You closed 3 blockers yesterday — momentum is high to finish the revamp.</div>
+                    </div>
+                    <div class="act"><button class="btn pri mini">Accept</button><button class="btn ghost mini">Dismiss</button></div>
+                  </div>
+                  <div class="grow">
+                    <div class="body">
+                      <div class="gt">30&nbsp;min system-design reading <span class="tag learn">learning</span></div>
+                      <div class="gr">Keeps your 4-day learning streak alive without cutting into deep work.</div>
+                    </div>
+                    <div class="act"><button class="btn pri mini">Accept</button><button class="btn ghost mini">Dismiss</button></div>
+                  </div>
+                  <div class="grow">
+                    <div class="body">
+                      <div class="gt">Evening walk, 20&nbsp;min <span class="tag health">health</span></div>
+                      <div class="gr">Your screen time spikes after 9pm — a walk resets it.</div>
+                    </div>
+                    <div class="act"><button class="btn pri mini">Accept</button><button class="btn ghost mini">Dismiss</button></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ai + plan diff -->
+          <div class="msg ai">
+            <div class="av ai">✦</div>
+            <div style="flex:1">
+              <div class="bubble">I also updated your long-term plan to match:</div>
+              <div class="inst">
+                <div class="ihead"><div class="lt">⇄ Plan update</div><span class="badge">plan_update</span></div>
+                <div class="ib">
+                  <div class="diff">
+                    <div class="drow"><span class="sig add">+</span><span class="dl">Ship AI page v2</span><span class="pri">P1</span></div>
+                    <div class="drow"><span class="sig mod">~</span><span class="dl">Reading cadence → daily</span><span class="pri">P2</span></div>
+                    <div class="drow doneline"><span class="sig done">✓</span><span class="dl">Inbox zero</span><span class="pri">done</span></div>
+                  </div>
+                  <div style="display:flex;gap:8px;margin-top:13px"><button class="btn pri mini">Apply all</button><button class="btn ghost mini">Review</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ai + chart -->
+          <div class="msg ai">
+            <div class="av ai">✦</div>
+            <div style="flex:1">
+              <div class="bubble">And your focus by day, so you can see the pattern:</div>
+              <div class="inst">
+                <div class="ihead"><div class="lt">▰ Focus by day · this week</div><span class="badge">chart_data</span></div>
+                <div class="ib">
+                  <div class="chart">
+                    <div class="bar"><div class="fill" style="height:52px"></div><div class="dl">M</div></div>
+                    <div class="bar"><div class="fill" style="height:74px"></div><div class="dl">T</div></div>
+                    <div class="bar"><div class="fill" style="height:62px"></div><div class="dl">W</div></div>
+                    <div class="bar"><div class="fill" style="height:98px"></div><div class="dl">T</div></div>
+                    <div class="bar"><div class="fill" style="height:112px"></div><div class="dl">F</div></div>
+                    <div class="bar"><div class="fill" style="height:44px"></div><div class="dl">S</div></div>
+                    <div class="bar"><div class="fill" style="height:34px"></div><div class="dl">S</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- command line -->
+        <div class="cmd">
+          <span class="pc">›_</span>
+          <span class="ph">ask anything, or type / for commands…</span>
+          <div class="tools">
+            <span class="iconbtn">🎙</span>
+            <span class="iconbtn send">↑</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= RIGHT RAIL ================= -->
+    <div class="col">
+      <div class="microlabel">Today at a glance</div>
+      <div class="card acc violet sec">
+        <div class="glancegrid">
+          <div class="metric"><div class="top"><span class="lab">Goals done</span></div><div class="val">5<span style="color:var(--tm);font-size:14px">/8</span></div></div>
+          <div class="metric"><div class="top"><span class="lab">Focus time</span></div><div class="val">6h 12m</div></div>
+          <div class="metric"><div class="top"><span class="lab">Streak</span></div><div class="val">4d 🔥</div></div>
+          <div class="metric"><div class="top"><span class="lab">Active goals</span></div><div class="val">3</div></div>
+        </div>
+      </div>
+
+      <div class="microlabel">Daily digest · AI-curated</div>
+      <div class="card acc cyan sec">
+        <div class="sechead"><div class="t"><span class="ic" style="background:rgba(34,211,238,.14);color:#67e8f9">▤</span>Research digest</div><span class="chip" style="height:24px"><span class="dot" style="background:var(--cyan)"></span>Sonnet</span></div>
+        <div class="topic"><div><div class="tt">Local-first sync patterns</div><div class="ts">3 sources · SQLite, CRDTs, WAL</div></div><span class="chev">›</span></div>
+        <div class="topic"><div><div class="tt">Multi-agent orchestration</div><div class="ts">4 sources · locks, leases, fan-out</div></div><span class="chev">›</span></div>
+        <div class="topic"><div><div class="tt">Framer Motion at scale</div><div class="ts">2 sources · transform-only, reduced-motion</div></div><span class="chev">›</span></div>
+      </div>
+
+      <div class="microlabel">Connectors</div>
+      <div class="card acc emerald sec">
+        <div class="conn"><div class="l"><span class="ci">◓</span><div><div class="nm">GitHub</div><div class="st">synced 4m ago · 128 items</div></div></div><div style="display:flex;align-items:center;gap:10px"><span class="sdot ok"></span><button class="btn mini">Sync</button></div></div>
+        <div class="conn"><div class="l"><span class="ci">◑</span><div><div class="nm">Calendar</div><div class="st">synced 11m ago · 6 events</div></div></div><div style="display:flex;align-items:center;gap:10px"><span class="sdot ok"></span><button class="btn mini">Sync</button></div></div>
+        <div class="conn"><div class="l"><span class="ci">◐</span><div><div class="nm">Slack</div><div class="st">not connected</div></div></div><div style="display:flex;align-items:center;gap:10px"><span class="sdot off"></span><button class="btn mini">Add</button></div></div>
+      </div>
+
+      <div class="microlabel">Quick commands</div>
+      <div class="card acc amber sec">
+        <div class="conn"><div class="l"><span class="ci" style="color:#fcd34d">◎</span><div class="nm">Plan my day</div></div><span class="st">/plan</span></div>
+        <div class="conn"><div class="l"><span class="ci" style="color:#67e8f9">▤</span><div class="nm">Generate digest</div></div><span class="st">/digest</span></div>
+        <div class="conn"><div class="l"><span class="ci" style="color:#6ee7b7">◷</span><div class="nm">Reflect on today</div></div><span class="st">/reflect</span></div>
+        <div class="conn"><div class="l"><span class="ci" style="color:#f9a8d4">⚡</span><div class="nm">Start focus session</div></div><span class="st">/focus</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= BOTTOM STRIP: FOCUS / PLAN / REFLECT ================= -->
+  <div class="strip">
+    <div class="card acc pink sec">
+      <div class="sechead"><div class="t"><span class="ic" style="background:rgba(236,72,153,.14);color:#f9a8d4">◎</span>Focus · today</div><span class="chip" style="height:24px">3/8</span></div>
+      <div class="frow on"><span class="cbox on">✓</span><span class="fl">Ship AI page v2</span></div>
+      <div class="frow on"><span class="cbox on">✓</span><span class="fl">Standup + planning</span></div>
+      <div class="frow"><span class="cbox"></span><span class="fl">System-design reading</span><span class="tag learn">30m</span></div>
+      <div class="frow"><span class="cbox"></span><span class="fl">Evening walk</span><span class="tag health">20m</span></div>
+    </div>
+
+    <div class="card acc violet sec">
+      <div class="sechead"><div class="t"><span class="ic" style="background:rgba(167,139,250,.15);color:#c4b5fd">⚑</span>Plan · long-term</div><button class="btn mini">+ Import</button></div>
+      <div class="frow"><span class="cbox"></span><span class="fl">Ship AI page v2</span><span class="pri">P1</span></div>
+      <div class="frow"><span class="cbox"></span><span class="fl">Daily reading cadence</span><span class="pri">P2</span></div>
+      <div class="frow on"><span class="cbox on">✓</span><span class="fl">Inbox zero workflow</span><span class="pri">done</span></div>
+      <div class="frow"><span class="cbox"></span><span class="fl">Publish coordination toolkit</span><span class="pri">P2</span></div>
+    </div>
+
+    <div class="card acc emerald sec">
+      <div class="sechead"><div class="t"><span class="ic" style="background:rgba(52,211,153,.14);color:#6ee7b7">◷</span>Reflect · 7 days</div><span class="chip" style="height:24px">Reviewed</span></div>
+      <div class="tl"><div class="ring" style="--p:88"><span>88%</span></div><div><div class="tld">Wed · Jul 1</div><div class="tlt"><b>7/8 goals.</b> “Best deep-work day this month.”</div></div></div>
+      <div class="tl"><div class="ring" style="--p:62"><span>62%</span></div><div><div class="tld">Tue · Jun 30</div><div class="tlt"><b>5/8 goals.</b> Distractions crept up after lunch.</div></div></div>
+    </div>
+  </div>
+
+  <div class="foot">DeskFlow AI — Command Deck concept · dark-only · glass + accent-coded instrument cards · transform/opacity motion</div>
+</div>
+</body>
+</html>

@@ -55,6 +55,8 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
   const [saving, setSaving] = useState(false);
   const [showNote, setShowNote] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [onBehalfOf, setOnBehalfOf] = useState(false);
+  const [onBehalfOfLabel, setOnBehalfOfLabel] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -71,6 +73,8 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
       setShowNote(false);
       setSaving(false);
       setSuccess(false);
+      setOnBehalfOf(false);
+      setOnBehalfOfLabel('');
     }
   }, [open, accounts]);
 
@@ -122,6 +126,8 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
       description,
       note,
       date,
+      on_behalf_of: type === 'expense' && onBehalfOf ? 1 : 0,
+      on_behalf_of_label: type === 'expense' && onBehalfOf && onBehalfOfLabel.trim() ? onBehalfOfLabel.trim() : null,
     });
     if (ok) {
       setSaving(false);
@@ -283,6 +289,27 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
                       className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
                     />
                   </motion.div>
+
+                  {type === 'expense' && (
+                    <motion.div variants={stagger} custom={3.5} initial="hidden" animate="show">
+                      <label className="flex items-center gap-2.5 cursor-pointer group">
+                        <div onClick={(e) => { e.stopPropagation(); setOnBehalfOf(v => !v); }}
+                          className={`w-8 h-4 rounded-full transition-colors duration-200 relative shrink-0 ${onBehalfOf ? 'bg-amber-500' : 'bg-zinc-700/60'}`}>
+                          <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all duration-200 ${onBehalfOf ? 'left-[16px]' : 'left-0.5'}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[10px] text-zinc-400 group-hover:text-zinc-300 transition-colors">
+                            <span className="text-amber-400 font-medium">Follow Through</span> — paid for someone else?
+                          </div>
+                          {onBehalfOf && (
+                            <input value={onBehalfOfLabel} onChange={e => setOnBehalfOfLabel(e.target.value)}
+                              placeholder="Who? (e.g. Mom's groceries)"
+                              className="mt-1 w-full rounded-lg border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-xs text-white placeholder-zinc-600 outline-none focus:border-amber-500/50" />
+                          )}
+                        </div>
+                      </label>
+                    </motion.div>
+                  )}
 
                   <motion.div variants={stagger} custom={4} initial="hidden" animate="show">
                     <div className="flex flex-wrap gap-1.5">

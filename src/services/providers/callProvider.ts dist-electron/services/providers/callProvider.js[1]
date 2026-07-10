@@ -1,0 +1,99 @@
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var callProvider_exports = {};
+__export(callProvider_exports, {
+  callProvider: () => callProvider
+});
+module.exports = __toCommonJS(callProvider_exports);
+var import_templates = require("./templates");
+async function callProvider(provider, req, externalSignal) {
+  const isResolved = "template" in provider;
+  const config = isResolved ? provider.config : provider;
+  const template = isResolved ? provider.template : import_templates.PROVIDER_TEMPLATES[config.templateId];
+  if (!template) {
+    throw new Error(`No template found for provider ${config.id}`);
+  }
+  const baseUrl = config.baseUrl || template.defaultBaseUrl;
+  if (!baseUrl) {
+    console.log(`[PROV] ${config.id}: no base URL configured`);
+    throw new Error(`Provider ${config.id} has no base URL configured`);
+  }
+  const headers = {
+    "Content-Type": "application/json",
+    ...template.staticHeaders ?? {}
+  };
+  let url = template.interpolateUrl ? template.interpolateUrl(baseUrl, config) : baseUrl;
+  if (config.apiKey) {
+    if (template.auth.type === "bearer") headers["Authorization"] = `Bearer ${config.apiKey}`;
+    else if (template.auth.type === "header") headers[template.auth.headerName] = config.apiKey;
+    else if (template.auth.type === "query") url += `?${template.auth.queryParam}=${encodeURIComponent(config.apiKey)}`;
+  }
+  const body = template.buildBody ? template.buildBody(req) : {
+    model: req.model,
+    messages: [{ role: "system", content: req.systemPrompt }, ...req.messages],
+    max_tokens: req.maxTokens ?? 500,
+    temperature: req.temperature ?? 0.4
+  };
+  console.log(`[PROV] >>> ${config.id} calling ${url} model=${req.model} maxTokens=${req.maxTokens ?? 500}`);
+  console.log(`[PROV] >>> ${config.id} baseUrl=${baseUrl} interpolated=${url} auth=${template.auth.type} key=${config.apiKey ? config.apiKey.slice(0, 12) + "..." : "NONE"}`);
+  console.log(`[PROV] >>> ${config.id} body preview:`, JSON.stringify(body).slice(0, 300));
+  const controller = new AbortController();
+  const resolvedTimeoutMs = "timeoutMs" in config && typeof config.timeoutMs === "number" && config.timeoutMs > 0 ? Math.min(config.timeoutMs, 3e5) : 12e4;
+  const timeout = setTimeout(() => controller.abort(), resolvedTimeoutMs);
+  if (externalSignal instanceof AbortSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+  let response;
+  try {
+    response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok) {
+    const errText = await response.text();
+    console.log(`[PROV] <<< ${config.id} FAILED status=${response.status}: ${errText.slice(0, 300)}`);
+    const e = new Error(`${template.label} error ${response.status}: ${errText.slice(0, 200)}`);
+    e.status = response.status;
+    throw e;
+  }
+  console.log(`[PROV] <<< ${config.id} OK status=${response.status}`);
+  const raw = await response.json();
+  let result;
+  if (template.parseResponse) {
+    result = template.parseResponse(raw);
+  } else {
+    const choice = raw.choices?.[0];
+    const msg = choice?.message ?? {};
+    const finishReason = choice?.finish_reason;
+    const content = msg.content ?? msg.reasoning ?? "";
+    if (!content && finishReason === "length") {
+      const e = new Error(`${template.label}: response truncated (finish_reason=length) before producing content \u2014 raise maxTokens`);
+      e.status = 422;
+      throw e;
+    }
+    result = { content, usage: raw.usage };
+  }
+  console.log(`[PROV] ${config.id} response content len=${String(result.content).length} usage=${JSON.stringify(result.usage)}`);
+  return result;
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  callProvider
+});

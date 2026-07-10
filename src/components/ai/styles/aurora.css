@@ -1,0 +1,70 @@
+/*
+ * Ambient background for the /ai page.
+ * L2 budget: ONE restrained ambient motion, GPU-cheap (opacity + transform),
+ * fully disabled under prefers-reduced-motion. No particle fields, no parallax.
+ */
+
+.ai-aurora {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	pointer-events: none;
+	z-index: 0;
+}
+
+.ai-aurora::before,
+.ai-aurora::after {
+	content: "";
+	position: absolute;
+	width: 42rem;
+	height: 42rem;
+	border-radius: 9999px;
+	filter: blur(120px);
+	opacity: 0.12;
+	will-change: transform, opacity;
+}
+
+.ai-aurora::before {
+	top: -12rem;
+	left: -8rem;
+	background: radial-gradient(circle at center, #ec4899, transparent 70%);
+	animation: ai-aurora-drift-a 18s ease-in-out infinite;
+}
+
+.ai-aurora::after {
+	bottom: -14rem;
+	right: -10rem;
+	background: radial-gradient(circle at center, #22d3ee, transparent 70%);
+	animation: ai-aurora-drift-b 22s ease-in-out infinite;
+}
+
+@keyframes ai-aurora-drift-a {
+	0%,
+	100% {
+		transform: translate3d(0, 0, 0) scale(1);
+		opacity: 0.1;
+	}
+	50% {
+		transform: translate3d(3rem, 2rem, 0) scale(1.08);
+		opacity: 0.16;
+	}
+}
+
+@keyframes ai-aurora-drift-b {
+	0%,
+	100% {
+		transform: translate3d(0, 0, 0) scale(1);
+		opacity: 0.08;
+	}
+	50% {
+		transform: translate3d(-2.5rem, -1.5rem, 0) scale(1.06);
+		opacity: 0.14;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ai-aurora::before,
+	.ai-aurora::after {
+		animation: none;
+	}
+}

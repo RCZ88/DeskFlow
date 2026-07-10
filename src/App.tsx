@@ -2,18 +2,23 @@
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
+import { SidebarLogo } from './components/SidebarLogo';
 import {
   Home, Monitor, Globe, Code2, BarChart3, Settings, Play, Pause, Clock,
   Download, Trash2, Award, Zap, Users, Info, Database, CheckCircle, XCircle, AlertTriangle,
   Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard, Target,
   ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
-  X,   FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen, Wallet, GraduationCap
+  X,   FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen, Wallet, GraduationCap, Activity, Smartphone, Brain,
+  HeartHandshake,
+  PanelLeftClose, PanelRightClose, GitBranch
 } from 'lucide-react';
+import SleepDetectionModal from './components/SleepDetectionModal';
 import { format as dateFormat } from 'date-fns';
 import SettingsPage from './pages/SettingsPage';
 import StatsPage from './pages/StatsPage';
 import BrowserActivityPage from './pages/BrowserActivityPage';
 import ProductivityPage from './pages/ProductivityPage';
+import ActivityPage from './pages/ActivityPage';
 import DatabasePage from './pages/DatabasePage';
 import IDEProjectsPage from './pages/IDEProjectsPage';
 import IDEHelpPage from './pages/IDEHelpPage';
@@ -22,19 +27,26 @@ import { LearnPage } from './components/learn/LearnPage';
 import GuidePage from './pages/GuidePage';
 import TerminalPage from './pages/TerminalPage';
 import ExternalPage from './pages/ExternalPage';
+import ConductorPage from './pages/ConductorPage';
+
 import { AiPage } from './pages/AiPage';
-import { DurationPicker, LatencyPicker } from './components/DurationPicker';
+
 import InsightsPage from './pages/InsightsPage';
 import { FinancePage } from './pages/FinancePage';
 import DashboardPage from './pages/DashboardPage';
 import FeatureSpecViewer from './components/FeatureSpecViewer';
 import AfkPromptModal from './components/AfkPromptModal';
+import { PairPhoneModal } from './components/PairPhoneModal';
 import { getDateRange } from './lib/dateRange';
 import type { Period } from './lib/dateRange';
 // Agent dashboard is disabled - file incomplete
 
 // Lazy load OrbitSystem - it's heavy and should only load when needed
 const OrbitSystem = lazy(() => import('./components/OrbitSystem').then(module => ({ default: module.default })));
+
+// Life page combines Covenant (commitments/streaks) and Memories (photo/video
+// collage) under a single tabbed page — warm clay/sage/amber/sky palette
+const LifePage = lazy(() => import('./features/warmth/LifePage'));
 
 interface ActivityLog {
   id: number;
@@ -87,268 +99,7 @@ import {
 import { Pie, Bar } from 'react-chartjs-2';
 import { format } from 'date-fns';
 
-// Electron API types
-declare global {
-  interface Window {
-    deskflowAPI?: {
-      onForegroundChange: (cb: (data: any) => void) => () => void;
-      onTrackingHeartbeat: (cb: (data: any) => void) => () => void;
-      onBrowserTrackingEvent: (cb: (data: any) => void) => () => void;
-      onTrackerMindInitProgress: (cb: (data: any) => void) => () => void;
-      getLogs: () => Promise<any[]>;
-      getLogsByPeriod: (params: { period: 'today' | 'week' | 'month' | 'all'; dateOffset?: number }) => Promise<any[]>;
-      getDashboardData: (params: { period: string; dateOffset?: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
-      getPageStats: (params: { page: string; period: string; dateOffset?: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
-      backfillAggregations: () => Promise<{ success: boolean; message?: string }>;
-      getStats: () => Promise<any[]>;
-      getAppStats: (period?: 'today' | 'week' | 'month' | 'all') => Promise<any[]>;
-      getDailyStats: (period: 'week' | 'month' | 'all') => Promise<any>;
-      toggleTracking: () => Promise<boolean>;
-      setTracking: (enabled: boolean) => Promise<boolean>;
-      clearData: () => Promise<boolean>;
-      clearToday: () => Promise<boolean>;
-      getDbPath: () => Promise<string>;
-      getStorageStatus: () => Promise<{
-        type: 'sqlite' | 'json' | 'none';
-        working: boolean;
-        path: string;
-        error?: string;
-        logCount: number;
-      }>;
-      getPreferences: () => Promise<Record<string, any>>;
-      setPreference: (key: string, value: any) => Promise<boolean>;
-      // Browser tracking
-      getBrowserLogs: () => Promise<any[]>;
-      getBrowserDomainStats: () => Promise<any[]>;
-      getAllBrowserDomainStats: () => Promise<any[]>;
-      getBrowserCategoryStats: () => Promise<any[]>;
-      setBrowserTracking: (enabled: boolean) => Promise<boolean>;
-      getBrowserTrackingStatus: () => Promise<{
-        enabled: boolean;
-        serverRunning: boolean;
-        port: number;
-        excludedDomains: string[];
-      }>;
-      setBrowserExcludedDomains: (domains: string[]) => Promise<boolean>;
-      setRecordingMode: (type: 'browser' | 'app', mode: 'always' | 'on-view') => Promise<boolean>;
-      getRecordingModes: () => Promise<{
-        browser: string;
-        app: string;
-        browserPageVisible: boolean;
-        dashboardPageVisible: boolean;
-      }>;
-      setPageVisibility: (page: 'browser' | 'dashboard', visible: boolean) => Promise<boolean>;
-      // Productivity tracking
-      getDailyProductivity: (date: string) => Promise<any>;
-      getProductivityRange: (startDate: string, endDate: string) => Promise<any[]>;
-      saveProductivitySession: (session: any) => Promise<any>;
-      getProductivitySessions: (opts?: any) => Promise<any>;
-      clearProductivitySessions: () => Promise<void>;
-      getCurrentForeground: () => Promise<any>;
-      // Clean corrupted data
-      cleanCorruptedData: () => Promise<{ success: boolean; deletedCount: number; error?: string }>;
-      // Deep cleanup and rebuild
-      deepCleanAndRebuild: () => Promise<{ success: boolean; logsCleared?: number; aggregatesCleared?: number; message?: string }>;
-      // Database schema and table management
-      migrateToAggregates: () => Promise<{ success: boolean; aggregatesUpdated?: number; browserAggregatesUpdated?: number; message?: string }>;
-      getDailyAggregates: () => Promise<any[]>;
-      getBrowserSessions: () => Promise<any[]>;
-      getSessions: () => Promise<any[]>;
-      getTableSchema: (tableName: string) => Promise<any>;
-      getDatabaseTables: () => Promise<{ tables: string[]; type: string; error?: string }>;
-      getTableData: (tableName: string, limit?: number) => Promise<any[] | { error: string }>;
-      updateCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => Promise<{ success: boolean; updatedCount: number; error?: string }>;
-      // File operations
-      saveFile: (options: { content: string; filename: string; fileType: string }) => Promise<{ success: boolean; path?: string; message?: string }>;
-      pickFolder: () => Promise<{ success: boolean; path: string | null }>;
-      scanCustomDirectory: (rootDir: string) => Promise<{ success: boolean; projects: any[] }>;
-      getCustomScanDirs: () => Promise<string[]>;
-      saveCustomScanDirs: (dirs: string[]) => Promise<{ success: boolean }>;
-      // IDE Projects
-      detectIDEs: () => Promise<any[]>;
-      getIDEs: () => Promise<any[]>;
-      getExtensions: (ideId?: string) => Promise<any[]>;
-      scanTools: () => Promise<any[]>;
-      getTools: (category?: string) => Promise<any[]>;
-      getToolCategories: () => Promise<{ category: string }[]>;
-      resetTools: () => Promise<{ success: boolean; message: string }>;
-      addProject: (data: { name: string; path: string; repositoryUrl?: string; vcsType?: string; primaryLanguage?: string; defaultIde?: string }) => Promise<{ success: boolean; id?: string; name?: string; message?: string }>;
-      getProjects: () => Promise<any[]>;
-      getProjectTools: (projectId: string) => Promise<any[]>;
-      removeProject: (projectId: string) => Promise<{ success: boolean }>;
-      openProject: (projectId: string, ideId?: string) => Promise<{ success: boolean; ide?: string; message?: string }>;
-      getAIUsageSummary: (period?: string, dateOffset?: number, projectId?: string) => Promise<any>;
-      getCommitStats: (projectId?: string, period?: string) => Promise<any>;
-      getIDEProjectsOverview: (period?: string, dateOffset?: number) => Promise<any>;
-      scanIdeDefaultProjects: () => Promise<{ ide: string; projects: { name: string; path: string }[] }[]>;
-      // Run Project Feature
-      detectProjectScripts: (projectPath: string) => Promise<any>;
-      getProjectRunConfig: (projectId: string) => Promise<any>;
-      saveProjectRunConfig: (projectId: string, config: any) => Promise<any>;
-      runProject: (projectId: string, config: any) => Promise<any>;
-      executeProjectCommand: (terminalId: string, command: string) => Promise<any>;
-      stopProject: (terminalId: string) => Promise<any>;
-      getRunningProjects: () => Promise<any>;
-      openUrl: (url: string) => Promise<any>;
-      syncAIUsage: () => Promise<{ success: boolean; [key: string]: number | boolean | string }>;
-      onAISyncProgress: (callback: (data: any) => void) => () => void;
-      debugAIAgents: () => Promise<Record<string, { detected: boolean; paths: string[] }>>;
-      // Git & DORA Metrics
-      syncCommits: (projectId: string, repoPath?: string) => Promise<{ success: boolean; count: number }>;
-      syncGitHubCommits: (projectId: string, owner: string, repo: string, token?: string) => Promise<{ success: boolean; count: number }>;
-      getDORAMetrics: (projectId: string, period?: 'week' | 'month') => Promise<any>;
-      getCommitHistory: (projectId: string, limit?: number) => Promise<any[]>;
-      getContributorStats: (projectId: string) => Promise<any>;
-      // Terminal Window
-      createTerminalWindow: () => Promise<boolean>;
-      spawnTerminal: (terminalId: string, cwd?: string) => Promise<boolean>;
-      writeTerminal: (terminalId: string, data: string) => Promise<boolean>;
-      resizeTerminal: (terminalId: string, cols: number, rows: number) => Promise<boolean>;
-      killTerminal: (terminalId: string) => Promise<boolean>;
-      onTerminalData: (callback: (data: { terminalId: string; data: string }) => void) => void;
-      onTerminalExit: (callback: (data: { terminalId: string; exitCode: number; signal: number }) => void) => void;
-      // Terminal Presets
-      getTerminalPresets: (projectId?: string) => Promise<any[]>;
-      addTerminalPreset: (preset: { projectId?: string; name: string; command: string; workingDirectory?: string; category?: string }) => Promise<{ success: boolean; id?: string; message?: string }>;
-      removeTerminalPreset: (presetId: string) => Promise<{ success: boolean; message?: string }>;
-      executeTerminalPreset: (presetId: string, terminalId?: string) => Promise<{ success: boolean; command?: string; terminalId?: string; message?: string }>;
-      // Terminal Layouts
-      saveTerminalLayout: (layout: { id?: string; name: string; layoutData: string; isActive?: boolean }) => Promise<{ success: boolean; id?: string; message?: string }>;
-      getTerminalLayouts: (projectId?: string) => Promise<any[]>;
-      deleteTerminalLayout: (layoutId: string) => Promise<{ success: boolean; message?: string }>;
-      setActiveTerminalLayout: (layoutId: string) => Promise<{ success: boolean; message?: string }>;
-      // Terminal Sessions
-      saveTerminalSession: (session: { projectId?: string; agent: string; resumeId?: string; topic?: string; workingDirectory?: string; totalTokens?: number; totalCost?: number; category?: string; status?: string; productArea?: string; description?: string; autoTags?: string[]; categoryConfirmed?: boolean }) => Promise<{ success: boolean; id?: string }>;
-      getTerminalSessions: (projectId?: string, limit?: number) => Promise<any[]>;
-      getTerminalSessionResumeId: (sessionId: string) => Promise<string | null>;
-      deleteTerminalSession: (sessionId: string) => Promise<{ success: boolean }>;
-      getSessionMessages: (sessionId: string, agentType?: string) => Promise<{ success: boolean; data: any[] }>;
-      saveTerminalMessage: (data: { sessionId: string; role: string; content: string }) => Promise<{ success: boolean; id?: any }>;
-      getPromptHistory: (opts?: { projectId?: string; limit?: number }) => Promise<{ success: boolean; data: any[]; error?: string }>;
-      deleteTerminalMessage: (id: number) => Promise<{ success: boolean; error?: string }>;
-      getPromptStatus: () => Promise<{ success: boolean; data: any[] }>;
-      aiTaskAdd: (data: { terminalId: string; prompt: string; agent: string; sessionId: string; projectPath: string }) => void;
-      aiTaskWatch: (projectPath: string) => Promise<any>;
-      aiTaskStopWatch: (projectPath: string) => Promise<any>;
-      onAiTaskUpdated: (callback: (data: any) => void) => () => void;
-      onAiTaskFileChanged: (callback: (data: any) => void) => () => void;
-      // Session Categorization
-      updateSessionCategory: (data: { sessionId: string; category?: string; productArea?: string; description?: string; status?: string; tags?: string[]; categoryConfirmed?: boolean }) => Promise<{ success: boolean }>;
-      getParsedSessionItems: (sessionId: string) => Promise<{ success: boolean; data: any[] }>;
-      analyzeSessionCategory: (sessionId: string) => Promise<{ success: boolean; category: string; confidence: number; tags: string[]; productArea: string }>;
-      saveSessionConfig: (sessionId: string, config: any, projectPath?: string) => Promise<{ success: boolean; error?: string }>;
-      loadSessionConfig: (sessionId: string, projectPath?: string) => Promise<{ success: boolean; data: any; error?: string }>;
-      listInitFiles: (projectPath?: string) => Promise<{ success: boolean; data: string[] }>;
-      // @mention Routing
-      resolveAtMention: (data: { input: string; terminalTabs: Array<{ id: string; name: string }> }) => Promise<{ terminalId: string | null; message: string; resolved: boolean }>;
-      getAISyncStatus: () => Promise<{ lastRunAt: string | null; agentLastRun: Record<string, string>; paths: Record<string, any> }>;
-      // Project Health
-      calculateProjectHealth: (projectId: string) => Promise<{ healthScore: number; activityLevel: string; aiSessions: number; commits: number }>;
-      getProjectDetails: (projectId: string) => Promise<{ project: any; tools: any[]; sessions: any[]; health: any; presets: any[]; aiUsage: any }>;
-      // Model Improvement Dashboard
-      getModelImprovementStats: (opts?: { terminalId?: string }) => Promise<{ messageCounts: Record<string, number>; reinjectionCount: number; threshold: number; actionsAttempted: number; actionsFailed: number } | null>;
-      setReinjectThreshold: (payload: { threshold: number }) => Promise<{ success: boolean; error?: string }>;
-      setModelDebug: (payload: { enabled: boolean }) => Promise<{ success: boolean; error?: string }>;
-      readActionsErrorLog: () => Promise<{ entries: string[]; exists: boolean }>;
-      // Auto-Assign Routing
-      routePrompt: (request: { prompt: string; projectPath?: string }) => Promise<{ action: string; sessionId?: string; sessionName?: string; terminalId?: string; confidence?: number; suggestedName?: string; suggestedSummary?: string; reason?: string }>;
-      updateSessionSummary: (request: { sessionId: string; force?: boolean }) => Promise<{ success: boolean; skipped?: boolean; summary?: string; topic?: string; autoNamed?: boolean; reason?: string; error?: string }>;
-      getRoutingCosts: () => Promise<{ today: any; week: any; month: any; total: any; byType: any[] }>;
-      resetRoutingCosts: () => Promise<{ success: boolean }>;
-      getAutoAssignConfig: () => Promise<any>;
-      saveAutoAssignConfig: (config: any) => Promise<{ success: boolean }>;
-      // Cross-Session Sync
-      lockFile: (filePath: string, terminalId: string, sessionId?: string | null, action?: string) => Promise<{ acquired: boolean; heldBy?: string }>;
-      releaseFileLock: (filePath: string, terminalId: string) => Promise<{ success: boolean }>;
-      getFileLocks: () => Promise<Array<{ filePath: string; terminalId: string; sessionId: string | null; timestamp: number; action: string }>>;
-      getLocksForTerminal: (terminalId: string) => Promise<Array<{ filePath: string; terminalId: string; sessionId: string | null; timestamp: number; action: string }>>;
-      getTouchedFiles: (opts?: { terminalId?: string; filePath?: string; limit?: number }) => Promise<{ success: boolean; data: any[]; error?: string }>;
-      compileSyncSummary: (terminalId: string) => Promise<{ success: boolean; summary: string; error?: string }>;
-      broadcastContextDelta: (data: { terminalId: string; type: string; payload: any }) => Promise<{ success: boolean; sentCount: number }>;
-      onFileConflict: (callback: (data: { filePath: string; requestingTerminal: string; lockingTerminal: string; sessionId: string | null; timestamp: number }) => void) => () => void;
-      getCrossSessionSyncConfig: () => Promise<{ enabled: boolean; lockTTL: number; contextBroadcast: boolean; conflictWarningMode: string; syncCommand: boolean }>;
-      setCrossSessionSyncConfig: (config: any) => Promise<{ success: boolean }>;
-      executeCommand: (command: string, cwd?: string) => Promise<{ stdout: string; stderr: string; error?: string }>;
-      // AI Digest & Config
-       getTopicDigest: () => Promise<{ success: boolean; topics?: any[]; error?: string }>;
-       saveAiConfig: (config: any) => Promise<{ success: boolean }>;
-       getAiConfig: () => Promise<any>;
-       getAiProviders: () => Promise<any>;
-       saveAiProviders: (state: any) => Promise<{ success: boolean }>;
-       testAiProvider: (providerId: string) => Promise<{ success: boolean; content?: string; error?: string }>;
-        getInterestTopics: () => Promise<string[]>;
-       addInterestTopic: (topic: string) => Promise<{ success: boolean }>;
-       removeInterestTopic: (topic: string) => Promise<{ success: boolean }>;
-      // Planning.md
-      readPlanningMd: () => Promise<{ content: string; error?: string }>;
-      writePlanningMd: (content: string) => Promise<{ success: boolean; error?: string }>;
-      writeFeatureSpecFile: (content: string) => Promise<{ success: boolean; error?: string }>;
-      getGoalContext: () => Promise<{ success: boolean; last7dByCategory?: any[]; yesterday?: any; error?: string }>;
-      parseGoalFeedback: (data: { message: string; goals: string[] }) => Promise<{ completed: string[]; added: any[]; note: string }>;
-      // Connectors
-      connectors: {
-        list: () => Promise<{ success: boolean; connectors: any[]; error?: string }>;
-        add: (connector: { type: string; provider: string; displayName: string; config: any }) => Promise<{ success: boolean; connector?: any; error?: string }>;
-        remove: (id: string) => Promise<{ success: boolean; error?: string }>;
-        test: (id: string) => Promise<{ success: boolean; message: string; latencyMs?: number }>;
-        sync: (id: string) => Promise<{ success: boolean; itemsAdded: number; itemsUpdated: number; error?: string }>;
-        items: (id: string, opts?: { type?: string; limit?: number }) => Promise<{ success: boolean; items: any[]; error?: string }>;
-        status: (id: string) => Promise<{ success: boolean; status: string; lastSync?: string; errorMessage?: string }>;
-      };
-      // Design Library Integration
-      mcpListTools: (serverId: string) => Promise<{ success: boolean; tools: any[]; error?: string }>;
-      mcpCallTool: (serverId: string, toolName: string, args: Record<string, any>) => Promise<{ success: boolean; result: any; error?: string }>;
-      mcpServerStatus: (serverId: string) => Promise<{ status: string; toolCount?: number; uptime?: number }>;
-      mcpStartServer: (serverId: string) => Promise<{ success: boolean; tools?: any[]; error?: string }>;
-      mcpStopServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
-      aceternityFetchRegistry: () => Promise<{ success: boolean; components: any[]; total: number; error?: string }>;
-      aceternityFetchComponent: (slug: string) => Promise<{ success: boolean; component?: any; error?: string }>;
-      aceternityInstallComponent: (slug: string, cwd: string) => Promise<{ success: boolean; filesWritten?: string[]; error?: string }>;
-      fetchReferoCatalog: (forceRefresh?: boolean, query?: string) => Promise<{ success: boolean; systems: any[]; total: number; error?: string }>;
-      fetchReferoSystem: (slug: string) => Promise<{ success: boolean; system?: any; error?: string }>;
-      searchReferoSystems: (query: string) => Promise<{ success: boolean; systems: any[]; total: number; error?: string }>;
-      getDesignLibraryConfig: () => Promise<any>;
-      setDesignLibraryConfig: (config: any) => Promise<{ success: boolean; error?: string }>;
-      getDesignCachedData: (key: string) => Promise<{ success: boolean; data?: any; timestamp?: number; stale?: boolean }>;
-      testDesignLibraryConnection: (serverId: string) => Promise<{ success: boolean; latency?: number; toolCount?: number; error?: string }>;
-      // Finance Page
-      financeGetAccounts: () => Promise<any[]>;
-      financeCreateAccount: (data: any) => Promise<any>;
-      financeUpdateAccount: (data: any) => Promise<any>;
-      financeArchiveAccount: (id: number) => Promise<any>;
-      financeGetWallets: (accountId?: number) => Promise<any[]>;
-      financeCreateWallet: (data: any) => Promise<any>;
-      financeUpdateWallet: (data: any) => Promise<any>;
-      financeAdjustBalance: (id: number, newBalance: number) => Promise<any>;
-      financeGetCategories: () => Promise<any[]>;
-      financeCreateCategory: (data: any) => Promise<any>;
-      financeUpdateCategory: (data: any) => Promise<any>;
-      financeGetTransactions: (filters?: any) => Promise<any[]>;
-      financeCreateTransaction: (data: any) => Promise<any>;
-      financeUpdateTransaction: (data: any) => Promise<any>;
-      financeDeleteTransaction: (id: number) => Promise<any>;
-      financeBatchUpdateCategory: (ids: number[], categoryId: number) => Promise<{ success: boolean; updated?: number; error?: string }>;
-      financeGetSummary: () => Promise<any>;
-      financeGetSpendingByCategory: () => Promise<any[]>;
-      financeGetMonthlyTrends: () => Promise<any[]>;
-      financeIsLocked: () => Promise<any>;
-      financeUnlock: (password: string) => Promise<any>;
-      financeLock: () => Promise<any>;
-      financeSetPassword: (password: string) => Promise<any>;
-      financeChangePassword: (currentPassword: string, nextPassword: string) => Promise<any>;
-      financeCheckPasswordSetup: () => Promise<any>;
-      financeSetRememberDevice: (remember: boolean, days: number) => Promise<any>;
-      financeSetLockTimeout: (timeoutMs: number) => Promise<any>;
-      financeGetSecuritySettings: () => Promise<any>;
-      financeCheckPageAccess: () => Promise<any>;
-      financeBiometricUnlock: () => Promise<any>;
-      financeGetWebAuthnCredential: () => Promise<any>;
-      financeStoreWebAuthnCredential: (credentialId: string) => Promise<any>;
-      financeGetDisplayCurrency: () => Promise<{ currency: string }>;
-      financeSetDisplayCurrency: (currency: string) => Promise<{ success: boolean }>;
-    };
-  }
-}
+// Electron API types — see src/types/deskflow-api.d.ts for the Window interface
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
 
@@ -529,6 +280,18 @@ function App() {
   const [gapCount, setGapCount] = useState(0);
   const [showGapBannerSetting, setShowGapBannerSetting] = useState(true);
 
+  // Sidebar collapse state (persisted)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('df-sidebar-collapsed') === 'true'; } catch { return false; }
+  });
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      try { localStorage.setItem('df-sidebar-collapsed', String(next)); } catch {}
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const handler = (e: CustomEvent<{ name: string; path: string }>) => setTerminalProjectInfo(e.detail);
     window.addEventListener('terminal-project-info', handler as EventListener);
@@ -555,6 +318,7 @@ function App() {
   
   // Computed filtered logs from allLogs based on selectedPeriod and dateOffset
   const filteredLogs = useMemo(() => {
+    if (selectedPeriod === 'all') return allLogs;
     const range = getDateRange(selectedPeriod, dateOffset);
     return allLogs.filter(log => log.timestamp >= range.start && log.timestamp < range.end);
   }, [allLogs, selectedPeriod, dateOffset]);
@@ -843,16 +607,17 @@ function App() {
 
   // Periodic data refresh to recover from stale DB connection after system sleep/idle
   useEffect(() => {
-    if (!window.deskflowAPI) return;
     let reconnectAttempts = 0;
     const refresh = async () => {
+      const api = (window as any).deskflowAPI;
+      if (!api) return;
       try {
-        const status = await window.deskflowAPI!.getStorageStatus();
+        const status = await api.getStorageStatus();
         setStorageStatus(status);
         if (status.working) {
           setDbConnected(true);
           reconnectAttempts = 0;
-          const electronLogs = await window.deskflowAPI!.getLogs();
+          const electronLogs = await api.getLogs();
           const formattedLogs: ActivityLog[] = electronLogs.map((log: any) => ({
             id: log.id,
             timestamp: new Date(log.timestamp),
@@ -874,18 +639,20 @@ function App() {
         } else {
           setDbConnected(false);
         }
-      } catch {
+      } catch (err) {
+        console.error('[App] Storage refresh error (bridge or DB):', err);
+        if (api === undefined) return;
         reconnectAttempts++;
-        if (reconnectAttempts >= 3) setDbConnected(false);
+        if (reconnectAttempts >= 5) setDbConnected(false);
       }
     };
+    refresh();
     const interval = setInterval(refresh, 30000);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') refresh();
-    });
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 
@@ -1023,9 +790,8 @@ function App() {
       window.deskflowAPI.onSleepDetection(async (data: any) => {
         if (data?.gapMinutes >= 45) {
           sleepActiveRef.current = true;
-          // Dismiss any open AFK prompts â€” sleep takes priority
-          setAfkPromptQueue([]);
-          afkPromptShownRef.current = true;
+          // Keep existing AFK prompts — sleep and AFK can coexist
+          // AFK duration will be reduced by sleep period automatically
           const detResult = await window.deskflowAPI?.checkSleepDetection?.();
           if (detResult?.detected) {
             setSleepDetectionData(detResult);
@@ -1044,6 +810,7 @@ function App() {
 
   const dismissSleepDetection = async () => {
     sleepActiveRef.current = false;
+    sleepPeriodRef.current = null;
     setShowSleepDetection(false);
     setSleepDetectionData(null);
     try {
@@ -1053,9 +820,24 @@ function App() {
     } catch { /* ignore */ }
   };
 
+  function adjustAfkForSleep(queue: AfkPromptEntry[], sleepStartMs: number, sleepEndMs: number): AfkPromptEntry[] {
+    if (queue.length === 0) return queue;
+    const entry = queue[0];
+    if (!entry.idleStartMs) return queue;
+    const totalMs = entry.returnMs - entry.idleStartMs;
+    const overlapStart = Math.max(entry.idleStartMs, sleepStartMs);
+    const overlapEnd = Math.min(entry.returnMs, sleepEndMs);
+    const overlapMs = Math.max(0, overlapEnd - overlapStart);
+    const remainingMs = Math.max(0, totalMs - overlapMs);
+    if (remainingMs < 60000) return queue.slice(1);
+    const mins = Math.floor(remainingMs / 60000);
+    const secs = Math.floor((remainingMs % 60000) / 1000);
+    const newDuration = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    return [{ ...entry, duration: newDuration }, ...queue.slice(1)];
+  }
+
   const confirmSleepDetection = async () => {
     if (!sleepDetectionData) return;
-    sleepActiveRef.current = false;
     try {
       const now = new Date();
       const deviceOff = new Date(now);
@@ -1071,7 +853,7 @@ function App() {
       deviceOn.setHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes, 0, 0);
 
                       // Handle midnight crossing
-                      // DO NOT advance fellAsleep here â€” it's typically on the SAME evening
+                      // DO NOT advance fellAsleep here — it's typically on the SAME evening
                       // as device off. Advancing it would inflate device_off_to_sleep_seconds
                       // to 24h+, making actualSleepSeconds compute to 0 in get-sleep-trends.
                       if (wokeUp <= deviceOff) {
@@ -1092,13 +874,12 @@ function App() {
       const deviceOffToSleepSec = Math.max(0, Math.round((fellAsleep.getTime() - deviceOff.getTime()) / 1000));
       const wakeUpToAppSec = Math.max(0, Math.round((deviceOn.getTime() - wokeUp.getTime()) / 1000));
 
-      // Stop any running AFK session left from the sleep period
-      if (window.deskflowAPI?.stopAfkSession) {
-        await window.deskflowAPI.stopAfkSession().catch(console.error);
-      }
-      // Clear any queued AFK prompts since sleep covers this period
-      setAfkPromptQueue([]);
-      afkPromptShownRef.current = true;
+      const sleepStartMs = deviceOff.getTime();
+      const sleepEndMs = wokeUp.getTime();
+      sleepPeriodRef.current = { startMs: sleepStartMs, endMs: sleepEndMs };
+
+      // Adjust existing AFK queue — subtract sleep overlap instead of clearing
+      setAfkPromptQueue(prev => adjustAfkForSleep(prev, sleepStartMs, sleepEndMs));
 
       if (window.deskflowAPI?.confirmSleep) {
         const result = await window.deskflowAPI.confirmSleep({
@@ -1109,26 +890,15 @@ function App() {
         });
         if (result?.success) {
           window.dispatchEvent(new CustomEvent('sleep-confirmed'));
+          window.dispatchEvent(new CustomEvent('external-data-changed'));
         }
       }
     } catch (err) {
       console.error('[App] Failed to confirm sleep:', err);
     }
+    sleepActiveRef.current = false;
     dismissSleepDetection();
   };
-
-  function formatTimeFromHours(h: number, m: number): string {
-    const d = new Date();
-    d.setHours(h, m, 0, 0);
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  }
-
-  function customDurationMinutes(): number {
-    const bed = sleepDetectCustomBedtime.hours * 60 + sleepDetectCustomBedtime.minutes;
-    let wake = sleepDetectCustomWaketime.hours * 60 + sleepDetectCustomWaketime.minutes;
-    if (wake <= bed) wake += 24 * 60;
-    return wake - bed;
-  }
 
   useEffect(() => {
     const loadOverrides = async () => {
@@ -1235,23 +1005,28 @@ function App() {
       return override || defaultCategory;
     };
 
-    const grouped: Record<string, { total_ms: number; sessions: number; first_seen: string; last_seen: string; category: string }> = {};
+    const grouped: Record<string, { total_ms: number; sessions: number; first_seen: number; last_seen: number; category: string }> = {};
     for (const log of filteredLogs) {
       if (log.is_browser_tracking) continue;
       const app = log.app;
       const category = getCategory(app, log.category || 'Other');
+      const t = log.timestamp.getTime();
       if (!grouped[app]) {
-        grouped[app] = { total_ms: 0, sessions: 0, first_seen: log.timestamp.toISOString(), last_seen: log.timestamp.toISOString(), category };
+        grouped[app] = { total_ms: 0, sessions: 0, first_seen: t, last_seen: t, category };
       }
       grouped[app].total_ms += log.duration * 1000;
       grouped[app].sessions += 1;
-      if (log.timestamp.toISOString() < grouped[app].first_seen) grouped[app].first_seen = log.timestamp.toISOString();
-      if (log.timestamp.toISOString() > grouped[app].last_seen) grouped[app].last_seen = log.timestamp.toISOString();
+      if (t < grouped[app].first_seen) grouped[app].first_seen = t;
+      if (t > grouped[app].last_seen) grouped[app].last_seen = t;
     }
 
     const stats = Object.entries(grouped).map(([app, data]) => ({
       app,
-      ...data,
+      total_ms: data.total_ms,
+      sessions: data.sessions,
+      first_seen: new Date(data.first_seen).toISOString(),
+      last_seen: new Date(data.last_seen).toISOString(),
+      category: data.category,
       avg_session_ms: data.sessions > 0 ? data.total_ms / data.sessions : 0
     }));
 
@@ -1260,34 +1035,33 @@ function App() {
 
   // Compute ALL TIME app stats - no filtering by period (for Settings page)
   const allTimeAppStats = useMemo(() => {
-    // Include ALL logs regardless of selectedPeriod
-    const appLogs = [...allLogs];
-
-    // Apply category overrides
     const getCategory = (app: string, defaultCategory: string) => {
       const override = categoryOverrides[app.toLowerCase()];
       return override || defaultCategory;
     };
 
-    // Group by app
-    const grouped: Record<string, { total_ms: number; sessions: number; first_seen: string; last_seen: string; category: string }> = {};
-    for (const log of appLogs) {
+    const grouped: Record<string, { total_ms: number; sessions: number; first_seen: number; last_seen: number; category: string }> = {};
+    for (const log of allLogs) {
       if (log.is_browser_tracking) continue;
       const app = log.app;
       const category = getCategory(app, log.category || 'Other');
+      const t = log.timestamp.getTime();
       if (!grouped[app]) {
-        grouped[app] = { total_ms: 0, sessions: 0, first_seen: log.timestamp.toISOString(), last_seen: log.timestamp.toISOString(), category };
+        grouped[app] = { total_ms: 0, sessions: 0, first_seen: t, last_seen: t, category };
       }
       grouped[app].total_ms += log.duration * 1000;
       grouped[app].sessions += 1;
-      if (log.timestamp.toISOString() < grouped[app].first_seen) grouped[app].first_seen = log.timestamp.toISOString();
-      if (log.timestamp.toISOString() > grouped[app].last_seen) grouped[app].last_seen = log.timestamp.toISOString();
+      if (t < grouped[app].first_seen) grouped[app].first_seen = t;
+      if (t > grouped[app].last_seen) grouped[app].last_seen = t;
     }
 
-    // Convert to array
     const stats = Object.entries(grouped).map(([app, data]) => ({
       app,
-      ...data,
+      total_ms: data.total_ms,
+      sessions: data.sessions,
+      first_seen: new Date(data.first_seen).toISOString(),
+      last_seen: new Date(data.last_seen).toISOString(),
+      category: data.category,
       avg_session_ms: data.sessions > 0 ? data.total_ms / data.sessions : 0
     }));
 
@@ -1371,6 +1145,7 @@ function App() {
 
   const [showSummary, setShowSummary] = useState(false);
   const [showDatabase, setShowDatabase] = useState(false);
+  const [pairPhoneModal, setPairPhoneModal] = useState<{ terminalId: string; label: string } | null>(null);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [showConfirmExport, setShowConfirmExport] = useState<'csv' | 'json' | null>(null);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
@@ -1388,19 +1163,19 @@ function App() {
   const [autoDetect, setAutoDetect] = useState(true);
   interface AfkPromptEntry {
     id: number;
-    suggested: { id: number; name: string; color: string } | null;
     duration: string;
-    startedAt: string | null;
     idleStartMs: number | null;
     returnMs: number;
-    sessionId: number | null;
+    defaultNotAfk: boolean;
   }
   const [afkPromptQueue, setAfkPromptQueue] = useState<AfkPromptEntry[]>([]);
   const [showGapDrawer, setShowGapDrawer] = useState(false);
   const afkQueueIdRef = useRef(0);
   const afkPromptShownRef = useRef(false);
+  const pendingIdleRangeRef = useRef<{ idleStart: number; idleEnd: number | null } | null>(null);
   const sleepDetectionPendingRef = useRef(false);
   const sleepActiveRef = useRef(false);
+  const sleepPeriodRef = useRef<{ startMs: number; endMs: number } | null>(null);
 
   const [autoExport, setAutoExport] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
@@ -1469,49 +1244,22 @@ function App() {
   }, []);
   
   const handleAfkConfirm = useCallback(async (segments: { activityId: string; startedAt: string; endedAt: string }[]) => {
-    console.log('[DeskFlow] handleAfkConfirm called with', segments.length, 'segments:', JSON.stringify(segments));
-    let saved = false;
-
-    // Path 1: Batch save (transactional multi-insert)
-    if (segments.length > 0 && window.deskflowAPI?.batchSaveAfkSegments) {
+    console.log('[DeskFlow] handleAfkConfirm called with', segments.length, 'segments');
+    if (segments.length > 0 && window.deskflowAPI?.createExternalSessionsBatch) {
       try {
-        const result = await window.deskflowAPI.batchSaveAfkSegments(segments);
-        console.log('[DeskFlow] batchSaveAfkSegments result:', result);
-        if (result?.success) saved = true;
-      } catch (err) { console.error('[DeskFlow] batchSaveAfkSegments error:', err); }
+        await window.deskflowAPI.createExternalSessionsBatch(segments);
+      } catch (err) { console.error('[DeskFlow] createExternalSessionsBatch error:', err); }
     }
-
-    // Path 2: Single-segment fallback via debugSaveAfk
-    if (!saved && segments.length === 1 && window.deskflowAPI?.debugSaveAfk) {
-      const seg = segments[0];
-      try {
-        const result = await window.deskflowAPI.debugSaveAfk({ activityId: seg.activityId, startedAt: seg.startedAt, endedAt: seg.endedAt });
-        if (result?.success) saved = true;
-      } catch (err) { console.error('[DeskFlow] debugSaveAfk fallback error:', err); }
-    }
-
-    // Path 3: Legacy stopAfkSession (real AFK detection flow)
-    if (!saved && segments.length === 1 && window.deskflowAPI?.stopAfkSession) {
-      try {
-        const result = await window.deskflowAPI.stopAfkSession(segments[0].activityId);
-        if (result?.success) saved = true;
-      } catch (err) { console.error('[DeskFlow] stopAfkSession fallback error:', err); }
-    }
-
+    pendingIdleRangeRef.current = null;
     setAfkPromptQueue(prev => prev.slice(1));
-    console.log('[DeskFlow] handleAfkConfirm saved:', saved);
     window.dispatchEvent(new CustomEvent('external-data-changed'));
   }, []);
   
   const handleAfkDismiss = useCallback(() => {
     console.log('[DeskFlow] handleAfkDismiss called');
+    pendingIdleRangeRef.current = null;
     setAfkPromptQueue(prev => prev.slice(1));
-    if (window.deskflowAPI?.stopAfkSession) {
-      window.deskflowAPI.stopAfkSession().then((r: any) => {
-        console.log('[DeskFlow] stopAfkSession dismiss result:', r);
-        window.dispatchEvent(new CustomEvent('external-data-changed'));
-      }).catch(console.error);
-    }
+    window.dispatchEvent(new CustomEvent('external-data-changed'));
   }, []);
 
   // Listen for gap-drawer open event
@@ -1523,6 +1271,15 @@ function App() {
       window.removeEventListener('open-gap-panel', handler);
       window.removeEventListener('open-gap-drawer', handler);
     };
+  }, []);
+
+  // Global listener for pair-phone modal (open from any page)
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ terminalId: string; label: string }>) => {
+      setPairPhoneModal(e.detail);
+    };
+    window.addEventListener('open-pair-modal', handler as EventListener);
+    return () => window.removeEventListener('open-pair-modal', handler as EventListener);
   }, []);
   
   const [foregroundApps, setForegroundApps] = useState<string[]>([]);
@@ -1735,56 +1492,34 @@ function App() {
   // Keep idleReturnFnRef.current updated with the actual handler
   useEffect(() => {
     idleReturnFnRef.current = async () => {
-      // If sleep detection is active or pending, skip AFK prompt entirely
-      // sleepActiveRef is set synchronously by onSleepDetection (race-condition-proof)
-      if (sleepActiveRef.current || sleepDetectionPendingRef.current) {
-        window.deskflowAPI?.stopAfkSession().catch(console.error);
-        afkPromptShownRef.current = true;
-        return;
-      }
-      
       if (afkPromptShownRef.current) return;
       afkPromptShownRef.current = true;
-      
-      // Compute duration from idleStartRef (always accurate, not reliant on DB)
-      const idleStartMs = idleStartRef.current;
+
+      const range = pendingIdleRangeRef.current;
+      const idleStartMs = range?.idleStart ?? idleStartRef.current;
       const nowMs = Date.now();
-      const elapsed = idleStartMs ? Math.floor((nowMs - idleStartMs) / 1000) : 0;
-      const afkDuration = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
-      
-      // Try to get the active session for the live counter timestamp
-      let startedAt: string | null = null;
-      let sessionId: number | null = null;
-      try {
-        const activeSession = await window.deskflowAPI?.getActiveExternalSession?.();
-        if (activeSession?.started_at) {
-          startedAt = activeSession.started_at;
-        }
-        if (activeSession?.id) {
-          sessionId = Number(activeSession.id);
-        }
-      } catch {}
-      
-      const ts = new Date().toISOString();
-      let guess: { id: number; name: string; color: string } | null = null;
-      try {
-        guess = await window.deskflowAPI?.getTypicalActivityAtTime?.(ts);
-      } catch {}
-      
-      // CRITICAL: re-check after all awaits â€” sleep may have fired during our async gap
-      if (sleepActiveRef.current) {
-        window.deskflowAPI?.stopAfkSession().catch(console.error);
-        return;
+      if (range) range.idleEnd = nowMs;
+      let elapsedSec = idleStartMs ? Math.floor((nowMs - idleStartMs) / 1000) : 0;
+
+      // Subtract any confirmed sleep period from AFK duration
+      if (sleepPeriodRef.current && idleStartMs) {
+        const overlapStart = Math.max(idleStartMs, sleepPeriodRef.current.startMs);
+        const overlapEnd = Math.min(nowMs, sleepPeriodRef.current.endMs);
+        const sleepOverlap = Math.max(0, Math.floor((overlapEnd - overlapStart) / 1000));
+        elapsedSec = Math.max(0, elapsedSec - sleepOverlap);
       }
-      
+
+      // Req 4: tiny idle → silent discard, no prompt
+      if (elapsedSec < 60) { pendingIdleRangeRef.current = null; return; }
+
+      const duration = elapsedSec < 60 ? `${elapsedSec}s` : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
       const entry: AfkPromptEntry = {
         id: afkQueueIdRef.current++,
-        suggested: guess,
-        duration: afkDuration,
-        startedAt,
+        duration,
         idleStartMs,
         returnMs: nowMs,
-        sessionId,
+        // Req 4: moderate idle (1–15m) defaults to "I wasn't AFK"
+        defaultNotAfk: elapsedSec <= 15 * 60,
       };
       setAfkPromptQueue(prev => [...prev, entry]);
     };
@@ -1898,31 +1633,14 @@ function App() {
         const isPassiveActive = currentCategoryRef.current && PASSIVE_ACTIVE.has(currentCategoryRef.current);
         const idleMs = idleThreshold * 60 * 1000; // Convert minutes to ms
         if (!isPassiveActive && systemIdleSecondsRef.current * 1000 > idleMs) {
-          setIsIdle(true);
-          idleStartRef.current = Date.now();
-          // Auto-pause after idle
-          if (elapsedTime > 60) { // Only log if tracked >1 min
-            const catInfo = APP_CATEGORIES[currentApp as keyof typeof APP_CATEGORIES] || { cat: 'Other', color: '#888888' };
-            const cat = catInfo.cat || 'Other';
-            const newLog: ActivityLog = {
-              id: Date.now(),
-              timestamp: sessionStart,
-              app: currentApp,
-              category: cat,
-              duration: Math.floor(elapsedTime), // seconds
-              title: 'Auto-saved (idle)'
-            };
-            setLogs(prev => [newLog, ...prev].slice(0, 20));
+          if (!pendingIdleRangeRef.current) {
+            pendingIdleRangeRef.current = { idleStart: Date.now() - idleMs, idleEnd: null };
+            idleStartRef.current = pendingIdleRangeRef.current.idleStart;
+            setIsIdle(true);
+            afkPromptShownRef.current = false;
           }
-          // Start AFK external session
-          if (window.deskflowAPI?.startAfkSession) {
-            window.deskflowAPI.startAfkSession().catch(console.error);
-          }
-          // Pause main process tracking so the last app stops accumulating time
-          window.deskflowAPI?.setTracking(false).catch(console.error);
-          afkPromptShownRef.current = false; // Allow prompt on next return
-          setIsTracking(false);
-          setElapsedTime(0);
+          // DO NOT pause tracking and DO NOT discard the session — keep counting.
+          setElapsedTime(prev => prev + 1);
           return;
         }
 
@@ -1960,10 +1678,6 @@ function App() {
     setSessionStart(new Date());
     setLastActivity(Date.now());
     setIsIdle(false);
-    // Stop AFK session when manually starting tracking
-    if (window.deskflowAPI?.stopAfkSession) {
-      window.deskflowAPI.stopAfkSession().catch(console.error);
-    }
   };
 
   // Toggle tracking
@@ -1997,10 +1711,6 @@ function App() {
       if (newTracking) {
         setElapsedTime(0);
         setSessionStart(new Date());
-        // Stop AFK session when manually turning on tracking
-        if (window.deskflowAPI?.stopAfkSession) {
-          window.deskflowAPI.stopAfkSession().catch(console.error);
-        }
       } else {
         setElapsedTime(0);
       }
@@ -2550,51 +2260,87 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
   const sidebarItems = [
     { icon: Home, label: 'Dashboard', path: '/' },
-    { icon: Target, label: 'Productivity', path: '/productivity' },
-    { icon: PieChart, label: 'Applications', path: '/stats' },
-    { icon: Globe, label: 'Browser Activity', path: '/browser' },
+    { icon: Activity, label: 'Activity', path: '/activity' },
+    { icon: GraduationCap, label: 'Learn', path: '/learn' },
     { icon: Code2, label: 'IDE Projects', path: '/ide' },
     { icon: Clock4, label: 'External', path: '/external' },
+
     { icon: Bot, label: 'AI Assistant', path: '/ai' },
     { icon: Wallet, label: 'Finance', path: '/finance' },
     { icon: BarChart3, label: 'Insights', path: '/reports' },
     { icon: Database, label: 'Database', path: '/database' },
+    { icon: HeartHandshake, label: 'Life', path: '/life' },
+    { icon: GitBranch, label: 'Conductor', path: '/conductor' },
     { icon: Settings, label: 'Settings', path: '/settings' },
     { icon: BookOpen, label: 'Guide', path: '/guide' },
-    { icon: GraduationCap, label: 'Learn', path: '/learn' },
   ];
 
   return (
     <TutorialProvider>
     <div className="flex h-screen overflow-hidden bg-[#121212] text-white">
       {/* Sidebar */}
-      <div className="w-64 border-r border-zinc-800 flex flex-col h-full glass">
-        <div className="p-5 flex items-center gap-3 border-b border-zinc-800 shrink-0">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-500 flex items-center justify-center">
-            <Zap className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <div className="font-semibold text-xl tracking-tight">DeskFlow</div>
-            <div className="text-[10px] text-zinc-500 -mt-1">AI TRACKER</div>
-          </div>
+      <motion.div
+        className="border-r border-zinc-800 flex flex-col h-full glass overflow-hidden"
+        animate={{ width: sidebarCollapsed ? 60 : 256 }}
+        transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
+      >
+        {/* Header */}
+        <div className="flex items-center shrink-0 border-b border-zinc-800">
+          {sidebarCollapsed ? (
+            <div className="w-full flex justify-center py-4">
+              <button
+                onClick={toggleSidebar}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                title="Expand sidebar"
+              >
+                <PanelRightClose className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between w-full pr-2">
+              <div className="p-5">
+                <SidebarLogo />
+              </div>
+              <button
+                onClick={toggleSidebar}
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+                title="Collapse sidebar"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 min-h-0 flex flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 flex flex-col">
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 items-stretch">
             {sidebarItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <motion.button
                   key={item.path}
                   onClick={() => handleSidebarNavigation(item.path)}
-                  className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm transition-colors duration-150 ${isActive
+                  className={`flex items-center rounded-xl text-sm transition-colors duration-150 ${sidebarCollapsed ? 'justify-center w-full px-0 py-3' : 'w-full gap-3.5 px-4 py-3'} ${isActive
                     ? 'bg-zinc-800 text-white'
                     : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
                     }`}
+                  title={sidebarCollapsed ? item.label : undefined}
                 >
                   <item.icon className="w-4 h-4 shrink-0" />
-                  {item.label}
+                  <AnimatePresence initial={false}>
+                    {!sidebarCollapsed && (
+                      <motion.span
+                        initial={{ opacity: 0, width: 0 }}
+                        animate={{ opacity: 1, width: 'auto' }}
+                        exit={{ opacity: 0, width: 0 }}
+                        transition={{ duration: 0.15, ease: 'easeInOut' }}
+                        className="overflow-hidden whitespace-nowrap"
+                      >
+                        {item.label}
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
                 </motion.button>
               );
             })}
@@ -2602,11 +2348,30 @@ Trend: +14% vs. yesterday. Keep it up!`;
           </div>
         </div>
 
-        <div className="px-5 py-3 border-t border-zinc-800 flex items-center justify-between shrink-0">
-          <span className="text-[10px] text-zinc-500">Local SQLite • Zero Cloud • Privacy-First</span>
-          <span className="text-[10px] text-zinc-600">DeskFlow v3.85</span>
-        </div>
-      </div>
+        <AnimatePresence initial={false}>
+          {!sidebarCollapsed && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2, ease: 'easeInOut' }}
+              className="px-5 py-3 border-t border-zinc-800 flex items-center justify-between shrink-0 overflow-hidden"
+            >
+              <span className="text-[10px] text-zinc-500">Local SQLite • Zero Cloud • Privacy-First</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-pair-modal', { detail: { terminalId: '', label: 'Phone Pairing' } }))}
+                  className="p-1 rounded-md text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                  title="Pair Phone"
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-[10px] text-zinc-600">DeskFlow v3.85</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -2886,15 +2651,17 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 />
               } />
               {/* Stats Page */}
-              <Route path="/stats" element={<StatsPage key={selectedPeriod} logs={filteredLogs} allLogs={allLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} liveActivityLogs={liveActivityLogs} />} />
-              {/* Productivity Page */}
-              <Route path="/productivity" element={<ProductivityPage logs={allLogs} browserLogs={browserLogs} appStats={appStats} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} domainKeywordRules={domainKeywordRules} timeMode={timeMode} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} />} />
-              {/* Browser Page */}
-              <Route path="/browser" element={<BrowserActivityPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} allLogs={allLogs} />} />
+              {/* Activity Page — unified Apps/Websites/Productivity */}
+              <Route path="/activity" element={<ActivityPage appStats={appStats} logs={filteredLogs} allLogs={allLogs} browserLogs={browserLogs} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} liveActivityLogs={liveActivityLogs} domainKeywordRules={domainKeywordRules} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} />} />
+              {/* Legacy routes — redirect to unified Activity page */}
+              <Route path="/stats" element={<Navigate to="/activity?tab=apps" replace />} />
+              <Route path="/productivity" element={<Navigate to="/activity?tab=productivity" replace />} />
+              <Route path="/browser" element={<Navigate to="/activity?tab=websites" replace />} />
               {/* IDE Page */}
               <Route path="/ide" element={<IDEProjectsPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} />} />
 
               <Route path="/external" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
+
               <Route path="/ai" element={<AiPage />} />
               <Route path="/finance" element={<FinancePage />} />
                {/* Legacy routes — kept as redirect for any bookmarked URLs */}
@@ -2903,7 +2670,10 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
               <Route path="/guide" element={<GuidePage />} />
 
+              <Route path="/life" element={<Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Life...</div>}><LifePage /></Suspense>} />
+
               <Route path="/learn" element={<LearnPage />} />
+              <Route path="/conductor" element={<ConductorPage />} />
 
               <Route path="/ide-help" element={<IDEHelpPage />} />
 
@@ -3031,156 +2801,19 @@ Trend: +14% vs. yesterday. Keep it up!`;
           {/* ── Sleep Detection Modal ── */}
           <AnimatePresence>
             {showSleepDetection && sleepDetectionData && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[70]"
-                onClick={dismissSleepDetection}
-              >
-                <motion.div
-                  initial={{ scale: 0.92, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.92, opacity: 0 }}
-                  className="bg-zinc-900 border border-zinc-700/50 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl"
-                  onClick={e => e.stopPropagation()}
-                >
-                  <div className="text-center mb-6">
-                    <div className="flex justify-center mb-3"><Moon className="w-10 h-10 text-indigo-400" /></div>
-                    <h2 className="text-xl font-semibold text-zinc-100">Were you sleeping?</h2>
-                    <p className="text-zinc-400 mt-2">
-                      App was inactive for <span className="text-zinc-200 font-medium">{customDurationMinutes()} minutes</span>
-                    </p>
-                  </div>
-
-                  <div className="bg-zinc-800/50 rounded-xl p-4 mb-5 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-zinc-400">Device Off</span>
-                      <span className="text-sm font-medium text-zinc-200">
-                        {formatTimeFromHours(sleepDetectCustomBedtime.hours, sleepDetectCustomBedtime.minutes)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-amber-400/80">
-                      <span className="text-sm">Fell asleep at</span>
-                      <span className="text-sm font-medium">
-                        {formatTimeFromHours(sleepDetectFellAsleepAt.hours, sleepDetectFellAsleepAt.minutes)}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-amber-500/60 pl-2">
-                      {(() => {
-                        const off = sleepDetectCustomBedtime.hours * 60 + sleepDetectCustomBedtime.minutes;
-                        const asleep = sleepDetectFellAsleepAt.hours * 60 + sleepDetectFellAsleepAt.minutes;
-                        let pre = asleep - off;
-                        if (pre < 0) pre += 24 * 60;
-                        return `+${pre}m pre-sleep`;
-                      })()}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-zinc-400">Woke Up</span>
-                      <span className="text-sm font-medium text-zinc-200">
-                        {formatTimeFromHours(sleepDetectWakeUpAt.hours, sleepDetectWakeUpAt.minutes)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-zinc-400">Device On</span>
-                      <span className="text-sm font-medium text-zinc-200">
-                        {formatTimeFromHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes)}
-                      </span>
-                    </div>
-                    <div className="border-t border-zinc-700/50 pt-2 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-zinc-400">Actual Sleep</span>
-                        <span className="text-sm font-semibold text-indigo-400">
-                          {(() => {
-                            const asleep = sleepDetectFellAsleepAt.hours * 60 + sleepDetectFellAsleepAt.minutes;
-                            const wake = sleepDetectWakeUpAt.hours * 60 + sleepDetectWakeUpAt.minutes;
-                            let s = asleep, w = wake;
-                            if (w < s) s -= 24 * 60;
-                            const dur = Math.max(0, w - s);
-                            return `${Math.floor(dur / 60)}h ${dur % 60}m`;
-                          })()}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-emerald-400">
-                        <span className="text-sm">Total inactive</span>
-                        <span className="text-sm font-semibold">
-                          {Math.floor(customDurationMinutes() / 60)}h {customDurationMinutes() % 60}m
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 mb-5">
-                    <div>
-                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Device Off (auto)</label>
-                      <DurationPicker
-                        hours={sleepDetectCustomBedtime.hours}
-                        minutes={sleepDetectCustomBedtime.minutes}
-                        onHoursChange={(h) => setSleepDetectCustomBedtime({ ...sleepDetectCustomBedtime, hours: h })}
-                        onMinutesChange={(m) => setSleepDetectCustomBedtime({ ...sleepDetectCustomBedtime, minutes: m })}
-                        maxHours={23}
-                        hourLabel="Hr"
-                        minuteLabel="Min"
-                        wrap={true}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Fell asleep at</label>
-                      <DurationPicker
-                        hours={sleepDetectFellAsleepAt.hours}
-                        minutes={sleepDetectFellAsleepAt.minutes}
-                        onHoursChange={(h) => setSleepDetectFellAsleepAt({ ...sleepDetectFellAsleepAt, hours: h })}
-                        onMinutesChange={(m) => setSleepDetectFellAsleepAt({ ...sleepDetectFellAsleepAt, minutes: m })}
-                        maxHours={23}
-                        hourLabel="Hr"
-                        minuteLabel="Min"
-                        wrap={true}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Woke up at</label>
-                      <DurationPicker
-                        hours={sleepDetectWakeUpAt.hours}
-                        minutes={sleepDetectWakeUpAt.minutes}
-                        onHoursChange={(h) => setSleepDetectWakeUpAt({ ...sleepDetectWakeUpAt, hours: h })}
-                        onMinutesChange={(m) => setSleepDetectWakeUpAt({ ...sleepDetectWakeUpAt, minutes: m })}
-                        maxHours={23}
-                        hourLabel="Hr"
-                        minuteLabel="Min"
-                        wrap={true}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-zinc-500 mb-1.5 text-center">Device On (auto)</label>
-                      <DurationPicker
-                        hours={sleepDetectCustomWaketime.hours}
-                        minutes={sleepDetectCustomWaketime.minutes}
-                        onHoursChange={(h) => setSleepDetectCustomWaketime({ ...sleepDetectCustomWaketime, hours: h })}
-                        onMinutesChange={(m) => setSleepDetectCustomWaketime({ ...sleepDetectCustomWaketime, minutes: m })}
-                        maxHours={23}
-                        hourLabel="Hr"
-                        minuteLabel="Min"
-                        wrap={true}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-3">
-                    <button
-                      onClick={dismissSleepDetection}
-                      className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors"
-                    >
-                      Skip
-                    </button>
-                    <button
-                      onClick={confirmSleepDetection}
-                      className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-xl text-sm text-white font-medium hover:from-emerald-400 hover:to-emerald-500 transition-colors duration-150"
-                    >
-                      Confirm Sleep
-                    </button>
-                  </div>
-                </motion.div>
-              </motion.div>
+              <SleepDetectionModal
+                data={sleepDetectionData}
+                customBedtime={sleepDetectCustomBedtime}
+                customWaketime={sleepDetectCustomWaketime}
+                fellAsleepAt={sleepDetectFellAsleepAt}
+                wakeUpAt={sleepDetectWakeUpAt}
+                onBedtimeChange={setSleepDetectCustomBedtime}
+                onWaketimeChange={setSleepDetectCustomWaketime}
+                onFellAsleepAtChange={setSleepDetectFellAsleepAt}
+                onWakeUpAtChange={setSleepDetectWakeUpAt}
+                onConfirm={confirmSleepDetection}
+                onDismiss={dismissSleepDetection}
+              />
             )}
           </AnimatePresence>
 
@@ -3393,7 +3026,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
           {/* ── AFK Activity Prompt ── */}
           {afkPromptQueue.length > 0 && (() => {
             const entry = afkPromptQueue[0];
-            const periodStart = entry.startedAt || (entry.idleStartMs ? new Date(entry.idleStartMs).toISOString() : new Date(entry.returnMs - 90000).toISOString());
+            const periodStart = entry.idleStartMs ? new Date(entry.idleStartMs).toISOString() : new Date(entry.returnMs - 90000).toISOString();
             const periodEnd = new Date(entry.returnMs).toISOString();
             const totalDurationSeconds = Math.max(1, Math.floor((new Date(periodEnd).getTime() - new Date(periodStart).getTime()) / 1000));
             return (
@@ -3408,6 +3041,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 queueRemaining={afkPromptQueue.length - 1}
                 onConfirm={handleAfkConfirm}
                 onDismiss={handleAfkDismiss}
+                onNotAfk={() => { pendingIdleRangeRef.current = null; setAfkPromptQueue(prev => prev.slice(1)); }}
+                defaultNotAfk={entry.defaultNotAfk}
               />
             );
           })()}
@@ -3418,6 +3053,15 @@ Trend: +14% vs. yesterday. Keep it up!`;
               open={showGapDrawer}
               onClose={() => setShowGapDrawer(false)}
               onFilled={() => { fetchGaps(); }}
+            />
+          )}
+
+          {/* Global Pair Phone Modal (accessible from any page) */}
+          {pairPhoneModal && (
+            <PairPhoneModal
+              terminalId={pairPhoneModal.terminalId}
+              terminalLabel={pairPhoneModal.label}
+              onClose={() => setPairPhoneModal(null)}
             />
           )}
         </div>

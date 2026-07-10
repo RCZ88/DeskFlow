@@ -1,0 +1,124 @@
+---
+title: Security — The Attacker's Mind
+id: security-attackers-mind
+part: 5
+version: 1.0.0
+summary: Think like an attacker — threat modeling, the OWASP Top 10, and AI-specific attack surfaces.
+authored_by: ai
+---
+
+# Threat Modeling with STRIDE
+@mastery L3
+
+Security starts before you write code. **Threat modeling** is the practice of
+systematically asking "how could this be attacked?" so defenses are designed in,
+not bolted on. STRIDE is a checklist of six threat categories.
+
+```mermaid
+flowchart LR
+  U[User] -->|request| S[Service]
+  S --> DB[(Database)]
+  S --> EXT[Third-party API]
+  classDef t fill:#3a1d1d,stroke:#c2724a;
+  class S,DB,EXT t;
+```
+
+::: callout info
+STRIDE = Spoofing, Tampering, Repudiation, Information disclosure, Denial of
+service, Elevation of privilege. Walk each data-flow arrow and ask which apply.
+:::
+
+::: quiz mcq L3
+Which STRIDE category best describes an attacker forging another user's identity?
+- [x] Spoofing
+- [ ] Tampering
+- [ ] Repudiation
+- [ ] Denial of service
+explain: Spoofing is impersonating a principal; tampering modifies data in transit or at rest.
+:::
+
+::: grounding
+includes: How to enumerate threats against a system using the STRIDE framework.
+excludes: Formal risk quantification; specific vendor tooling
+know: STRIDE enumerates six categories of threats to walk a data-flow diagram against [stride]
+know: Threat modeling is most valuable during design, before code is written [stride]
+source: stride | Microsoft STRIDE threat model | https://en.wikipedia.org/wiki/STRIDE_model
+misconception: Threat modeling is a one-time audit | It is an iterative practice repeated as the design evolves
+:::
+
+# The OWASP Top 10 in Practice
+@mastery L3
+@prereq threat-modeling-with-stride
+
+The **OWASP Top 10** catalogs the most critical web application risks. Injection
+— especially SQL injection — remains a classic: untrusted input is concatenated
+into a query and changes its meaning.
+
+```python
+# VULNERABLE: string-built SQL lets input change the query
+query = "SELECT * FROM users WHERE name = '" + name + "'"
+
+# SAFE: parameterized query — the driver treats input as data, never code
+cur.execute("SELECT * FROM users WHERE name = ?", (name,))
+```
+
+```mermaid
+flowchart TD
+  A[Untrusted input] --> B{Parameterized?}
+  B -->|No| C[Injection risk]
+  B -->|Yes| D[Treated as data]
+```
+
+::: quiz mcq L3
+What is the most reliable defense against SQL injection?
+- [ ] Escaping quotes by hand
+- [x] Parameterized queries / prepared statements
+- [ ] Blocking the word SELECT
+- [ ] Hiding database errors
+explain: Parameterization separates code from data so input can never alter query structure.
+:::
+
+::: grounding
+includes: Recognizing and preventing common OWASP Top 10 web vulnerabilities, focusing on injection.
+excludes: Exhaustive coverage of every category; exploit development
+know: SQL injection is prevented by parameterized queries that separate code from data [owasp]
+know: Broken access control is the most common category in the 2021 OWASP Top 10 [owasp]
+source: owasp | OWASP Top Ten | https://owasp.org/www-project-top-ten/
+:::
+
+# Prompt Injection & the Lethal Trifecta
+@mastery L4
+@prereq threat-modeling-with-stride the-owasp-top-10-in-practice
+
+LLM-powered systems add a new attack surface. **Prompt injection** is when
+untrusted content the model reads (a web page, a tool result, a document) carries
+instructions the model then follows. The danger compounds into the **lethal
+trifecta**.
+
+```mermaid
+flowchart LR
+  A[Untrusted input] --> X((Agent))
+  B[Access to private data] --> X
+  C[Exfiltration path] --> X
+  X --> R[[Data breach]]
+```
+
+::: callout warn
+The lethal trifecta: untrusted input + access to private data + an external
+communication path. Remove any one leg and the breach becomes far harder.
+:::
+
+::: quiz open L4
+You are building an agent that reads customer emails and can call internal tools.
+Describe one concrete way to break the lethal trifecta for this agent.
+rubric: A strong answer removes one leg — e.g. sandboxing tool calls, requiring human approval before egress, or stripping/labelling untrusted content so it cannot issue instructions.
+:::
+
+::: grounding
+includes: Why agentic LLM systems are vulnerable to prompt injection and how the lethal trifecta enables exfiltration.
+excludes: Model training/data-poisoning defenses; provider-specific APIs
+know: Indirect prompt injection delivers attacker instructions through content the model retrieves or a tool returns [trifecta]
+know: The lethal trifecta combines untrusted input, access to private data, and an exfiltration path [trifecta]
+source: trifecta | The lethal trifecta for AI agents (Simon Willison) | https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/
+misconception: Prompt injection only comes from what the user types | Indirect injection arrives via retrieved pages, documents, and tool output
+:::

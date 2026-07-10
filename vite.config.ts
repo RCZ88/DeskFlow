@@ -1,14 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import path from 'path'
 
 export default defineConfig(async () => {
   const plugins = [react(), tailwindcss()];
   return {
     plugins,
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, 'src'),
+      },
+    },
     optimizeDeps: { exclude: ['better-sqlite3'] },
     base: './',
     build: {
+      emptyOutDir: true,
       minify: false,
       sourcemap: true,
       rollupOptions: {

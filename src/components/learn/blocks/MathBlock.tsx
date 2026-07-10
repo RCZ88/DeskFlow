@@ -28,8 +28,10 @@ export function MathBlock({ block, onAsk }: Props) {
   }, [block.tex]);
 
   return (
-    <div className="my-6 py-4 px-6 rounded-xl bg-zinc-800/30 border border-zinc-700/40 text-center group relative" data-block-id={block.id}>
-      <div ref={containerRef} className="text-lg text-zinc-100 min-h-[2rem]" />
+    <div className="my-6 py-4 px-6 rounded-xl bg-zinc-800/30 border border-zinc-700/40 group relative" data-block-id={block.id}>
+      <div className="overflow-x-auto">
+        <div ref={containerRef} className="katex-scroll inline-block min-w-full text-center text-lg text-zinc-100 min-h-[2rem]" />
+      </div>
       {error && <div className="text-red-400 text-xs mt-2">KaTeX error: {error}</div>}
       {block.caption && (
         <div className="mt-2 text-sm text-zinc-500 italic">{block.caption}</div>

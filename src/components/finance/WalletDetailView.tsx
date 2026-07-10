@@ -4,8 +4,8 @@ import { ArrowLeft, Landmark, CreditCard, Wallet, Banknote, PiggyBank, Save, Ref
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Filler } from 'chart.js';
 import { Line, Doughnut } from 'react-chartjs-2';
 import { GlassSurface } from './_fx/GlassSurface';
-import { getCurrencyInfo, formatCurrency as fmtCurrency } from './currency-data';
-import type { FinanceWallet, FinanceTransaction, CashDenomination, CryptoPrice, CryptoHistoryPoint } from './finance-types';
+import { getCurrencyInfo, formatCurrency as fmtCurrency, formatAmount as fmtAmount, formatPercent as fmtPct } from './currency-data';
+import type { FinanceWallet, FinanceTransaction, CashDenomination, CryptoPrice, CryptoHistoryPoint, FinanceSubscription, AssetPrice, AssetSearchResult } from './finance-types';
 
 interface WalletDetailViewProps {
   wallet: FinanceWallet & { metadata?: any };
@@ -18,6 +18,8 @@ interface WalletDetailViewProps {
   onDeleteWallet?: (id: number) => Promise<boolean>;
   onAddTransaction: (walletType: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onRecalculateBalance?: (walletId: number) => Promise<boolean>;
+  subscriptions?: FinanceSubscription[];
 }
 
 const walletMeta: Record<string, { icon: any; label: string; color: string }> = {
@@ -302,7 +304,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
   metadata: Record<string, any>; onChange: (key: string, v: string) => void; wallet: FinanceWallet; displayCurrency: string; onTotalValueChange?: (val: number) => void;
 }) {
   const sym = getCurrencyInfo(displayCurrency).symbol;
-  const loc = getCurrencyInfo(displayCurrency).locale;
+  const isInvestment = wallet.type === 'investment';
   const [prices, setPrices] = useState<CryptoPrice[]>([]);
   const [history, setHistory] = useState<CryptoHistoryPoint[]>([]);
   const [loadingPrices, setLoadingPrices] = useState(false);
@@ -314,8 +316,11 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
   const [showAddAsset, setShowAddAsset] = useState(false);
   const [searchCoin, setSearchCoin] = useState('');
   const [selectedCoinId, setSelectedCoinId] = useState('');
+  const [selectedAssetType, setSelectedAssetType] = useState<string>('crypto');
   const [newAssetAmount, setNewAssetAmount] = useState('');
   const [newAssetAvgPrice, setNewAssetAvgPrice] = useState('');
+  const [searchResults, setSearchResults] = useState<AssetSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
   const [addMode, setAddMode] = useState<'manual' | 'from-spend'>('manual');
   const [newTotalSpent, setNewTotalSpent] = useState('');
   const [editingCoinIdx, setEditingCoinIdx] = useState<number | null>(null);
@@ -327,18 +332,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
     { days: 90, label: '3M' }, { days: 365, label: '1Y' }, { days: 9999, label: 'ALL' },
   ] as const;
 
-  const isZeroDec = displayCurrency === 'IDR' || displayCurrency === 'VND' || displayCurrency === 'KRW' || displayCurrency === 'JPY';
-  const fmt = useCallback((val: number, minDec = 2, maxDec = 2) => {
-    if (isZeroDec) return val.toLocaleString(loc, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    return val.toLocaleString(loc, { minimumFractionDigits: minDec, maximumFractionDigits: maxDec });
-  }, [isZeroDec, loc]);
 
-  const fmtCrypto = useCallback((val: number) => {
-    if (val === 0) return '0';
-    if (val < 0.0001) return val.toLocaleString(loc, { minimumFractionDigits: 8, maximumFractionDigits: 8 });
-    if (val < 1) return val.toLocaleString(loc, { minimumFractionDigits: 4, maximumFractionDigits: 6 });
-    return val.toLocaleString(loc, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  }, [loc]);
 
   const assets: { coin_id: string; symbol: string; amount: number; avg_buy_price: number }[] = useMemo(() => {
     if (Array.isArray(metadata.assets) && metadata.assets.length > 0) {
@@ -386,13 +380,18 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
     (async () => {
       setLoadingPrices(true); setError(null);
       try {
-        const r = await (window as any).deskflowAPI?.financeFetchCryptoPrices(coinIds, displayCurrency) as CryptoPrice[];
-        if (!cancelled && r?.length) { setPrices(r); setLastUpdated(Date.now()); setStale(false); }
+        let r: any[];
+        if (isInvestment) {
+          r = await (window as any).deskflowAPI?.financeFetchAssetPrices(coinIds, 'stock', displayCurrency) || [];
+        } else {
+          r = await (window as any).deskflowAPI?.financeFetchCryptoPrices(coinIds, displayCurrency) || [];
+        }
+        if (!cancelled && r.length) { setPrices(r); setLastUpdated(Date.now()); setStale(false); }
       } catch (e: any) { if (!cancelled) setError(e?.message || String(e)); }
       finally { if (!cancelled) setLoadingPrices(false); }
     })();
     return () => { cancelled = true; };
-  }, [JSON.stringify(coinIds)]);
+  }, [JSON.stringify(coinIds), isInvestment]);
 
   useEffect(() => {
     if (!primaryCoinId) return;
@@ -400,13 +399,18 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
     (async () => {
       setLoadingHistory(true);
       try {
-        const r = await (window as any).deskflowAPI?.financeGetCryptoHistory(primaryCoinId, timeframeDays, displayCurrency) as CryptoHistoryPoint[];
+        let r: any[];
+        if (isInvestment) {
+          r = await (window as any).deskflowAPI?.financeGetAssetHistory(primaryCoinId, 'stock', timeframeDays) || [];
+        } else {
+          r = await (window as any).deskflowAPI?.financeGetCryptoHistory(primaryCoinId, timeframeDays, displayCurrency) || [];
+        }
         if (!cancelled && r) setHistory(r);
       } catch { /* non-critical */ }
       finally { if (!cancelled) setLoadingHistory(false); }
     })();
     return () => { cancelled = true; };
-  }, [primaryCoinId, timeframeDays]);
+  }, [primaryCoinId, timeframeDays, isInvestment]);
 
   const fmtLabel = useCallback((ts: number) => {
     const d = new Date(ts);
@@ -460,7 +464,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
       tooltip: {
         backgroundColor: 'rgba(24, 24, 27, 0.95)', titleColor: '#e4e4e7', bodyColor: '#a1a1aa',
         borderColor: 'rgba(63, 63, 70, 0.5)', borderWidth: 1, cornerRadius: 8,
-        callbacks: { label: (ctx: any) => ` ${ctx.label}: ${sym}${fmt(ctx.parsed)} (${((ctx.parsed / totalValue) * 100).toFixed(1)}%)` }
+        callbacks: { label: (ctx: any) => ` ${ctx.label}: ${fmtCurrency(ctx.parsed, displayCurrency)} (${((ctx.parsed / totalValue) * 100).toFixed(1)}%)` }
       }
     }
   };
@@ -473,7 +477,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
       tooltip: {
         backgroundColor: 'rgba(24, 24, 27, 0.95)', titleColor: '#e4e4e7', bodyColor: '#a1a1aa',
         borderColor: 'rgba(63, 63, 70, 0.5)', borderWidth: 1, cornerRadius: 8,
-        callbacks: { label: (ctx: any) => `${sym}${fmt(ctx.parsed.y)}` }
+        callbacks: { label: (ctx: any) => `${fmtCurrency(ctx.parsed.y, displayCurrency)}` }
       }
     },
     scales: {
@@ -484,24 +488,41 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
 
   const ago = lastUpdated ? (() => { const s = Math.floor((Date.now() - lastUpdated) / 1000); return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`; })() : null;
 
+  const searchAssetTypes = isInvestment ? undefined : ['crypto'];
+
+  // Universal asset search (debounced)
+  useEffect(() => {
+    if (!showAddAsset || searchCoin.trim().length < 2) { setSearchResults([]); return; }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const r = await (window as any).deskflowAPI?.financeSearchAssets(searchCoin.trim(), searchAssetTypes);
+        if (!cancelled && Array.isArray(r)) setSearchResults(r);
+      } catch { if (!cancelled) setSearchResults([]); }
+      finally { if (!cancelled) setSearching(false); }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [searchCoin, showAddAsset, isInvestment]);
+
   const filteredCoins = useMemo(() => {
-    const q = searchCoin.trim().toLowerCase();
-    if (!q) return POPULAR_COINS.slice(0, 8);
-    return POPULAR_COINS.filter(c =>
-      c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q) || c.id.toLowerCase().includes(q)
-    );
-  }, [searchCoin]);
+    if (searchResults.length > 0) return searchResults;
+    if (searchCoin.trim().length >= 2) return [];
+    return POPULAR_COINS;
+  }, [searchCoin, searchResults]);
 
   const canUseCustom = searchCoin.trim().length > 0 && filteredCoins.length === 0 && !selectedCoinId;
 
-  const handleSelectCoin = (coin: typeof POPULAR_COINS[0]) => {
-    setSelectedCoinId(coin.id);
-    setSearchCoin(`${coin.name} (${coin.symbol})`);
+  const handleSelectCoin = (coin: any) => {
+    setSelectedCoinId(coin.symbol || coin.id);
+    setSelectedAssetType(coin.asset_type || 'crypto');
+    setSearchCoin(`${coin.name} (${coin.symbol || coin.id})`);
   };
 
   const handleUseCustom = () => {
-    const raw = searchCoin.trim().toLowerCase().replace(/\s+/g, '-');
+    const raw = searchCoin.trim().toUpperCase().replace(/\s+/g, '-');
     setSelectedCoinId(raw);
+    setSelectedAssetType(isInvestment ? 'stock' : 'crypto');
   };
 
   const handleAddAsset = () => {
@@ -517,10 +538,12 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
       if (!newAssetAmount) return;
       amount = parseFloat(newAssetAmount);
     }
-    const coin = POPULAR_COINS.find(c => c.id === selectedCoinId);
+    const asset_type = selectedAssetType || 'crypto';
     const newAssets = [...assets, {
       coin_id: selectedCoinId,
-      symbol: coin?.symbol || selectedCoinId.split('-').pop()?.toUpperCase() || selectedCoinId.slice(0, 4).toUpperCase(),
+      symbol: selectedCoinId.split('-').pop()?.toUpperCase() || selectedCoinId.slice(0, 6).toUpperCase(),
+      asset_type,
+      name: selectedCoinId,
       amount,
       avg_buy_price: parseFloat(newAssetAvgPrice) || 0,
     }];
@@ -528,10 +551,12 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
     setShowAddAsset(false);
     setSearchCoin('');
     setSelectedCoinId('');
+    setSelectedAssetType('crypto');
     setNewAssetAmount('');
     setNewAssetAvgPrice('');
     setNewTotalSpent('');
     setAddMode('manual');
+    setSearchResults([]);
   };
 
   const handleRemoveAsset = (idx: number) => {
@@ -595,7 +620,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
               <div className="w-6 h-6 rounded-md bg-[#8B5CF6]/20 flex items-center justify-center">
                 <Plus className="w-3.5 h-3.5 text-[#8B5CF6]" />
               </div>
-              <div className="text-sm font-medium text-white">Add a Coin</div>
+            <div className="text-sm font-medium text-white">{isInvestment ? 'Add Asset' : 'Add a Coin'}</div>
             </div>
 
             <div className="space-y-3">
@@ -725,7 +750,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
                   disabled={!selectedCoinId || (addMode === 'manual' ? !newAssetAmount : (!newTotalSpent || !newAssetAvgPrice))}
                   className="flex-1 py-2.5 rounded-lg bg-[#8B5CF6] hover:bg-[#8B5CF6]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-all"
                 >
-                  Add Coin
+                  {isInvestment ? 'Add Asset' : 'Add Coin'}
                 </button>
                 <button
                   onClick={() => { setShowAddAsset(false); setSearchCoin(''); setSelectedCoinId(''); setNewAssetAmount(''); setNewAssetAvgPrice(''); setNewTotalSpent(''); setAddMode('manual'); }}
@@ -767,11 +792,11 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
         <div className="flex items-start justify-between">
           <div>
             <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Portfolio Value</div>
-            <div className="text-xl font-bold text-white tabular-nums mt-1">{prices.length > 0 ? `${sym}${fmt(totalValue)}` : '\u2014'}</div>
+            <div className="text-xl font-bold text-white tabular-nums mt-1">{prices.length > 0 ? fmtCurrency(totalValue, displayCurrency) : '\u2014'}</div>
           </div>
           {pc24h !== null && (
             <div className={`text-right ${pc24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              <div className="text-sm font-semibold tabular-nums">{pc24h >= 0 ? '+' : ''}{fmt(pc24h)}%</div>
+              <div className="text-sm font-semibold tabular-nums">{fmtPct(pc24h)}%</div>
               <div className="text-[10px] opacity-70">24h</div>
             </div>
           )}
@@ -780,10 +805,10 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
           <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/5 text-[11px]">
             <span className="text-zinc-500">P&amp;L</span>
             <span className={`font-medium tabular-nums ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {totalPnl >= 0 ? '+' : ''}{sym}{fmt(totalPnl)}
+              {fmtCurrency(totalPnl, displayCurrency)}
             </span>
             <span className={`tabular-nums ${totalPnl >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
-              ({totalPnlPct >= 0 ? '+' : ''}{fmt(totalPnlPct, 1, 1)}%)
+              ({fmtPct(totalPnlPct, 1)}%)
             </span>
           </div>
         )}
@@ -828,7 +853,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Assets</div>
           <button onClick={() => setShowAddAsset(true)}
             className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-[#8B5CF6] hover:bg-[#8B5CF6]/10 transition-colors">
-            <Plus className="w-3 h-3" /> Add Coin
+            <Plus className="w-3 h-3" /> {isInvestment ? 'Add Asset' : 'Add Coin'}
           </button>
         </div>
         <div className="space-y-1">
@@ -863,21 +888,21 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
                           className="px-2 py-0.5 rounded text-[9px] text-zinc-500 hover:text-zinc-300 transition-colors">X</button>
                       </div>
                     ) : (
-                      <div className="text-[10px] text-zinc-500 tabular-nums">{fmtCrypto(a.amount)}</div>
+                      <div className="text-[10px] text-zinc-500 tabular-nums">{fmtAmount(a.amount)}</div>
                     )}
                   </div>
                 </div>
                 <div className="text-right shrink-0 ml-2">
-                  <div className="text-xs text-zinc-200 tabular-nums">{sym}{fmt(value)}</div>
+                  <div className="text-xs text-zinc-200 tabular-nums">{fmtCurrency(value, displayCurrency)}</div>
                   <div className="flex items-center gap-1.5 justify-end">
                     {change !== null && (
                       <span className={`text-[10px] tabular-nums ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {change >= 0 ? '+' : ''}{fmt(change, 1, 1)}%
+                        {fmtPct(change, 1)}%
                       </span>
                     )}
                     {a.avg_buy_price > 0 && (
                       <span className={`text-[10px] tabular-nums ${assetPnl >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
-                        {assetPnl >= 0 ? '+' : ''}{fmt(assetPnlPct, 1, 1)}%
+                        {fmtPct(assetPnlPct, 1)}%
                       </span>
                     )}
                   </div>
@@ -908,40 +933,46 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
           <div className="space-y-3">
             <div>
               <div className="flex items-center gap-1.5 mb-1.5">
-                <label className="block text-[10px] font-medium text-zinc-400">Select Coin</label>
-                <div className="relative group">
-                  <div className="w-3.5 h-3.5 rounded-full bg-zinc-700/50 flex items-center justify-center cursor-help">
-                    <span className="text-[8px] text-zinc-400">?</span>
-                  </div>
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
-                    <p className="text-[10px] text-zinc-300 leading-relaxed">
-                      CoinGecko ID is the unique API identifier for each coin. Find yours by searching a coin at <span className="text-zinc-400">coingecko.com</span> — the ID is in the URL (e.g. <code className="text-[#A78BFA]">coingecko.com/en/coins/<u>bitcoin</u></code>).
-                    </p>
-                  </div>
-                </div>
+                <label className="block text-[10px] font-medium text-zinc-400">{isInvestment ? 'Search Assets' : 'Select Coin'}</label>
               </div>
               <input
                 value={searchCoin}
                 onChange={e => { setSearchCoin(e.target.value); setSelectedCoinId(''); }}
-                placeholder="Search coins (e.g. Bitcoin, BTC)"
+                placeholder={isInvestment ? "Search stocks, ETFs, gold, crypto..." : "Search coins (e.g. Bitcoin, BTC)"}
                 autoFocus
                 className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/50"
               />
-              {filteredCoins.length > 0 && (
+              {searching && (
+                <div className="mt-1.5 flex items-center gap-2 px-3 py-2 text-[10px] text-zinc-500">
+                  <div className="w-3 h-3 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
+                  Searching across markets...
+                </div>
+              )}
+              {!searching && filteredCoins.length > 0 && (
                 <div className="mt-1.5 max-h-[180px] overflow-y-auto rounded-lg border border-zinc-700/30 bg-zinc-800/60">
-                  {filteredCoins.map(coin => (
-                    <button
-                      key={coin.id}
-                      onClick={() => handleSelectCoin(coin)}
-                      className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors hover:bg-zinc-700/40 ${selectedCoinId === coin.id ? 'bg-[#8B5CF6]/10' : ''}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-white font-medium">{coin.name}</span>
-                        <span className="text-[10px] text-zinc-500">{coin.symbol}</span>
-                      </div>
-                      {selectedCoinId === coin.id && <div className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6]" />}
-                    </button>
-                  ))}
+                  {filteredCoins.map((coin: any) => {
+                    const key = coin.symbol || coin.id;
+                    const isSelected = selectedCoinId === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => handleSelectCoin(coin)}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors hover:bg-zinc-700/40 ${isSelected ? 'bg-[#8B5CF6]/10' : ''}`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs text-white font-medium truncate">{coin.name}</span>
+                          <span className="text-[10px] text-zinc-500 shrink-0">{coin.symbol || coin.id}</span>
+                          {coin.asset_type && coin.asset_type !== 'crypto' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 shrink-0">{coin.asset_type}</span>
+                          )}
+                          {coin.exchange && coin.exchange !== 'CoinGecko' && (
+                            <span className="text-[9px] text-zinc-600 truncate">{coin.exchange}</span>
+                          )}
+                        </div>
+                        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] shrink-0" />}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               {canUseCustom && (
@@ -1031,7 +1062,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
                 disabled={!selectedCoinId || (addMode === 'manual' ? !newAssetAmount : (!newTotalSpent || !newAssetAvgPrice))}
                 className="flex-1 py-2.5 rounded-lg bg-[#8B5CF6] hover:bg-[#8B5CF6]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-all"
               >
-                Add Coin
+                {isInvestment ? 'Add Asset' : 'Add Coin'}
               </button>
               <button
                 onClick={() => { setShowAddAsset(false); setSearchCoin(''); setSelectedCoinId(''); setNewAssetAmount(''); setNewAssetAvgPrice(''); setNewTotalSpent(''); setAddMode('manual'); }}
@@ -1050,10 +1081,10 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
             <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Total P&amp;L</span>
             <div className="flex items-center gap-3">
               <span className={`text-sm font-semibold tabular-nums ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {totalPnl >= 0 ? '+' : ''}{sym}{fmt(totalPnl)}
+                {fmtCurrency(totalPnl, displayCurrency)}
               </span>
               <span className={`text-[10px] tabular-nums ${totalPnl >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
-                ({totalPnlPct >= 0 ? '+' : ''}{fmt(totalPnlPct, 1, 1)}%)
+                ({fmtPct(totalPnlPct, 1)}%)
               </span>
             </div>
           </div>
@@ -1373,13 +1404,17 @@ function OtherDetail({ metadata, onChange }: { metadata: Record<string, any>; on
   );
 }
 
-export function WalletDetailView({ wallet, displayCurrency, transactions, wallets, onBack, onSaveMetadata, onUpdateWallet, onDeleteWallet, onAddTransaction, onDirtyChange }: WalletDetailViewProps) {
+export function WalletDetailView({ wallet, displayCurrency, transactions, wallets, onBack, onSaveMetadata, onUpdateWallet, onDeleteWallet, onAddTransaction, onDirtyChange, onRecalculateBalance, subscriptions }: WalletDetailViewProps) {
   const meta = walletMeta[wallet.type] || walletMeta.other;
   const WalletIcon = meta.icon;
   const [editName, setEditName] = useState(false);
   const [nameBuf, setNameBuf] = useState(wallet.name);
   const [localMetadata, setLocalMetadata] = useState<Record<string, any>>(wallet.metadata || {});
   const [saving, setSaving] = useState(false);
+  const [editingFee, setEditingFee] = useState(false);
+  const [localFeeType, setLocalFeeType] = useState(wallet.transfer_fee_type || 'none');
+  const [localFeeValue, setLocalFeeValue] = useState(wallet.transfer_fee_value ?? 0);
+  const [recalibrating, setRecalibrating] = useState(false);
   const [saved, setSaved] = useState(false);
   const [cryptoLiveTotal, setCryptoLiveTotal] = useState(0);
   const cryptoTotalRef = useRef(0);
@@ -1392,7 +1427,7 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
     [transactions, wallet.id]
   );
 
-  useEffect(() => { setLocalMetadata(wallet.metadata || {}); setNameBuf(wallet.name); }, [wallet]);
+  useEffect(() => { setLocalMetadata(wallet.metadata || {}); setNameBuf(wallet.name); setLocalFeeType(wallet.transfer_fee_type || 'none'); setLocalFeeValue(wallet.transfer_fee_value ?? 0); }, [wallet]);
 
   const isDirty = nameBuf !== wallet.name || JSON.stringify(localMetadata) !== JSON.stringify(wallet.metadata || {});
   useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
@@ -1440,6 +1475,7 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
       case 'debit_card': return <DebitCardDetail metadata={localMetadata} onChange={handleMetadataChange} transactions={walletTransactions} displayCurrency={displayCurrency} wallets={wallets} />;
       case 'credit_card': return <CreditCardDetail metadata={localMetadata} onChange={handleMetadataChange} wallet={wallet} transactions={walletTransactions} displayCurrency={displayCurrency} />;
       case 'crypto': return <CryptoDetail metadata={localMetadata} onChange={handleMetadataChange} wallet={wallet} displayCurrency={displayCurrency} onTotalValueChange={v => { cryptoTotalRef.current = v; setCryptoLiveTotal(v); }} />;
+      case 'investment': return <CryptoDetail metadata={localMetadata} onChange={handleMetadataChange} wallet={wallet} displayCurrency={displayCurrency} onTotalValueChange={v => { cryptoTotalRef.current = v; setCryptoLiveTotal(v); }} />;
       case 'cash': return <CashDetail metadata={localMetadata} onChange={handleMetadataChange} onDenominationsChange={handleDenominationsChange} displayCurrency={displayCurrency} onTotalValueChange={v => { cashTotalRef.current = v; setCashLiveTotal(v); }} />;
       case 'physical': return <PhysicalDetail metadata={localMetadata} onChange={handleMetadataChange} onDenominationsChange={handleDenominationsChange} transactions={walletTransactions} displayCurrency={displayCurrency} onTotalValueChange={v => { cashTotalRef.current = v; setCashLiveTotal(v); }} />;
       case 'ewallet': return <EwalletDetail metadata={localMetadata} onChange={handleMetadataChange} transactions={walletTransactions} displayCurrency={displayCurrency} />;
@@ -1458,6 +1494,13 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
           <div className="flex items-center gap-2">
+            {onRecalculateBalance && (
+              <button onClick={async () => { setRecalibrating(true); await onRecalculateBalance(wallet.id); setRecalibrating(false); }}
+                disabled={recalibrating}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-50">
+                <RefreshCw className={`w-3 h-3 ${recalibrating ? 'animate-spin' : ''}`} /> Recalc
+              </button>
+            )}
             {onDeleteWallet && (
               <button onClick={() => onDeleteWallet(wallet.id)}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
@@ -1493,10 +1536,10 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
           </div>
             <div className="flex items-center gap-3">
               <div className="text-right">
-                {(wallet.type === 'crypto' || wallet.type === 'cash' || wallet.type === 'physical') ? (
+                {(wallet.type === 'crypto' || wallet.type === 'investment' || wallet.type === 'cash' || wallet.type === 'physical') ? (
                   <>
                     <div className="text-sm font-semibold text-white tabular-nums">
-                      {wallet.type === 'crypto'
+                      {(wallet.type === 'crypto' || wallet.type === 'investment')
                         ? fmtCurrency(cryptoLiveTotal > 0 ? cryptoLiveTotal : wallet.balance, displayCurrency)
                         : fmtCurrency(cashLiveTotal > 0 ? cashLiveTotal : wallet.balance, displayCurrency)}
                     </div>
@@ -1509,6 +1552,16 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
                   </>
                 )}
               </div>
+            {/* Wallet info: initial balance + created date */}
+            <div className="flex items-center gap-4 mt-1.5">
+              {(wallet as any).initial_balance !== undefined && (wallet as any).initial_balance !== 0 && (
+                <span className="text-[10px] text-zinc-500">Initial: {fmtCurrency((wallet as any).initial_balance, displayCurrency)}</span>
+              )}
+              {wallet.created_at && (
+                <span className="text-[10px] text-zinc-500">Created {new Date(wallet.created_at).toLocaleDateString()}</span>
+              )}
+            </div>
+
             <button onClick={() => onAddTransaction(wallet.type)}
               className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-white text-lg font-medium transition-colors"
               style={{ backgroundColor: `${meta.color}30`, color: meta.color }}
@@ -1517,6 +1570,72 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
             </button>
           </div>
         </div>
+
+        {/* Transfer Fee (dedicated DB columns) */}
+        <div className="mb-4 p-3 rounded-xl border border-white/5 bg-white/[0.02]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-zinc-500 font-medium">Transfer Fee</span>
+            <button onClick={() => setEditingFee(p => !p)}
+              className="text-xs text-zinc-400 hover:text-white transition-colors">
+              {localFeeType !== 'none' && localFeeValue > 0
+                ? (localFeeType === 'percentage'
+                  ? `${localFeeValue}% fee`
+                  : `${fmtCurrency(Number(localFeeValue), displayCurrency)} fee`)
+                : 'None \u2716'}
+            </button>
+          </div>
+          {editingFee && (
+            <div className="flex items-center gap-2 mt-2">
+              <select value={localFeeType}
+                onChange={e => { setLocalFeeType(e.target.value); if (e.target.value === 'none') setLocalFeeValue(0); }}
+                className="flex-1 bg-zinc-800 text-xs text-zinc-300 rounded-lg border border-white/10 px-2 py-1.5 outline-none">
+                <option value="none">No fee</option>
+                <option value="fixed">Fixed amount</option>
+                <option value="percentage">Percentage</option>
+              </select>
+              {localFeeType !== 'none' && (
+                <input type="number" min="0" step="any"
+                  value={localFeeValue || ''}
+                  onChange={e => setLocalFeeValue(Number(e.target.value))}
+                  placeholder={localFeeType === 'percentage' ? '0%' : '0.00'}
+                  className="w-22 bg-zinc-800 text-xs text-zinc-300 rounded-lg border border-white/10 px-2 py-1.5 outline-none text-right tabular-nums" />
+              )}
+              <button onClick={async () => {
+                await (window as any).deskflowAPI?.financeUpdateWalletFees({ id: wallet.id, transfer_fee_type: localFeeType, transfer_fee_value: localFeeValue });
+                setEditingFee(false);
+              }}
+                className="text-[10px] px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors">
+                Save
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Subscriptions tied to this wallet */}
+        {subscriptions && subscriptions.filter(s => s.wallet_id === wallet.id).length > 0 && (
+          <div className="mb-4 p-3 rounded-xl border border-white/5 bg-white/[0.02]">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-zinc-500 font-medium">Active Subscriptions</span>
+              <span className="text-[10px] text-zinc-600">{subscriptions.filter(s => s.wallet_id === wallet.id).length} tied</span>
+            </div>
+            <div className="space-y-1.5">
+              {subscriptions.filter(s => s.wallet_id === wallet.id).map(sub => {
+                const sym = getCurrencyInfo(sub.currency || displayCurrency).symbol;
+                return (
+                  <div key={sub.id} className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-zinc-800/30">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-1.5 h-1.5 rounded-full ${sub.status === 'active' ? 'bg-emerald-400' : sub.status === 'paused' ? 'bg-amber-400' : 'bg-zinc-500'}`} />
+                      <span className="text-xs text-zinc-300 truncate">{sub.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-zinc-400 tabular-nums">{sym}{Number(sub.price).toFixed(2)}<span className="text-[9px] text-zinc-600">/{sub.billing_cycle?.replace('ly','')}</span></span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {renderDetailBody()}
       </GlassSurface>

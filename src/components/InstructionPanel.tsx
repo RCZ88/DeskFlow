@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import { Send, X, FileText, Folder, Copy, Check, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import SkillDynamicForm from './SkillDynamicForm';
 import type { PromptLayer } from '../lib/promptAssembly';
@@ -67,10 +68,9 @@ function renderMarkdown(text: string): { __html: string } {
     .replace(/^- \[x\] (.+)$/gm, '<div class="text-[10px] text-green-400 my-0.5"><span class="text-green-600 mr-2">☑</span>$1</div>')
     .replace(/^- (.+)$/gm, '<div class="text-[10px] text-zinc-400 ml-2 my-0.5">• $1</div>')
     .replace(/^---$/gm, '<div class="border-t border-zinc-700/50 my-2"></div>')
-    .replace(/`([^`\n]+)`/g, '<code class="bg-zinc-800 px-1 py-0.5 rounded text-cyan-400 text-[9px] font-mono">$1</code>')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    .replace(/`([^`\n]+)`/g, '<code class="bg-zinc-800 px-1 py-0.5 rounded text-cyan-400 text-[9px] font-mono">$1</code>');
   html = html.replace(/\n/g, '<br/>');
-  return { __html: html };
+  return { __html: DOMPurify.sanitize(html) };
 }
 
 export function InstructionPanel({

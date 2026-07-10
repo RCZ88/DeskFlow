@@ -21,9 +21,14 @@ export function thresholdColor(pct: number): { hex: string; label: string } {
 /** metadata may arrive as a JSON string or an object. Normalize once. */
 export function parseMeta(wallet: FinanceWallet): Record<string, any> {
 	const m = wallet.metadata
-	if (!m) return {}
-	if (typeof m === 'string') { try { return JSON.parse(m) } catch { return {} } }
-	return m
+	let parsed: Record<string, any> = {}
+	if (!m) { parsed = {} }
+	else if (typeof m === 'string') { try { parsed = JSON.parse(m) } catch { parsed = {} } }
+	else { parsed = m }
+	// Merge in dedicated transfer_fee columns (override any legacy metadata values)
+	if (wallet.transfer_fee_type !== undefined) parsed.transfer_fee_type = wallet.transfer_fee_type
+	if (wallet.transfer_fee_value !== undefined) parsed.transfer_fee_value = wallet.transfer_fee_value
+	return parsed
 }
 
 /** Default denominations by currency — real-world banknote face values. */
@@ -72,6 +77,8 @@ export interface TxModalProps {
 	baseCurrency: string
 	/** Optional: today's spend for this wallet, used by Debit daily-limit band. */
 	todaySpent?: number
+	ftPersons?: Array<{ id: number; name: string }>
+	onAddFtPerson?: (name: string) => void
 	onSubmit: (data: Record<string, any>) => Promise<{ id: number } | null>
 	onClose: () => void
 }

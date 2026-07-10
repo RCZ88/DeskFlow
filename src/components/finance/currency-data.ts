@@ -70,4 +70,36 @@ export function formatCurrency(amount: number, currencyCode: string = 'USD'): st
   return `${sign}${info.symbol}${abs.toLocaleString(info.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+export function formatPrice(amount: number, currencyCode: string = 'USD'): string {
+  const info = getCurrencyInfo(currencyCode);
+  const sign = amount >= 0 ? '' : '-';
+  const abs = Math.abs(amount);
+
+  if (currencyCode === 'IDR' || currencyCode === 'VND' || currencyCode === 'KRW' || currencyCode === 'JPY') {
+    return `${sign}${info.symbol}${Math.round(abs).toLocaleString(info.locale)}`;
+  }
+
+  let decimals: number;
+  if (abs === 0) decimals = 2;
+  else if (abs < 0.0001) decimals = 8;
+  else if (abs < 1) decimals = 6;
+  else if (abs < 100) decimals = 4;
+  else decimals = 2;
+
+  return `${sign}${info.symbol}${abs.toLocaleString(info.locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+}
+
+export function formatAmount(amount: number): string {
+  const abs = Math.abs(amount);
+  if (abs === 0) return '0';
+  if (abs < 0.0001) return amount.toLocaleString('en-US', { minimumFractionDigits: 8, maximumFractionDigits: 8 });
+  if (abs < 1) return amount.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+  return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
+export function formatPercent(value: number, decimals: number = 2): string {
+  const sign = value >= 0 ? '+' : '';
+  return `${sign}${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+}
+
 export const COMMON_CURRENCIES = ['USD', 'IDR', 'SGD', 'GBP', 'EUR', 'JPY', 'AUD', 'CNY', 'KRW', 'INR'];

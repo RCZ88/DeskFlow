@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "DeskFlow Browser Tracker",
-  "version": "1.0.0",
-  "description": "Tracks active tab browsing activity and sends data to DeskFlow Electron app",
+  "version": "1.1.0",
+  "description": "Tracks active tab browsing activity and sends data to DeskFlow Electron app. Includes Deep Focus soft-block overlay.",
   "permissions": [
     "tabs",
     "webNavigation",
@@ -14,6 +14,14 @@
     "service_worker": "background.js"
   },
   "host_permissions": [
-    "http://localhost:54321/*"
+    "http://localhost:54321/*",
+    "http://127.0.0.1:54321/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["focusOverlay.js"],
+      "run_at": "document_idle"
+    }
   ]
 }

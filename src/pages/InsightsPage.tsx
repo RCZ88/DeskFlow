@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { subDays, format } from 'date-fns';
 import type { Period } from '../lib/dateRange';
 import { getDateRange } from '../lib/dateRange';
-import { BarChart3, Clock, Target, Moon, TrendingUp, TrendingDown, Activity, Zap, Sun, Globe, Monitor, PieChart } from 'lucide-react';
+import { BarChart3, Clock, Target, Moon, TrendingUp, TrendingDown, Activity, Zap, Sun, Globe, Monitor, PieChart, AlertTriangle, Info } from 'lucide-react';
 import { maxOf, maxBy } from '../utils/safeMath';
 import { motion } from 'framer-motion';
 import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
@@ -164,9 +165,13 @@ export default function InsightsPage({
   const [bestDays, setBestDays] = useState<{ bestDay: string; worstDay: string; averages: Record<string, number> }>({ bestDay: 'Mon', worstDay: 'Sun', averages: {} });
   const [typicalDayData, setTypicalDayData] = useState<TypicalDayData | null>(null);
   const [tooltip, setTooltip] = useState<{ day: number; hour: number; x: number; y: number; side: string } | null>(null);
+  const [typicalError, setTypicalError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'typical' | 'weekly' | 'activities'>('typical');
   const [typicalMode, setTypicalMode] = useState<'smooth' | 'original'>('smooth');
   const [hoveredHour, setHoveredHour] = useState<number | null>(null);
+  const [pinnedTooltip, setPinnedTooltip] = useState<{ day: number; hour: number; x: number; y: number; side: string } | null>(null);
+  const [pinnedHour, setPinnedHour] = useState<number | null>(null);
+  const hoverLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
   useEffect(() => {
     const tab = (location.state as any)?.tab;
@@ -183,11 +188,27 @@ export default function InsightsPage({
   }, [parentPeriod, dateOffset]);
 
   useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-typical-tooltip]') && !target.closest('[data-typical-cell]') && !target.closest('[data-typical-chip]')) {
+        setPinnedTooltip(null);
+        setPinnedHour(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      if (hoverLeaveTimer.current) clearTimeout(hoverLeaveTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
     const fetchTypicalDay = () => {
       const days = periodToDays(parentPeriod);
       window.deskflowAPI?.getTypicalDay(days, dateOffset).then((result: any) => {
-        if (result?.grid) setTypicalDayData(result as TypicalDayData);
-      });
+        if (result?.grid) { setTypicalDayData(result as TypicalDayData); setTypicalError(null); }
+        else if (!result) setTypicalError('No data available for this period');
+      }).catch((err: any) => setTypicalError(err?.message || 'Failed to load typical day data'));
     };
     fetchTypicalDay();
     const interval = setInterval(fetchTypicalDay, 60000);
@@ -279,32 +300,54 @@ export default function InsightsPage({
   }
 
   const originalDayData = useMemo(() => {
-    const hourly: Record<number, Record<string, number>> = {};
-    for (let h = 0; h < 24; h++) hourly[h] = {};
+    const dailyHours: Record<string, Record<number, Record<string, number>>> = {};
+    const dates = new Set<string>();
+
+    const addToDateHour = (ts: Date | string | number, activity: string, duration: number) => {
+      const d = typeof ts === 'object' && ts instanceof Date ? ts : new Date(ts);
+      if (isNaN(d.getTime())) return;
+      const dateKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      const hour = d.getHours();
+      dates.add(dateKey);
+      if (!dailyHours[dateKey]) dailyHours[dateKey] = {};
+      if (!dailyHours[dateKey][hour]) dailyHours[dateKey][hour] = {};
+      dailyHours[dateKey][hour][activity] = (dailyHours[dateKey][hour][activity] || 0) + duration;
+    };
 
     for (const log of logs) {
       if (log.is_browser_tracking) continue;
-      const start = log.start_time ? new Date(log.start_time) : null;
-      const hour = start ? start.getHours() : 0;
-      const app = log.app || 'Unknown';
-      hourly[hour][app] = (hourly[hour][app] || 0) + (log.duration || 0);
+      if (log.timestamp) addToDateHour(log.timestamp, log.app || 'Unknown', log.duration || 0);
     }
     for (const log of browserLogs) {
-      const start = log.start_time ? new Date(log.start_time) : null;
-      const hour = start ? start.getHours() : 0;
-      const domain = log.domain || log.app || 'Unknown';
-      hourly[hour][domain] = (hourly[hour][domain] || 0) + (log.duration || 0);
+      if (log.timestamp) addToDateHour(log.timestamp, log.domain || log.app || 'Unknown', log.duration || 0);
+    }
+
+    const dayCount = Math.max(dates.size, 1);
+
+    const hourly: Record<number, Record<string, number>> = {};
+    for (let h = 0; h < 24; h++) hourly[h] = {};
+
+    for (const dateKey of dates) {
+      for (let h = 0; h < 24; h++) {
+        const apps = dailyHours[dateKey]?.[h];
+        if (!apps) continue;
+        for (const [app, secs] of Object.entries(apps)) {
+          hourly[h][app] = (hourly[h][app] || 0) + secs;
+        }
+      }
     }
 
     const slots: HourlySlot[] = Array.from({ length: 24 }, (_, h) => {
       const entries = Object.entries(hourly[h]).sort((a, b) => b[1] - a[1]);
-      const totalSeconds = entries.reduce((s, [, sec]) => s + sec, 0);
-      const primaryActivity = entries[0]?.[0] || 'none';
+      const rawSeconds = entries.reduce((s, [, sec]) => s + sec, 0);
+      const avgSeconds = Math.round(rawSeconds / dayCount);
       const activities = entries.map(([name, seconds]) => ({
         name,
-        seconds,
+        seconds: Math.round(seconds / dayCount),
         color: resolveActivityColor(name),
-      }));
+      })).filter(a => a.seconds > 0);
+      const totalSeconds = activities.reduce((s, a) => s + a.seconds, 0);
+      const primaryActivity = activities[0]?.name || 'none';
       return { hour: h, primaryActivity, totalSeconds, activities };
     });
 
@@ -327,9 +370,8 @@ export default function InsightsPage({
 
     const totalHours = +(slots.reduce((s, slot) => s + slot.totalSeconds, 0) / 3600).toFixed(1);
     const mostActiveHour = slots.reduce((best, slot) => slot.totalSeconds > best.totalSeconds ? slot : best, slots[0]);
-    const mostActiveDay = 0; // single day mode
 
-    return { slots, maxSeconds, legend, stats: { totalHours, mostActiveHour: { hour: mostActiveHour.hour, day: 0 }, mostActiveDay, activityBreakdown: topActivities } };
+    return { slots, maxSeconds, legend, stats: { totalHours, mostActiveHour: { hour: mostActiveHour.hour, day: 0 }, mostActiveDay: 0, activityBreakdown: topActivities }, dayCount };
   }, [logs, browserLogs]);
 
   const selectedHourData = hoveredHour !== null ? originalDayData.slots.find(s => s.hour === hoveredHour) : null;
@@ -522,14 +564,14 @@ export default function InsightsPage({
             <div className="flex items-center justify-between mb-4">
               <SectionHeader
                 title="Typical Day"
-                action={typicalDayData && typicalMode === 'smooth' && <div className="text-xs text-zinc-600">Updated {new Date(typicalDayData.generatedAt).toLocaleTimeString()}</div>}
+                action={typicalDayData && typicalMode === 'original' && <div className="text-xs text-zinc-600">Updated {new Date(typicalDayData.generatedAt).toLocaleTimeString()}</div>}
               />
               <div className="flex bg-zinc-800/50 rounded-lg p-0.5 border border-zinc-700/50 ml-4">
                 <button
                   onClick={() => setTypicalMode('original')}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-150 ${
                     typicalMode === 'original'
-                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+                      ? 'bg-pink-500/15 text-pink-300 border border-pink-500/20'
                       : 'text-zinc-400 hover:text-zinc-300'
                   }`}
                 >
@@ -539,7 +581,7 @@ export default function InsightsPage({
                   onClick={() => setTypicalMode('smooth')}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-150 ${
                     typicalMode === 'smooth'
-                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+                      ? 'bg-pink-500/15 text-pink-300 border border-pink-500/20'
                       : 'text-zinc-400 hover:text-zinc-300'
                   }`}
                 >
@@ -548,69 +590,343 @@ export default function InsightsPage({
               </div>
             </div>
 
-            {typicalMode === 'original' && (
+            {typicalMode === 'original' && typicalDayData && (
               <p className="text-xs text-zinc-500 mt-0.5 mb-4">
-                Actual activity data for today — hover any hour or chip to highlight the column
-              </p>
-            )}
-            {typicalMode === 'smooth' && typicalDayData && (
-              <p className="text-xs text-zinc-500 mt-0.5 mb-4">
-                Activity patterns across {typicalDayData.daysCovered} days
+                Multi-activity composition across {typicalDayData.daysCovered} days — each cell shows gradient splits per activity
                 {parentPeriod === 'today' && <span className="text-zinc-600"> — minimum 7 days needed for pattern</span>}
               </p>
             )}
+            {typicalMode === 'smooth' && (
+              <p className="text-xs text-zinc-500 mt-0.5 mb-4">
+                Daily average across {originalDayData.dayCount} tracked days — single-color intensity per hour, hover for details
+              </p>
+            )}
 
-            {/* --- ORIGINAL MODE: V2-style interactive heatmap --- */}
-            {typicalMode === 'original' && (() => {
+            {/* --- ORIGINAL MODE: 7-day × 24-hour multi-activity heatmap --- */}
+            {typicalMode === 'original' && patchedTypicalDay ? (() => {
+              const data = patchedTypicalDay;
+
+              const fmt = (s: number) => {
+                if (s < 60) return `${s}s`;
+                if (s < 3600) return `${Math.round(s / 60)}m`;
+                return `${(s / 3600).toFixed(1)}h`;
+              };
+
+              const cellBg = (cell: HourCell) => {
+                if (cell.activities.length === 0) return 'rgba(39, 39, 42, 0.5)';
+                if (cell.activities.length === 1) {
+                  const secs = cell.totalSeconds;
+                  if (secs >= 2700) return 'rgba(16, 185, 129, 0.9)';
+                  if (secs >= 1200) return 'rgba(16, 185, 129, 0.6)';
+                  if (secs >= 300) return 'rgba(16, 185, 129, 0.35)';
+                  return 'rgba(16, 185, 129, 0.15)';
+                }
+                const segments = cell.activities.map((a, i) => {
+                  const start = cell.activities.slice(0, i).reduce((s, x) => s + x.percentage, 0);
+                  return `${a.color} ${start}% ${start + a.percentage}%`;
+                });
+                return `linear-gradient(90deg, ${segments.join(', ')})`;
+              };
+
+              const consistencyMap: { day: number; hour: number; score: number }[] = [];
+              let totalConsistency = 0;
+              let countConsistency = 0;
+              for (let d = 0; d < data.grid.length; d++) {
+                for (let h = 0; h < data.grid[d].length; h++) {
+                  const c = data.grid[d][h];
+                  const score = c.activities[0]?.percentage ?? 0;
+                  consistencyMap.push({ day: d, hour: h, score });
+                  if (c.totalSeconds > 0) { totalConsistency += score; countConsistency++; }
+                }
+              }
+              const avgConsistency = countConsistency > 0 ? Math.round(totalConsistency / countConsistency) : 0;
+
+              const consistencyColor = (score: number) => {
+                if (score >= 80) return 'bg-emerald-400';
+                if (score >= 60) return 'bg-emerald-500';
+                if (score >= 40) return 'bg-amber-500';
+                if (score >= 20) return 'bg-orange-500';
+                return 'bg-red-500';
+              };
+
+              const gridVariants = {
+                hidden: {},
+                visible: { transition: { staggerChildren: 0.015 } }
+              };
+              const rowVariants = {
+                hidden: { opacity: 0, x: -8 },
+                visible: { opacity: 1, x: 0, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] } }
+              };
+
+              return (
+                <>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <GlassCard variant="compact" accent="pink">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Total Hours</div>
+                      <div className="text-xl font-bold text-zinc-100 mt-0.5">{data.stats.totalHours}h</div>
+                      <div className="text-[10px] text-zinc-600">avg per day</div>
+                    </GlassCard>
+                    <GlassCard variant="compact" accent="pink">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Most Active</div>
+                      <div className="text-xl font-bold text-zinc-100 mt-0.5">{DAY_LABELS[data.stats.mostActiveDay]}</div>
+                      <div className="text-[10px] text-zinc-600">day of week</div>
+                    </GlassCard>
+                    <GlassCard variant="compact" accent="pink">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Peak Hour</div>
+                      <div className="text-xl font-bold text-zinc-100 mt-0.5">{hourLabels[data.stats.mostActiveHour.hour]}</div>
+                      <div className="text-[10px] text-zinc-600">{DAY_LABELS[data.stats.mostActiveHour.day]}</div>
+                    </GlassCard>
+                  </div>
+
+                  {/* Schedule consistency summary */}
+                  <div className="flex items-center gap-4 mb-3 px-1">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span className="text-[11px] text-zinc-400">
+                        Schedule Consistency: <span className="text-zinc-200 font-semibold">{avgConsistency}%</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-600">
+                      <span className="inline-block w-2 h-2 rounded-sm bg-red-500" /><span>low</span>
+                      <span className="inline-block w-2 h-2 rounded-sm bg-amber-500" /><span>med</span>
+                      <span className="inline-block w-2 h-2 rounded-sm bg-emerald-400" /><span>high</span>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    {/* Hour labels */}
+                    <div className="flex ml-7 mb-0.5 gap-0">
+                      {hourLabels.map((l, i) => (
+                        <div key={i} className="flex-1 text-[9px] text-zinc-600 text-center leading-none pb-0.5" style={{ visibility: i % 6 === 0 ? 'visible' : 'hidden' }}>
+                          {l}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* 7-day × 24-hour grid */}
+                    <motion.div className="space-y-0" variants={gridVariants} initial="hidden" animate="visible">
+                      {data.grid.map((dayData, dayIdx) => (
+                        <motion.div key={dayIdx} className="flex items-center" variants={rowVariants}>
+                          <div className="w-7 text-[10px] text-zinc-500 text-right pr-1 flex-shrink-0 leading-none">{DAY_LABELS[dayIdx]}</div>
+                          <div className="flex flex-1 gap-0">
+                            {dayData.map((cell, hourIdx) => {
+                              const cons = consistencyMap.find(c => c.day === dayIdx && c.hour === hourIdx);
+                              const consScore = cons?.score ?? 0;
+                              const dominantActivity = cell.activities[0]?.activity || '';
+                              return (
+                                <div
+                                  key={hourIdx}
+                                  data-typical-cell
+                                  onMouseEnter={(e) => {
+                                    if (pinnedTooltip) return;
+                                    const tipW = 220, tipH = 180, gap = 4, pad = 8;
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    let tx = rect.left, ty = rect.bottom + gap;
+                                    if (ty + tipH > window.innerHeight - pad) ty = rect.top - tipH - gap;
+                                    if (tx + tipW > window.innerWidth - pad) tx = rect.right - tipW;
+                                    tx = Math.max(pad, Math.min(tx, window.innerWidth - tipW - pad));
+                                    ty = Math.max(pad, Math.min(ty, window.innerHeight - tipH - pad));
+                                    setTooltip({ day: dayIdx, hour: hourIdx, x: tx, y: ty, side: 'bottom' });
+                                  }}
+                                  onMouseLeave={() => { if (!pinnedTooltip) setTooltip(null); }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const tipW = 220, tipH = 180, gap = 4, pad = 8;
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    let tx = rect.left, ty = rect.bottom + gap;
+                                    if (ty + tipH > window.innerHeight - pad) ty = rect.top - tipH - gap;
+                                    if (tx + tipW > window.innerWidth - pad) tx = rect.right - tipW;
+                                    tx = Math.max(pad, Math.min(tx, window.innerWidth - tipW - pad));
+                                    ty = Math.max(pad, Math.min(ty, window.innerHeight - tipH - pad));
+                                    const cellData = { day: dayIdx, hour: hourIdx, x: tx, y: ty, side: 'bottom' };
+                                    if (pinnedTooltip?.day === dayIdx && pinnedTooltip?.hour === hourIdx) {
+                                      setPinnedTooltip(null);
+                                      setTooltip(null);
+                                    } else {
+                                      setPinnedTooltip(cellData);
+                                      setTooltip(cellData);
+                                    }
+                                  }}
+                                  className="flex-1 min-h-[32px] cursor-pointer transition-all duration-150 hover:brightness-125 hover:z-10 hover:ring-1 hover:ring-pink-400/40 hover:scale-[1.02] relative flex items-center justify-center"
+                                  style={{
+                                    background: cellBg(cell),
+                                    borderRight: '1px solid rgba(39,39,42,0.3)',
+                                    borderBottom: '1px solid rgba(39,39,42,0.3)',
+                                    outline: (tooltip?.day === dayIdx && tooltip?.hour === hourIdx) || (pinnedTooltip?.day === dayIdx && pinnedTooltip?.hour === hourIdx) ? '1.5px solid rgba(236,72,153,0.5)' : 'none',
+                                    outlineOffset: '-1px',
+                                  }}
+                                >
+                                  {dominantActivity && (
+                                    <span
+                                      className="text-[8px] font-medium truncate px-0.5 leading-none"
+                                      style={{ color: 'rgba(255,255,255,0.85)', textShadow: '0 1px 2px rgba(0,0,0,0.5)', maxWidth: '100%' }}
+                                      title={dominantActivity}
+                                    >
+                                      {dominantActivity.length > 8 ? dominantActivity.slice(0, 8) + '…' : dominantActivity}
+                                    </span>
+                                  )}
+                                  <div className="absolute bottom-0 left-0 right-0 h-[3px]">
+                                    <div className={`h-full ${consistencyColor(consScore)} transition-opacity`} style={{ width: `${consScore}%`, opacity: 0.8 }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  </div>
+
+                  {/* Rich hover tooltip — portaled to body to escape GlassCard overflow-hidden */}
+                    {tooltip && data.grid[tooltip.day]?.[tooltip.hour] && createPortal(
+                    (() => {
+                    const activeCell = data.grid[tooltip.day][tooltip.hour];
+                    const activeCons = consistencyMap.find(c => c.day === tooltip.day && c.hour === tooltip.hour)?.score ?? 0;
+                    return (
+                      <motion.div
+                        key={`tip-${tooltip.day}-${tooltip.hour}`}
+                        data-typical-tooltip
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                        className="fixed z-[9999] bg-zinc-900/95 border border-zinc-700 rounded-lg p-3 min-w-[200px] backdrop-blur-sm shadow-xl shadow-black/30"
+                        style={{ left: tooltip.x, top: tooltip.y }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-zinc-200">{DAY_LABELS[tooltip.day]} {hourLabels[tooltip.hour]}</span>
+                          <span className={`text-[10px] font-medium ${activeCons >= 60 ? 'text-emerald-400' : activeCons >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
+                            {activeCons}% consistent
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          {activeCell.activities.map((a, i) => (
+                            <div key={i} className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: a.color }} />
+                                <span className="text-[11px] text-zinc-300 truncate">{a.activity}</span>
+                              </div>
+                              <span className="text-[11px] text-zinc-400 flex-shrink-0">{fmt(a.seconds)} ({a.percentage}%)</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-1.5 pt-1.5 border-t border-zinc-800 flex justify-between">
+                          <span className="text-[10px] text-zinc-500">Total</span>
+                          <span className="text-[10px] text-zinc-400">{fmt(activeCell.totalSeconds)}</span>
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          {activeCell.hasExternal && <span className="text-[9px] px-1 py-0.5 bg-purple-500/20 text-purple-300 rounded">External</span>}
+                          {activeCell.hasDevice && <span className="text-[9px] px-1 py-0.5 bg-cyan-500/20 text-cyan-300 rounded">Device</span>}
+                        </div>
+                        {pinnedTooltip && (
+                          <div className="mt-1.5 pt-1 border-t border-zinc-800 text-center">
+                            <span className="text-[9px] text-zinc-600">click cell again to close</span>
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+                    })(),
+                    document.body
+                  )}
+
+                  {/* Legend */}
+                  {data.legend.length > 0 && (
+                    <div className="flex flex-wrap gap-3 mt-4">
+                      {data.legend.map((item, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: item.color }} />
+                          <span className="text-[11px] text-zinc-400">{item.activity}</span>
+                          <span className="text-[10px] text-zinc-600">{fmt(item.totalSeconds)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Intensity legend */}
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-[10px] text-zinc-600">Less</span>
+                    {['rgba(16,185,129,0.15)', 'rgba(16,185,129,0.35)', 'rgba(16,185,129,0.6)', 'rgba(16,185,129,0.9)'].map((c, i) => (
+                      <div key={i} className="w-3.5 h-3.5 rounded-sm" style={{ backgroundColor: c }} />
+                    ))}
+                    <span className="text-[10px] text-zinc-600">More</span>
+                  </div>
+                </>
+              );
+            })() : (
+              typicalMode === 'original' && (
+                typicalError ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <AlertTriangle className="w-8 h-8 text-amber-500" />
+                    <p className="text-sm text-zinc-400 font-medium">Could not load typical day data</p>
+                    <p className="text-xs text-zinc-600 text-center max-w-xs">{typicalError}</p>
+                  </div>
+                ) : (
+                  <div className="h-32 flex items-center justify-center">
+                    <div className="animate-pulse">
+                      <div className="h-4 bg-zinc-800 rounded w-40 mb-3" />
+                      <div className="h-24 bg-zinc-800 rounded" />
+                    </div>
+                  </div>
+                )
+              )
+            )}
+
+            {/* --- SMOOTH MODE: single-day simple heatmap --- */}
+            {typicalMode === 'smooth' && (() => {
               const { slots, maxSeconds, legend, stats: dayStats } = originalDayData;
-              const typicalMaxSeconds = maxSeconds;
 
-              function getHeatColor(seconds: number, max: number): string {
+              const getHeatColor = (seconds: number, max: number): string => {
                 if (seconds === 0) return 'bg-zinc-800/30';
                 const ratio = seconds / max;
                 if (ratio > 0.75) return 'bg-emerald-500/90';
                 if (ratio > 0.5) return 'bg-emerald-500/65';
                 if (ratio > 0.25) return 'bg-emerald-500/40';
                 return 'bg-emerald-500/20';
-              }
+              };
 
-              function getActivityColor(activity: string): string {
+              const getGradient = (activity: string): string => {
                 const gradients: Record<string, string> = {
-                  'code': 'from-emerald-500 to-emerald-600',
-                  'coding': 'from-emerald-500 to-emerald-600',
-                  'browser': 'from-sky-500 to-sky-600',
-                  'chrome': 'from-sky-500 to-sky-600',
-                  'terminal': 'from-violet-500 to-violet-600',
-                  'discord': 'from-indigo-500 to-indigo-600',
-                  'slack': 'from-purple-500 to-purple-600',
-                  'figma': 'from-pink-500 to-pink-600',
-                  'vscode': 'from-emerald-500 to-emerald-600',
-                  'notion': 'from-zinc-400 to-zinc-500',
-                  'excel': 'from-green-500 to-green-600',
-                  'word': 'from-blue-500 to-blue-600',
+                  'code': 'from-emerald-500 to-emerald-600', 'coding': 'from-emerald-500 to-emerald-600',
+                  'browser': 'from-sky-500 to-sky-600', 'chrome': 'from-sky-500 to-sky-600',
+                  'terminal': 'from-violet-500 to-violet-600', 'discord': 'from-indigo-500 to-indigo-600',
+                  'slack': 'from-purple-500 to-purple-600', 'figma': 'from-pink-500 to-pink-600',
+                  'vscode': 'from-emerald-500 to-emerald-600', 'notion': 'from-zinc-400 to-zinc-500',
+                  'excel': 'from-green-500 to-green-600', 'word': 'from-blue-500 to-blue-600',
                 };
                 const key = Object.keys(gradients).find(k => activity.toLowerCase().includes(k));
                 return key ? gradients[key] : 'from-teal-500 to-teal-600';
+              };
+
+              const hasData = slots.some(s => s.totalSeconds > 0);
+
+              if (!hasData) {
+                return (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3">
+                    <Clock className="w-10 h-10 text-zinc-600" />
+                    <p className="text-sm text-zinc-400 font-medium">No tracking data yet</p>
+                    <p className="text-xs text-zinc-600 text-center max-w-xs">Track some activity today to see your hourly patterns here</p>
+                  </div>
+                );
               }
 
               return (
                 <>
                   <div className="grid grid-cols-3 gap-3 mb-4">
-                    <div className="bg-zinc-900/50 rounded-lg p-3">
+                    <GlassCard variant="compact" accent="pink">
                       <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Total Hours</div>
                       <div className="text-xl font-bold text-zinc-100 mt-0.5">{dayStats.totalHours}h</div>
-                      <div className="text-[10px] text-zinc-600">today</div>
-                    </div>
-                    <div className="bg-zinc-900/50 rounded-lg p-3">
+                      <div className="text-[10px] text-zinc-600">avg / day</div>
+                    </GlassCard>
+                    <GlassCard variant="compact" accent="pink">
                       <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Peak Hour</div>
                       <div className="text-xl font-bold text-zinc-100 mt-0.5">{hourLabels[dayStats.mostActiveHour.hour]}</div>
                       <div className="text-[10px] text-zinc-600">{formatHours(slots[dayStats.mostActiveHour.hour]?.totalSeconds || 0)}</div>
-                    </div>
-                    <div className="bg-zinc-900/50 rounded-lg p-3">
+                    </GlassCard>
+                    <GlassCard variant="compact" accent="pink">
                       <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Activities</div>
                       <div className="text-xl font-bold text-zinc-100 mt-0.5">{Object.keys(dayStats.activityBreakdown).length}</div>
-                      <div className="text-[10px] text-zinc-600">unique</div>
-                    </div>
+                      <div className="text-[10px] text-zinc-600">unique / day</div>
+                    </GlassCard>
                   </div>
 
                   <div className="flex gap-4">
@@ -627,17 +943,34 @@ export default function InsightsPage({
                         </div>
                       </div>
 
-                      {/* Single row for today */}
                       <div className="flex items-center gap-3">
                         <div className="w-7 text-[10px] text-zinc-500 text-right pr-1 flex-shrink-0">Today</div>
                         <div className="flex flex-1 gap-[3px]">
                           {slots.map((slot) => (
                             <div
                               key={slot.hour}
-                              onMouseEnter={() => setHoveredHour(slot.hour)}
-                              onMouseLeave={() => setHoveredHour(null)}
+                              data-typical-cell
+                              onMouseEnter={() => {
+                                if (pinnedHour !== null) return;
+                                if (hoverLeaveTimer.current) { clearTimeout(hoverLeaveTimer.current); hoverLeaveTimer.current = null; }
+                                setHoveredHour(slot.hour);
+                              }}
+                              onMouseLeave={() => {
+                                if (pinnedHour !== null) return;
+                                hoverLeaveTimer.current = setTimeout(() => setHoveredHour(null), 120);
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (pinnedHour === slot.hour) {
+                                  setPinnedHour(null);
+                                  setHoveredHour(null);
+                                } else {
+                                  setPinnedHour(slot.hour);
+                                  setHoveredHour(slot.hour);
+                                }
+                              }}
                               className={`w-[22px] h-[22px] rounded-sm cursor-pointer transition-all duration-150 ${
-                                getHeatColor(slot.totalSeconds, typicalMaxSeconds)
+                                getHeatColor(slot.totalSeconds, maxSeconds)
                               } ${
                                 hoveredHour === slot.hour ? 'ring-2 ring-emerald-400/60 scale-110 z-10 relative' : ''
                               }`}
@@ -651,11 +984,16 @@ export default function InsightsPage({
                     {/* Detail panel */}
                     {selectedHourData && (
                       <motion.div
+                        data-typical-tooltip
                         initial={{ opacity: 0, x: 10 }}
                         animate={{ opacity: 1, x: 0 }}
                         className="w-52 flex-shrink-0 bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/40"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="text-xs text-zinc-400 mb-1">{selectedHourData.hour}:00 — {(selectedHourData.hour + 1) % 24 || 24}:00</div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-zinc-400">{selectedHourData.hour}:00 — {(selectedHourData.hour + 1) % 24 || 24}:00</span>
+                          {pinnedHour !== null && <span className="text-[9px] text-zinc-600">pinned</span>}
+                        </div>
                         <div className="text-lg font-bold text-zinc-200">{formatHours(selectedHourData.totalSeconds)}</div>
                         {selectedHourData.activities.length > 0 ? (
                           <div className="mt-2 space-y-1">
@@ -672,6 +1010,11 @@ export default function InsightsPage({
                         ) : (
                           <div className="text-xs text-zinc-600 mt-1">No activity</div>
                         )}
+                        {pinnedHour !== null && (
+                          <div className="mt-2 pt-1.5 border-t border-zinc-700/50 text-center">
+                            <span className="text-[9px] text-zinc-600">click cell again to close</span>
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </div>
@@ -684,15 +1027,33 @@ export default function InsightsPage({
                         {slots.filter(s => s.primaryActivity !== 'none' && s.totalSeconds > 0).map((slot) => (
                           <div
                             key={slot.hour}
+                            data-typical-chip
                             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
                               hoveredHour === slot.hour
                                 ? 'bg-zinc-700/60 ring-1 ring-emerald-400/30'
                                 : 'bg-zinc-800/40 hover:bg-zinc-700/30'
                             }`}
-                            onMouseEnter={() => setHoveredHour(slot.hour)}
-                            onMouseLeave={() => setHoveredHour(null)}
+                            onMouseEnter={() => {
+                              if (pinnedHour !== null) return;
+                              if (hoverLeaveTimer.current) { clearTimeout(hoverLeaveTimer.current); hoverLeaveTimer.current = null; }
+                              setHoveredHour(slot.hour);
+                            }}
+                            onMouseLeave={() => {
+                              if (pinnedHour !== null) return;
+                              hoverLeaveTimer.current = setTimeout(() => setHoveredHour(null), 120);
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (pinnedHour === slot.hour) {
+                                setPinnedHour(null);
+                                setHoveredHour(null);
+                              } else {
+                                setPinnedHour(slot.hour);
+                                setHoveredHour(slot.hour);
+                              }
+                            }}
                           >
-                            <span className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${getActivityColor(slot.primaryActivity)}`} />
+                            <span className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${getGradient(slot.primaryActivity)}`} />
                             <span className="text-zinc-300 font-medium">{slot.hour}:00</span>
                             <span className="text-zinc-500">-</span>
                             <span className="text-zinc-400">{slot.primaryActivity.length > 14 ? slot.primaryActivity.slice(0, 14) + '…' : slot.primaryActivity}</span>
@@ -727,253 +1088,6 @@ export default function InsightsPage({
                 </>
               );
             })()}
-
-            {/* --- SMOOTH MODE: existing complex heatmap --- */}
-            {typicalMode === 'smooth' && patchedTypicalDay ? (() => {
-              const data = patchedTypicalDay;
-
-              const fmt = (s: number) => {
-                if (s < 60) return `${s}s`;
-                if (s < 3600) return `${Math.round(s / 60)}m`;
-                return `${(s / 3600).toFixed(1)}h`;
-              };
-
-              const cellBg = (cell: HourCell) => {
-                if (cell.activities.length === 0) return 'rgba(39, 39, 42, 0.5)';
-                if (cell.activities.length === 1) {
-                  const secs = cell.totalSeconds;
-                  if (secs >= 2700) return 'rgba(16, 185, 129, 0.9)';
-                  if (secs >= 1200) return 'rgba(16, 185, 129, 0.6)';
-                  if (secs >= 300) return 'rgba(16, 185, 129, 0.35)';
-                  return 'rgba(16, 185, 129, 0.15)';
-                }
-                const segments = cell.activities.map((a, i) => {
-                  const start = cell.activities.slice(0, i).reduce((s, x) => s + x.percentage, 0);
-                  return `${a.color} ${start}% ${start + a.percentage}%`;
-                });
-                return `linear-gradient(90deg, ${segments.join(', ')})`;
-              };
-
-              return (
-                <>
-                  <div className="grid grid-cols-3 gap-3 mb-4">
-                    <div className="bg-zinc-900/50 rounded-lg p-3">
-                      <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Total Hours</div>
-                      <div className="text-xl font-bold text-zinc-100 mt-0.5">{data.stats.totalHours}h</div>
-                      <div className="text-[10px] text-zinc-600">avg per day</div>
-                    </div>
-                    <div className="bg-zinc-900/50 rounded-lg p-3">
-                      <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Most Active</div>
-                      <div className="text-xl font-bold text-zinc-100 mt-0.5">{DAY_LABELS[data.stats.mostActiveDay]}</div>
-                      <div className="text-[10px] text-zinc-600">day of week</div>
-                    </div>
-                    <div className="bg-zinc-900/50 rounded-lg p-3">
-                      <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Peak Hour</div>
-                      <div className="text-xl font-bold text-zinc-100 mt-0.5">{hourLabels[data.stats.mostActiveHour.hour]}</div>
-                      <div className="text-[10px] text-zinc-600">{DAY_LABELS[data.stats.mostActiveHour.day]}</div>
-                    </div>
-                  </div>
-
-                  {/* --- consistency computation --- */}
-                  {(() => {
-                    const consistencyMap: { day: number; hour: number; score: number }[] = [];
-                    let totalConsistency = 0;
-                    let countConsistency = 0;
-                    const hourlyConsistency: number[] = Array(24).fill(0);
-                    const hourlyCount: number[] = Array(24).fill(0);
-                    for (let d = 0; d < data.grid.length; d++) {
-                      for (let h = 0; h < data.grid[d].length; h++) {
-                        const c = data.grid[d][h];
-                        const score = c.activities[0]?.percentage ?? 0;
-                        consistencyMap.push({ day: d, hour: h, score });
-                        if (c.totalSeconds > 0) {
-                          totalConsistency += score;
-                          countConsistency++;
-                          hourlyConsistency[h] += score;
-                          hourlyCount[h]++;
-                        }
-                      }
-                    }
-                    const avgConsistency = countConsistency > 0 ? Math.round(totalConsistency / countConsistency) : 0;
-
-                    const consistencyColor = (score: number) => {
-                      if (score >= 80) return 'bg-emerald-400';
-                      if (score >= 60) return 'bg-emerald-500';
-                      if (score >= 40) return 'bg-amber-500';
-                      if (score >= 20) return 'bg-orange-500';
-                      return 'bg-red-500';
-                    };
-
-                    return (
-                      <>
-                        {/* consistency summary row */}
-                        <div className="flex items-center gap-4 mb-3 px-1">
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                            <span className="text-[11px] text-zinc-400">
-                              Schedule Consistency: <span className="text-zinc-200 font-semibold">{avgConsistency}%</span>
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[10px] text-zinc-600">
-                            <span className="inline-block w-2 h-2 rounded-sm bg-red-500" />
-                            <span>low</span>
-                            <span className="inline-block w-2 h-2 rounded-sm bg-amber-500" />
-                            <span>med</span>
-                            <span className="inline-block w-2 h-2 rounded-sm bg-emerald-400" />
-                            <span>high</span>
-                          </div>
-                        </div>
-
-                        <div className="overflow-x-auto">
-                          {/* hour labels */}
-                          <div className="flex ml-7 mb-0.5 gap-0">
-                            {hourLabels.map((l, i) => (
-                              <div key={i} className="flex-1 text-[9px] text-zinc-600 text-center leading-none pb-0.5" style={{ visibility: i % 6 === 0 ? 'visible' : 'hidden' }}>
-                                {l}
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* grid rows */}
-                          <div className="space-y-0">
-                            {data.grid.map((dayData, dayIdx) => (
-                              <div key={dayIdx} className="flex items-center">
-                                <div className="w-7 text-[10px] text-zinc-500 text-right pr-1 flex-shrink-0 leading-none">{DAY_LABELS[dayIdx]}</div>
-                                <div className="flex flex-1 gap-0">
-                                  {dayData.map((cell, hourIdx) => {
-                                    const cons = consistencyMap.find(c => c.day === dayIdx && c.hour === hourIdx);
-                                    const consScore = cons?.score ?? 0;
-                                    const dominantActivity = cell.activities[0]?.activity || '';
-                                    const dominantColor = cell.activities[0]?.color || '';
-                                    return (
-                                      <div
-                                        key={hourIdx}
-                                        onMouseEnter={(e) => {
-                                          const tipW = 200, tipH = 160, gap = 4, pad = 8;
-                                          const rect = e.currentTarget.getBoundingClientRect();
-                                          let tx = rect.left, ty = rect.bottom + gap;
-                                          if (ty + tipH > window.innerHeight - pad) ty = rect.top - tipH - gap;
-                                          if (tx + tipW > window.innerWidth - pad) tx = rect.right - tipW;
-                                          tx = Math.max(pad, Math.min(tx, window.innerWidth - tipW - pad));
-                                          ty = Math.max(pad, Math.min(ty, window.innerHeight - tipH - pad));
-                                          setTooltip({ day: dayIdx, hour: hourIdx, x: tx, y: ty, side: 'bottom' });
-                                        }}
-                                        onMouseLeave={() => setTooltip(null)}
-                                        className="flex-1 min-h-[32px] cursor-pointer transition-all hover:brightness-125 hover:z-10 relative flex items-center justify-center"
-                                        style={{
-                                          background: cellBg(cell),
-                                          borderRight: '1px solid rgba(39,39,42,0.3)',
-                                          borderBottom: '1px solid rgba(39,39,42,0.3)',
-                                          outline: tooltip?.day === dayIdx && tooltip?.hour === hourIdx ? '1.5px solid rgba(255,255,255,0.4)' : 'none',
-                                          outlineOffset: '-1px',
-                                        }}
-                                      >
-                                        {/* Activity name overlay */}
-                                        {dominantActivity && (
-                                          <span
-                                            className="text-[8px] font-medium truncate px-0.5 leading-none"
-                                            style={{
-                                              color: 'rgba(255,255,255,0.85)',
-                                              textShadow: '0 1px 2px rgba(0,0,0,0.5)',
-                                              maxWidth: '100%',
-                                            }}
-                                            title={dominantActivity}
-                                          >
-                                            {dominantActivity.length > 8 ? dominantActivity.slice(0, 8) + '…' : dominantActivity}
-                                          </span>
-                                        )}
-                                        {/* consistency bar at bottom */}
-                                        <div className="absolute bottom-0 left-0 right-0 h-[3px]">
-                                          <div
-                                            className={`h-full ${consistencyColor(consScore)} transition-opacity`}
-                                            style={{ width: `${consScore}%`, opacity: 0.8 }}
-                                          />
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* tooltip */}
-                        {tooltip && data.grid[tooltip.day]?.[tooltip.hour] && (() => {
-                          const activeCell = data.grid[tooltip.day][tooltip.hour];
-                          const activeCons = consistencyMap.find(c => c.day === tooltip.day && c.hour === tooltip.hour)?.score ?? 0;
-                          return (
-                            <div
-                              className="fixed z-50 bg-zinc-900/95 border border-zinc-700 rounded-lg p-3 min-w-[180px] backdrop-blur-sm"
-                              style={{ left: tooltip.x, top: tooltip.y }}
-                            >
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-medium text-zinc-200">{DAY_LABELS[tooltip.day]} {hourLabels[tooltip.hour]}</span>
-                                <span className={`text-[10px] font-medium ${activeCons >= 60 ? 'text-emerald-400' : activeCons >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
-                                  {activeCons}% consistent
-                                </span>
-                              </div>
-                              <div className="space-y-1">
-                                {activeCell.activities.map((a, i) => (
-                                  <div key={i} className="flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                      <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: a.color }} />
-                                      <span className="text-[11px] text-zinc-300 truncate">{a.activity}</span>
-                                    </div>
-                                    <span className="text-[11px] text-zinc-400 flex-shrink-0">{fmt(a.seconds)} ({a.percentage}%)</span>
-                                  </div>
-                                ))}
-                              </div>
-                              <div className="mt-1.5 pt-1.5 border-t border-zinc-800 flex justify-between">
-                                <span className="text-[10px] text-zinc-500">Total</span>
-                                <span className="text-[10px] text-zinc-400">{fmt(activeCell.totalSeconds)}</span>
-                              </div>
-                              <div className="mt-1.5 flex items-center gap-1.5">
-                                {activeCell.hasExternal && (
-                                  <span className="text-[9px] px-1 py-0.5 bg-purple-500/20 text-purple-300 rounded">External</span>
-                                )}
-                                {activeCell.hasDevice && (
-                                  <span className="text-[9px] px-1 py-0.5 bg-cyan-500/20 text-cyan-300 rounded">Device</span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-
-                        {/* legend */}
-                        {data.legend.length > 0 && (
-                          <div className="flex flex-wrap gap-3 mt-4">
-                            {data.legend.map((item, i) => (
-                              <div key={i} className="flex items-center gap-1.5">
-                                <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: item.color }} />
-                                <span className="text-[11px] text-zinc-400">{item.activity}</span>
-                                <span className="text-[10px] text-zinc-600">{fmt(item.totalSeconds)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* intensity legend */}
-                        <div className="mt-3 flex items-center gap-2">
-                          <span className="text-[10px] text-zinc-600">Less</span>
-                          {['rgba(16,185,129,0.15)', 'rgba(16,185,129,0.35)', 'rgba(16,185,129,0.6)', 'rgba(16,185,129,0.9)'].map((c, i) => (
-                            <div key={i} className="w-3.5 h-3.5 rounded-sm" style={{ backgroundColor: c }} />
-                          ))}
-                          <span className="text-[10px] text-zinc-600">More</span>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </>
-              );
-            })() : (
-              <div className="h-32 flex items-center justify-center">
-                <div className="animate-pulse">
-                  <div className="h-4 bg-zinc-800 rounded w-40 mb-3" />
-                  <div className="h-24 bg-zinc-800 rounded" />
-                </div>
-              </div>
-            )}
           </GlassCard>
           </motion.div>
         )}

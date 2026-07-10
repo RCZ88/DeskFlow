@@ -926,5 +926,21 @@
     "files": [],
     "created_at": "2026-05-27T00:00:00.000Z",
     "updated_at": "2026-05-27T00:00:00.000Z"
+  },
+  {
+    "id": "136",
+    "title": "Research Digest Overhaul — Data-Driven News-Style Presentation",
+    "status": "NEW",
+    "priority": "high",
+    "category": "feature",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": "\"Current digest is just plain text with collapsible keywords — no credibility, no dates, no sources, no numerical data, no images. Needs to feel like a real news/terminal-style digest with authority markers, metadata, and data-oriented presentation.\"",
+    "fix_description": "Research and propose a complete overhaul of the Research Digest system to make it more credible, data-driven, and visually rich. See PROBLEMS.md #136 for full details.",
+    "files": [],
+    "created_at": "2026-07-03T00:00:00.000Z",
+    "updated_at": "2026-07-03T00:00:00.000Z"
   }
 ]

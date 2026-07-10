@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8" /><style>
+  html,body{margin:0;height:100%;font-family:Inter,system-ui,sans-serif;overflow:hidden}
+  body{display:grid;place-items:center;background:rgba(9,9,11,0.72);backdrop-filter:blur(14px);color:#fafafa}
+  .card{width:min(560px,86vw);padding:40px;border-radius:24px;text-align:center;
+    background:rgba(24,24,27,0.85);border:1px solid rgba(255,255,255,0.08);box-shadow:0 24px 80px rgba(0,0,0,.5)}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#a1a1aa}
+  h1{font-size:26px;margin:14px 0 6px}
+  .name{color:#f472b6;font-weight:600}
+  .timer{font-variant-numeric:tabular-nums;font-size:40px;font-weight:700;margin:18px 0}
+  p{color:#d4d4d8;margin:0 0 26px;line-height:1.5}
+  .row{display:flex;gap:12px;justify-content:center}
+  button{border:0;border-radius:12px;padding:14px 22px;font-size:14px;font-weight:600;cursor:pointer}
+  .back{background:#6366f1;color:#fff}
+  .break{background:transparent;color:#a1a1aa;border:1px solid rgba(255,255,255,.15)}
+  .hint{margin-top:18px;font-size:11px;color:#71717a}
+</style></head><body>
+  <div class="card">
+    <div class="eyebrow">Deep Focus</div>
+    <h1>Opening <span class="name" id="name">this</span> will break your focus.</h1>
+    <div class="timer" id="timer">--:--</div>
+    <p>You set this time aside to focus. Continuing marks this session as <b>failed</b>.</p>
+    <div class="row">
+      <button class="back" id="back">Back to focus</button>
+      <button class="break" id="brk">Break focus &amp; continue</button>
+    </div>
+    <div class="hint">This is a reminder, not a lock — your choice is logged.</div>
+  </div>
+  <script>
+    let endsAt = null;
+    const fmt = (s)=>{s=Math.max(0,s|0);return String((s/60)|0).padStart(2,'0')+':'+String(s%60).padStart(2,'0')};
+    function tick(){ if(endsAt) document.getElementById('timer').textContent = fmt((endsAt-Date.now())/1000); }
+    window.focusOverlay.onData(d=>{ document.getElementById('name').textContent=d.name; endsAt=d.endsAt; tick(); });
+    setInterval(tick,1000);
+    document.getElementById('back').onclick=()=>window.focusOverlay.return();
+    document.getElementById('brk').onclick=()=>window.focusOverlay.break();
+    document.addEventListener('keydown',e=>{ if(e.key==='Escape') window.focusOverlay.return(); });
+  </script>
+</body></html>

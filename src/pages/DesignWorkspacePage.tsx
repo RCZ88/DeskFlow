@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Palette } from 'lucide-react';
-import { Package, Grid, Zap } from 'lucide-react';
+import { Palette, Package, Grid, Zap, Paintbrush, LayoutPanelTop, Code2, Sparkles, Rabbit, Wind, Image } from 'lucide-react';
 import { TasteKnobs, type TasteKnobValues } from '../components/workspace/TasteKnobs';
 import DesignLibrarySources from '../components/workspace/DesignLibrarySources';
 import { StyleReferences } from '../components/workspace/StyleReferences';
@@ -9,13 +8,25 @@ import { StyleDescription } from '../components/workspace/StyleDescription';
 import ComponentBrowserModal from '../components/workspace/ComponentBrowserModal';
 import LibraryConfigModal from '../components/workspace/LibraryConfigModal';
 import { ColorPicker } from '../components/workspace/ColorPicker';
+import CultUIRegistry from '../components/workspace/CultUIRegistry';
+import { MotionExplorer } from '../components/workspace/MotionExplorer';
 
-type LibraryId = '21st-dev' | 'aceternity' | 'refero';
+export interface DesignLibraryDef {
+  id: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  icon: any;
+  status: 'idle' | 'connecting' | 'connected' | 'error';
+  itemCount: number;
+  accentColor: string;
+  group: 'mcp' | 'registry' | 'web-tool' | 'motion';
+}
 
 interface ImportedComponent {
   slug: string;
   name: string;
-  source: '21st-dev' | 'aceternity' | 'refero';
+  source: string;
   category: string;
   code?: string;
   tokens?: Record<string, any>;
@@ -39,8 +50,64 @@ const DEFAULT_TASTE: TasteKnobValues = {
   visualDensity: 5,
 };
 
-const SKILL_DIRS = ['frontend-design', 'impeccable', 'ui-ux-pro-max', 'taste-skill', 'design-taste'];
+const SKILL_DIRS = ['frontend-design', 'impeccable', 'ui-ux-pro-max', 'taste-skill', 'design-taste', 'motion-alive', 'humancentred-UIUX'];
 const REF_NAMES = ['Claude', 'Linear', 'Vercel', 'Stripe', 'Supabase', 'Sentry', 'PostHog', 'Raycast'];
+
+const DEFAULT_LIBRARIES: DesignLibraryDef[] = [
+  {
+    id: '21st-dev', label: '21st.dev', icon: Package, group: 'mcp',
+    description: 'Search and generate React components via MCP',
+    enabled: true, status: 'idle', itemCount: 0, accentColor: '#22d3ee',
+  },
+  {
+    id: 'aceternity', label: 'Aceternity UI', icon: Grid, group: 'registry',
+    description: 'Browse and install UI components from Aceternity',
+    enabled: true, status: 'idle', itemCount: 0, accentColor: '#a78bfa',
+  },
+  {
+    id: 'refero', label: 'Refero', icon: Zap, group: 'mcp',
+    description: 'Design system components via MCP (Pro)',
+    enabled: false, status: 'idle', itemCount: 0, accentColor: '#34d399',
+  },
+  {
+    id: 'cult-ui', label: 'Cult UI', icon: Paintbrush, group: 'registry',
+    description: 'Premium motion components via shadcn registry — Dynamic Islands, Family Buttons',
+    enabled: false, status: 'idle', itemCount: 0, accentColor: '#f97316',
+  },
+  {
+    id: 'fragments-ui', label: 'Fragments UI', icon: LayoutPanelTop, group: 'mcp',
+    description: '66 accessible components, 80 tokens, 11 MCP tools. AI-native.',
+    enabled: false, status: 'idle', itemCount: 0, accentColor: '#06b6d4',
+  },
+  {
+    id: 'shadcn-ui-mcp', label: 'shadcn/ui MCP', icon: Code2, group: 'mcp',
+    description: 'Multi-framework component docs with smart caching',
+    enabled: false, status: 'idle', itemCount: 0, accentColor: '#38bdf8',
+  },
+  {
+    id: 'aidesigner', label: 'AIDesigner', icon: Sparkles, group: 'mcp',
+    description: 'Generate, clone, and refine web designs via MCP',
+    enabled: false, status: 'idle', itemCount: 0, accentColor: '#c084fc',
+  },
+  {
+    id: 'reactbits', label: 'React Bits', icon: Rabbit, group: 'registry',
+    description: '135+ animated Tailwind/CSS components, no API key needed',
+    enabled: false, status: 'idle', itemCount: 0, accentColor: '#f472b6',
+  },
+  {
+    id: 'swishy-motion', label: 'Swishy Motion', icon: Wind, group: 'motion',
+    description: 'Kinetic typography and Framer Motion curve presets',
+    enabled: false, status: 'idle', itemCount: 0, accentColor: '#2dd4bf',
+  },
+  {
+    id: 'variant', label: 'Variant', icon: Image, group: 'web-tool',
+    description: 'Visual theme exploration canvas — infinite layout ideas',
+    enabled: false, status: 'idle', itemCount: 0, accentColor: '#fb923c',
+  },
+];
+
+const REGISTRY_SOURCES = new Set(['aceternity', 'cult-ui', 'reactbits']);
+const MCP_SOURCES = new Set(['21st-dev', 'refero', 'fragments-ui', 'shadcn-ui-mcp', 'aidesigner']);
 
 async function readFileContent(relativePath: string, projectPath?: string): Promise<string | null> {
   try {
@@ -87,7 +154,7 @@ function buildImportedComponentsXml(components: ImportedComponent[]): string {
   return lines.join('\n');
 }
 
-function buildDesignLibraryAccessXml(enabledLibraries: { id: string; label: string }[]): string {
+function buildDesignLibraryAccessXml(enabledLibraries: DesignLibraryDef[]): string {
   if (enabledLibraries.length === 0) return '';
   const parts: string[] = ['  <design_library_access>'];
   parts.push('    Available design libraries (ask the user to browse and add more from the Design tab):');
@@ -103,6 +170,27 @@ function buildDesignLibraryAccessXml(enabledLibraries: { id: string; label: stri
       case 'refero':
         description = '2000+ design systems with structured tokens (colors, typography, spacing, border-radius)';
         break;
+      case 'fragments-ui':
+        description = '66 accessible React components + 80 design tokens + .fragment.tsx metadata (11 MCP tools)';
+        break;
+      case 'cult-ui':
+        description = 'Premium shadcn registry components: Dynamic Islands, Family Buttons, rich animations. Install via npx shadcn@latest';
+        break;
+      case 'shadcn-ui-mcp':
+        description = 'Multi-framework shadcn/ui component documentation with usage examples (React, Svelte, Vue, React Native)';
+        break;
+      case 'aidesigner':
+        description = 'Generate, clone, and refine production-ready web designs via MCP from a live URL';
+        break;
+      case 'reactbits':
+        description = '135+ animated React components (CSS + Tailwind variants) — text animations, particles, hover effects';
+        break;
+      case 'swishy-motion':
+        description = 'Text-to-motion kinetic typography with CSS keyframes and Framer Motion curve settings';
+        break;
+      case 'variant':
+        description = 'Infinite layout ideas based on visual themes — feed canvas screenshots into agent vision';
+        break;
     }
     parts.push(`    - ${lib.label}: ${description}`);
   }
@@ -117,7 +205,7 @@ async function buildFullContext(
   styleDescription?: string,
   colors?: ColorEntry[],
   importedComponents?: ImportedComponent[],
-  enabledLibraries?: { id: string; label: string }[],
+  enabledLibraries?: DesignLibraryDef[],
 ): Promise<string> {
   const parts: string[] = [];
   parts.push(`<design_taste>`);
@@ -186,51 +274,22 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
   const [colors, setColors] = useState<ColorEntry[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [lastSent, setLastSent] = useState<string | null>(null);
-  const [libraries, setLibraries] = useState([
-    {
-      id: '21st-dev' as const,
-      label: '21st.dev',
-      description: 'Search and generate React components via MCP',
-      enabled: true,
-      icon: Package,
-      status: 'idle' as 'idle' | 'connecting' | 'connected' | 'error',
-      itemCount: 0,
-      accentColor: '#22d3ee',
-    },
-    {
-      id: 'aceternity' as const,
-      label: 'Aceternity UI',
-      description: 'Browse and install UI components from Aceternity',
-      enabled: true,
-      icon: Grid,
-      status: 'idle' as 'idle' | 'connecting' | 'connected' | 'error',
-      itemCount: 0,
-      accentColor: '#a78bfa',
-    },
-    {
-      id: 'refero' as const,
-      label: 'Refero',
-      description: 'Design system components via MCP',
-      enabled: false,
-      icon: Zap,
-      status: 'idle' as 'idle' | 'connecting' | 'connected' | 'error',
-      itemCount: 0,
-      accentColor: '#34d399',
-    },
-  ]);
-  
+  const [libraries, setLibraries] = useState(DEFAULT_LIBRARIES.map(l => ({ ...l })));
   const [loadingContext, setLoadingContext] = useState(true);
   const [preview, setPreview] = useState<string>('');
-  const [activeBrowseLibrary, setActiveBrowseLibrary] = useState<LibraryId | null>(null);
-  const [activeConfigLibrary, setActiveConfigLibrary] = useState<LibraryId | null>(null);
+  const [activeBrowseLibrary, setActiveBrowseLibrary] = useState<string | null>(null);
+  const [activeConfigLibrary, setActiveConfigLibrary] = useState<string | null>(null);
   const [importedComponents, setImportedComponents] = useState<ImportedComponent[]>([]);
+  const [showCultRegistry, setShowCultRegistry] = useState(false);
+  const [showMotionExplorer, setShowMotionExplorer] = useState(false);
+  const [activeTab, setActiveTab] = useState<'sources' | 'motion' | 'registry'>('sources');
 
-  const openBrowse = (id: LibraryId) => setActiveBrowseLibrary(id);
+  const openBrowse = (id: string) => setActiveBrowseLibrary(id);
   const closeBrowse = () => setActiveBrowseLibrary(null);
-  const openConfig = (id: LibraryId) => setActiveConfigLibrary(id);
+  const openConfig = (id: string) => setActiveConfigLibrary(id);
   const closeConfig = () => setActiveConfigLibrary(null);
 
-  const handleToggle = (libraryId: LibraryId, enabled: boolean) => {
+  const handleToggle = (libraryId: string, enabled: boolean) => {
     setLibraries(prev => prev.map(lib => 
       lib.id === libraryId ? { ...lib, enabled } : lib
     ));
@@ -254,21 +313,24 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
     setImportedComponents(prev => prev.filter(c => c.slug !== slug));
   };
 
-  const handleStartServer = async (id: LibraryId) => {
+  const handleStartServer = async (id: string) => {
     setLibraries(prev => prev.map(l => l.id === id ? { ...l, status: 'connecting' as const } : l));
     const dapi = (window as any).deskflowAPI;
     try {
-      let result;
-      if (id === 'aceternity') {
-        result = await dapi?.aceternityFetchRegistry?.();
+      if (REGISTRY_SOURCES.has(id)) {
+        let result;
+        if (id === 'aceternity') {
+          result = await dapi?.aceternityFetchRegistry?.();
+        }
         if (result?.success) {
           setLibraries(prev => prev.map(l =>
             l.id === id ? { ...l, status: 'connected' as const, itemCount: result.total || 0 } : l
           ));
           return;
         }
-      } else {
-        result = await dapi?.mcpStartServer?.(id);
+      }
+      if (MCP_SOURCES.has(id)) {
+        const result = await dapi?.mcpStartServer?.(id);
         if (result?.success) {
           const status = await dapi?.mcpServerStatus?.(id);
           if (status?.status === 'running') {
@@ -289,10 +351,10 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
     }
   };
 
-  const handleStopServer = async (id: LibraryId) => {
+  const handleStopServer = async (id: string) => {
     const dapi = (window as any).deskflowAPI;
     try {
-      if (id !== 'aceternity') {
+      if (MCP_SOURCES.has(id)) {
         await dapi?.mcpStopServer?.(id);
       }
     } catch {}
@@ -313,7 +375,6 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
     try {
       await dapi?.setDesignLibraryConfig?.(cfg);
     } catch {}
-    // Re-check statuses after save
     checkLibraryStatuses();
   };
 
@@ -368,15 +429,17 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
 
   const checkLibraryStatuses = useCallback(async () => {
     const dapi = (window as any).deskflowAPI;
-    for (const id of ['21st-dev', 'refero'] as LibraryId[]) {
+    for (const id of libraries.map(l => l.id)) {
       try {
-        const status = await dapi?.mcpServerStatus?.(id);
-        if (status?.status === 'running') {
-          setLibraries(prev => prev.map(l =>
-            l.id === id ? { ...l, status: 'connected' as const, itemCount: status.toolCount || 0 } : l
-          ));
-        } else if (status?.status === 'error') {
-          setLibraries(prev => prev.map(l => l.id === id ? { ...l, status: 'error' as const } : l));
+        if (MCP_SOURCES.has(id)) {
+          const status = await dapi?.mcpServerStatus?.(id);
+          if (status?.status === 'running') {
+            setLibraries(prev => prev.map(l =>
+              l.id === id ? { ...l, status: 'connected' as const, itemCount: status.toolCount || 0 } : l
+            ));
+          } else if (status?.status === 'error') {
+            setLibraries(prev => prev.map(l => l.id === id ? { ...l, status: 'error' as const } : l));
+          }
         }
       } catch {}
     }
@@ -388,9 +451,8 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
         ));
       }
     } catch {}
-  }, []);
+  }, [libraries]);
 
-  // On mount, check MCP server status, load config, and start polling
   useEffect(() => {
     checkLibraryStatuses();
     const interval = setInterval(checkLibraryStatuses, 10000);
@@ -411,7 +473,6 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
     refreshPreview();
   }, []);
 
-  // Compute imported counts for the DesignComposeOutlet
   const importedCounts = libraries
     .filter(lib => importedComponents.some(c => c.source === lib.id))
     .map(lib => ({
@@ -419,6 +480,10 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
       count: importedComponents.filter(c => c.source === lib.id).length,
       accentColor: lib.accentColor,
     }));
+
+  const mcpLibraries = libraries.filter(l => l.group === 'mcp' || l.group === 'registry');
+  const motionLibraries = libraries.filter(l => l.group === 'motion');
+  const webLibraries = libraries.filter(l => l.group === 'web-tool');
 
   return (
     <div className="space-y-4">
@@ -441,19 +506,66 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
         />
       </div>
 
-      <DesignLibrarySources
-        libraries={libraries}
-        onBrowse={openBrowse}
-        onToggle={handleToggle}
-        onConfigure={openConfig}
-        onStartServer={handleStartServer}
-        onStopServer={handleStopServer}
-      />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <StyleDescription value={styleDescription} onChange={(v) => { setStyleDescription(v); refreshPreview(); }} />
-        <ColorPicker colors={colors} onChange={(c) => { setColors(c); refreshPreview(); }} />
+      {/* Tabs: Design Sources / Motion Explorer / Registry Browser */}
+      <div className="flex gap-1 border-b border-zinc-800/40 pb-1">
+        {[
+          { key: 'sources' as const, label: 'Design Sources', icon: Package },
+          { key: 'motion' as const, label: 'Motion Explorer', icon: Wind },
+          { key: 'registry' as const, label: 'Registry Browser', icon: Paintbrush },
+        ].map(t => {
+          const active = activeTab === t.key;
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-[11px] font-medium transition-all duration-150 ${
+                active
+                  ? 'text-pink-300 bg-pink-950/20 border border-zinc-800/60 border-b-0 -mb-px'
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {t.label}
+            </button>
+          );
+        })}
       </div>
+
+      {activeTab === 'sources' && (
+        <>
+          <DesignLibrarySources
+            libraries={libraries}
+            onBrowse={openBrowse}
+            onToggle={handleToggle}
+            onConfigure={openConfig}
+            onStartServer={handleStartServer}
+            onStopServer={handleStopServer}
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <StyleDescription value={styleDescription} onChange={(v) => { setStyleDescription(v); refreshPreview(); }} />
+            <ColorPicker colors={colors} onChange={(c) => { setColors(c); refreshPreview(); }} />
+          </div>
+        </>
+      )}
+
+      {activeTab === 'motion' && (
+        <MotionExplorer onAddMotionSnippet={(snippet) => {
+          setImportedComponents(prev => [...prev, {
+            slug: `motion-${Date.now()}`,
+            name: snippet.name,
+            source: 'swishy-motion',
+            category: 'Animation',
+            code: snippet.code,
+            addedAt: new Date().toISOString(),
+          }]);
+        }} />
+      )}
+
+      {activeTab === 'registry' && (
+        <CultUIRegistry onAddComponent={handleAddComponent} />
+      )}
 
       <DesignComposeOutlet
         contextSnippet={loadingContext ? 'Loading...' : preview}
@@ -469,7 +581,7 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
       <ComponentBrowserModal
         open={!!activeBrowseLibrary}
         onClose={closeBrowse}
-        libraryId={activeBrowseLibrary as LibraryId}
+        libraryId={activeBrowseLibrary || ''}
         onAddComponent={handleAddComponent}
       />
 

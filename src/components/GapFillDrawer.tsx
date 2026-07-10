@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, Clock, ExternalLink, Monitor, Plus, X, ChevronDown } from 'lucide-react'
+import { Check, Clock, ExternalLink, Monitor, Plus, Sparkles, X, ChevronDown } from 'lucide-react'
 import type { ConfirmFill, Gap } from '../types/gaps'
 
 const DRAWER_HEIGHT = 'max-h-[80%]'
@@ -48,7 +48,9 @@ function fmtTime(ms: number): string {
   const m = d.getMinutes()
   const ampm = h >= 12 ? 'PM' : 'AM'
   const h12 = h % 12 || 12
-  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`
+  const day = d.toLocaleDateString('en-US', { weekday: 'short' })
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return `${day} ${date} · ${h12}:${m.toString().padStart(2, '0')} ${ampm}`
 }
 
 function fmtMin(s: number): string {
@@ -88,6 +90,7 @@ export function GapFillDrawer({
   const [knownApps, setKnownApps] = useState<PickableActivity[]>([])
   const [externalActivities, setExternalActivities] = useState<PickableActivity[]>([])
   const [busy, setBusy] = useState(false)
+  const [autoFilling, setAutoFilling] = useState(false)
   const [pickingFor, setPickingFor] = useState<{ gapId: number; segId: number } | null>(null)
   const segCounter = useRef(1)
 
@@ -136,6 +139,71 @@ export function GapFillDrawer({
     }
   }, [])
 
+  const allActivities = useCallback(() => {
+    return [...knownApps, ...externalActivities]
+  }, [knownApps, externalActivities])
+
+  const autofillGap = useCallback(async (gapIdx: number) => {
+    const gs = gapStates[gapIdx]
+    if (!gs) return
+    setAutoFilling(true)
+    try {
+      const result = await api().predictGapFill(gs.gap.start, gs.gap.end, 'combined')
+      if (result?.gaps?.[0]?.slots) {
+        const slots = result.gaps[0].slots
+        const acts = allActivities()
+        const segments: GapSegment[] = slots.map((slot: any, si: number) => {
+          const top = slot.predictions?.[0]
+          const act = top ? acts.find(a => a.name === top.app) : null
+          return {
+            id: segCounter.current + si,
+            activityId: act?.id || null,
+            activityName: act?.name || top?.app || '',
+            category: act?.category || top?.category || '',
+            durationSeconds: slot.durationSeconds,
+          }
+        })
+        segCounter.current += slots.length
+        setGapStates(prev => prev.map((g, i) => i === gapIdx ? { ...g, segments, expanded: true } : g))
+      }
+    } catch {
+      setError('Prediction failed')
+    }
+    setAutoFilling(false)
+  }, [gapStates, allActivities])
+
+  const autofillAll = useCallback(async () => {
+    setAutoFilling(true)
+    try {
+      const acts = allActivities()
+      const newStates = await Promise.all(gapStates.map(async (gs, idx) => {
+        try {
+          const result = await api().predictGapFill(gs.gap.start, gs.gap.end, 'combined')
+          if (result?.gaps?.[0]?.slots) {
+            const slots = result.gaps[0].slots
+            const segments: GapSegment[] = slots.map((slot: any) => {
+              const top = slot.predictions?.[0]
+              const act = top ? acts.find(a => a.name === top.app) : null
+              return {
+                id: segCounter.current++,
+                activityId: act?.id || null,
+                activityName: act?.name || top?.app || '',
+                category: act?.category || top?.category || '',
+                durationSeconds: slot.durationSeconds,
+              }
+            })
+            return { ...gs, segments, expanded: true }
+          }
+        } catch { /* skip */ }
+        return gs
+      }))
+      setGapStates(newStates)
+    } catch {
+      setError('Prediction failed')
+    }
+    setAutoFilling(false)
+  }, [gapStates, allActivities])
+
   useEffect(() => {
     if (!open) return
     fetchGaps(period)
@@ -155,10 +223,6 @@ export function GapFillDrawer({
     if (!open) return
     setPickingFor(null)
   }, [open])
-
-  const allActivities = useCallback(() => {
-    return [...externalActivities, ...knownApps]
-  }, [externalActivities, knownApps])
 
   const getActivity = useCallback((id: string | null): PickableActivity | undefined => {
     if (!id) return undefined
@@ -347,9 +411,21 @@ export function GapFillDrawer({
                 </div>
               </div>
             </div>
-            <button onClick={onClose} aria-label='Close' className='rounded-lg p-2 text-zinc-400 hover:bg-zinc-800'>
-              <X className='h-4 w-4' />
-            </button>
+            <div className='flex items-center gap-2'>
+              {gapStates.length > 0 && (
+                <button
+                  onClick={autofillAll}
+                  disabled={autoFilling}
+                  className='flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition disabled:opacity-50'
+                >
+                  <Sparkles className={`h-3.5 w-3.5 ${autoFilling ? 'animate-pulse' : ''}`} />
+                  {autoFilling ? 'Predicting...' : 'Auto-fill all'}
+                </button>
+              )}
+              <button onClick={onClose} aria-label='Close' className='rounded-lg p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors'>
+                <X className='h-4 w-4' />
+              </button>
+            </div>
           </div>
 
           {/* Period selector */}
@@ -359,10 +435,10 @@ export function GapFillDrawer({
                 key={p.key}
                 onClick={() => setPeriod(p.key)}
                 className={
-                  'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition ' +
+                  'flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ' +
                   (period === p.key
-                    ? 'bg-zinc-700 text-zinc-200 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-300')
+                    ? 'bg-zinc-700 text-zinc-200 shadow-sm border border-zinc-600/30'
+                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50')
                 }
               >
                 {p.label}
@@ -407,6 +483,14 @@ export function GapFillDrawer({
                         {gs.segments.filter((s) => s.activityId).length}
                       </span>
                     )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); autofillGap(gi); }}
+                      disabled={autoFilling}
+                      className='p-1 rounded-md text-zinc-500 hover:text-indigo-300 hover:bg-indigo-500/10 transition disabled:opacity-50'
+                      title='Auto-fill this gap'
+                    >
+                      <Sparkles className={`h-3.5 w-3.5 ${autoFilling ? 'animate-pulse' : ''}`} />
+                    </button>
                     <ChevronDown className={'h-4 w-4 text-zinc-500 transition-transform ' + (gs.expanded ? 'rotate-180' : '')} />
                   </div>
                 </button>
@@ -568,7 +652,7 @@ export function GapFillDrawer({
               <button
                 onClick={acceptAll}
                 disabled={filledCount === 0 || busy}
-                className='w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed'
+                className='w-full rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 py-2.5 text-sm font-medium text-white hover:from-indigo-500 hover:to-violet-500 shadow-lg shadow-indigo-600/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition-all'
               >
                 {busy ? 'Saving…' : (
                   <span className='flex items-center justify-center gap-2'>
@@ -684,25 +768,45 @@ function ActivityPickerGrid({
   )
 }
 
-const shimmer = 'animate-pulse rounded-lg bg-zinc-800/40'
+const shimmer = 'animate-pulse rounded-xl bg-zinc-800/30'
 function LoadingSkeleton() {
-  return <div className='space-y-2'>{[0, 1, 2].map((i) => <div key={i} className={shimmer + ' h-11'} />)}</div>
+  return (
+    <div className='space-y-2'>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className='space-y-1.5'>
+          <div className={shimmer + ' h-10'} />
+          <div className={shimmer + ' h-16 ml-4'} />
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function AllAccounted() {
   return (
-    <div className='flex flex-col items-center gap-1 py-8 text-zinc-500'>
-      <Check className='h-6 w-6 text-emerald-400' />
-      <span className='text-sm'>All time accounted for</span>
-    </div>
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className='flex flex-col items-center gap-2 py-10 text-zinc-500'
+    >
+      <div className='w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center ring-1 ring-emerald-500/20'>
+        <Check className='h-6 w-6 text-emerald-400' />
+      </div>
+      <span className='text-sm font-medium text-zinc-300'>All time accounted for</span>
+      <span className='text-xs text-zinc-600'>No gaps found in this period</span>
+    </motion.div>
   )
 }
 
 function ErrorRow({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className='mb-2 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300'>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className='mb-2 flex items-center justify-between rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2.5 text-xs text-red-300/80'
+    >
       <span>{message}</span>
-      <button onClick={onRetry} className='underline'>Retry</button>
-    </div>
+      <button onClick={onRetry} className='text-red-300 hover:text-red-200 underline underline-offset-2 transition-colors'>Retry</button>
+    </motion.div>
   )
 }

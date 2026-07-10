@@ -50,7 +50,12 @@
         { "properties": { "type": { "const": "widget" }, "kind": { "enum": ["template", "html"] }, "template": { "type": "string" }, "params": { "type": "object" }, "html": { "type": "string" }, "io_contract": { "type": "object" }, "capabilities": { "type": "object", "properties": { "network": { "type": "array", "items": { "type": "string" } }, "storage": { "type": "boolean" } } }, "caption": { "type": "string" } }, "required": ["kind"] },
         { "properties": { "type": { "const": "quiz" }, "format": { "enum": ["mcq", "numeric", "open"] }, "q": { "type": "string" }, "options": { "type": "array", "items": { "type": "string" } }, "answer_key": {}, "rubric": { "type": "object" }, "level": { "$ref": "#/$defs/level" }, "grounding_ref": { "type": "string" } }, "required": ["format", "q", "level"] },
         { "properties": { "type": { "const": "callout" }, "icon": { "type": "string" }, "md": { "type": "string" }, "tone": { "type": "string" } }, "required": ["md"] },
-        { "properties": { "type": { "const": "layer" }, "reveal_at": { "$ref": "#/$defs/level" }, "mode": { "enum": ["deeper", "remedial"] }, "blocks": { "type": "array", "items": { "$ref": "#/$defs/block" } } }, "required": ["reveal_at", "mode", "blocks"] }
+        { "properties": { "type": { "const": "layer" }, "reveal_at": { "$ref": "#/$defs/level" }, "mode": { "enum": ["deeper", "remedial"] }, "blocks": { "type": "array", "items": { "$ref": "#/$defs/block" } } }, "required": ["reveal_at", "mode", "blocks"] },
+        { "properties": { "type": { "const": "chart" }, "spec": { "type": "string" }, "parsed": { "type": "object" }, "caption": { "type": "string" } }, "required": ["spec"] },
+        { "properties": { "type": { "const": "table" }, "columns": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "field": { "type": "string" } } } }, "rows": { "type": "array", "items": { "type": "object" } }, "options": { "type": "object" }, "caption": { "type": "string" } }, "required": ["columns", "rows"] },
+        { "properties": { "type": { "const": "flow" }, "variant": { "enum": ["sankey", "waterfall"] }, "spec": { "type": "string" }, "edges": { "type": "array", "items": { "type": "object", "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "value": { "type": "number" } } } }, "caption": { "type": "string" } }, "required": ["variant", "spec"] },
+        { "properties": { "type": { "const": "finchart" }, "spec": { "type": "string" }, "parsed": { "type": "object" }, "caption": { "type": "string" } }, "required": ["spec"] },
+        { "properties": { "type": { "const": "svg" }, "svg": { "type": "string" }, "caption": { "type": "string" } }, "required": ["svg"] }
       ]
     },
     "grounding": {

@@ -2632,7 +2632,11 @@ function computeSolarSystems(
   categoryOverrides?: Record<string, string>
 ): { category: string; planets: PlanetData[]; totalTime: number; sunSize: number }[] {
   // Guard against undefined logs
-  const safeLogs = logs || [];
+  const rawLogs = logs || [];
+  const downsampleThreshold = 10000;
+  const safeLogs = rawLogs.length > downsampleThreshold
+    ? rawLogs.slice(-downsampleThreshold)
+    : rawLogs;
   
   // Get categories from settings tier assignments (dynamic, reads from localStorage each time)
   const settingsCategories = getCategoryListFromSettings();

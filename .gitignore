@@ -135,8 +135,36 @@ CZVault/
 
 # Backup files
 *.bak
+*.bak.*
 *.backup
+*.backup.*
 *.old
+*.zip
+*.backup-*
+
+# Agent backup directories
+agent.bak*/
+agent/backups/
+
+# Backup directories at project root
+backup_*/
+
+# Backup directories inside src/
+src/backups/
+
+# AI CLI / script output directories (bug: writes to --help/ and --vault/)
+--help/
+--vault/
+
+# Session dump files at repo root
+session-ses_*
+
+# AI code editor backups
+.opencode-backups/
+
+# 3D binary assets (not suited for git, use LFS or download)
+public/cyber_assets/**/*.glb
+public/cyber_assets/**/*.hdr
 
 # opencode config (contains MCP API keys)
 opencode.json

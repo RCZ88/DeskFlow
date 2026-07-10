@@ -40,9 +40,9 @@ function StepIndicator({ current }: { current: 0 | 1 | 2 }) {
                 className={
                   'flex h-6 w-6 items-center justify-center rounded-lg text-[11px] font-semibold ' +
                   (active
-                    ? 'bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/40'
+                    ? 'bg-clay-500/15 text-clay-300 ring-1 ring-clay-500/40'
                     : done
-                    ? 'bg-emerald-400/10 text-emerald-300'
+                    ? 'bg-sage-400/10 text-sage-300'
                     : 'bg-zinc-800/60 text-zinc-500')
                 }
               >
@@ -71,9 +71,9 @@ function GenerationProgress({ phase }: { phase: number }) {
               className={
                 'flex h-5 w-5 items-center justify-center rounded-md text-[10px] ' +
                 (state === 'done'
-                  ? 'bg-emerald-400/10 text-emerald-300'
+                  ? 'bg-sage-400/10 text-sage-300'
                   : state === 'active'
-                  ? 'bg-indigo-500/15 text-indigo-300'
+                  ? 'bg-clay-500/15 text-clay-300'
                   : 'bg-zinc-800/60 text-zinc-600')
               }
             >
@@ -81,7 +81,7 @@ function GenerationProgress({ phase }: { phase: number }) {
                 <motion.span
                   animate={{ rotate: 360 }}
                   transition={{ repeat: Infinity, ease: 'linear', duration: 0.8 }}
-                  className="block h-2.5 w-2.5 rounded-full border border-indigo-300 border-t-transparent"
+                  className="block h-2.5 w-2.5 rounded-full border border-clay-300 border-t-transparent"
                 />
               ) : i + 1}
             </span>
@@ -93,14 +93,23 @@ function GenerationProgress({ phase }: { phase: number }) {
   );
 }
 
+export interface LessonSeed {
+  part: number;
+  title: string;
+  scope: string[];
+  topicPrompt: string;
+}
+
 export function CreateLessonDialog({
   open,
   onClose,
   onImported,
+  seed,
 }: {
   open: boolean;
   onClose: () => void;
   onImported: () => void;
+  seed?: LessonSeed | null;
 }) {
   const [step, setStep] = useState<Step>('input');
   const [inputMode, setInputMode] = useState<InputMode>('simple');
@@ -121,7 +130,14 @@ export function CreateLessonDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      if (seed) {
+        setInputMode('detailed');
+        setDescription(seed.title);
+        setUserInput(`I want to learn about ${seed.title}. The key areas are:\n${seed.scope.map((s) => `- ${s}`).join('\n')}`);
+        setContextDoc(seed.topicPrompt ? `Curriculum brief:\n${seed.topicPrompt}` : '');
+      }
+    } else {
       setStep('input');
       setInputMode('simple');
       setUserInput('');
@@ -136,7 +152,7 @@ export function CreateLessonDialog({
       setValidPrompt(false);
       setGenPhase(0);
     }
-  }, [open]);
+  }, [open, seed]);
 
   const canBuildSimple = userInput.trim().length >= 10 && !building;
   const canBuildDetailed = description.trim().length >= 3 && !building;
@@ -167,13 +183,16 @@ export function CreateLessonDialog({
     }
   };
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {}
-  };
+   const handleCopy = async () => {
+     if (!prompt) return;
+     try {
+       await navigator.clipboard.writeText(prompt);
+       setCopied(true);
+       setTimeout(() => setCopied(false), 2000);
+     } catch (e) {
+       console.error('[CreateLessonDialog] Copy failed:', e);
+     }
+   };
 
   const handleDownload = () => {
     const blob = new Blob([prompt], { type: 'text/markdown' });
@@ -209,13 +228,10 @@ export function CreateLessonDialog({
     setGenResult(null);
     setGenPhase(0);
     try {
-      // Phase 1: Building prompt (already done, advance)
       setGenPhase(1);
       await new Promise(r => setTimeout(r, 300));
-      // Phase 2: Generating lesson
       setGenPhase(2);
       const result = await api.learnGenerateLdoc({ prompt, systemPrompt });
-      // Phase 3: Validating (done by backend)
       setGenPhase(3);
       await new Promise(r => setTimeout(r, 200));
       if (result.ok && result.data?.lessonId) {
@@ -261,8 +277,8 @@ export function CreateLessonDialog({
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/80 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
-                  <Wand2 className="w-4 h-4 text-indigo-400" />
+                <div className="w-9 h-9 rounded-xl bg-clay-500/10 border border-clay-500/20 flex items-center justify-center shrink-0">
+                  <Wand2 className="w-4 h-4 text-clay-400" />
                 </div>
                 <div>
                   <h2 className="text-sm font-semibold text-zinc-100 leading-tight">Create a Lesson</h2>
@@ -287,7 +303,7 @@ export function CreateLessonDialog({
               <StepIndicator current={step === 'input' ? 0 : step === 'prompt' ? 1 : 2} />
             </div>
 
-            {/* Mode toggle — step 1 only */}
+            {/* Mode toggle */}
             <AnimatePresence>
               {step === 'input' && (
                 <motion.div
@@ -324,7 +340,7 @@ export function CreateLessonDialog({
                       </button>
                     </div>
                     <span className="text-xs text-zinc-600 ml-auto">
-                      {inputMode === 'simple' ? 'One input — AI figures out the rest' : 'Multiple fields for precise control'}
+                      {inputMode === 'simple' ? 'One input \u2014 AI figures out the rest' : 'Multiple fields for precise control'}
                     </span>
                   </div>
                 </motion.div>
@@ -346,15 +362,15 @@ export function CreateLessonDialog({
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-xs font-medium text-zinc-400">
-                        What do you want to learn? <span className="text-indigo-400">*</span>
+                        What do you want to learn? <span className="text-clay-400">*</span>
                       </label>
                       <span className="text-xs text-zinc-600">{userInput.trim().length} chars</span>
                     </div>
                     <textarea
                       value={userInput}
                       onChange={(e) => setUserInput(e.target.value)}
-                      placeholder={`Describe what you want to learn. For example:\n\n"I'm a CS student who knows basic Python. I want to understand how operating systems manage memory — virtual memory, paging, segmentation, and how the kernel allocates and frees memory. I've been reading OSTEP but find the chapters dense, so I'd like something more visual with diagrams and quizzes to check my understanding."`}
-                      className="w-full px-4 py-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[180px]"
+                      placeholder={`Describe what you want to learn. For example:\n\n"I'm a CS student who knows basic Python. I want to understand how operating systems manage memory \u2014 virtual memory, paging, segmentation, and how the kernel allocates and frees memory. I've been reading OSTEP but find the chapters dense, so I'd like something more visual with diagrams and quizzes to check my understanding."`}
+                      className="w-full px-4 py-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-clay-500/40 focus:ring-2 focus:ring-clay-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[180px]"
                       autoFocus
                     />
                     {userInput.trim().length > 0 && userInput.trim().length < 10 && (
@@ -369,7 +385,7 @@ export function CreateLessonDialog({
                     </label>
                     {fileName ? (
                       <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-zinc-800/40 border border-zinc-700/50">
-                        <FileText className="w-4 h-4 text-indigo-400 shrink-0" />
+                        <FileText className="w-4 h-4 text-clay-400 shrink-0" />
                         <span className="text-sm text-zinc-300 truncate flex-1">{fileName}</span>
                         <button
                           onClick={handleClearFile}
@@ -384,7 +400,7 @@ export function CreateLessonDialog({
                           value={contextDoc}
                           onChange={(e) => setContextDoc(e.target.value)}
                           placeholder="Paste reference notes, textbook excerpts, or documentation..."
-                          className="flex-1 px-3 py-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[60px]"
+                          className="flex-1 px-3 py-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-clay-500/40 focus:ring-2 focus:ring-clay-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[60px]"
                         />
                         <input ref={fileInputRef} type="file" accept=".txt,.md,.json,.pdf" onChange={handleFileUpload} className="hidden" />
                         <button
@@ -412,13 +428,13 @@ export function CreateLessonDialog({
                 >
                   <div>
                     <label className="block text-xs font-medium text-zinc-400 mb-2">
-                      Topic <span className="text-indigo-400">*</span>
+                      Topic <span className="text-clay-400">*</span>
                     </label>
                     <textarea
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder="e.g. How neural networks learn through backpropagation"
-                      className="w-full px-4 py-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[80px]"
+                      className="w-full px-4 py-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-clay-500/40 focus:ring-2 focus:ring-clay-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[80px]"
                       autoFocus
                     />
                     {description.trim().length > 0 && description.trim().length < 3 && (
@@ -433,7 +449,7 @@ export function CreateLessonDialog({
                     </label>
                     {fileName ? (
                       <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-zinc-800/40 border border-zinc-700/50">
-                        <FileText className="w-4 h-4 text-indigo-400 shrink-0" />
+                        <FileText className="w-4 h-4 text-clay-400 shrink-0" />
                         <span className="text-sm text-zinc-300 truncate flex-1">{fileName}</span>
                         <button
                           onClick={handleClearFile}
@@ -448,7 +464,7 @@ export function CreateLessonDialog({
                           value={contextDoc}
                           onChange={(e) => setContextDoc(e.target.value)}
                           placeholder="Paste reference notes, textbook excerpts, or documentation..."
-                          className="flex-1 px-3 py-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[60px]"
+                          className="flex-1 px-3 py-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-clay-500/40 focus:ring-2 focus:ring-clay-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[60px]"
                         />
                         <input ref={fileInputRef} type="file" accept=".txt,.md,.json,.pdf" onChange={handleFileUpload} className="hidden" />
                         <button
@@ -475,7 +491,7 @@ export function CreateLessonDialog({
                           onClick={() => setNumNodes(n)}
                           className={`w-9 h-9 rounded-lg text-sm font-medium transition-all duration-150 ${
                             numNodes === n
-                              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                              ? 'bg-clay-500/20 text-clay-300 border border-clay-500/30'
                               : 'bg-zinc-800/40 text-zinc-500 border border-zinc-700/40 hover:border-zinc-600/60 hover:text-zinc-300'
                           }`}
                         >
@@ -498,11 +514,11 @@ export function CreateLessonDialog({
                   className="space-y-4"
                 >
                   {/* Info callout */}
-                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-indigo-500/5 border border-indigo-500/15">
-                    <Sparkles className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-clay-500/5 border border-clay-500/15">
+                    <Sparkles className="w-4 h-4 text-clay-400 shrink-0 mt-0.5" />
                     <p className="text-xs text-zinc-400 leading-relaxed">
                       Your prompt is ready. Copy it and paste into any AI to generate a{' '}
-                      <code className="text-indigo-300 font-medium">.ldoc</code> lesson file, or use{' '}
+                      <code className="text-clay-300 font-medium">.ldoc</code> lesson file, or use{' '}
                       <strong className="text-zinc-300 font-medium">Generate Here</strong>{' '}
                       to create it directly with DeskFlow.
                     </p>
@@ -517,7 +533,7 @@ export function CreateLessonDialog({
                             onClick={handleCopy}
                             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 border ${
                               copied
-                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25'
+                                ? 'bg-sage-500/15 text-sage-300 border-sage-500/25'
                                 : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50 hover:bg-zinc-700/80 hover:text-zinc-200'
                             }`}
                           >
@@ -542,8 +558,8 @@ export function CreateLessonDialog({
                   <div className="rounded-xl border border-zinc-700/40 bg-zinc-800/20 overflow-hidden">
                     <div className="flex items-center justify-between gap-3 p-4">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500/20 to-violet-500/10 border border-indigo-500/25 flex items-center justify-center shrink-0">
-                          <Wand2 className="w-4 h-4 text-indigo-300" />
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-clay-500/20 to-amber-500/10 border border-clay-500/25 flex items-center justify-center shrink-0">
+                          <Wand2 className="w-4 h-4 text-clay-300" />
                         </div>
                         <div>
                           <div className="text-sm font-medium text-zinc-200 leading-tight">Generate Here</div>
@@ -555,10 +571,10 @@ export function CreateLessonDialog({
                         disabled={genStatus === 'generating' || genStatus === 'done'}
                         className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-150 shrink-0 ${
                           genStatus === 'done'
-                            ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 cursor-default'
+                            ? 'bg-sage-500/15 text-sage-300 border border-sage-500/25 cursor-default'
                             : genStatus === 'generating'
-                            ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 opacity-70 cursor-wait'
-                            : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/20 hover:border-indigo-500/30'
+                            ? 'bg-clay-500/10 text-clay-400 border border-clay-500/20 opacity-70 cursor-wait'
+                            : 'bg-clay-500/15 hover:bg-clay-500/25 text-clay-300 border border-clay-500/20 hover:border-clay-500/30'
                         }`}
                       >
                         {genStatus === 'generating' ? (
@@ -624,10 +640,10 @@ export function CreateLessonDialog({
                           transition={{ duration: 0.2 }}
                           className="overflow-hidden"
                         >
-                          <div className="flex items-center gap-2 mx-4 mb-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <div className="flex items-center gap-2 mx-4 mb-3 p-2.5 rounded-lg bg-sage-500/10 border border-sage-500/20">
+                            <CheckCircle2 className="w-4 h-4 text-sage-400 shrink-0" />
                             <div>
-                              <p className="text-xs text-emerald-300 font-medium">Lesson generated and imported successfully!</p>
+                              <p className="text-xs text-sage-300 font-medium">Lesson generated and imported successfully!</p>
                               {genResult.data?.lessonId && (
                                 <p className="text-xs text-zinc-500 mt-0.5">ID: {genResult.data.lessonId}</p>
                               )}
@@ -660,7 +676,7 @@ export function CreateLessonDialog({
                 <button
                   onClick={handleBuildPrompt}
                   disabled={!canBuild}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-sm font-medium transition-all duration-150 border border-indigo-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-clay-500/20 hover:bg-clay-500/30 text-clay-300 text-sm font-medium transition-all duration-150 border border-clay-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {building ? (
                     <><Loader2 className="w-4 h-4 animate-spin" />Building...</>

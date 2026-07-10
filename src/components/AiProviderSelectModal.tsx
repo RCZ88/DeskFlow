@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronDown, Check, Cpu } from 'lucide-react';
 
@@ -50,14 +50,19 @@ export function AiProviderSelectModal({
   providers, currentRouting, onSave,
 }: AiProviderSelectModalProps) {
   const enabledProviders = providers.filter(p => p.enabled);
+  const [viewMode, setViewMode] = useState<'provider' | 'model'>('provider');
   const [selectedId, setSelectedId] = useState<string | null>(currentRouting?.providerId || null);
   const [selectedModel, setSelectedModel] = useState(currentRouting?.model || '');
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setSelectedId(currentRouting?.providerId || null);
       setSelectedModel(currentRouting?.model || '');
+      setLoadError(null);
+      setSaveError(null);
     }
   }, [open, currentRouting]);
 
@@ -77,8 +82,25 @@ export function AiProviderSelectModal({
     }
   }
 
+  function handleModelSelect(providerId: string, model: string) {
+    setSelectedId(providerId);
+    setSelectedModel(model);
+  }
+
+  const modelEntries = useMemo(() => {
+    const seen = new Map<string, { providerId: string; providerLabel: string }[]>();
+    for (const p of enabledProviders) {
+      for (const m of p.models) {
+        if (!seen.has(m)) seen.set(m, []);
+        seen.get(m)!.push({ providerId: p.id, providerLabel: p.label });
+      }
+    }
+    return [...seen.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [enabledProviders]);
+
   async function handleSave() {
     setSaving(true);
+    setSaveError(null);
     try {
       if (!selectedId || !selectedModel) {
         onSave(null);
@@ -86,6 +108,8 @@ export function AiProviderSelectModal({
         onSave({ providerId: selectedId, model: selectedModel });
       }
       onClose();
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to save provider selection');
     } finally {
       setSaving(false);
     }
@@ -128,7 +152,31 @@ export function AiProviderSelectModal({
               </button>
             </div>
 
+            <div className="flex items-center gap-2 px-4 pt-3">
+              <div className="flex bg-zinc-900/60 rounded-lg p-0.5 flex-1">
+                {(['provider', 'model'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                      viewMode === mode
+                        ? 'bg-violet-500/15 text-violet-300 shadow-sm'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {mode === 'provider' ? 'By Provider' : 'By Model'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+              {(loadError || saveError) && (
+                <div className="flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300 ring-1 ring-red-500/20">
+                  <span className="flex-1">{loadError || saveError}</span>
+                  <button className="rounded bg-red-500/15 px-2 py-1 font-medium text-red-200 hover:bg-red-500/25" onClick={() => { setLoadError(null); setSaveError(null); }}>Dismiss</button>
+                </div>
+              )}
               {enabledProviders.length === 0 && (
                 <div className="p-4 text-center">
                   <p className="text-xs text-zinc-500">No providers enabled.</p>
@@ -136,7 +184,7 @@ export function AiProviderSelectModal({
                 </div>
               )}
 
-              {enabledProviders.map((p) => {
+              {viewMode === 'provider' && enabledProviders.map((p) => {
                 const isSelected = selectedId === p.id;
                 return (
                   <motion.button
@@ -206,6 +254,37 @@ export function AiProviderSelectModal({
                 );
               })}
 
+              {viewMode === 'model' && modelEntries.map(([modelName, providers]) => {
+                const isSelected = selectedId != null && selectedModel === modelName;
+                return (
+                  <div key={modelName} className="p-3 rounded-xl border bg-zinc-900/50 border-zinc-800/40">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs font-medium text-zinc-300">{modelName}</span>
+                      <span className="text-[10px] text-zinc-500 ml-auto">{providers.length} provider{providers.length > 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {providers.map((pr) => {
+                        const active = selectedId === pr.providerId && isSelected;
+                        return (
+                          <button
+                            key={pr.providerId}
+                            onClick={() => handleModelSelect(pr.providerId, modelName)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${
+                              active
+                                ? 'bg-violet-500/15 text-violet-300 border-violet-500/25'
+                                : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/40 hover:border-zinc-600/50 hover:text-zinc-300'
+                            }`}
+                          >
+                            {active && <Check className="w-2.5 h-2.5" />}
+                            {pr.providerLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+
               {currentRouting && (
                 <motion.button
                   initial={{ opacity: 0 }}
@@ -233,6 +312,15 @@ export function AiProviderSelectModal({
                 className="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-violet-500/15 text-violet-300 border border-violet-500/25 hover:bg-violet-500/25 hover:text-violet-200 transition-colors disabled:opacity-40"
               >
                 {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+            <div className="px-4 py-2 border-t border-zinc-800/30 bg-zinc-900/10">
+              <button
+                type="button"
+                onClick={() => { onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent('navigate', { detail: '/settings' })), 100); }}
+                className="w-full text-center text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors"
+              >
+                + Add provider in Settings
               </button>
             </div>
           </motion.div>

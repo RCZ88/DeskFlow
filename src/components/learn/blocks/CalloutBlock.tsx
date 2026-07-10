@@ -1,4 +1,5 @@
 import React from 'react';
+import DOMPurify from 'dompurify';
 import type { CalloutBlock } from '../../../shared/learn/types';
 
 interface Props {
@@ -29,7 +30,7 @@ export function CalloutBlock({ block }: Props) {
               .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
               .replace(/\*(.+?)\*/g, '<em>$1</em>')
               .replace(/`([^`]+)`/g, '<code class="bg-zinc-800/60 rounded px-1 text-sm font-mono text-cyan-300">$1</code>');
-            return <p key={i} dangerouslySetInnerHTML={{ __html: rendered }} className={i > 0 ? 'mt-1' : ''} />;
+            return <p key={i} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(rendered) }} className={i > 0 ? 'mt-1' : ''} />;
           })}
         </div>
       </div>

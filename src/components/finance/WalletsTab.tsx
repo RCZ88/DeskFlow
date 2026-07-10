@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Wallet, Banknote, CreditCard, Landmark, PiggyBank, X, Edit3, Archive, Trash2, ArchiveRestore, Search, WalletCards, ChevronDown, Filter } from 'lucide-react';
+import { Plus, Wallet, Banknote, CreditCard, Landmark, PiggyBank, X, Edit3, Archive, Trash2, ArchiveRestore, Search, WalletCards, ChevronDown, Filter, RefreshCw } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
@@ -60,12 +60,13 @@ interface WalletsTabProps {
   onViewArchived?: () => void;
   archivedCount?: number;
   onWalletClick?: (id: number) => void;
+  onRecalculateBalance?: () => Promise<boolean>;
 }
 
 export function WalletsTab({
   accounts, wallets, loading, error, onRetry, displayCurrency,
   onCreateAccount, onCreateWallet, onArchiveWallet, onUpdateWallet,
-  onDeleteAccount, onDeleteWallet, onViewArchived, archivedCount, onWalletClick,
+  onDeleteAccount, onDeleteWallet, onViewArchived, archivedCount, onWalletClick, onRecalculateBalance,
 }: WalletsTabProps) {
   const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [search, setSearch] = useState('');
@@ -107,7 +108,14 @@ export function WalletsTab({
   const accountSections = useMemo(() => {
     return activeAccounts.map(account => {
       const sectionWallets = filteredWallets.filter(w => w.account_id === account.id);
-      const totalBalance = sectionWallets.reduce((sum, w) => sum + convertAmount(w.balance, w.currency || displayCurrency, displayCurrency), 0);
+      const totalBalance = sectionWallets.reduce((sum, w) => {
+        const wb = (w.type === 'physical' || w.type === 'cash') && w.metadata?.denominations
+          ? (Array.isArray(w.metadata.denominations)
+              ? w.metadata.denominations.reduce((s: number, d: any) => s + (d.value || 0) * (d.count || 0), 0)
+              : (w.balance ?? 0))
+          : (w.balance ?? 0);
+        return sum + convertAmount(wb, w.currency || displayCurrency, displayCurrency);
+      }, 0);
       return { account, wallets: sectionWallets, totalBalance };
     }).filter(s => s.wallets.length > 0 || !search && !typeFilter);
   }, [activeAccounts, filteredWallets, displayCurrency]);
@@ -166,6 +174,15 @@ export function WalletsTab({
         icon={<Wallet className="w-4 h-4" />}
         action={
           <div className="flex items-center gap-2">
+            {onRecalculateBalance && (
+              <button
+                onClick={async () => { await onRecalculateBalance(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-xs font-medium transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Sync Balances
+              </button>
+            )}
             {onViewArchived && (
               <button
                 onClick={onViewArchived}
@@ -311,7 +328,12 @@ export function WalletsTab({
                   {sectionWallets.map(w => {
                     const meta = walletMeta[w.type] || walletMeta.other;
                     const WalletIcon = meta.icon;
-                    const balanceNum = convertAmount(w.balance, w.currency || displayCurrency, displayCurrency);
+                    const effectiveBalance = (w.type === 'physical' || w.type === 'cash') && w.metadata?.denominations
+                      ? (Array.isArray(w.metadata.denominations)
+                          ? w.metadata.denominations.reduce((s: number, d: any) => s + (d.value || 0) * (d.count || 0), 0)
+                          : (w.balance ?? 0))
+                      : (w.balance ?? 0);
+                    const balanceNum = convertAmount(effectiveBalance, w.currency || displayCurrency, displayCurrency);
                     return (
                       <motion.div
                         key={w.id}
@@ -372,8 +394,8 @@ export function WalletsTab({
                           <div>
                             <p className={`text-lg font-bold tabular-nums ${balanceNum >= 0 ? 'text-zinc-100' : 'text-red-400'}`}>
                               {showNumbers
-                                ? formatConverted(w.balance, w.currency || displayCurrency)
-                                : maskNumber(formatConverted(w.balance, w.currency || displayCurrency), maskMode, maskFixedValue)
+                                ? formatConverted(effectiveBalance, w.currency || displayCurrency)
+                                : maskNumber(formatConverted(effectiveBalance, w.currency || displayCurrency), maskMode, maskFixedValue)
                               }
                             </p>
                             {/* Provider/description line */}

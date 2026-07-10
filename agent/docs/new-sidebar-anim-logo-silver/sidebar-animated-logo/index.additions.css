@@ -1,0 +1,110 @@
+/* =============================================================
+   Sidebar "Living Logo"  (append to src/index.css)
+   -------------------------------------------------------------
+   Pairs with src/components/SidebarLogo.tsx.
+   All idle motion is CSS (GPU compositor only: opacity + transform +
+   background-position). No layout thrash, safe for an always-rendered
+   sidebar. Framer Motion owns only the hover/tap spring.
+   ============================================================= */
+
+.sidebar-logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 12px;
+  cursor: pointer;
+  isolation: isolate; /* own stacking context so z-index layers stay local */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* L1 — the raster logo itself */
+.sidebar-logo__img {
+  position: relative;
+  z-index: 1;
+  display: block;
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.35));
+}
+
+/* L0 — ambient backlight glow (pink -> cyan), breathing */
+.sidebar-logo__glow {
+  position: absolute;
+  inset: -120% -35%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(55% 130% at 32% 50%, rgba(236, 72, 153, 0.55), transparent 70%),
+    radial-gradient(55% 130% at 70% 50%, rgba(34, 211, 238, 0.45), transparent 70%);
+  filter: blur(16px);
+  opacity: 0.28;
+  animation: sidebarLogoGlow 5s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+/* L2 — shimmer sweep, masked to the logo's own pixels */
+.sidebar-logo__shine {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.9) 50%,
+    transparent 62%
+  );
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  background-position: 180% 0;
+  /* IMPORTANT: this path must resolve to the SAME asset as the <img> src.
+     public/rheo-logo.png is served at /rheo-logo.png. */
+  -webkit-mask: url("/rheo-logo.png") center / contain no-repeat;
+  mask: url("/rheo-logo.png") center / contain no-repeat;
+  animation: sidebarLogoShine 5s ease-in-out infinite;
+  will-change: background-position;
+}
+
+/* Hover intensification (runs alongside the Framer Motion spring scale) */
+.sidebar-logo:hover .sidebar-logo__glow {
+  opacity: 0.7;
+  animation-duration: 3.2s;
+}
+.sidebar-logo:hover .sidebar-logo__shine {
+  animation-duration: 2.6s;
+}
+
+@keyframes sidebarLogoGlow {
+  0%,
+  100% {
+    opacity: 0.22;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.42;
+    transform: scale(1.03);
+  }
+}
+
+/* Sweep is quick (first ~16% of the 5s cycle) then rests => a glint every ~5s */
+@keyframes sidebarLogoShine {
+  0% {
+    background-position: 180% 0;
+  }
+  16% {
+    background-position: -60% 0;
+  }
+  100% {
+    background-position: -60% 0;
+  }
+}
+
+/* Reduced motion: kill loops + sweep, keep a faint static glow, no scale */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-logo__glow {
+    animation: none;
+    opacity: 0.26;
+  }
+  .sidebar-logo__shine {
+    animation: none;
+    background: none;
+  }
+}

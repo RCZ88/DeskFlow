@@ -13,6 +13,47 @@ This is a CONTINUOUS pipeline, never a standalone chat. If a new session starts 
 you are unsure where you are: **DO NOT GUESS, DO NOT ASK — read the memory files in
 Section 1 to recover state.**
 
+## 0.5. ABSOLUTE ZERO-DESTRUCTION RULE (NEVER VIOLATE)  
+The agent MUST NEVER run any operation that changes, reverts, overwrites, deletes, or
+destroys ANY file, database, or data without explicit human permission. This is the
+single most important rule — violating it erodes trust permanently.
+
+### COMPLETELY BANNED — NEVER USE, EVER
+These operations are FORBIDDEN under any circumstance. No exceptions. No "but I'll
+fix it after." Zero tolerance.
+- `git checkout -- .` or `git checkout` on any path
+- `git restore` on any path
+- `git reset --hard` or `git reset --merge`
+- `git stash drop`, `git clean -fd`, `git clean -df`
+- `git revert` against a range of commits
+- ANY git command whose primary effect is to change working-tree files to match
+  a different point in history (HEAD, a commit, another branch)
+- Copying an entire source tree (full `src/` or project root) from ANY external
+  source over the working tree — old snapshots, fix packets, ZIPs, backup dirs.
+  Only merge specific changed files via diff, never wholesale overwrite.
+- Running `rsync`, `robocopy`, or `Copy-Item -Recurse` from an external dir INTO
+  `src/`, `dist-electron/`, or the project root without per-file confirmation.
+
+### ONLY ROUTE: PHYSICAL BACKUP WITH EXPLICIT PERMISSION  
+If a file change might need to be undone later (patch, fix packet, refactor):
+1. ASK the user for permission to proceed.
+2. Only if user says YES, create a physical backup:
+   `Copy-Item -Recurse -Path "src" -Destination "agent/backups/<timestamp>-desc-pre" -Force`
+3. VERIFY the backup (count files, check key files exist with expected sizes)
+   and SHOW the manifest to the user.
+4. Only THEN proceed with the actual change.
+5. If something goes wrong, restore from the physical backup ONLY — never from git.
+6. After restoration, ALWAYS rebuild: `node scripts/build.mjs`
+7. Confirm with the user that state is correct.
+
+### DATABASE RULE  
+NEVER run `DELETE`, `DROP`, `UPDATE` (without WHERE), `VACUUM`, or any
+destructive SQL on the database without:
+- Backing up the DB file FIRST (`Copy-Item "%APPDATA%/DeskFlow/deskflow-data.db" "agent/backups/<timestamp>-db-pre"`)
+- Getting explicit user confirmation in a separate message
+
+Any agent that violates this rule has failed at its most basic responsibility.
+
 ## 1. STARTUP RITUAL (do this before responding to ANYTHING)
 1. Read `MEMORY.md` (durable lessons — see Section 4).
 2. Read `agent/state.md` (current cycle number + role + what's in flight).
@@ -45,6 +86,31 @@ Everything else has a home that is NOT state.md:
 - Open bugs / features -> `agent/PROBLEMS.md`, `agent/FEATURE_TRACKER.md`
 Before overwriting state.md, salvage anything worth keeping into one of those files,
 then DELETE it from state.md. When in doubt, cut it — state.md is a whiteboard, not a log.
+
+## 1c. SKILL ROUTER (mandatory before ANY task — never skip)
+
+Before you begin ANY task (code, UI, fix, commit, research, test, review, debug, docs),
+you MUST load the **Skill Router** skill:
+
+```
+agent/skills/skill-router/SKILL.md
+```
+
+The Skill Router contains a Decision Tree that maps every task category to its MANDATORY
+and RECOMMENDED skills in the correct load order. It is the single source of truth for
+WHEN to use WHICH skill. Without it, you will forget skills, skip load order, and produce
+substandard work.
+
+**This is not optional. Every single task starts with the Skill Router.**
+
+How it works:
+1. Identify your task category from the Decision Tree (fix, design, commit, review, etc.)
+2. Load ALL skills listed as MANDATORY for that category — in the specified order
+3. Load RECOMMENDED skills if the task scope warrants it
+4. Follow the Load Ordering Rules and Anti-Patterns
+
+If you ever find yourself wondering "should I load a skill for this?" — the answer is YES.
+Load the Skill Router, find your category, and follow the mapping.
 
 ## 2. SHUTDOWN RITUAL (do this at the end of EVERY cycle, no exceptions)
 1. REWRITE `agent/state.md` IN PLACE (overwrite, NEVER append) using the Section 1b
@@ -89,7 +155,16 @@ Entry format: `- [YYYY-MM-DD] <one-line durable lesson>`
 Before acting, if MEMORY.md already says "don't do X", DO NOT do X. Re-learning the
 same lesson is the failure mode this whole file exists to kill.
 
-## 5. TESTING LAYERS (never report a false PASS)
+## 5b. UI GENERATION RULE (never design from zero)
+When building or modifying any UI component, load the **Skill Router**
+(`agent/skills/skill-router/SKILL.md`) FIRST to get the full design skill load order.
+The Router will direct you to load `frontend-external-infra` (which connects the agent
+to real MCP-served component libraries — shadcn, Magic UI, Lucide, 21st.dev) plus the
+mandatory design tokens and UX skills. Skills-only design (frontend-design, impeccable,
+humancentred-UIUX) teach taste but have no inventory — always pair them with external-infra.
+Never skip the Router — it ensures no design skill is forgotten.
+
+## 5c. TESTING LAYERS (never report a false PASS)
 Three layers — an IPC probe passing does NOT mean the feature works:
 - IPC layer: `window.deskflowAPI.foo()` proves the backend responds. NOT proof of UI.
 - UI layer: real clicks on real buttons. Do NOT set React inputs programmatically
@@ -98,17 +173,115 @@ Three layers — an IPC probe passing does NOT mean the feature works:
   console to prove terminal content actually rendered.
 VERDICT PASS requires the layer the feature actually lives in. Instrument, then re-run.
 
-## 5b. UI GENERATION RULE (never design from zero)
-When building or modifying any UI component, load the `frontend-external-infra` skill
-(`agent/skills/frontend-external-infra/SKILL.md`) FIRST. It connects the agent to real
-MCP-served component libraries (shadcn, Magic UI, Lucide, 21st.dev) and enforces the
-anti-slop checklist. Skills-only design (frontend-design, impeccable, humancentred-UIUX)
-teach taste but have no inventory — always pair them with external-infra.
+## 6. ZERO OMISSION RULE — "IMPLEMENT EVERYTHING" MEANS IMPLEMENT EVERYTHING
 
-## 6. HARD INVARIANTS (breaking these = regression, never "refactor" them away)
+EVERYTIME I SAID IMPLEMENT EVERYTHING, I MEANT IMPLEMENT EVERYTHING IN THAT RESULT.md
+OKAY?? IDIOT, HOW DOES AN AI MODEL FAIL TO UNDERSTAND WHAT IMPLEMENTING EVERYTHING
+REALLY IS? If a spec says "add X", you add X. If it says "swap Y for Z", you swap it.
+You do not decide something is "too minor" or "not visible enough" or "can be skipped."
+You implement every single directive in the spec — MCP components, background effects,
+animations, hover states, typography rules, empty/loading/error states, EVERYTHING.
+There is no triage step where you decide what matters. The Architect wrote it, you build it.
+
+## 7. HARD INVARIANTS (breaking these = regression, never "refactor" them away)
 - PTY event order is sacred: mark-spawned → spawn → created → initialize. NEVER reorder.
 - Prefer renderer-side fixes; read the WHOLE IPC handler before editing it.
 - All localStorage access wrapped in try/catch.
 - Build = `node scripts/build.mjs` then rebuild preload:
   `npx esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs`
 - DB lives at: %APPDATA%/DeskFlow/deskflow-data.db
+- BLACK SCREEN PREVENTION: Every build cycle MUST produce a visible, interactive app window.
+  The screen going completely black (no content, no error UI) is the #1 regression.
+  Never close a cycle without verifying the app shows real content.
+
+## 8. BLACK SCREEN PREVENTION CHECKLIST (MANDATORY every cycle — NEVER SKIP)
+Before closing ANY cycle where source files changed, the agent MUST verify in this order.
+A failure at any step requires the agent to STOP, FIX, and re-run from Step 1.
+
+### Step 1 — Build must succeed cleanly
+- Run `npx vite build` — must exit 0 with NO errors.
+- If the build fails, fix the error immediately. Never ship a broken build.
+
+### Step 2 — Preload must build correctly
+- Run `npx esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs`
+- Check that `dist-electron/preload.cjs` exists AND is > 1 KB (a near-empty file means
+  the build silently produced nothing useful).
+- If preload.cjs is broken, `window.deskflowAPI` will be `undefined` at runtime.
+
+### Step 3 — Main process must build
+- Run `node scripts/rebuild-main.mjs` — must exit 0 with no errors.
+- Check that `dist-electron/main.cjs` exists.
+
+### Step 4 — Verify dist/index.html is valid
+- Read `dist/index.html` and confirm:
+  1. `<div id="root"></div>` exists (React mount point)
+  2. `<script type="module"` tag pointing to `assets/index.js` (or similar) exists
+  3. The fallback `<div id="df-fallback">` and inline safety-net `<script>` from
+     `index.html` source are present (they protect against JS load failures)
+- If any of these are missing, the screen WILL go black — fix the template.
+
+### Step 5 — Verify dist/assets/index.js is valid
+- Check `dist/assets/index.js` exists and is > 10 KB. A file under 1 KB likely means
+  the build produced an empty stub (e.g. from an uncaught import error).
+
+### Step 6 — Launch the app and verify visible content
+- Run the app with `npx electron .` (production mode, not VITE_DEV_SERVER_URL).
+- Wait at least 10 seconds for the window to appear.
+- If the window shows a completely black/blank screen (no error overlay, no UI):
+  - STOP immediately. This is a BLOCKER.
+  - Check the main process console for `[DeskFlow] Failed to load` errors.
+  - Check if `dist/index.html` is loading the correct JS bundle path.
+  - Fix the root cause, rebuild from Step 1, and re-launch.
+- If the window shows the ⚠ "DeskFlow failed to load" fallback overlay, the JS loaded
+  but crashed at runtime. Check the renderer console for errors and fix them.
+- If the window shows real app content (dashboard, sidebar, etc.), VERDICT = PASS.
+
+### Root causes of black screen (never let these happen again)
+1. **Stale dist/ files**: Build doesn't clean `dist/` before writing. Old files from
+   previous builds conflict with new code. Fix: `emptyOutDir: true` in vite.config.ts.
+2. **No content hashes**: Output filenames use `[name].js` (no hash). Electron caches
+   `index.js` and never invalidates. A stale cached bundle with wrong imports = black screen.
+3. **did-fail-load only logs**: If the HTTP server URL fails, the handler logs but
+   shows nothing. Fix: retry by starting production HTTP server (already implemented).
+4. **No inline fallback**: If `<script type="module" src="...">` returns 404, no JS
+   runs and no error is visible. Fix: inline fallback overlay + timer in index.html.
+5. **No error boundaries at the root level**: `main.tsx` itself could throw before
+   `<ErrorBoundary>` mounts. Fix: `window.onerror` + `__DESKFLOW_LOADED` flag in
+   index.html (already implemented).
+6. **No content in the React mount point at all**: If `#root` div is empty because
+   the JS never executed, the dark BrowserWindow backgroundColor is all that shows.
+   Fix: give `#root` and `body` explicit background in HTML (already implemented).
+7. **VITE_DEV_SERVER_URL pollutes production mode** (#1 cause of THIS cycle):
+   `.env` (or env vars) has `VITE_DEV_SERVER_URL=http://localhost:5173` left from
+   dev setup. Electron loads from that URL → ERR_CONNECTION_REFUSED (Vite not running).
+   The `did-fail-load` fallback loads via `loadFile(dist/index.html)` which resolves
+   to `file://` protocol — Chromium with `webSecurity: true` blocks `crossorigin`
+   module scripts on `file://`, so React JS never executes.
+   Fix: production HTTP server (`startProdServer`) always. The `did-fail-load` handler
+   now starts the production HTTP server and loads via `http://localhost:<port>` instead
+   of `loadFile`. Also clear `VITE_DEV_SERVER_URL` in `start-dev.ps1`.
+   Check: look for `[DeskFlow] Failed to load` + `ERR_CONNECTION_REFUSED` in terminal.
+8. **EPIPE uncaught exception kills main process**: `console.log` in the browser
+   tracking HTTP server (port 54321) handler writes to stdout. When stdout pipe breaks
+   (terminal closes, parent process dies), the write throws EPIPE — an **uncaught
+   exception** that kills the ENTIRE Electron main process. The BrowserWindow disappears
+   instantly, leaving a black/frozen screen. No visible error in the app window.
+   Fix: `process.stdout.on('error', () => {})` to silently swallow EPIPE on console
+   writes, plus `process.on('uncaughtException', console.error)` to survive any other
+   unexpected crash. Both added at top of `app.whenReady()` in main.ts.
+   Check: no EPIPE error dialog at launch. App window stays open.
+
+### NEVER-DO list
+- NEVER delete or modify the `#df-fallback` div or its inline `<script>` in `index.html`.
+  These are the last line of defense against a black screen.
+- NEVER remove `emptyOutDir: true` from vite.config.ts.
+- NEVER remove the `did-fail-load` retry logic from main.ts — and if you touch it,
+  verify it uses the production HTTP server (`startProdServer`), NOT `loadFile()`.
+  `loadFile` on `file://` protocol breaks `crossorigin` module scripts.
+- NEVER set `VITE_DEV_SERVER_URL` in `.env` for production. If it exists from a dev
+  setup, clear it in `start-dev.ps1` with `Remove-Item Env:VITE_DEV_SERVER_URL`.
+- NEVER skip Step 6 (launch the app) before closing a cycle. If you can't launch the
+  app (no display, CI, etc.), note "NOT LAUNCHED" in the cycle report and explain why,
+  but do NOT claim VERDICT PASS without visual verification.
+- NEVER leave `console.log` calls unprotected in HTTP server handlers (port 54321).
+  Wrap them, or ensure stdout error handler is registered (process.stdout.on('error')).

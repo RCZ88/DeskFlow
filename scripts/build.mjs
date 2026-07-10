@@ -45,15 +45,16 @@ async function main() {
   // Step 2: Preload
   run('Step 2/4: Building preload', `npx vite build --ssr src/preload.ts --outDir "${PRELOAD_TEMP}"`);
   const preloadSrc = resolve(PRELOAD_TEMP, 'assets/preload.js');
-  if (existsSync(preloadSrc)) renameSync(preloadSrc, resolve(OUT, 'preload.mjs'));
+  if (existsSync(preloadSrc)) renameSync(preloadSrc, resolve(OUT, 'preload.cjs'));
   if (existsSync(PRELOAD_TEMP)) rmSync(PRELOAD_TEMP, { recursive: true, force: true });
-  console.log(`  preload: ${(statSync(resolve(OUT, 'preload.mjs')).size / 1024).toFixed(0)} KB`);
+  console.log(`  preload: ${(statSync(resolve(OUT, 'preload.cjs')).size / 1024).toFixed(0)} KB`);
 
-  // Step 3: Pre-compile ALL .ts service files to .js (individual files, NOT bundled)
+  // Step 3: Pre-compile ALL .ts service + main files to .js (individual files, NOT bundled)
   console.log('\n=== Step 3/4: Pre-compiling services ===');
   const serviceFiles = findAllTs(resolve(SRC, 'services'));
+  const mainExtraFiles = findAllTs(resolve(SRC, 'main')).filter(f => !f.endsWith('terminalRelay.ts'));
   const gameDetectionFile = resolve(SRC, 'gameDetection.ts');
-  const allTsFiles = [gameDetectionFile, ...serviceFiles].filter(f => existsSync(f));
+  const allTsFiles = [gameDetectionFile, ...serviceFiles, ...mainExtraFiles].filter(f => existsSync(f));
 
   for (const tsFile of allTsFiles) {
     const rel = relative(SRC, tsFile).replace(/\.ts$/, '.js');
@@ -67,6 +68,7 @@ async function main() {
     { src: resolve(SRC, 'services/learn/db/migrations'), dest: resolve(OUT, 'services/learn/db/migrations') },
     { src: resolve(SRC, 'schemas'), dest: resolve(OUT, 'schemas') },
     { src: resolve(ROOT, 'resources/learn'), dest: resolve(OUT, 'resources/learn') },
+    { src: resolve(ROOT, 'resources/focus'), dest: resolve(OUT, 'resources/focus') },
   ];
   for (const dir of nonTsDirs) {
     if (existsSync(dir.src)) {
@@ -85,6 +87,7 @@ async function main() {
   const cjsShimTargets = [
     'services/AIService.js',
     'services/SkillDSLParser.js',
+    'services/conductor/ConductorService.js',
     'services/providers/router.js',
     'services/providers/templates.js',
     'services/providers/callProvider.js',
@@ -125,6 +128,24 @@ async function main() {
           'active-win',
           'node-pty',
           'dotenv',
+          'ws',
+          'crypto',
+          'os',
+          'path',
+          'fs',
+          'child_process',
+          'util',
+          'url',
+          'stream',
+          'events',
+          'net',
+          'http',
+          'https',
+          'tls',
+          'zlib',
+          'assert',
+          'querystring',
+          'buffer',
         ],
       },
       ssr: undefined,

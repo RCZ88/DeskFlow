@@ -79,6 +79,7 @@ export interface FinanceTransaction {
   category_id: number;
   type: 'income' | 'expense' | 'transfer';
   amount: number;
+  fee: number;
   description: string | null;
   note: string | null;
   date: string;
@@ -86,8 +87,105 @@ export interface FinanceTransaction {
   is_recurring: number;
   recurring_interval: string | null;
   tags: string | null;
+  transfer_id: string | null;
+  from_wallet_id: number | null;
+  to_wallet_id: number | null;
+  on_behalf_of: number;
+  on_behalf_of_label: string | null;
+  ft_person_id: number | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface FinanceFtPerson {
+  id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+  transaction_count: number;
+  total_owed: number;
+  total_paid: number;
+}
+
+export interface FinanceFtPersonBalance {
+  id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  total_owed: number;
+  total_repaid: number;
+  transaction_count: number;
+  current_balance: number;
+}
+
+
+export type AssetType = 'stock' | 'etf' | 'commodity' | 'crypto' | 'index' | 'currency';
+
+export interface WalletAsset {
+  symbol: string;
+  asset_type: AssetType;
+  name: string;
+  amount: number;
+  avg_buy_price: number;
+  current_price?: number;
+  blockchain?: string;
+  wallet_address?: string;
+}
+
+export interface AssetPrice {
+  symbol: string;
+  asset_type: AssetType;
+  provider: string;
+  name: string;
+  current_price: number;
+  market_cap: number;
+  total_volume: number;
+  price_change_24h: number;
+  price_change_percentage_24h: number;
+  exchange?: string;
+  last_updated: string;
+}
+
+export interface AssetSearchResult {
+  symbol: string;
+  asset_type: AssetType;
+  name: string;
+  exchange: string;
+  provider: string;
+}
+
+export interface FinanceSubscription {
+  id: number;
+  wallet_id: number;
+  name: string;
+  description: string;
+  price: number;
+  currency: string;
+  billing_cycle: string;
+  billing_interval: number;
+  start_date: string | null;
+  next_renewal_date: string | null;
+  cancel_url: string;
+  cancel_reminder_days: number;
+  reminder_note: string;
+  status: 'active' | 'cancelled' | 'paused' | 'expired';
+  category_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  event_type: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  description: string;
+  details: any;
+  created_at: string;
+  decrypted_data?: Record<string, any> | null;
 }
 
 export interface FinanceSummary {
@@ -118,4 +216,4 @@ export interface FinanceBalanceHistory {
   balance: number;
 }
 
-export type FinanceTabKey = 'overview' | 'wallets' | 'transactions' | 'categories';
+export type FinanceTabKey = 'overview' | 'wallets' | 'transactions' | 'categories' | 'people';

@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
  var __importDefault = function (mod) {
         return (mod && mod.__importDefault) ? mod : { "default": mod };
     };
@@ -22,8 +22,11 @@ const SkillsServiceModule = require("./services/SkillsService.cjs");
 const SkillsService = SkillsServiceModule.SkillsService || SkillsServiceModule;
 const AgentHostServiceModule = require("./services/AgentHostService.cjs");
 const { agentHostService } = AgentHostServiceModule.AgentHostService || AgentHostServiceModule;
+const ConductorServiceModule = require("./services/conductor/ConductorService.cjs");
+const ConductorService = ConductorServiceModule.ConductorService || ConductorServiceModule;
 const GameDetectionModule = require("./gameDetection.cjs");
 const { resolveForegroundApp, buildInstalledGameIndex, rescanGames } = GameDetectionModule;
+const { startTerminalRelay, issueRelayTicket } = require("./main/terminalRelay.cjs");
 
 // --- Global shortcut for DevTools ---
 const { globalShortcut } = require('electron');
@@ -1802,7 +1805,10 @@ function initializeStorage() {
     // Try SQLite first
     try {
         const { openDatabaseSafely, startBackupScheduler, IntegrityError } = require('./main/backup/BackupService');
+        console.time('[PERF]   openDatabaseSafely');
         db = openDatabaseSafely();
+        console.timeEnd('[PERF]   openDatabaseSafely');
+        console.time('[PERF]   schema+migrations');
         db.exec(`
       CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2572,6 +2578,17 @@ function initializeStorage() {
             value TEXT NOT NULL
           )
         `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS finance_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action TEXT NOT NULL,
+            entity_type TEXT,
+            entity_id INTEGER,
+            description TEXT,
+            details TEXT,
+            created_at DATETIME DEFAULT (datetime('now','localtime'))
+          )
+        `);
         // Transfer pairing columns (safe migration)
         try { db.exec('ALTER TABLE finance_transactions ADD COLUMN transfer_id TEXT'); } catch { /* already exists */ }
         try { db.exec('ALTER TABLE finance_transactions ADD COLUMN from_wallet_id INTEGER REFERENCES finance_wallets(id)'); } catch { /* already exists */ }
@@ -2586,6 +2603,7 @@ function initializeStorage() {
 
         // Safe migrations for existing databases
         try { db.exec('ALTER TABLE finance_wallets ADD COLUMN metadata TEXT'); } catch { /* column exists */ }
+        try { db.exec('ALTER TABLE finance_wallets ADD COLUMN initial_balance REAL DEFAULT 0'); } catch { /* column exists */ }
         // Add 'physical' to finance_wallets type CHECK constraint (old tables missing it)
         try {
           const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='finance_wallets'").get() as any;
@@ -2653,6 +2671,27 @@ function initializeStorage() {
           )
         `);
         db.exec('CREATE INDEX IF NOT EXISTS idx_finance_crypto_history_coin ON finance_crypto_history(coin_id)');
+
+        // ─── finance_ft_persons table (People / Debt Tracking) ───
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS finance_ft_persons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            notes TEXT,
+            created_at DATETIME DEFAULT (datetime('now','localtime')),
+            updated_at DATETIME DEFAULT (datetime('now','localtime'))
+          )
+        `);
+
+        // Ensure ft_person_id FK column exists (idempotent)
+        try { db.exec('ALTER TABLE finance_transactions ADD COLUMN ft_person_id INTEGER REFERENCES finance_ft_persons(id)'); } catch {}
+        // Ensure on_behalf_of and on_behalf_of_label exist (idempotent)
+        try { db.exec('ALTER TABLE finance_transactions ADD COLUMN on_behalf_of INTEGER DEFAULT 0'); } catch {}
+        try { db.exec('ALTER TABLE finance_transactions ADD COLUMN on_behalf_of_label TEXT'); } catch {}
+        // Ensure fee column exists (idempotent)
+        try { db.exec('ALTER TABLE finance_transactions ADD COLUMN fee REAL DEFAULT 0'); } catch {}
 
         // Seed default categories (only if empty)
         const existingCats = db.prepare('SELECT COUNT(*) as count FROM finance_categories').get() as { count: number };
@@ -2799,13 +2838,18 @@ function initializeStorage() {
           console.log('[DeskFlow] âœ… Seeded', defaultActivities.length, 'default external activities');
         }
 
-        console.log('[DeskFlow] âœ… SQLite database initialized at', dbPath);
+        console.log('[DeskFlow] ✅ SQLite database initialized at', dbPath);
+        console.timeEnd('[PERF]   schema+migrations');
 
         // Start automatic verified backup scheduler
-        try { startBackupScheduler(db); } catch (e) { console.error('[DeskFlow] âš ï¸ Backup scheduler failed:', e); }
+        console.time('[PERF]   startBackupScheduler');
+        try { startBackupScheduler(db); } catch (e) { console.error('[DeskFlow] ⚠️ Backup scheduler failed:', e); }
+        console.timeEnd('[PERF]   startBackupScheduler');
 
         // Backfill stats tables from existing logs (runs once)
+        console.time('[PERF]   backfillStatsTables');
         backfillStatsTables(db);
+        console.timeEnd('[PERF]   backfillStatsTables');
 
         // Register Vision/Critique IPC handlers
         try {
@@ -2883,6 +2927,12 @@ function saveJsonLogs() {
 // --- Helper functions ---
 function backfillStatsTables(db: any) {
     try {
+        // Skip if stats_daily is already populated — incremental triggers keep it up to date.
+        // Full rebuild only needed on first run or after schema migration that wipes stats.
+        const existingRows = db.prepare("SELECT COUNT(*) as cnt FROM stats_daily").get() as any;
+        if (existingRows && existingRows.cnt > 0) {
+            return; // stats already populated, triggers handle new inserts
+        }
         const logCount = db.prepare("SELECT COUNT(*) as cnt FROM logs WHERE duration_ms > 0").get() as any;
         if (logCount.cnt === 0) {
             console.log('[Backfill] No logs to backfill from, skipping.');
@@ -2891,50 +2941,55 @@ function backfillStatsTables(db: any) {
         console.log(`[Backfill] Rebuilding stats_daily and stats_hourly from ${logCount.cnt} logs...`);
         db.exec("DELETE FROM stats_daily");
         db.exec("DELETE FROM stats_hourly");
-        db.exec(`
-            INSERT INTO stats_hourly (date, hour, app_name, app_type, category, total_seconds, session_count)
-            SELECT 
-                DATE(timestamp),
-                CAST(STRFTIME('%H', timestamp) AS INTEGER),
-                COALESCE(domain, app),
-                CASE WHEN domain IS NOT NULL THEN 'domain' ELSE 'app' END,
-                category,
-                SUM(CAST(duration_ms AS REAL) / 1000.0),
-                COUNT(*)
-            FROM logs
-            WHERE duration_ms > 0
-            GROUP BY DATE(timestamp), CAST(STRFTIME('%H', timestamp) AS INTEGER), COALESCE(domain, app)
-        `);
-        db.exec(`
-            INSERT INTO stats_daily (date, app_name, app_type, category, total_seconds, session_count)
-            SELECT 
-                DATE(timestamp),
-                COALESCE(domain, app),
-                CASE WHEN domain IS NOT NULL THEN 'domain' ELSE 'app' END,
-                category,
-                SUM(CAST(duration_ms AS REAL) / 1000.0),
-                COUNT(*)
-            FROM logs
-            WHERE duration_ms > 0
-            GROUP BY DATE(timestamp), COALESCE(domain, app)
-        `);
-        // Aggregate per-day totals for the configured browser app (synthetic entry)
-        if (userPreferences?.browserWithExtension) {
-            const browserApp = userPreferences.browserWithExtension.replace(/'/g, "''"); // escape single quotes
+        // Use a transaction for atomicity — all-or-nothing rebuild
+        const rebuildAll = db.transaction(() => {
+            db.exec(`
+                INSERT INTO stats_hourly (date, hour, app_name, app_type, category, total_seconds, session_count)
+                SELECT 
+                    DATE(timestamp),
+                    CAST(STRFTIME('%H', timestamp) AS INTEGER),
+                    COALESCE(domain, app),
+                    CASE WHEN domain IS NOT NULL THEN 'domain' ELSE 'app' END,
+                    category,
+                    SUM(CAST(duration_ms AS REAL) / 1000.0),
+                    COUNT(*)
+                FROM logs
+                WHERE duration_ms > 0
+                GROUP BY DATE(timestamp), CAST(STRFTIME('%H', timestamp) AS INTEGER), COALESCE(domain, app)
+            `);
             db.exec(`
                 INSERT INTO stats_daily (date, app_name, app_type, category, total_seconds, session_count)
                 SELECT 
-                    DATE(timestamp) as date,
-                    '${browserApp}' as app_name,
-                    'app' as app_type,
-                    'Browser' as category,
-                    SUM(CAST(duration_ms AS REAL) / 1000.0) as total_seconds,
-                    COUNT(*) as session_count
+                    DATE(timestamp),
+                    COALESCE(domain, app),
+                    CASE WHEN domain IS NOT NULL THEN 'domain' ELSE 'app' END,
+                    category,
+                    SUM(CAST(duration_ms AS REAL) / 1000.0),
+                    COUNT(*)
                 FROM logs
-                WHERE is_browser_tracking = 1 AND domain IS NOT NULL AND duration_ms > 0
-                GROUP BY DATE(timestamp)
+                WHERE duration_ms > 0
+                GROUP BY DATE(timestamp), COALESCE(domain, app)
             `);
-        }
+            // Aggregate per-day totals for the configured browser app (synthetic entry)
+            // Use INSERT OR REPLACE to avoid UNIQUE constraint if browser app already has rows
+            if (userPreferences?.browserWithExtension) {
+                const browserApp = userPreferences.browserWithExtension.replace(/'/g, "''");
+                db.exec(`
+                    INSERT OR REPLACE INTO stats_daily (date, app_name, app_type, category, total_seconds, session_count)
+                    SELECT 
+                        DATE(timestamp) as date,
+                        '${browserApp}' as app_name,
+                        'app' as app_type,
+                        'Browser' as category,
+                        SUM(CAST(duration_ms AS REAL) / 1000.0) as total_seconds,
+                        COUNT(*) as session_count
+                    FROM logs
+                    WHERE is_browser_tracking = 1 AND domain IS NOT NULL AND duration_ms > 0
+                    GROUP BY DATE(timestamp)
+                `);
+            }
+        });
+        rebuildAll();
         console.log('[Backfill] Complete.');
     }
     catch (err: any) {
@@ -3175,6 +3230,53 @@ function invalidateTierMapCache() {
 // Track only the MOST RECENTLY active browser domain (only one active at a time)
 let lastActiveBrowserDomain = null;
 let lastActiveBrowserTimestamp = 0;
+
+// --- Desktop Bridge (sync + relay) — pairing + relay infrastructure ---
+let syncUrl = process.env.SYNC_URL || "";
+let getSyncTokenForRelay = null;
+let pairingStore = null;
+
+function getMachineIp() {
+    try {
+        const os = require('os');
+        const ifaces = os.networkInterfaces();
+        for (const name of Object.keys(ifaces)) {
+            if (name.toLowerCase().includes('tailscale')) {
+                for (const iface of ifaces[name] || []) {
+                    if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+                }
+            }
+        }
+        for (const entries of Object.values(ifaces)) {
+            if (!entries) continue;
+            for (const iface of entries) {
+                if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+            }
+        }
+    } catch (_) { }
+    return '127.0.0.1';
+}
+
+function initDesktopBridge() {
+    try {
+        const relayPort = parseInt(process.env.RELAY_PORT || "8788", 10);
+        const tmAdapter = {
+            write: (id, data) => terminalManager.write(id, data),
+            resize: (id, cols, rows) => terminalManager.resize(id, cols, rows),
+            has: (id) => terminalManager.has(id),
+            onData: (id, cb) => terminalManager.onData(id, cb),
+        };
+        const result = startTerminalRelay(tmAdapter, relayPort, (terminalId) => {
+            try {
+                mainWindow?.webContents.send('relay:paired', terminalId);
+            } catch (_) { }
+        });
+        pairingStore = result.pairingStore;
+    } catch (err) {
+        console.error("[relay] failed to start:", err.message);
+    }
+}
+
 function categorizeApp(appName, opts?: { isResolvedGame?: boolean }) {
     if (opts?.isResolvedGame) return 'Gaming';
     const lower = appName.toLowerCase();
@@ -3656,6 +3758,7 @@ function createWindow() {
         titleBarStyle: 'default',
         backgroundColor: '#0a0a0a',
     });
+    let prodPort: number | null = null;
     if (process.env.VITE_DEV_SERVER_URL) {
         mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     }
@@ -3687,14 +3790,17 @@ function createWindow() {
         });
         server.listen(0, '127.0.0.1', () => {
             const addr = server.address();
-            const port = addr && typeof addr === 'object' ? addr.port : 38123;
-            console.log('[DeskFlow] Serving on http://localhost:' + port);
-            mainWindow.loadURL('http://localhost:' + port + '/index.html');
+            prodPort = addr && typeof addr === 'object' ? addr.port : 38123;
+            console.log('[DeskFlow] Serving on http://localhost:' + prodPort);
+            mainWindow.loadURL('http://localhost:' + prodPort + '/index.html');
         });
     }
-    // Log loading errors
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
         console.error('[DeskFlow] Failed to load:', errorCode, errorDescription);
+        if (prodPort) {
+            console.log('[DeskFlow] Retrying via production HTTP server on port ' + prodPort);
+            mainWindow?.loadURL('http://localhost:' + prodPort + '/index.html');
+        }
     });
     mainWindow.webContents.on('did-finish-load', () => {
         console.log('[DeskFlow] Page loaded successfully');
@@ -3714,7 +3820,8 @@ function createWindow() {
     });
     
     // CRITICAL: Call pollForeground ONCE immediately on startup to detect current app
-    pollForeground();
+    console.time('[PERF]   pollForeground#0');
+    pollForeground().then(() => console.timeEnd('[PERF]   pollForeground#0')).catch(() => console.timeEnd('[PERF]   pollForeground#0'));
     
     // Start polling (every 5 seconds)
     trackingInterval = setInterval(pollForeground, 5000);
@@ -3852,8 +3959,11 @@ function createWindow() {
 // --- IPC handlers ---
 electron_1.ipcMain.removeHandler('get-logs');
 electron_1.ipcMain.handle('get-logs', () => {
+    const _t = Date.now();
     try {
-        return getLogs();
+        const result = getLogs();
+        console.log(`[PERF-IPC] get-logs: ${result.length} rows in ${Date.now() - _t}ms`);
+        return result;
     }
     catch (err) {
         console.error('[DeskFlow] get-logs error:', err);
@@ -4608,6 +4718,7 @@ function computeDateRange(period, dateOffset = 0) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 electron_1.ipcMain.handle('get-dashboard-data', async (_, { period, dateOffset = 0 }) => {
+    const _t = Date.now();
     if (useJson) {
         return { success: false, error: 'Not available in JSON mode' };
     }
@@ -4673,7 +4784,7 @@ electron_1.ipcMain.handle('get-dashboard-data', async (_, { period, dateOffset =
             ORDER BY timestamp DESC
         `).all();
 
-        return {
+        const result = {
             success: true,
             data: {
                 period,
@@ -4686,6 +4797,8 @@ electron_1.ipcMain.handle('get-dashboard-data', async (_, { period, dateOffset =
                 recentSessions: recentSessions || []
             }
         };
+        console.log(`[PERF-IPC] get-dashboard-data(${period}): ${Date.now() - _t}ms`);
+        return result;
     } catch (err) {
         console.error('[DeskFlow] get-dashboard-data error:', err);
         return { success: false, error: err.message };
@@ -5001,7 +5114,6 @@ function buildHourlyHeatmap(logs: any[], tierMap: Map<string, string>, weekRange
 function frozenLog(...args: any[]) {
   const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a).substring(0,200) : String(a)).join(' ');
   process.stderr.write(`[FROZEN-DBG] ${msg}\n`);
-  console.log(`[FROZEN-DBG] ${msg}`);
 }
 
 electron_1.ipcMain.handle('terminal:log', async (_, ...args: any[]) => {
@@ -5239,7 +5351,7 @@ electron_1.ipcMain.handle('get-dashboard-aggregates', async (_, request: { perio
     pInner.then((response) => {
         frozenLog('dashboard cache stored for', cacheKey);
         dashboardCache = { key: cacheKey, data: response, builtAt: Date.now() };
-        if (period === 'all') statsDirty = false;
+        statsDirty = false;
         dashboardInFlight.delete(cacheKey);
     }).catch(() => {
         dashboardInFlight.delete(cacheKey);
@@ -5975,6 +6087,7 @@ function pathExists(p: string): boolean {
 
 // Detect installed IDEs
 electron_1.ipcMain.handle('detect-ides', async () => {
+    const _t = Date.now();
     const { execSync } = require('child_process');
     const ides = [];
     const idSet = new Set<string>();
@@ -6305,6 +6418,7 @@ electron_1.ipcMain.handle('detect-ides', async () => {
     }
 
     console.log('[DeskFlow] IDEs detected:', ides.map(i => i.name).join(', '));
+    console.log(`[PERF-IPC] detect-ides: ${ides.length} IDEs in ${Date.now() - _t}ms`);
     return ides;
 });
 
@@ -7742,6 +7856,22 @@ electron_1.ipcMain.handle('save-project-run-config', (_, projectId: string, conf
     }
 });
 
+// Get all projects with run configs
+electron_1.ipcMain.handle('get-all-run-configs', () => {
+    if (useJson) return { success: false, message: 'Projects require SQLite' };
+    try {
+        const rows = db.prepare('SELECT id, name, path, run_config FROM projects WHERE run_config IS NOT NULL AND run_config != \'\' AND run_config != \'null\' AND run_config != \'{}\' ORDER BY last_activity_at DESC').all() as any[];
+        const results = rows.map((row: any) => {
+            let config = null;
+            try { config = JSON.parse(row.run_config); } catch { config = null; }
+            return { projectId: row.id, name: row.name, path: row.path, config };
+        });
+        return { success: true, configs: results };
+    } catch (err: any) {
+        return { success: false, message: err.message };
+    }
+});
+
 // Run a project: create a shell terminal and execute the command
 electron_1.ipcMain.handle('run-project', (_, projectId: string, config: { frontend?: { command: string }; backend?: { command: string }; single?: { command: string } }) => {
     if (useJson) return { success: false, message: 'Projects require SQLite' };
@@ -7757,27 +7887,42 @@ electron_1.ipcMain.handle('run-project', (_, projectId: string, config: { fronte
         const results: { frontend?: { terminalId: string }; backend?: { terminalId: string } } = {};
         const shell = process.env.COMSPEC || 'powershell.exe';
 
+        const resolveDir = (cwd?: string) => cwd ? path_1.default.resolve(project.path, cwd) : project.path;
+
+        const execCmd = (terminalId: string, cmd: string, cwd?: string) => {
+            const dir = resolveDir(cwd);
+            if (dir !== project.path) {
+                terminalManager.write(terminalId, `cd "${dir}"\r\n`);
+            }
+            setTimeout(() => {
+                terminalManager.write(terminalId, cmd + '\r\n');
+            }, 500);
+        };
+
         if (config.single) {
             const terminalId = `run-${projectId}-${Date.now()}`;
             const entry = terminalManager.spawn(terminalId, project.path, 120, 30);
             if (!entry) return { success: false, message: 'Failed to create terminal' };
-            runningProjects.set(terminalId, { terminalId, projectId, command: config.single.command, cwd: project.path, startedAt: Date.now() });
+            runningProjects.set(terminalId, { terminalId, projectId, command: config.single.command, cwd: config.single.cwd || '', startedAt: Date.now() });
             results.single = { terminalId };
+            execCmd(terminalId, config.single.command, config.single.cwd);
         } else {
             if (config.frontend) {
                 const terminalId = `run-fe-${projectId}-${Date.now()}`;
                 const entry = terminalManager.spawn(terminalId, project.path, 120, 30);
                 if (entry) {
-                    runningProjects.set(terminalId, { terminalId, projectId, command: config.frontend.command, cwd: project.path, startedAt: Date.now() });
+                    runningProjects.set(terminalId, { terminalId, projectId, command: config.frontend.command, cwd: config.frontend.cwd || '', startedAt: Date.now() });
                     results.frontend = { terminalId };
+                    execCmd(terminalId, config.frontend.command, config.frontend.cwd);
                 }
             }
             if (config.backend) {
                 const terminalId = `run-be-${projectId}-${Date.now()}`;
                 const entry = terminalManager.spawn(terminalId, project.path, 120, 30);
                 if (entry) {
-                    runningProjects.set(terminalId, { terminalId, projectId, command: config.backend.command, cwd: project.path, startedAt: Date.now() });
+                    runningProjects.set(terminalId, { terminalId, projectId, command: config.backend.command, cwd: config.backend.cwd || '', startedAt: Date.now() });
                     results.backend = { terminalId };
+                    execCmd(terminalId, config.backend.command, config.backend.cwd);
                 }
             }
         }
@@ -8802,6 +8947,7 @@ interface AgentState {
   handshakeToken?: string;
   timeoutHandle?: ReturnType<typeof setTimeout>;
   pendingWrites?: string[];
+  currentModel?: string;
 }
 const agentStates = new Map<string, AgentState>();
 
@@ -9210,6 +9356,299 @@ const terminalManager = {
 };
 
 // â”€â”€ File Lock Manager (cross-session conflict detection) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Feature #1: Real-time resource stats per terminal session ──
+const terminalResourceStats = new Map<string, { pid: number | null; alive: boolean; memMB: number; cpuPct: number; eventLoopLagMs: number; ts: number }>();
+let lastEventLoopCheck = process.hrtime.bigint();
+let eventLoopLagMs = 0;
+
+// Event-loop lag tracker — samples every 1s
+setInterval(() => {
+  const now = process.hrtime.bigint();
+  const elapsed = Number(now - lastEventLoopCheck) / 1e6;
+  eventLoopLagMs = Math.max(0, elapsed - 1000);
+  lastEventLoopCheck = now;
+}, 1000).unref();
+
+function getProcessMemoryMB(pid: number): number {
+  try {
+    if (process.platform === 'win32') {
+      const { execSync } = require('child_process');
+      const out = execSync(`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').WorkingSetSize"`, { timeout: 3000, encoding: 'utf8' }).trim();
+      return parseInt(out, 10) / (1024 * 1024) || 0;
+    } else {
+      const { execSync } = require('child_process');
+      const out = execSync(`ps -o rss= -p ${pid}`, { timeout: 3000, encoding: 'utf8' }).trim();
+      return parseInt(out, 10) / 1024 || 0;
+    }
+  } catch { return 0; }
+}
+
+function getProcessCpuPct(pid: number): number {
+  try {
+    if (process.platform === 'win32') {
+      const { execSync } = require('child_process');
+      const out = execSync(`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').LoadPercentage"`, { timeout: 3000, encoding: 'utf8' }).trim();
+      return parseFloat(out) || 0;
+    } else {
+      const { execSync } = require('child_process');
+      const out = execSync(`ps -o %cpu= -p ${pid}`, { timeout: 3000, encoding: 'utf8' }).trim();
+      return parseFloat(out) || 0;
+    }
+  } catch { return 0; }
+}
+
+// 3-second sampler — broadcasts resource stats for all live terminals
+setInterval(() => {
+  for (const [id, t] of terminalManager.terminals.entries()) {
+    const term = t as any;
+    const pid = term.pty?.pid ?? (term as any).pid ?? null;
+    if (!pid) continue;
+    const memMB = getProcessMemoryMB(pid);
+    const cpuPct = getProcessCpuPct(pid);
+    const stats = { pid, alive: true, memMB, cpuPct, eventLoopLagMs, ts: Date.now() };
+    terminalResourceStats.set(id, stats);
+    broadcast('terminal:resource-stats', id, stats);
+  }
+}, 3000).unref();
+
+electron_1.ipcMain.handle('terminal:get-resource-stats', () => {
+  const out: Record<string, any> = {};
+  for (const [k, v] of terminalResourceStats) out[k] = v;
+  return out;
+});
+
+// ── Feature #2: Model switcher state ──
+const modelState = { currentModel: '' };
+
+const KNOWN_MODELS = [
+  'anthropic/claude-sonnet-4-20250514',
+  'anthropic/claude-3.5-haiku-20241022',
+  'google/gemini-2.5-pro',
+  'google/gemini-2.5-flash',
+  'openai/gpt-4.1',
+  'openai/gpt-4.1-mini',
+  'openai/o3',
+  'openai/o4-mini',
+  'deepseek/deepseek-chat',
+  'deepseek/deepseek-coder',
+  'opencode/mimo-v2.5',
+];
+
+electron_1.ipcMain.handle('models:detect', async (_event, agentType?: string) => {
+  try {
+    const { execSync } = require('child_process');
+    const cmd = agentType === 'opencode' ? 'opencode models --json' :
+                agentType === 'claude' ? 'claude models --json' :
+                agentType === 'gemini' ? 'gemini models --json' :
+                'opencode models --json';
+    try {
+      const out = execSync(cmd, { timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+      const parsed = JSON.parse(out);
+      const models = Array.isArray(parsed) ? parsed.map((m: any) => m.id || m.name || String(m)) : (parsed.models || []);
+      if (models.length > 0) return { success: true, models, source: 'detected', installed: true };
+    } catch { /* fallback */ }
+    return { success: true, models: KNOWN_MODELS, source: 'fallback', installed: false };
+  } catch (e: any) {
+    return { success: false, error: e.message, models: KNOWN_MODELS, source: 'fallback', installed: false };
+  }
+});
+
+electron_1.ipcMain.handle('agent:set-model', async (_event, terminalId: string, model: string, agentType?: string) => {
+  try {
+    const payload = `/model ${model}\r`;
+    terminalManager.write(terminalId, payload);
+    modelState.currentModel = model;
+    const st = agentStates.get(terminalId);
+    if (st) st.currentModel = model;
+    broadcast('agent:model-changed', { terminalId, model });
+    console.log(`[ModelSwitcher] Set model to ${model} for ${terminalId}`);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+});
+
+// ── Feature #3: CLI anomaly detection + update checker ──
+const ANOMALY_PATTERNS: { re: RegExp; type: string; severity: 'low' | 'medium' | 'high' }[] = [
+  { re: /quota\s*exceeded|rate\s*limit|429|too many requests/i, type: 'rate-limit', severity: 'high' },
+  { re: /auth(?:entication)?\s*(?:error|fail|401|403|unauthorized|forbidden)/i, type: 'auth', severity: 'high' },
+  { re: /context\s*length|token\s*limit|max\s*tokens\s*exceeded/i, type: 'context-length', severity: 'medium' },
+  { re: /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|network\s*error/i, type: 'network', severity: 'medium' },
+  { re: /crash|panic|segfault|fatal|unexpected\s*error/i, type: 'crash', severity: 'high' },
+  { re: /update\s*available|new\s*version|npm\s*update/i, type: 'update', severity: 'low' },
+];
+
+const anomalyLastBroadcast = new Map<string, number>();
+const ANOMALY_DEDUP_MS = 90000;
+
+function detectCliNotice(buffer: string): { kind: string; type: string; severity: 'low' | 'medium' | 'high'; detail: string } | null {
+  const clean = stripAnsi(buffer);
+  const lines = clean.split(/\r?\n/);
+  const tail = lines.slice(-10).join('\n');
+  for (const p of ANOMALY_PATTERNS) {
+    const match = tail.match(p.re);
+    if (match) return { kind: 'anomaly', type: p.type, severity: p.severity, detail: match[0].slice(0, 120) };
+  }
+  return null;
+}
+
+function maybeBroadcastNotice(terminalId: string, buffer: string) {
+  const notice = detectCliNotice(buffer);
+  if (!notice) return;
+  const last = anomalyLastBroadcast.get(terminalId) || 0;
+  if (Date.now() - last < ANOMALY_DEDUP_MS) return;
+  anomalyLastBroadcast.set(terminalId, Date.now());
+  broadcast('terminal:anomaly', { terminalId, ...notice, ts: Date.now() });
+  console.log(`[Anomaly] ${terminalId}: ${notice.type} (${notice.severity}) — ${notice.detail}`);
+}
+
+// Hook anomaly detection via the terminal:data broadcast path
+const _origBroadcast = broadcast;
+(function patchBroadcastForAnomalies() {
+  // Override global broadcast to intercept terminal:data events
+  const g = globalThis as any;
+  if (g.__df_broadcast_patched) return;
+  g.__df_broadcast_patched = true;
+  const origBroadcast = broadcast;
+  // We can't reassign const, so we patch the Electron broadcast mechanism
+  // Instead, hook into agentStates dataBuffer accumulation (which happens on every data chunk)
+  // This is already done in the data handler — see maybeBroadcastNotice calls below
+})();
+
+// Hook anomaly detection into the data handler output processing
+// We patch the existing data handler logic by adding anomaly detection to the
+// terminal data callback that already exists in terminal:create
+// Since terminalManager.getDataHandler is called at terminal:create time,
+// we override it before any terminal is created (module load time is before app.whenReady)
+const _realGetDataHandler = terminalManager.getDataHandler.bind(terminalManager);
+terminalManager.getDataHandler = function(id: string, cb: (d: string) => void) {
+  _realGetDataHandler(id, (data: string) => {
+    cb(data);
+    // Run anomaly detection on agent output
+    const st = agentStates.get(id);
+    if (st && (st.phase === 'ready' || st.phase === 'busy')) {
+      maybeBroadcastNotice(id, st.dataBuffer);
+    }
+  });
+};
+
+// CLI update checker
+const CLI_PACKAGES: { agent: string; pkg: string; cmd: string }[] = [
+  { agent: 'opencode', pkg: 'opencode-ai', cmd: 'opencode --version' },
+  { agent: 'claude', pkg: '@anthropic-ai/claude-code', cmd: 'claude --version' },
+  { agent: 'gemini', pkg: '@google/gemini-cli', cmd: 'gemini --version' },
+  { agent: 'codex', pkg: '@openai/codex', cmd: 'codex --version' },
+];
+
+let cliUpdates: Array<{ agent: string; current: string; latest: string; pkg: string }> = [];
+
+function checkCliUpdatesOnce() {
+  const { execSync } = require('child_process');
+  for (const cli of CLI_PACKAGES) {
+    try {
+      const current = execSync(cli.cmd, { timeout: 8000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim().split('\n')[0];
+      try {
+        const latest = execSync(`npm view ${cli.pkg} version`, { timeout: 8000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+        if (latest && current && latest !== current) {
+          cliUpdates.push({ agent: cli.agent, current, latest, pkg: cli.pkg });
+        }
+      } catch { /* npm not available or pkg not found */ }
+    } catch { /* CLI not installed */ }
+  }
+  if (cliUpdates.length > 0) {
+    broadcast('cli:update-available', cliUpdates);
+    console.log(`[CLI Update] ${cliUpdates.length} updates available:`, cliUpdates.map(u => `${u.agent} ${u.current}→${u.latest}`).join(', '));
+  }
+}
+
+// Run 15s after boot, then every 6h
+setTimeout(() => { try { checkCliUpdatesOnce(); } catch {} }, 15000);
+setInterval(() => { cliUpdates = []; try { checkCliUpdatesOnce(); } catch {} }, 6 * 60 * 60 * 1000).unref();
+
+electron_1.ipcMain.handle('cli:check-updates', () => {
+  cliUpdates = [];
+  checkCliUpdatesOnce();
+  return cliUpdates;
+});
+
+// ── Feature #4: Config generator ──
+function generateAgentConfigs(opts: { agent: string; scope: 'project' | 'global' | 'custom'; baseDir?: string; customDir?: string; overwrite?: boolean }) {
+  const { existsSync, mkdirSync, writeFileSync, readFileSync } = require('fs');
+  const { join, resolve } = require('path');
+  const os = require('os');
+
+  let root: string;
+  if (opts.scope === 'global') root = os.homedir();
+  else if (opts.scope === 'custom' && opts.customDir) root = resolve(opts.customDir);
+  else root = resolve(opts.baseDir || '.');
+
+  const results: Array<{ file: string; status: 'written' | 'skipped' | 'error'; bytes?: number; error?: string }> = [];
+  const overwrite = opts.overwrite ?? false;
+
+  function writeIfNeeded(relPath: string, content: string) {
+    const fullPath = join(root, relPath);
+    try {
+      if (existsSync(fullPath) && !overwrite) {
+        results.push({ file: relPath, status: 'skipped', bytes: readFileSync(fullPath).length });
+        return;
+      }
+      mkdirSync(join(root, relPath, '..'), { recursive: true });
+      writeFileSync(fullPath, content, 'utf8');
+      results.push({ file: relPath, status: 'written', bytes: Buffer.byteLength(content) });
+    } catch (e: any) {
+      results.push({ file: relPath, status: 'error', error: e.message });
+    }
+  }
+
+  const agent = opts.agent || 'all';
+
+  if (agent === 'all' || agent === 'opencode') {
+    writeIfNeeded('opencode.json', JSON.stringify({
+      $schema: 'https://opencode.ai/schema.json',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      instructions: ['./AGENTS.md', './MEMORY.md', './agent/state.md'],
+    }, null, 2));
+  }
+
+  if (agent === 'all' || agent === 'gemini') {
+    writeIfNeeded('GEMINI.md', `# Gemini Instructions\n\nThis project uses DeskFlow for productivity tracking.\n`);
+    writeIfNeeded('.gemini/settings.json', JSON.stringify({ model: 'gemini-2.5-pro' }, null, 2));
+  }
+
+  if (agent === 'all' || agent === 'claude') {
+    writeIfNeeded('CLAUDE.md', `# Claude Instructions\n\nThis project uses DeskFlow for productivity tracking.\n`);
+    writeIfNeeded('.claude/settings.json', JSON.stringify({ model: 'claude-sonnet-4-20250514' }, null, 2));
+  }
+
+  if (agent === 'all' || agent === 'codex') {
+    writeIfNeeded('AGENTS.md', `# Codex Agent Instructions\n\nThis project uses DeskFlow for productivity tracking.\n`);
+    writeIfNeeded('.codex/config.toml', `[model]\nprovider = "openai"\nmodel = "o3"\n`);
+  }
+
+  return { success: true, root, files: results };
+}
+
+function previewAgentConfigs(opts: { agent: string; scope: 'project' | 'global' | 'custom'; baseDir?: string; customDir?: string }) {
+  const { existsSync, readFileSync } = require('fs');
+  const { join, resolve } = require('path');
+  const os = require('os');
+
+  let root: string;
+  if (opts.scope === 'global') root = os.homedir();
+  else if (opts.scope === 'custom' && opts.customDir) root = resolve(opts.customDir);
+  else root = resolve(opts.baseDir || '.');
+
+  const files = ['opencode.json', 'GEMINI.md', '.gemini/settings.json', 'CLAUDE.md', '.claude/settings.json', 'AGENTS.md', '.codex/config.toml'];
+  return files.map(f => {
+    const fullPath = join(root, f);
+    const exists = existsSync(fullPath);
+    return { file: f, status: exists ? 'exists' : 'new', bytes: exists ? readFileSync(fullPath).length : 0 };
+  });
+}
+
+electron_1.ipcMain.handle('config:generate', (_event, opts) => generateAgentConfigs(opts));
+electron_1.ipcMain.handle('config:preview', (_event, opts) => previewAgentConfigs(opts));
+
 const LOCK_TTL_MS = 60000;
 const fileLocks = new Map<string, { terminalId: string; sessionId: string | null; timestamp: number; action: string }>();
 
@@ -14452,42 +14891,90 @@ function getBrowserCategoryStats(period, dateOffset = 0) {
         return [];
     }
 }
+// ── Fallback learn profile handlers (JSON-backed, overridden by SQLite handlers in initializeStorage) ──
+const learnProfilePath = path_1.default.join(userDataPath, 'learn-profile.json');
+function loadLearnProfile() {
+    try { if (fs_1.default.existsSync(learnProfilePath)) return JSON.parse(fs_1.default.readFileSync(learnProfilePath, 'utf-8')); }
+    catch (_) { }
+    return {};
+}
+function saveLearnProfile(profile: Record<string, string>) {
+    try { fs_1.default.writeFileSync(learnProfilePath, JSON.stringify(profile, null, 2)); }
+    catch (_) { }
+}
+// learn:getProfile / setProfile / deleteProfile / getAllProfile are registered by
+// registerLearnHandlers in services/learn/index.ts — do NOT duplicate them here.
+
+// Redirect GPU disk cache to app temp dir to prevent "Unable to move/create cache: Access denied"
+// The default Chromium GPU cache path can be locked by other processes or lack write permissions,
+// causing repeated GPU Cache Creation failed errors that block the rendering pipeline and freeze the UI.
+const gpuCacheDir = require('path').join(require('os').tmpdir(), 'deskflow-gpu-cache');
+electron_1.app.commandLine.appendSwitch('disk-cache-dir', gpuCacheDir);
+
 electron_1.app.whenReady().then(() => {
+    // EPIPE protection — console.log in HTTP server handlers writes to stdout.
+    // When the terminal closes, stdout breaks → EPIPE uncaught exception kills main process.
+    // Swallow EPIPE on console writes and survive unexpected crashes.
+    process.stdout.on('error', () => {});
+    process.on('uncaughtException', console.error);
+
+    const _t0 = Date.now();
+    console.log('[PERF] ── Startup timing ──');
+    console.time('[PERF] initializeStorage');
     initializeStorage();
+    console.timeEnd('[PERF] initializeStorage');
+    console.time('[PERF] loadFinanceSettings');
     loadFinanceSettings();
+    console.timeEnd('[PERF] loadFinanceSettings');
+    console.time('[PERF] loadCategoryConfig');
     loadCategoryConfig();
+    console.timeEnd('[PERF] loadCategoryConfig');
+    console.time('[PERF] loadSleepState');
     loadSleepState(); // Load sleep tracking state
+    console.timeEnd('[PERF] loadSleepState');
     
     // Build game detection index from Steam library (once at startup)
+    console.time('[PERF] buildInstalledGameIndex');
     buildInstalledGameIndex();
+    console.timeEnd('[PERF] buildInstalledGameIndex');
     
     // Initialize Tracker Mind problems from markdown
+    console.time('[PERF] loadProblems');
     try {
       const problemsService = getProblemsService();
       const problems = problemsService.getProblems();
-      console.log(`[Tracker Mind] âœ… Loaded ${problems.length} problems from PROBLEMS.md`);
+      console.log(`[Tracker Mind] ✅ Loaded ${problems.length} problems from PROBLEMS.md`);
     } catch (e) {
-      console.error('[Tracker Mind] âš ï¸ Failed to load problems:', e);
+      console.error('[Tracker Mind] ⚠️ Failed to load problems:', e);
     }
+    console.timeEnd('[PERF] loadProblems');
     
     // Check if we should show morning prompt
+    console.time('[PERF] checkMorningPrompt');
     checkMorningPrompt();
+    console.timeEnd('[PERF] checkMorningPrompt');
     
     // Check if started with --minimized flag (background mode)
     startMinimized = process.argv.includes('--minimized') || process.argv.includes('-m');
     
     // Always create tray first (works in background)
+    console.time('[PERF] createTray');
     createTray();
+    console.timeEnd('[PERF] createTray');
     
     // Only create window if NOT starting minimized (background mode)
     if (!startMinimized) {
+        console.time('[PERF] createWindow');
         createWindow();
+        console.timeEnd('[PERF] createWindow');
     } else {
         // In background mode, just start tracking - no window needed yet
-        console.log('[DeskFlow] ðŸ”„ Running in background (minimized)');
+        console.log('[DeskFlow] 🔋 Running in background (minimized)');
     }
     
+    console.time('[PERF] startBrowserTrackingServer');
     startBrowserTrackingServer();
+    console.timeEnd('[PERF] startBrowserTrackingServer');
     
     // Set auto-start only once (not every run) - but only if explicitly enabled by user
     // Removed: electron_1.app.setLoginItemSettings auto-set on every run
@@ -14577,9 +15064,10 @@ electron_1.app.whenReady().then(() => {
       console.error('[MCP] Auto-start failed:', e);
     }
 
-    console.log('[DeskFlow] âœ… Real window tracking started with active-win');
-    console.log(`[DeskFlow] âœ… Browser tracking: ${isBrowserTrackingEnabled ? 'ON' : 'OFF'}`);
-    console.log(`[DeskFlow] âœ… Auto-start: ${electron_1.app.getLoginItemSettings().openAtLogin ? 'enabled' : 'disabled'}`);
+    console.log('[DeskFlow] ✅ Real window tracking started with active-win');
+    console.log(`[DeskFlow] ✅ Browser tracking: ${isBrowserTrackingEnabled ? 'ON' : 'OFF'}`);
+    console.log(`[DeskFlow] ✅ Auto-start: ${electron_1.app.getLoginItemSettings().openAtLogin ? 'enabled' : 'disabled'}`);
+    console.log(`[PERF] ── Total startup (app.whenReady): ${Date.now() - _t0}ms ──`);
 });
 
 // ========== External Activities IPC Handlers ==========
@@ -14591,6 +15079,141 @@ electron_1.ipcMain.handle('get-external-activities', () => {
     } catch (err) {
         console.error('[DeskFlow] Failed to get external activities:', err);
         return [];
+    }
+});
+
+// ── Terminal Relay init ──────────────────────────────────────────
+console.time('[PERF] initDesktopBridge');
+initDesktopBridge();
+console.timeEnd('[PERF] initDesktopBridge');
+
+// ── IPC: Pairing code flow ─────────────────────────────────────
+electron_1.ipcMain.handle("pair:generate-code", async (_event, terminalId) => {
+    try {
+        if (!pairingStore) return { success: false, error: "relay not configured" };
+        if (!terminalId) terminalId = require('crypto').randomUUID();
+        const entry = await pairingStore.createPairingCode(terminalId);
+        const port = parseInt(process.env.RELAY_PORT || "8788", 10);
+        const relayHost = getMachineIp();
+
+        if (syncUrl && getSyncTokenForRelay) {
+            try {
+                const token = await getSyncTokenForRelay();
+                if (token) {
+                    fetch(`${syncUrl}/v1/pairing/codes`, {
+                        method: "POST",
+                        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+                        body: JSON.stringify({
+                            code: entry.code,
+                            terminal_id: entry.terminalId,
+                            relay_host: relayHost,
+                            relay_port: port,
+                            expires_at: Math.floor(entry.expiresAt / 1000),
+                        }),
+                    }).catch(() => { });
+                }
+            } catch (_) { }
+        }
+
+        let syncPort = "8787";
+        if (syncUrl) {
+            try { syncPort = new URL(syncUrl).port || "8787"; } catch (_) { }
+        }
+
+        return {
+            success: true,
+            code: entry.code,
+            terminalId: entry.terminalId,
+            expiresAt: entry.expiresAt,
+            wsUrl: `ws://${relayHost}:${port}?code=${entry.code}`,
+            syncUrl: `http://${relayHost}:${syncPort}?code=${entry.code}`,
+            port,
+        };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+electron_1.ipcMain.handle("pair:revoke", async (_event, code) => {
+    if (!pairingStore) return { success: false };
+    pairingStore.revokeCode(code);
+    return { success: true };
+});
+electron_1.ipcMain.handle("pair:revoke-all", async () => {
+    if (!pairingStore) return { success: false };
+    pairingStore.revokeAll();
+    return { success: true };
+});
+electron_1.ipcMain.handle("pair:list-active", async () => {
+    if (!pairingStore) return { success: true, codes: [] };
+    return { success: true, codes: pairingStore.getActive() };
+});
+
+// ── IPC: Relay ticket issuance (for phone pairing) ─────────────
+electron_1.ipcMain.handle("relay:request-ticket", async (_event, userId) => {
+    try {
+        const uid = userId || "default-user";
+        const ticket = await issueRelayTicket(uid, 60);
+        const port = parseInt(process.env.RELAY_PORT || "8788", 10);
+        return { success: true, ticket, port, host: getMachineIp() };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+electron_1.ipcMain.handle("relay:status", async () => {
+    const port = parseInt(process.env.RELAY_PORT || "8788", 10);
+    return { active: !!process.env.RELAY_TICKET_SECRET, port };
+});
+
+// ── IPC: Device management (proxied to sync server) ────────────
+electron_1.ipcMain.handle("devices:list", async () => {
+    try {
+        if (!syncUrl || !getSyncTokenForRelay) {
+            return { success: false, error: "sync not configured" };
+        }
+        const token = await getSyncTokenForRelay();
+        if (!token) return { success: false, error: "no auth token" };
+        const res = await fetch(`${syncUrl}/v1/devices`, {
+            headers: { authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return { success: false, error: `sync server: ${res.status}` };
+        const data = await res.json();
+        return { success: true, devices: data.devices || [] };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+electron_1.ipcMain.handle("devices:revoke", async (_event, deviceId) => {
+    try {
+        if (!syncUrl || !getSyncTokenForRelay) {
+            return { success: false, error: "sync not configured" };
+        }
+        const token = await getSyncTokenForRelay();
+        if (!token) return { success: false, error: "no auth token" };
+        const res = await fetch(`${syncUrl}/v1/devices/${deviceId}/revoke`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return { success: false, error: `sync server: ${res.status}` };
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+electron_1.ipcMain.handle("devices:revoke-all", async () => {
+    try {
+        if (!syncUrl || !getSyncTokenForRelay) {
+            return { success: false, error: "sync not configured" };
+        }
+        const token = await getSyncTokenForRelay();
+        if (!token) return { success: false, error: "no auth token" };
+        const res = await fetch(`${syncUrl}/v1/devices/revoke-all`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return { success: false, error: `sync server: ${res.status}` };
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
     }
 });
 
@@ -15067,11 +15690,21 @@ electron_1.ipcMain.handle('get-sleep-for-date', (event, dateStr: string) => {
         const sleepActivity = db.prepare(`SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1`).get() as any;
         if (!sleepActivity) return null;
 
+        // Also search next day — grouped sleep bars use the bedtime evening date,
+        // but the actual session may have started the next calendar day (e.g., 1AM June 9
+        // grouped to June 8). Search both the given date AND the next day.
+        const nextDay = new Date(dateStr + 'T12:00:00');
+        nextDay.setDate(nextDay.getDate() + 1);
+        const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth()+1).padStart(2,'0')}-${String(nextDay.getDate()).padStart(2,'0')}`;
+
         const session = db.prepare(`
             SELECT * FROM external_sessions
-            WHERE activity_id = ? AND ended_at IS NOT NULL AND (date(started_at) = ? OR date(ended_at) = ?)
+            WHERE activity_id = ? AND ended_at IS NOT NULL AND (
+                date(started_at) = ? OR date(ended_at) = ?
+                OR date(started_at) = ? OR date(ended_at) = ?
+            )
             ORDER BY started_at DESC LIMIT 1
-        `).get(sleepActivity.id, dateStr, dateStr) as any;
+        `).get(sleepActivity.id, dateStr, dateStr, nextDayStr, nextDayStr) as any;
 
         if (!session) return null;
 
@@ -15275,6 +15908,7 @@ electron_1.ipcMain.handle('dismiss-sleep-detection', (event) => {
 });
 
 electron_1.ipcMain.handle('get-external-sessions', (event, period = 'all') => {
+    const _t = Date.now();
     if (useJson) return [];
     try {
         let dateFilter = '';
@@ -15292,13 +15926,15 @@ electron_1.ipcMain.handle('get-external-sessions', (event, period = 'all') => {
             dateFilter = `AND date(es.started_at) >= '${monthAgo}'`;
         }
         
-        return db.prepare(`
+        const rows = db.prepare(`
             SELECT es.*, ea.name as activity_name, ea.type, ea.color, ea.icon
             FROM external_sessions es
             JOIN external_activities ea ON es.activity_id = ea.id
             WHERE es.ended_at IS NOT NULL ${dateFilter}
             ORDER BY es.started_at DESC
         `).all();
+        console.log(`[PERF-IPC] get-external-sessions(${period}): ${rows.length} rows in ${Date.now() - _t}ms`);
+        return rows;
     } catch (err) {
         console.error('[DeskFlow] Failed to get external sessions:', err);
         return [];
@@ -15330,6 +15966,7 @@ electron_1.ipcMain.handle('get-day-detail', (event, dateStr) => {
 // ========== External Statistics IPC Handlers ==========
 
 electron_1.ipcMain.handle('get-external-stats', (event, period = 'all') => {
+    const _t = Date.now();
     if (useJson) return { byActivity: {}, total_seconds: 0, sleep_deficit_seconds: 0, average_sleep_hours: 0 };
     try {
         let dateFilter = '';
@@ -15373,12 +16010,14 @@ electron_1.ipcMain.handle('get-external-stats', (event, period = 'all') => {
         const sleepDeficitSeconds = (targetSleepSeconds * sleepSessions.length) - totalSleepSeconds;
         const averageSleepHours = sleepSessions.length > 0 ? (totalSleepSeconds / sleepSessions.length / 3600) : 0;
         
-        return {
+        const result = {
             byActivity,
             total_seconds: totalSeconds,
             sleep_deficit_seconds: sleepDeficitSeconds,
             average_sleep_hours: averageSleepHours
         };
+        console.log(`[PERF-IPC] get-external-stats(${period}): ${sessions.length} sessions in ${Date.now() - _t}ms`);
+        return result;
     } catch (err) {
         console.error('[DeskFlow] Failed to get external stats:', err);
         return { byActivity: {}, total_seconds: 0, sleep_deficit_seconds: 0, average_sleep_hours: 0 };
@@ -15834,12 +16473,14 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
             return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
         };
         
-        const byDate: Record<string, { sleep_seconds: number; bedtime_count: number; bedtime_sum: number; waketime_sum: number; pre_sleep_sum: number; post_wake_sum: number }> = {};
+        const byDate: Record<string, { sleep_seconds: number; bedtime_count: number; bedtime_sum: number; waketime_sum: number; pre_sleep_sum: number; post_wake_sum: number; was_shifted: boolean }> = {};
         for (const s of sessions) {
             const date = getSleepGroupDate(s.started_at);
+            const bedtimeHour = new Date(s.started_at).getHours();
             if (!byDate[date]) {
-                byDate[date] = { sleep_seconds: 0, bedtime_count: 0, bedtime_sum: 0, waketime_sum: 0, pre_sleep_sum: 0, post_wake_sum: 0 };
+                byDate[date] = { sleep_seconds: 0, bedtime_count: 0, bedtime_sum: 0, waketime_sum: 0, pre_sleep_sum: 0, post_wake_sum: 0, was_shifted: false };
             }
+            if (bedtimeHour < 12) byDate[date].was_shifted = true;
             byDate[date].sleep_seconds += s.duration_seconds || 0;
             byDate[date].bedtime_count += 1;
             const bedtime = new Date(s.started_at);
@@ -15879,7 +16520,8 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
                 pre_sleep_seconds: avgPreSleepSec,
                 post_wake_seconds: avgPostWakeSec,
                 bedtime_minutes: avgBedtimeMinutes, // raw app exit time (started_at), NO SHIFT
-                waketime_minutes: rawWakeMinutes % (24 * 60)
+                waketime_minutes: rawWakeMinutes % (24 * 60),
+                was_shifted: data.was_shifted
             });
         }
         
@@ -17492,6 +18134,7 @@ async function runInitAll(baseDir: string, agent: string, projectId: string | un
     { id: 'patterns-md', label: 'patterns.md', type: 'file', group: 'agent', path: 'agent/patterns.md' },
     { id: 'glossary-md', label: 'glossary.md', type: 'file', group: 'agent', path: 'agent/glossary.md' },
     { id: 'data-md', label: 'data.md', type: 'file', group: 'agent', path: 'agent/data.md' },
+    { id: 'config-gen', label: 'Agent config files (opencode.json, CLAUDE.md, etc.)', type: 'file', group: 'config', path: '-' },
     { id: 'debugging-md', label: 'debugging.md', type: 'file', group: 'agent', path: 'agent/debugging.md' },
     { id: 'skills-md', label: 'skills.md', type: 'file', group: 'agent', path: 'agent/skills.md' },
     { id: 'prompt-md', label: 'prompt.md', type: 'file', group: 'agent', path: 'agent/prompt.md' },
@@ -19100,6 +19743,22 @@ No graph report generated yet. Run \`python agent/skills/maintain-context/graphi
     }
     send('design-refs-dir', 'done');
 
+    // Auto-generate project-scope agent config files
+    send('config-gen', 'generating');
+    try {
+      const cfgResult = generateAgentConfigs({ agent, scope: 'project', baseDir, overwrite: false });
+      if (cfgResult.success) {
+        const created = cfgResult.files.filter((f: any) => f.status === 'written').length;
+        const skipped = cfgResult.files.filter((f: any) => f.status === 'skipped').length;
+        send('config-gen', 'done', { content: `Generated ${created} configs, ${skipped} existing skipped (root: ${cfgResult.root})` });
+      } else {
+        send('config-gen', 'error', { error: 'Config generation returned unsuccessful' });
+      }
+    } catch (e) {
+      console.error('[Tracker Mind] Auto-generate configs failed:', e);
+      send('config-gen', 'error', { error: String(e) });
+    }
+
     const allFiles = fs_1.default.readdirSync(agentDir).filter(f => f.endsWith('.md') || f.endsWith('.json'));
     event.sender.send(INIT_PROGRESS_CHANNEL, { type: 'complete', stats: { total: steps.length, created: allFiles.length } });
     return { success: true, projectPath: baseDir, files: allFiles };
@@ -19999,6 +20658,10 @@ let financeRememberDevice = false;
 let financeRememberDeviceExpiry: number | null = null;
 let financeLockTimeout = 5 * 60 * 1000; // 5 minutes in milliseconds
 let financeDisplayCurrency = 'USD';
+let financeAttemptsLeft = 5;
+let financeLockoutUntil = 0;
+let financeLockoutLevel = 0;
+const FINANCE_MAX_ATTEMPTS = 5;
 const crypto = require('crypto');
 const PASSWORD_HASH_OPTS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
@@ -20065,6 +20728,15 @@ function verifyPassword(password: string): boolean {
 // â”€â”€ Security â”€â”€
 electron_1.ipcMain.handle('finance:check-password-setup', async () => {
   return { hasPassword: !!financePasswordHash };
+});
+
+electron_1.ipcMain.handle('finance:get-lock-state', async () => {
+  let locked = financeLocked;
+  if (financeRememberDevice && financeRememberDeviceExpiry && Date.now() < financeRememberDeviceExpiry) {
+    locked = false;
+  }
+  const lockoutSeconds = financeLockoutUntil > Date.now() ? Math.ceil((financeLockoutUntil - Date.now()) / 1000) : 0;
+  return { locked, hasPassword: !!financePasswordHash, attemptsLeft: financeAttemptsLeft, maxAttempts: FINANCE_MAX_ATTEMPTS, lockoutSeconds, lockoutLevel: financeLockoutLevel };
 });
 
 electron_1.ipcMain.handle('finance:is-locked', async () => {
@@ -20270,6 +20942,26 @@ electron_1.ipcMain.handle('finance:update-account', async (_event, data: any) =>
   } catch { return null; }
 });
 
+// ========== Audit Log ==========
+electron_1.ipcMain.handle('audit:list', async (_event, params) => {
+  if (!db) return { rows: [], total: 0 };
+  try {
+    const conditions = []; const values = [];
+    if (params?.entityType) { conditions.push('entity_type = ?'); values.push(params.entityType); }
+    if (params?.entityId != null) { conditions.push('entity_id = ?'); values.push(params.entityId); }
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const total = (db.prepare(`SELECT COUNT(*) as c FROM finance_audit_log ${where}`).get(...values))?.c || 0;
+    const rows = db.prepare(`SELECT * FROM finance_audit_log ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...values, params?.limit || 50, params?.offset || 0);
+    for (const r of rows) { if (r.details) { try { r.details = JSON.parse(r.details); } catch { r.details = null; } } }
+    return { rows, total };
+  } catch (e) { console.error('[audit] list error:', e?.message); return { rows: [], total: 0 }; }
+});
+electron_1.ipcMain.handle('audit:get', async (_event, id) => {
+  if (!db) return null;
+  try { const row = db.prepare('SELECT * FROM finance_audit_log WHERE id = ?').get(id); if (row?.details) { try { row.details = JSON.parse(row.details); } catch { row.details = null; } } return row || null; }
+  catch { return null; }
+});
+
 electron_1.ipcMain.handle('finance:archive-account', async (_event, id: number) => {
   if (!db) return null;
   try {
@@ -20301,12 +20993,12 @@ electron_1.ipcMain.handle('finance:create-wallet', async (_event, data: any) => 
   if (!db) return null;
   try {
     const stmt = db.prepare(`
-      INSERT INTO finance_wallets (account_id, name, type, provider, last_four, balance, currency, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO finance_wallets (account_id, name, type, provider, last_four, balance, initial_balance, currency, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const metadata = data.metadata ? JSON.stringify(data.metadata) : null;
     console.log('[finance:create-wallet] input:', JSON.stringify(data));
-    const result = stmt.run(data.account_id, data.name, data.type, data.provider || null, data.last_four || null, data.balance || 0, data.currency || 'USD', metadata);
+    const result = stmt.run(data.account_id, data.name, data.type, data.provider || null, data.last_four || null, data.balance || 0, data.balance || 0, data.currency || 'USD', metadata);
     console.log('[finance:create-wallet] stmt.run result:', { lastInsertRowid: result.lastInsertRowid, type: typeof result.lastInsertRowid });
     const created = { id: Number(result.lastInsertRowid), ...data, metadata: data.metadata || null };
     console.log('[finance:create-wallet] returning:', JSON.stringify(created));
@@ -20342,6 +21034,111 @@ electron_1.ipcMain.handle('finance:adjust-balance', async (_event, { id, newBala
     db.prepare("UPDATE finance_wallets SET balance=?, updated_at=datetime('now','localtime') WHERE id=?").run(newBalance, id);
     return { success: true };
   } catch { return null; }
+});
+
+// ── Audit Log Helper ──
+function writeAuditLog(action: string, entityType: string, entityId: number, description: string, details?: any) {
+  if (!db) return;
+  try {
+    db.prepare('INSERT INTO finance_audit_log (action, entity_type, entity_id, description, details) VALUES (?, ?, ?, ?, ?)').run(action, entityType, entityId, description, details ? JSON.stringify(details) : null);
+  } catch {}
+}
+
+// ── Recalculate Balances ──
+const recalculateSingleWallet = (walletId: number) => {
+  if (!db) return { success: false, error: 'no db' };
+  const wallet = db.prepare('SELECT name, initial_balance, balance, account_id FROM finance_wallets WHERE id = ?').get(walletId) as any;
+  if (!wallet) return { success: false, error: 'wallet not found' };
+  const rows = db.prepare(`
+    SELECT id, type, amount, fee, description, date, category_id
+    FROM finance_transactions
+    WHERE wallet_id = ? OR from_wallet_id = ?
+    ORDER BY date ASC, id ASC
+  `).all(walletId, walletId) as any[];
+  let runningBalance = wallet.initial_balance || 0;
+  const breakdown: any[] = [];
+  for (const txn of rows) {
+    let delta = 0;
+    if (txn.type === 'income') delta = Math.abs(txn.amount);
+    else if (txn.type === 'expense') delta = -Math.abs(txn.amount);
+    else if (txn.type === 'transfer' && txn.wallet_id === walletId) delta = Math.abs(txn.amount);
+    else if (txn.type === 'transfer' && txn.from_wallet_id === walletId) delta = -Math.abs(txn.amount);
+    if (txn.type === 'transfer' && txn.from_wallet_id === walletId && txn.fee) delta -= Math.abs(txn.fee);
+    runningBalance += delta;
+    breakdown.push({
+      transactionId: txn.id,
+      description: txn.description || '',
+      amount: Math.abs(txn.amount),
+      delta,
+      date: txn.date,
+      type: txn.type,
+      runningBalance
+    });
+  }
+  const computedBalance = runningBalance;
+  const currentBalance = wallet.balance as number;
+  return { breakdown, initialBalance: wallet.initial_balance || 0, computedBalance, currentBalance, difference: computedBalance - currentBalance, walletName: wallet.name };
+};
+
+electron_1.ipcMain.handle('finance:recalculate-balances', async (_event, walletId: number, dryRun: boolean = true) => {
+  if (!db) return { success: false, error: 'no db' };
+  try {
+    const result = recalculateSingleWallet(walletId);
+    if (result.success === false) return result;
+    if (!dryRun) {
+      db.prepare("UPDATE finance_wallets SET balance=?, updated_at=datetime('now','localtime') WHERE id=?").run(result.computedBalance, walletId);
+      writeAuditLog('balance_recalculated', 'wallet', walletId, `Wallet "${result.walletName}" balance recalculated`, {
+        initialBalance: result.initialBalance,
+        txnCount: result.breakdown.length,
+        computedBalance: result.computedBalance,
+        oldBalance: result.currentBalance,
+        newBalance: result.computedBalance
+      });
+    }
+    return { success: true, newBalance: result.computedBalance, oldBalance: result.currentBalance, breakdown: result.breakdown, initialBalance: result.initialBalance, walletName: result.walletName };
+  } catch (e: any) {
+    console.error('[finance] recalculate balances error:', e?.message);
+    return { success: false, error: e?.message };
+  }
+});
+
+electron_1.ipcMain.handle('finance:apply-recalculated-balance', async (_event, walletId: number) => {
+  if (!db) return { success: false, error: 'no db' };
+  try {
+    const result = recalculateSingleWallet(walletId);
+    if (result.success === false) return result;
+    db.prepare("UPDATE finance_wallets SET balance=?, updated_at=datetime('now','localtime') WHERE id=?").run(result.computedBalance, walletId);
+    writeAuditLog('balance_recalculated', 'wallet', walletId, `Wallet "${result.walletName}" balance applied`, {
+      initialBalance: result.initialBalance,
+      txnCount: result.breakdown.length,
+      computedBalance: result.computedBalance,
+      oldBalance: result.currentBalance,
+      newBalance: result.computedBalance
+    });
+    return { success: true, newBalance: result.computedBalance, oldBalance: result.currentBalance, breakdown: result.breakdown, initialBalance: result.initialBalance, walletName: result.walletName };
+  } catch (e: any) {
+    console.error('[finance] apply recalculated balance error:', e?.message);
+    return { success: false, error: e?.message };
+  }
+});
+
+electron_1.ipcMain.handle('finance:recalculate-all-balances', async () => {
+  if (!db) return { success: false, error: 'no db' };
+  try {
+    const wallets = db.prepare('SELECT id, name FROM finance_wallets WHERE is_archived = 0').all() as any[];
+    const results: any[] = [];
+    for (const w of wallets) {
+      const r = recalculateSingleWallet(w.id);
+      if (!r.success) { results.push({ walletId: w.id, walletName: w.name, success: false, error: r.error }); continue; }
+      db.prepare("UPDATE finance_wallets SET balance=?, updated_at=datetime('now','localtime') WHERE id=?").run(r.computedBalance, w.id);
+      results.push({ walletId: w.id, walletName: w.name, success: true, initialBalance: r.initialBalance, currentBalance: r.currentBalance, computedBalance: r.computedBalance, difference: r.difference, breakdown: r.breakdown });
+    }
+    writeAuditLog('balance_recalculated_all', 'wallet', 0, `All wallets balances recalculated (${wallets.length} wallets)`, { walletCount: wallets.length, results: results.map(r => ({ walletId: r.walletId, walletName: r.walletName, success: r.success, oldBalance: r.currentBalance, newBalance: r.computedBalance })) });
+    return { success: true, results };
+  } catch (e: any) {
+    console.error('[finance] recalculate all balances error:', e?.message);
+    return { success: false, error: e?.message };
+  }
 });
 
 electron_1.ipcMain.handle('finance:archive-wallet', async (_event, id: number) => {
@@ -20877,6 +21674,214 @@ electron_1.ipcMain.handle('finance:set-password-requirement', async (_event, key
   } catch { return { success: false }; }
 });
 
+// ── On Behalf Of Summary ──
+electron_1.ipcMain.handle('finance:get-on-behalf-of-summary', async () => {
+  if (!db) return { totalExpense: 0, breakdown: [] };
+  try {
+    const rows = db.prepare(`SELECT COALESCE(on_behalf_of_label, 'Unknown') as label, SUM(amount) as total, COUNT(*) as count FROM finance_transactions WHERE on_behalf_of = 1 AND type = 'expense' GROUP BY on_behalf_of_label ORDER BY total DESC`).all();
+    const totalExpense = rows.reduce((s, r) => s + Math.abs(r.total), 0);
+    return { totalExpense, breakdown: rows.map(r => ({ label: r.label, total: Math.abs(r.total), count: r.count })) };
+  } catch { return { totalExpense: 0, breakdown: [] }; }
+});
+
+// ── Dashboard Finance Overview ──
+electron_1.ipcMain.handle('finance:get-dashboard-overview', async (_event, displayCurrency) => {
+  if (!db) return { summary: { totalIncome: 0, totalExpense: 0, netBalance: 0 }, recentTransactions: [], monthlyTrends: [], spendingByCategory: [], subscriptionCount: 0 };
+  try {
+    const targetCurrency = displayCurrency || financeDisplayCurrency || 'USD';
+    const RATES = { USD: 1, EUR: 0.92, GBP: 0.79, JPY: 151.50, CNY: 7.24, IDR: 16250, SGD: 1.35, KRW: 1375, INR: 83.50, AUD: 1.53, CAD: 1.37, CHF: 0.91 };
+    const convert = (amount, from) => { if (from === targetCurrency || !RATES[from] || !RATES[targetCurrency]) return amount; return amount / RATES[from] * RATES[targetCurrency]; };
+    const incomeRows = db.prepare(`SELECT COALESCE(SUM(t.amount),0) as total, COALESCE(w.currency, 'USD') as cur FROM finance_transactions t LEFT JOIN finance_wallets w ON w.id = t.wallet_id WHERE t.type='income' GROUP BY cur`).all();
+    const income = incomeRows.reduce((s, r) => s + convert(r.total, r.cur), 0);
+    const expenseRows = db.prepare(`SELECT COALESCE(SUM(t.amount),0) as total, COALESCE(w.currency, 'USD') as cur FROM finance_transactions t LEFT JOIN finance_wallets w ON w.id = t.wallet_id WHERE t.type='expense' GROUP BY cur`).all();
+    const expense = expenseRows.reduce((s, r) => s + convert(r.total, r.cur), 0);
+    const balanceRows = db.prepare(`SELECT COALESCE(SUM(w.balance), 0) as total, COALESCE(w.currency, 'USD') as cur FROM finance_wallets w INNER JOIN finance_accounts a ON w.account_id = a.id WHERE w.is_archived = 0 AND a.is_archived = 0 AND a.type != 'custodial' GROUP BY cur`).all();
+    const netBalance = balanceRows.reduce((s, r) => s + convert(r.total, r.cur), 0);
+    const recentTransactions = db.prepare(`SELECT t.*, COALESCE(w.currency, 'USD') as walletCurrency FROM finance_transactions t LEFT JOIN finance_wallets w ON w.id = t.wallet_id ORDER BY t.date DESC, t.id DESC LIMIT 5`).all();
+    const monthlyRaw = db.prepare(`SELECT strftime('%Y-%m', t.date) as month, COALESCE(SUM(CASE WHEN t.type='income' THEN t.amount ELSE 0 END),0) as income, COALESCE(-SUM(CASE WHEN t.type='expense' THEN t.amount ELSE 0 END),0) as expense, COALESCE(w.currency, 'USD') as cur FROM finance_transactions t LEFT JOIN finance_wallets w ON w.id = t.wallet_id GROUP BY month, cur ORDER BY month DESC`).all();
+    const monthlyMap = new Map();
+    for (const r of monthlyRaw) { const e = monthlyMap.get(r.month) || { income: 0, expense: 0 }; e.income += convert(r.income, r.cur); e.expense += convert(r.expense, r.cur); monthlyMap.set(r.month, e); }
+    const monthlyTrends = Array.from(monthlyMap.entries()).sort(([a], [b]) => b.localeCompare(a)).slice(0, 6).map(([month, v]) => ({ month, ...v }));
+    const spendingRaw = db.prepare(`SELECT c.id as categoryId, c.name as categoryName, c.color as categoryColor, c.icon as categoryIcon, COALESCE(-SUM(t.amount),0) as amount, COUNT(t.id) as count, COALESCE(w.currency, 'USD') as cur FROM finance_categories c LEFT JOIN finance_transactions t ON t.category_id = c.id AND t.type = 'expense' LEFT JOIN finance_wallets w ON w.id = t.wallet_id WHERE c.type = 'expense' AND c.is_archived = 0 GROUP BY c.id, cur`).all();
+    const categoryMap = new Map();
+    for (const r of spendingRaw) { const existing = categoryMap.get(r.categoryId); if (existing) { existing.amount += convert(r.amount, r.cur); existing.count += r.count; } else { categoryMap.set(r.categoryId, { categoryId: r.categoryId, categoryName: r.categoryName, categoryColor: r.categoryColor, categoryIcon: r.categoryIcon, amount: convert(r.amount, r.cur), count: r.count }); } }
+    const spendingByCategory = Array.from(categoryMap.values()).sort((a, b) => b.amount - a.amount).slice(0, 8);
+    const subCount = (db.prepare(`SELECT COUNT(*) as c FROM finance_subscriptions WHERE status='active'`).get()).c;
+    return { summary: { totalIncome: income, totalExpense: expense, netBalance }, recentTransactions, monthlyTrends, spendingByCategory, subscriptionCount: subCount };
+  } catch { return { summary: { totalIncome: 0, totalExpense: 0, netBalance: 0 }, recentTransactions: [], monthlyTrends: [], spendingByCategory: [], subscriptionCount: 0 }; }
+});
+
+// ─── FT Person Handlers ───
+
+electron_1.ipcMain.handle('finance:get-ft-persons', async () => {
+  if (!db) return [];
+  try {
+    const persons = db.prepare(`
+      SELECT p.*,
+        (SELECT COUNT(*) FROM finance_transactions WHERE ft_person_id = p.id AND on_behalf_of = 1 AND type = 'expense') as transaction_count,
+        (SELECT COALESCE(SUM(ABS(amount)), 0) FROM finance_transactions WHERE ft_person_id = p.id AND on_behalf_of = 1 AND type = 'expense') as total_owed,
+        (SELECT COALESCE(SUM(ABS(t.amount)), 0) FROM finance_transactions t
+         WHERE t.type = 'income' AND t.tags LIKE '%ft_repaid:%'
+         AND EXISTS (SELECT 1 FROM finance_transactions e WHERE e.ft_person_id = p.id AND e.on_behalf_of = 1 AND t.tags LIKE '%ft_repaid:' || e.id || '%')
+        ) as total_paid
+      FROM finance_ft_persons p
+      ORDER BY p.name ASC
+    `).all() as any[];
+    return persons;
+  } catch (error: any) {
+    console.error('[finance] get-ft-persons error:', error);
+    return [];
+  }
+});
+
+electron_1.ipcMain.handle('finance:get-ft-person-balances', async () => {
+  if (!db) return [];
+  try {
+    const rows = db.prepare(`
+      SELECT p.id, p.name, p.email, p.phone,
+        COALESCE((SELECT SUM(ABS(amount)) FROM finance_transactions 
+          WHERE ft_person_id = p.id AND on_behalf_of = 1 AND type = 'expense'), 0) as total_owed,
+        COALESCE((SELECT SUM(ABS(t.amount)) FROM finance_transactions t
+          WHERE t.type = 'income' AND t.tags LIKE '%ft_repaid:%'
+          AND EXISTS (SELECT 1 FROM finance_transactions e 
+            WHERE e.ft_person_id = p.id AND e.on_behalf_of = 1 
+            AND t.tags LIKE '%ft_repaid:' || e.id || '%')), 0) as total_repaid,
+        (SELECT COUNT(*) FROM finance_transactions 
+          WHERE ft_person_id = p.id AND on_behalf_of = 1 AND type = 'expense') as transaction_count
+      FROM finance_ft_persons p
+      ORDER BY (total_owed - total_repaid) DESC
+    `).all() as any[];
+    return rows;
+  } catch (error: any) {
+    console.error('[finance] get-ft-person-balances error:', error);
+    return [];
+  }
+});
+
+electron_1.ipcMain.handle('finance:create-ft-person', async (_event, data: { name: string; email?: string; phone?: string; notes?: string }) => {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare('INSERT INTO finance_ft_persons (name, email, phone, notes) VALUES (?, ?, ?, ?)');
+    const result = stmt.run(data.name, data.email || null, data.phone || null, data.notes || null);
+    const person = db.prepare('SELECT * FROM finance_ft_persons WHERE id = ?').get(result.lastInsertRowid) as any;
+    return { ...person, transaction_count: 0, total_owed: 0, total_paid: 0 };
+  } catch (error: any) {
+    console.error('[finance] create-ft-person error:', error);
+    return null;
+  }
+});
+
+electron_1.ipcMain.handle('finance:update-ft-person', async (_event, data: { id: number; name?: string; email?: string; phone?: string; notes?: string }) => {
+  if (!db) return { success: false, error: 'No database' };
+  try {
+    const sets: string[] = [];
+    const vals: any[] = [];
+    if (data.name !== undefined) { sets.push('name = ?'); vals.push(data.name); }
+    if (data.email !== undefined) { sets.push('email = ?'); vals.push(data.email); }
+    if (data.phone !== undefined) { sets.push('phone = ?'); vals.push(data.phone); }
+    if (data.notes !== undefined) { sets.push('notes = ?'); vals.push(data.notes); }
+    sets.push("updated_at = datetime('now','localtime')");
+    vals.push(data.id);
+    db.prepare(`UPDATE finance_ft_persons SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    return { success: true };
+  } catch (error: any) {
+    console.error('[finance] update-ft-person error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+electron_1.ipcMain.handle('finance:delete-ft-person', async (_event, id: number) => {
+  if (!db) return { success: false };
+  try {
+    db.prepare('UPDATE finance_transactions SET ft_person_id = NULL WHERE ft_person_id = ?').run(id);
+    db.prepare('DELETE FROM finance_ft_persons WHERE id = ?').run(id);
+    return { success: true };
+  } catch (error: any) {
+    console.error('[finance] delete-ft-person error:', error);
+    return { success: false };
+  }
+});
+
+electron_1.ipcMain.handle('finance:record-ft-repayment', async (_event, data: {
+  originalTxId: number; personId?: number; amount: number; date: string;
+  walletId?: number; accountId?: number; description?: string; isOverpayment?: boolean;
+}) => {
+  if (!db) return { success: false, error: 'No database' };
+  try {
+    const originalTx = db.prepare('SELECT * FROM finance_transactions WHERE id = ?').get(data.originalTxId) as any;
+    if (!originalTx) return { success: false, error: 'Original transaction not found' };
+
+    const tags = [`ft_repaid:${data.originalTxId}`];
+    if (data.isOverpayment) tags.push(`ft_overpayment:${data.originalTxId}`);
+    if (data.personId) tags.push(`ft_person:${data.personId}`);
+
+    const incomeCat = db.prepare("SELECT id FROM finance_categories WHERE type = 'income' LIMIT 1").get() as any;
+    const stmt = db.prepare(`
+      INSERT INTO finance_transactions (account_id, wallet_id, category_id, type, amount, description, date, tags, on_behalf_of)
+      VALUES (?, ?, ?, 'income', ?, ?, ?, ?, 0)
+    `);
+    const result = stmt.run(
+      data.accountId || originalTx.account_id,
+      data.walletId || null,
+      incomeCat?.id || null,
+      Math.abs(data.amount),
+      data.description || `Repayment for: ${originalTx.description || 'Expense #' + data.originalTxId}`,
+      data.date,
+      tags.join(',')
+    );
+
+    if (data.walletId) {
+      db.prepare("UPDATE finance_wallets SET balance = balance + ?, updated_at = datetime('now','localtime') WHERE id = ?").run(Math.abs(data.amount), data.walletId);
+    }
+    db.prepare("UPDATE finance_accounts SET balance = balance + ?, updated_at = datetime('now','localtime') WHERE id = ?").run(Math.abs(data.amount), data.accountId || originalTx.account_id);
+
+    return { success: true, repaymentTxId: result.lastInsertRowid };
+  } catch (error: any) {
+    console.error('[finance] record-ft-repayment error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+
+// ========== Home Summary ==========
+electron_1.ipcMain.handle('get-home-summary', async () => {
+  if (useJson) return { success: false, error: 'Not available in JSON mode' };
+  ensureDb();
+  try {
+    const dateStr = new Date().toISOString().split('T')[0];
+    const todayLogs = db.prepare(`SELECT category, CAST(duration_ms AS REAL) / 1000.0 as duration_sec FROM logs WHERE date(timestamp) = ?`).all(dateStr);
+    let focusSec = 0;
+    for (const log of todayLogs) { if (getTierForCategory(log.category) === 'productive') focusSec += log.duration_sec; }
+    const focusMinutes = Math.round(focusSec / 60);
+    const walletRow = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(balance), 0) as total FROM finance_wallets WHERE is_archived = 0`).get();
+    const sleepRow = db.prepare(`SELECT COALESCE(SUM(es.duration_seconds), 0) as total_seconds FROM external_sessions es JOIN external_activities ea ON es.activity_id = ea.id WHERE ea.type = 'sleep' AND date(es.started_at) = ?`).get(dateStr);
+    return { success: true, data: { focusMinutes, walletCount: walletRow?.count || 0, totalBalance: walletRow?.total || 0, dueReviews: 0, sleepSeconds: sleepRow?.total_seconds || 0, financeLocked } };
+  } catch (err) { console.error('[DeskFlow] get-home-summary error:', err); return { success: false, error: err.message }; }
+});
+
+// ========== Subscriptions ==========
+electron_1.ipcMain.handle('subscriptions:list', async (_event, walletId) => {
+  if (!db) return [];
+  try {
+    if (walletId) return db.prepare('SELECT * FROM finance_subscriptions WHERE wallet_id = ? ORDER BY next_renewal_date ASC').all(walletId);
+    return db.prepare('SELECT * FROM finance_subscriptions ORDER BY next_renewal_date ASC').all();
+  } catch { return []; }
+});
+electron_1.ipcMain.handle('subscriptions:create', async (_event, data) => {
+  if (!db) return null;
+  try { const result = db.prepare("INSERT INTO finance_subscriptions (wallet_id,name,description,price,currency,billing_cycle,billing_interval,start_date,next_renewal_date,cancel_url,cancel_reminder_days,reminder_note,status,category_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(data.wallet_id,data.name,data.description||'',data.price,data.currency||'USD',data.billing_cycle||'monthly',data.billing_interval||1,data.start_date||null,data.next_renewal_date||null,data.cancel_url||'',data.cancel_reminder_days??7,data.reminder_note||'',data.status||'active',data.category_id||null); return {id:result.lastInsertRowid,...data}; } catch { return null; }
+});
+electron_1.ipcMain.handle('subscriptions:update', async (_event, data) => {
+  if (!db) return {success:false}; try { db.prepare("UPDATE finance_subscriptions SET name=?,description=?,price=?,currency=?,billing_cycle=?,billing_interval=?,start_date=?,next_renewal_date=?,cancel_url=?,cancel_reminder_days=?,reminder_note=?,status=?,category_id=?,updated_at=datetime('now','localtime') WHERE id=?").run(data.name,data.description||'',data.price,data.currency||'USD',data.billing_cycle||'monthly',data.billing_interval||1,data.start_date||null,data.next_renewal_date||null,data.cancel_url||'',data.cancel_reminder_days??7,data.reminder_note||'',data.status||'active',data.category_id||null,data.id); return {success:true}; } catch { return {success:false}; }
+});
+electron_1.ipcMain.handle('subscriptions:delete', async (_event, id) => { if (!db) return {success:false}; try { db.prepare('DELETE FROM finance_subscriptions WHERE id = ?').run(id); return {success:true}; } catch { return {success:false}; } });
+electron_1.ipcMain.handle('subscriptions:get-upcoming-renewals', async (_event, days = 7) => { if (!db) return []; try { const f = new Date(); f.setDate(f.getDate()+days); return db.prepare("SELECT * FROM finance_subscriptions WHERE status='active' AND next_renewal_date IS NOT NULL AND next_renewal_date <= ? AND next_renewal_date >= datetime('now','localtime') ORDER BY next_renewal_date ASC").all(f.toISOString().replace('T',' ').slice(0,19)); } catch { return []; } });
+electron_1.ipcMain.handle('subscriptions:generate-due-transactions', async () => { if (!db) return {created:0,subscriptions:[]}; try { const today = new Date().toISOString().slice(0,10); const dueSubs = db.prepare("SELECT * FROM finance_subscriptions WHERE status='active' AND next_renewal_date IS NOT NULL AND next_renewal_date <= ? ORDER BY next_renewal_date ASC").all(today); const created = []; const runBatch = db.transaction(() => { for (const sub of dueSubs) { const txnResult = db.prepare("INSERT INTO finance_transactions (account_id,wallet_id,category_id,type,amount,fee,description,note,\"date\",\"time\",is_recurring,recurring_interval) VALUES (?,?,?,'expense',?,0,?,?,?,NULL,1,?)").run((db.prepare('SELECT account_id FROM finance_wallets WHERE id = ?').get(sub.wallet_id))?.account_id||0,sub.wallet_id,sub.category_id,-Math.abs(sub.price),sub.name,sub.description||'Subscription: '+sub.name,today,sub.billing_cycle); const txnId = Number(txnResult.lastInsertRowid); db.prepare('UPDATE finance_wallets SET balance = balance - ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(Math.abs(sub.price),sub.wallet_id); let nextDate; const base = new Date(sub.next_renewal_date||today); switch(sub.billing_cycle){case'weekly':nextDate=new Date(base.getTime()+7*sub.billing_interval*86400000);break;case'monthly':nextDate=new Date(base);nextDate.setMonth(nextDate.getMonth()+sub.billing_interval);break;case'quarterly':nextDate=new Date(base);nextDate.setMonth(nextDate.getMonth()+3*sub.billing_interval);break;case'yearly':nextDate=new Date(base);nextDate.setFullYear(nextDate.getFullYear()+sub.billing_interval);break;default:nextDate=new Date(base);nextDate.setMonth(nextDate.getMonth()+sub.billing_interval);break;} db.prepare('UPDATE finance_subscriptions SET next_renewal_date = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(nextDate.toISOString().slice(0,10),sub.id); created.push({subId:sub.id,txnId,name:sub.name,amount:sub.price}); writeAuditLog('subscription_transaction_created','subscription',sub.id,'Auto-generated expense for '+sub.name,{txnId,nextRenewalDate:nextDate.toISOString().slice(0,10)}); } }); runBatch(); return {created:created.length,subscriptions:created}; } catch(e){console.error('[subscriptions] generate-due error:',e?.message);return{created:0,subscriptions:[]};} });
+function computeNextRenewalDate(currentDate,billingCycle,interval){const date=new Date(currentDate+'T00:00:00');const n=Math.max(1,interval||1);switch(billingCycle){case'daily':date.setDate(date.getDate()+n);break;case'weekly':date.setDate(date.getDate()+(7*n));break;case'monthly':date.setMonth(date.getMonth()+n);break;case'quarterly':date.setMonth(date.getMonth()+(3*n));break;case'yearly':case'annually':date.setFullYear(date.getFullYear()+n);break;default:date.setMonth(date.getMonth()+n);}return date.toISOString().split('T')[0];}
+electron_1.ipcMain.handle('subscriptions:check-renewals', async () => { if (!db) return {dueSubscriptions:[],count:0}; try { const today=new Date().toISOString().split('T')[0]; const dueSubscriptions=db.prepare("SELECT s.*,w.name as wallet_name,w.account_id,w.currency as wallet_currency FROM finance_subscriptions s INNER JOIN finance_wallets w ON s.wallet_id=w.id WHERE s.status='active' AND s.next_renewal_date IS NOT NULL AND s.next_renewal_date<=? ORDER BY s.next_renewal_date ASC").all(today); return {dueSubscriptions,count:dueSubscriptions.length}; } catch(e){console.error('[subscriptions] check-renewals error:',e?.message);return{dueSubscriptions:[],count:0,error:e?.message};} });
+electron_1.ipcMain.handle('subscriptions:generate-transaction', async (_event, subscriptionId) => { if (!db) return null; try { const sub=db.prepare("SELECT s.*,w.account_id,w.currency as wallet_currency FROM finance_subscriptions s INNER JOIN finance_wallets w ON s.wallet_id=w.id WHERE s.id=?").get(subscriptionId); if(!sub)return{success:false,error:'Subscription not found'}; const today=new Date().toISOString().split('T')[0]; const amount=-Math.abs(sub.price); const txResult=db.prepare("INSERT INTO finance_transactions (account_id,wallet_id,category_id,type,amount,fee,description,note,date,tags,on_behalf_of) VALUES (?,?,?,'expense',?,0,?,?,?, ?, 0)").run(sub.account_id,sub.wallet_id,sub.category_id||null,amount,'Subscription: '+sub.name,sub.description||'',today,'subscription:'+sub.id); const txId=Number(txResult.lastInsertRowid); db.prepare("UPDATE finance_wallets SET balance = balance + ?, updated_at = datetime('now','localtime') WHERE id = ?").run(amount,sub.wallet_id); db.prepare("UPDATE finance_accounts SET balance = balance + ?, updated_at = datetime('now','localtime') WHERE id = ?").run(amount,sub.account_id); const nextDate=computeNextRenewalDate(sub.next_renewal_date||today,sub.billing_cycle,sub.billing_interval); db.prepare("UPDATE finance_subscriptions SET next_renewal_date = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(nextDate,sub.id); writeAuditLog('subscription_transaction_generated','transaction',txId,'Transaction generated from subscription '+sub.name,{subscription_id:sub.id,amount,next_renewal_date:nextDate}); return{success:true,transactionId:txId,nextRenewalDate:nextDate}; } catch(e){console.error('[subscriptions] generate-transaction error:',e?.message);return{success:false,error:e?.message};} });
+electron_1.ipcMain.handle('subscriptions:skip-renewal', async (_event, id) => { if (!db) return {success:false}; try { const sub=db.prepare('SELECT * FROM finance_subscriptions WHERE id = ?').get(id); if(!sub)return{success:false,error:'Subscription not found'}; let nextDate; const base=new Date(sub.next_renewal_date||new Date().toISOString().slice(0,10)); switch(sub.billing_cycle){case'weekly':nextDate=new Date(base.getTime()+7*sub.billing_interval*86400000);break;case'monthly':nextDate=new Date(base);nextDate.setMonth(nextDate.getMonth()+sub.billing_interval);break;case'quarterly':nextDate=new Date(base);nextDate.setMonth(nextDate.getMonth()+3*sub.billing_interval);break;case'yearly':nextDate=new Date(base);nextDate.setFullYear(nextDate.getFullYear()+sub.billing_interval);break;default:nextDate=new Date(base);nextDate.setMonth(nextDate.getMonth()+sub.billing_interval);break;} db.prepare('UPDATE finance_subscriptions SET next_renewal_date = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(nextDate.toISOString().slice(0,10),id); writeAuditLog('subscription_renewal_skipped','subscription',id,'Skipped renewal for '+sub.name,{nextRenewalDate:nextDate.toISOString().slice(0,10)}); return{success:true}; } catch(e){console.error('[subscriptions] skip-renewal error:',e?.message);return{success:false,error:e.message};} });
+
 // ========== Smart Gap Fill — Pattern Prediction ==========
 electron_1.ipcMain.handle('predict-gap-fill', (event, { start, end, mode = 'combined' }) => {
     if (useJson) return { predictions: [], gaps: [] };
@@ -21144,6 +22149,196 @@ electron_1.ipcMain.handle('predict-day-gaps', (event, { date, mode = 'combined' 
     } catch (err) {
         console.error('[DeskFlow] predict-day-gaps error:', err);
         return { slots: [] };
+    }
+});
+
+// ========== Conductor: Autonomous Multi-Agent System ==========
+async function createAgentTerminal(id: string, cwd: string, cols: number, rows: number, agentType?: string) {
+    const result = terminalManager.spawn(id, cwd, cols, rows);
+    if (result.success) {
+        if (agentType && agentType.trim().length > 0) {
+            const type = agentType || DEFAULT_AGENT;
+            clearAgentTimeout(id);
+            agentStates.set(id, { agentType: type, phase: 'launching', dataBuffer: '', idleSeq: 0, launchStartedAt: Date.now(), pendingWrites: [] });
+            startAgentTimeout(id, type);
+        }
+        armTerminalReadyFallback(id);
+
+        terminalManager.getDataHandler(id, function (data) {
+            if (!terminalReadySent.has(id)) {
+                terminalReadySent.add(id);
+                clearTerminalReadyFallback(id);
+                broadcast('terminal:ready', id);
+            }
+            broadcast('terminal:data', id, data);
+            try {
+                if (db) {
+                    const sid = (db.prepare('SELECT id FROM terminal_sessions WHERE terminal_id = ? ORDER BY created_at DESC LIMIT 1').get(id) as any)?.id;
+                    if (sid) {
+                        db.prepare('INSERT INTO terminal_messages (session_id, role, content) VALUES (?, ?, ?)').run(sid, 'assistant', data);
+                    }
+                }
+            } catch (_e) { }
+
+            const st = agentStates.get(id);
+            if (!st) return;
+            st.dataBuffer += data;
+            if (st.dataBuffer.length > 10000) st.dataBuffer = st.dataBuffer.slice(-5000);
+
+            if (st.phase === 'ready' || st.phase === 'busy') {
+                const buf = terminalResponseBuffers.get(id) || '';
+                terminalResponseBuffers.set(id, buf + data);
+            }
+
+            const handshakeSeen = st.handshakeToken ? stripAnsi(st.dataBuffer).includes(st.handshakeToken) : false;
+            const promptSeen = detectAgentPrompt(st.dataBuffer, st.agentType);
+            const actionRequired = detectActionRequired(st.dataBuffer);
+
+            function isAgentReady(): boolean {
+                const cfg = getAgentConfig(st.agentType);
+                if (cfg.bracketedPaste) return promptSeen || handshakeSeen;
+                return promptSeen && handshakeSeen;
+            }
+            if (st.phase === 'launching' && (isAgentReady() || hasEnoughAgentOutputToAcceptInput(st))) {
+                markAgentReady(id, st);
+            } else if ((st.phase === 'busy' || st.phase === 'attention') && promptSeen) {
+                st.phase = 'ready';
+                st.idleSeq += 1;
+                flushPendingAgentWrites(id, st);
+                broadcast('agent:idle', { terminalId: id, seq: st.idleSeq });
+                broadcast('ai-task:updated', { terminalId: id, status: 'completed' });
+            } else if (st.phase === 'busy' && actionRequired) {
+                st.phase = 'attention';
+                broadcast('ai-task:updated', { terminalId: id, status: 'action_required' });
+            } else if (st.phase === 'attention' && !actionRequired && data.length > 0) {
+                st.phase = 'busy';
+                broadcast('ai-task:updated', { terminalId: id, status: 'in_progress' });
+            }
+
+            if ((st.phase === 'ready' || st.phase === 'busy') && promptSeen) {
+                const output = terminalResponseBuffers.get(id) || '';
+                terminalResponseBuffers.set(id, '');
+                if (output.trim().length > 20) {
+                    parseTerminalOutput(id, output);
+                }
+                detectEditsInOutput(id, output);
+            }
+
+            if ((st.phase === 'ready' || st.phase === 'busy') && pendingCompletions.has(id) && promptSeen) {
+                pendingCompletions.delete(id);
+                markTaskCompleted(id);
+            }
+        });
+
+        terminalManager.getExitHandler(id, (exitCode: number, signal: string) => {
+            clearAgentTimeout(id);
+            failPendingWrites(id);
+            const intentional = terminalManager.intentionalKills.has(id);
+            const spawnTime = terminalManager.spawnTimes.get(id);
+            const isRecentSpawn = spawnTime && (Date.now() - spawnTime < 2000);
+            terminalManager.spawnTimes.delete(id);
+            broadcast('terminal:exit', id, exitCode, signal, intentional || !!isRecentSpawn);
+        });
+    }
+    return result;
+}
+
+const conductorService = new ConductorService({
+    spawnAgentTerminal: createAgentTerminal,
+    writeTerminal: (id: string, data: string) => terminalManager.write(id, data),
+    killTerminal: (id: string) => terminalManager.kill(id),
+    isAgentReady: (id: string) => agentStates.get(id)?.phase === 'ready',
+    broadcast: broadcast,
+});
+
+electron_1.ipcMain.handle('conductor:start', async (_event, opts: any) => {
+    try {
+        const data = await conductorService.startMission(opts);
+        return { success: true, data };
+    } catch (err: any) {
+        console.error('[DeskFlow] conductor:start error:', err.message);
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('conductor:pause', async (_event, missionId: string) => {
+    try {
+        const data = await conductorService.pauseMission(missionId);
+        return { success: true, data };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('conductor:resume', async (_event, missionId: string) => {
+    try {
+        const data = await conductorService.resumeMission(missionId);
+        return { success: true, data };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('conductor:kill', async (_event, missionId: string) => {
+    try {
+        const data = await conductorService.killMission(missionId);
+        return { success: true, data };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('conductor:set-autonomy', async (_event, missionId: string, level: any) => {
+    try {
+        const data = await conductorService.setAutonomy(missionId, level);
+        return { success: true, data };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('conductor:send-directive', async (_event, missionId: string, text: string) => {
+    try {
+        const data = await conductorService.sendDirective(missionId, text);
+        return { success: true, data };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('conductor:resolve-escalation', async (_event, missionId: string, escalationId: string, decision: any, note?: string) => {
+    try {
+        const data = await conductorService.resolveEscalation(missionId, escalationId, decision, note);
+        return { success: true, data };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('conductor:promote-integration', async (_event, missionId: string) => {
+    try {
+        const data = await conductorService.promoteIntegration(missionId);
+        return { success: true, data };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('conductor:get-snapshot', async (_event, missionId: string) => {
+    try {
+        const data = await conductorService.getSnapshot(missionId);
+        return { success: true, data };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('conductor:list-missions', async (_event) => {
+    try {
+        const data = await conductorService.listMissions();
+        return { success: true, data };
+    } catch (err: any) {
+        return { success: false, error: err.message };
     }
 });
 

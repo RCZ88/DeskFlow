@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Sparkles, Wand2, BookOpen, MoreVertical, Play, Square } from 'lucide-react';
 
 interface DesignLibrary {
-  id: '21st-dev' | 'aceternity' | 'refero';
+  id: string;
   label: string;
   description: string;
   enabled: boolean;
@@ -14,11 +14,11 @@ interface DesignLibrary {
 
 interface DesignLibrarySourcesProps {
   libraries: DesignLibrary[];
-  onBrowse: (id: '21st-dev' | 'aceternity' | 'refero') => void;
-  onToggle: (id: '21st-dev' | 'aceternity' | 'refero', enabled: boolean) => void;
-  onConfigure?: (id: '21st-dev' | 'aceternity' | 'refero') => void;
-  onStartServer?: (id: '21st-dev' | 'aceternity' | 'refero') => void;
-  onStopServer?: (id: '21st-dev' | 'aceternity' | 'refero') => void;
+  onBrowse: (id: string) => void;
+  onToggle: (id: string, enabled: boolean) => void;
+  onConfigure?: (id: string) => void;
+  onStartServer?: (id: string) => void;
+  onStopServer?: (id: string) => void;
 }
 
 export default function DesignLibrarySources({ libraries, onBrowse, onToggle, onConfigure, onStartServer, onStopServer }: DesignLibrarySourcesProps) {
@@ -63,7 +63,7 @@ export default function DesignLibrarySources({ libraries, onBrowse, onToggle, on
         <h3 className="text-sm font-semibold text-zinc-200">Design Library Sources</h3>
       </div>
       
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {libraries.map((library) => {
           const Icon = library.icon;
           const isConnected = library.status === 'connected';

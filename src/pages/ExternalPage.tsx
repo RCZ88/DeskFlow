@@ -7,6 +7,7 @@ import {
   Code, Laptop, Wrench, Cog, Music, Gamepad2, Footprints, Droplets,
   Wind, Flame, Backpack, Dribbble, Palette, Edit3, Pencil,
   ChevronLeft, ChevronRight, GripVertical,
+  ArrowRightLeft,
   Calendar,
   PieChart as PieChartIcon, BarChart3
 } from 'lucide-react';
@@ -32,6 +33,7 @@ import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { LoadingState } from '../components/LoadingState';
+import TransferSessionModal from '../components/TransferSessionModal';
 import { EmptyState } from '../components/EmptyState';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler);
@@ -72,7 +74,7 @@ interface ConsistencyData {
 }
 
 interface SleepTrend {
-  daily: Array<{ date: string; sleep_seconds: number; deficit_seconds: number; pre_sleep_seconds: number; post_wake_seconds: number; bedtime_minutes: number; waketime_minutes: number }>;
+  daily: Array<{ date: string; sleep_seconds: number; deficit_seconds: number; pre_sleep_seconds: number; post_wake_seconds: number; bedtime_minutes: number; waketime_minutes: number; was_shifted?: boolean }>;
   average_bedtime: string;
   average_wake_time: string;
   average_sleep_duration: number;
@@ -223,6 +225,8 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   const [manualSessionStartHours, setManualSessionStartHours] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getHours(); });
   const [manualSessionStartMinutes, setManualSessionStartMinutes] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getMinutes(); });
 const [sleepDebugData, setSleepDebugData] = useState<any>(null);
+  const [sleepFixResult, setSleepFixResult] = useState<{ fixed: number; message: string } | null>(null);
+  const [showSleepFixModal, setShowSleepFixModal] = useState(false);
    const dateInputRef = useRef<HTMLInputElement>(null);
 
    const prevDay = () => {
@@ -263,6 +267,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
   const [editActivityError, setEditActivityError] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<any | null>(null);
   const [editingSessionTimes, setEditingSessionTimes] = useState({ started_at: '', ended_at: '' });
+  const [transferSession, setTransferSession] = useState<any | null>(null);
   const [showPastSleepModal, setShowPastSleepModal] = useState(false);
   const [pastDeviceOff, setPastDeviceOff] = useState({ hours: 22, minutes: 0 });
   const [pastWakeupTime, setPastWakeupTime] = useState({ hours: 7, minutes: 0 });
@@ -332,7 +337,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     if (window.deskflowAPI?.getExternalActivities) {
       window.deskflowAPI.getExternalActivities().then((data) => {
         console.log('[ExternalPage] Loaded activities:', data.length);
-        setActivities(data.filter((a: any) => a.name !== 'AFK'));
+        setActivities(data);
         
         // After activities load, check for active session
         if (window.deskflowAPI?.getActiveExternalSession) {
@@ -555,7 +560,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     const handleSleepConfirmed = () => {
       refreshStats();
       if (window.deskflowAPI?.getExternalActivities) {
-        window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data.filter((a: any) => a.name !== 'AFK')));
+        window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data));
       }
     };
     window.addEventListener('sleep-confirmed', handleSleepConfirmed);
@@ -567,7 +572,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     const handleExternalDataChanged = () => {
       refreshStats();
       if (window.deskflowAPI?.getExternalActivities) {
-        window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data.filter((a: any) => a.name !== 'AFK')));
+        window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data));
       }
     };
     window.addEventListener('external-data-changed', handleExternalDataChanged);
@@ -689,7 +694,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
         // Reload activities
         if (window.deskflowAPI?.getExternalActivities) {
           const updated = await window.deskflowAPI.getExternalActivities();
-          setActivities(updated.filter((a: any) => a.name !== 'AFK'));
+          setActivities(updated);
         }
 
         setAddActivitySuccess(true);
@@ -1346,6 +1351,13 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                                 <Pencil className="w-3 h-3 text-zinc-500" />
                               </button>
                               <button
+                                onClick={() => setTransferSession(s)}
+                                className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-amber-900/50 transition-colors duration-150"
+                                title="Transfer to another activity"
+                              >
+                                <ArrowRightLeft className="w-3 h-3 text-amber-400" />
+                              </button>
+                              <button
                                 onClick={async () => {
                                   if (window.deskflowAPI?.deleteExternalSession) {
                                     await window.deskflowAPI.deleteExternalSession(s.id);
@@ -1619,7 +1631,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                           setManualSessionActivity(null);
                           refreshStats();
                           if (window.deskflowAPI?.getExternalActivities) {
-                            window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data.filter((a: any) => a.name !== 'AFK')));
+                            window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data));
                           }
                         }
                       }
@@ -1759,65 +1771,97 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                       return <div className={`absolute left-1 right-1 ${rounding} transition-colors duration-150 duration-300`} style={{ top: `${t}%`, bottom: `${100 - b}%`, backgroundColor: color, opacity: 0.8, boxShadow: `0 0 6px ${color}4D` }} />;
                     };
                     
+                    const hasSleepData = day.sleep_seconds > 0 || appExitMin > 0;
+                    const wasShifted = day.was_shifted || false;
+                    
+                    // Helper: resolve the actual calendar date for this bar's sleep
+                    const resolveDate = (offsetDays: number = 0) => {
+                      const d = new Date(day.date + 'T00:00:00');
+                      if (wasShifted) d.setDate(d.getDate() + 1);
+                      if (offsetDays) d.setDate(d.getDate() + offsetDays);
+                      return d;
+                    };
+                    
                     return (
-                      <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px] cursor-pointer" onClick={() => { const actualDate = (() => { const d = new Date(day.date + 'T00:00:00'); if (day.bedtime_minutes < 720) d.setDate(d.getDate() + 1); return localDateStr(d); })(); setPastSleepDate(actualDate); setShowPastSleepModal(true); }}>
+                      <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px] cursor-pointer" onClick={() => { if (!hasSleepData) return; setPastSleepDate(day.date); setShowPastSleepModal(true); }}>
                         {/* 3-segment sleep bar: amber pre-sleep → indigo sleep → rose post-wake */}
                         <div className="relative w-full h-72">
                           {/* Tooltip - positioned at bottom of bar area */}
                           <div className="absolute left-1/2 -translate-x-1/2 bottom-1 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 text-[10px] text-zinc-300 whitespace-nowrap z-[100] pointer-events-none shadow-xl" style={{ transform: 'translate(-50%, 0)' }}>
-                            <div className="font-medium text-white text-center mb-1">
-                              🛏️ {(() => {
-                                const bedD = new Date(day.date + 'T00:00:00');
-                                if (appExitMin < 720) bedD.setDate(bedD.getDate() + 1);
-                                return bedD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                              })()}
-                              <span className="text-zinc-500"> → </span>
-                              🌅 {(() => {
-                                const wakeD = new Date(day.date + 'T00:00:00');
-                                const shifted = appExitMin < 720; // bedtime was AM → grouped as previous day
-                                if (wakeMin <= appExitMin || shifted) wakeD.setDate(wakeD.getDate() + 1);
-                                return wakeD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                              })()}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                              <span>App Exit: {formatTime(appExitMin)}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                              <span>Pre-sleep: {formatHours(day.pre_sleep_seconds)}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                              <span>Fell asleep: {formatTime(sleepStartMin)}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                              <span>Woke up: {formatTime(wakeMin)}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                              <span>Post-wake: {formatHours(day.post_wake_seconds)}</span>
-                            </div>
-                            <div className="mt-1 pt-1 border-t border-zinc-700 text-indigo-400">Sleep: {formatHours(day.sleep_seconds)}</div>
+                            {!hasSleepData ? (
+                              <div className="text-center py-1">
+                                <div className="text-zinc-500 font-medium mb-0.5">No sleep logged</div>
+                                <div className="text-[9px] text-zinc-600">Click to add sleep for this day</div>
+                              </div>
+                            ) : (
+                              <>
+                <div className="font-medium text-white text-center mb-1">
+                                   {(() => {
+                                     const bedtimeDate = resolveDate();
+                                     const bedHour = Math.floor(appExitMin / 60);
+                                     const wakeHour = Math.floor(wakeMin / 60);
+                                     const isCrossMidnight = wasShifted
+                                       ? (wakeHour < bedHour)
+                                       : (wakeHour < bedHour);
+                                     if (isCrossMidnight) {
+                                       const wakeDate = new Date(bedtimeDate);
+                                       wakeDate.setDate(wakeDate.getDate() + 1);
+                                       return <>🛏️ {bedtimeDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}<span className="text-zinc-500"> → </span>🌅 {wakeDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>;
+                                     } else {
+                                       return <>🛏️ {bedtimeDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}<span className="text-zinc-500"> → </span>🌅 {bedtimeDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>;
+                                     }
+                                   })()}
+                                 </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                  <span>App Exit: {formatTime(appExitMin)}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                  <span>Pre-sleep: {formatHours(day.pre_sleep_seconds)}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                                  <span>Fell asleep: {formatTime(sleepStartMin)}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                                  <span>Woke up: {formatTime(wakeMin)}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                  <span>Post-wake: {formatHours(day.post_wake_seconds)}</span>
+                                </div>
+                                <div className="mt-1 pt-1 border-t border-zinc-700 text-indigo-400">Sleep: {formatHours(day.sleep_seconds)}</div>
+                              </>
+                            )}
                           </div>
-                          {hasPreSleep && (
+                          {hasSleepData && hasPreSleep && (
                             <Seg start={appExitMin} end={sleepStartMin} color={colors.preSleep} topRound={true} bottomRound={!hasPostWake && sleepStartMin >= wakeMin} />
                           )}
-                          <Seg start={sleepStartMin} end={wakeMin} color={colors.sleep} topRound={!hasPreSleep} bottomRound={!hasPostWake} />
-                          {hasPostWake && (
+                          {hasSleepData && <Seg start={sleepStartMin} end={wakeMin} color={colors.sleep} topRound={!hasPreSleep} bottomRound={!hasPostWake} />}
+                          {hasSleepData && hasPostWake && (
                             <Seg start={wakeMin} end={appOpenMin} color={colors.postWake} topRound={false} bottomRound={true} />
                           )}
                         </div>
                         
-                        {/* Time labels */}
-                        <div className="text-[9px] text-amber-400 font-medium">{formatTime(appExitMin)}</div>
-                        <div className="text-[9px] text-rose-400 font-medium">{formatTime(wakeMin)}</div>
+                        {/* Time labels — hidden for empty days */}
+                        {hasSleepData ? (
+                          <>
+                            <div className="text-[9px] text-amber-400 font-medium">{formatTime(appExitMin)}</div>
+                            <div className="text-[9px] text-rose-400 font-medium">{formatTime(wakeMin)}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-[9px] text-zinc-700 font-medium">—</div>
+                            <div className="text-[9px] text-zinc-700 font-medium">—</div>
+                          </>
+                        )}
                         
-                        {/* Day label — shows actual sleep date (next day for AM bedtimes) */}
+                        {/* Day label — shows the grouped bedtime date (not the wake date) */}
                         <div className={`text-[11px] font-medium mt-1 text-center ${isToday ? 'text-indigo-400' : 'text-zinc-400'}`}>
-                          <div>{isToday ? 'Today' : (() => { const d = new Date(day.date + 'T00:00:00'); if (appExitMin < 720) d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-US', { weekday: 'short' }); })()}</div>
-                          {!isToday && <div className="text-[10px] text-zinc-500 font-normal">{(() => { const d = new Date(day.date + 'T00:00:00'); if (appExitMin < 720) d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })()}</div>}
+                          <div>{isToday ? 'Today' : (() => { const d = new Date(day.date + 'T00:00:00'); return d.toLocaleDateString('en-US', { weekday: 'short' }); })()}</div>
+                          {!isToday && <div className="text-[10px] text-zinc-500 font-normal">{(() => { const d = new Date(day.date + 'T00:00:00'); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })()}</div>}
                         </div>
                       </div>
                     );
@@ -1856,7 +1900,8 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
           <button onClick={async () => {
             const result = await window.deskflowAPI?.fixSleepDates?.();
             if (result) {
-              alert(`Fixed ${result.fixed} sleep session(s): ${result.message}`);
+              setSleepFixResult(result);
+              setShowSleepFixModal(true);
               refreshStats();
             }
           }} className="text-[10px] text-amber-600 hover:text-amber-400 transition font-mono border border-amber-600/30 hover:border-amber-400/50 rounded px-2 py-0.5">
@@ -2362,7 +2407,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                           icon: editingActivity.icon
                         });
                         const updated = await window.deskflowAPI.getExternalActivities();
-                        setActivities(updated.filter((a: any) => a.name !== 'AFK'));
+                        setActivities(updated);
                         setEditingActivity(null);
                       } catch (err) {
                         setEditActivityError('Failed to update activity');
@@ -2424,7 +2469,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                           return;
                         }
                         const updated = await window.deskflowAPI.getExternalActivities();
-                        setActivities(updated.filter((a: any) => a.name !== 'AFK'));
+                        setActivities(updated);
                         setEditingActivity(null);
                         setShowDeleteConfirm(false);
                       } catch (err) {
@@ -2528,6 +2573,58 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
         )}
       </AnimatePresence>
 
+      {/* Sleep Fix Result Modal */}
+      <AnimatePresence>
+        {showSleepFixModal && sleepFixResult && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+            onClick={() => setShowSleepFixModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="bg-zinc-900 rounded-xl p-5 max-w-sm w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-4">
+                <div className={`text-4xl mb-3 ${sleepFixResult.fixed > 0 ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                  {sleepFixResult.fixed > 0 ? '✓' : '—'}
+                </div>
+                <h3 className="text-lg font-semibold text-zinc-100">Sleep Dates {sleepFixResult.fixed > 0 ? 'Fixed' : 'Checked'}</h3>
+              </div>
+
+              {sleepFixResult.fixed > 0 ? (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-emerald-400 text-center font-medium">
+                    Fixed {sleepFixResult.fixed} session{sleepFixResult.fixed !== 1 ? 's' : ''}
+                  </p>
+                  <p className="text-[11px] text-emerald-400/60 text-center mt-1">
+                    Sessions with mismatched start/end dates have been corrected
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-zinc-800/50 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-zinc-400 text-center">
+                    All sleep sessions have consistent dates — nothing to fix.
+                  </p>
+                </div>
+              )}
+
+              <button
+                onClick={() => setShowSleepFixModal(false)}
+                className="w-full px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors text-sm text-zinc-300"
+              >
+                Close
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Past Sleep Modal */}
       <AnimatePresence>
         {showPastSleepModal && (
@@ -2579,7 +2676,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                     <div className="text-center">
                       <div className="text-[10px] text-zinc-500 uppercase tracking-wider">🛏️ Bedtime</div>
                       <div className="font-medium text-zinc-200">{(() => {
-                        const d = new Date(pastSleepDate + 'T00:00:00');
+                        const d = pastOriginalStartedAt ? new Date(pastOriginalStartedAt) : new Date(pastSleepDate + 'T00:00:00');
                         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                       })()}</div>
                       <div className="text-[11px] text-zinc-400">{((h) => { const ampm = h.hours >= 12 ? 'PM' : 'AM'; const h12 = h.hours === 0 ? 12 : h.hours > 12 ? h.hours - 12 : h.hours; return `${h12}:${String(h.minutes).padStart(2, '0')} ${ampm}`; })(pastDeviceOff)}</div>
@@ -2853,6 +2950,20 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
               </div>
             </motion.div>
           </motion.div>
+        )}
+        {transferSession && (
+          <TransferSessionModal
+            open={!!transferSession}
+            session={transferSession}
+            activities={activities}
+            onClose={() => setTransferSession(null)}
+            onTransferred={async () => {
+              if (window.deskflowAPI?.getExternalSessions && viewingActivity) {
+                const updated = await window.deskflowAPI.getExternalSessions('all');
+                setViewingActivitySessions(updated.filter((x: any) => x.activity_id === viewingActivity.id));
+              }
+            }}
+          />
         )}
       </AnimatePresence>
     </PageShell>

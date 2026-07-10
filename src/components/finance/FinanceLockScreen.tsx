@@ -5,11 +5,13 @@ import { AuroraBackground } from './_fx/AuroraBackground';
 import { VaultSeal } from './_fx/VaultSeal';
 
 interface FinanceLockScreenProps {
-  onUnlock: (password: string) => Promise<boolean>;
+  onUnlock: (password: string) => Promise<{ success: boolean; lockoutSeconds?: number }>;
   onSetup: (password: string) => Promise<boolean>;
   onBiometricUnlock?: () => Promise<boolean>;
   isFirstTime: boolean;
   error: string | null;
+  attemptsLeft: number;
+  maxAttempts?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -289,11 +291,11 @@ function MagicCard({ children, className = '', glowFrom = '#10b981', glowTo = '#
 
 function ScanLineInput({
   value, onChange, onKeyDown, placeholder, type = 'text',
-  disabled, ref: forwardedRef, icon: Icon,
+  disabled, ref: forwardedRef, icon: Icon, onIconClick,
 }: {
   value: string; onChange: (v: string) => void; onKeyDown?: (e: React.KeyboardEvent) => void;
   placeholder: string; type?: string; disabled?: boolean;
-  ref?: React.Ref<HTMLInputElement>; icon?: React.ElementType;
+  ref?: React.Ref<HTMLInputElement>; icon?: React.ElementType; onIconClick?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
 
@@ -332,9 +334,14 @@ function ScanLineInput({
         )}
       </AnimatePresence>
       {Icon && (
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600">
+        <button
+          type="button"
+          onClick={onIconClick}
+          tabIndex={-1}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors p-1"
+        >
           <Icon className="w-4 h-4" />
-        </div>
+        </button>
       )}
     </div>
   );
@@ -372,14 +379,14 @@ function AttemptIndicator({ attemptsLeft, maxAttempts = 3 }: { attemptsLeft: num
 /*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
 
-export function FinanceLockScreen({ onUnlock, onSetup, onBiometricUnlock, isFirstTime, error }: FinanceLockScreenProps) {
+export function FinanceLockScreen({ onUnlock, onSetup, onBiometricUnlock, isFirstTime, error, attemptsLeft, maxAttempts = 3 }: FinanceLockScreenProps) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
-  const [attemptsLeft, setAttemptsLeft] = useState(3);
   const [cooldownTime, setCooldownTime] = useState(0);
+  const [cooldownDuration, setCooldownDuration] = useState(30);
   const [shake, setShake] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricBusy, setBiometricBusy] = useState(false);
@@ -475,13 +482,14 @@ export function FinanceLockScreen({ onUnlock, onSetup, onBiometricUnlock, isFirs
         if (ok) setSealStatus('unlocked');
         else { setSetupError('Failed to set password'); triggerShake(); }
       } else {
-        const ok = await onUnlock(password);
-        if (ok) setSealStatus('unlocked');
+        const result = await onUnlock(password);
+        if (result.success) setSealStatus('unlocked');
         else {
           setSetupError('Incorrect password');
-          const newAttempts = Math.max(0, attemptsLeft - 1);
-          setAttemptsLeft(newAttempts);
-          if (newAttempts <= 0) setCooldownTime(30);
+          if (result.lockoutSeconds && result.lockoutSeconds > 0) {
+            setCooldownDuration(result.lockoutSeconds);
+            setCooldownTime(result.lockoutSeconds);
+          }
           triggerShake();
         }
       }
@@ -589,7 +597,7 @@ export function FinanceLockScreen({ onUnlock, onSetup, onBiometricUnlock, isFirs
                 {/* Attempts indicator (only when not first time) */}
                 {!isFirstTime && (
                   <motion.div variants={riseVariants} className="mb-5">
-                    <AttemptIndicator attemptsLeft={attemptsLeft} />
+                    <AttemptIndicator attemptsLeft={attemptsLeft} maxAttempts={maxAttempts} />
                   </motion.div>
                 )}
 
@@ -709,7 +717,7 @@ export function FinanceLockScreen({ onUnlock, onSetup, onBiometricUnlock, isFirs
                                 <motion.div
                                   className="h-full rounded-full"
                                   style={{ background: 'linear-gradient(90deg, #ef4444, #dc2626)' }}
-                                  animate={{ width: `${(cooldownTime / 30) * 100}%` }}
+                                  animate={{ width: `${(cooldownTime / cooldownDuration) * 100}%` }}
                                   transition={{ duration: 1, ease: 'linear' }}
                                 />
                               </div>

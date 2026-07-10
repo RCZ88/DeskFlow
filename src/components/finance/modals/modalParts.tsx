@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { tint } from './modalUtils'
 import type { TxType } from './modalUtils'
+import { FTPersonCombobox } from '../FTPersonCombobox'
 
 export function ContextBand({ accent, children }: { accent: string; children: React.ReactNode }) {
 	return (
@@ -34,7 +35,7 @@ export function TypeToggle({ accent, value, options, onChange }: {
 	)
 }
 
-function formatWithCommas(raw: string): string {
+export function formatWithCommas(raw: string): string {
 	const clean = raw.replace(/[^0-9.]/g, '')
 	const dot = clean.indexOf('.')
 	if (dot === -1) return clean.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
@@ -43,17 +44,18 @@ function formatWithCommas(raw: string): string {
 	return `${intPart}.${decPart}`
 }
 
-function stripFormatting(formatted: string): string {
+export function stripFormatting(formatted: string): string {
 	return formatted.replace(/,/g, '')
 }
 
-export function AmountInput({ accent, value, onChange, symbol, autoFocus }: {
-	accent: string; value: string; onChange: (v: string) => void; symbol: string; autoFocus?: boolean
+export function AmountInput({ accent, value, onChange, symbol, autoFocus, label }: {
+	accent: string; value: string; onChange: (v: string) => void; symbol: string; autoFocus?: boolean; label?: string
 }) {
 	return (
 		<label className="flex items-center gap-2 rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3
 			focus-within:ring-2 transition-shadow"
 			style={{ ['--tw-ring-color' as any]: tint(accent, 0.5) }}>
+			{label && <span className="text-zinc-500 text-xs font-medium uppercase tracking-wider min-w-fit">{label}</span>}
 			<span className="text-zinc-500 text-base">{symbol}</span>
 			<input
 				autoFocus={autoFocus} inputMode="decimal" placeholder="0"
@@ -73,6 +75,38 @@ export function AdvancedToggle({ open, onToggle }: { open: boolean; onToggle: ()
 			{open ? 'Hide advanced' : '+ Advanced'}
 		</button>
 	)
+}
+
+export function OnBehalfOfSection({ value, personId, onValueChange, onPersonChange, accent, persons = [], onAddPerson }: {
+  value: boolean; personId: number | null; onValueChange: (v: boolean) => void; onPersonChange: (personId: number | null, personName: string) => void; accent: string;
+  persons?: { id: number; name: string; email?: string | null; phone?: string | null }[]; onAddPerson?: (name: string) => void;
+}) {
+  return (
+    <div className="pt-1">
+      <label className="flex items-center gap-2.5 cursor-pointer group">
+        <div onClick={(e) => { e.stopPropagation(); onValueChange(!value); }}
+          className={`w-9 h-5 rounded-full transition-colors duration-200 relative ${value ? 'bg-amber-500' : 'bg-zinc-700/60'}`}>
+          <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-200 ${value ? 'left-[18px]' : 'left-0.5'}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] text-zinc-400 group-hover:text-zinc-300 transition-colors">
+            <span className="text-amber-400 font-medium">Follow Through</span> — Is this for someone else? They'll pay me back
+          </div>
+          {value && (
+            <div className="mt-1.5">
+              <FTPersonCombobox
+                persons={persons}
+                value={personId}
+                onChange={onPersonChange}
+                onAddPerson={(name) => onAddPerson?.(name)}
+                placeholder="Who? (e.g. Mom's groceries)"
+              />
+            </div>
+          )}
+        </div>
+      </label>
+    </div>
+  );
 }
 
 export function ProgressBar({ pct, color }: { pct: number; color: string }) {

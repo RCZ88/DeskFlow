@@ -1,0 +1,71 @@
+/* warmth-tokens.css
+   Shared visual language for the "warm corner" of DeskFlow: Covenant and
+   Memories. Same structural system as the rest of the app (glass cards,
+   CSS-var page accents, transform/opacity-only motion) — just warmer.
+   Extends src/index.css's already-defined but unused clay/sage/amber/glow
+   tokens (see @theme in index.css and src/styles/lyceum-learn-features.css)
+   instead of inventing a new palette. */
+
+[data-page="covenant"] { --warmth-accent: var(--color-clay-400, #e8866b); }
+[data-page="memories"] { --warmth-accent: var(--color-sage-400, #6fb38f); }
+
+.warmth-aurora {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 120% at 50% 0%, transparent 35%, var(--warmth-accent, #e8866b) 100%);
+  background-size: 200% 200%;
+  opacity: 0.07;
+  animation: warmth-aurora-drift 22s ease-in-out infinite;
+}
+
+@keyframes warmth-aurora-drift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+.warmth-breathe {
+  animation: warmth-breathe-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes warmth-breathe-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.12); }
+}
+
+.warmth-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.warmth-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(247, 243, 238, 0.10) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: warmth-shimmer-sweep 2.8s ease-in-out infinite;
+}
+@keyframes warmth-shimmer-sweep {
+  100% { transform: translateX(100%); }
+}
+
+.warmth-serif {
+  font-family: var(--font-serif, "Source Serif 4", Georgia, serif);
+}
+
+.warmth-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .warmth-aurora,
+  .warmth-breathe,
+  .warmth-shimmer::after {
+    animation: none !important;
+  }
+}

@@ -1,5 +1,5 @@
-import React from 'react';
-import { AlertCircle, CheckCircle2, AlertTriangle, ArrowRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { AlertCircle, CheckCircle2, AlertTriangle, ArrowRight, Clipboard } from 'lucide-react';
 import type { ValidationIssue } from '../../shared/learn/types';
 
 export function ValidationReport({ errors, warnings, onJumpToNode }: {
@@ -50,20 +50,40 @@ export function ValidationReport({ errors, warnings, onJumpToNode }: {
 }
 
 function ErrorItem({ err, onJumpToNode }: { err: ValidationIssue; onJumpToNode?: (nodeId: string) => void }) {
+  const [copied, setCopied] = useState(false);
   const hasLocation = err.nodeId != null || err.blockId != null;
+
+  const handleCopy = () => {
+    const text = err.message;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
   return (
     <div className="px-4 py-2.5 text-sm">
       <div className="flex items-start gap-2">
-        <span className="text-zinc-400 shrink-0">{err.message}</span>
-        {hasLocation && (
+        <span className="text-zinc-400 shrink-0 flex-1 min-w-0">{err.message}</span>
+        <div className="flex items-center gap-1 shrink-0 mt-0.5">
           <button
-            onClick={() => { if (err.nodeId && onJumpToNode) onJumpToNode(err.nodeId); }}
-            className="flex items-center gap-1 shrink-0 text-xs text-indigo-400 hover:text-indigo-300 transition mt-0.5"
+            onClick={handleCopy}
+            className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition"
+            title="Copy error message"
           >
-            <ArrowRight className="w-3 h-3" />
-            {err.nodeId}{err.blockId ? ` / ${err.blockId}` : ''}
+            <Clipboard className="w-3 h-3" />
+            {copied && <span className="text-emerald-400">Copied</span>}
           </button>
-        )}
+          {hasLocation && (
+            <button
+              onClick={() => { if (err.nodeId && onJumpToNode) onJumpToNode(err.nodeId); }}
+              className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition"
+            >
+              <ArrowRight className="w-3 h-3" />
+              {err.nodeId}{err.blockId ? ` / ${err.blockId}` : ''}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

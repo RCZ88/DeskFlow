@@ -1,0 +1,40 @@
+/* ================= Sidebar Live Wordmark (v4) =================
+   Replaces the boxed PNG + border-beam entirely. The logo is now real
+   HTML text plus an inline SVG icon, sitting directly on the sidebar
+   surface (no black rounded background). Animation lives IN the
+   letterforms and the icon stroke, not in something layered behind them. */
+
+.sidebar-logo{
+  display:inline-flex;align-items:center;gap:10px;cursor:pointer;
+  isolation:isolate;-webkit-tap-highlight-color:transparent;
+}
+
+/* --- icon: small, circular/spiral shape, so a continuous rotation reads as
+   intentional motion instead of the earlier "spinning rectangle" problem --- */
+.sidebar-logo__icon{
+  width:30px;height:30px;flex-shrink:0;
+  animation:sidebarIconSpin 12s linear infinite;
+}
+.sidebar-logo:hover .sidebar-logo__icon{animation-duration:4s}
+@keyframes sidebarIconSpin{100%{transform:rotate(360deg)}}
+
+/* --- text: real HTML text (not baked into a raster image), with a slow
+   gradient sheen sweeping across the letterforms themselves --- */
+.sidebar-logo__text{
+  font-weight:800;font-size:21px;letter-spacing:0.02em;
+  background:linear-gradient(90deg,#f4f4f5 0%,#ec4899 25%,#22d3ee 50%,#f4f4f5 75%,#f4f4f5 100%);
+  background-size:250% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:sidebarTextSheen 6s ease-in-out infinite;
+}
+.sidebar-logo:hover .sidebar-logo__text{animation-duration:2.2s}
+@keyframes sidebarTextSheen{
+  0%{background-position:0% 50%}
+  50%{background-position:100% 50%}
+  100%{background-position:0% 50%}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .sidebar-logo__icon{animation:none}
+  .sidebar-logo__text{animation:none;background-position:0% 50%}
+}

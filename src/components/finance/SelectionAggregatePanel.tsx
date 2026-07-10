@@ -1,6 +1,6 @@
 import type React from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Trash2, Tag, Download, X } from 'lucide-react'
+import { Trash2, Tag, Download, X, Handshake, CircleCheck } from 'lucide-react'
 import { GlassSurface } from './_fx/GlassSurface'
 import { Sparkline } from './_fx/Sparkline'
 import { AnimatedAmount } from './_fx/AnimatedAmount'
@@ -30,10 +30,13 @@ interface Props {
   onDelete: () => void
   onRecategorize: () => void
   onExport: () => void
+  onSetFollowThrough?: (value: 0 | 1) => void
+  onMarkRepaid?: () => void
+  hasUnrepaidFT?: boolean
 }
 
 export function SelectionAggregatePanel(props: Props) {
-  const { open, data, currency, busy, onClear, onDelete, onRecategorize, onExport } = props
+  const { open, data, currency, busy, onClear, onDelete, onRecategorize, onExport, onSetFollowThrough, onMarkRepaid, hasUnrepaidFT } = props
   const netPositive = data.net >= 0
 
   return (
@@ -107,6 +110,12 @@ export function SelectionAggregatePanel(props: Props) {
             {/* batch actions */}
             <div className="flex flex-wrap items-center gap-2 mt-4">
               <BatchButton icon={Tag} label="Recategorize" onClick={onRecategorize} disabled={busy} />
+              {onSetFollowThrough && (
+                <BatchButton icon={Handshake} label="Set Follow Through" onClick={() => onSetFollowThrough(1)} disabled={busy} />
+              )}
+              {onMarkRepaid && hasUnrepaidFT && (
+                <BatchButton icon={CircleCheck} label="Mark Repaid" onClick={onMarkRepaid} disabled={busy} />
+              )}
               <BatchButton icon={Download} label="Export CSV" onClick={onExport} disabled={busy} />
               <BatchButton icon={Trash2} label={`Delete ${data.count}`} onClick={onDelete} disabled={busy} danger />
             </div>

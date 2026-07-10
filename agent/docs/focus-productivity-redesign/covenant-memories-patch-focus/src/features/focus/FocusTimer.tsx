@@ -1,0 +1,170 @@
+import { useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Play, Square, Target, Eye, EyeOff, Focus as FocusIcon } from 'lucide-react';
+import { AnimatedCircularProgressBar } from '../../components/ui/animated-circular-progress-bar';
+import { Particles } from '../../components/ui/particles';
+import { NumberTicker } from '../../components/ui/number-ticker';
+import { GlassCard } from '../../components/GlassCard';
+import { Badge } from '../../components/ui/badge';
+import type { FocusPublicState } from '../../hooks/useFocusSession';
+import { fmtClock } from './focusHelpers';
+
+const PRESETS = [
+  { label: '5m', sec: 5 * 60 },
+  { label: '10m', sec: 10 * 60 },
+  { label: '15m', sec: 15 * 60 },
+  { label: '25m', sec: 25 * 60 },
+  { label: '50m', sec: 50 * 60 },
+  { label: '90m', sec: 90 * 60 },
+];
+
+interface FocusTimerProps {
+  state: FocusPublicState | null | undefined;
+  mins: number;
+  onMinsChange: (mins: number) => void;
+  strict: 'distracting' | 'non_allowed';
+  onStrictChange: (s: 'distracting' | 'non_allowed') => void;
+  onStart: () => void;
+  onStop: () => void;
+  justCompleted: boolean;
+}
+
+const tapScale = { scale: 0.95 };
+const crossfade = {
+  initial: { opacity: 0, y: 6 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -6 },
+  transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const },
+};
+
+// Session Control Panel: the circular-progress timer, presets, strict-mode
+// toggle, and start/end action. This is the left column (1/3 width) of the
+// Deep Focus section on desktop.
+export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, onStart, onStop, justCompleted }: FocusTimerProps) {
+  const active = !!state?.active;
+  const plannedSec = mins * 60;
+  const remainingSec = active ? state!.remainingSec : plannedSec;
+  const progressPct = active ? Math.max(0, Math.min(100, (remainingSec / plannedSec) * 100)) : 0;
+
+  const statusLabel = active ? 'Active' : justCompleted ? 'Completed' : 'Idle';
+  const statusVariant = active ? 'default' : justCompleted ? 'default' : 'secondary';
+
+  const ringPrimary = active ? '#ec4899' : justCompleted ? '#34d399' : 'rgba(236,72,153,0.35)';
+
+  const clockFormatter = useMemo(() => (v: number) => fmtClock(v), []);
+
+  return (
+    <GlassCard accent="pink" className="relative overflow-hidden h-full">
+      {active && <Particles className="opacity-60" quantity={22} color="#ec4899" opacity={0.18} />}
+      <div className="relative z-10 flex flex-col items-center gap-4">
+        <div className="flex items-center justify-between w-full">
+          <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+            <FocusIcon className="w-4 h-4 text-pink-400" />
+            Session control
+          </h3>
+          <Badge variant={statusVariant as 'default' | 'secondary'}>{statusLabel}</Badge>
+        </div>
+
+        <AnimatedCircularProgressBar
+          value={active ? progressPct : 100}
+          size={168}
+          strokeWidth={10}
+          gaugePrimaryColor={ringPrimary}
+          gaugeSecondaryColor="rgba(255,255,255,0.06)"
+          linear={active}
+          linearDurationMs={1000}
+        >
+          <div className="flex flex-col items-center">
+            <NumberTicker
+              value={remainingSec}
+              duration={active ? 600 : 200}
+              formatter={clockFormatter}
+              className="text-5xl font-bold tabular-nums font-mono text-white"
+            />
+            <span className="text-[10px] text-zinc-500 uppercase tracking-wider mt-1">
+              {active ? 'remaining' : `${mins} min session`}
+            </span>
+          </div>
+        </AnimatedCircularProgressBar>
+
+        <AnimatePresence mode="wait">
+          {active ? (
+            <motion.div
+              key="active-controls"
+              initial={crossfade.initial}
+              animate={crossfade.animate}
+              exit={crossfade.exit}
+              transition={crossfade.transition}
+              className="w-full"
+            >
+              <p className="text-center text-[11px] text-zinc-500 mb-3">
+                {state!.strictness === 'non_allowed' ? 'Strict mode -- only productive apps allowed' : 'Blocking distracting apps and sites'}
+              </p>
+              <motion.button
+                whileTap={tapScale}
+                onClick={onStop}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition-colors text-sm font-semibold"
+              >
+                <Square className="w-4 h-4" />
+                End session
+              </motion.button>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="idle-controls"
+              initial={crossfade.initial}
+              animate={crossfade.animate}
+              exit={crossfade.exit}
+              transition={crossfade.transition}
+              className="w-full"
+            >
+              <div className="grid grid-cols-6 gap-2 mb-3">
+                {PRESETS.map(p => (
+                  <motion.button
+                    key={p.sec}
+                    whileTap={tapScale}
+                    onClick={() => onMinsChange(p.sec / 60)}
+                    className={`flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg text-[11px] font-semibold transition-colors ${
+                      mins === p.sec / 60
+                        ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
+                        : 'bg-zinc-800/60 text-zinc-400 border border-zinc-800/40 hover:bg-zinc-800'
+                    }`}
+                  >
+                    <Target className="w-3 h-3 opacity-70" />
+                    {p.label}
+                  </motion.button>
+                ))}
+              </div>
+
+              <button
+                onClick={() => onStrictChange(strict === 'non_allowed' ? 'distracting' : 'non_allowed')}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-800/40 mb-3 text-left"
+              >
+                <span className="flex items-center gap-2 text-[12px] text-zinc-300">
+                  {strict === 'non_allowed' ? <Eye className="w-3.5 h-3.5 text-amber-400" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-500" />}
+                  Strict mode
+                </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full ${strict === 'non_allowed' ? 'bg-amber-500/15 text-amber-300' : 'bg-zinc-800 text-zinc-500'}`}>
+                  {strict === 'non_allowed' ? 'Only productive allowed' : 'Block distracting only'}
+                </span>
+              </button>
+
+              <motion.button
+                whileTap={tapScale}
+                onClick={onStart}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 transition-colors"
+              >
+                <Play className="w-4 h-4" />
+                Start {mins}-min focus
+              </motion.button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <p className="text-[10px] text-zinc-600 leading-relaxed text-center">
+          Soft-block overlay -- not enforcement. Your choice is always logged.
+        </p>
+      </div>
+    </GlassCard>
+  );
+}

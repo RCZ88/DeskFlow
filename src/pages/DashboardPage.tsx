@@ -1,13 +1,23 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense, useRef } from 'react';
 import { PageShell } from '../components/PageShell';
-import { GlassCard } from '../components/GlassCard';
+import { useNavigate } from 'react-router-dom';
+import { HeroBand } from './dashboard/HeroBand';
+import { SummaryStrip } from './dashboard/SummaryStrip';
+import { PinnedActivities } from './dashboard/PinnedActivities';
+import { QuickFocusCard } from '../components/focus/QuickFocusCard';
+import { GoalRing } from '../components/insights/GoalRing';
+
+import { FollowThroughCard } from '../components/finance/FollowThroughCard';
 import { SectionHeader } from '../components/SectionHeader';
-import { LoadingState } from '../components/LoadingState';
+import { GlassCard } from '../components/GlassCard';
 import { EmptyState } from '../components/EmptyState';
-import { StatCard } from '../components/StatCard';
-import { ChartContainer } from '../components/ChartContainer';
-import { motion, AnimatePresence } from 'framer-motion';
+import { DayDetailPopup } from '../components/DayDetailPopup';
+import OrbitSystem from '../components/OrbitSystem';
+import { useHomeSummary } from '../hooks/useHomeSummary';
+import { useDeepFocus } from '../hooks/useDeepFocus';
 import { Bar, Line } from 'react-chartjs-2';
+import { motion, AnimatePresence } from 'framer-motion';
+
 import {
   BookOpen, Dumbbell, Activity, Moon,
   Utensils, Coffee, Bus, Book, Timer, Zap,
@@ -15,14 +25,62 @@ import {
   Edit3, Check, Plus, Minus, TrendingUp,
   Target, ZapCircle, RefreshCw, Clock3,
   ChevronLeft, ChevronRight, Maximize2, Minimize2,
-  BarChart3, Sparkles, Ban, Pause, Play
+  BarChart3
 } from 'lucide-react';
 import { maxOf, maxBy } from '../utils/safeMath';
 import { getDateRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
+import { awaitApi } from '../lib/awaitApi';
 
-const OrbitSystem = lazy(() => import('../components/OrbitSystem').then(module => ({ default: module.default })));
-const DayDetailPopup = lazy(() => import('../components/DayDetailPopup').then(module => ({ default: module.DayDetailPopup })));
+interface ActivityFeedItem {
+  id: string;
+  timestamp: Date;
+  startTime: number; // When this session started tracking
+  type: 'app' | 'browser';
+  name: string;
+  category: string;
+  tier: 'productive' | 'neutral' | 'distracting';
+  isActive?: boolean; // Currently active session
+  duration?: number; // Time spent in SECONDS (for completed sessions)
+}
+
+interface TimerBehavior {
+  neutralAction: 'pause' | 'reset' | 'ignore';
+  distractingAction: 'pause' | 'reset' | 'ignore';
+}
+
+interface DashboardPageProps {
+  appColors?: Record<string, string>;
+  categoryOverrides?: Record<string, string>;
+  timerBehavior?: TimerBehavior;
+  selectedPeriod?: Period;
+  onSelectedPeriodChange?: (period: Period) => void;
+  dateOffset?: number;
+  onDateOffsetChange?: (offset: number) => void;
+  trackingBrowser?: string;
+  trackerAppMode?: 'show-other' | 'pause' | 'track';
+  tierAssignments?: {
+    productive: string[];
+    neutral: string[];
+    distracting: string[];
+  };
+  // Timer state from parent (persisted at App level)
+  timerState?: {
+    productiveMs: number;
+    startTime: number;
+    paused: boolean;
+    lastTier: string | null;
+    externalRunning: boolean;
+    externalStart: number | null;
+    externalElapsed: number;
+  };
+  onTimerStateChange?: (state: any) => void;
+  // Activity feed from parent (use different name to avoid conflict)
+  activityFeed?: any[];
+  onActivityFeedChange?: (items: any[]) => void;
+}
+
+
 
 
 interface HeatmapCell {
@@ -75,9 +133,6 @@ interface ForegroundData {
   isReal?: boolean;
 }
 
-const ACTIVITY_ICONS: Record<string, any> = {
-  BookOpen, Dumbbell, Activity, Moon, Utensils, Coffee, Bus, Book, Sun, Timer
-};
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -166,7 +221,7 @@ interface DashboardPageProps {
     externalRunning: boolean;
     externalStart: number | null;
     externalElapsed: number;
-};
+  };
   onTimerStateChange?: (state: any) => void;
   // Activity feed from parent (use different name to avoid conflict)
   activityFeed?: any[];
@@ -223,7 +278,7 @@ export default function DashboardPage({
       return timerState;
     }
     // Fallback to localStorage - check for meaningful data
-    if (typeof window === 'undefined') return { productiveMs: 0, startTime: 0, paused: false, lastTier: null, externalRunning: false, externalStart: null, externalElapsed: 0, selectedExternalActivity: null };
+    if (typeof window === 'undefined') return { productiveMs: 0, distractingMs: 0, startTime: 0, paused: false, lastTier: null, externalRunning: false, externalStart: null, externalElapsed: 0, selectedExternalActivity: null };
     try {
       const saved = localStorage.getItem('deskflow-timer-state');
       if (saved) {
@@ -233,8 +288,8 @@ export default function DashboardPage({
           return parsed;
         }
       }
-    } catch (e) {}
-    return { productiveMs: 0, startTime: 0, paused: false, lastTier: null, externalRunning: false, externalStart: null, externalElapsed: 0, selectedExternalActivity: null };
+    } catch (e) { }
+    return { productiveMs: 0, distractingMs: 0, startTime: 0, paused: false, lastTier: null, externalRunning: false, externalStart: null, externalElapsed: 0, selectedExternalActivity: null };
   };
   const persistedTimer = getPersistedTimerState();
 
@@ -248,6 +303,7 @@ export default function DashboardPage({
   });
 
   const [currentProductiveMs, setCurrentProductiveMs] = useState(persistedTimer.productiveMs);
+  const [currentDistractingMs, setCurrentDistractingMs] = useState(persistedTimer.distractingMs || 0);
   const [isPaused, setIsPaused] = useState(persistedTimer.paused);
   const [lastTier, setLastTier] = useState<'productive' | 'neutral' | 'distracting' | null>(persistedTimer.lastTier);
   // Display helpers — directly reflect the current app's tier, not timerBehavior settings
@@ -257,9 +313,11 @@ export default function DashboardPage({
   // Stopwatch refs - declared early to avoid TDZ issues
   const stopwatchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const stopwatchAccumulatedRef = useRef(0); // tracks accumulated productive ms
+  const distractingAccumulatedRef = useRef(0); // tracks accumulated distracting ms
   const stopwatchLastTickRef = useRef(0); // tracks last tick time
   const stopwatchActiveRef = useRef(false); // is timer actively running
   const stopwatchPausedRef = useRef(false); // is timer paused
+  const prevTierRef = useRef<'productive' | 'neutral' | 'distracting' | null>(null);
 
   // Track productivity sessions for saving to database
   const productivitySessionStartRef = useRef<number | null>(null);
@@ -272,32 +330,6 @@ export default function DashboardPage({
   const [fetchPeriod, setFetchPeriod] = useState(selectedPeriod);
   const periodTimerRef = useRef<number | null>(null);
   const fetchReqId = useRef(0);
-
-  // ── Focus Sessions state (extracted from IIFE for React hooks rules) ──
-  const [sessionsData, setSessionsData] = useState<{ sessions: any[]; stats: { todayBest: number; weekBest: number; allTimeBest: number; todayTotal: number; weekTotal: number; longestStreak: number } }>({ sessions: [], stats: { todayBest: 0, weekBest: 0, allTimeBest: 0, todayTotal: 0, weekTotal: 0, longestStreak: 0 } });
-  const [minDuration, setMinDuration] = useState(60);
-  const [sessionsExpanded, setSessionsExpanded] = useState(false);
-  const [fetchKey, setFetchKey] = useState(0);
-
-  const fetchSessions = useCallback(() => {
-    if (!window.deskflowAPI?.getProductivitySessions) return;
-    const thisReq = ++fetchReqId.current;
-    window.deskflowAPI.getProductivitySessions({ period: fetchPeriod, dateOffset, minDuration }).then((data: any) => {
-      if (thisReq !== fetchReqId.current) return;
-      setSessionsData(data || { sessions: [], stats: { todayBest: 0, weekBest: 0, allTimeBest: 0, todayTotal: 0, weekTotal: 0, longestStreak: 0 } });
-    }).catch(() => {});
-  }, [fetchPeriod, dateOffset, minDuration]);
-
-  useEffect(() => { fetchSessions(); }, [fetchSessions, fetchKey]);
-  useEffect(() => {
-    const handler = () => setFetchKey(k => k + 1);
-    window.addEventListener('focus-session-saved', handler);
-    return () => window.removeEventListener('focus-session-saved', handler);
-  }, []);
-  useEffect(() => {
-    const interval = setInterval(() => setFetchKey(k => k + 1), 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   const fmtSec = (sec: number) => {
     const h = Math.floor(sec / 3600);
@@ -324,13 +356,17 @@ export default function DashboardPage({
   // Persist external stopwatch too
   // FIX: If session is running but start time is missing, recalculate from database
   const [externalSessionRunning, setExternalSessionRunning] = useState(persistedTimer.externalRunning);
+
+  // Home summary for cross-module strip
+  const navigate = useNavigate();
+  const homeSummary = useHomeSummary();
   const [externalSessionStart, setExternalSessionStart] = useState<Date | null>(null); // Will be set in useEffect
   const [externalElapsedMs, setExternalElapsedMs] = useState(0); // Will be calculated in useEffect
-  
+
   // Restore external session on mount - fetch from database if running
   useEffect(() => {
     if (!externalSessionRunning) return;
-    
+
     // Try to get active session from database
     if (window.deskflowAPI?.getActiveExternalSession) {
       window.deskflowAPI.getActiveExternalSession().then((session: any) => {
@@ -339,7 +375,7 @@ export default function DashboardPage({
           setExternalSessionStart(startTime);
           const elapsed = Date.now() - startTime.getTime();
           setExternalElapsedMs(elapsed);
-          console.log('[Dashboard] Restored external session from DB:', session.name, 'elapsed:', Math.floor(elapsed/1000), 's');
+          console.log('[Dashboard] Restored external session from DB:', session.name, 'elapsed:', Math.floor(elapsed / 1000), 's');
         } else {
           // Fallback to persisted values
           const fallbackStart = persistedTimer.externalStart ? new Date(persistedTimer.externalStart) : null;
@@ -367,12 +403,7 @@ export default function DashboardPage({
     }
   }, [externalSessionRunning]);
   const [externalTrackingMode, setExternalTrackingMode] = useState<'immediate' | 'interaction'>('immediate');
-const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   const [pinnedActivities, setPinnedActivities] = useState<ExternalActivity[]>([]);
-  const [pinnedActivitiesExpanded, setPinnedActivitiesExpanded] = useState(true);
-  const [addPinnedPicker, setAddPinnedPicker] = useState<ExternalActivity[]>([]);
-  const [showAddActivityModal, setShowAddActivityModal] = useState(false);
-  const [selectedAddActivities, setSelectedAddActivities] = useState<Set<number>>(new Set());
   const [pausedByTrackerApp, setPausedByTrackerApp] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   // Load persisted activity feed from localStorage
@@ -397,7 +428,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
           isActive: false // FIX: Clear active state on restore - prevents stale elapsed times
         }));
       }
-    } catch (e) {}
+    } catch (e) { }
     return [];
   };
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>(getPersistedActivityFeed());
@@ -417,6 +448,9 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   // Dashboard data from backend (replaces allLogs-based client-side computation)
   const [dashboardData, setDashboardData] = useState<any>(null);
 
+  // Follow Through finance data for dashboard card
+  const [ftData, setFtData] = useState<{ totalExpense: number; breakdown: { label: string; total: number; count: number }[] } | null>(null);
+
   // Gap/unfilled time indicator
   const [unfilledMinutes, setUnfilledMinutes] = useState(0);
   const [gapCount, setGapCount] = useState(0);
@@ -425,9 +459,10 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     const thisReq = ++fetchReqId.current;
     (async () => {
       try {
+        const api = await awaitApi();
         console.log('[FROZEN-DBG] Dashboard fetch START period=', fetchPeriod, 'dateOffset=', dateOffset, 'weekOffset=', weekOffset);
         const t0 = performance.now();
-        const data = await window.deskflowAPI.getDashboardAggregates({
+        const data = await api.getDashboardAggregates({
           period: fetchPeriod,
           dateOffset,
           weekOffset,
@@ -437,7 +472,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
         const t1 = performance.now();
         console.log('[FROZEN-DBG] Dashboard fetch DONE in', Math.round(t1 - t0), 'ms');
         if (data.error) { console.error('[Dashboard] Aggregate error:', data.error); return; }
-        window.deskflowAPI.terminalLog('[FROZEN-DBG] Dashboard data received, setting state');
+        api.terminalLog?.('[FROZEN-DBG] Dashboard data received, setting state');
         setDashboardData(data);
         console.log('[FROZEN-DBG] Dashboard setDashboardData done');
       } catch (err) {
@@ -467,13 +502,31 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     })();
   }, []);
 
+  const [dashboardCurrency, setDashboardCurrency] = useState('USD');
+
+  // Load Follow Through data for dashboard card
+  useEffect(() => {
+    (async () => {
+      try {
+        const currencyResult = await (window as any).deskflowAPI?.financeGetDisplayCurrency?.();
+        if (currencyResult?.currency) setDashboardCurrency(currencyResult.currency);
+      } catch {}
+    })();
+    (async () => {
+      try {
+        const result = await (window as any).deskflowAPI?.financeGetOnBehalfOfSummary();
+        if (result) setFtData(result);
+      } catch {}
+    })();
+  }, []);
+
   // Reset pausedByTrackerApp when mode changes from 'pause' to something else
   useEffect(() => {
     if (trackerAppMode !== 'pause' && pausedByTrackerApp) {
       setPausedByTrackerApp(false);
     }
   }, [trackerAppMode, pausedByTrackerApp]);
-  
+
   // Initialize activity feed from backend recent sessions (if localStorage is empty)
   useEffect(() => {
     if (activityFeed.length === 0 && dashboardData?.recentSessions?.length > 0) {
@@ -497,22 +550,23 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
       }
     }
   }, [dashboardData?.recentSessions, activityFeed.length]);
-  
+
   // Persist activity feed to localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return;
     localStorage.setItem('deskflow-activity-feed', JSON.stringify(activityFeed));
   }, [activityFeed]);
-  
+
   // Sync weekOffset for heatmap when selectedPeriod changes
   useEffect(() => {
     setWeekOffset(0);
   }, [selectedPeriod]);
-  
+
   // Persist timer state to parent and localStorage
   useEffect(() => {
     const newState = {
       productiveMs: currentProductiveMs,
+      distractingMs: currentDistractingMs,
       startTime: stopwatchLastTickRef.current || Date.now(),
       paused: isPaused,
       lastTier: lastTier,
@@ -528,7 +582,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     // Also persist to localStorage as backup
     if (typeof window === 'undefined') return;
     localStorage.setItem('deskflow-timer-state', JSON.stringify(newState));
-  }, [currentProductiveMs, isPaused, lastTier, externalSessionRunning, externalSessionStart, externalElapsedMs, selectedExternalActivity, onTimerStateChange]);
+  }, [currentProductiveMs, currentDistractingMs, isPaused, lastTier, externalSessionRunning, externalSessionStart, externalElapsedMs, selectedExternalActivity, onTimerStateChange]);
 
   // Sync timer state from parent prop (e.g., when ExternalPage starts/stops a stopwatch)
   const prevTimerStateRef = useRef(timerState);
@@ -567,6 +621,8 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
   const [externalHourlyData, setExternalHourlyData] = useState<Map<string, { externalSeconds: number; breakdown: Record<string, { seconds: number; color: string; icon: string }> }>>(new Map());
   const [externalSessions, setExternalSessions] = useState<any[]>([]);
   const [expandedModal, setExpandedModal] = useState<'heatmap' | 'solar' | null>(null);
+  const deepFocus = useDeepFocus();
+  //const homeSummary = useHomeSummary();
   const [solarFullscreen, setSolarFullscreen] = useState(false);
   const [currentWebsite, setCurrentWebsite] = useState<{ title?: string; url?: string; category?: string; domain?: string } | null>(null);
   const hasRealApp = !!currentApp?.app || (isInBrowser && !!currentWebsite?.domain);
@@ -823,8 +879,8 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
 
   // Count resets today
   useEffect(() => {
-    const count = activityFeed.filter(item => 
-      item.tier === 'distracting' && 
+    const count = activityFeed.filter(item =>
+      item.tier === 'distracting' &&
       new Date(item.timestamp).toDateString() === new Date().toDateString()
     ).length;
     setResetCount(count);
@@ -859,7 +915,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     }
 
     console.log('[Focus] Registering foreground listener');
-    
+
     const unsubscribe = window.deskflowAPI.onForegroundChange((data: ForegroundData) => {
       const tb = trackingBrowserRef.current;
       const tam = trackerAppModeRef.current;
@@ -867,16 +923,16 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
       const ta = tierAssignmentsRef.current;
       const tbv = timerBehaviorRef.current;
       console.log('[Focus] Foreground change:', data.app, '| category:', data.category);
-      
+
       // Check if this is the tracking browser
       const isTrackingBrowser = !!tb && !!data.app && isAppMatchingBrowserDashboard(data.app, tb);
-      
+
       // Check if this is Tracker app (DeskFlow/Electron)
       const isTrackerApp = data.app && (
         data.app.toLowerCase().includes('deskflow') ||
         data.app.toLowerCase().includes('electron')
       );
-      
+
       if (isTrackingBrowser) {
         console.log('[Focus] Browser detected — isInBrowser=true, preserving lastNonBrowserApp as currentApp');
         setIsInBrowser(true);
@@ -884,7 +940,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
         setCurrentApp(lnb || null);
         return;
       }
-      
+
       // No real app detected — keep last known app as fallback to avoid "No App" freeze
       if (!data.app || data.isReal === false) {
         console.log('[Focus] No real app — keeping last known app, isInBrowser=false');
@@ -893,11 +949,11 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
         setCurrentApp(lnb || null);
         return;
       }
-      
+
       console.log('[Focus] Not tracking browser — tracking app:', data.app);
       setIsInBrowser(false);
       setCurrentWebsite(null);
-      
+
       if (isTrackerApp) {
         if (tam === 'show-other') {
           setCurrentApp(lnb || null);
@@ -909,17 +965,17 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
           return;
         }
       }
-      
+
       console.log('[Focus] Setting currentApp:', data.app, '| category:', data.category);
       setLastNonBrowserApp(data);
       setCurrentApp(data);
       setIsPaused(false);
       setPausedByTrackerApp(false);
-      
+
       // Track in activity feed
       const lastItem = activityFeedRef.current[activityFeedRef.current.length - 1];
       const newAppName = data.app || data.title || 'Unknown';
-      
+
       if (lastItem && lastItem.type === 'app' && lastItem.name === newAppName) {
         return;
       }
@@ -934,7 +990,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
       const tier = getTier(data.category);
       setLastTier(tier);
       const now = Date.now();
-      
+
       const newItem: ActivityFeedItem = {
         id: `${now}-${Math.random().toString(36).substr(2, 9)}`,
         timestamp: new Date(now),
@@ -988,16 +1044,16 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
           return 'neutral';
         };
         setLastTier(initialGetTier(initialData.category));
-      }).catch(() => {});
+      }).catch(() => { });
     }
-    
+
     return () => {
       console.log('[Focus] Unsubscribing foreground listener');
       if (typeof unsubscribe === 'function') unsubscribe();
     };
   }, []);
-  
-  // Periodic foreground refresh (every 30s) — recovers from missed foreground-changed events
+
+  // Periodic foreground refresh (every 60s) — recovers from missed foreground-changed events
   useEffect(() => {
     const refreshInterval = setInterval(() => {
       if (!window.deskflowAPI?.getCurrentForeground) return;
@@ -1006,7 +1062,7 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
         const tb = trackingBrowserRef.current;
         const isTrackingBrowser = !!tb && isAppMatchingBrowserDashboard(data.app, tb);
         const isTrackerApp = data.app.toLowerCase().includes('deskflow') || data.app.toLowerCase().includes('electron');
-        
+
         if (isTrackerApp) return; // don't overwrite with tracker app
         if (isTrackingBrowser) {
           setIsInBrowser(true);
@@ -1021,11 +1077,11 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
           }
           return prev;
         });
-      }).catch(() => {});
-    }, 30000);
+      }).catch(() => { });
+    }, 60000);
     return () => clearInterval(refreshInterval);
   }, []);
-  
+
   const isInBrowserRef = useRef(isInBrowser);
   isInBrowserRef.current = isInBrowser;
 
@@ -1037,8 +1093,8 @@ const [pinnedActivitiesEditMode, setPinnedActivitiesEditMode] = useState(false);
     }
 
     console.log('[Dashboard] Listening for browser events');
-    
-window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
+
+    window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       const iib = isInBrowserRef.current;
       const tb = trackingBrowserRef.current;
       const ta = tierAssignmentsRef.current;
@@ -1051,26 +1107,26 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         return 'neutral';
       };
       console.log('[Dashboard] Browser event:', data.type, 'domain:', data.domain, 'isInBrowser:', iib);
-      
+
       if (data.type === 'browser-data' || data.type === 'live-log') {
         // Only track if we're in the tracking browser
         if (!iib || !tb) {
           console.log('[Dashboard] Skipping - not in browser');
           return;
         }
-        
+
         // Extra guard: skip if extension reports browser not focused
         // (handles race condition between 2s foreground poll and extension data)
         if (data.is_browser_focused === false) {
           console.log('[Dashboard] Skipping - browser not focused per extension');
           return;
         }
-        
+
         console.log('[Dashboard] Processing website:', data.domain, 'category:', data.category);
-        
+
         const websiteTier = getTier(data.category || 'Uncategorized');
         setLastTier(websiteTier);
-        
+
         setCurrentWebsite({
           title: data.title,
           domain: data.domain,
@@ -1083,7 +1139,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
 
         const lastItem = activityFeedRef.current[activityFeedRef.current.length - 1];
         const newDomain = data.domain || data.title || 'Unknown';
-        
+
         if (lastItem && lastItem.type === 'browser' && lastItem.name === newDomain) {
           return;
         }
@@ -1112,10 +1168,35 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     });
   }, []); // empty deps — register once, refs handle latest values
 
-  // SIMPLE stopwatch - ALWAYS accumulates regardless of app tier
-  // Tier behavior (pause/reset/ignore) only affects productivity session SAVING, not the timer
-  // The timer only pauses when: manually paused, idle for 5+ minutes, or external session is running
+  // Stopwatch — dual timer: productive and distracting accumulate independently.
+  // Switching between productive ↔ distracting resets the outgoing timer to 0.
+  // Neutral tiers just pause (no reset).
   useEffect(() => {
+    // Determine current tier
+    const currentCategory = isInBrowser
+      ? (currentWebsite?.category || lastNonBrowserApp?.category)
+      : currentApp?.category;
+    const tier = getTierFromCategory(currentCategory || '');
+    const prevTier = prevTierRef.current;
+
+    // Tier transition: reset the OUTGOING tier's timer when switching productive ↔ distracting
+    if (prevTier && prevTier !== tier) {
+      const switchingProductiveToDistracting = prevTier === 'productive' && tier === 'distracting';
+      const switchingDistractingToProductive = prevTier === 'distracting' && tier === 'productive';
+
+      if (switchingProductiveToDistracting) {
+        console.log(`[Dashboard] Stopwatch: RESET productive (productive → distracting)`);
+        stopwatchAccumulatedRef.current = 0;
+        setCurrentProductiveMs(0);
+      } else if (switchingDistractingToProductive) {
+        console.log(`[Dashboard] Stopwatch: RESET distracting (distracting → productive)`);
+        distractingAccumulatedRef.current = 0;
+        setCurrentDistractingMs(0);
+      }
+      stopwatchLastTickRef.current = Date.now();
+    }
+    prevTierRef.current = tier;
+
     // Clear existing timer
     if (stopwatchTimerRef.current) {
       clearInterval(stopwatchTimerRef.current);
@@ -1126,12 +1207,16 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
 
     // Only accumulate when there's a real app to track (or external session)
     const hasRealApp = !!currentApp?.app || (isInBrowser && !!currentWebsite?.domain);
-    const shouldAccumulate = !isPaused && (hasRealApp || isExternal);
-    const shouldPause = isPaused;
+
+    // Productive and distracting always accumulate (timer never stuck at zero).
+    // Neutral pauses — no accumulation, no reset.
+    const shouldAccumulate = !isPaused && (hasRealApp || isExternal) &&
+      (tier === 'productive' || tier === 'distracting' || isExternal);
+    const shouldPause = isPaused || (!shouldAccumulate && hasRealApp && !isExternal);
 
     // Handle pause
-    if (shouldPause && !isExternal) {
-      console.log(`[Dashboard] Stopwatch: PAUSED (isPaused=${isPaused})`);
+    if (shouldPause) {
+      console.log(`[Dashboard] Stopwatch: PAUSED (tier=${tier}, isPaused=${isPaused})`);
       stopwatchActiveRef.current = false;
       stopwatchPausedRef.current = true;
       return;
@@ -1146,7 +1231,8 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     }
 
     if (shouldAccumulate || isExternal) {
-      console.log(`[Dashboard] Stopwatch: timer RUNNING (accumulated: ${Math.floor(stopwatchAccumulatedRef.current / 1000)}s)`);
+      const accMs = tier === 'distracting' ? distractingAccumulatedRef.current : stopwatchAccumulatedRef.current;
+      console.log(`[Dashboard] Stopwatch: timer RUNNING (tier: ${tier}, accumulated: ${Math.floor(accMs / 1000)}s)`);
     }
 
     stopwatchTimerRef.current = setInterval(() => {
@@ -1158,12 +1244,17 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       }
       const delta = tickNow - stopwatchLastTickRef.current;
       stopwatchLastTickRef.current = tickNow;
-      
+
       if (isExternal) {
         setExternalElapsedMs(prev => prev + delta);
       } else if (shouldAccumulate) {
-        stopwatchAccumulatedRef.current += delta;
-        setCurrentProductiveMs(stopwatchAccumulatedRef.current);
+        if (tier === 'distracting') {
+          distractingAccumulatedRef.current += delta;
+          setCurrentDistractingMs(distractingAccumulatedRef.current);
+        } else {
+          stopwatchAccumulatedRef.current += delta;
+          setCurrentProductiveMs(stopwatchAccumulatedRef.current);
+        }
       }
     }, 1000);
 
@@ -1173,7 +1264,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         stopwatchTimerRef.current = null;
       }
     };
-  }, [currentApp, currentWebsite, isInBrowser, lastNonBrowserApp, isPaused, externalSessionRunning, externalSessionStart]);
+  }, [currentApp, currentWebsite, isInBrowser, lastNonBrowserApp, isPaused, externalSessionRunning, externalSessionStart, timerBehavior]);
 
   // Track and save productivity sessions — respects timerBehavior settings
   useEffect(() => {
@@ -1211,9 +1302,9 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         const effectiveEnd = Math.min(Date.now(), lastInteractionRef.current + 300000);
         const durationMs = Math.max(0, effectiveEnd - productivitySessionStartRef.current);
         const durationSec = Math.floor(durationMs / 1000);
-        
+
         console.log('[Focus] Session ENDING — app:', productivitySessionAppRef.current, '| duration:', durationSec + 's', '| min threshold: 60s');
-        
+
         if (durationSec >= 60) {
           const session = {
             started_at: new Date(productivitySessionStartRef.current).toISOString(),
@@ -1222,7 +1313,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
             app_name: productivitySessionAppRef.current,
             category: currentCategory || 'Unknown'
           };
-          
+
           if (window.deskflowAPI?.saveProductivitySession) {
             window.deskflowAPI.saveProductivitySession(session).then((result: any) => {
               console.log('[Focus] Session SAVED:', productivitySessionAppRef.current, durationSec + 's', '| result:', result);
@@ -1234,7 +1325,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         } else {
           console.log('[Focus] Session too short, discarding');
         }
-        
+
         productivitySessionStartRef.current = null;
         productivitySessionAppRef.current = null;
       }
@@ -1260,7 +1351,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         window.deskflowAPI.saveProductivitySession(session).then(() => {
           console.log('[Dashboard] Periodic session flush:', durationSec, 'seconds');
           window.dispatchEvent(new CustomEvent('focus-session-saved'));
-        }).catch(() => {});
+        }).catch(() => { });
       }
       productivitySessionStartRef.current = Date.now();
     }, 60000);
@@ -1274,7 +1365,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         console.log('[Dashboard] getExternalSessions API not available');
         return;
       }
-      
+
       try {
         const now = new Date();
         const currentWeekStart = new Date(now);
@@ -1282,19 +1373,19 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         currentWeekStart.setHours(0, 0, 0, 0);
         const targetWeekStart = new Date(currentWeekStart.getTime() + (weekOffset * 7 * 24 * 60 * 60 * 1000));
         const targetWeekEnd = new Date(targetWeekStart.getTime() + (7 * 24 * 60 * 60 * 1000));
-        
+
         const sessions = await window.deskflowAPI.getExternalSessions('all');
         console.log('[Dashboard] Loaded external sessions:', sessions?.length || 0);
-        
+
         const newExternalHourlyData = new Map<string, { externalSeconds: number; breakdown: Record<string, { seconds: number; color: string; icon: string }> }>();
-        
+
         (sessions || []).forEach((session: any) => {
           const startMs = new Date(session.started_at).getTime();
           const endMs = session.ended_at ? new Date(session.ended_at).getTime() : Date.now();
           const durationSec = (endMs - startMs) / 1000;
-          
+
           if (startMs >= targetWeekEnd || endMs < targetWeekStart) return;
-          
+
           let currentMs = startMs;
           while (currentMs < endMs) {
             const currentDate = new Date(currentMs);
@@ -1304,36 +1395,36 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
             calendarHourStart.setMinutes(0, 0, 0);
             const hourStartMs = calendarHourStart.getTime();
             const hourEndMs = hourStartMs + 3600000;
-            
+
             if (currentDate >= targetWeekStart && currentDate < targetWeekEnd) {
               const segmentStart = Math.max(currentMs, hourStartMs);
               const segmentEnd = Math.min(endMs, hourEndMs);
               const segmentSeconds = Math.max(0, (segmentEnd - segmentStart) / 1000);
-              
+
               if (segmentSeconds > 0) {
                 const key = `${currentDay}-${currentHour}`;
                 const existing = newExternalHourlyData.get(key) || { externalSeconds: 0, breakdown: {} };
                 existing.externalSeconds = Math.min(existing.externalSeconds + segmentSeconds, 3600);
-                
+
                 const activityName = session.activity_name || 'Unknown';
                 if (!existing.breakdown[activityName]) {
                   existing.breakdown[activityName] = { seconds: 0, color: session.color || '#8b5cf6', icon: session.icon || '?' };
                 }
                 existing.breakdown[activityName].seconds += segmentSeconds;
-                
+
                 newExternalHourlyData.set(key, existing);
               }
             }
             currentMs = hourEndMs;
           }
         });
-        
+
         setExternalHourlyData(newExternalHourlyData);
       } catch (err) {
         console.error('[Dashboard] Error loading external sessions:', err);
       }
     };
-    
+
     loadExternalData();
   }, [weekOffset]);
 
@@ -1386,19 +1477,19 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       return { ms: externalElapsedMs, label: `External: ${selectedExternalActivity?.name || 'Running'}` };
     }
 
-    // Distracting app
+    // Distracting app — show distracting timer
     if (lastTier === 'distracting' && !isPaused) {
-      return { ms: currentProductiveMs, label: 'Distracting' };
+      return { ms: currentDistractingMs, label: 'Distracting' };
     }
 
-    // Productive app
+    // Productive app — show productive timer
     if (lastTier === 'productive' && !isPaused) {
       return { ms: currentProductiveMs, label: 'Productive' };
     }
 
-    // Neutral/idle
+    // Neutral/idle — show whichever timer was last active
     return { ms: currentProductiveMs, label: isPaused ? 'Paused' : 'Idle' };
-  }, [externalSessionRunning, externalElapsedMs, currentProductiveMs, selectedExternalActivity, lastTier, isPaused]);
+  }, [externalSessionRunning, externalElapsedMs, currentProductiveMs, currentDistractingMs, selectedExternalActivity, lastTier, isPaused]);
 
   // Stopwatch interval - only runs when external session is active
   useEffect(() => {
@@ -1413,12 +1504,12 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     }
 
     console.log('[Dashboard] Stopwatch started, startTime:', externalSessionStart.getTime());
-    
+
     // Calculate and set initial elapsed immediately
     const now = Date.now();
     const initialElapsed = now - externalSessionStart.getTime();
     setExternalElapsedMs(initialElapsed);
-    
+
     // Start interval
     stopwatchIntervalRef.current = setInterval(() => {
       const now = Date.now();
@@ -1441,7 +1532,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
   // Interaction detection for external activity
   useEffect(() => {
     if (!externalSessionRunning || externalTrackingMode !== 'interaction') return;
-    
+
     let lastInteraction = Date.now();
     const checkIdle = setInterval(() => {
       const idleTime = Date.now() - lastInteraction;
@@ -1450,7 +1541,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         setExternalSessionRunning(false);
       }
     }, 5000);
-    
+
     const handleInteraction = () => {
       lastInteraction = Date.now();
       // Resume if was paused due to idle
@@ -1458,11 +1549,11 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         setExternalSessionRunning(true);
       }
     };
-    
+
     window.addEventListener('mousemove', handleInteraction);
     window.addEventListener('keydown', handleInteraction);
     window.addEventListener('click', handleInteraction);
-    
+
     return () => {
       clearInterval(checkIdle);
       window.removeEventListener('mousemove', handleInteraction);
@@ -1473,7 +1564,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
 
   const handleStartExternalSession = useCallback(async () => {
     if (!selectedExternalActivity) return;
-    
+
     // Save to database via IPC
     if (window.deskflowAPI?.startExternalSession) {
       try {
@@ -1483,7 +1574,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         console.error('[Dashboard] Failed to start external session:', err);
       }
     }
-    
+
     const now = new Date();
     setExternalSessionStart(now);
     setExternalSessionRunning(true);
@@ -1505,7 +1596,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         console.error('[Dashboard] Failed to stop external session:', err);
       }
     }
-    
+
     setExternalSessionRunning(false);
     setExternalSessionStart(null);
     setExternalElapsedMs(0);
@@ -1517,11 +1608,11 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       // Enter to SELECT external activity (same as clicking on it)
       if (e.key === 'Enter') {
         console.log('[Dashboard] Enter key pressed!');
-        
+
         // Prevent default and stop propagation
         e.preventDefault();
         e.stopPropagation();
-        
+
         // Find first available activity and select it
         if (activities.length > 0 && !selectedExternalActivity) {
           const firstActivity = activities[0];
@@ -1529,18 +1620,18 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
           console.log('[Dashboard] Enter: Selected activity:', firstActivity.name);
         }
       }
-      
+
       // Escape to deselect
-    if (e.key === 'Escape') {
-      if (selectedExternalActivity) {
-        setSelectedExternalActivity(null);
+      if (e.key === 'Escape') {
+        if (selectedExternalActivity) {
+          setSelectedExternalActivity(null);
+        }
       }
-    }
     };
-    
+
     // Add to document with capture to ensure we get it
     document.addEventListener('keydown', handleKeyDown, true);
-    
+
     return () => {
       document.removeEventListener('keydown', handleKeyDown, true);
     };
@@ -1550,7 +1641,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
   const [allLogs, setAllLogs] = useState<any[]>([]);
   useEffect(() => {
     if (window.deskflowAPI?.getLogs) {
-      window.deskflowAPI.getLogs().then((logs:any[]) => {
+      window.deskflowAPI.getLogs().then((logs: any[]) => {
         const formatted = logs.map(l => ({
           timestamp: new Date(l.timestamp),
           app: l.app,
@@ -1633,18 +1724,18 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     return `${formatDate(targetWeekStart)} - ${formatDate(targetWeekEnd)}`;
   }, [weekOffset]);
 
-    const renderHeatmap = () => {
+  const renderHeatmap = () => {
     const currentHour = new Date().getHours();
     const currentDay = new Date().getDay();
-    
+
     const getHeatColor = (cell: HeatmapCell | undefined) => {
       if (!cell) return 'rgba(55, 65, 81, 1)';
-      
+
       let valueToUse = 0;
       let productivityToUse = 0;
       let isExternalOnly = false;
       let hasBoth = false;
-      
+
       if (heatmapMode === 'device') {
         valueToUse = cell.deviceSeconds || cell.value || 0;
         productivityToUse = cell.productivity || 0;
@@ -1656,7 +1747,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         // Combined mode
         const hasExternal = (cell.externalSeconds || 0) > 0;
         const hasDevice = (cell.deviceSeconds || cell.value || 0) > 0;
-        
+
         if (hasExternal && !hasDevice) {
           valueToUse = cell.externalSeconds || 0;
           productivityToUse = 1;
@@ -1672,14 +1763,14 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
           productivityToUse = (deviceProd + externalProd) / 2;
         }
       }
-      
+
       if (valueToUse === 0) return 'rgba(55, 65, 81, 1)';
-      
+
       // Intensity based on usage: max 1 hour = full opacity, more = saturated
       const maxSeconds = heatmapMode === 'external' ? 3600 : 7200; // External max 1h, device max 2h
       const intensity = Math.min(1, valueToUse / maxSeconds);
       const opacity = 0.2 + intensity * 0.8; // Range: 0.2 - 1.0
-      
+
       // External color scheme (distinct purple)
       if (isExternalOnly || (heatmapMode === 'combined' && (cell.externalSeconds || 0) > (cell.deviceSeconds || 0))) {
         // Purple gradient: light purple = low usage, deep purple = high usage
@@ -1688,18 +1779,18 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         const b = Math.round(234 + (236 - 234) * intensity);
         return `rgba(${r}, ${g}, ${b}, ${opacity})`;
       }
-      
+
       // Device color scheme (red -> yellow -> green based on productivity)
       // Also used for "both" in combined mode
       const prod = Math.max(0, Math.min(1, productivityToUse));
       let r, g, b;
-      
+
       if (hasBoth) {
         // "Both" mode: mix green (device) + purple (external) tints
-        const deviceColor = prod < 0.5 
-          ? { r: 239 - (239-234) * prod*2, g: 68 + (216-68) * prod*2, b: 68 + (8-68) * prod*2 }
-          : { r: 234 + (34-234) * (prod-0.5)*2, g: 216 + (197-216) * (prod-0.5)*2, b: 8 + (94-8) * (prod-0.5)*2 };
-        
+        const deviceColor = prod < 0.5
+          ? { r: 239 - (239 - 234) * prod * 2, g: 68 + (216 - 68) * prod * 2, b: 68 + (8 - 68) * prod * 2 }
+          : { r: 234 + (34 - 234) * (prod - 0.5) * 2, g: 216 + (197 - 216) * (prod - 0.5) * 2, b: 8 + (94 - 8) * (prod - 0.5) * 2 };
+
         // Blend with purple (external) - 30% purple tint
         const purpleTint = 0.3;
         r = Math.round(deviceColor.r * (1 - purpleTint) + 99 * purpleTint);
@@ -1708,19 +1799,19 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       } else {
         // Pure device mode: red -> green gradient
         if (prod < 0.5) {
-          r = Math.round(239 * (1 - prod*2) + 234 * prod*2);
-          g = Math.round(68 * (1 - prod*2) + 216 * prod*2);
-          b = Math.round(68 * (1 - prod*2) + 8 * prod*2);
+          r = Math.round(239 * (1 - prod * 2) + 234 * prod * 2);
+          g = Math.round(68 * (1 - prod * 2) + 216 * prod * 2);
+          b = Math.round(68 * (1 - prod * 2) + 8 * prod * 2);
         } else {
-          r = Math.round(234 * (1 - (prod-0.5)*2) + 34 * (prod-0.5)*2);
-          g = Math.round(216 * (1 - (prod-0.5)*2) + 197 * (prod-0.5)*2);
-          b = Math.round(8 * (1 - (prod-0.5)*2) + 94 * (prod-0.5)*2);
+          r = Math.round(234 * (1 - (prod - 0.5) * 2) + 34 * (prod - 0.5) * 2);
+          g = Math.round(216 * (1 - (prod - 0.5) * 2) + 197 * (prod - 0.5) * 2);
+          b = Math.round(8 * (1 - (prod - 0.5) * 2) + 94 * (prod - 0.5) * 2);
         }
       }
-      
+
       return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${opacity})`;
     };
-    
+
     const handleDayClick = (dayIdx: number) => {
       console.log('[Dashboard] Day clicked:', dayIdx, 'weekOffset:', weekOffset);
       const now = new Date();
@@ -1733,12 +1824,12 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       const dateStr = targetDate.toISOString().split('T')[0];
       console.log('[Dashboard] Day click date:', dateStr);
       setSelectedCell(null);
-      
+
       if (window.deskflowAPI?.getDayDetail) {
         window.deskflowAPI.getDayDetail(dateStr).then(detail => {
           if (!detail) return;
           const items: TimelineItem[] = [];
-          
+
           // Transform logs into timeline items
           (detail.logs || []).forEach((log: any) => {
             const logDate = new Date(log.timestamp);
@@ -1758,7 +1849,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
               details: log.title
             });
           });
-          
+
           // Transform external sessions into timeline items
           (detail.externalSessions || []).forEach((session: any) => {
             const startDate = new Date(session.started_at);
@@ -1776,14 +1867,14 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
               duration: Math.round(durationSec)
             });
           });
-          
+
           items.sort((a, b) => a.startHour - b.startHour);
           setDayDetailDate(dateStr);
           setDayDetailItems(items);
         });
       }
     };
-    
+
     return (
       <div className="relative w-full">
         <div className="overflow-x-auto">
@@ -1803,7 +1894,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                 ))}
               </div>
             </div>
-            
+
             {/* Mode Toggle - below day headers */}
             <div className="flex justify-end mb-3">
               <div className="flex bg-zinc-800 rounded-lg p-1 gap-1">
@@ -1818,70 +1909,70 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                 ))}
               </div>
             </div>
-             
-              {Array.from({ length: 24 }, (_, hourIdx) => {
-                const hourStr = hourIdx.toString().padStart(2, '0');
-                return (
-                  <div key={hourIdx} className="flex items-center py-[1px]">
-                    <div className={`w-10 flex-shrink-0 pr-1 text-[10px] font-mono text-right text-zinc-500`}>
-                      {hourStr}
-                    </div>
-                    {DAYS.map((_, dayIdx) => {
-                      const actualHour = hourIdx;
-                      const cell = heatmapData.find(c => c.day === dayIdx && c.hour === actualHour);
-                      if (!cell) return <div key={dayIdx} className="flex-1 h-6 mx-px" />;
-                      
-                      const bgColor = getHeatColor(cell);
-                      const isToday = dayIdx === currentDay;
-                      const isCurrentHour = actualHour === currentHour;
-                      
-                      const rgbaMatch = bgColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-                      const glowRgb = rgbaMatch ? `${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}` : '34, 197, 94';
-                      
-                      return (
-                        <motion.div
-                          key={dayIdx}
-                          className="flex-1 h-6 mx-px rounded-md cursor-pointer relative min-w-[28px]"
-                          style={{
-                            backgroundColor: bgColor,
-                            boxShadow: (cell.deviceSeconds || cell.externalSeconds || 0) > 70 ? `0 0 12px rgba(${glowRgb}, 0.5)` : 'inset 0 0 2px rgba(255,255,255,0.08)'
-                          }}
-                          onClick={() => {
-                            const sameCell = selectedCell?.day === dayIdx && selectedCell?.hour === actualHour;
-                            setSelectedCell(sameCell ? null : { day: dayIdx, hour: actualHour });
-                            setHoveredCell({ 
-                              day: dayIdx, 
-                              hour: actualHour, 
-                              value: cell.value, 
-                              productivity: cell.productivity,
-                              deviceSeconds: cell.deviceSeconds,
-                              externalSeconds: cell.externalSeconds
-                            });
-                          }}
-                          onMouseEnter={() => setHoveredCell({ 
-                            day: dayIdx, 
-                            hour: actualHour, 
-                            value: cell.value, 
+
+            {Array.from({ length: 24 }, (_, hourIdx) => {
+              const hourStr = hourIdx.toString().padStart(2, '0');
+              return (
+                <div key={hourIdx} className="flex items-center py-[1px]">
+                  <div className={`w-10 flex-shrink-0 pr-1 text-[10px] font-mono text-right text-zinc-500`}>
+                    {hourStr}
+                  </div>
+                  {DAYS.map((_, dayIdx) => {
+                    const actualHour = hourIdx;
+                    const cell = heatmapData.find(c => c.day === dayIdx && c.hour === actualHour);
+                    if (!cell) return <div key={dayIdx} className="flex-1 h-6 mx-px" />;
+
+                    const bgColor = getHeatColor(cell);
+                    const isToday = dayIdx === currentDay;
+                    const isCurrentHour = actualHour === currentHour;
+
+                    const rgbaMatch = bgColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+                    const glowRgb = rgbaMatch ? `${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}` : '34, 197, 94';
+
+                    return (
+                      <motion.div
+                        key={dayIdx}
+                        className="flex-1 h-6 mx-px rounded-md cursor-pointer relative min-w-[28px]"
+                        style={{
+                          backgroundColor: bgColor,
+                          boxShadow: (cell.deviceSeconds || cell.externalSeconds || 0) > 70 ? `0 0 12px rgba(${glowRgb}, 0.5)` : 'inset 0 0 2px rgba(255,255,255,0.08)'
+                        }}
+                        onClick={() => {
+                          const sameCell = selectedCell?.day === dayIdx && selectedCell?.hour === actualHour;
+                          setSelectedCell(sameCell ? null : { day: dayIdx, hour: actualHour });
+                          setHoveredCell({
+                            day: dayIdx,
+                            hour: actualHour,
+                            value: cell.value,
                             productivity: cell.productivity,
                             deviceSeconds: cell.deviceSeconds,
                             externalSeconds: cell.externalSeconds
-                          })}
-                          onMouseLeave={() => setHoveredCell(null)}
-                          whileHover={{ scale: 1.08, zIndex: 20 }}
-                          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                        >
-                          {isCurrentHour && isToday && (
-                            <div className="absolute inset-0 rounded-md ring-2 ring-emerald-400 ring-offset-1 ring-offset-zinc-950" />
-                          )}
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
+                          });
+                        }}
+                        onMouseEnter={() => setHoveredCell({
+                          day: dayIdx,
+                          hour: actualHour,
+                          value: cell.value,
+                          productivity: cell.productivity,
+                          deviceSeconds: cell.deviceSeconds,
+                          externalSeconds: cell.externalSeconds
+                        })}
+                        onMouseLeave={() => setHoveredCell(null)}
+                        whileHover={{ scale: 1.08, zIndex: 20 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                      >
+                        {isCurrentHour && isToday && (
+                          <div className="absolute inset-0 rounded-md ring-2 ring-emerald-400 ring-offset-1 ring-offset-zinc-950" />
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </div>
-        
+
         {/* Hover Tooltip */}
         <AnimatePresence>
           {hoveredCell && !selectedCell && (
@@ -1917,7 +2008,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
             </motion.div>
           )}
         </AnimatePresence>
-        
+
         {/* Click Detail Panel */}
         <AnimatePresence>
           {selectedCell !== null && (() => {
@@ -1941,7 +2032,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                     <X className="w-4 h-4" />
                   </button>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   {/* Device Column */}
                   <div className="space-y-3">
@@ -1977,7 +2068,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                       </div>
                     )}
                   </div>
-                  
+
                   {/* External Column */}
                   <div className="space-y-3">
                     <div className="font-semibold text-purple-400 text-sm flex items-center gap-2">
@@ -1995,7 +2086,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
                         {(() => {
                           const breakdown = clickedCell.externalBreakdown || {};
                           const activities = Object.entries(breakdown).sort((a, b) => b[1].seconds - a[1].seconds);
-                          
+
                           return activities.length > 0 ? (
                             <div className="space-y-1 border-t border-zinc-700 pt-2 mt-2">
                               {activities.map(([activity, data]: [string, any]) => (
@@ -2021,7 +2112,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     );
   };
 
-// Compute website data from allLogs (filtered by selectedPeriod + dateOffset)
+  // Compute website data from allLogs (filtered by selectedPeriod + dateOffset)
   // Toggle for App/Website view in solar system
   const [solarMode, setSolarMode] = useState<'apps' | 'websites'>('apps');
 
@@ -2058,53 +2149,23 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
   const maxUsage = maxBy(solar, d => d.usage_ms, 1);
 
   // Border colors for different states
-  const borderColor = externalSessionRunning 
+  const borderColor = externalSessionRunning
     ? 'rgba(139, 92, 246, 0.3)'  // Purple for external
-    : isDistracting 
+    : isDistracting
       ? 'rgba(239, 68, 68, 0.3)'  // Red for distracting
-      : isCurrentlyProductive 
+      : isCurrentlyProductive
         ? 'rgba(16, 185, 129, 0.3)'  // Green for productive
         : 'rgba(107, 114, 128, 0.3)';  // Gray for idle
 
-  // Compute stats from backend overview data
-  const stats = useMemo(() => {
-    const ov = dashboardData?.overview;
-    const liveProductiveMs = (lastTier === 'productive' && !isPaused) ? currentProductiveMs : 0;
-    const formatHours = (ms: number) => {
-      const hours = ms / (1000 * 60 * 60);
-      return hours >= 1 ? `${hours.toFixed(1)}h` : `${Math.round(ms / (1000 * 60))}m`;
-    };
-    const longestFocusMs = sessionsData.sessions.length > 0
-      ? maxBy(sessionsData.sessions, (s: any) => (s.duration_seconds || 0) * 1000)
-      : 0;
-    if (!ov) {
-      if (liveProductiveMs > 0) {
-        return { totalTime: formatHours(liveProductiveMs), totalTimeMs: liveProductiveMs, productiveTime: formatHours(liveProductiveMs), productiveTimeMs: liveProductiveMs, productivePercent: 100, longestFocus: formatHours(Math.max(liveProductiveMs, longestFocusMs)) };
-      }
-      return { totalTime: '0', totalTimeMs: 0, productiveTime: '0', productiveTimeMs: 0, productivePercent: 0, longestFocus: longestFocusMs > 0 ? formatHours(longestFocusMs) : 'N/A' };
-    }
-    const totalTimeMs = (ov.totalSeconds || 0) * 1000 + (liveProductiveMs > 0 ? liveProductiveMs : 0);
-    const productiveTimeMs = (ov.productiveSeconds || 0) * 1000 + liveProductiveMs;
-    const productivePercent = totalTimeMs > 0 ? Math.round((productiveTimeMs / totalTimeMs) * 100) : 0;
-    return {
-      totalTime: formatHours(totalTimeMs),
-      totalTimeMs,
-      productiveTime: formatHours(productiveTimeMs),
-      productiveTimeMs,
-      productivePercent,
-      longestFocus: longestFocusMs > 0 ? formatHours(longestFocusMs) : 'N/A',
-    };
-  }, [dashboardData?.overview, currentProductiveMs, lastTier, isPaused, sessionsData]);
-
   // Need state for live tick
   const [tick, setTick] = useState(0);
-  
+
   // Live timer tick
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, []);
-  
+
   // Calculate active session elapsed time with live updates
   const getElapsedDuration = (item: ActivityFeedItem): string => {
     if (!item.isActive || !item.startTime) return '';
@@ -2114,7 +2175,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
     const elapsedSec = Math.floor(cappedMs / 1000);
     const elapsedMin = Math.floor(elapsedSec / 60);
     const elapsedHr = Math.floor(elapsedMin / 60);
-    
+
     if (elapsedHr > 0) return `${elapsedHr}:${(elapsedMin % 60).toString().padStart(2, '0')}:${(elapsedSec % 60).toString().padStart(2, '0')}`;
     return `${elapsedMin}:${(elapsedSec % 60).toString().padStart(2, '0')}`;
   };
@@ -2126,7 +2187,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
       // For completed sessions, use the DURATION from the log (seconds)
       // For active sessions (no duration yet), calculate elapsed time
       let durationSec: number;
-      
+
       if (item.isActive) {
         // Active session - calculate time elapsed since start
         durationSec = Math.floor((Date.now() - item.startTime) / 1000);
@@ -2144,16 +2205,16 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
           durationSec = 0;
         }
       }
-      
+
       const elapsedMin = Math.floor(durationSec / 60);
       const elapsedHr = Math.floor(elapsedMin / 60);
-      
+
       let durationStr = '';
       if (elapsedHr > 0) durationStr = `${elapsedHr}h ${elapsedMin % 60}m`;
       else if (elapsedMin > 0) durationStr = `${elapsedMin}m`;
       else if (durationSec > 0) durationStr = `${durationSec}s`;
       else durationStr = '';
-      
+
       const result = { ...item };
       result.elapsedStr = durationStr;
       result.isTop = index === 0;
@@ -2200,7 +2261,7 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
   return (
     <PageShell page="dashboard" variant="dashboard" className="text-white bg-[#0a0a0a]">
       {/* Background grid effect */}
-      <div 
+      <div
         className="fixed inset-0 opacity-5 pointer-events-none"
         style={{
           backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
@@ -2208,9 +2269,9 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
         }}
       />
 
-      <div className="relative z-10 p-5">
-        <div className="max-w-7xl mx-auto">
-          {/* Header */}
+      <div className="relative z-10">
+        {/* Header */}
+        <div className="mx-auto" style={{ maxWidth: '1600px' }}>
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -2226,968 +2287,505 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
               </div>
             </div>
           </motion.div>
+        </div>
 
-          {/* Main Timer Section - HERO */}
+        {/* Main Timer Section - HERO - full width */}
+        <div className="mb-12">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.4 }}
-            className="mb-12"
           >
-            <div 
-              className="rounded-xl p-5 sm:p-12 border backdrop-blur-sm bg-zinc-950/80"
-              style={{
-                borderColor,
-                boxShadow: isCurrentlyProductive || externalSessionRunning ? `0 0 20px ${externalSessionRunning ? 'rgba(139, 92, 246, 0.2)' : 'rgba(16, 185, 129, 0.1)'}` : 'none'
-              }}
-            >
-              <div className="text-center space-y-6">
-                {/* Status indicator - Adaptive: shows external if running */}
-<motion.div
-                  animate={{ opacity: (isCurrentlyProductive || externalSessionRunning || isDistracting) ? [1, 0.7, 1] : 1 }}
-                  transition={{ duration: 2, repeat: (isCurrentlyProductive || externalSessionRunning || isDistracting) ? Infinity : 0 }}
-                  className="flex items-center justify-center gap-3"
-                >
-                  <div 
-                    className="w-3 h-3 rounded-full"
-                    style={{ 
-                      backgroundColor: displayTime.label.includes('External')
-                        ? '#8b5cf6'  // Purple for external
-                        : isDistracting 
-                          ? '#ef4444'  // Red for distracting
-                          : isCurrentlyProductive 
-                            ? '#10b981'  // Green for productive
-                            : '#3b82f6'  // Blue for neutral/idle
-                    }}
-                  />
-                  <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400 flex items-center gap-1">
-                    {isPaused 
-                      ? <><Pause className="w-3 h-3" /> Paused</>
-                      : displayTime.label.includes('External')
-                        ? displayTime.label
-                          : isDistracting 
-                          ? <><Ban className="w-3 h-3" /> Distracting</>
-                          : isCurrentlyProductive 
-                            ? <><Target className="w-3 h-3" /> Locked In</>
-                            : <><Pause className="w-3 h-3" /> Idle</>}
-                  </span>
-                </motion.div>
-
-                {/* Giant Timer - Adaptive: shows external if running, otherwise productive */}
-                <motion.div
-                  key={externalSessionRunning ? 'external' : 'productive'}
-                  initial={{ scale: 0.95, opacity: 0.8 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="font-mono font-bold"
-                  style={{
-                    fontSize: displayTime.label.includes('External') ? '80px' : '120px',
-                    lineHeight: '1',
-                    color: displayTime.label.includes('External') 
-                      ? '#8b5cf6'  // Purple for external
-                      : isDistracting 
-                        ? '#ef4444'  // Red for distracting
-                        : isCurrentlyProductive 
-                          ? '#10b981'  // Green for productive
-                          : '#3b82f6',  // Blue for neutral/idle
-                    textShadow: !isPaused && (isCurrentlyProductive || externalSessionRunning || isDistracting) 
-                      ? (displayTime.label.includes('External') 
-                        ? '0 0 30px rgba(139, 92, 246, 0.3)' 
-                        : isDistracting 
-                          ? '0 0 30px rgba(239, 68, 68, 0.3)' 
-                          : isCurrentlyProductive
-                            ? '0 0 30px rgba(16, 185, 129, 0.3)'
-                            : '0 0 30px rgba(59, 130, 246, 0.3)') 
-                      : 'none',
-                    letterSpacing: '-0.02em'
-                  }}
-                >
-                  {formatDuration(displayTime.ms)}
-                </motion.div>
-                
-                {/* Show external activity name when running */}
-                {externalSessionRunning && selectedExternalActivity && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="space-y-3"
-                  >
-                    <div className="text-zinc-400 text-sm uppercase tracking-wider">External Activity</div>
-                    <div className="flex items-center justify-center gap-2">
-                      <span 
-                        className="px-3 py-1 rounded-full text-xs font-mono font-semibold"
-                        style={{
-                          backgroundColor: 'rgba(139, 92, 246, 0.2)',  // Purple
-                          color: '#a78bfa'
-                        }}
-                      >
-                        {selectedExternalActivity.name}
-                      </span>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Current activity - always show when timer is active */}
-                {!externalSessionRunning && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="space-y-3"
-                  >
-                    <div className="text-zinc-400 text-sm uppercase tracking-wider">{hasRealApp ? 'Currently tracking' : 'Waiting for app'}</div>
-                    <div className="flex items-center justify-center gap-2">
-                      {hasRealApp ? (
-                        <span 
-                          className="px-3 py-1 rounded-full text-xs font-mono font-semibold"
-                          style={{
-                            backgroundColor: isDistracting 
-                              ? 'rgba(239, 68, 68, 0.2)'  // Red for distracting
-                              : isCurrentlyProductive 
-                                ? 'rgba(16, 185, 129, 0.2)'  // Green for productive
-                                : 'rgba(107, 114, 128, 0.2)',  // Gray for idle
-                            color: isDistracting 
-                              ? '#f87171'  // Red
-                              : isCurrentlyProductive 
-                                ? '#34d399'  // Green
-                                : '#d1d5db'  // Gray
-                          }}
-                        >
-                          {currentWebsite ? currentWebsite.category : (currentApp?.category || (isInBrowser ? 'Browser' : (lastTier ? lastTier.charAt(0).toUpperCase() + lastTier.slice(1) : 'Unknown')))}
-                        </span>
-                      ) : (
-                        <span className="px-3 py-1 rounded-full text-xs font-mono font-semibold bg-zinc-800 text-zinc-500">
-                          No App
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-lg font-medium text-white">
-                      {currentApp ? (currentApp.app || currentApp.title) : (currentWebsite?.title || currentWebsite?.domain || (isInBrowser ? 'Browsing...' : (lastTier && currentProductiveMs > 0 ? (lastTier === 'productive' ? 'Productive Session' : lastTier === 'distracting' ? 'Distracting Session' : 'Active Session') : 'Switch to another app to start tracking')))}
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Helpful message - Adaptive */}
-                <div className="text-xs text-zinc-600 pt-4 border-t border-zinc-800">
-                  {externalSessionRunning 
-                    ? `External activity: ${selectedExternalActivity?.name}. Timer running.`
-                    : (!hasRealApp
-                      ? 'No app detected. Switch to a window to start tracking.'
-                      : (isCurrentlyProductive 
-                        ? 'Productive work detected. Timer running.'
-                        : 'No productive activity detected. Open an IDE, editor, or learning tool to start.'))}
-                </div>
-                   </div>
-
-{/* View Heatmap Button - REMOVED, now in Weekly Productivity section */}
-                 </div>
-          </motion.div>
-
-          {/* Stats Cards Row */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12"
-          >
-            <StatCard label="Productive" value={stats.productiveTime} />
-            <StatCard label="Total" value={stats.totalTime} />
-            <StatCard label="% Productive" value={`${stats.productivePercent}%`} />
-            <StatCard label="Longest Focus" value={stats.longestFocus} />
-            <StatCard label="Resets Today" value={resetCount} />
-            <StatCard
-              label={displayTime.label.includes('External') ? 'External' : 'Productive'}
-              value={formatDuration(displayTime.ms)}
+            <HeroBand
+              displayTime={displayTime}
+              isPaused={isPaused}
+              isCurrentlyProductive={isCurrentlyProductive}
+              isDistracting={isDistracting}
+              externalSessionRunning={externalSessionRunning}
+              selectedExternalActivity={selectedExternalActivity}
+              hasRealApp={hasRealApp}
+              currentApp={currentApp}
+              currentWebsite={currentWebsite}
+              isInBrowser={isInBrowser}
+              lastTier={lastTier}
+              borderColor={borderColor}
+              goalCurrent={homeSummary.data?.focusMinutes ?? 0}
+              focusActive={deepFocus.state.active}
             />
           </motion.div>
+        </div>
 
-          {/* Pinned Activities */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="rounded-xl p-5 border backdrop-blur-sm mb-12 bg-zinc-950/80 border-zinc-500/20"
-          >
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setPinnedActivitiesExpanded(!pinnedActivitiesExpanded)}
-                  className="flex items-center gap-2 flex-1 text-left"
-                >
-                  <ChevronRight className={`w-4 h-4 text-zinc-400 transition-transform ${pinnedActivitiesExpanded ? 'rotate-90' : ''}`} />
-                  <div>
-                    <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Pinned Activities</h2>
-                    <p className="text-xs text-zinc-600 mt-1">Quick manual tracking</p>
-                  </div>
-                </button>
-                <button
-                  onClick={() => setPinnedActivitiesEditMode(!pinnedActivitiesEditMode)}
-                  className={`p-2 rounded-lg border transition-colors duration-150 ${
-                    pinnedActivitiesEditMode
-                      ? 'bg-emerald-500/20 border-emerald-500/50'
-                      : 'bg-zinc-500/10 border-zinc-500/20'
-                  }`}
-                >
-                  {pinnedActivitiesEditMode ? (
-                    <Check className="w-4 h-4 text-emerald-400" />
-                  ) : (
-                    <Edit3 className="w-4 h-4 text-zinc-400" />
-                  )}
-                </button>
-              </div>
-
-              {pinnedActivitiesExpanded && (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-                {pinnedActivities.map((activity) => {
-                  const Icon = ACTIVITY_ICONS[activity.icon] || Timer;
-                  const isSelected = selectedExternalActivity?.id === activity.id;
-                  
-                  return (
-                    <motion.div key={activity.id} className="relative">
-                      <motion.button
-                        onClick={() => {
-                          if (pinnedActivitiesEditMode) {
-                            setPinnedActivities(prev => prev.filter(a => a.id !== activity.id));
-                          } else if (isSelected) {
-                            setSelectedExternalActivity(null);
-                          } else {
-                            handleSelectExternalActivity(activity);
-                          }
-                        }}
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.97 }}
-                        className={`w-full rounded-xl border transition-all duration-200 text-center overflow-hidden ${
-                          isSelected
-                            ? 'bg-emerald-500/10 border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
-                            : 'bg-zinc-500/10 border-zinc-500/20 hover:border-zinc-500/30'
-                        }`}
-                        style={{ padding: isSelected ? '12px 12px 8px' : '16px 12px' }}
-                      >
-                        {isSelected && externalSessionRunning && (
-                          <div className="flex items-center justify-center gap-1.5 mb-1.5">
-                            <span className="relative flex h-2 w-2">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                            </span>
-                            <span className="text-[10px] font-medium text-emerald-400/80 uppercase tracking-wider">Tracking</span>
-                          </div>
-                        )}
-                        <Icon
-                          className={`w-6 h-6 mx-auto mb-1.5 transition-colors duration-200 ${
-                            isSelected
-                              ? 'text-emerald-400'
-                              : activity.is_productive ? 'text-emerald-500' : 'text-indigo-500'
-                          }`}
-                        />
-                        <div className={`text-xs font-semibold transition-colors duration-200 ${
-                          isSelected ? 'text-emerald-300' : 'text-white'
-                        }`}>{activity.name}</div>
-                        {isSelected && externalSessionRunning && (
-                          <div className="text-lg font-mono font-bold text-emerald-400 mt-1.5 tabular-nums">
-                            {formatDuration(externalElapsedMs)}
-                          </div>
-                        )}
-                        {isSelected && !externalSessionRunning && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartExternalSession();
-                            }}
-                            className="mt-2 mb-0.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 hover:border-emerald-500/40 transition-all duration-150 cursor-pointer"
-                          >
-                            <Play className="w-2.5 h-2.5 fill-current" />
-                            Start
-                          </button>
-                        )}
-                      </motion.button>
-                      {isSelected && externalSessionRunning && (
-                        <motion.button
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleStopExternalSession();
-                          }}
-                          className="absolute -bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 px-3 py-1 rounded-full bg-red-500/90 text-white text-[10px] font-semibold uppercase tracking-wider shadow-lg shadow-red-500/20 hover:bg-red-500 transition-colors duration-150 whitespace-nowrap"
-                        >
-                          Stop
-                        </motion.button>
-                      )}
-                      {pinnedActivitiesEditMode && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPinnedActivities(prev => prev.filter(a => a.id !== activity.id));
-                          }}
-                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 flex items-center justify-center"
-                        >
-                          <Minus className="w-3 h-3 text-white" />
-                        </button>
-                      )}
-                    </motion.div>
-                  );
-                })}
-                
-                {/* Add activity button in edit mode */}
-                {pinnedActivitiesEditMode && pinnedActivities.length < 6 && (
-                  <motion.button
-                    onClick={() => {
-                      const available = activities.filter(a => !pinnedActivities.find(p => p.id === a.id));
-                      if (available.length === 0) return;
-                      if (available.length === 1) {
-                        setPinnedActivities(prev => [...prev, available[0]]);
-                      } else {
-                        setAddPinnedPicker(available);
-                        setSelectedAddActivities(new Set());
-                        setShowAddActivityModal(true);
-                      }
-                    }}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="w-full p-4 rounded-lg border border-dashed transition-colors duration-150 text-center"
-                    style={{
-                      backgroundColor: 'rgba(107, 114, 128, 0.05)',
-                      borderColor: 'rgba(107, 114, 128, 0.3)'
-                    }}
-                  >
-                    <Plus className="w-6 h-6 mx-auto mb-2 text-zinc-500" />
-                    <div className="text-xs font-semibold text-zinc-500">Add</div>
-                  </motion.button>
-                )}
-                
-              </div>
-            )}
-            </div>
-          </motion.div>
-
-            {/* Add Activity Modal */}
-           <AnimatePresence>
-             {showAddActivityModal && (
-               <motion.div
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 1 }}
-                 exit={{ opacity: 0 }}
-                 className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                 onClick={() => { setShowAddActivityModal(false); setAddPinnedPicker([]); setSelectedAddActivities(new Set()); }}
-               >
-                 <motion.div
-                   initial={{ scale: 0.92, opacity: 0, y: 10 }}
-                   animate={{ scale: 1, opacity: 1, y: 0 }}
-                   exit={{ scale: 0.92, opacity: 0, y: 10 }}
-                   className="rounded-xl border overflow-hidden w-full max-w-sm bg-zinc-950/98 border-zinc-500/15 shadow-[0_25px_60px_rgba(0,0,0,0.5)]"
-                   onClick={(e) => e.stopPropagation()}
-                 >
-                    <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-zinc-500/10">
-                     <div>
-                       <h3 className="text-base font-semibold text-zinc-100">Pin Activities</h3>
-                       <p className="text-xs text-zinc-500 mt-0.5">Select activities to add to dashboard</p>
-                     </div>
-                     <button
-                       onClick={() => { setShowAddActivityModal(false); setAddPinnedPicker([]); setSelectedAddActivities(new Set()); }}
-                       className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors"
-                     >
-                       <X className="w-4 h-4 text-zinc-500" />
-                     </button>
-                   </div>
-
-                   <div className="px-2 py-2 max-h-72 overflow-y-auto">
-                     {addPinnedPicker.map(activity => {
-                       const isSelected = selectedAddActivities.has(activity.id);
-                       return (
-                         <button
-                           key={activity.id}
-                           onClick={() => {
-                             const next = new Set(selectedAddActivities);
-                             if (isSelected) {
-                               next.delete(activity.id);
-                             } else {
-                               next.add(activity.id);
-                             }
-                             setSelectedAddActivities(next);
-                           }}
-                           className={`w-full px-3 py-3 text-left text-sm rounded-xl flex items-center gap-3 transition-colors duration-150 ${
-                             isSelected
-                               ? 'bg-emerald-500/10'
-                               : 'hover:bg-zinc-800/50'
-                           }`}
-                         >
-                           <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors duration-150 ${
-                             isSelected
-                               ? 'border-emerald-500 bg-emerald-500'
-                               : 'border-zinc-600 bg-transparent'
-                           }`}>
-                             {isSelected && (
-                               <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                               </svg>
-                             )}
-                           </div>
-                           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: activity.color }} />
-                           <span className={`font-medium ${isSelected ? 'text-emerald-300' : 'text-zinc-300'}`}>
-                             {activity.name}
-                           </span>
-                         </button>
-                       );
-                     })}
-                   </div>
-
-                    <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-zinc-500/10">
-                     <button
-                       onClick={() => { setShowAddActivityModal(false); setAddPinnedPicker([]); setSelectedAddActivities(new Set()); }}
-                       className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-xl transition-colors duration-150"
-                     >
-                       Cancel
-                     </button>
-                     <button
-                       onClick={() => {
-                         const selected = addPinnedPicker.filter(a => selectedAddActivities.has(a.id));
-                         setPinnedActivities(prev => [...prev, ...selected]);
-                         setShowAddActivityModal(false);
-                         setAddPinnedPicker([]);
-                         setSelectedAddActivities(new Set());
-                       }}
-                       disabled={selectedAddActivities.size === 0}
-                        className={`px-5 py-2 text-sm font-semibold rounded-xl transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
-                          selectedAddActivities.size > 0
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-zinc-500/10 text-zinc-500 border border-zinc-500/20'
-                        }`}
-                     >
-                       {selectedAddActivities.size > 0
-                         ? `Add (${selectedAddActivities.size})`
-                         : 'Select activities'}
-                     </button>
-                   </div>
-                 </motion.div>
-               </motion.div>
-              )}
-</AnimatePresence>
-
-            {/* ══════════════════════════════════════════════════════════════
-                  PRODUCTIVITY SESSIONS - Best Time, History, Ranking
-                  ══════════════════════════════════════════════════════════════ */}
-              <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.23 }}
-                  className="rounded-xl p-5 border backdrop-blur-sm mb-8 bg-zinc-950/80 border-emerald-500/20"
-                >
-                  <div className="space-y-5">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-500">Focus Sessions</h2>
-                        <p className="text-xs text-zinc-500 mt-1">Your best productivity times</p>
-                      </div>
-                      <button
-                        onClick={() => setSessionsExpanded(!sessionsExpanded)}
-                        className="text-xs px-3 py-1 rounded-lg border transition-colors bg-emerald-500/10 border-emerald-500/30 text-emerald-500"
-                      >
-                        {sessionsExpanded ? 'Hide' : 'Show'} History
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="rounded-xl p-4 text-center border bg-emerald-500/5 border-emerald-500/20">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Best Today</div>
-                        <div className="text-2xl font-bold text-emerald-500">{fmtSec(sessionsData.stats.todayBest)}</div>
-                        <div className="text-[10px] text-zinc-600 mt-1">of {fmtSec(sessionsData.stats.todayTotal)} total</div>
-                      </div>
-                      <div className="rounded-xl p-4 text-center border bg-amber-500/5 border-amber-500/20">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Best This Week</div>
-                        <div className="text-2xl font-bold text-amber-500">{fmtSec(sessionsData.stats.weekBest)}</div>
-                        <div className="text-[10px] text-zinc-600 mt-1">of {fmtSec(sessionsData.stats.weekTotal)} total</div>
-                      </div>
-                      <div className="rounded-xl p-4 text-center border bg-purple-500/5 border-purple-500/20">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">All-Time PB</div>
-                        <div className="text-2xl font-bold text-purple-500">{fmtSec(sessionsData.stats.allTimeBest)}</div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-500">Min:</span>
-                        <input
-                          type="range"
-                          min={60}
-                          max={3600}
-                          step={60}
-                          value={minDuration}
-                          onChange={e => setMinDuration(parseInt(e.target.value))}
-                          className="w-24 h-1 rounded-lg appearance-none cursor-pointer"
-                          style={{ accentColor: '#10b981' }}
-                        />
-                        <span className="text-xs" style={{ color: '#10b981' }}>{fmtSec(minDuration)}</span>
-                      </div>
-                    </div>
-
-                    {sessionsExpanded && (
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {sessionsData.sessions.length === 0 ? (
-                          <div className="text-center py-6 text-zinc-500 text-sm">
-                            No sessions found. Start working in a productive app to build your focus history.
-                          </div>
-                        ) : (
-                          sessionsData.sessions.map((sess: any, idx: number) => {
-                            const rank = idx + 1;
-                            const isGold = rank === 1;
-                            const isSilver = rank === 2;
-                            const isBronze = rank === 3;
-                            const started = new Date(sess.started_at);
-                            const timeStr = started.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                            const dateStr = started.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-                            return (
-                              <div
-                                key={sess.id || idx}
-                                className="flex items-center gap-3 p-3 rounded-lg border transition-colors"
-                                style={{
-                                  backgroundColor: isGold ? 'rgba(234, 179, 8, 0.08)' : isSilver ? 'rgba(148, 163, 184, 0.08)' : isBronze ? 'rgba(180, 83, 9, 0.08)' : 'rgba(107, 114, 128, 0.05)',
-                                  borderColor: isGold ? 'rgba(234, 179, 8, 0.3)' : isSilver ? 'rgba(148, 163, 184, 0.3)' : isBronze ? 'rgba(180, 83, 9, 0.3)' : 'rgba(107, 114, 128, 0.15)'
-                                }}
-                              >
-                                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                                  isGold ? 'text-amber-400' : isSilver ? 'text-zinc-400' : isBronze ? 'text-orange-400' : 'text-zinc-600'
-                                }`} style={{
-                                  backgroundColor: isGold ? 'rgba(234, 179, 8, 0.15)' : isSilver ? 'rgba(148, 163, 184, 0.15)' : isBronze ? 'rgba(180, 83, 9, 0.15)' : 'rgba(107, 114, 128, 0.1)'
-                                }}>
-                                  {rank}
-                                </div>
-                                <div className="flex-1">
-                                  <div className="text-sm font-semibold text-white">{fmtSec(sess.duration_seconds)}</div>
-                                  <div className="text-xs text-zinc-500">{dateStr} · {timeStr}</div>
-                                </div>
-                                {rank <= 3 && (
-                                  <div className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                                    isGold ? 'text-amber-400' : isSilver ? 'text-zinc-300' : 'text-orange-400'
-                                  }`} style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
-                                    Top {rank}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-
-            {/* Two-Column Stats Section */}
-           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-12">
-              {/* Weekly Heatmap */}
-              <motion.div data-tutorial="dash.heatmap"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="rounded-xl p-5 border backdrop-blur-sm transition-colors bg-zinc-950/80 border-zinc-500/20"
-               >
-                   <div className="space-y-4">
-                      <SectionHeader
-                        title="Productivity"
-                        icon={<BarChart3 className="w-5 h-5" />}
-                        action={
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => setExpandedModal('heatmap')}
-                              className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 hover:text-white transition-colors border border-zinc-700 hover:border-zinc-600"
-                            >
-                              View Heatmap
-                            </button>
-                          </div>
-                        }
-                      />
-                     
-                      {/* Date range label */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-zinc-500">
-                          {computeChartDateRange(selectedPeriod, dateOffset).label}
-                        </span>
-                      </div>
-
-                     {/* Total hours */}
-                     <div className="text-lg font-bold text-emerald-400">
-                       {chartBarsResult.chartBars.length > 0 ? (() => {
-                         const total = chartBarsResult.chartBars.reduce((sum, bar) => sum + bar.productiveSeconds + bar.nonProductiveSeconds + bar.externalSeconds, 0);
-                         return total > 0 ? `${(total / 3600).toFixed(1)}h` : '--';
-                       })() : '--'}
-                     </div>
-
-                     {/* CHART */}
-                      {chartBarsResult.chartBars.length === 0 ? (
-                        <EmptyState
-                          icon={<BarChart3 className="w-8 h-8 opacity-30" />}
-                          title="No tracking data for this period"
-                          description="Start using apps to see productivity data"
-                        />
-                      ) : (
-                        <div data-tutorial="dash.weekly" className="h-72">
-                          <Bar
-                            data={{
-                              labels: chartBarsResult.chartBars.map(b => b.label),
-                              datasets: [
-                                {
-                                  label: 'Productive',
-                                  data: chartBarsResult.chartBars.map(b => Math.round((b.productiveSeconds / 3600) * 100) / 100),
-                                  backgroundColor: chartBarsResult.chartBars.map(b => b.isToday ? '#10b981' : 'rgba(16, 185, 129, 0.7)'),
-                                  borderRadius: 4,
-                                  borderSkipped: false,
-                                },
-                                {
-                                  label: 'Other',
-                                  data: chartBarsResult.chartBars.map(b => Math.round((b.nonProductiveSeconds / 3600) * 100) / 100),
-                                  backgroundColor: chartBarsResult.chartBars.map(b => b.isToday ? '#f59e0b' : 'rgba(245, 158, 11, 0.7)'),
-                                  borderRadius: 4,
-                                  borderSkipped: false,
-                                },
-                                {
-                                  label: 'External',
-                                  data: chartBarsResult.chartBars.map(b => Math.round((b.externalSeconds / 3600) * 100) / 100),
-                                  backgroundColor: chartBarsResult.chartBars.map(b => b.isToday ? '#6366f1' : 'rgba(99, 102, 241, 0.7)'),
-                                  borderRadius: 4,
-                                  borderSkipped: false,
-                                },
-                              ],
-                            }}
-                           options={{
-                             responsive: true,
-                             maintainAspectRatio: false,
-                             plugins: {
-                               legend: { display: true, position: 'bottom' as const, labels: { color: '#71717a', usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 9 } } },
-                               tooltip: {
-                                 backgroundColor: 'rgba(39, 39, 42, 0.95)',
-                                 borderColor: 'rgba(63, 63, 70, 0.5)',
-                                 borderWidth: 1,
-                                 titleColor: '#e4e4e7',
-                                 bodyColor: '#a1a1aa',
-                                 padding: 12,
-                                 cornerRadius: 8,
-                                 titleFont: { size: 10, weight: '600' },
-                                 bodyFont: { size: 9 },
-                                 displayColors: true,
-                                 boxPadding: 4,
-                                  callbacks: {
-                                    title: (items: any[]) => items[0]?.label || '',
-                                    label: (ctx: any) => {
-                                      const hours = ctx.raw as number;
-                                      if (hours === 0) return null;
-                                      const h = Math.floor(hours);
-                                      const m = Math.round((hours - h) * 60);
-                                      const label = h > 0 && m > 0 ? `${h}h ${m}m` : h > 0 ? `${h}h` : `${m}m`;
-                                      return ` ${ctx.dataset.label}: ${label}`;
-                                    },
-                                  },
-                               },
-                             },
-                             scales: {
-                               x: {
-                                 stacked: true,
-                                 grid: { display: false },
-                                 ticks: {
-                                   color: '#71717a',
-                                   font: { size: 9 },
-                                   maxRotation: 0,
-                                   autoSkip: true,
-                                   maxTicksLimit: selectedPeriod === 'today' ? 12 : selectedPeriod === 'month' ? 10 : undefined,
-                                 },
-                               },
-                               y: {
-                                 stacked: true,
-                                 grid: { color: '#27272a' },
-                                 ticks: {
-                                   color: '#71717a',
-                                   font: { size: 9 },
-                                   callback: (v: number) => {
-                                     if (selectedPeriod === 'today') {
-                                       const mins = Math.round(v * 60);
-                                       return mins % 60 === 0 ? `${mins / 60}h` : `${mins}m`;
-                                     }
-                                     if (selectedPeriod === 'all' && v >= 24) return `${(v / 24).toFixed(0)}d`;
-                                     return `${v}h`;
-                                   },
-                                 },
-                                 suggestedMax: yAxisTicks.niceMax,
-                               },
-                             },
-                           }}
-                         />
-                       </div>
-                     )}
-                   </div>
-                </motion.div>
-
-                {/* App Usage Solar System */}
-               <motion.div
-                 initial={{ opacity: 0, y: 20 }}
-                 animate={{ opacity: 1, y: 0 }}
-                 transition={{ delay: 0.3 }}
-                className="rounded-xl p-5 border backdrop-blur-sm transition-colors bg-zinc-950/80 border-zinc-500/20"
-              >
-                <div className="space-y-4">
-                   <div className="flex items-center justify-between">
-                     <div>
-                       <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">App Ecosystem</h2>
-                       <p className="text-xs text-zinc-600 mt-1">Your top tools in orbit</p>
-                     </div>
-                     <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                       {/* Solar mode toggle */}
-                       <button
-                         onClick={(e) => { e.stopPropagation(); setSolarMode('apps'); }}
-                         className={`px-2 py-1 text-xs rounded transition-colors ${solarMode === 'apps' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                       >
-                         Apps
-                       </button>
-                       <button
-                         onClick={(e) => { e.stopPropagation(); setSolarMode('websites'); }}
-                         className={`px-2 py-1 text-xs rounded transition-colors ${solarMode === 'websites' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                       >
-                         Websites
-                       </button>
-                       <div className="ml-2">
-                         <span className="text-xs text-zinc-500">
-                           {dateOffset === 0 && selectedPeriod === 'today' ? 'Today' : 
-                            dateOffset === 0 && selectedPeriod === 'week' ? 'This Week' : 
-                            dateOffset === 0 && selectedPeriod === 'month' ? 'This Month' :
-                            dateOffset === 0 && selectedPeriod === 'all' ? 'All Time' :
-                            `${selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'Week' : selectedPeriod === 'month' ? 'Month' : 'Period'} -${dateOffset}`}
-                         </span>
-                       </div>
-                     </div>
-                   </div>
-<div className="relative h-64 flex items-center justify-center">
-                      <div className="absolute w-12 h-12 rounded-full border border-zinc-700 flex items-center justify-center">
-                        <Sun className="w-6 h-6 text-zinc-600" />
-                      </div>
-                      
-                      {solar.slice(0, 5).map((app, i) => {
-                       const size = Math.max(70, 24 + (app.usage_ms / maxUsage) * 48);
-                       const angle = (i * 360) / Math.min(solar.length, 5);
-                       const radius = 70 + (i % 2) * 35;
-                       const rad = (angle * Math.PI) / 180;
-                       const x = Math.cos(rad) * radius;
-                       const y = Math.sin(rad) * radius;
-                       
-                       return (
-                         <motion.div
-                           key={app.name}
-                           initial={{ scale: 0, x: 0, y: 0 }}
-                           animate={{ scale: 1, x, y }}
-                           transition={{ delay: 0.3 + i * 0.1 }}
-                           className="absolute"
-                           style={{ 
-                             width: Math.max(size, 60),
-                             height: Math.max(size, 60),
-                           }}
-                           title={`${app.name}: ${Math.round((app.usage_ms / 1000 / 3600) * 10) / 10}h`}
-                         >
-                           {/* Circle with text inside - NO truncation */}
-                           <div 
-                             className="w-full h-full rounded-full border border-zinc-700 hover:border-zinc-500 transition-colors flex flex-col items-center justify-center"
-                             style={{ 
-                               backgroundColor: 'rgba(24, 24, 27, 0.9)',
-                               cursor: 'pointer'
-                             }}
-                           >
-                             {/* App name - FULL name, no truncate */}
-                             <div className="text-xs font-semibold text-zinc-300 px-2 text-center">
-                               {app.name}
-                             </div>
-                             {/* Duration */}
-                             <div className="text-[10px] text-zinc-500 mt-0.5">
-                               {Math.round((app.usage_ms / 1000 / 3600) * 10) / 10}h
-                             </div>
-                           </div>
-                         </motion.div>
-                       );
-                     })}
-                  </div>
-
-                  {/* View Solar System Button */}
-                  <button
-                    onClick={() => setExpandedModal('solar')}
-                    className="w-full py-2 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-sm text-zinc-300 hover:text-white transition-colors border border-zinc-700 hover:border-zinc-600"
-                  >
-                    View Solar System
-                  </button>
-                 </div>
-               </motion.div>
+        {/* Rest of content - constrained */}
+        <div className="mx-auto" style={{ maxWidth: '1600px' }}>
+          {/* Summary Strip — 4 cross-module cards */}
+          <div className="mb-8">
+            <SummaryStrip
+              summary={homeSummary.data}
+              loading={homeSummary.loading}
+              error={homeSummary.error}
+              onRefresh={homeSummary.refresh}
+            />
           </div>
 
-{/* Expanded Heatmap Modal */}
-           <AnimatePresence>
-             {expandedModal === 'heatmap' && (
-               <motion.div
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 1 }}
-                 exit={{ opacity: 0 }}
-                 className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                 onClick={() => setExpandedModal(null)}
-               >
-<motion.div
-                    initial={{ scale: 0.95, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.95, opacity: 0 }}
-                    className="rounded-xl p-5 border max-w-4xl w-full max-h-[90vh] overflow-auto bg-zinc-950/95 border-zinc-500/20"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center justify-between mb-6">
-                      <div>
-                        <h2 className="text-lg font-semibold uppercase tracking-wider text-zinc-200">Activity Heatmap</h2>
-                        <p className="text-xs text-zinc-600 mt-1">{heatmapWeekLabel}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setWeekOffset(w => w - 1)}
-                          className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
-                          title="Previous week"
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setWeekOffset(0)}
-                          className="px-2 py-1 text-xs text-zinc-400 hover:text-white transition"
-                        >
-                          Today
-                        </button>
-                        <button
-                          onClick={() => setWeekOffset(w => Math.min(w + 1, 0))}
-                          disabled={weekOffset >= 0}
-                          className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed"
-                          title="Next week"
-                        >
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setExpandedModal(null)}
-                          className="p-2 hover:bg-zinc-800 rounded-lg transition-colors ml-2"
-                        >
-                          <X className="w-5 h-5 text-zinc-400" />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {renderHeatmap()}
-                  </motion.div>
-               </motion.div>
-             )}
-            </AnimatePresence>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-12">
+            <QuickFocusCard
+              state={deepFocus.state}
+              onStart={deepFocus.start}
+              onEnd={deepFocus.end}
+            />
+            <GoalRing
+              current={homeSummary.data?.focusMinutes ?? 0}
+              goal={120}
+              unit="min"
+              label="Today's Focus"
+              boost={deepFocus.state.active}
+            />
+          </div>
 
-{/* Day Detail Popup */}
-            <Suspense fallback={null}>
-              {dayDetailDate && (
-                <DayDetailPopup
-                  date={dayDetailDate}
-                  items={dayDetailItems}
-                  onClose={() => { setDayDetailDate(null); setDayDetailItems([]); }}
-                  onDateChange={(newDate) => {
-                    setDayDetailDate(newDate);
-                    if (window.deskflowAPI?.getDayDetail) {
-                      window.deskflowAPI.getDayDetail(newDate).then(detail => {
-                        if (!detail) return;
-                        const newItems: TimelineItem[] = [];
-                        (detail.logs || []).forEach((log: any) => {
-                          const logDate = new Date(log.timestamp);
-                          const startHour = logDate.getHours() + logDate.getMinutes() / 60;
-                          const durationSec = (log.duration_ms || 0) / 1000;
-                          const endHour = startHour + durationSec / 3600;
-                          const isBrowser = log.is_browser_tracking;
-                          const label = isBrowser ? (log.domain || log.app) : log.app;
-                          newItems.push({
-                            id: `log-${log.id}`,
-                            startHour,
-                            endHour: Math.min(endHour, 24),
-                            label,
-                            category: isBrowser ? 'browser' : 'app',
-                            color: isBrowser ? '#10b981' : '#3b82f6',
-                            duration: Math.round(durationSec),
-                            details: log.title,
-                          });
-                        });
-                        (detail.externalSessions || []).forEach((session: any) => {
-                          const startDate = new Date(session.started_at);
-                          const endDate = session.ended_at ? new Date(session.ended_at) : new Date();
-                          const sHour = startDate.getHours() + startDate.getMinutes() / 60;
-                          const durSec = (endDate.getTime() - startDate.getTime()) / 1000;
-                          const eHour = sHour + durSec / 3600;
-                          newItems.push({
-                            id: `ext-${session.id}`,
-                            startHour: sHour,
-                            endHour: Math.min(eHour, 24),
-                            label: session.activity_name || 'External',
-                            category: 'external',
-                            color: session.color || '#8b5cf6',
-                            duration: Math.round(durSec),
-                          });
-                        });
-                        newItems.sort((a, b) => a.startHour - b.startHour);
-                        setDayDetailItems(newItems);
-                      });
-                    }
-                  }}
+          <PinnedActivities
+            pinnedActivities={pinnedActivities}
+            setPinnedActivities={setPinnedActivities}
+            activities={activities}
+            selectedExternalActivity={selectedExternalActivity}
+            setSelectedExternalActivity={setSelectedExternalActivity}
+            handleSelectExternalActivity={handleSelectExternalActivity}
+            externalSessionRunning={externalSessionRunning}
+            formatDuration={formatDuration}
+            externalElapsedMs={externalElapsedMs}
+            handleStartExternalSession={handleStartExternalSession}
+            handleStopExternalSession={handleStopExternalSession}
+            collapsible
+          />
+
+          {ftData && ftData.totalExpense > 0 && (
+            <div className="mb-8">
+              <FollowThroughCard
+                currency={dashboardCurrency}
+                totalThisMonth={ftData.totalExpense}
+                momChangePct={null}
+                receivable={ftData.totalExpense}
+                breakdown={ftData.breakdown}
+                trend={[]}
+              />
+            </div>
+          )}
+
+          {/* Two-Column Stats Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-12">
+            {/* Weekly Heatmap */}
+            <motion.div data-tutorial="dash.heatmap"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="rounded-xl p-5 border backdrop-blur-sm transition-colors bg-zinc-950/80 border-zinc-500/20"
+            >
+              <div className="space-y-4">
+                <SectionHeader
+                  title="Productivity"
+                  icon={<BarChart3 className="w-5 h-5" />}
+                  action={
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setExpandedModal('heatmap')}
+                        className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 hover:text-white transition-colors border border-zinc-700 hover:border-zinc-600"
+                      >
+                        View Heatmap
+                      </button>
+                    </div>
+                  }
                 />
-              )}
-            </Suspense>
 
-{/* Expanded Solar System Modal */}
-            <AnimatePresence>
-              {expandedModal === 'solar' && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                  onClick={() => setExpandedModal(null)}
-                >
-                  <motion.div
-                    initial={{ scale: 0.95, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.95, opacity: 0 }}
-                    className={solarFullscreen ? "fixed inset-0 z-50 bg-black flex flex-col" : "rounded-xl p-5 border max-w-4xl w-full max-h-[90vh] overflow-hidden bg-zinc-950/95 border-zinc-500/20"}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {/* Header with timeline selector */}
-                    <div className={`flex items-center justify-between px-4 pt-4 ${solarFullscreen ? '' : 'mb-4'}`}>
-                      <div>
-                        <h2 className="text-lg font-semibold uppercase tracking-wider text-zinc-200">App Ecosystem</h2>
-                        <p className="text-xs text-zinc-600 mt-1">Your top tools in orbit</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => setSolarFullscreen(!solarFullscreen)}
-                          className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
-                          title={solarFullscreen ? "Exit fullscreen" : "Fullscreen"}
-                        >
-                          {solarFullscreen ? <Minimize2 className="w-5 h-5 text-zinc-400" /> : <Maximize2 className="w-5 h-5 text-zinc-400" />}
-                        </button>
-                        <button
-                          onClick={() => { setExpandedModal(null); setSolarFullscreen(false); }}
-                          className="p-2 hover:bg-red-900/50 rounded-lg transition-colors"
-                          title="Close"
-                        >
-                          <X className="w-5 h-5 text-zinc-400" />
-                        </button>
-                      </div>
+                {/* Date range label */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-500">
+                    {computeChartDateRange(selectedPeriod, dateOffset).label}
+                  </span>
+                </div>
+
+                {/* Total hours */}
+                <div className="text-lg font-bold text-emerald-400">
+                  {chartBarsResult.chartBars.length > 0 ? (() => {
+                    const total = chartBarsResult.chartBars.reduce((sum, bar) => sum + bar.productiveSeconds + bar.nonProductiveSeconds + bar.externalSeconds, 0);
+                    return total > 0 ? `${(total / 3600).toFixed(1)}h` : '--';
+                  })() : '--'}
+                </div>
+
+                {/* CHART */}
+                {chartBarsResult.chartBars.length === 0 ? (
+                  <EmptyState
+                    icon={<BarChart3 className="w-8 h-8 opacity-30" />}
+                    title="No tracking data for this period"
+                    description="Start using apps to see productivity data"
+                  />
+                ) : (
+                  <div data-tutorial="dash.weekly" className="h-72">
+                    <Bar
+                      data={{
+                        labels: chartBarsResult.chartBars.map(b => b.label),
+                        datasets: [
+                          {
+                            label: 'Productive',
+                            data: chartBarsResult.chartBars.map(b => Math.round((b.productiveSeconds / 3600) * 100) / 100),
+                            backgroundColor: chartBarsResult.chartBars.map(b => b.isToday ? '#10b981' : 'rgba(16, 185, 129, 0.7)'),
+                            borderRadius: 4,
+                            borderSkipped: false,
+                          },
+                          {
+                            label: 'Other',
+                            data: chartBarsResult.chartBars.map(b => Math.round((b.nonProductiveSeconds / 3600) * 100) / 100),
+                            backgroundColor: chartBarsResult.chartBars.map(b => b.isToday ? '#f59e0b' : 'rgba(245, 158, 11, 0.7)'),
+                            borderRadius: 4,
+                            borderSkipped: false,
+                          },
+                          {
+                            label: 'External',
+                            data: chartBarsResult.chartBars.map(b => Math.round((b.externalSeconds / 3600) * 100) / 100),
+                            backgroundColor: chartBarsResult.chartBars.map(b => b.isToday ? '#6366f1' : 'rgba(99, 102, 241, 0.7)'),
+                            borderRadius: 4,
+                            borderSkipped: false,
+                          },
+                        ],
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: { display: true, position: 'bottom' as const, labels: { color: '#71717a', usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 9 } } },
+                          tooltip: {
+                            backgroundColor: 'rgba(39, 39, 42, 0.95)',
+                            borderColor: 'rgba(63, 63, 70, 0.5)',
+                            borderWidth: 1,
+                            titleColor: '#e4e4e7',
+                            bodyColor: '#a1a1aa',
+                            padding: 12,
+                            cornerRadius: 8,
+                            titleFont: { size: 10, weight: '600' },
+                            bodyFont: { size: 9 },
+                            displayColors: true,
+                            boxPadding: 4,
+                            callbacks: {
+                              title: (items: any[]) => items[0]?.label || '',
+                              label: (ctx: any) => {
+                                const hours = ctx.raw as number;
+                                if (hours === 0) return null;
+                                const h = Math.floor(hours);
+                                const m = Math.round((hours - h) * 60);
+                                const label = h > 0 && m > 0 ? `${h}h ${m}m` : h > 0 ? `${h}h` : `${m}m`;
+                                return ` ${ctx.dataset.label}: ${label}`;
+                              },
+                            },
+                          },
+                        },
+                        scales: {
+                          x: {
+                            stacked: true,
+                            grid: { display: false },
+                            ticks: {
+                              color: '#71717a',
+                              font: { size: 9 },
+                              maxRotation: 0,
+                              autoSkip: true,
+                              maxTicksLimit: selectedPeriod === 'today' ? 12 : selectedPeriod === 'month' ? 10 : undefined,
+                            },
+                          },
+                          y: {
+                            stacked: true,
+                            grid: { color: '#27272a' },
+                            ticks: {
+                              color: '#71717a',
+                              font: { size: 9 },
+                              callback: (v: number) => {
+                                if (selectedPeriod === 'today') {
+                                  const mins = Math.round(v * 60);
+                                  return mins % 60 === 0 ? `${mins / 60}h` : `${mins}m`;
+                                }
+                                if (selectedPeriod === 'all' && v >= 24) return `${(v / 24).toFixed(0)}d`;
+                                return `${v}h`;
+                              },
+                            },
+                            suggestedMax: yAxisTicks.niceMax,
+                          },
+                        },
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            </motion.div>
+
+            {/* App Usage Solar System */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="rounded-xl p-5 border backdrop-blur-sm transition-colors bg-zinc-950/80 border-zinc-500/20"
+            >
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">App Ecosystem</h2>
+                    <p className="text-xs text-zinc-600 mt-1">Your top tools in orbit</p>
+                  </div>
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    {/* Solar mode toggle */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSolarMode('apps'); }}
+                      className={`px-2 py-1 text-xs rounded transition-colors ${solarMode === 'apps' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    >
+                      Apps
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSolarMode('websites'); }}
+                      className={`px-2 py-1 text-xs rounded transition-colors ${solarMode === 'websites' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    >
+                      Websites
+                    </button>
+                    <div className="ml-2">
+                      <span className="text-xs text-zinc-500">
+                        {dateOffset === 0 && selectedPeriod === 'today' ? 'Today' :
+                          dateOffset === 0 && selectedPeriod === 'week' ? 'This Week' :
+                            dateOffset === 0 && selectedPeriod === 'month' ? 'This Month' :
+                              dateOffset === 0 && selectedPeriod === 'all' ? 'All Time' :
+                                `${selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'Week' : selectedPeriod === 'month' ? 'Month' : 'Period'} -${dateOffset}`}
+                      </span>
                     </div>
-                    
-                    {/* OrbitSystem container */}
-                    <Suspense fallback={<div className="h-[400px] flex items-center justify-center"><LoadingState variant="spinner" /></div>}>
-                      <div data-tutorial="dash.orbit" className={solarFullscreen ? 'w-full h-screen' : 'h-[500px] w-full'}>
-                        <OrbitSystem 
-                          logs={orbitLogs}
-                          websiteLogs={orbitWebsiteLogs}
-                          appColors={appColors}
-                          categoryOverrides={categoryOverrides}
-                          selectedPeriod={selectedPeriod}
-                          onPeriodChange={(p) => {
-                            onSelectedPeriodChange?.(p as any);
-                            onDateOffsetChange?.(0);
+                  </div>
+                </div>
+                <div className="relative h-64 flex items-center justify-center">
+                  <div className="absolute w-12 h-12 rounded-full border border-zinc-700 flex items-center justify-center">
+                    <Sun className="w-6 h-6 text-zinc-600" />
+                  </div>
+
+                  {solar.slice(0, 5).map((app, i) => {
+                    const size = Math.max(70, 24 + (app.usage_ms / maxUsage) * 48);
+                    const angle = (i * 360) / Math.min(solar.length, 5);
+                    const radius = 70 + (i % 2) * 35;
+                    const rad = (angle * Math.PI) / 180;
+                    const x = Math.cos(rad) * radius;
+                    const y = Math.sin(rad) * radius;
+
+                    return (
+                      <motion.div
+                        key={app.name}
+                        initial={{ scale: 0, x: 0, y: 0 }}
+                        animate={{ scale: 1, x, y }}
+                        transition={{ delay: 0.3 + i * 0.1 }}
+                        className="absolute"
+                        style={{
+                          width: Math.max(size, 60),
+                          height: Math.max(size, 60),
+                        }}
+                        title={`${app.name}: ${Math.round((app.usage_ms / 1000 / 3600) * 10) / 10}h`}
+                      >
+                        {/* Circle with text inside - NO truncation */}
+                        <div
+                          className="w-full h-full rounded-full border border-zinc-700 hover:border-zinc-500 transition-colors flex flex-col items-center justify-center"
+                          style={{
+                            backgroundColor: 'rgba(24, 24, 27, 0.9)',
+                            cursor: 'pointer'
                           }}
-                        />
-                      </div>
-                    </Suspense>
-                  </motion.div>
+                        >
+                          {/* App name - FULL name, no truncate */}
+                          <div className="text-xs font-semibold text-zinc-300 px-2 text-center">
+                            {app.name}
+                          </div>
+                          {/* Duration */}
+                          <div className="text-[10px] text-zinc-500 mt-0.5">
+                            {Math.round((app.usage_ms / 1000 / 3600) * 10) / 10}h
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+
+                {/* View Solar System Button */}
+                <button
+                  onClick={() => setExpandedModal('solar')}
+                  className="w-full py-2 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-sm text-zinc-300 hover:text-white transition-colors border border-zinc-700 hover:border-zinc-600"
+                >
+                  View Solar System
+                </button>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* Expanded Heatmap Modal */}
+          <AnimatePresence>
+            {expandedModal === 'heatmap' && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                onClick={() => setExpandedModal(null)}
+              >
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className="rounded-xl p-5 border max-w-4xl w-full max-h-[90vh] overflow-auto bg-zinc-950/95 border-zinc-500/20"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h2 className="text-lg font-semibold uppercase tracking-wider text-zinc-200">Activity Heatmap</h2>
+                      <p className="text-xs text-zinc-600 mt-1">{heatmapWeekLabel}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setWeekOffset(w => w - 1)}
+                        className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
+                        title="Previous week"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setWeekOffset(0)}
+                        className="px-2 py-1 text-xs text-zinc-400 hover:text-white transition"
+                      >
+                        Today
+                      </button>
+                      <button
+                        onClick={() => setWeekOffset(w => Math.min(w + 1, 0))}
+                        disabled={weekOffset >= 0}
+                        className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Next week"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setExpandedModal(null)}
+                        className="p-2 hover:bg-zinc-800 rounded-lg transition-colors ml-2"
+                      >
+                        <X className="w-5 h-5 text-zinc-400" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {renderHeatmap()}
                 </motion.div>
-              )}
-            </AnimatePresence>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Day Detail Popup */}
+          <Suspense fallback={null}>
+            {dayDetailDate && (
+              <DayDetailPopup
+                date={dayDetailDate}
+                items={dayDetailItems}
+                onClose={() => { setDayDetailDate(null); setDayDetailItems([]); }}
+                onDateChange={(newDate) => {
+                  setDayDetailDate(newDate);
+                  if (window.deskflowAPI?.getDayDetail) {
+                    window.deskflowAPI.getDayDetail(newDate).then(detail => {
+                      if (!detail) return;
+                      const newItems: TimelineItem[] = [];
+                      (detail.logs || []).forEach((log: any) => {
+                        const logDate = new Date(log.timestamp);
+                        const startHour = logDate.getHours() + logDate.getMinutes() / 60;
+                        const durationSec = (log.duration_ms || 0) / 1000;
+                        const endHour = startHour + durationSec / 3600;
+                        const isBrowser = log.is_browser_tracking;
+                        const label = isBrowser ? (log.domain || log.app) : log.app;
+                        newItems.push({
+                          id: `log-${log.id}`,
+                          startHour,
+                          endHour: Math.min(endHour, 24),
+                          label,
+                          category: isBrowser ? 'browser' : 'app',
+                          color: isBrowser ? '#10b981' : '#3b82f6',
+                          duration: Math.round(durationSec),
+                          details: log.title,
+                        });
+                      });
+                      (detail.externalSessions || []).forEach((session: any) => {
+                        const startDate = new Date(session.started_at);
+                        const endDate = session.ended_at ? new Date(session.ended_at) : new Date();
+                        const sHour = startDate.getHours() + startDate.getMinutes() / 60;
+                        const durSec = (endDate.getTime() - startDate.getTime()) / 1000;
+                        const eHour = sHour + durSec / 3600;
+                        newItems.push({
+                          id: `ext-${session.id}`,
+                          startHour: sHour,
+                          endHour: Math.min(eHour, 24),
+                          label: session.activity_name || 'External',
+                          category: 'external',
+                          color: session.color || '#8b5cf6',
+                          duration: Math.round(durSec),
+                        });
+                      });
+                      newItems.sort((a, b) => a.startHour - b.startHour);
+                      setDayDetailItems(newItems);
+                    });
+                  }
+                }}
+              />
+            )}
+          </Suspense>
+
+          {/* Expanded Solar System Modal */}
+          <AnimatePresence>
+            {expandedModal === 'solar' && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                onClick={() => setExpandedModal(null)}
+              >
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className={solarFullscreen ? "fixed inset-0 z-50 bg-black flex flex-col" : "rounded-xl p-5 border max-w-4xl w-full max-h-[90vh] overflow-hidden bg-zinc-950/95 border-zinc-500/20"}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Header with timeline selector */}
+                  <div className={`flex items-center justify-between px-4 pt-4 ${solarFullscreen ? '' : 'mb-4'}`}>
+                    <div>
+                      <h2 className="text-lg font-semibold uppercase tracking-wider text-zinc-200">App Ecosystem</h2>
+                      <p className="text-xs text-zinc-600 mt-1">Your top tools in orbit</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setSolarFullscreen(!solarFullscreen)}
+                        className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
+                        title={solarFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                      >
+                        {solarFullscreen ? <Minimize2 className="w-5 h-5 text-zinc-400" /> : <Maximize2 className="w-5 h-5 text-zinc-400" />}
+                      </button>
+                      <button
+                        onClick={() => { setExpandedModal(null); setSolarFullscreen(false); }}
+                        className="p-2 hover:bg-red-900/50 rounded-lg transition-colors"
+                        title="Close"
+                      >
+                        <X className="w-5 h-5 text-zinc-400" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* OrbitSystem container */}
+                  <Suspense fallback={<div className="h-[400px] flex items-center justify-center"><LoadingState variant="spinner" /></div>}>
+                    <div data-tutorial="dash.orbit" className={solarFullscreen ? 'w-full h-screen' : 'h-[500px] w-full'}>
+                      <OrbitSystem
+                        logs={orbitLogs}
+                        websiteLogs={orbitWebsiteLogs}
+                        appColors={appColors}
+                        categoryOverrides={categoryOverrides}
+                        selectedPeriod={selectedPeriod}
+                        onPeriodChange={(p) => {
+                          onSelectedPeriodChange?.(p as any);
+                          onDateOffsetChange?.(0);
+                        }}
+                      />
+                    </div>
+                  </Suspense>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Activity Feed */}
           <motion.div
@@ -3197,52 +2795,51 @@ window.deskflowAPI.onBrowserTrackingEvent((data: any) => {
           >
             <GlassCard data-tutorial="dash.sessions">
               <SectionHeader title="Recent Sessions" icon={<Clock className="w-5 h-5" />} />
-              
-<div className="space-y-2">
-              {activityFeedWithElapsed.length === 0 ? (
-                <EmptyState
-                  title="No sessions tracked yet"
-                  description="Start using your apps and websites to build a history."
-                />
-              ) : (
-                [...activityFeedWithElapsed].reverse().map((item) => {
-                  const tierColor = item.tier === 'productive' ? 'text-emerald-400' : 
-                                   item.tier === 'distracting' ? 'text-red-400' : 'text-blue-400';
-                  const bgColor = item.tier === 'productive' ? 'bg-emerald-500/10' : 
-                                   item.tier === 'distracting' ? 'bg-red-500/10' : 'bg-blue-500/10';
-                  const isActive = item.isActive;
-                  const durationStr = isActive ? getElapsedDuration(item) : item.elapsedStr;
-                  // For past items: show TIME SPENT, not "ago"
-                  const statusLabel = isActive ? 'Active' : (item.elapsedStr ? item.elapsedStr : '');
-                  
-                  return (
-                    <div key={item.id} className={`p-3 rounded-lg ${bgColor} border ${
-                      item.tier === 'productive' ? 'border-emerald-500/20' : 
-                      item.tier === 'distracting' ? 'border-red-500/20' : 'border-blue-500/20'
-                    } flex items-center justify-between`}>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
-                          <span className="text-sm font-medium text-white">{item.name}</span>
-                          <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">{item.category}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${tierColor}`}>
-                            {item.tier.toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="text-xs text-zinc-500 mt-1">
-                          {isActive && durationStr ? (
-                            <span className="font-mono text-emerald-400">{durationStr}</span>
-                          ) : (
-                            item.timestamp.toLocaleTimeString()
-                          )} • {item.type === 'app' ? 'App' : 'Website'}{statusLabel ? ` • ${statusLabel}` : ''}
+
+              <div className="space-y-2">
+                {activityFeedWithElapsed.length === 0 ? (
+                  <EmptyState
+                    title="No sessions tracked yet"
+                    description="Start using your apps and websites to build a history."
+                  />
+                ) : (
+                  [...activityFeedWithElapsed].reverse().map((item) => {
+                    const tierColor = item.tier === 'productive' ? 'text-emerald-400' :
+                      item.tier === 'distracting' ? 'text-red-400' : 'text-blue-400';
+                    const bgColor = item.tier === 'productive' ? 'bg-emerald-500/10' :
+                      item.tier === 'distracting' ? 'bg-red-500/10' : 'bg-blue-500/10';
+                    const isActive = item.isActive;
+                    const durationStr = isActive ? getElapsedDuration(item) : item.elapsedStr;
+                    // For past items: show TIME SPENT, not "ago"
+                    const statusLabel = isActive ? 'Active' : (item.elapsedStr ? item.elapsedStr : '');
+
+                    return (
+                      <div key={item.id} className={`p-3 rounded-lg ${bgColor} border ${item.tier === 'productive' ? 'border-emerald-500/20' :
+                        item.tier === 'distracting' ? 'border-red-500/20' : 'border-blue-500/20'
+                        } flex items-center justify-between`}>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
+                            <span className="text-sm font-medium text-white">{item.name}</span>
+                            <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">{item.category}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${tierColor}`}>
+                              {item.tier.toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="text-xs text-zinc-500 mt-1">
+                            {isActive && durationStr ? (
+                              <span className="font-mono text-emerald-400">{durationStr}</span>
+                            ) : (
+                              item.timestamp.toLocaleTimeString()
+                            )} • {item.type === 'app' ? 'App' : 'Website'}{statusLabel ? ` • ${statusLabel}` : ''}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </GlassCard>
+                    );
+                  })
+                )}
+              </div>
+            </GlassCard>
           </motion.div>
         </div>
       </div>

@@ -1,0 +1,176 @@
+// db/init.ts — Database schema initialization
+import { getDb } from "./client.js"
+
+export async function initDatabase() {
+  const db = getDb()
+
+  await db.executeMultiple(`
+    -- Users table
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE,
+      display_name TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    -- Devices table (for multi-device pairing)
+    CREATE TABLE IF NOT EXISTS devices (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT,
+      platform TEXT,
+      paired_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      last_seen INTEGER
+    );
+
+    -- Refresh tokens
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      device_id TEXT REFERENCES devices(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    -- Sync state (per-table cursor tracking)
+    CREATE TABLE IF NOT EXISTS sync_cursors (
+      user_id TEXT NOT NULL,
+      table_name TEXT NOT NULL,
+      cursor INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, table_name)
+    );
+
+    -- Terminal sessions (synced from desktop)
+    CREATE TABLE IF NOT EXISTS terminal_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      topic TEXT,
+      status TEXT DEFAULT 'active',
+      agent TEXT,
+      working_directory TEXT,
+      total_tokens INTEGER DEFAULT 0,
+      total_cost REAL DEFAULT 0,
+      created_at TEXT,
+      updated_at TEXT,
+      deleted INTEGER DEFAULT 0
+    );
+
+    -- Terminal messages (encrypted content from desktop)
+    CREATE TABLE IF NOT EXISTS terminal_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content_enc TEXT,
+      status TEXT DEFAULT 'completed',
+      created_at TEXT,
+      updated_at TEXT,
+      deleted INTEGER DEFAULT 0
+    );
+
+    -- Workspace problems (synced)
+    CREATE TABLE IF NOT EXISTS workspace_problems (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT,
+      status TEXT DEFAULT 'NEW',
+      priority TEXT DEFAULT 'medium',
+      category TEXT,
+      description TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      deleted INTEGER DEFAULT 0
+    );
+
+    -- Workspace requests (synced)
+    CREATE TABLE IF NOT EXISTS workspace_requests (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT,
+      status TEXT DEFAULT 'Pending',
+      priority TEXT DEFAULT 'medium',
+      category TEXT,
+      description TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      deleted INTEGER DEFAULT 0
+    );
+
+    -- Pairing codes (phone pairing — 8-char code, SHA-256 hash)
+    CREATE TABLE IF NOT EXISTS pairing_codes (
+      code_hash TEXT NOT NULL PRIMARY KEY,
+      terminal_id TEXT NOT NULL,
+      relay_host TEXT NOT NULL,
+      relay_port INTEGER NOT NULL DEFAULT 8788,
+      expires_at INTEGER NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      consumed_by_device_id TEXT,
+      consumed_at INTEGER
+    );
+
+    -- Learn lessons (Lyceum)
+    CREATE TABLE IF NOT EXISTS learn_lessons (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      part INTEGER NOT NULL DEFAULT 0,
+      version TEXT NOT NULL DEFAULT '1.0',
+      summary TEXT,
+      node_count INTEGER DEFAULT 0,
+      lesson_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    -- Learn progress (Lyceum — per node per user)
+    CREATE TABLE IF NOT EXISTS learn_progress (
+      node_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      progress_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (node_id, user_id)
+    );
+
+    -- Audit log
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT,
+      event TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      detail TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    -- Phone telemetry (battery, DeskFlow usage, device info)
+    CREATE TABLE IF NOT EXISTS phone_telemetry (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL,
+      deskflow_foreground_sec INTEGER DEFAULT 0,
+      deskflow_background_sec INTEGER DEFAULT 0,
+      battery_level REAL,
+      battery_state TEXT,
+      platform TEXT,
+      platform_version TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    -- Indexes
+    CREATE INDEX IF NOT EXISTS idx_terminal_sessions_user ON terminal_sessions(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_terminal_messages_user ON terminal_messages(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_workspace_problems_user ON workspace_problems(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_workspace_requests_user ON workspace_requests(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_pairing_codes_expires ON pairing_codes(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_learn_lessons_user ON learn_lessons(user_id, part);
+    CREATE INDEX IF NOT EXISTS idx_learn_progress_user ON learn_progress(user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_phone_telemetry_user ON phone_telemetry(user_id, recorded_at);
+    CREATE INDEX IF NOT EXISTS idx_phone_telemetry_device ON phone_telemetry(device_id, recorded_at);
+  `)
+
+  console.log("[db] schema initialized")
+}

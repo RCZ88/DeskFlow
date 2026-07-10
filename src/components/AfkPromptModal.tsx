@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { Clock, Plus, X, CalendarRange, Check, Minus } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Clock, Plus, X, Check, Minus, ChevronDown, Activity, Moon, Sun, Brain, Coffee, Tv, BookOpen, Dumbbell, Sparkles, Loader2 } from 'lucide-react';
 
 interface ExternalActivity {
   id: number;
@@ -15,6 +15,10 @@ interface Segment {
   activityId: string | null;
   durationSeconds: number;
 }
+
+const ACTIVITY_ICONS: Record<string, typeof Moon> = {
+  Moon, Sun, Brain, Coffee, Tv, BookOpen, Dumbbell, Sparkles,
+};
 
 function formatTime(ms: number): string {
   const d = new Date(ms);
@@ -45,6 +49,8 @@ export default function AfkPromptModal({
   queueRemaining,
   onConfirm,
   onDismiss,
+  onNotAfk,
+  defaultNotAfk,
 }: {
   allActivities: ExternalActivity[];
   totalDurationSeconds: number;
@@ -55,8 +61,11 @@ export default function AfkPromptModal({
   queueRemaining: number;
   onConfirm: (segments: { activityId: string; startedAt: string; endedAt: string }[]) => void;
   onDismiss: () => void;
+  onNotAfk: () => void;
+  defaultNotAfk?: boolean;
 }) {
-  const visibleActivities = allActivities.filter(a => a.name !== 'AFK');
+  const visibleActivities = allActivities;
+  const [showSegmentEditor, setShowSegmentEditor] = useState(!defaultNotAfk);
   const segCounter = useRef(1);
   const [segments, setSegments] = useState<Segment[]>(() => [{
     id: segCounter.current,
@@ -65,6 +74,7 @@ export default function AfkPromptModal({
   }]);
   const [pickingId, setPickingId] = useState<number | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const minPerSegment = 60;
 
@@ -167,19 +177,23 @@ export default function AfkPromptModal({
     setPickingId(null);
   }
 
-  function handleSave() {
+  async function handleSave() {
     const filled = segments.filter(s => s.activityId);
     if (filled.length === 0) return;
+    setIsSaving(true);
     const cursor = new Date(periodStart);
     const result = filled.map(seg => {
       const segStart = cursor.toISOString();
       cursor.setTime(cursor.getTime() + seg.durationSeconds * 1000);
       return { activityId: seg.activityId!, startedAt: segStart, endedAt: cursor.toISOString() };
     });
-    onConfirm(result);
+    await onConfirm(result);
+    setIsSaving(false);
   }
 
   const totalFormatted = formatElapsed(totalDurationSeconds);
+  const filledCount = segments.filter(s => s.activityId).length;
+  const hasAnyActivity = segments.some(s => s.activityId);
 
   return (
     <motion.div
@@ -194,14 +208,15 @@ export default function AfkPromptModal({
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.92, opacity: 0, y: 10 }}
         transition={{ type: 'spring', duration: 0.4, bounce: 0.25 }}
-        className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-xl max-h-[min(640px,85vh)] overflow-y-auto"
+        className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-xl max-h-[min(640px,85vh)] overflow-y-auto shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        <div className="h-1 bg-gradient-to-r from-indigo-500/40 via-emerald-500/40 to-indigo-500/40" />
+        {/* Decorative gradient bar */}
+        <div className="h-1 bg-gradient-to-r from-amber-500/40 via-emerald-500/40 to-amber-500/40" />
 
         <div className="p-5">
-          {/* Header */}
-          <div className="flex items-start justify-between mb-4">
+          {/* ── Header ── */}
+          <div className="flex items-start justify-between mb-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0 ring-1 ring-amber-500/20">
                 <Clock className="w-5 h-5 text-amber-400" />
@@ -220,51 +235,55 @@ export default function AfkPromptModal({
             </div>
             <div className="flex items-center gap-2">
               {queueRemaining > 0 && (
-                <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-800 text-zinc-400 text-[11px]">
-                  <CalendarRange className="w-3 h-3" />
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-800 text-zinc-400 text-[11px]"
+                >
+                  <Activity className="w-3 h-3" />
                   <span>+{queueRemaining}</span>
-                </div>
+                </motion.div>
               )}
-              <button onClick={onDismiss} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition">
+              <button onClick={onDismiss} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Timeline bar */}
+          {/* ── Timeline ── */}
           <div className="mb-5">
             <div
               ref={barRef}
-              className="flex h-8 rounded-lg overflow-hidden bg-zinc-800 select-none"
+              className="flex h-10 rounded-xl overflow-hidden bg-zinc-800 select-none border border-zinc-700/30"
             >
               {segments.flatMap((seg, i) => {
                 const act = visibleActivities.find(a => a.id.toString() === seg.activityId);
                 const pct = totalDurationSeconds > 0 ? (seg.durationSeconds / totalDurationSeconds) : 0;
                 const elems = [
-                  <div
+                  <motion.div
                     key={seg.id}
-                    className="h-full flex items-center justify-center text-[10px] font-medium text-white/80 truncate px-1 transition-colors"
+                    layout
+                    className="h-full flex items-center justify-center text-[11px] font-medium text-white/80 truncate px-1 transition-colors relative"
                     style={{ flex: `${pct} 1 0%`, backgroundColor: act?.color || '#52525b' }}
                   >
-                    <span className="truncate">{pct > 0.12 ? formatElapsed(seg.durationSeconds) : ''}</span>
-                  </div>,
+                    <span className="truncate drop-shadow-sm">{pct > 0.1 ? formatElapsed(seg.durationSeconds) : ''}</span>
+                  </motion.div>,
                 ];
                 if (i < segments.length - 1) {
                   elems.push(
                     <div
                       key={`d${seg.id}`}
-                      className="w-[7px] cursor-col-resize shrink-0 flex items-center justify-center hover:bg-white/[0.07] active:bg-white/[0.12] transition-colors"
+                      className="w-[9px] cursor-col-resize shrink-0 flex items-center justify-center hover:bg-white/[0.1] active:bg-white/[0.15] transition-colors group"
                       onMouseDown={e => onDividerMouseDown(i, e)}
                     >
-                      <div className="w-px h-5 rounded-full bg-white/25 pointer-events-none" />
+                      <div className="w-px h-6 rounded-full bg-white/20 group-hover:bg-white/40 transition-colors pointer-events-none" />
                     </div>,
                   );
                 }
                 return elems;
               })}
             </div>
-            {/* Edge times — positioned at divider locations */}
-            <div className="relative text-[10px] text-zinc-500 mt-1 h-4">
+            <div className="relative text-[10px] text-zinc-500 mt-1.5 h-4">
               {(() => {
                 const total = totalDurationSeconds;
                 const edges: { time: string; pct: number }[] = [];
@@ -278,7 +297,7 @@ export default function AfkPromptModal({
                 return edges.map((e, i) => (
                   <span
                     key={i}
-                    className={`absolute ${i === 0 ? 'text-left' : i === edges.length - 1 ? 'text-right' : 'text-center'}`}
+                    className={`absolute font-mono tabular-nums ${i === 0 ? 'text-left' : i === edges.length - 1 ? 'text-right' : 'text-center'}`}
                     style={{ left: `${e.pct}%`, transform: 'translateX(-50%)', whiteSpace: 'nowrap' }}
                   >
                     {e.time}
@@ -288,117 +307,189 @@ export default function AfkPromptModal({
             </div>
           </div>
 
-          {/* Segments */}
-          <div className="space-y-2 mb-4 max-h-72 overflow-y-auto">
-            {segments.map(seg => {
-              const act = visibleActivities.find(a => a.id.toString() === seg.activityId);
-              const isPicking = pickingId === seg.id;
-              return (
-                <div key={seg.id}>
-                  <div className="flex items-center gap-2 p-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/30">
-                    {/* Duration control */}
-                    <div className="flex items-center gap-1 w-[5.5rem] shrink-0">
-                      <button
-                        onClick={() => setSegmentDuration(seg.id, seg.durationSeconds - 60)}
-                        className="p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
-                      <input
-                        type="number"
-                        min={1}
-                        max={Math.floor(totalDurationSeconds / 60)}
-                        value={Math.round(seg.durationSeconds / 60)}
-                        onChange={e => {
-                          const mins = parseInt(e.target.value) || 1;
-                          setSegmentDuration(seg.id, mins * 60);
-                        }}
-                        className="w-12 text-center text-[11px] text-zinc-400 font-mono tabular-nums bg-transparent border border-zinc-700/30 rounded px-1 py-0.5 focus:outline-none focus:border-zinc-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <span className="text-[10px] text-zinc-600 w-5">min</span>
-                      <button
-                        onClick={() => setSegmentDuration(seg.id, seg.durationSeconds + 60)}
-                        className="p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <button
-                      onClick={() => setPickingId(isPicking ? null : seg.id)}
-                      className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700/60 transition text-left"
-                    >
-                      <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: act?.color || '#52525b' }} />
-                      <span className={`text-sm ${act ? 'text-zinc-200' : 'text-zinc-500 italic'}`}>
-                        {act ? act.name : 'Choose activity'}
-                      </span>
-                    </button>
-                    {segments.length > 1 && (
-                      <button onClick={() => removeSegment(seg.id)} className="p-1 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition shrink-0">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
+          {/* ── Segment Editor ── */}
+          {(!defaultNotAfk || showSegmentEditor) && (
+            <div className="space-y-2 mb-4">
+              <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                {segments.map(seg => {
+                  const act = visibleActivities.find(a => a.id.toString() === seg.activityId);
+                  const isPicking = pickingId === seg.id;
+                  return (
+                    <motion.div key={seg.id} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
+                      <div className="flex items-center gap-2 p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/30 hover:border-zinc-600/40 transition-colors">
+                        {/* Color indicator */}
+                        <div className="w-1 h-8 rounded-full shrink-0" style={{ backgroundColor: act?.color || '#3f3f46' }} />
 
-                  {/* Inline activity picker */}
-                  {isPicking && (
-                    <div className="mt-1.5 ml-16 pl-3 border-l-2 border-zinc-700/40">
-                      <div className="p-2 rounded-xl bg-zinc-800/80 border border-zinc-700/30 max-h-48 overflow-y-auto">
-                        {visibleActivities.length === 0 ? (
-                          <p className="text-xs text-zinc-600 py-2 text-center">No activities — add on External page</p>
-                        ) : (
-                          <div className="grid grid-cols-2 gap-1">
-                            {visibleActivities.map(act => (
-                              <button
-                                key={act.id}
-                                onClick={() => pickActivity(seg.id, act.id.toString())}
-                                className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition text-xs ${
-                                  seg.activityId === act.id.toString()
-                                    ? 'bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-500/30'
-                                    : 'hover:bg-zinc-700/60 text-zinc-400 hover:text-zinc-200'
-                                }`}
-                              >
-                                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: act.color }} />
-                                <span className="truncate">{act.name}</span>
-                              </button>
-                            ))}
-                          </div>
+                        {/* Duration controls */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => setSegmentDuration(seg.id, seg.durationSeconds - 60)}
+                            className="p-1 rounded-md hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-colors"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <input
+                            type="number"
+                            min={1}
+                            max={Math.floor(totalDurationSeconds / 60)}
+                            value={Math.round(seg.durationSeconds / 60)}
+                            onChange={e => {
+                              const mins = parseInt(e.target.value) || 1;
+                              setSegmentDuration(seg.id, mins * 60);
+                            }}
+                            className="w-14 text-center text-xs text-zinc-300 font-mono tabular-nums bg-zinc-900/60 border border-zinc-700/30 rounded-lg px-1 py-1 focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <span className="text-[10px] text-zinc-600 w-4">min</span>
+                          <button
+                            onClick={() => setSegmentDuration(seg.id, seg.durationSeconds + 60)}
+                            className="p-1 rounded-md hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-colors"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        {/* Activity picker trigger */}
+                        <button
+                          onClick={() => setPickingId(isPicking ? null : seg.id)}
+                          className="flex-1 flex items-center gap-2.5 px-3 py-2 rounded-lg bg-zinc-900/60 hover:bg-zinc-800 transition-colors text-left border border-transparent hover:border-zinc-600/30"
+                        >
+                          <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: act?.color || '#52525b' }} />
+                          <span className={`text-xs ${act ? 'text-zinc-200 font-medium' : 'text-zinc-500 italic'}`}>
+                            {act ? act.name : 'Choose activity'}
+                          </span>
+                          <ChevronDown className={`w-3 h-3 ml-auto text-zinc-600 transition-transform ${isPicking ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {/* Remove segment */}
+                        {segments.length > 1 && (
+                          <button
+                            onClick={() => removeSegment(seg.id)}
+                            className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-red-400 transition-colors shrink-0"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
                         )}
                       </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+
+                      {/* Inline activity picker */}
+                      <AnimatePresence>
+                        {isPicking && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="mt-1.5 ml-2 pl-4 border-l-2 border-zinc-700/30">
+                              <div className="p-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700/30 max-h-48 overflow-y-auto">
+                                {visibleActivities.length === 0 ? (
+                                  <div className="flex flex-col items-center py-4 text-zinc-600">
+                                    <Activity className="w-8 h-8 mb-2 opacity-40" />
+                                    <p className="text-xs">No activities yet</p>
+                                    <p className="text-[10px] text-zinc-700">Add them on the External page</p>
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    {visibleActivities.map(act => {
+                                      const Icon = ACTIVITY_ICONS[act.icon] || Activity;
+                                      return (
+                                        <button
+                                          key={act.id}
+                                          onClick={() => pickActivity(seg.id, act.id.toString())}
+                                          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all text-xs ${
+                                            seg.activityId === act.id.toString()
+                                              ? 'bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-500/30'
+                                              : 'hover:bg-zinc-700/60 text-zinc-400 hover:text-zinc-200'
+                                          }`}
+                                        >
+                                          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: act.color }} />
+                                          <Icon className="w-3 h-3 shrink-0 opacity-60" />
+                                          <span className="truncate">{act.name}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  );
+                })}
+              </div>
+
+              {/* Add segment */}
+              <motion.button
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+                onClick={addSegment}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors border border-dashed border-zinc-700/40 hover:border-zinc-600/50"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Split into another activity</span>
+              </motion.button>
+            </div>
+          )}
+
+          {/* ── Collapsed disclosure for short AFK ── */}
+          {defaultNotAfk && !showSegmentEditor && (
+            <button
+              onClick={() => setShowSegmentEditor(true)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm text-zinc-500 hover:text-zinc-400 hover:bg-zinc-800/50 transition-colors border border-dashed border-zinc-700/30 mb-4"
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+              <span>Actually, I did something — log it</span>
+            </button>
+          )}
+
+          {/* ── Action Bar ── */}
+          <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/80">
+            {/* Dismiss */}
+            <button
+              onClick={onDismiss}
+              className="px-3 py-2 rounded-xl text-xs text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/50 transition-colors"
+            >
+              {queueRemaining > 0 ? `Skip (${queueRemaining} more)` : 'Discard'}
+            </button>
+
+            <div className="flex-1" />
+
+            {/* Not AFK */}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={onNotAfk}
+              className={`px-4 py-2 rounded-xl text-xs font-medium transition-colors ${
+                defaultNotAfk
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-zinc-700/30'
+              }`}
+            >
+              I wasn't AFK
+            </motion.button>
+
+            {/* Save */}
+            <motion.button
+              whileHover={hasAnyActivity && !isSaving ? { scale: 1.02 } : {}}
+              whileTap={hasAnyActivity && !isSaving ? { scale: 0.98 } : {}}
+              onClick={handleSave}
+              disabled={!hasAnyActivity || isSaving}
+              className={`px-5 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-2 ${
+                hasAnyActivity && !isSaving
+                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20'
+                  : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+              }`}
+            >
+              {isSaving ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Check className="w-3.5 h-3.5" />
+              )}
+              {isSaving ? 'Saving...' : `Save${filledCount > 0 ? ` (${filledCount})` : ''}`}
+            </motion.button>
           </div>
-
-          {/* Add segment */}
-          <button
-            onClick={addSegment}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition border border-dashed border-zinc-700/40 mb-4"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add another activity</span>
-          </button>
-
-          {/* Save */}
-          <button
-            onClick={handleSave}
-            disabled={!segments.some(s => s.activityId)}
-            className="w-full px-4 py-2.5 rounded-xl text-sm font-medium transition bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 disabled:cursor-not-allowed mb-2"
-          >
-            <span className="flex items-center justify-center gap-2">
-              <Check className="w-4 h-4" />
-              Save {segments.filter(s => s.activityId).length} {segments.filter(s => s.activityId).length === 1 ? 'activity' : 'activities'}
-            </span>
-          </button>
-
-          {/* Dismiss */}
-          <button
-            onClick={onDismiss}
-            className="w-full px-4 py-2 rounded-xl text-sm text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/50 transition border border-transparent hover:border-zinc-700/30"
-          >
-            {queueRemaining > 0 ? `Skip — next (${queueRemaining} more)` : 'Nothing special — just AFK'}
-          </button>
         </div>
       </motion.div>
     </motion.div>

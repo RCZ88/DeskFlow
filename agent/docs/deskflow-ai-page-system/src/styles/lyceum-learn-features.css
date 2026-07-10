@@ -1,0 +1,691 @@
+/* ============================================
+   lyceum-learn-features.css
+   Design tokens: warm editorial (clay/sage/amber)
+   ============================================ */
+
+/* --- TOC --- */
+.lyceum-toc {
+  background: var(--bg-secondary, #1c1917);
+  border: 1px solid var(--border, #292524);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.lyceum-toc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  color: var(--text-primary, #f5f5f4);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  gap: 8px;
+}
+
+.lyceum-toc-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.lyceum-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+}
+
+.lyceum-toc-item {
+  margin: 0;
+}
+
+.lyceum-toc-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 12px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #a8a29e);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  transition: color 0.15s;
+}
+
+.lyceum-toc-link:hover {
+  color: var(--text-primary, #f5f5f4);
+}
+
+.lyceum-toc-item.active .lyceum-toc-link {
+  color: var(--accent-primary, #d97706);
+  background: rgba(217, 119, 6, 0.08);
+}
+
+.toc-check-complete {
+  color: #22c55e;
+  flex-shrink: 0;
+}
+
+.toc-check-pending {
+  color: var(--text-muted, #57534e);
+  flex-shrink: 0;
+}
+
+.lyceum-toc-divider {
+  border-top: 1px solid var(--border, #292524);
+  margin-top: 6px;
+  padding-top: 6px;
+}
+
+.lyceum-toc-section-label {
+  display: block;
+  padding: 4px 12px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #57534e);
+}
+
+.lyceum-toc-checklist-item {
+  font-size: 11px;
+}
+
+.lyceum-toc-checklist-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Showcase --- */
+.lyceum-showcase {
+  padding: 24px 0;
+}
+
+.lyceum-showcase-phases {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.lyceum-showcase-phase-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border, #292524);
+  border-radius: 9999px;
+  background: var(--bg-secondary, #1c1917);
+  color: var(--text-secondary, #a8a29e);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.lyceum-showcase-phase-tab:hover {
+  border-color: var(--accent-primary, #d97706);
+  color: var(--text-primary, #f5f5f4);
+}
+
+.lyceum-showcase-phase-tab.active {
+  border-color: var(--phase-accent, var(--accent-primary, #d97706));
+  background: color-mix(in srgb, var(--phase-accent, var(--accent-primary, #d97706)) 10%, transparent);
+  color: var(--phase-accent, var(--accent-primary, #d97706));
+}
+
+.lyceum-showcase-phase-count {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-left: 2px;
+}
+
+.lyceum-showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.lyceum-showcase-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--border, #292524);
+  border-radius: 12px;
+  background: var(--bg-secondary, #1c1917);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  transition: all 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+
+.lyceum-showcase-card:hover {
+  border-color: var(--accent-primary, #d97706);
+  background: color-mix(in srgb, var(--accent-primary, #d97706) 4%, var(--bg-secondary, #1c1917));
+  transform: translateY(-1px);
+}
+
+.lyceum-showcase-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.lyceum-showcase-emoji {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.lyceum-showcase-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lyceum-showcase-rarity {
+  font-size: 11px;
+  color: #f59e0b;
+}
+
+.lyceum-showcase-progress-label {
+  font-size: 11px;
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.lyceum-showcase-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #f5f5f4);
+  margin: 0;
+}
+
+.lyceum-showcase-card-trailer {
+  font-size: 13px;
+  color: var(--text-secondary, #a8a29e);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.lyceum-showcase-card-why {
+  font-size: 12px;
+  color: var(--text-muted, #57534e);
+  margin: 0;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.lyceum-showcase-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border, #292524);
+}
+
+.lyceum-showcase-target {
+  font-size: 11px;
+  color: var(--text-muted, #57534e);
+}
+
+.lyceum-showcase-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--border, #292524);
+}
+
+.lyceum-showcase-progress-fill {
+  height: 100%;
+  background: #22c55e;
+  border-radius: 0 2px 0 0;
+  transition: width 0.3s;
+}
+
+.lyceum-showcase-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border, #292524);
+}
+
+.lyceum-showcase-library-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: 1px solid var(--border, #292524);
+  border-radius: 8px;
+  background: var(--bg-secondary, #1c1917);
+  color: var(--text-primary, #f5f5f4);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.lyceum-showcase-library-btn:hover {
+  border-color: var(--accent-primary, #d97706);
+}
+
+.lyceum-showcase-count {
+  font-size: 12px;
+  color: var(--text-muted, #57534e);
+}
+
+/* --- Checklist --- */
+.lyceum-checklist {
+  padding: 16px;
+  border: 1px solid var(--border, #292524);
+  border-radius: 10px;
+  background: var(--bg-secondary, #1c1917);
+}
+
+.lyceum-checklist-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.lyceum-checklist-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #f5f5f4);
+  flex: 1;
+}
+
+.lyceum-checklist-count {
+  font-size: 12px;
+  color: var(--text-muted, #57534e);
+}
+
+.lyceum-checklist-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border, #292524);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.lyceum-checklist-fill {
+  height: 100%;
+  background: #22c55e;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.lyceum-checklist-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lyceum-checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.lyceum-checklist-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--text-muted, #57534e);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.lyceum-checklist-toggle.done {
+  color: #22c55e;
+}
+
+.lyceum-checklist-text {
+  font-size: 13px;
+  color: var(--text-secondary, #a8a29e);
+  line-height: 1.4;
+}
+
+.lyceum-checklist-text.done {
+  color: var(--text-muted, #57534e);
+  text-decoration: line-through;
+}
+
+/* Compact variant */
+.lyceum-checklist-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lyceum-checklist-compact-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #a8a29e);
+}
+
+.lyceum-checklist-compact-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border, #292524);
+  overflow: hidden;
+}
+
+.lyceum-checklist-compact-fill {
+  height: 100%;
+  background: #22c55e;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+/* --- Assessment --- */
+.lyceum-assessment {
+  border: 1px solid var(--border, #292524);
+  border-radius: 10px;
+  background: var(--bg-secondary, #1c1917);
+  overflow: hidden;
+}
+
+.lyceum-assessment.compact {
+  font-size: 13px;
+}
+
+.lyceum-assessment-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  color: var(--text-primary, #f5f5f4);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.lyceum-assessment-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.lyceum-assessment-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+  text-align: left;
+}
+
+.lyceum-assessment-score {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted, #57534e);
+}
+
+.lyceum-assessment-score.perfect {
+  color: #22c55e;
+}
+
+.lyceum-assessment-body {
+  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lyceum-assessment-question {
+  padding: 12px;
+  border: 1px solid var(--border, #292524);
+  border-radius: 8px;
+  background: var(--bg-primary, #141211);
+}
+
+.lyceum-assessment-question.correct {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.lyceum-assessment-question.incorrect {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.lyceum-assessment-q-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.lyceum-assessment-q-num {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.lyceum-assessment-q-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #57534e);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary, #292524);
+}
+
+.lyceum-assessment-q-prompt {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary, #f5f5f4);
+}
+
+.lyceum-assessment-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lyceum-assessment-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border, #292524);
+  border-radius: 6px;
+  background: var(--bg-primary, #141211);
+  color: var(--text-secondary, #a8a29e);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  transition: all 0.1s;
+}
+
+.lyceum-assessment-option:hover:not(:disabled) {
+  border-color: var(--accent-primary, #d97706);
+  color: var(--text-primary, #f5f5f4);
+}
+
+.lyceum-assessment-option.selected {
+  border-color: var(--accent-primary, #d97706);
+  color: var(--text-primary, #f5f5f4);
+}
+
+.lyceum-assessment-option.correct {
+  border-color: #22c55e;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.lyceum-assessment-option.incorrect {
+  border-color: #ef4444;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.lyceum-assessment-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #292524);
+  border-radius: 6px;
+  background: var(--bg-primary, #141211);
+  color: var(--text-primary, #f5f5f4);
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.lyceum-assessment-textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary, #d97706);
+}
+
+.lyceum-assessment-explanation {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(217, 119, 6, 0.06);
+  border: 1px solid rgba(217, 119, 6, 0.15);
+}
+
+.lyceum-assessment-explanation-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #a8a29e);
+  line-height: 1.4;
+}
+
+.lyceum-assessment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lyceum-assessment-submit {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent-primary, #d97706);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lyceum-assessment-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.lyceum-assessment-reset {
+  padding: 8px 20px;
+  border: 1px solid var(--border, #292524);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary, #a8a29e);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* --- Selection Toolbar --- */
+.lyceum-selection-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #1c1917);
+  border: 1px solid var(--border, #292524);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+
+.lyceum-selection-toolbar-existing {
+  position: relative;
+  display: inline-flex;
+  margin-top: 4px;
+}
+
+.lyceum-selection-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary, #a8a29e);
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.lyceum-selection-action:hover {
+  background: var(--bg-tertiary, #292524);
+  color: var(--text-primary, #f5f5f4);
+}
+
+.lyceum-selection-action-delete:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.lyceum-selection-colors {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lyceum-selection-color-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.1s;
+  padding: 0;
+}
+
+.lyceum-selection-color-btn:hover {
+  border-color: var(--text-primary, #f5f5f4);
+}
+
+.lyceum-selection-color-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary, #292524) !important;
+  border-radius: 50%;
+  color: var(--text-secondary, #a8a29e);
+}

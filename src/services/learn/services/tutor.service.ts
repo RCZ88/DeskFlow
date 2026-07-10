@@ -10,7 +10,21 @@ import type { TutorAnswer, Result, MasteryLevel, EvidenceOutcome } from '../../s
 const TUTOR_SYSTEM_PROMPT = `You are a tutor for ONE concept. Answer ONLY using FACTS below.
 If the answer isn't in FACTS, say you can't answer from this section.
 Be visual-first: prefer an analogy or a step list; cite fact ids [s1].
-Return JSON: { answer_md: string, used_source_ids: string[], used_fact_ids: string[] }`;
+Return JSON: { answer_md: string, used_source_ids: string[], used_fact_ids: string[], suggested_next?: "deeper"|"reinforce"|"remedial" }
+
+When the learner seems ready for deeper material, suggest "deeper".
+When they need reinforcement, suggest "reinforce".
+When they need remedial content, suggest "remedial".
+Use the "escalate" flag only when the question fundamentally cannot be answered by this lesson's content.`;
+
+/**
+ * Prepend persona + guardrails to the tutor prompt when the prompt library
+ * resources are available. Call once during service construction.
+ */
+export function prependTutorPersona(personaMd: string): string {
+  if (!personaMd) return TUTOR_SYSTEM_PROMPT;
+  return `${personaMd}\n\n---\n\n## Core Tutor Instructions\n${TUTOR_SYSTEM_PROMPT}`;
+}
 
 const SELF_CHECK_PROMPT = `For each sentence in ANSWER, is it entailed by FACTS?
 Return JSON: { confident: boolean, unsupported_sentences: string[] }`;
@@ -22,13 +36,19 @@ Return JSON: { target_level: string, outcome: "demonstrated"|"partial"|"wrong", 
 export class TutorService {
   private grounding: GroundingService;
   private progress: ProgressService;
+  private systemPrompt: string;
 
-  constructor(private db: Database, private callAi: (prompt: string, systemPrompt: string, maxTokens?: number) => Promise<any>) {
+  constructor(
+    private db: Database,
+    private callAi: (prompt: string, systemPrompt: string, maxTokens?: number) => Promise<any>,
+    personaMd?: string,
+  ) {
     this.grounding = new GroundingService(db);
     this.progress = new ProgressService(db);
+    this.systemPrompt = personaMd ? prependTutorPersona(personaMd) : TUTOR_SYSTEM_PROMPT;
   }
 
-  async ask(params: { nodeId: string; blockId?: string; question: string }): Promise<Result<TutorAnswer>> {
+  async ask(params: { nodeId: string; blockId?: string; question: string; personaMd?: string }): Promise<Result<TutorAnswer>> {
     try {
       // 1. Check cache
       const cacheKey = this.hashKey(params.nodeId, params.question);
@@ -64,9 +84,12 @@ export class TutorService {
       const userPrompt = `FACTS:\n${factsText}\n\nMISCONCEPTIONS:\n${misconceptionsText}\n\nSOURCES:\n${sourcesText}\n\nQUESTION: ${params.question}`;
 
       // 5. Call small model for answer
+      const systemPrompt = params.personaMd
+        ? prependTutorPersona(params.personaMd)
+        : this.systemPrompt;
       let answerResult;
       try {
-        answerResult = await this.callAi(userPrompt, TUTOR_SYSTEM_PROMPT, 500);
+        answerResult = await this.callAi(userPrompt, systemPrompt, 500);
       } catch {
         // AI unavailable — return grounded fallback
         return { ok: false, error: 'AI provider unavailable. Please check your AI configuration.' };

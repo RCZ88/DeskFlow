@@ -3,7 +3,7 @@ import { Wallet, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, ChevronDown
 import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
-import { getCurrencyInfo, formatCurrency as fmtCurrency } from './currency-data';
+import { formatCurrency as fmtCurrency, formatAmount as fmtAmount, formatPercent as fmtPct } from './currency-data';
 import type { FinanceWallet, CryptoPrice } from './finance-types';
 
 interface CryptoMarketTabProps {
@@ -18,9 +18,6 @@ const walletMeta: Record<string, { icon: any; label: string; color: string }> = 
 };
 
 export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletClick }: CryptoMarketTabProps) {
-  const sym = getCurrencyInfo(displayCurrency).symbol;
-  const loc = getCurrencyInfo(displayCurrency).locale;
-  const isZeroDec = displayCurrency === 'IDR' || displayCurrency === 'VND' || displayCurrency === 'KRW' || displayCurrency === 'JPY';
   const [prices, setPrices] = useState<CryptoPrice[]>([]);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,18 +27,6 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
     if (raw && typeof raw === 'object') return raw;
     try { return JSON.parse(raw || '{}'); } catch { return {}; }
   }
-
-  const fmt = useCallback((val: number, minDec = 2, maxDec = 2) => {
-    if (isZeroDec) return val.toLocaleString(loc, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    return val.toLocaleString(loc, { minimumFractionDigits: minDec, maximumFractionDigits: maxDec });
-  }, [isZeroDec, loc]);
-
-  const fmtCrypto = useCallback((val: number) => {
-    if (val === 0) return '0';
-    if (val < 0.0001) return val.toLocaleString(loc, { minimumFractionDigits: 8, maximumFractionDigits: 8 });
-    if (val < 1) return val.toLocaleString(loc, { minimumFractionDigits: 4, maximumFractionDigits: 6 });
-    return val.toLocaleString(loc, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  }, [loc]);
 
   const allAssets = useMemo(() => {
     const map = new Map<string, {
@@ -181,7 +166,7 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
               </div>
               {prices.length > 0 && totalCost > 0 && (
                 <span className={`text-xs font-medium tabular-nums ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {totalPnl >= 0 ? '+' : ''}{fmt(totalPnl)} ({totalPnlPct >= 0 ? '+' : ''}{fmt(totalPnlPct, 1, 1)}%)
+                  {fmtCurrency(totalPnl, displayCurrency)} ({fmtPct(totalPnlPct, 1)}%)
                 </span>
               )}
             </div>
@@ -232,7 +217,7 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
                       {pc24h !== null && (
                         <div className={`flex items-center gap-0.5 justify-end text-[10px] tabular-nums mt-0.5 ${pc24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                           {pc24h >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                          {pc24h >= 0 ? '+' : ''}{fmt(pc24h, 2, 2)}%
+                          {fmtPct(pc24h, 2)}%
                         </div>
                       )}
                     </div>
@@ -247,11 +232,11 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
                   {/* Bottom row: holding + P&L */}
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
                     <span className="text-[10px] text-zinc-500">
-                      {fmtCrypto(a.amount)} {coinSym || 'coins'}
+                      {fmtAmount(a.amount)} {coinSym || 'coins'}
                     </span>
                     {a.avgCost > 0 && (
                       <span className={`text-[10px] tabular-nums font-medium ${coinPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {coinPnl >= 0 ? '+' : ''}{fmtCurrency(coinPnl, displayCurrency)} ({coinPnlPct >= 0 ? '+' : ''}{fmt(coinPnlPct, 1, 1)}%)
+                        {fmtCurrency(coinPnl, displayCurrency)} ({fmtPct(coinPnlPct, 1)}%)
                       </span>
                     )}
                   </div>
@@ -265,7 +250,7 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
                       </div>
                       <div className="flex justify-between text-[11px]">
                         <span className="text-zinc-500">Amount Held</span>
-                        <span className="text-zinc-200 tabular-nums">{fmtCrypto(a.amount)}</span>
+                        <span className="text-zinc-200 tabular-nums">{fmtAmount(a.amount)}</span>
                       </div>
                       <div className="flex justify-between text-[11px]">
                         <span className="text-zinc-500">Avg Buy Price</span>
@@ -284,7 +269,7 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
                       <div className="flex justify-between text-[11px]">
                         <span className="text-zinc-500">Return</span>
                         <span className={`tabular-nums font-medium ${coinPnlPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {coinPnlPct >= 0 ? '+' : ''}{fmt(coinPnlPct, 1, 1)}%
+                          {fmtPct(coinPnlPct, 1)}%
                         </span>
                       </div>
                       {a.walletIds.length > 1 && (

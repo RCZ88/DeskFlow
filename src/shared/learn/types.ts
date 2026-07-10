@@ -1,7 +1,7 @@
 // Shared types for the Lyceum "Learn" module — used by both main and renderer
 
 export type MasteryLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
-export type BlockType = 'prose' | 'math' | 'mermaid' | 'code' | 'image' | 'video' | 'widget' | 'quiz' | 'callout' | 'layer';
+export type BlockType = 'prose' | 'math' | 'mermaid' | 'code' | 'image' | 'video' | 'widget' | 'quiz' | 'callout' | 'layer' | 'chart' | 'table' | 'flow' | 'finchart' | 'svg' | 'tutor' | 'proposal' | 'conversation' | 'notes';
 export type QuizFormat = 'mcq' | 'numeric' | 'open';
 export type LessonStatus = 'draft' | 'valid' | 'published';
 export type EvidenceSource = 'tutor' | 'quiz' | 'self-report';
@@ -43,7 +43,16 @@ export type LdocBlock =
   | WidgetBlock
   | QuizBlock
   | CalloutBlock
-  | LayerBlock;
+  | LayerBlock
+  | ChartBlock
+  | TableBlock
+  | FlowBlock
+  | FinChartBlock
+  | SvgBlock
+  | TutorBlock
+  | ProposalBlock
+  | ConversationBlock
+  | NotesBlock;
 
 export interface BaseBlock {
   id: string;
@@ -123,11 +132,47 @@ export interface CalloutBlock extends BaseBlock {
   tone?: string;
 }
 
+export interface ChartBlock extends BaseBlock {
+  type: 'chart';
+  spec: string;
+  parsed?: Record<string, unknown>;
+  caption?: string;
+}
+
+export interface TableBlock extends BaseBlock {
+  type: 'table';
+  columns: { title: string; field: string }[];
+  rows: Record<string, unknown>[];
+  options?: Record<string, unknown>;
+  caption?: string;
+}
+
+export interface FlowBlock extends BaseBlock {
+  type: 'flow';
+  variant: 'sankey' | 'waterfall';
+  spec: string;
+  edges?: { from: string; to: string; value: number }[];
+  caption?: string;
+}
+
+export interface FinChartBlock extends BaseBlock {
+  type: 'finchart';
+  spec: string;
+  parsed?: { type?: string; data?: Record<string, unknown>[]; indicators?: string[] };
+  caption?: string;
+}
+
 export interface LayerBlock extends BaseBlock {
   type: 'layer';
   reveal_at: MasteryLevel;
   mode: 'deeper' | 'remedial';
   blocks: LdocBlock[];
+}
+
+export interface SvgBlock extends BaseBlock {
+  type: 'svg';
+  svg: string;
+  caption?: string;
 }
 
 export interface LdocGrounding {
@@ -230,13 +275,13 @@ export interface MediaReport {
   ok: boolean;
 }
 
-export interface Result<T> {
+export type Result<T> = {
   ok: true;
   data: T;
 } | {
   ok: false;
   error: string;
-}
+};
 
 // Mastery estimator types
 
@@ -261,4 +306,149 @@ export interface Evidence {
   target_level: MasteryLevel;
   outcome: EvidenceOutcome;
   detail?: Record<string, unknown>;
+}
+
+// Learner Profile types
+
+export type Density = 'terse' | 'balanced' | 'thorough';
+export type ModalityBias = 'diagram_first' | 'balanced' | 'text_ok';
+export type ExampleStance = 'worked_first' | 'balanced' | 'discovery_first';
+export type MathDepth = 'applied_only' | 'intuition_first' | 'derive_everything';
+export type CodeStaging = 'framework_only' | 'numpy_plus' | 'scratch_first';
+export type QuizAppetite = 'light' | 'normal' | 'heavy';
+export type ChunkSize = 'micro' | 'standard' | 'deep';
+export type Tone = 'gentle' | 'balanced' | 'demanding';
+
+export interface LearnerProfile {
+  version: 1;
+  density: Density;
+  modalityBias: ModalityBias;
+  exampleStance: ExampleStance;
+  mathDepth: MathDepth;
+  handsOn: 0 | 1 | 2 | 3;
+  codeStagingDepth: CodeStaging;
+  quizAppetite: QuizAppetite;
+  chunkSize: ChunkSize;
+  layerRevealDefault: MasteryLevel;
+  tone: Tone;
+  priorKnowledge: Partial<Record<number, MasteryLevel>>;
+  confidence: Record<string, number>;
+  updatedAt: string;
+}
+
+export const PROFILE_KNOBS = [
+  'density', 'modalityBias', 'exampleStance', 'mathDepth', 'handsOn',
+  'codeStagingDepth', 'quizAppetite', 'chunkSize', 'layerRevealDefault', 'tone',
+] as const;
+export type ProfileKnob = typeof PROFILE_KNOBS[number];
+
+export const DEFAULT_PROFILE: LearnerProfile = {
+  version: 1,
+  density: 'balanced', modalityBias: 'balanced', exampleStance: 'balanced',
+  mathDepth: 'intuition_first', handsOn: 2, codeStagingDepth: 'numpy_plus',
+  quizAppetite: 'normal', chunkSize: 'standard', layerRevealDefault: 'L3',
+  tone: 'demanding', priorKnowledge: {},
+  confidence: Object.fromEntries(PROFILE_KNOBS.map((k) => [k, 0.3])) as Record<string, number>,
+  updatedAt: new Date(0).toISOString(),
+};
+
+// ── Tutor V2 Types ──
+
+export type TutorBlockType = 'tutor' | 'proposal' | 'conversation' | 'notes';
+
+export interface TutorBlock extends BaseBlock {
+  type: 'tutor';
+  question: string;
+  answer_md?: string;
+  status: 'waiting' | 'streaming' | 'complete' | 'error';
+  citations?: { id: string; url: string; title: string }[];
+  confidence?: number;
+  suggested_next?: string;
+}
+
+export interface ProposalBlock extends BaseBlock {
+  type: 'proposal';
+  title: string;
+  body_md: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reason?: string;
+  actions: string[];
+}
+
+export interface ConversationBlock extends BaseBlock {
+  type: 'conversation';
+  messages: ConversationAction[];
+  status: 'active' | 'resolved';
+}
+
+export interface NotesBlock extends BaseBlock {
+  type: 'notes';
+  entries: NoteEntry[];
+}
+
+export interface ConversationAction {
+  role: 'user' | 'ai' | 'system';
+  ts: string;
+  text: string;
+  block_id?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface LearnPermission {
+  resource: 'ai_provider' | 'file_system' | 'network' | 'node_edit';
+  grant: 'ask' | 'always' | 'never';
+  rationale?: string;
+}
+
+export interface NoteEntry {
+  id: string;
+  ts: string;
+  text: string;
+  tags?: string[];
+  pinned?: boolean;
+  block_ref?: string;
+}
+
+export interface TutorConfigV2 {
+  provider: string;
+  model: string;
+  system_prompt: string;
+  max_tokens: number;
+  temperature: number;
+  streaming: boolean;
+}
+
+// ── Proposal / Approval Types ──
+
+export interface ProposalCard {
+  id: string;
+  block_id: string;
+  node_id: string;
+  title: string;
+  body_md: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reason?: string;
+  actions: string[];
+  created_at: string;
+  decided_at?: string;
+}
+
+export interface ApprovalResponse {
+  proposal_id: string;
+  approved: boolean;
+  reason?: string;
+  decided_by?: string;
+}
+
+// ── Dashboard Types ──
+
+export interface TutorDashboardData {
+  total_answers: number;
+  total_questions: number;
+  avg_confidence: number;
+  recent_notes: NoteEntry[];
+  open_proposals: ProposalCard[];
+  active_conversations: number;
+  streak_days: number;
+  top_nodes: { node_id: string; title: string; count: number }[];
 }

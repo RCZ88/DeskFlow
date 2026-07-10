@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, X, Plus, Loader2 } from 'lucide-react';
 
-type LibraryId = '21st-dev' | 'aceternity' | 'refero';
+type LibraryId = string;
 
 interface Component {
   slug: string;

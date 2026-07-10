@@ -32,6 +32,9 @@ function getValidateFn(): Ajv.ValidateFunction {
  * Returns a ValidationReport with all errors (not just the first).
  */
 export function validateSchema(doc: unknown): ValidationReport {
+  if (doc === null || doc === undefined || typeof doc !== 'object' || Array.isArray(doc)) {
+    return { ok: false, errors: [{ rule: 'schema', message: `root must be an object, got ${typeof doc}` }], warnings: [] };
+  }
   const fn = getValidateFn();
   const valid = fn(doc) as boolean;
 
@@ -125,7 +128,7 @@ function checkDag(doc: LdocDocument): ValidationIssue[] {
  * Visual rule: mastery_target >= L2 requires at least one visual block (mermaid/image/widget).
  */
 function checkVisual(doc: LdocDocument): ValidationIssue[] {
-  const visualTypes = new Set(['mermaid', 'image', 'widget', 'math']);
+  const visualTypes = new Set(['mermaid', 'image', 'widget', 'math', 'chart', 'finchart', 'flow', 'svg']);
   const levelOrder = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
   const issues: ValidationIssue[] = [];
 
@@ -138,7 +141,7 @@ function checkVisual(doc: LdocDocument): ValidationIssue[] {
       issues.push({
         rule: 'visual-required',
         nodeId: node.id,
-        message: `node "${node.id}" targets ${node.mastery_target} (>= L2) but has no visual block (mermaid/image/widget)`,
+        message: `node "${node.id}" targets ${node.mastery_target} (>= L2) but has no visual block (mermaid/image/widget/svg)`,
       });
     }
   }

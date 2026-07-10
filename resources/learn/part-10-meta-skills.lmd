@@ -1,0 +1,554 @@
+---
+title: Part 10 — Meta-Skills: The Layer AI Can't Compress
+id: part-10-meta-skills
+part: 10
+version: 1.0.0
+summary: The non-code disciplines — debugging, reading, scoping, writing, taste, and directing AI — that compound over a career and separate the top 1% of engineers.
+authored_by: ai
+---
+
+# Why Meta-Skills Are the Moat
+@mastery L1
+
+:::: grounding
+includes: Why meta-skills matter, how they compound over a career, and how the six nodes in this part relate to each other.
+know: Skill-acquisition research shows expertise comes from deliberate practice — focused repetition against a specific, feedback-checked weakness — not from raw hours logged or passive exposure. [ericsson-deliberate-practice]
+know: Language models compress and automate syntax and boilerplate fastest. They compress judgment, scoping, and directed verification slowest — which is exactly why human leverage concentrates in these six skills as AI capability rises. [anthropic-prompt-eng]
+misconception: Meta-skills are "soft" personality traits you either have or don't. | Every skill in this part decomposes into a concrete, practicable procedure — a checklist, a reading order, a verification loop. They are trained exactly like a technical skill; they're just rarely taught explicitly, which is why they're rare.
+source: ericsson-deliberate-practice | K. Anders Ericsson, Ralf Th. Krampe, Clemens Tesch-Römer, "The Role of Deliberate Practice in the Acquisition of Expert Performance" | https://doi.org/10.1037/0033-295X.100.3.363
+source: anthropic-prompt-eng | Anthropic, "Prompt Engineering Overview" | https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/overview
+::::
+
+Every part before this one taught you a *body of knowledge* — systems, architecture, math, models. This part teaches something different in kind: six procedures for operating on knowledge you don't have yet. That distinction is the whole reason this part exists, and it's worth sitting with before you touch any of the six.
+
+Here's the uncomfortable fact underneath the whole curriculum: two engineers can finish Parts 1–9 with identical scores and still end up in completely different places five years later. The gap isn't more algorithms memorized or more frameworks known — code knowledge commoditizes fast, and AI compresses it faster. The gap is in what happens the moment the textbook runs out: when the bug has no clean explanation, when the paper has to be judged instead of just read, when a feature *could* be built but shouldn't, when a decision has to be explained to someone who wasn't in your head while you made it, when a design just feels wrong but you can't say why yet, and when a model hands you a confident, fluent, and quietly incorrect answer. Those six moments are Parts 10.1 through 10.6.
+
+They share a structure worth naming up front: each one is a *procedure that survives contact with a novel situation*, as opposed to a fact that only applies to the situation it was learned in. That's also why they're rated ★★★★★ rarity in your curriculum — not because they're exotic, but because almost nobody is taught them explicitly. Most engineers absorb a folk version of each by accident, over a decade, from painful experience. You're about to get the compressed, deliberate version instead.
+
+One more thing before the six nodes: notice how they connect to each other, not just to you individually. Reading discipline (10.2) feeds taste (10.5), because taste is built substantially from having seen many designs and knowing which ones aged well. Taste feeds scoping judgment (10.3), because "should we build this" is a taste question wearing a project-management costume. Debugging discipline (10.1) and writing discipline (10.4) both feed directing AI well (10.6), because verifying a model's output is a debugging act, and giving a model good context is a writing act. This is a graph, not a list.
+
+```mermaid
+flowchart TD
+  Center["Meta-skills:<br>the layer AI can't compress"]
+  Center --> D["10.1 Debugging<br>as a Science"]
+  Center --> R["10.2 Reading Source<br>Code &amp; Papers"]
+  Center --> S["10.3 Knowing What<br>NOT to Build"]
+  Center --> W["10.4 Technical Writing<br>&amp; Communication"]
+  Center --> T["10.5 Taste<br>&amp; Judgment"]
+  Center --> A["10.6 Directing<br>AI Well"]
+  D -. "feeds verification loop" .-> A
+  W -. "feeds context-giving" .-> A
+  R -. "builds pattern library" .-> T
+  T -. "informs scope calls" .-> S
+```
+
+::: callout tip
+Don't try to "finish" this part by reading it once. Each of the six is a discipline you carry into every future Build block. The self-checks in each node are calibrated so you can re-take them in three months and watch the level actually move — that's the only honest signal any of this landed.
+:::
+
+---
+
+# Debugging as a Science
+@mastery L3
+@prereq why-meta-skills-are-the-moat
+
+:::: grounding
+includes: Debugging as a repeatable, falsifiable procedure — hypothesis-driven investigation and bisection over a search space.
+know: Debugging is applied science — form a falsifiable hypothesis about the cause, design the smallest experiment that could disprove it, and only then change code. [zeller-why-programs-fail]
+know: Bisecting over the space of possible causes (commits, inputs, code paths, time) turns an O(n) hunt into an O(log n) hunt — the identical complexity win as any binary search over a sorted range. [git-bisect-docs]
+know: A bug is not "fixed" until it has been reliably reproduced and the fix has been checked against that reproduction — an unverified fix is a guess wearing a diff. [zeller-why-programs-fail]
+misconception: Skilled engineers debug faster because they read code faster. | Skilled engineers debug faster because they guess less. They spend their time forming and testing hypotheses instead of staring at code hoping the bug reveals itself by inspection.
+misconception: Print statements and breakpoints are beginner tools that senior engineers grow out of. | Print statements, breakpoints, and structured logging are exactly how senior engineers gather evidence. The skill was never the tool — it's using the tool to test one specific hypothesis instead of scattering instrumentation everywhere and hoping something looks wrong.
+source: zeller-why-programs-fail | Andreas Zeller, "Why Programs Fail: A Guide to Systematic Debugging" | https://www.whyprogramsfail.com/
+source: git-bisect-docs | Git Documentation, "git-bisect" | https://git-scm.com/docs/git-bisect
+::::
+
+Picture the bug that will actually teach you this: something in DeskFlow's terminal agent pipeline fails maybe one run in fifteen, and every time you glance at the code it "looks fine." This is the exact situation where debugging skill and debugging *luck* diverge. Luck stares at the code and eventually spots it. Skill runs a procedure that finds it regardless of how well-hidden it is — and finds it in bounded time, not open-ended time.
+
+The procedure is the scientific method with the nouns swapped: **observe → hypothesize → predict → experiment → revise.** You observe the actual failure (not your memory of it, not a description of it — the real stack trace, the real malformed output). You form one specific, falsifiable hypothesis: "the PTY write buffer overflows when the agent's JSON payload exceeds N bytes," not "something's wrong with the terminal." A good hypothesis makes a prediction you didn't already know: *if this is true, then forcing a payload past N bytes should reproduce it every time.* Then you run exactly that experiment. If it reproduces, you've converted a 1-in-15 mystery into a 100% reproducible one — which is the actual milestone, more important than the fix itself. If it doesn't reproduce, the hypothesis is dead; you don't patch around it, you form the next one. This loop is why debugging feels slow when you're bad at it (random edits, hoping) and fast once you're good at it (each step eliminates a real chunk of the hypothesis space).
+
+Bisection is the same idea applied to a search space instead of a single hypothesis. When you don't know *which* commit introduced a regression, don't read commits in order — that's a linear scan. Test the midpoint commit; its result (good/bad) eliminates half the remaining history in one shot, exactly like binary search over a sorted array. `git bisect` automates this, but the *idea* generalizes past commits: bisecting over inputs (does it fail on this half of the dataset or that half?), over code paths (comment out this half of the pipeline — still fails?), and over time (did it work yesterday? this morning? ten minutes ago?) are all the same move.
+
+::: figure Binary search over commit history — each test halves the remaining suspects
+<svg viewBox="0 0 640 260" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .lbl { font-family: sans-serif; font-size: 13px; fill: #222; font-weight: 600; }
+    .cap { font-family: sans-serif; font-size: 12px; fill: #666; }
+  </style>
+  <text x="10" y="20" class="lbl">Round 1 — 64 suspect commits</text>
+  <rect x="10" y="30" width="600" height="20" fill="#e6e6e6" stroke="#999"/>
+  <rect x="10" y="30" width="20" height="20" fill="#4caf50"/>
+  <rect x="590" y="30" width="20" height="20" fill="#e53935"/>
+  <circle cx="310" cy="40" r="6" fill="#222"/>
+  <text x="300" y="65" class="cap">test commit #32 → bad</text>
+
+  <text x="10" y="100" class="lbl">Round 2 — 32 suspect commits</text>
+  <rect x="10" y="110" width="300" height="20" fill="#e6e6e6" stroke="#999"/>
+  <rect x="10" y="110" width="20" height="20" fill="#4caf50"/>
+  <rect x="290" y="110" width="20" height="20" fill="#e53935"/>
+  <circle cx="160" cy="120" r="6" fill="#222"/>
+  <text x="150" y="145" class="cap">test commit #16 → good</text>
+
+  <text x="10" y="180" class="lbl">Round 3 — 16 suspect commits</text>
+  <rect x="160" y="190" width="150" height="20" fill="#e6e6e6" stroke="#999"/>
+  <rect x="160" y="190" width="20" height="20" fill="#4caf50"/>
+  <rect x="290" y="190" width="20" height="20" fill="#e53935"/>
+  <circle cx="235" cy="200" r="6" fill="#222"/>
+  <text x="225" y="225" class="cap">test commit #24 → bad → 8 commits remain</text>
+
+  <text x="10" y="250" class="cap">⌈log₂64⌉ = 6 tests total finds the exact commit — vs. up to 64 if you read serially.</text>
+</svg>
+:::
+
+This is also why reproduction is non-negotiable before you touch a fix. A fix applied to a bug you can't reliably reproduce is unfalsifiable — you have no way to distinguish "I fixed it" from "it happened not to occur in my next three test runs," and intermittent bugs occur intermittently *precisely* in the cases people declare victory too early. The uncomfortable corollary: sometimes the highest-value hour you spend on a nasty bug is entirely invested in reproduction, with zero lines of the actual fix written. That hour is not wasted time — it's the only thing that makes the next hour meaningful.
+
+::: callout warning
+Watch for the "shotgun fix" anti-pattern: changing five things at once because one of them is probably related. Even if it makes the symptom disappear, you now don't know which change did it, which means you've learned nothing and the other four changes are unverified risk you just merged into the codebase.
+:::
+
+**Build-to-learn:** Take the last genuinely confusing bug you fixed in DeskFlow or NeuroQuant — the one where you're honestly not 100% sure your fix was the real cause. Write down, after the fact, the hypothesis you'd have needed and the single experiment that would have confirmed it in one shot. That reconstruction is the skill; do it once deliberately and it starts happening automatically during the *next* bug.
+
+::: quiz numeric L2
+A regression could be in any of 500 commits. Using bisection, what's the maximum number of tests needed (worst case) to find the exact commit?
+answer: 9
+explain: ⌈log₂500⌉ = 9. Each test halves the remaining range regardless of which half turns out to be bad — that's what makes the worst case bounded and small.
+:::
+
+::: quiz mcq L2
+An API call returns wrong data roughly 1 in 20 requests. What's the FIRST move of a scientific debugger?
+- [ ] Wrap the call in a try/catch and swallow the error
+- [ ] Read the whole call stack top to bottom looking for the bug
+- [x] Find a reliable way to reproduce the failure, even if it takes real engineering effort
+- [ ] Rewrite the function since it's clearly unreliable
+explain: Without reproduction, no hypothesis is testable — every "fix" is unverifiable. A 1-in-20 rate usually signals a race condition or an environment-dependent input; reproducing it IS the investigation.
+:::
+
+::: quiz open L4
+Describe a bug where bisecting over inputs (not commits) would be the right move, and explain what makes a "good" midpoint choice in that space.
+rubric: A concrete scenario (e.g., NeuroQuant's signal fusion breaks on some historical windows but not others). A midpoint that actually splits the remaining hypothesis space roughly in half — not just "the middle date" but a split informed by a suspected variable (data density, a specific instrument's gaps, a volatility regime change).
+:::
+
+::: layer L5 deeper
+**Delta debugging (ddmin).** Manual bisection halves a *linear* range. Delta debugging generalizes the idea to any structured input: given a failing input (a long JSON payload, a long log, a big test case), automatically remove chunks and re-test, converging on the *minimal* failing input — often just the handful of bytes actually responsible. This is how compiler and browser engineers reduce a 50,000-line crash report to the three lines that matter, and it is directly applicable to shrinking a failing DeskFlow agent transcript down to the exact malformed fragment. Andreas Zeller's original ddmin algorithm is the canonical reference — worth implementing once from scratch; it's a page of code and it will change how you think about every future crash report.
+:::
+
+---
+
+# Reading Source Code & Papers
+@mastery L3
+@prereq why-meta-skills-are-the-moat
+
+:::: grounding
+includes: Reading disciplines for source code and academic papers — non-linear reading order and effort allocation.
+know: Read non-linearly. For a paper: title → abstract → headings → conclusion → skim references first (Keshav's "three-pass" method), not front-to-back. For code: find the entry point and trace one real execution path before reading anything else. [keshav-how-to-read]
+know: Passing only the first pass of a paper tells you its category and claim, not whether the claim holds — you have not "read" a paper until at least the second pass, where you evaluate the evidence. [keshav-how-to-read]
+know: Tracing one representative execution through unfamiliar code — with a debugger or a few well-placed log lines — teaches more in ten minutes than an hour of static top-to-bottom reading, because it shows you which of the many code paths actually matter. [seibel-coders-at-work]
+misconception: Reading source code means reading every line, in file order. | Reading source code means finding the entry point, tracing one representative call through it, and zooming in only on the parts that surprised you. Most of any real codebase is irrelevant to the question you actually came with.
+misconception: Skimming the abstract and intro counts as "having read" a paper. | That's Keshav's first pass only — five to ten minutes that tells you the category and headline claim. You cannot defend or attack the method, spot a weak baseline, or cite it accurately from a first pass alone.
+source: keshav-how-to-read | S. Keshav, "How to Read a Paper," ACM SIGCOMM Computer Communication Review | https://doi.org/10.1145/1273445.1273458
+source: seibel-coders-at-work | Peter Seibel, "Coders at Work" | https://www.codersatwork.com/
+::::
+
+You already do a version of this every time you open someone else's repo to steal an idea for DeskFlow — the question is whether you're doing it as a procedure or as a vibe. The procedure is what turns "I skimmed it" into "I could reimplement it," and the gap between those two is most of this node.
+
+Start with papers, because the three-pass structure is the cleanest version of the idea. **Pass one** (five to ten minutes) is title, abstract, section headings, and the conclusion — read in that order, skipping the body entirely — plus a skim of the reference list for names you recognize. The goal is a single sentence: what category of problem is this, and what's the headline claim. If you can't produce that sentence, you don't yet know whether this paper is even relevant to what you're working on, and reading further is premature. **Pass two** (about an hour) reads the body with real attention but *ignores proofs and derivations* — you're not verifying yet, you're understanding the shape of the argument, and critically, you study every figure and table closely, because that's usually where the actual result lives, with the prose around it doing PR for it. You note which references you haven't read; that's how a literature map gets built incrementally instead of all at once. **Pass three** (hours, and only for papers that matter enough) is a virtual reimplementation: same assumptions the authors made, but you re-derive their results yourself, which is the only way hidden assumptions, weak citations, and untested edge cases surface. Most engineers do a bad, hurried version of pass one and call it "read the paper." Most of the value is in choosing which papers earn a pass three — that choice is itself the taste skill from later in this part.
+
+::: figure Three passes, not one linear read — most people stop at a bad imitation of Pass 1
+<svg viewBox="0 0 640 420" xmlns="http://www.w3.org/2000/svg">
+  <style>.t{font-family:sans-serif;} .h{font-size:15px;font-weight:bold;fill:#222;} .b{font-size:12px;fill:#444;}</style>
+  <rect x="20" y="20" width="600" height="380" rx="12" fill="#fdf6ec" stroke="#e0a94a" stroke-width="2"/>
+  <text x="40" y="50" class="t h">Pass 1 — Skim (5–10 min)</text>
+  <text x="40" y="72" class="t b">Title, abstract, section headings, conclusion. Skim references for familiar names.</text>
+  <text x="40" y="90" class="t b">Goal: state the category, claim, and contribution in one sentence.</text>
+
+  <rect x="60" y="110" width="560" height="260" rx="12" fill="#eef6ee" stroke="#5a9a5a" stroke-width="2"/>
+  <text x="80" y="140" class="t h">Pass 2 — Read with care (~1 hr)</text>
+  <text x="80" y="162" class="t b">Read the body, ignore proofs/derivations. Study every figure, diagram, and table.</text>
+  <text x="80" y="180" class="t b">Note unread references — this is how a literature map gets built.</text>
+  <text x="80" y="198" class="t b">Goal: summarize the main thrust to a colleague, with supporting evidence.</text>
+
+  <rect x="100" y="220" width="480" height="130" rx="12" fill="#eaf0fb" stroke="#4c7bd6" stroke-width="2"/>
+  <text x="120" y="250" class="t h">Pass 3 — Re-derive (hours)</text>
+  <text x="120" y="272" class="t b">Virtually reimplement it: same assumptions, re-derive the results yourself.</text>
+  <text x="120" y="290" class="t b">Identify hidden assumptions, weak citations, untested edge cases.</text>
+  <text x="120" y="308" class="t b">Goal: reimplement from memory and know exactly where it's fragile.</text>
+
+  <text x="40" y="400" class="t b">Reserve Pass 3 for the small number of papers that actually matter to what you're building.</text>
+</svg>
+:::
+
+Source code inverts the order but keeps the spirit: start from the *outside* — the public interface, the entry point, a call graph one level deep — before you drop into implementation. Ask "what does this promise the caller?" before "how does it deliver on that promise?" Then trace exactly one real execution path end to end, using a debugger or deliberate logging, for the specific case you care about. This is a bisection move in disguise: instead of reading every branch, you're eliminating the branches your actual scenario never touches. Only once you understand that one path do you zoom into the parts that surprised you — the places where the code did something you didn't predict, because those are precisely the places your mental model was wrong, and reading is only valuable where it corrects a wrong model.
+
+::: callout tip
+When you evaluate an open-source dependency you're about to pull into DeskFlow or FM-AI, do one abbreviated pass-two pass on its core module before trusting it: skim the tests (they show you the *intended* behavior faster than the implementation does), then trace one real call. Fifteen minutes here has saved people from load-bearing bugs in libraries with 40k GitHub stars.
+:::
+
+**Build-to-learn:** Pick one paper genuinely relevant to NeuroQuant or DeskFlow's RAG pipeline — something you've been citing from memory but never actually re-derived. Run the full three-pass method on it, and for pass three, actually reimplement its core mechanism (even a toy version) in code. This is the exact seed North Star names for this part, and it's the single highest-leverage afternoon you can spend on this skill.
+
+::: quiz mcq L2
+You need to decide whether a paper is worth a full re-derivation (pass three). Which pass tells you that?
+- [ ] Pass one — the abstract and conclusion alone
+- [x] Pass two — after seeing the actual evidence and figures
+- [ ] You should always do pass three for anything cited more than once
+- [ ] Reading the appendix first
+explain: Pass one only tells you what's being claimed, not whether the evidence supports it or whether it's load-bearing for your work. That judgment call requires having actually seen the figures and the argument's structure.
+:::
+
+::: quiz open L3
+Describe your procedure for reading an unfamiliar module in someone else's codebase before you trust it enough to depend on it in DeskFlow.
+rubric: Interface-first (what's the promise, not the mechanism). Tracing one concrete call path rather than reading top-to-bottom. Checking tests as a faster proxy for intended behavior. Zooming into surprises, not everything uniformly.
+:::
+
+---
+
+# Knowing What NOT to Build
+@mastery L3
+@prereq taste-judgment
+
+:::: grounding
+includes: Scoping judgment — evaluating whether a feature's forever-cost is worth its value, and writing explicit non-goals.
+know: Every feature carries a cost forever after it ships — maintenance, tests, docs, support, and the cognitive load of a bigger surface area — regardless of how cheap it was to write in the first place. [ousterhout-philosophy-of-software-design]
+know: An explicit "non-goal" in a spec — "we are deliberately not solving X here" — is what actually stops scope creep, and is often more valuable to a reviewer than any stated goal in the same document. [google-design-doc-practices]
+misconception: Turning down a feature request is a failure of ambition, or evidence you can't build it. | Saying no to a low-value, high-effort feature is a design decision, applying the same judgment you'd apply to an architecture choice — just aimed at scope instead of code.
+misconception: More features always mean more value delivered to the user. | Past a point, more features mean more surface area to secure, document, and maintain, and more decisions a user has to make before doing the one thing they actually came to do. Net value can go negative well before a product feels "done."
+source: ousterhout-philosophy-of-software-design | John Ousterhout, "A Philosophy of Software Design" | https://web.stanford.edu/~ouster/cgi-bin/book.php
+source: google-design-doc-practices | Malte Ubl, "Design Docs at Google" | https://www.industrialempathy.com/posts/design-docs-at-google/
+::::
+
+Your own North Star document already names the trap by its actual name: yak-shaving on foundational tooling instead of shipping the flagship product. But the deeper skill isn't "avoid distraction" — it's a specific, evaluable judgment call you make dozens of times a week, usually without noticing you're making it: *for this candidate feature, is the value it returns worth the cost it locks in forever?* Not the cost to build it once — the cost to carry it. Every feature you ship becomes a promise: it will keep working, keep being documented, keep being compatible with whatever you build next, and keep being one more thing a new contributor (or future-you, six months from now) has to understand before they can safely change anything nearby.
+
+This reframes "no" from a failure into an active design decision with the same shape as picking an architecture. When you reject a data structure because it doesn't fit the access pattern, nobody calls that a failure of ambition — it's engineering judgment. Rejecting a feature request for the identical reason (it doesn't fit the cost/value the product can afford right now) deserves the same respect, and treating it that way is most of what separates a scoped, shippable roadmap from an ever-growing backlog that never converges.
+
+::: chart
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Candidate DeskFlow features — effort vs. impact",
+  "description": "The shaded corner (high effort, low impact) is what NOT to build right now",
+  "data": {"values": [
+    {"name": "Custom in-house auth system", "effort": 9, "impact": 2},
+    {"name": "Config-driven plugin marketplace", "effort": 8, "impact": 3},
+    {"name": "One-click PTY session sharing", "effort": 4, "impact": 8},
+    {"name": "Shader polish pass #4", "effort": 6, "impact": 2},
+    {"name": "Basic onboarding checklist", "effort": 2, "impact": 7},
+    {"name": "Custom database engine", "effort": 10, "impact": 1},
+    {"name": "Keyboard shortcut palette", "effort": 3, "impact": 6}
+  ]},
+  "layer": [
+    {"mark": {"type": "rule", "color": "#999999", "strokeDash": [4, 4]}, "encoding": {"x": {"datum": 5}}},
+    {"mark": {"type": "rule", "color": "#999999", "strokeDash": [4, 4]}, "encoding": {"y": {"datum": 5}}},
+    {
+      "mark": {"type": "circle", "size": 160},
+      "encoding": {
+        "x": {"field": "effort", "type": "quantitative", "title": "Effort to build", "scale": {"domain": [0, 10]}},
+        "y": {"field": "impact", "type": "quantitative", "title": "Impact / value", "scale": {"domain": [0, 10]}},
+        "color": {
+          "condition": {"test": "datum.effort > 5 && datum.impact < 5", "value": "#d9534f"},
+          "value": "#4c8bf5"
+        },
+        "tooltip": [{"field": "name"}, {"field": "effort"}, {"field": "impact"}]
+      }
+    },
+    {
+      "mark": {"type": "text", "dy": -12, "fontSize": 10},
+      "encoding": {
+        "x": {"field": "effort", "type": "quantitative"},
+        "y": {"field": "impact", "type": "quantitative"},
+        "text": {"field": "name"}
+      }
+    }
+  ],
+  "width": 480,
+  "height": 360
+}
+:::
+
+Notice what the chart can't tell you: it can't tell you the impact or effort numbers themselves — that's an estimate, and estimates are exactly where taste and domain judgment (the previous node) do the real work. What the framework buys you is a forcing function: it makes you state the estimate out loud, in front of yourself, instead of building on vibes and discovering the cost eighteen months later when someone asks why DeskFlow has a plugin marketplace nobody uses and three unresolved security issues in it.
+
+The sharpest tool here is the explicit non-goal, and it belongs in writing, not just in your head. "We are building X" invites a reviewer (or a future you) to ask "did you also handle Y?" — and without a written non-goal, the honest answer is always yes eventually, because nothing stops it. "We are building X. We are explicitly not handling Y in this iteration" gives everyone, including you, permission to stop scope from creeping, and it's the single sentence most roadmaps are missing.
+
+::: callout warning
+Watch for the version of this trap that looks like discipline: building "just the infrastructure first" so the real feature will supposedly be easy later. Infrastructure built before the feature that needs it is a guess about future requirements, and guesses about requirements are usually wrong in some detail that forces a rewrite anyway. Build the feature; extract the infrastructure once you've built it twice.
+:::
+
+**Build-to-learn:** Take your actual DeskFlow or NeuroQuant backlog and run every open item through the effort/impact framework above, explicitly. For anything that lands in the "don't build" quadrant, write the one-sentence non-goal that kills it — not just in your head, in the backlog itself, so the decision is visible and doesn't get silently re-litigated in three months.
+
+::: quiz mcq L3
+A teammate proposes a plugin marketplace for DeskFlow. It's technically impressive and would look great in a demo. What's the sharpest question to ask before greenlighting it?
+- [ ] How long will it take to build?
+- [x] What ongoing cost — security review, docs, compatibility — does this create for every future release, and does the current user base justify that forever-cost?
+- [ ] Has anyone else built something like this?
+- [ ] Can AI help us build it faster?
+explain: Build time is a one-time cost. The real question that determines whether a feature is worth it is the cost it locks in permanently, weighed against actual (not hoped-for) current demand.
+:::
+
+::: quiz open L4
+Describe a feature you already built into DeskFlow or NeuroQuant that, in hindsight, failed this test — and what non-goal sentence would have prevented it.
+rubric: An honest, specific example (not a hypothetical). A concrete forever-cost it created. A precise non-goal sentence that would have stopped it at spec time, not after building it.
+:::
+
+::: callout tip
+Reinforcement note: this framework only pays off once applied to a real, live decision — not read about. Before moving to the next node, run your actual DeskFlow or NeuroQuant backlog through it right now, while it's fresh. Reading about a decision framework and applying it are different mastery levels on your own scale, and only the second one should move your Progress tracker.
+:::
+
+---
+
+# Technical Writing & Communication
+@mastery L3
+@prereq why-meta-skills-are-the-moat
+
+:::: grounding
+includes: Technical writing as the mechanism for making engineering judgment reviewable — design docs and conclusion-first structure.
+know: A design doc's job is to make your reasoning falsifiable before code is written, when a wrong turn costs an afternoon of discussion instead of a rewrite. [google-design-doc-practices]
+know: "Alternatives considered" is the section that proves you actually thought about the problem instead of building the first idea that occurred to you — omitting it is the single most common design-doc failure. [google-design-doc-practices]
+know: Good technical writing states the conclusion first, then the supporting reasoning — the opposite order from how you discovered it — because a reader is optimizing to extract the decision, not to relive your journey to it. [google-tech-writing]
+misconception: Technical writing is a "soft skill" separate from engineering ability. | Technical writing is the mechanism by which your engineering judgment becomes visible, reviewable, and reusable by anyone who wasn't in your head while you worked it out. Without it, good judgment dies with the pull request that used it.
+source: google-design-doc-practices | Malte Ubl, "Design Docs at Google" | https://www.industrialempathy.com/posts/design-docs-at-google/
+source: google-tech-writing | Google Developers, "Technical Writing Courses" | https://developers.google.com/tech-writing
+::::
+
+You already have a version of this edge — you lead a CS club and you've corrected a university instructor, which means you can already explain things clearly out loud. The gap most self-taught engineers have isn't explaining ability, it's *doc structure discipline*: knowing what a design doc, a PR description, or a build-in-public post is actually *for*, and writing to that purpose instead of narrating your process.
+
+The purpose of a design doc specifically is to move the moment of disagreement earlier, when it's cheap. If you write the code first and explain it after, any objection a reviewer raises means throwing away working code — so objections get suppressed, and bad decisions survive by inertia. If you write the design doc first, the same objection costs a paragraph. This is why "alternatives considered" is the section nearly everyone skips and the one that matters most: it's not padding, it's the proof that you compared options instead of building the first idea that occurred to you, and it's the exact place a sharp reviewer can catch a mistake before it's expensive.
+
+::: html Click each section of a design doc to see what goes there and why
+<style>
+  .doc-anatomy { font-family: sans-serif; max-width: 600px; }
+  .section { border: 1px solid #ccc; border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+  .section-header { background: #f2f2f2; padding: 10px 14px; cursor: pointer; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .section-header:hover { background: #e8e8e8; }
+  .section-body { padding: 0 14px; max-height: 0; overflow: hidden; transition: max-height 0.25s ease, padding 0.25s ease; background: #fff; }
+  .section.open .section-body { max-height: 300px; padding: 10px 14px; }
+  .section-body p { margin: 6px 0; font-size: 13px; color: #333; line-height: 1.4; }
+  .tag { font-size: 11px; color: #888; font-weight: 400; }
+  .arrow { transition: transform 0.2s ease; font-size: 11px; color: #888; }
+  .section.open .arrow { transform: rotate(90deg); }
+</style>
+<div class="doc-anatomy" id="doc-anatomy">
+  <div class="section">
+    <div class="section-header"><span>Context &amp; Problem <span class="tag">— why this doc exists</span></span><span class="arrow">▶</span></div>
+    <div class="section-body"><p>State the problem so a reader with zero context can follow it. No solution yet — just what's broken, who it hurts, and why now.</p><p>Example: "DeskFlow's agent log parser silently drops malformed JSON lines, hiding real failures from the dashboard."</p></div>
+  </div>
+  <div class="section">
+    <div class="section-header"><span>Goals &amp; Non-Goals <span class="tag">— scope, explicitly</span></span><span class="arrow">▶</span></div>
+    <div class="section-body"><p>Goals define success. Non-goals state what you are deliberately NOT solving here — this single sentence is what actually prevents scope creep and unblocks review.</p></div>
+  </div>
+  <div class="section">
+    <div class="section-header"><span>Proposed Design <span class="tag">— the "how"</span></span><span class="arrow">▶</span></div>
+    <div class="section-body"><p>The mechanism, with a diagram if it's structural. Written so a reviewer can spot the failure mode without running the code.</p></div>
+  </div>
+  <div class="section">
+    <div class="section-header"><span>Alternatives Considered <span class="tag">— the part everyone skips</span></span><span class="arrow">▶</span></div>
+    <div class="section-body"><p>What else could have worked, and why you rejected it. This is where your judgment becomes visible and reviewable — skipping it is the single most common design-doc mistake.</p></div>
+  </div>
+  <div class="section">
+    <div class="section-header"><span>Trade-offs &amp; Risks <span class="tag">— the honesty check</span></span><span class="arrow">▶</span></div>
+    <div class="section-body"><p>What does this cost? What could go wrong? A design doc with no listed downside wasn't thought through — it was just written down.</p></div>
+  </div>
+</div>
+<script>
+  document.querySelectorAll('.section-header').forEach(function (h) {
+    h.addEventListener('click', function () {
+      h.parentElement.classList.toggle('open');
+      requestAnimationFrame(function () {
+        var height = document.getElementById('doc-anatomy').scrollHeight + 40;
+        window.parent.postMessage({ type: 'resize', height: height }, '*');
+      });
+    });
+  });
+  window.parent.postMessage({ type: 'resize', height: document.getElementById('doc-anatomy').scrollHeight + 40 }, '*');
+</script>
+:::
+
+The same "conclusion first" principle applies at the sentence level, not just the document level, and it's the part most self-taught writers get backwards because it fights how you actually think through a problem. You discover things in the order you discover them: symptom, then investigation, then cause, then fix. But a reader — a code reviewer, a hiring manager skimming your GitHub, a future collaborator — is not trying to relive your investigation; they're trying to extract the decision as fast as possible and only descend into your reasoning if they doubt it. So the PR description leads with *what changed and why*, not with a chronological account of your debugging session. This is sometimes called "BLUF" (bottom line up front), and it's learnable as a mechanical habit: write the answer sentence first, then go back and write the reasoning underneath it.
+
+::: callout tip
+Your build-in-public habit is a technical-writing exercise in disguise, and it's graded by strangers with zero context — which makes it a *harder* version of writing a good PR description, not an easier one. Before you post a commit message or a release note, ask: would this make sense to someone who has never seen DeskFlow before? If not, it's not ready to be public yet, it's a diary entry.
+:::
+
+**Build-to-learn:** Pick one real feature you're about to build in DeskFlow or NeuroQuant and write the full design doc above — Context, Goals/Non-Goals, Proposed Design, Alternatives Considered, Trade-offs — *before* you write the code, as if it were going to a strict reviewer. This is the second build-to-learn seed North Star names for this part; do it for real, not as a retroactive writeup of something you already built.
+
+::: quiz mcq L2
+Which section of a design doc is most commonly skipped, and is also the one that most reveals whether the author actually exercised judgment?
+- [ ] Context & Problem
+- [ ] Goals & Non-Goals
+- [x] Alternatives Considered
+- [ ] Proposed Design
+explain: Anyone can describe the problem and describe the solution they picked. Only "alternatives considered" proves you compared options and can defend the choice — which is exactly why weak docs omit it.
+:::
+
+::: quiz open L4
+Rewrite this PR description to lead with the conclusion instead of the investigation: "I noticed the dashboard was showing stale metrics, so I added some logging, traced it to the cache TTL being set to 24h instead of 5m, and fixed the config value."
+rubric: Something like "Fixed stale dashboard metrics caused by a cache TTL misconfiguration (24h instead of 5m)." followed by the investigation as supporting detail, not as the lead sentence.
+:::
+
+---
+
+# Taste & Judgment
+@mastery L4
+@prereq reading-source-code-papers
+
+:::: grounding
+includes: Taste as a trainable, explainable prediction about the future consequences of a design choice.
+know: Taste in software is measurable indirectly, through consequences — a tangled system needs a meeting to safely change one line; a well-designed one lets one engineer change it alone in an hour. [ousterhout-philosophy-of-software-design]
+know: Fred Brooks' "second-system effect" names a specific, recurring taste failure — the tendency to over-engineer the system you build right after you finally understand the problem, because you're eager to use everything you just learned. [brooks-mythical-man-month]
+misconception: Taste is subjective, so there's no way to argue about it or teach it. | Taste disagreements usually resolve into an argument about a concrete, checkable consequence — coupling, blast radius, cost of future change. The "feeling" is a compressed prediction about that consequence, and the prediction can be checked against what actually happens later.
+misconception: The engineer with the strongest opinions in the room has the best taste. | Taste shows up more reliably in restraint — the engineer who says "this is fine as-is, don't touch it" as often as they push for a rewrite — than in volume or confidence of opinions.
+source: ousterhout-philosophy-of-software-design | John Ousterhout, "A Philosophy of Software Design" | https://web.stanford.edu/~ouster/cgi-bin/book.php
+source: brooks-mythical-man-month | Fred Brooks, "The Mythical Man-Month" | https://en.wikipedia.org/wiki/The_Mythical_Man-Month
+::::
+
+Your North Star document already names this as a strength you're cultivating, not starting from zero on — which means the job here isn't to build taste from nothing, it's to make it *explainable*, so it survives contact with a code review and doesn't just live as an unexamined gut feeling. That distinction matters because unexamined taste doesn't transfer: you can't teach it to a collaborator, defend it to a reviewer, or even fully trust it yourself under pressure. Explainable taste does all three.
+
+The trick to making taste explainable is realizing it's not actually a feeling — it's a fast, compressed prediction about a concrete future consequence, trained on pattern exposure. When something "feels wrong" about a design, that feeling is standing in for a specific, checkable claim: *this coupling means changing the auth layer will force a change in three unrelated modules,* or *this abstraction hides the one detail callers actually need to know, so they'll all end up working around it.* The move that turns taste into a skill you can improve deliberately is refusing to stop at the feeling — chasing it down to the concrete consequence every time, until doing that becomes fast enough to feel instant again, except now it's checkable.
+
+::: figure Same feature, two designs — the difference shows up as blast radius, not aesthetics
+<svg viewBox="0 0 640 320" xmlns="http://www.w3.org/2000/svg">
+  <style>.t{font-family:sans-serif;font-size:13px;} .h{font-weight:bold;font-size:15px;}</style>
+  <text x="30" y="30" class="t h">Same feature, two designs</text>
+
+  <rect x="20" y="50" width="280" height="240" rx="10" fill="#fff5f5" stroke="#e0a0a0"/>
+  <text x="40" y="75" class="t h" fill="#b33333">Low taste — tangled</text>
+  <circle cx="70" cy="120" r="18" fill="#f2b6b6"/><text x="60" y="125" class="t">UI</text>
+  <circle cx="180" cy="120" r="18" fill="#f2b6b6"/><text x="165" y="125" class="t">DB</text>
+  <circle cx="260" cy="160" r="18" fill="#f2b6b6"/><text x="243" y="165" class="t">Net</text>
+  <circle cx="90" cy="220" r="18" fill="#f2b6b6"/><text x="70" y="225" class="t">Auth</text>
+  <circle cx="220" cy="230" r="18" fill="#f2b6b6"/><text x="197" y="235" class="t">Cache</text>
+  <line x1="70" y1="120" x2="220" y2="230" stroke="#c66666" stroke-width="1.5"/>
+  <line x1="180" y1="120" x2="90" y2="220" stroke="#c66666" stroke-width="1.5"/>
+  <line x1="260" y1="160" x2="70" y2="120" stroke="#c66666" stroke-width="1.5"/>
+  <line x1="90" y1="220" x2="260" y2="160" stroke="#c66666" stroke-width="1.5"/>
+  <line x1="180" y1="120" x2="260" y2="160" stroke="#c66666" stroke-width="1.5"/>
+  <line x1="70" y1="120" x2="90" y2="220" stroke="#c66666" stroke-width="1.5"/>
+  <text x="40" y="270" class="t">Every box knows about every other box.</text>
+  <text x="40" y="286" class="t">Change one — guess what else breaks.</text>
+
+  <rect x="330" y="50" width="280" height="240" rx="10" fill="#f4fbf4" stroke="#a0c8a0"/>
+  <text x="350" y="75" class="t h" fill="#3a7a3a">High taste — layered</text>
+  <rect x="400" y="100" width="140" height="30" rx="6" fill="#bfe3bf"/><text x="440" y="120" class="t">UI</text>
+  <rect x="400" y="150" width="140" height="30" rx="6" fill="#bfe3bf"/><text x="412" y="170" class="t">Domain / Auth</text>
+  <rect x="400" y="200" width="140" height="30" rx="6" fill="#bfe3bf"/><text x="403" y="220" class="t">DB / Cache / Net</text>
+  <line x1="470" y1="130" x2="470" y2="150" stroke="#3a7a3a" stroke-width="2"/>
+  <line x1="470" y1="180" x2="470" y2="200" stroke="#3a7a3a" stroke-width="2"/>
+  <text x="350" y="270" class="t">Dependencies point one direction — down.</text>
+  <text x="350" y="286" class="t">Change the DB layer, the UI never notices.</text>
+</svg>
+:::
+
+The second-system effect is worth internalizing by name because it's a specific, predictable failure of taste, not a vague warning about "over-engineering." It happens exactly when you finally, deeply understand a problem — right after you ship a first version that taught you everything the naive version got wrong — and the temptation is to pour every lesson learned into a second version at once: every abstraction you now see, every edge case you now know about, every piece of flexibility you now wish you'd had. The result is usually more complex than either the naive first version or the disciplined version you'd get by adding lessons one at a time, verified against reality each time. If NeuroQuant's second major refactor starts growing config options and abstraction layers faster than it grows working strategies, that's the pattern showing up in real time, not a coincidence.
+
+::: callout tip
+When you disagree with a design and can't immediately articulate why, don't drop the feeling — chase it. Ask "what happens six months from now if this ships as-is?" out loud. Nine times out of ten the vague unease resolves into a specific, arguable claim about coupling, blast radius, or a hidden assumption, and now it's a claim you can defend or discover you were wrong about.
+:::
+
+**Build-to-learn:** Find one module in DeskFlow that you'd currently rate as "good taste" and one you'd rate as "needs work." For each, write down the *specific consequence* your feeling is actually predicting — not "this is messy," but "changing the shader pipeline currently requires touching the 3D workspace renderer, the log parser, AND the dashboard, because they all read the same mutable global state." That specificity is the whole exercise.
+
+::: quiz open L4
+Describe a piece of code or a design where your gut said "something's off" before you could explain why. What was the concrete consequence your gut was actually predicting, once you chased it down?
+rubric: A real, specific example. A named concrete consequence (coupling, blast radius, a leaky abstraction, a hidden shared-state dependency) rather than a restatement of the feeling in different words.
+:::
+
+::: quiz mcq L5
+A teammate just shipped v1 of a feature and is now proposing a v2 rewrite that adds a plugin system, three new configuration layers, and a generic event bus — all justified by "things we learned building v1." What's the taste-informed response?
+- [ ] Approve it — more flexibility is always good engineering
+- [ ] Reject it outright — rewrites are always a waste of time
+- [x] Ask which of the new abstractions are justified by an actual second concrete use case today, versus ones justified only by "we might need this later" — and cut the rest
+- [ ] Approve it as long as it has good test coverage
+explain: This is the second-system effect in progress. The taste move isn't blanket approval or blanket rejection — it's separating abstractions earned by a real second use case from ones speculatively built for a future that may never arrive.
+:::
+
+---
+
+# Directing AI Well
+@mastery L4
+@prereq debugging-as-a-science technical-writing-communication
+
+:::: grounding
+includes: Directing AI systems well — supplying context and constraints, and building an independent verification loop.
+know: A model's output is only as verifiable as the fundamentals you hold independently of it. Confident, fluent, and detailed explanations from a language model are not correlated with correctness — a wrong derivation delivered with total confidence is one of the most common failure modes. [ji-hallucination-survey]
+know: Supplying tight context and constraints up front — schema, prior decisions, style, what NOT to change — narrows the space of outputs a model explores, the same way a precise type signature narrows the space of valid implementations. [anthropic-prompt-eng]
+know: Treat AI output as a draft from a fast, occasionally-confidently-wrong collaborator: verify it against ground truth — running it, testing it, checking the math by hand — before it enters anything load-bearing. [anthropic-prompt-eng]
+misconception: Directing AI well means writing a longer, more polite prompt. | Directing AI well means supplying the specific constraints and building the verification loop that make a wrong answer detectable. Length and politeness don't reduce hallucination; structure and checkability do.
+misconception: If a model explains its reasoning in confident, technical detail, the reasoning is probably right. | Confidence and technical fluency are not evidence of correctness in model output — they're evidence the model is good at sounding like a technical explanation, which is a different property, and exactly why an independent verification step is mandatory rather than optional.
+source: anthropic-prompt-eng | Anthropic, "Prompt Engineering Overview" | https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/overview
+source: ji-hallucination-survey | Ziwei Ji et al., "Survey of Hallucination in Natural Language Generation" | https://arxiv.org/abs/2202.03629
+::::
+
+Your North Star document already names this as your core philosophy — "give AI the infrastructure to do the rest" — and this node's only job is to turn that into a named, deliberate, practicable skill instead of an instinct you have but couldn't fully explain to someone else. It's placed last in this part on purpose: it's the one meta-skill built directly on top of two others. Debugging discipline is what makes verifying AI output rigorous instead of a vibe-check ("does this look okay?"). Writing discipline is what makes the context you hand a model precise enough to actually constrain it, instead of vague enough to let it wander.
+
+The whole skill compresses into one loop, run every time AI output is about to become load-bearing — in DeskFlow's codebase, in a NeuroQuant strategy, anywhere the cost of being wrong is more than a wasted five minutes.
+
+```mermaid
+flowchart LR
+  A["State the goal + constraints<br>(the fundamentals you already hold)"] --> B["Give the model tight context<br>(files, schema, prior decisions,<br>what NOT to touch)"]
+  B --> C["Model drafts a solution"]
+  C --> D{"Verify against ground truth:<br>run it, test it, check the math"}
+  D -- "fails a check" --> E["Diagnose WHY it failed<br>— using YOUR fundamentals,<br>not the model's explanation"]
+  E --> B
+  D -- "passes every check" --> F["Ship it —<br>you can defend every line"]
+```
+
+Two things in that loop are easy to skip under time pressure, and both are exactly where it breaks. First: the constraints in step A only work if you actually have the fundamentals to state them — "narrow the search space" is a hollow instruction if you don't know what a wrong answer would look like in your domain. This is the whole reason Parts 1–9 come before this node in your curriculum, not after: you cannot direct a model past the edge of what you can independently verify, because past that edge you can't distinguish a right answer from a fluent one. Second: step D has to be *independent* of the model. Asking the same model "are you sure?" is not verification — it's asking someone to grade their own exam, and a model that was confidently wrong the first time has no new information that would make it right the second time you ask. Real verification is external: running the code, executing the test, computing the number by hand, checking the citation actually exists.
+
+::: callout warning
+The most dangerous AI-directed mistake isn't a wrong answer you can spot — it's a wrong answer stated with the same fluent confidence as a right one, on a topic just past the edge of what you can check yourself. That's precisely why the verification loop has to be built into your workflow as a default, not reserved for cases where something "feels off" — by the time something feels off, you're already relying on the same fluency-as-confidence signal that just failed you.
+:::
+
+This is also where reading discipline (node 10.2) and taste (10.5) quietly feed back in: judging whether a model's proposed *architecture* — not just its code — is sound is a taste call, and recognizing whether it's echoing a genuinely good pattern from training data or a plausible-sounding but wrong one is a reading-discipline call, applied to a different kind of "source" than a paper or a repo.
+
+**Build-to-learn:** Take the next non-trivial task you hand to an AI assistant on DeskFlow or NeuroQuant. Before you send the prompt, write down — separately, for yourself — what a *wrong* answer would look like and how you'd catch it. Then compare that note against what you actually did to verify the output afterward. The gap between the two is exactly the part of this skill you haven't automated yet.
+
+::: quiz mcq L3
+An AI assistant gives you a detailed, technically fluent explanation of why a proposed database index will speed up a slow query. What should you do before trusting it?
+- [ ] Accept it — the explanation is detailed and internally consistent
+- [ ] Ask the same model "are you sure this is right?" and trust whatever it says next
+- [x] Run EXPLAIN on the actual query with and without the proposed index and compare
+- [ ] Trust it if it cites a real concept like B-trees correctly
+explain: Fluency, internal consistency, and correct terminology are not evidence of correctness — and asking the same model to re-check itself isn't independent verification. Only an external, ground-truth check (actually running EXPLAIN) tells you whether the claim holds.
+:::
+
+::: quiz open L5
+Design a verification step for an AI-proposed change to NeuroQuant's Kelly Criterion position-sizing logic — something where a subtly wrong answer could look completely plausible. What ground truth would you check it against, and why is asking the model to explain its own reasoning insufficient?
+rubric: A concrete, external check — e.g., hand-computing the Kelly fraction for a known toy case with a known correct answer, or backtesting the change against a case where the correct sizing behavior is already known. An explanation of why the model re-explaining itself doesn't count as verification: it has no new external signal, so a confidently wrong first answer and a confidently wrong second answer are equally uninformative.
+:::
+
+::: layer L5 deeper
+**The recursion/parse loop, formalized.** Your own agentic systems work (the "recursion/parse loop" your North Star document already names) is this exact meta-skill, implemented in code instead of practiced by hand: an agent proposes an action, a parser/verifier checks it against ground truth or a schema, and failures route back with a diagnosis instead of a blind retry. The deeper version worth studying is *self-correction reliability* in multi-agent and tool-calling systems — specifically, why naive "ask the model to check its own output" loops tend to converge on confident-but-wrong states (the verifier shares the same blind spots as the generator when they're the same model), and why the fix is almost always an external, non-model check somewhere in the loop: a compiler, a test suite, a schema validator, a second independent model with a narrower job, or a deterministic calculation. This is precisely the "measure, don't ask" principle from your Part 11 curriculum, generalized past vision models to every agentic system you build.
+:::
+
+---
+
+# Practicing All Six as One Loop
+@mastery L2
+@prereq directing-ai-well
+
+:::: grounding
+includes: Integrating all six meta-skills into a recurring weekly practice cadence instead of a one-time lesson.
+know: A skill practiced once does not survive under pressure. Meta-skills need a recurring slot in a real work cadence to compound — the same way a shipped feature needs a recurring test run to stay shipped, not a one-time check. [ericsson-deliberate-practice]
+misconception: Meta-skills are learned once, like a syntax rule, and then permanently "known." | Meta-skills are perishable and contextual. The debugging discipline that feels automatic on a familiar codebase evaporates on a new stack or at 2am under a deadline unless it's practiced as a standing habit, not a lesson you finished once.
+source: ericsson-deliberate-practice | K. Anders Ericsson, Ralf Th. Krampe, Clemens Tesch-Römer, "The Role of Deliberate Practice in the Acquisition of Expert Performance" | https://doi.org/10.1037/0033-295X.100.3.363
+::::
+
+The six skills in this part don't need a separate practice schedule bolted onto your life — they slot directly into the daily and weekly cadence your North Star document already runs. That's the point of naming them explicitly: once you can see where each one already occurs in your week, you stop treating them as extra work and start treating them as a lens on work you're already doing.
+
+```mermaid
+flowchart LR
+  subgraph Mon["Monday — Plan"]
+    S1["10.3 Knowing what NOT<br>to build: pick the week's<br>ONE outcome"]
+  end
+  subgraph Week["Tue–Fri — Build + Learn"]
+    S2["10.1 Debugging as a science:<br>when the build breaks"]
+    S3["10.2 Reading source &amp; papers:<br>during the Learn block"]
+    S4["10.6 Directing AI well:<br>ambient, every AI-assisted step"]
+    S5["10.5 Taste &amp; judgment:<br>ambient, every design choice"]
+  end
+  subgraph Sat["Saturday — Ship &amp; Show"]
+    S6["10.4 Technical writing:<br>the release note /<br>build-in-public post"]
+  end
+  Mon --> Week --> Sat
+```
+
+The honest test of whether any of this landed isn't whether you can recite the six names back — it's whether, three months from now, your own AI-coaching loop (the README at the top of your North Star doc) scores you higher on these than it does today, based on what you actually *demonstrate*, not what you claim to know. That scoring mechanism already exists in your workflow; this lesson just gave it something real to measure.
+
+::: callout tip
+When you next run your AI Coaching README loop on Part 10, don't just talk about the concepts — walk through a real example for each skill from the last two weeks of actual DeskFlow or NeuroQuant work. "I can name the six meta-skills" is L1. "I can point to a specific Tuesday where I used the bisection method on a real bug" is L3 or higher. The gap between those two answers is the whole gap this part exists to close.
+:::

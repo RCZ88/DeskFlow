@@ -6,9 +6,12 @@ import type Database from 'better-sqlite3';
 export function runMigration(db: Database) {
   const fs = require('fs');
   const path = require('path');
-  const sqlPath = path.join(__dirname, 'migrations/001_learn.sql');
-  const sql = fs.readFileSync(sqlPath, 'utf-8');
-  db.exec(sql);
+  const migrationsDir = path.join(__dirname, 'migrations');
+  const files = fs.readdirSync(migrationsDir).filter((f: string) => f.endsWith('.sql')).sort();
+  for (const file of files) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
+    db.exec(sql);
+  }
 }
 
 // ── Lessons ──
@@ -190,4 +193,161 @@ export function getDueReviews(db: Database) {
     WHERE np.due_at IS NOT NULL AND np.due_at <= ?
     ORDER BY np.due_at ASC
   `).all(now);
+}
+
+// ── Learner Profile (key-value store, replaces localStorage) ──
+
+export function getProfileValue(db: Database, key: string): string | null {
+  const row = db.prepare('SELECT value FROM learn_profile WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setProfileValue(db: Database, key: string, value: string): void {
+  db.prepare('INSERT OR REPLACE INTO learn_profile (key, value) VALUES (?, ?)').run(key, value);
+}
+
+export function deleteProfileValue(db: Database, key: string): void {
+  db.prepare('DELETE FROM learn_profile WHERE key = ?').run(key);
+}
+
+export function getAllProfileValues(db: Database): Record<string, string> {
+  const rows = db.prepare('SELECT key, value FROM learn_profile').all() as { key: string; value: string }[];
+  const result: Record<string, string> = {};
+  for (const row of rows) result[row.key] = row.value;
+  return result;
+}
+
+// ── Notes ──
+
+export function insertNote(db: Database, note: {
+  id: string; node_id: string; ts: string; text: string;
+  tags?: string[]; pinned?: number; block_ref?: string;
+}) {
+  db.prepare(`
+    INSERT INTO learn_notes (id, node_id, ts, text, tags_json, pinned, block_ref)
+    VALUES (@id, @node_id, @ts, @text, @tags_json, @pinned, @block_ref)
+  `).run({
+    id: note.id, node_id: note.node_id, ts: note.ts, text: note.text,
+    tags_json: note.tags ? JSON.stringify(note.tags) : null,
+    pinned: note.pinned ?? 0, block_ref: note.block_ref ?? null,
+  });
+}
+
+export function getNotesForNode(db: Database, nodeId: string) {
+  return db.prepare('SELECT * FROM learn_notes WHERE node_id = ? ORDER BY ts DESC').all(nodeId);
+}
+
+export function getAllNotes(db: Database, limit = 20) {
+  return db.prepare('SELECT * FROM learn_notes ORDER BY ts DESC LIMIT ?').all(limit);
+}
+
+export function deleteNote(db: Database, noteId: string) {
+  db.prepare('DELETE FROM learn_notes WHERE id = ?').run(noteId);
+}
+
+export function toggleNotePin(db: Database, noteId: string, pinned: number) {
+  db.prepare('UPDATE learn_notes SET pinned = ? WHERE id = ?').run(pinned, noteId);
+}
+
+// ── Actions (conversation messages) ──
+
+export function insertAction(db: Database, action: {
+  node_id: string; block_id?: string; role: string; ts: string;
+  text: string; meta?: Record<string, unknown>;
+}) {
+  return db.prepare(`
+    INSERT INTO learn_actions (node_id, block_id, role, ts, text, meta_json)
+    VALUES (@node_id, @block_id, @role, @ts, @text, @meta_json)
+  `).run({
+    node_id: action.node_id, block_id: action.block_id ?? null,
+    role: action.role, ts: action.ts, text: action.text,
+    meta_json: action.meta ? JSON.stringify(action.meta) : null,
+  });
+}
+
+export function getActionsForNode(db: Database, nodeId: string, limit = 50) {
+  return db.prepare('SELECT * FROM learn_actions WHERE node_id = ? ORDER BY ts DESC LIMIT ?').all(nodeId, limit);
+}
+
+export function getActionsForBlock(db: Database, blockId: string) {
+  return db.prepare('SELECT * FROM learn_actions WHERE block_id = ? ORDER BY ts ASC').all(blockId);
+}
+
+// ── Conversations ──
+
+export function insertConversation(db: Database, conv: {
+  id: string; node_id: string; block_id: string;
+  status?: string; created_at: string; updated_at: string;
+}) {
+  db.prepare(`
+    INSERT INTO learn_conversations (id, node_id, block_id, status, created_at, updated_at)
+    VALUES (@id, @node_id, @block_id, @status, @created_at, @updated_at)
+  `).run(conv);
+}
+
+export function getConversation(db: Database, convId: string) {
+  return db.prepare('SELECT * FROM learn_conversations WHERE id = ?').get(convId);
+}
+
+export function getConversationsForNode(db: Database, nodeId: string) {
+  return db.prepare('SELECT * FROM learn_conversations WHERE node_id = ? ORDER BY updated_at DESC').all(nodeId);
+}
+
+export function updateConversationStatus(db: Database, convId: string, status: string) {
+  const now = new Date().toISOString();
+  db.prepare('UPDATE learn_conversations SET status = ?, updated_at = ? WHERE id = ?').run(status, now, convId);
+}
+
+export function countActiveConversations(db: Database): number {
+  const row = db.prepare("SELECT COUNT(*) as cnt FROM learn_conversations WHERE status = 'active'").get() as { cnt: number };
+  return row.cnt;
+}
+
+// ── Permissions ──
+
+export function getPermission(db: Database, key: string) {
+  return db.prepare('SELECT * FROM learn_permissions WHERE key = ?').get(key);
+}
+
+export function getAllPermissions(db: Database) {
+  return db.prepare('SELECT * FROM learn_permissions').all();
+}
+
+export function upsertPermission(db: Database, perm: {
+  key: string; resource: string; grant: string; rationale?: string;
+}) {
+  db.prepare(`
+    INSERT INTO learn_permissions (key, resource, grant, rationale)
+    VALUES (@key, @resource, @grant, @rationale)
+    ON CONFLICT(key) DO UPDATE SET grant = @grant, rationale = @rationale
+  `).run(perm);
+}
+
+// ── Dashboard ──
+
+export function getTotalTutorAnswers(db: Database): number {
+  const row = db.prepare("SELECT COUNT(*) as cnt FROM learn_actions WHERE role = 'ai'").get() as { cnt: number };
+  return row.cnt;
+}
+
+export function getTotalQuestions(db: Database): number {
+  const row = db.prepare("SELECT COUNT(*) as cnt FROM learn_actions WHERE role = 'user'").get() as { cnt: number };
+  return row.cnt;
+}
+
+export function getTopTutorNodes(db: Database, limit = 5) {
+  return db.prepare(`
+    SELECT a.node_id, n.title, COUNT(*) as count
+    FROM learn_actions a
+    JOIN learn_nodes n ON a.node_id = n.id
+    WHERE a.role = 'user'
+    GROUP BY a.node_id
+    ORDER BY count DESC
+    LIMIT ?
+  `).all(limit);
+}
+
+export function countOpenProposals(db: Database): number {
+  const row = db.prepare("SELECT COUNT(*) as cnt FROM learn_actions WHERE role = 'proposal' AND meta_json LIKE '%\"status\":\"pending\"%'").get() as { cnt: number };
+  return row.cnt;
 }

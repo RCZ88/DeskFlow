@@ -1,4 +1,6 @@
 import React from 'react';
+import katex from 'katex';
+import DOMPurify from 'dompurify';
 import type { ProseBlock } from '../../../shared/learn/types';
 
 interface Props {
@@ -13,8 +15,9 @@ export function ProseBlock({ block, onAsk }: Props) {
   return (
     <div className="my-4 group relative" data-block-id={block.id}>
       <div
-        className="text-[1.0625rem] leading-[1.7] text-zinc-200 max-w-[68ch] font-serif"
-        dangerouslySetInnerHTML={{ __html: rendered }}
+        className="text-[1.0625rem] leading-[1.7] text-zinc-200 max-w-[68ch] font-serif select-text"
+        style={{ userSelect: 'text' }}
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(rendered) }}
       />
       {/* Select-to-ask affordance */}
       {onAsk && (
@@ -34,11 +37,69 @@ export function ProseBlock({ block, onAsk }: Props) {
 }
 
 function renderMarkdown(md: string): string {
-  return md
-    // Code blocks
+  let text = md;
+
+  // Protect inline code spans from further transforms
+  const codeSpans: string[] = [];
+  text = text.replace(/`([^`]+)`/g, (_, code) => {
+    codeSpans.push(`<code class="bg-zinc-800/60 rounded px-1 py-0.5 text-sm font-mono text-cyan-300">${code}</code>`);
+    return `%%CODE${codeSpans.length - 1}%%`;
+  });
+
+  // Detect contiguous pipe-table line runs → real <table> HTML
+  const lines = text.split('\n');
+  const result: string[] = [];
+  let tableBuf: string[] = [];
+  const isTableRow = (s: string) => /^\s*\|(.+)\|\s*$/.test(s);
+  const isDivider = (s: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(s);
+  const splitCells = (s: string) => s.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+
+  const flushTable = () => {
+    if (tableBuf.length < 2) { result.push(...tableBuf); tableBuf = []; return; }
+    const headerLine = tableBuf[0];
+    const dividerLine = tableBuf[1];
+    if (!isDivider(dividerLine)) { result.push(...tableBuf); tableBuf = []; return; }
+    const headers = splitCells(headerLine);
+    const bodyRows = tableBuf.slice(2).map(splitCells);
+    let html = '<table class="w-full my-4 text-[0.95rem] border-collapse"><thead><tr class="border-b border-zinc-600">';
+    headers.forEach((h) => { html += `<th class="text-left py-2 px-3 font-semibold text-zinc-100">${h}</th>`; });
+    html += '</tr></thead><tbody>';
+    bodyRows.forEach((cells) => {
+      html += '<tr class="border-b border-zinc-800">';
+      cells.forEach((c) => { html += `<td class="py-2 px-3 text-zinc-300">${c}</td>`; });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    result.push(html);
+    tableBuf = [];
+  };
+
+  for (const line of lines) {
+    if (isTableRow(line)) {
+      tableBuf.push(line);
+    } else {
+      flushTable();
+      result.push(line);
+    }
+  }
+  flushTable();
+  text = result.join('\n');
+
+  // Inline math $...$ (protect code placeholders first)
+  text = text.replace(/%%CODE(\d+)%%/g, (_, idx) => `%%C${idx}%%`);
+  text = text.replace(/(?<!\\)\$([^$\n]+?)\$/g, (_m, tex) => {
+    try { return katex.renderToString(tex, { throwOnError: false, displayMode: false }); }
+    catch { return _m; }
+  });
+  text = text.replace(/%%C(\d+)%%/g, (_, idx) => codeSpans[Number(idx)]);
+
+  // Code blocks
+  text = text
     .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="bg-zinc-800/50 rounded-lg p-3 my-2 overflow-x-auto text-sm font-mono text-zinc-300"><code>$2</code></pre>')
-    // Inline code
-    .replace(/`([^`]+)`/g, '<code class="bg-zinc-800/60 rounded px-1 py-0.5 text-sm font-mono text-cyan-300">$1</code>')
+    // Restore code placeholders
+    .replace(/%%CODE(\d+)%%/g, (_, idx) => codeSpans[Number(idx)]);
+
+  return text
     // Bold
     .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
     // Italic
@@ -48,7 +109,14 @@ function renderMarkdown(md: string): string {
     .replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold text-white mt-4 mb-2">$1</h2>')
     .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-semibold text-white mt-4 mb-2">$1</h1>')
     // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-indigo-400 hover:text-indigo-300 underline" target="_blank" rel="noopener">$1</a>')
-    // Line breaks
-    .replace(/\n/g, '<br/>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-amber-400 hover:text-amber-300 underline" target="_blank" rel="noopener">$1</a>')
+    // Paragraph wrapping — gives browser proper block-level boundaries for text selection
+    .split(/\n\n+/)
+    .map(p => {
+      const trimmed = p.trim();
+      if (!trimmed) return '';
+      if (trimmed.startsWith('<h')) return trimmed;
+      return `<p>${trimmed.replace(/\n/g, '<br/>')}</p>`;
+    })
+    .join('\n');
 }

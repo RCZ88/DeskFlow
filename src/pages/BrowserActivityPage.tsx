@@ -1,12 +1,21 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react';
-import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronLeft, ChevronRight, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronLeft, ChevronRight, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon, Layers, Search, Filter, Monitor, Tags, ListOrdered, AppWindow, Zap, Award, Timer, LayoutGrid } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { LoadingState } from '../components/LoadingState';
-import { format as dateFormat } from 'date-fns';
+import { SectionState } from '../components/SectionState';
+import { Input } from '../components/ui/input';
+import { Select, SelectItem } from '../components/ui/select';
+import { Badge } from '../components/ui/badge';
+import { Toggle } from '../components/ui/toggle';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../components/ui/accordion';
+import { BorderBeam } from '../components/ui/border-beam';
+import { NumberTicker } from '../components/ui/number-ticker';
+import { DotPattern } from '../components/ui/dot-pattern';
+import { format as dateFormat, format } from 'date-fns';
 import { Pie, Bar, Line } from 'react-chartjs-2';
-import { format } from 'date-fns';
 import { getDateRange, isInRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
 import {
@@ -21,8 +30,9 @@ import {
   Legend,
   Filler
 } from 'chart.js';
+import { glassBackdrop, centerText, makeGradient, sharedTooltipStyle, sharedScales, barAnimation, pieAnimation } from '../lib/chart-plugins';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler, glassBackdrop, centerText);
 
 // Category colors matching the app's planet color system
 const CATEGORY_COLORS: Record<string, string> = {
@@ -56,6 +66,7 @@ function formatDuration(ms: number): string {
 }
 
 interface BrowserActivityPageProps {
+  embedded?: boolean;
   selectedPeriod?: Period;
   dateOffset?: number;
   onDateOffsetChange?: (offset: number) => void;
@@ -64,7 +75,7 @@ interface BrowserActivityPageProps {
   allLogs?: unknown[];
 }
 
-export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments: tierAssignmentsProp, allLogs }: BrowserActivityPageProps) {
+export default function BrowserActivityPage({ embedded, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments: tierAssignmentsProp, allLogs }: BrowserActivityPageProps) {
   const [domainStats, setDomainStats] = useState<any[]>([]);
   const [categoryStats, setCategoryStats] = useState<any[]>([]);
   const [browserLogs, setBrowserLogs] = useState<any[]>([]);
@@ -77,6 +88,8 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
   const [detailDateOffset, setDetailDateOffset] = useState(0);
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
   const [liveLogs, setLiveLogs] = useState<Array<{id: string; timestamp: number; domain: string; url?: string; title?: string; type: string; level?: string}>>([]);
+  const [liveSearchQuery, setLiveSearchQuery] = useState('');
+  const [liveLevelFilter, setLiveLevelFilter] = useState<'all' | 'info' | 'warning' | 'error'>('all');
   const [isLiveMode, setIsLiveMode] = useState(true);
   const [mainBrowser, setMainBrowser] = useState<string>('');
   const [availableBrowsers, setAvailableBrowsers] = useState<string[]>([]);
@@ -99,6 +112,18 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
       window.scrollTo(0, scrollPosRef.current);
     }
   }, [selectedPeriod, dateOffset]);
+
+  const displayedLiveLogs = useMemo(() => {
+    let filtered = liveLogs.slice().reverse();
+    if (liveLevelFilter !== 'all') {
+      filtered = filtered.filter(l => (l.level || 'info') === liveLevelFilter);
+    }
+    if (liveSearchQuery.trim()) {
+      const q = liveSearchQuery.toLowerCase();
+      filtered = filtered.filter(l => l.domain.toLowerCase().includes(q) || (l.title || '').toLowerCase().includes(q));
+    }
+    return filtered;
+  }, [liveLogs, liveLevelFilter, liveSearchQuery]);
 
   const currentRange = useMemo(() =>
     getDateRange(selectedPeriod, dateOffset),
@@ -292,12 +317,12 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     isMountedRef.current = true;
     fetchData();
     
-    // Auto-refresh every 10 seconds (skip for 'all' to avoid heavy re-fetches)
+    // Auto-refresh every 30 seconds (skip for 'all' to avoid heavy re-fetches)
     const interval = setInterval(() => {
       if (isMountedRef.current && !loading && selectedPeriod !== 'all') {
         fetchData();
       }
-    }, 10000);
+    }, 30000);
     
     return () => {
       isMountedRef.current = false;
@@ -333,10 +358,16 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
       datasets: [{
         label: 'Time Spent',
         data: top10.map(d => Math.round(d.total_ms / 60000)), // Convert to minutes
-        backgroundColor: top10.map(d => CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other']),
+        backgroundColor: (ctx: any) => {
+          const cat = top10[ctx.dataIndex]?.category || 'Other';
+          return makeGradient(ctx, CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other']);
+        },
         borderColor: top10.map(d => CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other']),
         borderWidth: 1,
-        borderRadius: 6
+        borderRadius: 6,
+        borderSkipped: false,
+        categoryPercentage: 0.7,
+        barPercentage: 0.8,
       }]
     };
   }, [domainStats]);
@@ -346,7 +377,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     return {
       labels: categoryStats.map(c => c.category),
       datasets: [{
-        data: categoryStats.map(c => c.total_ms),
+        data: categoryStats.map(c => Math.round(c.total_ms / 1000)),
         backgroundColor: categoryStats.map(c => CATEGORY_COLORS[c.category] || CATEGORY_COLORS['Other']),
         borderColor: '#18181b',
         borderWidth: 2
@@ -358,54 +389,40 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
+      glassBackdrop: true,
       legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: (ctx: any) => `${formatDuration(ctx.raw * 60000)}`,
-          title: (items: any) => items[0]?.label || ''
-        }
-      }
+      tooltip: { ...sharedTooltipStyle, callbacks: { label: (ctx: any) => `${formatDuration(ctx.raw * 60000)}`, title: (items: any) => items[0]?.label || '' } }
     },
-    scales: {
-      y: {
-        beginAtZero: true,
-        ticks: {
-          color: '#71717a',
-          callback: (value: any) => `${value}m`
-        },
-        grid: { color: '#27272a' }
-      },
-      x: {
-        ticks: { color: '#a1a1aa', maxRotation: 45 },
-        grid: { display: false }
-      }
-    }
+    scales: sharedScales,
+    animation: barAnimation,
   };
 
   const categoryPieOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    cutout: '64%',
     plugins: {
+      glassBackdrop: true,
+      centerText: { enabled: true },
       legend: {
         position: 'right' as const,
         labels: {
-          color: '#d4d4d8',
+          color: '#a1a1aa',
           padding: 15,
-          font: { size: 12, family: 'system-ui' },
+          font: { size: 12, family: '"JetBrains Mono", monospace' },
           generateLabels: (chart: any) => {
             const data = chart.data;
             if (data.labels.length && data.datasets.length) {
               return data.labels.map((label: string, i: number) => {
                 const value = data.datasets[0].data[i];
                 return {
-                  text: `${label}: ${formatDuration(value)}`,
+                  text: `${label}: ${formatDuration(value * 1000)}`,
                   fillStyle: data.datasets[0].backgroundColor[i],
                   strokeStyle: data.datasets[0].borderColor,
                   lineWidth: 2,
                   hidden: false,
                   index: i,
-                  fontColor: '#d4d4d8',
-                  textStrokeColor: '#d4d4d8'
+                  fontColor: '#a1a1aa',
                 };
               });
             }
@@ -413,19 +430,10 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
           }
         }
       },
-      tooltip: {
-        bodyColor: '#d4d4d8',
-        titleColor: '#d4d4d8',
-        backgroundColor: 'rgba(24, 24, 27, 0.9)',
-        titleFont: { color: '#d4d4d8' },
-        bodyFont: { color: '#d4d4d8' },
-        borderColor: '#27272a',
-        borderWidth: 1,
-        callbacks: {
-          label: (ctx: any) => ` ${formatDuration(ctx.raw)}`
-        }
-      }
-    }
+      tooltip: { ...sharedTooltipStyle, callbacks: { label: (ctx: any) => ` ${formatDuration(ctx.raw * 1000)}` } }
+    },
+    animation: pieAnimation,
+    hover: { mode: 'index' as const, intersect: false },
   };
 
   // Hourly/daily distribution computed from browserLogs based on selectedPeriod
@@ -505,22 +513,25 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     datasets: [{
       label: 'Duration',
       data: hourlyDistribution.map(h => h.ms),
-      backgroundColor: hourlyDistribution.map((_, i) => {
+      backgroundColor: (ctx: any) => {
         if (selectedPeriod === 'today') {
           const currentHour = new Date().getHours();
-          return i === currentHour ? '#10b981' : 'rgba(99, 102, 241, 0.6)';
+          return ctx.dataIndex === currentHour ? makeGradient(ctx, '#10b981') : makeGradient(ctx, '#3b82f6');
         }
-        return 'rgba(99, 102, 241, 0.6)';
-      }),
+        return makeGradient(ctx, '#3b82f6');
+      },
       borderColor: hourlyDistribution.map((_, i) => {
         if (selectedPeriod === 'today') {
           const currentHour = new Date().getHours();
-          return i === currentHour ? '#059669' : '#6366f1';
+          return i === currentHour ? '#059669' : '#3b82f6';
         }
-        return '#6366f1';
+        return '#3b82f6';
       }),
       borderWidth: 1,
-      borderRadius: 4,
+      borderRadius: 6,
+      borderSkipped: false,
+      categoryPercentage: 0.7,
+      barPercentage: 0.8,
     }]
   };
 
@@ -528,33 +539,12 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
+      glassBackdrop: true,
       legend: { display: false },
-      tooltip: {
-        backgroundColor: 'rgba(24, 24, 27, 0.95)',
-        titleColor: '#fff',
-        bodyColor: '#a1a1aa',
-        borderColor: '#3f3f46',
-        borderWidth: 1,
-        padding: 12,
-        callbacks: {
-          label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}`,
-        }
-      }
+      tooltip: { ...sharedTooltipStyle, callbacks: { label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}` } }
     },
-    scales: {
-      x: {
-        grid: { display: false },
-        ticks: { color: '#71717a', maxTicksLimit: selectedPeriod === 'today' ? 12 : selectedPeriod === 'week' ? 7 : selectedPeriod === 'all' ? 24 : 15 }
-      },
-      y: {
-        grid: { color: '#27272a' },
-        ticks: {
-          color: '#71717a',
-          callback: (v: any) => formatDuration(v),
-        },
-        beginAtZero: true,
-      }
-    },
+    scales: sharedScales,
+    animation: barAnimation,
   };
 
   // Line chart version
@@ -563,26 +553,15 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     datasets: [{
       label: 'Duration',
       data: hourlyDistribution.map(h => h.ms),
-      borderColor: '#6366f1',
-      backgroundColor: 'rgba(99, 102, 241, 0.2)',
+      borderColor: '#3b82f6',
+      backgroundColor: (ctx: any) => makeGradient(ctx, '#3b82f6'),
       fill: true,
-      tension: 0.3,
-      pointBackgroundColor: hourlyDistribution.map((_, i) => {
-        if (selectedPeriod === 'today') {
-          const currentHour = new Date().getHours();
-          return i === currentHour ? '#10b981' : '#6366f1';
-        }
-        return '#6366f1';
-      }),
-      pointBorderColor: hourlyDistribution.map((_, i) => {
-        if (selectedPeriod === 'today') {
-          const currentHour = new Date().getHours();
-          return i === currentHour ? '#059669' : '#6366f1';
-        }
-        return '#6366f1';
-      }),
-      pointRadius: selectedPeriod === 'today' ? 4 : 2,
-      pointHoverRadius: 6,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      pointBackgroundColor: '#3b82f6',
+      pointBorderColor: '#3b82f6',
+      borderWidth: 2,
     }]
   };
 
@@ -666,142 +645,163 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
     { key: 'all', label: 'All' },
   ];
 
+  const wrapPage = (content: React.ReactNode) => {
+    if (embedded) return <>{content}</>;
+    return <PageShell page="browser"><DotPattern className="z-0" opacity={0.04} /><div className="relative z-1">{content}</div></PageShell>;
+  };
+
   if (loading) {
-    return <PageShell page="browser"><LoadingState variant="spinner" className="py-24" /></PageShell>;
+    return wrapPage(<LoadingState variant="spinner" className="py-24" />);
   }
 
   if (error) {
-    return (
-      <PageShell page="browser">
-        <GlassCard>
-          <div className="text-center py-8">
-            <AlertCircle className="mx-auto w-12 h-12 mb-4 text-red-500" />
-            <div className="text-red-400 font-medium">Error loading browser data</div>
-            <div className="text-sm text-zinc-500 mt-2">{error}</div>
+    return wrapPage(
+      <GlassCard>
+        <div className="text-center py-8">
+          <AlertCircle className="mx-auto w-12 h-12 mb-4 text-red-500" />
+          <div className="text-red-400 font-medium">Error loading browser data</div>
+          <div className="text-sm text-zinc-500 mt-2">{error}</div>
             <button onClick={fetchData} className="mt-4 px-4 py-2 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-sm transition">Retry</button>
           </div>
         </GlassCard>
-      </PageShell>
     );
   }
 
-  return (
-    <PageShell page="browser">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <Globe className="text-blue-500" />
-            Browser Activity
-          </h1>
-          <p className="text-sm text-zinc-500 mt-1">Track your browsing habits by domain and category</p>
-        </div>
-        <div className="flex items-center gap-4">
-          {/* Period label */}
-          <div className="flex items-center space-x-2">
-            <span className="text-sm font-medium px-2 min-w-[80px] text-center text-zinc-400">
-              {getViewLabel()}
-            </span>
-          </div>
-
-          {/* Main Browser Config */}
-              <GlassCard className="p-4">
+  const mainContent = (
+    <>
+      {!embedded && (
+        <div className="sticky top-0 z-30 -mx-5 px-5 bg-zinc-900/20 backdrop-blur-md border-b border-zinc-800/50 py-3">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Globe className="w-4 h-4 text-zinc-400" />
-                <span className="text-sm text-zinc-300">Tracking Browser</span>
+              <div className="h-9 w-9 rounded-xl grid place-items-center bg-[rgba(59,130,246,0.14)]">
+                <Layers className="w-5 h-5 text-[#3b82f6]" />
               </div>
-              <select data-tutorial="browser.selector"
-                value={mainBrowser}
-                onChange={async (e) => {
-                  const newBrowser = e.target.value;
-                  setMainBrowser(newBrowser);
-                  if (window.deskflowAPI?.setBrowserWithExtension) {
-                    await window.deskflowAPI.setBrowserWithExtension(newBrowser);
-                    setExtensionBrowser(newBrowser);
-                    console.log('[BrowserActivity] Saved extension browser:', newBrowser);
-                  }
-                }}
-                className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
-              >
-                {availableBrowsers.length === 0 ? (
-                  <option value="">No browsers found</option>
-                ) : (
-                  availableBrowsers.map(browser => {
-                    const isExtensionBrowser = browser.toLowerCase() === extensionBrowser.toLowerCase();
-                    console.log('[BrowserActivity] Rendering option:', browser, 'isExtension?', isExtensionBrowser);
-                    return (
-                      <option key={browser} value={browser}>
-                        {browser.charAt(0).toUpperCase() + browser.slice(1)}{isExtensionBrowser ? ' ★ (with extension)' : ''}
-                      </option>
-                    );
-                  })
-                )}
-              </select>
-              <span className="text-xs text-zinc-500 ml-2">
-                {mainBrowser ? `Excludes ${mainBrowser.charAt(0).toUpperCase() + mainBrowser.slice(1)} browsing time from stats (tracked via extension instead)` : 'Loading...'}
-              </span>
+              <div>
+                <div className="text-lg font-semibold">Browser Activity</div>
+                <div className="text-xs text-zinc-500">Track your browsing habits by domain and category</div>
+              </div>
             </div>
-          </GlassCard>
-
-          <button
-            onClick={fetchData}
-            className="px-4 py-2 bg-zinc-800 rounded-xl hover:bg-zinc-700 text-sm flex items-center gap-2 transition"
-          >
-            <RefreshCw size={14} />
-            Refresh
-          </button>
+            <div className="flex items-center gap-3">
+              <Select data-tutorial="browser.selector"
+              value={mainBrowser}
+              onValueChange={async (newBrowser: string) => {
+                setMainBrowser(newBrowser);
+                if (window.deskflowAPI?.setBrowserWithExtension) {
+                  await window.deskflowAPI.setBrowserWithExtension(newBrowser);
+                  setExtensionBrowser(newBrowser);
+                  console.log('[BrowserActivity] Saved extension browser:', newBrowser);
+                }
+              }}
+            >
+              {availableBrowsers.length === 0 ? (
+                <SelectItem value="">No browsers found</SelectItem>
+              ) : (
+                availableBrowsers.map(browser => {
+                  const isExtensionBrowser = browser.toLowerCase() === extensionBrowser.toLowerCase();
+                  return (
+                    <SelectItem key={browser} value={browser}>
+                      {browser.charAt(0).toUpperCase() + browser.slice(1)}{isExtensionBrowser ? ' ★' : ''}
+                    </SelectItem>
+                  );
+                })
+              )}
+            </Select>
+            <button
+              onClick={fetchData}
+              className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs flex items-center gap-1.5 transition-colors"
+            >
+              <RefreshCw size={12} />
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <GlassCard>
-          <div className="flex items-center gap-3 mb-3">
-            <Clock className="text-blue-500" size={20} />
-            <span className="text-sm text-zinc-400">Total Browsing Time</span>
-          </div>
-          <div className="text-3xl font-bold font-mono">{formatDuration(totalBrowserTime)}</div>
-          <div className="text-xs text-zinc-500 mt-1">Across all sessions</div>
-        </GlassCard>
-
-        <GlassCard>
-          <div className="flex items-center gap-3 mb-3">
-            <Globe className="text-emerald-500" size={20} />
-            <span className="text-sm text-zinc-400">Unique Domains</span>
-          </div>
-          <div className="text-3xl font-bold font-mono">{domainStats.length}</div>
-          <div className="text-xs text-zinc-500 mt-1">Different websites visited</div>
-        </GlassCard>
-
-        <GlassCard>
-          <div className="flex items-center gap-3 mb-3">
-            <TrendingUp className="text-purple-500" size={20} />
-            <span className="text-sm text-zinc-400">Browsing Sessions</span>
-          </div>
-          <div className="text-3xl font-bold font-mono">{totalSessions}</div>
-        </GlassCard>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[
+          { label: 'Total Browsing Time', value: totalBrowserTime, display: formatDuration(totalBrowserTime), numeric: false, sub: 'Across all sessions', icon: Clock, chipBg: 'rgba(59,130,246,0.14)', iconColor: '#3b82f6' },
+          { label: 'Unique Domains', value: domainStats.length, display: String(domainStats.length), numeric: true, sub: 'Different websites visited', icon: Globe, chipBg: 'rgba(16,185,129,0.14)', iconColor: '#10b981' },
+          { label: 'Browsing Sessions', value: totalSessions, display: String(totalSessions), numeric: true, sub: null, icon: Activity, chipBg: 'rgba(139,92,246,0.14)', iconColor: '#8b5cf6' },
+        ].map((stat, idx) => (
+          <motion.div
+            key={idx}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.05 }}
+          >
+            <GlassCard className="group relative overflow-hidden border-zinc-800/50 hover:border-zinc-700/80 transition-colors duration-300">
+              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(59,130,246,0.12),transparent_60%)]" />
+              <div className="relative">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-9 w-9 rounded-lg grid place-items-center" style={{ background: stat.chipBg }}>
+                    <stat.icon className="w-4.5 h-4.5" style={{ color: stat.iconColor }} />
+                  </div>
+                </div>
+                <div className="text-3xl font-semibold tabular-nums tracking-tight text-white">
+                  {stat.numeric ? <NumberTicker value={stat.value as number} /> : stat.display}
+                </div>
+                <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mt-1">{stat.label}</div>
+                {stat.sub && <div className="text-xs text-zinc-600 mt-0.5">{stat.sub}</div>}
+              </div>
+            </GlassCard>
+          </motion.div>
+        ))}
       </div>
 
-       {/* Live Logs Panel */}
+       {/* Live Detection */}
        <GlassCard>
-         <SectionHeader title="Live Detection" icon={<Terminal className="w-5 h-5" />}
-           action={
-             <div className="flex items-center gap-2">
-               <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
-               <button onClick={handleSaveLogs} disabled={liveLogs.length === 0}
-                 className="px-3 py-1.5 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-xs flex items-center gap-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                 <Save size={12} /> Save
+          <SectionHeader title="Live Detection" icon={<Terminal className="w-5 h-5" />}
+            action={
+              <div className="flex items-center gap-2">
+                <button onClick={() => setIsLiveMode(!isLiveMode)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors ${
+                    isLiveMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {isLiveMode ? <Pause size={12} /> : <Play size={12} />}
+                  {isLiveMode ? 'Live' : 'Paused'}
+                </button>
+                <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
+                <button onClick={handleSaveLogs} disabled={liveLogs.length === 0}
+                  className="px-3 py-1.5 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-xs flex items-center gap-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                  <Save size={12} /> Save
+                </button>
+              </div>
+            } />
+         <div className="flex gap-2 mb-3">
+          <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+              <Input
+                placeholder="Search domains..."
+                value={liveSearchQuery}
+                onChange={e => setLiveSearchQuery(e.target.value)}
+                className="pl-8 text-xs"
+              />
+            </div>
+           <div className="flex gap-1 bg-zinc-900 rounded-lg p-0.5 border border-zinc-800">
+             {(['all', 'info', 'warning', 'error'] as const).map(level => (
+               <button
+                 key={level}
+                 onClick={() => setLiveLevelFilter(level)}
+                 className={`px-2.5 py-1.5 text-xs rounded-md capitalize ${
+                   liveLevelFilter === level
+                     ? 'bg-zinc-700 text-white'
+                     : 'text-zinc-500 hover:text-zinc-300'
+                 }`}
+               >
+                 {level}
                </button>
-             </div>
-           } />
-
+             ))}
+           </div>
+         </div>
          <div className="bg-zinc-950 rounded-xl border border-zinc-800/50 p-3 h-48 overflow-y-auto font-mono text-xs">
-           {liveLogs.length === 0 ? (
-             <div className="text-zinc-500 text-center py-8">Live detection paused</div>
+           {displayedLiveLogs.length === 0 ? (
+             <div className="text-zinc-500 text-center py-8">
+               {liveLogs.length === 0 ? 'Live detection paused' : 'No matching events'}
+             </div>
            ) : (
              <div className="space-y-1">
-               {liveLogs.slice().reverse().map((log) => (
+               {displayedLiveLogs.map((log) => (
                  <div key={log.id} className="flex items-start gap-2">
                    <span className="text-zinc-600 shrink-0">
                      {dateFormat(new Date(log.timestamp), 'HH:mm:ss.SSS')}
@@ -811,7 +811,7 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
                      log.level === 'warning' ? 'bg-amber-500/20 text-amber-400' :
                      'bg-emerald-500/20 text-emerald-400'
                    }`}>
-                     {log.level || 'INFO'}
+                     {(log.level || 'INFO').toUpperCase()}
                    </span>
                    <span className="text-blue-400">{log.domain}</span>
                    {log.title && <span className="text-zinc-500 truncate">{log.title}</span>}
@@ -828,58 +828,69 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
           icon={hourlyChartMode === 'bar' ? <BarChart3 className="w-5 h-5" /> : <TrendingUpIcon className="w-5 h-5" />}
           action={
             <div data-tutorial="browser.toggle" className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
-              <button onClick={() => setHourlyChartMode('bar')}
-                className={`p-2 rounded-md transition-colors duration-150 ${hourlyChartMode === 'bar' ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400 hover:text-white'}`}
-                title="Bar Chart"><BarChart3 className="w-4 h-4" /></button>
-              <button onClick={() => setHourlyChartMode('line')}
-                className={`p-2 rounded-md transition-colors duration-150 ${hourlyChartMode === 'line' ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:text-white'}`}
-                title="Line Chart"><TrendingUpIcon className="w-4 h-4" /></button>
+              <Toggle pressed={hourlyChartMode === 'bar'} onPressedChange={() => setHourlyChartMode('bar')}
+                className={`${hourlyChartMode === 'bar' ? 'bg-emerald-500/20 text-emerald-400' : ''}`}
+                aria-label="Bar Chart"><BarChart3 className="w-4 h-4" /></Toggle>
+              <Toggle pressed={hourlyChartMode === 'line'} onPressedChange={() => setHourlyChartMode('line')}
+                className={`${hourlyChartMode === 'line' ? 'bg-indigo-500/20 text-indigo-400' : ''}`}
+                aria-label="Line Chart"><TrendingUpIcon className="w-4 h-4" /></Toggle>
             </div>
           } />
         <p className="text-xs text-zinc-500 mb-4">
-          {selectedPeriod === 'today' ? 'Activity by hour of day' : selectedPeriod === 'all' ? 'All time activity by month' : `${selectedPeriod === 'week' ? '7 days' : selectedPeriod === 'month' ? '30 days' : '90 days'} of activity`}
+          {selectedPeriod === 'today' ? 'Activity by hour of day' : 'Activity over time'}
         </p>
-        <div className="h-56">
-          {hourlyChartMode === 'bar' ? <Bar data={hourlyChartData} options={hourlyChartOptions} /> : <Line data={hourlyLineChartData} options={hourlyChartOptions} />}
+        <div className="relative h-48">
+          {hourlyChartMode === 'bar' ? (
+            hourlyChartData?.labels?.length ? <Bar data={hourlyChartData} options={hourlyChartOptions} /> : <SectionState kind="empty" chart="bar" message="No hourly data yet" />
+          ) : (
+            hourlyLineChartData?.labels?.length ? <Line data={hourlyLineChartData} options={hourlyChartOptions} /> : <SectionState kind="empty" chart="line" message="No hourly data yet" />
+          )}
         </div>
       </GlassCard>
 
       {/* Charts Row */}
-      {categoryStats.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <GlassCard>
-            <SectionHeader title="Time by Category" icon={<BarChart3 className="w-5 h-5" />} />
-            <div className="h-72">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <GlassCard>
+          <SectionHeader title="Time by Category" icon={<BarChart3 className="w-5 h-5" />} />
+          <div className="h-72">
+            {categoryStats.length > 0 ? (
               <Pie data={categoryChartData} options={categoryPieOptions} />
-            </div>
-          </GlassCard>
+            ) : (
+              <SectionState kind="empty" chart="pie" message="No category data" />
+            )}
+          </div>
+        </GlassCard>
 
-          <GlassCard>
-            <SectionHeader title="Top Domains" icon={<TrendingUp className="w-5 h-5" />} />
-            <div className="h-72">
+        <GlassCard>
+          <SectionHeader title="Top Domains" icon={<TrendingUp className="w-5 h-5" />} />
+          <div className="h-72">
+            {domainStats.length > 0 ? (
               <Bar data={domainChartData} options={domainBarOptions} />
-            </div>
-          </GlassCard>
-        </div>
-      )}
+            ) : (
+              <SectionState kind="empty" chart="bar" message="No domain data" />
+            )}
+          </div>
+        </GlassCard>
+      </div>
 
       {/* Recent Activity - Aggregated by domain with dropdown */}
       <GlassCard>
         <SectionHeader title="Recent Activity"
+          icon={<Globe className="w-5 h-5 text-blue-400" />}
           action={aggregatedLogs.length > 0 && <span className="text-xs text-zinc-500">{aggregatedLogs.length} sites</span>} />
         {aggregatedLogs.length === 0 ? (
-          <div className="text-center py-4 text-zinc-500">
-            No recent browsing activity
-          </div>
+          <SectionState kind="empty" message="No recent browsing activity" hint="Visit websites to see them here" />
         ) : (
-          <div className="space-y-2">
+          <motion.div className="space-y-2" initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.04 } } }}>
             {aggregatedLogs.slice(0, 6).map((item, idx) => {
               const isExpanded = expandedDomains.has(item.domain);
               return (
-                <div
+                <motion.div
                   key={item.domain}
-                  className="bg-zinc-900/50 rounded-xl hover:bg-zinc-800/50 transition"
+                  variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
+                  className="group relative overflow-hidden bg-zinc-900/50 rounded-xl hover:bg-zinc-800/50 transition"
                 >
+                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(59,130,246,0.04),transparent_60%)]" />
                   <div 
                     className="flex items-center justify-between py-2 px-4 cursor-pointer"
                     onClick={() => toggleExpanded(item.domain)}
@@ -932,72 +943,99 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
                       </div>
                     </div>
                   )}
-                </div>
+                </motion.div>
               );
             })}
-          </div>
+          </motion.div>
         )}
       </GlassCard>
 
       {/* Domain Breakdown - Grid Layout */}
       <GlassCard data-tutorial="browser.domains">
-                <SectionHeader title="Domain Breakdown" />
-        {domainStats.length === 0 ? (
-          <div className="text-center py-12 text-zinc-500">
-            <Globe className="mx-auto w-12 h-12 mb-3 text-zinc-700" />
-            <div>{timeMode === 'focus' ? 'No productive browsing data' : 'No browsing data yet'}</div>
-            <div className="text-xs mt-1">{timeMode === 'focus' ? 'Switch to Total mode to see all websites' : 'Install the browser extension and start browsing to see data here'}</div>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-[rgba(99,102,241,0.14)] grid place-items-center">
+              <Globe className="w-4 h-4 text-[#6366f1]" />
+            </div>
+            <div>
+              <div className="text-xl font-semibold">Domain Breakdown</div>
+              <div className="text-sm text-zinc-500">All websites by total time</div>
+            </div>
           </div>
+          <div className="text-xs text-zinc-500">{domainStats.length} domains</div>
+        </div>
+        {domainStats.length === 0 ? (
+          <SectionState kind="empty" message={timeMode === 'focus' ? 'No productive browsing data' : 'No browsing data yet'} hint={timeMode === 'focus' ? 'Switch to Total mode to see all websites' : 'Install the browser extension and start browsing'} />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.03 } } }}>
             {domainStats.map((d, i) => (
-              <div
+              <motion.div
                 key={d.domain}
-                className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 hover:border-zinc-700 cursor-pointer transition"
+                variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } } }}
+                className="group relative overflow-hidden bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 hover:border-zinc-700 hover:bg-zinc-900/70 cursor-pointer transition-all"
                 onClick={() => setSelectedDomainDetail(d)}
+                whileHover={{ y: -2 }}
               >
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(99,102,241,0.06),transparent_60%)]" />
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <div
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other'] }}
-                    />
-                    <div className="font-medium text-white truncate">{d.domain}</div>
+                      className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: (CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other']) + '22' }}
+                    >
+                      <Globe className="w-3.5 h-3.5" style={{ color: CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other'] }} />
+                    </div>
+                    <div className="font-medium text-sm text-white truncate">{d.domain}</div>
                   </div>
-                  <div
-                    className="px-2 py-1 rounded-lg text-xs font-medium flex-shrink-0"
+                  <Badge
+                    variant="default"
+                    className="shrink-0 text-[10px]"
                     style={{
                       backgroundColor: `${CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other']}20`,
-                      color: CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other']
+                      color: CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other'],
+                      borderColor: `${CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other']}40`,
                     }}
                   >
                     {d.category}
-                  </div>
+                  </Badge>
                 </div>
-                <div className="space-y-1 text-xs">
+                <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Total Time</span>
-                    <span className="font-mono text-white">{formatDuration(d.total_ms)}</span>
+                    <span className="font-mono text-white tabular-nums">{formatDuration(d.total_ms)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Sessions</span>
-                    <span className="font-mono text-emerald-400">{d.sessions}</span>
+                    <span className="font-mono tabular-nums" style={{ color: CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other'] }}>{d.sessions}</span>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         )}
       </GlassCard>
 
       {/* Domain Detail Modal */}
-      {selectedDomainDetail && (
-          <div
+      <AnimatePresence>
+        {selectedDomainDetail && (
+          <motion.div
             className="fixed inset-0 bg-black/70 backdrop-blur flex items-center justify-center z-50 p-5"
             onClick={() => setSelectedDomainDetail(null)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
           >
-            <GlassCard variant="elevated" className="w-full max-w-3xl max-h-[85vh] overflow-y-auto"
-              onClick={e => e.stopPropagation()}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-3xl max-h-[85vh] overflow-y-auto"
+            >
+            <div className="relative overflow-hidden rounded-xl">
+              <BorderBeam size={120} duration={8} colorFrom="#3b82f6" colorTo="#8b5cf6" />
+              <GlassCard variant="elevated">
               {/* Header */}
               <div className="flex items-start justify-between mb-8">
                 <div className="flex items-center gap-4">
@@ -1012,9 +1050,16 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
                   </div>
                   <div>
                     <h2 className="text-2xl font-semibold">{selectedDomainDetail.domain}</h2>
-                    <div className="text-sm" style={{ color: CATEGORY_COLORS[selectedDomainDetail.category] || CATEGORY_COLORS['Other'] }}>
+                    <Badge
+                      variant="default"
+                      style={{
+                        backgroundColor: `${CATEGORY_COLORS[selectedDomainDetail.category] || CATEGORY_COLORS['Other']}20`,
+                        color: CATEGORY_COLORS[selectedDomainDetail.category] || CATEGORY_COLORS['Other'],
+                        borderColor: `${CATEGORY_COLORS[selectedDomainDetail.category] || CATEGORY_COLORS['Other']}40`,
+                      }}
+                    >
                       {selectedDomainDetail.category}
-                    </div>
+                    </Badge>
                   </div>
                 </div>
                 <button onClick={() => setSelectedDomainDetail(null)} className="text-zinc-400 hover:text-white">
@@ -1025,15 +1070,17 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
               {/* Key Metrics Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 {[
-                  { label: 'Total Time', value: formatDuration(selectedDomainDetail.total_ms), icon: Clock, color: 'text-emerald-400' },
-                  { label: 'Sessions', value: selectedDomainDetail.sessions, icon: Activity, color: 'text-indigo-400' },
-                  { label: 'Avg Session', value: formatDuration(selectedDomainDetail.total_ms / selectedDomainDetail.sessions), icon: TrendingUp, color: 'text-amber-400' },
-                  { label: 'First Seen', value: selectedDomainDetail.first_seen ? format(new Date(selectedDomainDetail.first_seen), 'MMM dd') : 'N/A', icon: BarChart3, color: 'text-violet-400' },
+                  { label: 'Total Time', value: formatDuration(selectedDomainDetail.total_ms), icon: Clock, chipBg: 'rgba(16,185,129,0.14)', iconColor: '#10b981' },
+                  { label: 'Sessions', value: selectedDomainDetail.sessions, icon: Activity, chipBg: 'rgba(99,102,241,0.14)', iconColor: '#6366f1' },
+                  { label: 'Avg Session', value: formatDuration(selectedDomainDetail.total_ms / selectedDomainDetail.sessions), icon: Timer, chipBg: 'rgba(245,158,11,0.14)', iconColor: '#f59e0b' },
+                  { label: 'First Seen', value: selectedDomainDetail.first_seen ? format(new Date(selectedDomainDetail.first_seen), 'MMM dd') : 'N/A', icon: Award, chipBg: 'rgba(139,92,246,0.14)', iconColor: '#8b5cf6' },
                 ].map((metric, idx) => (
                   <div key={idx} className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50">
-                    <metric.icon className={`w-5 h-5 ${metric.color} mb-2`} />
-                    <div className={`text-xl font-semibold tabular-nums ${metric.color}`}>{metric.value}</div>
-                    <div className="text-xs text-zinc-500 mt-1">{metric.label}</div>
+                    <div className="h-8 w-8 rounded-lg grid place-items-center mb-2.5" style={{ background: metric.chipBg }}>
+                      <metric.icon className="w-4.5 h-4.5" style={{ color: metric.iconColor }} />
+                    </div>
+                    <div className="text-xl font-semibold tabular-nums text-white">{metric.value}</div>
+                    <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mt-1">{metric.label}</div>
                   </div>
                 ))}
               </div>
@@ -1119,8 +1166,13 @@ export default function BrowserActivityPage({ selectedPeriod = 'week', dateOffse
                 </div>
               )}
             </GlassCard>
-          </div>
+            </div>
+          </motion.div>
+        </motion.div>
         )}
-    </PageShell>
+      </AnimatePresence>
+      </>
   );
+
+  return wrapPage(mainContent);
 }

@@ -5,6 +5,7 @@ import {
   Network, Search, BookOpen, RefreshCw, ChevronDown, ChevronRight,
   ExternalLink, PanelRightClose, Loader2, Layers
 } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { GlassCard } from './GlassCard';
 
 interface PageEntry {
@@ -68,7 +69,7 @@ function IdentitySection({ content }: { content: string }) {
       {items.map((item, i) => (
         <div key={i} className="flex flex-col gap-0.5 bg-zinc-800/30 rounded-lg px-3 py-2 border border-zinc-700/30">
           <span className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500">{item!.key}</span>
-          <span className="text-[11px] text-zinc-200 font-mono" dangerouslySetInnerHTML={{ __html: item!.value }} />
+          <span className="text-[11px] text-zinc-200 font-mono" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item!.value) }} />
         </div>
       ))}
     </div>
@@ -470,7 +471,7 @@ export default function PageContextPanel({ projectPath }: { projectPath?: string
 
       {/* Cross-Page Patterns Summary */}
       {crossPageItems.length > 0 && (
-        <div className="border-l-2 border-l-purple-500 bg-purple-500/5 rounded-r-lg p-3 mb-3">
+        <div className="border-l-2 border-l-amber-500 bg-amber-500/5 rounded-r-lg p-3 mb-3">
           <div className="flex items-center gap-1.5 mb-2">
             <Network className="w-3 h-3 text-purple-400" />
             <span className="text-[9px] font-semibold uppercase tracking-wider text-purple-400">Cross-Page Patterns</span>

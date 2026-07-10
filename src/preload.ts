@@ -261,6 +261,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   detectProjectScripts: (projectPath: string) => ipcRenderer.invoke('detect-project-scripts', projectPath),
   getProjectRunConfig: (projectId: string) => ipcRenderer.invoke('get-project-run-config', projectId),
   saveProjectRunConfig: (projectId: string, config: any) => ipcRenderer.invoke('save-project-run-config', projectId, config),
+  getAllRunConfigs: () => ipcRenderer.invoke('get-all-run-configs'),
   runProject: (projectId: string, config: any) => ipcRenderer.invoke('run-project', projectId, config),
   executeProjectCommand: (terminalId: string, command: string) => ipcRenderer.invoke('execute-project-command', terminalId, command),
   stopProject: (terminalId: string) => ipcRenderer.invoke('stop-project', terminalId),
@@ -844,6 +845,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeGetMonthlyTrends: () => ipcRenderer.invoke('finance:get-monthly-trends'),
 
   financeIsLocked: () => ipcRenderer.invoke('finance:is-locked'),
+  financeGetLockState: () => ipcRenderer.invoke('finance:get-lock-state'),
   financeUnlock: (password: string) => ipcRenderer.invoke('finance:unlock', password),
   financeLock: () => ipcRenderer.invoke('finance:lock'),
   financeSetPassword: (password: string) => ipcRenderer.invoke('finance:set-password', password),
@@ -870,6 +872,38 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeGetPasswordRequirements: () => ipcRenderer.invoke('finance:get-password-requirements'),
   financeSetPasswordRequirement: (key: string, value: boolean) => ipcRenderer.invoke('finance:set-password-requirement', key, value),
 
+  // ─── FT Person Bridges ───
+  financeGetFtPersons: () => ipcRenderer.invoke('finance:get-ft-persons'),
+  financeGetFtPersonBalances: () => ipcRenderer.invoke('finance:get-ft-person-balances'),
+  financeCreateFtPerson: (data: { name: string; email?: string; phone?: string; notes?: string }) =>
+    ipcRenderer.invoke('finance:create-ft-person', data),
+  financeUpdateFtPerson: (data: { id: number; name?: string; email?: string; phone?: string; notes?: string }) =>
+    ipcRenderer.invoke('finance:update-ft-person', data),
+  financeDeleteFtPerson: (id: number) => ipcRenderer.invoke('finance:delete-ft-person', id),
+  financeRecordFtRepayment: (data: {
+    originalTxId: number; personId?: number; amount: number; date: string;
+    walletId?: number; accountId?: number; description?: string; isOverpayment?: boolean;
+  }) => ipcRenderer.invoke('finance:record-ft-repayment', data),
+
+  financeGetOnBehalfOfSummary: () => ipcRenderer.invoke('finance:get-on-behalf-of-summary'),
+  financeGetDashboardOverview: (currency) => ipcRenderer.invoke('finance:get-dashboard-overview', currency),
+  financeRecalculateBalances: (walletId, dryRun) => ipcRenderer.invoke('finance:recalculate-balances', walletId, dryRun),
+  financeApplyRecalculatedBalance: (walletId) => ipcRenderer.invoke('finance:apply-recalculated-balance', walletId),
+  financeRecalculateAllBalances: () => ipcRenderer.invoke('finance:recalculate-all-balances'),
+  // ========== Audit Log ==========
+  auditList: (params) => ipcRenderer.invoke('audit:list', params || {}),
+  auditGet: (id) => ipcRenderer.invoke('audit:get', id),
+  // ========== Subscriptions ==========
+  subscriptionsList: (walletId) => ipcRenderer.invoke('subscriptions:list', walletId),
+  subscriptionsCreate: (data) => ipcRenderer.invoke('subscriptions:create', data),
+  subscriptionsUpdate: (data) => ipcRenderer.invoke('subscriptions:update', data),
+  subscriptionsDelete: (id) => ipcRenderer.invoke('subscriptions:delete', id),
+  subscriptionsGetUpcomingRenewals: (days) => ipcRenderer.invoke('subscriptions:get-upcoming-renewals', days),
+  subscriptionsGenerateDueTransactions: () => ipcRenderer.invoke('subscriptions:generate-due-transactions'),
+  subscriptionsSkipRenewal: (id) => ipcRenderer.invoke('subscriptions:skip-renewal', id),
+  subscriptionsCheckRenewals: () => ipcRenderer.invoke('subscriptions:check-renewals'),
+  subscriptionsGenerateTransaction: (id) => ipcRenderer.invoke('subscriptions:generate-transaction', id),
+  getHomeSummary: () => ipcRenderer.invoke('get-home-summary'),
   // ========== Vision / Critique ==========
   vision: {
     health: () => ipcRenderer.invoke('vision:health'),
@@ -938,4 +972,84 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     return () => { ipcRenderer.removeListener('workspace-request-save', handler); };
   },
   workspaceAllowClose: () => ipcRenderer.send('workspace-allow-close'),
+
+  // ========== Feature #1: Resource Stats ==========
+  getResourceStats: () => ipcRenderer.invoke('terminal:get-resource-stats'),
+  onResourceStats: (callback: (stats: Record<string, any>) => void) => {
+    const handler = (_event: any, terminalId: string, stats: any) => {
+      callback({ [terminalId]: stats });
+    };
+    ipcRenderer.on('terminal:resource-stats', handler);
+    return () => { ipcRenderer.removeListener('terminal:resource-stats', handler); };
+  },
+
+  // ========== Feature #2: Model Switcher ==========
+  detectModels: (agentType?: string) => ipcRenderer.invoke('models:detect', agentType),
+  setSessionModel: (terminalId: string, model: string, agentType?: string) => ipcRenderer.invoke('agent:set-model', terminalId, model, agentType),
+  onModelChanged: (callback: (data: { terminalId: string; model: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('agent:model-changed', handler);
+    return () => { ipcRenderer.removeListener('agent:model-changed', handler); };
+  },
+
+  // ========== Feature #3: CLI Anomaly + Update ==========
+  onTerminalAnomaly: (callback: (data: { terminalId: string; kind: string; type: string; severity: string; detail: string; ts: number }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('terminal:anomaly', handler);
+    return () => { ipcRenderer.removeListener('terminal:anomaly', handler); };
+  },
+  onCliUpdateAvailable: (callback: (list: Array<{ agent: string; current: string; latest: string; pkg: string }>) => void) => {
+    const handler = (_event: any, list: any) => callback(list);
+    ipcRenderer.on('cli:update-available', handler);
+    return () => { ipcRenderer.removeListener('cli:update-available', handler); };
+  },
+  checkCliUpdates: () => ipcRenderer.invoke('cli:check-updates'),
+
+  // ========== Feature #4: Config Generator ==========
+  generateAgentConfigs: (opts: { agent: string; scope: string; baseDir?: string; customDir?: string; overwrite?: boolean }) =>
+    ipcRenderer.invoke('config:generate', opts),
+  previewAgentConfigs: (opts: { agent: string; scope: string; baseDir?: string; customDir?: string }) =>
+    ipcRenderer.invoke('config:preview', opts),
+
+  // ========== Conductor: Autonomous Multi-Agent System ==========
+  conductorStart: (opts: any) => ipcRenderer.invoke('conductor:start', opts),
+  conductorPause: (missionId: string) => ipcRenderer.invoke('conductor:pause', missionId),
+  conductorResume: (missionId: string) => ipcRenderer.invoke('conductor:resume', missionId),
+  conductorKill: (missionId: string) => ipcRenderer.invoke('conductor:kill', missionId),
+  conductorSetAutonomy: (missionId: string, level: any) => ipcRenderer.invoke('conductor:set-autonomy', missionId, level),
+  conductorSendDirective: (missionId: string, text: string) => ipcRenderer.invoke('conductor:send-directive', missionId, text),
+  conductorResolveEscalation: (missionId: string, escalationId: string, decision: any, note?: string) => ipcRenderer.invoke('conductor:resolve-escalation', missionId, escalationId, decision, note),
+  conductorPromoteIntegration: (missionId: string) => ipcRenderer.invoke('conductor:promote-integration', missionId),
+  conductorGetSnapshot: (missionId: string) => ipcRenderer.invoke('conductor:get-snapshot', missionId),
+  conductorListMissions: () => ipcRenderer.invoke('conductor:list-missions'),
+  onConductorSnapshot: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('conductor:snapshot', handler);
+    return () => { ipcRenderer.removeListener('conductor:snapshot', handler); };
+  },
+  onConductorMessage: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('conductor:message', handler);
+    return () => { ipcRenderer.removeListener('conductor:message', handler); };
+  },
+
+  // ========== Pairing & Relay (mobile phone connection) ==========
+  pairGenerateCode: (terminalId: string) => ipcRenderer.invoke('pair:generate-code', terminalId),
+  pairRevoke: (code: string) => ipcRenderer.invoke('pair:revoke', code),
+  onRelayPaired: (callback: (data: { terminalId: string }) => void) => {
+    const handler = (_event: any, data: { terminalId: string }) => callback(data);
+    ipcRenderer.on('relay:paired', handler);
+    return () => { ipcRenderer.removeListener('relay:paired', handler); };
+  },
+
+  // ========== Device management ==========
+  listDevices: () => ipcRenderer.invoke('devices:list'),
+  revokeDevice: (deviceId: string) => ipcRenderer.invoke('devices:revoke', deviceId),
+  revokeAllDevices: () => ipcRenderer.invoke('devices:revoke-all'),
+
+  // ========== Lyceum Learn — Profile ==========
+  learnGetProfile: ({ key }: { key: string }) => ipcRenderer.invoke('learn:getProfile', { key }),
+  learnSetProfile: ({ key, value }: { key: string; value: string }) => ipcRenderer.invoke('learn:setProfile', { key, value }),
+  learnDeleteProfile: ({ key }: { key: string }) => ipcRenderer.invoke('learn:deleteProfile', { key }),
+  learnGetAllProfile: () => ipcRenderer.invoke('learn:getAllProfile'),
 });

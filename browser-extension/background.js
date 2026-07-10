@@ -410,6 +410,11 @@ async function periodicSync() {
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   console.log('[DeskFlow] 📑 Tab activated:', activeInfo.tabId, 'in window', activeInfo.windowId);
   await updateActiveTab(activeInfo.tabId);
+  // Deep Focus: check if this tab should show overlay
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    if (tab.url) checkTabFocus(activeInfo.tabId, extractDomain(tab.url));
+  } catch {}
 });
 
 // 2. Tab updated (URL changed, page loaded, title changed)
@@ -470,6 +475,8 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
     state.lastPeriodicSync = Date.now(); // Reset sync time for new page
 
     await saveState();
+    // Deep Focus: check if navigated page should show overlay
+    checkTabFocus(details.tabId, extractDomain(tab.url));
   } catch (err) {
     console.debug('[DeskFlow] webNavigation handler failed:', err.message);
   }
@@ -597,6 +604,36 @@ chrome.runtime.onInstalled.addListener(onStartup);
 
 // Also run on service worker wake (handles SW being killed and restarted)
 onStartup();
+
+// ========================================
+// --- Deep Focus: overlay control ---
+// ========================================
+
+let FOCUS_TOKEN = '';
+chrome.storage.local.get('deskflowFocusToken', (v) => { FOCUS_TOKEN = v.deskflowFocusToken || ''; });
+
+async function focusPost(path, body) {
+  try {
+    const r = await fetch(DESKFLOW_SERVER + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-DeskFlow-Token': FOCUS_TOKEN },
+      body: JSON.stringify(body)
+    });
+    return r.ok ? r.json() : null;
+  } catch { return null; }
+}
+
+async function checkTabFocus(tabId, domain) {
+  if (!FOCUS_TOKEN) return;
+  const r = await focusPost('/focus-web-activity', { domain });
+  if (r && r.overlay) chrome.tabs.sendMessage(tabId, { type: 'FOCUS_SHOW' });
+  else chrome.tabs.sendMessage(tabId, { type: 'FOCUS_HIDE' });
+}
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.type === 'FOCUS_CHECK' && sender.tab) checkTabFocus(sender.tab.id, msg.domain);
+  if (msg?.type === 'FOCUS_BREAK') focusPost('/focus-break', { domain: msg.domain });
+});
 
 // ========================================
 // --- Cleanup on service worker shutdown ---

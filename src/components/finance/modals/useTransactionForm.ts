@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getLastType, getLastCategoryId, saveLastTxPrefs } from './txPrefs'
+import { getLastType, getLastCategoryId, getLastDate, saveLastTxPrefs } from './txPrefs'
 import type { TxModalProps, TxType } from './modalUtils'
 
 export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) {
@@ -8,6 +8,7 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
 
 	const lastType = getLastType(prefsType)
 	const lastCat = getLastCategoryId(prefsType)
+	const lastDate = getLastDate(prefsType)
 
 	const [type, setType] = useState<TxType>(
 		allowedTypes.includes(lastType as TxType) ? (lastType as TxType) : allowedTypes[0],
@@ -15,11 +16,16 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
 	const [amount, setAmount] = useState('')
 	const [description, setDescription] = useState('')
 	const [categoryId, setCategoryId] = useState<number | null>(lastCat)
-	const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+	const [date, setDate] = useState(lastDate)
 	const [note, setNote] = useState('')
 	const [showAdvanced, setShowAdvanced] = useState(false)
+	const [onBehalfOf, setOnBehalfOf] = useState(false)
+	const [ftPersonId, setFtPersonId] = useState<number | null>(null)
+	const [ftPersons, setFtPersons] = useState<{ id: number; name: string; email?: string | null; phone?: string | null }[]>([])
+	const [fee, setFee] = useState('')
 
 	const numericAmount = Number(amount.replace(/[^0-9.]/g, '')) || 0
+	const numericFee = Number(fee.replace(/[^0-9.]/g, '')) || 0
 	const categoriesForType = useMemo(
 		() => props.categories.filter((c) => c.type === type),
 		[props.categories, type],
@@ -31,31 +37,40 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
 	}, [categoriesForType, categoryId])
 
 	const reset = useCallback(() => {
-		setAmount(''); setDescription(''); setNote(''); setShowAdvanced(false)
-		setDate(new Date().toISOString().slice(0, 10))
+		setAmount(''); setDescription(''); setNote(''); setShowAdvanced(false); setFee(''); setFtPersonId(null)
 	}, [])
 
 	const persistPrefs = useCallback(() => {
-		saveLastTxPrefs(prefsType, type, categoryId)
-	}, [prefsType, type, categoryId])
+		saveLastTxPrefs(prefsType, type, categoryId, date || undefined)
+	}, [prefsType, type, categoryId, date])
 
-	/** Base payload; modals merge their specialty fields + metadata in. */
-	const buildPayload = useCallback((extra: Record<string, any> = {}) => ({
-		account_id: props.wallet.account_id,
-		wallet_id: props.wallet.id,
-		category_id: categoryId,
-		type,
-		amount: numericAmount,
-		description: description.trim(),
-		date,
-		note: note.trim() || undefined,
-		...extra,
-	}), [props.wallet, categoryId, type, numericAmount, description, date, note])
+  const ftLabel = ftPersonId
+    ? (ftPersons.find(p => p.id === ftPersonId)?.name ?? '')
+    : '';
+
+  /** Base payload; modals merge their specialty fields + metadata in. */
+  const buildPayload = useCallback((extra: Record<string, any> = {}) => ({
+    account_id: props.wallet.account_id,
+    wallet_id: props.wallet.id,
+    category_id: categoryId,
+    type,
+    amount: type === 'expense' ? -numericAmount : numericAmount,
+    description: description.trim(),
+    date,
+    note: note.trim() || undefined,
+    on_behalf_of: onBehalfOf ? 1 : 0,
+    on_behalf_of_label: onBehalfOf && ftLabel ? ftLabel : null,
+    ft_person_id: onBehalfOf ? ftPersonId : null,
+    fee: numericFee,
+    ...extra,
+  }), [props.wallet, categoryId, type, numericAmount, description, date, note, onBehalfOf, ftPersonId, ftLabel, numericFee])
 
 	return {
 		type, setType, amount, setAmount, numericAmount,
 		description, setDescription, categoryId, setCategoryId,
 		date, setDate, note, setNote, showAdvanced, setShowAdvanced,
+		onBehalfOf, setOnBehalfOf, ftPersonId, setFtPersonId, ftPersons, setFtPersons,
+		fee, setFee, numericFee,
 		categoriesForType, reset, persistPrefs, buildPayload,
 	}
 }

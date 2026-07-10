@@ -22,6 +22,13 @@
 - It is surfaced in the UI under **Work → Workspaces** subtab.
 - "warn before exiting" = prompt to `workspace:save` when leaving `/terminal` with unsaved changes.
 
+### "conductor" / "swarm" / "mission"
+- **Conductor:** The multi-agent orchestration system that manages swarms of AI agents (director, planner, worker, QA, auditor, resolver) operating on a user project.
+- **Swarm subtab:** Located under Work group in the workspace sidebar (not a standalone page). Shows mission list for the selected project.
+- **Mission:** A specific swarm task with objective, autonomy level (L2/L3/L4), and agent type. Multiple missions per project. Scoped to `selectedProject` path.
+- **repoRoot in ConductorContext:** Comes from the selected project's `path` — NOT user-picked via folder dialog. The ConductorPanel passes `projectPath` as `repoRoot` to `conductorStart`.
+- **Key invariant:** No standalone ConductorPage route. No folder picker for repoRoot. The project must be selected in TerminalPage first.
+
 ### "sidebar"  (AMBIGUOUS — always disambiguate)
 - "workspace sidebar" = the in-`/terminal` 5-group sidebar (Setup/Work/Insights/Studio/Context).
 - "app sidebar" / "navigation" = the App.tsx router rail (Dashboard, Stats, IDE, Settings…).
@@ -32,6 +39,23 @@
 - Workspace "subpage" / "subtab" = a section INSIDE `/terminal`, addressed like
   `work/sessions`, `work/map`, `studio/skills` (see `terminal_sessions.subpage`).
 - "create a page in the workspace" = add a workspace SUBPAGE/subtab, NOT an app route.
+
+### "Follow Through" (formerly "on-behalf-of")
+- MEANS: transactions made on behalf of someone else who will pay you back (e.g. family
+  member using your account). Uses `on_behalf_of=1` in DB. Excluded from personal spending
+  calculations. Shows amber `Handshake` icon in UI. Label in modals: "Follow Through — Is
+  this for someone else? They'll pay me back".
+- Dashboard section: "Follow Through" card in OverviewTab with total, breakdown by person,
+  "You'll be repaid: $X" indicator.
+- Filter: RecentTxnsCard has Personal / Follow Through / All toggle.
+- Technical: `on_behalf_of` column on `finance_transactions`, `financeGetOnBehalfOfSummary`
+  IPC handler. Backend filtering via `AND on_behalf_of = 0` in summary queries.
+
+### "subscriptions page"
+- MEANS: the dedicated route `/subscriptions` (SubscriptionsPage.tsx) — full-page subscription
+  management with card grid, search, filters, Record Payment, cancel links, renewal countdown.
+- NOT the SubscriptionsTab inside `/finance` — that's a compact overview with "View all" link.
+- Sidebar entry: `CalendarClock` icon, "Subscriptions" label.
 
 ## 🗺️ App page map (route → page → where features live)
 | You say… | Route | Page component | Notable sub-areas |
@@ -237,3 +261,39 @@
 - **Location:** `agent/skills/frontend-external-infra/SKILL.md`
 - **What it is:** 10 checkpoints that block a PR if any fail — type, color, geometry, hero pattern, section labels, motion, imagery, empty states, icons, accessibility
 - **Purpose:** Guards against the recognizable signature of AI-generated UI (default fonts, purple gradients, same-radius-everything, hero clichés)
+
+## Design Workspace — New Library Sources
+
+### Cult UI
+- **Where:** Design Workspace → Registry Browser tab (`src/components/workspace/CultUIRegistry.tsx`)
+- **What it is:** Premium shadcn registry components (Dynamic Islands, Family Buttons, rich animations). Installed via `npx shadcn@latest add https://www.cult-ui.com/r/<slug>`.
+- **46 components** across 10 categories (Layout, Buttons, Navigation, Effects, Typography, Data Display, Cards, Forms, Overlay, Backgrounds).
+
+### Fragments UI
+- **Where:** MCP source in Design Workspace. Package `@usefragments/mcp`, channel `fragments-ui`.
+- **What it is:** 66 accessible React components + 80 design tokens + `.fragment.tsx` metadata with 11 MCP tools (search, get, list, etc.). Free, no API key.
+
+### shadcn/ui MCP
+- **Where:** MCP source in Design Workspace. Package `@jpisnice/shadcn-ui-mcp-server`, channel `shadcn-ui-mcp`.
+- **What it is:** Multi-framework shadcn/ui component documentation (React, Svelte, Vue, React Native) with smart caching.
+
+### AIDesigner (aidesigner)
+- **Where:** MCP source in Design Workspace. URL-based MCP at `https://ai-design.xyz/mcp`, channel `aidesigner`.
+- **What it is:** Generate, clone, and refine production-ready web designs via MCP from a live URL. Requires API key.
+
+### React Bits
+- **Where:** Registry source in Design Workspace. Channel `reactbits`.
+- **What it is:** 135+ animated React components (CSS + Tailwind variants) — text animations, particles, hover effects, background effects. No API key needed.
+
+### Swishy Motion
+- **Where:** Motion source in Design Workspace → Motion Explorer tab (`src/components/workspace/MotionExplorer.tsx`). Channel `swishy-motion`.
+- **What it is:** Kinetic typography presets and Framer Motion curve settings. Includes 12+ motion preset snippets (Word Fade Cascade, Character Reveal, Glow Pulse, Card Hover Lift, Magnetic Button, etc.) and 9 easing curve presets with SVG bezier visualization.
+
+### Variant
+- **Where:** Web-tool source in Design Workspace. Channel `variant`. External link opens variant.com.
+- **What it is:** Visual theme exploration canvas — infinite layout ideas based on visual themes. Feed canvas screenshots into agent vision.
+
+### Design Workspace Tabs
+- **Design Sources tab:** The main library card grid + taste knobs + style references + color picker. Shows all 10 library sources.
+- **Motion Explorer tab:** Sub-tab of Design Workspace showing motion presets (kinetic typography code snippets) and easing curve browser with SVG cubic-bezier visualization.
+- **Registry Browser tab:** Sub-tab of Design Workspace showing Cult UI component registry with search, category filters, and npx shadcn@latest command builder.

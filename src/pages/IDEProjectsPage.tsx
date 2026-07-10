@@ -29,8 +29,6 @@ import {
   ExternalLink,
   HelpCircle,
   BookOpen,
-  Lock,
-  Unlock,
   FolderOpen,
   Settings,
   CheckCircle2,
@@ -53,9 +51,9 @@ import {
   FolderGit2,
   Archive,
   FileText,
+  Play,
   Lock,
   Unlock,
-  Play,
 } from 'lucide-react';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import {
@@ -175,6 +173,19 @@ const AGENT_CONFIG: Record<string, { name: string; icon: string; color: string }
   'aider': { name: 'Aider', icon: 'aider', color: '#f59e0b' },
   'kilocode': { name: 'KiloCode', icon: 'kilocode', color: '#22c55e' },
 };
+
+const PROVIDER_MAP: Record<string, string> = {
+  'claude-code': 'Anthropic',
+  'cursor': 'Anthropic',
+  'opencode': 'OpenCode',
+  'gemini': 'Google',
+  'codex': 'OpenAI',
+  'qwen': 'Alibaba',
+  'aider': 'Aider',
+  'kilocode': 'KiloCode',
+};
+
+const MODEL_COLORS = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6', '#8b5cf6'];
 
 function getAgentColor(agentId: string): string {
   try {
@@ -379,20 +390,26 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [showAgentDebug, setShowAgentDebug] = useState(false);
   const [aiChartMode, setAiChartMode] = useState<'tokens' | 'messages' | 'cost' | 'sessions'>('tokens');
   const [tokenDisplayMode, setTokenDisplayMode] = useState<'combined' | 'input' | 'output'>('combined');
-  const [aiPeriod, setAiPeriod] = useState<'week' | 'month' | 'all'>(() => {
-    try { return (localStorage.getItem('ide-projects-ai-period') as 'week' | 'month' | 'all') || 'week'; } catch { return 'week'; }
+  const [timeLock, setTimeLock] = useState(() => {
+    try { return localStorage.getItem('ide-projects-ai-lock') === 'true'; } catch { return false; }
   });
   const [selectedAgentDetail, setSelectedAgentDetail] = useState<AIAgent | null>(null);
-  const [agentDetailPeriod, setAgentDetailPeriod] = useState<'week' | 'month' | 'all'>('week');
-  const [agentDetailMetric, setAgentDetailMetric] = useState<'tokens' | 'messages' | 'sessions' | 'cost'>('tokens');
   const [agentDebugInfo, setAgentDebugInfo] = useState<any>(null);
   const [compareAgents, setCompareAgents] = useState<string[]>([]);
-  const [compareMetric, setCompareMetric] = useState<'tokens' | 'messages' | 'cost' | 'sessions'>('tokens');
-  const [comparePeriod, setComparePeriod] = useState<'week' | 'month' | 'all'>('week');
-  const [timeLock, setTimeLock] = useState(() => localStorage.getItem('ide-projects-time-lock') === 'true');
-  const [logScale, setLogScale] = useState(() => localStorage.getItem('ide-projects-log-scale') !== 'false');
+  const [logScale, setLogScale] = useState(() => localStorage.getItem('ide-projects-log-scale') === 'true');
   const [excludeOutliers, setExcludeOutliers] = useState(() => localStorage.getItem('ide-projects-exclude-outliers') === 'true');
   const [showCityView, setShowCityView] = useState(false);
+  const [viewMode, setViewMode] = useState<'provider' | 'model'>('provider');
+
+  const effectiveAiPeriod = useMemo<'week' | 'month' | 'all'>(() => {
+    if (timeLock) return 'all';
+    switch (selectedPeriod) {
+      case 'all': return 'all';
+      case 'month':
+      case '30day': return 'month';
+      default: return 'week';
+    }
+  }, [selectedPeriod, timeLock]);
 
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -469,7 +486,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
   // Load persisted custom scan directories from disk (not localStorage)
   useEffect(() => {
-    window.deskflowAPI!.getCustomScanDirs().then((dirs: string[]) => {
+    window.deskflowAPI?.getCustomScanDirs()?.then((dirs: string[]) => {
       if (dirs && dirs.length > 0) setSavedCustomDirs(dirs);
     }).catch(() => {});
   }, []);
@@ -558,12 +575,12 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
   useEffect(() => {
     localStorage.setItem('ide-projects-onboarding-seen', 'true');
-    const p = timeLock ? 'all' : (activeTab === 'ai' ? aiPeriod : selectedPeriod);
-    loadOverview(p, timeLock ? 0 : dateOffset);
-    window.deskflowAPI!.getAISyncStatus().then(status => {
+    const p = activeTab === 'ai' ? effectiveAiPeriod : selectedPeriod;
+    loadOverview(p, dateOffset);
+    window.deskflowAPI?.getAISyncStatus().then(status => {
       if (status?.lastRunAt) setAiLastSyncAt(status.lastRunAt);
     }).catch(() => {});
-  }, [timeLock, selectedPeriod, dateOffset, activeTab, aiPeriod]);
+  }, [selectedPeriod, dateOffset, activeTab, effectiveAiPeriod]);
 
   useEffect(() => {
     if (activeTab === 'git' && overview?.projects && overview.projects.length > 0) {
@@ -590,11 +607,8 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   }, [expandedProjects]);
 
   useEffect(() => {
-    localStorage.setItem('ide-projects-time-lock', String(timeLock));
+    localStorage.setItem('ide-projects-ai-lock', String(timeLock));
   }, [timeLock]);
-  useEffect(() => {
-    localStorage.setItem('ide-projects-ai-period', aiPeriod);
-  }, [aiPeriod]);
   useEffect(() => {
     localStorage.setItem('ide-projects-log-scale', String(logScale));
   }, [logScale]);
@@ -608,20 +622,8 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     setAnalyticsLoading(true);
     setAnalyticsError(null);
     try {
-      // Use cache for all-time data if available and recent (less than 5 minutes old)
-      const periodSource = activeTab === 'ai' ? aiPeriod : selectedPeriod;
-      const effectivePeriod = timeLock ? 'all' : periodSource;
-      const effectiveOffset = timeLock ? 0 : dateOffset;
-
-      if (timeLock && analyticsCacheRef.current && analyticsCacheRef.current.timestamp) {
-        const cacheAge = Date.now() - analyticsCacheRef.current.timestamp;
-        if (cacheAge < 5 * 60 * 1000) { // 5 minutes
-          console.log('[IDEProjectsPage] Using cached all-time data');
-          setWorkspaceAnalytics(analyticsCacheRef.current.data);
-          setAnalyticsLoading(false);
-          return;
-        }
-      }
+      const effectivePeriod = activeTab === 'ai' ? effectiveAiPeriod : selectedPeriod;
+      const effectiveOffset = dateOffset;
 
       console.log('[IDEProjectsPage] Fetching analytics data for period:', effectivePeriod);
       const [aiUsageSummary, problems, requests, sessions, promptHistory] = await Promise.all([
@@ -668,7 +670,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       setAnalyticsError(err instanceof Error ? err.message : 'Failed to load analytics');
       setAnalyticsLoading(false);
     }
-  }, [timeLock, selectedPeriod, dateOffset]);
+  }, [selectedPeriod, dateOffset, effectiveAiPeriod, activeTab]);
 
   // Fetch workspace analytics when ai or analytics tab is active
   useEffect(() => {
@@ -676,7 +678,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     // Bypass cache when period changes so data stays in sync
     analyticsCacheRef.current = null;
     fetchAnalytics();
-  }, [activeTab, timeLock, selectedPeriod, dateOffset, fetchAnalytics]);
+  }, [activeTab, selectedPeriod, dateOffset, effectiveAiPeriod, fetchAnalytics]);
 
   const loadGitData = async (projectId: string) => {
     try {
@@ -721,11 +723,10 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const loadOverview = async (period?: string, offset?: number) => {
     setLoading(true);
     try {
-      const fallbackPeriod = activeTab === 'ai' ? aiPeriod : selectedPeriod;
-      const effectivePeriod = period ?? (timeLock ? 'all' : fallbackPeriod);
-      const effectiveOffset = offset ?? (timeLock ? 0 : dateOffset);
+      const effectivePeriod = period ?? (activeTab === 'ai' ? effectiveAiPeriod : selectedPeriod);
+      const effectiveOffset = offset ?? dateOffset;
 
-      console.log('[IDEProjectsPage] Loading overview for period:', effectivePeriod, 'offset:', effectiveOffset, 'timeLock:', timeLock, 'activeTab:', activeTab);
+      console.log('[IDEProjectsPage] Loading overview for period:', effectivePeriod, 'offset:', effectiveOffset, 'activeTab:', activeTab);
 
       const data = await window.deskflowAPI!.getIDEProjectsOverview(effectivePeriod, effectiveOffset);
       console.log('[IDEProjectsPage] Overview loaded, projects:', data?.projects?.length);
@@ -817,7 +818,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
         window.__probe?.expect?.('ai-sync-results', agents);
         setSyncProgress('Refreshing data...');
         await loadOverview();
-        const status = await window.deskflowAPI!.getAISyncStatus();
+        const status = await window.deskflowAPI?.getAISyncStatus();
         if (status?.lastRunAt) {
           setAiLastSyncAt(status.lastRunAt);
           window.__probe?.expect?.('ai-sync-last-run', status.lastRunAt);
@@ -1213,9 +1214,13 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     }, {});
   };
 
+  const aiAgentsRef = useRef<AIAgent[]>([]);
+  const aiAgentsFingerprintRef = useRef('');
   const aiAgents = useMemo((): AIAgent[] => {
     const agents: AIAgent[] = [];
-    const byTool = workspaceAnalytics?.aiUsage?.byTool || overview?.aiUsage?.byTool || {};
+    const wsByTool = workspaceAnalytics?.aiUsage?.byTool;
+    const ovByTool = overview?.aiUsage?.byTool;
+    const byTool = wsByTool && Object.keys(wsByTool).length > 0 ? wsByTool : (ovByTool || {});
 
     for (const [agentId, data] of Object.entries(byTool)) {
       const config = AGENT_CONFIG[agentId] || { name: agentId, icon: agentId, color: '#6366f1' };
@@ -1255,8 +1260,54 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       }
     }
 
+    const fp = agents.map(a => `${a.id}:${a.tokens}:${a.sessions}:${a.cost}:${a.messageCount}:${a.status}`).join('|');
+    if (fp === aiAgentsFingerprintRef.current) return aiAgentsRef.current;
+    aiAgentsFingerprintRef.current = fp;
+    aiAgentsRef.current = agents;
     return agents;
-  }, [workspaceAnalytics?.aiUsage?.byTool, overview?.aiUsage?.byTool, timeLock]); // Add timeLock dependency
+  }, [workspaceAnalytics?.aiUsage?.byTool, overview?.aiUsage?.byTool]);
+
+  const displayedAgents = useMemo(() => {
+    if (viewMode === 'provider') return aiAgents;
+    const byTool = overview?.aiUsage?.byTool || {};
+    const modelMap: Record<string, { tokens: number; tokensIn: number; tokensOut: number; cost: number; sessions: number; messageCount: number; agents: string[]; lastUsed?: number }> = {};
+    for (const [agentId, data] of Object.entries(byTool)) {
+      const modelDaily = (data as any).modelDaily || {};
+      for (const [modelName, dayRecords] of Object.entries(modelDaily)) {
+        if (!modelMap[modelName]) modelMap[modelName] = { tokens: 0, tokensIn: 0, tokensOut: 0, cost: 0, sessions: 0, messageCount: 0, agents: [], lastUsed: 0 };
+        const entry = modelMap[modelName];
+        for (const [dayStr, dayData] of Object.entries(dayRecords as Record<string, any>)) {
+          entry.tokens += dayData.tokens || 0;
+          entry.tokensIn += dayData.tokens_in || 0;
+          entry.tokensOut += dayData.tokens_out || 0;
+          entry.cost += dayData.cost || 0;
+          entry.sessions += dayData.sessions || 0;
+          entry.messageCount += dayData.messageCount || 0;
+          const t = new Date(dayStr).getTime();
+          if (!isNaN(t) && t > entry.lastUsed!) entry.lastUsed = t;
+        }
+        if (!entry.agents.includes(agentId)) entry.agents.push(agentId);
+      }
+    }
+    const models = Object.entries(modelMap).sort((a, b) => b[1].tokens - a[1].tokens);
+    const modelAgents: AIAgent[] = models.map(([modelName, md], idx) => ({
+      id: `model-${modelName}`,
+      name: modelName.length > 28 ? modelName.slice(0, 25) + '...' : modelName,
+      icon: 'model',
+      color: MODEL_COLORS[idx % MODEL_COLORS.length],
+      tokens: md.tokens,
+      tokensIn: md.tokensIn,
+      tokensOut: md.tokensOut,
+      cost: md.cost,
+      sessions: md.sessions,
+      messageCount: md.messageCount,
+      status: md.tokens > 0 ? 'active' : 'idle',
+      lastUsed: md.lastUsed ? new Date(md.lastUsed) : undefined,
+      models: [modelName],
+    }));
+    if (modelAgents.length === 0) return aiAgents;
+    return modelAgents;
+  }, [viewMode, aiAgents, overview?.aiUsage?.byTool]);
 
   useEffect(() => {
       const activeIds = aiAgents.filter(a => a.status !== 'inactive').map(a => a.id);
@@ -1277,19 +1328,53 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   }
 
   const agentChartsData = useMemo(() => {
-    const effectivePeriod = timeLock ? 'all' : aiPeriod;
-    const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 90 };
-    const numDays = daysMap[effectivePeriod] || 7;
+    const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 365 };
+    const numDays = effectiveAiPeriod === 'all'
+      ? (() => {
+          const byTool = overview?.aiUsage?.byTool || {};
+          let minDate = Infinity;
+          let maxDate = -Infinity;
+          for (const tool of Object.values(byTool) as any[]) {
+            const daily = tool?.daily;
+            if (!daily) continue;
+            for (const d of Object.keys(daily)) {
+              const t = new Date(d).getTime();
+              if (!isNaN(t)) { if (t < minDate) minDate = t; if (t > maxDate) maxDate = t; }
+            }
+          }
+          if (maxDate > 0 && minDate < Infinity) {
+            return Math.min(180, Math.max(1, Math.ceil((maxDate - minDate) / 86400000) + 30));
+          }
+          return 60;
+        })()
+      : (daysMap[effectiveAiPeriod] || 7);
 
     const lastDays = eachDayOfInterval({
       start: subDays(new Date(), numDays - 1),
       end: new Date()
     });
 
-    const activeAgents = aiAgents.filter(a => a.status !== 'inactive' && a.tokens > 0);
+    const activeAgents = displayedAgents.filter(a => a.status !== 'inactive' && a.tokens > 0);
 
-    // Optimize: Only process agents with actual data
     const getMetricValue = (agent: AIAgent, dayStr: string) => {
+      if (viewMode === 'model') {
+        const byTool = overview?.aiUsage?.byTool || {};
+        const modelName = agent.models[0];
+        if (!modelName) return 0;
+        let total = 0;
+        for (const tool of Object.values(byTool) as any[]) {
+          const dayData = tool?.modelDaily?.[modelName]?.[dayStr];
+          if (!dayData) continue;
+          if (aiChartMode === 'tokens') {
+            if (tokenDisplayMode === 'input') total += dayData.tokens_in || 0;
+            else if (tokenDisplayMode === 'output') total += dayData.tokens_out || 0;
+            else total += dayData.tokens || 0;
+          } else if (aiChartMode === 'messages') total += dayData.messageCount || 0;
+          else if (aiChartMode === 'sessions') total += dayData.sessions || 0;
+          else if (aiChartMode === 'cost') total += dayData.cost || 0;
+        }
+        return total;
+      }
       const dayData = overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr];
       if (!dayData) return 0;
       if (aiChartMode === 'tokens') {
@@ -1307,9 +1392,11 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       ? tokenDisplayMode === 'input' ? 'Input Tokens' : tokenDisplayMode === 'output' ? 'Output Tokens' : 'Tokens'
       : aiChartMode === 'messages' ? 'Messages' : aiChartMode === 'sessions' ? 'Sessions' : 'Cost';
 
+    const dayLabels = lastDays.map(d => format(d, 'MMM dd'));
+    const dayStrs = lastDays.map(d => format(d, 'yyyy-MM-dd'));
+
     return activeAgents.map(agent => {
-      const labels = lastDays.map(d => format(d, 'MMM dd'));
-      let data = lastDays.map(d => getMetricValue(agent, format(d, 'yyyy-MM-dd')));
+      let data = lastDays.map((_, i) => getMetricValue(agent, dayStrs[i]));
       if (excludeOutliers) data = filterOutlierValues(data);
       if (logScale) data = data.map(v => v === 0 ? null : v) as number[];
       return {
@@ -1318,7 +1405,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
         color: agent.color,
         metricLabel,
         chartData: {
-          labels,
+          labels: dayLabels,
           datasets: [{
             label: `${agent.name} - ${metricLabel}`,
             data,
@@ -1330,11 +1417,12 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
         }
       };
     });
-  }, [aiAgents, overview?.aiUsage?.byTool, aiPeriod, aiChartMode, tokenDisplayMode, timeLock, logScale, excludeOutliers]);
+  }, [displayedAgents, overview?.aiUsage?.byTool, effectiveAiPeriod, aiChartMode, tokenDisplayMode, logScale, excludeOutliers, viewMode]);
 
   const agentDistributionData = useMemo(() => {
-    const activeAgents = aiAgents.filter(a => a.status !== 'inactive');
+    const activeAgents = displayedAgents.filter(a => a.status !== 'inactive');
     const getAgentDisplayName = (id: string) => {
+      if (id.startsWith('model-')) return id.slice(6);
       return AGENT_CONFIG[id]?.name || id;
     };
     const getValue = (agent: AIAgent) => {
@@ -1367,7 +1455,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
         borderWidth: 2,
       }]
     };
-  }, [aiAgents, aiChartMode, tokenDisplayMode]);
+  }, [displayedAgents, aiChartMode, tokenDisplayMode]);
 
   const filteredLanguages = useMemo(() => {
     const search = editProjectForm.primaryLanguage.toLowerCase();
@@ -2250,31 +2338,9 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 </span>
               )}
               <div className="w-px h-6 bg-zinc-700" />
-              <button
-                onClick={() => {
-                  setTimeLock(!timeLock);
-                  // Force immediate update and clear analytics cache when locking/unlocking
-                  if (!timeLock) {
-                    // When locking to all-time, clear cache to force fresh load
-                    analyticsCacheRef.current = null;
-                    setWorkspaceAnalytics(null);
-                    // Immediately trigger reload with all-time
-                    setTimeout(() => {
-                      loadOverview('all', 0);
-                    }, 0);
-                  }
-                }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                  timeLock
-                    ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
-                    : 'text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700'
-                }`}
-                title={timeLock ? 'Unlock timeframe (use nav)' : 'Lock to All Time (ignores nav changes)'}
-              >
-                {timeLock ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-                <span>All Time</span>
-                {timeLock && <span className="ml-1 text-[9px] bg-amber-500/30 px-1 rounded">LOCKED</span>}
-              </button>
+              <span className="text-[10px] text-zinc-500 bg-zinc-800/50 px-2 py-1 rounded">
+                {timeLock ? 'All Time' : selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === '7day' ? '7 Days' : selectedPeriod === 'month' ? 'This Month' : selectedPeriod === '30day' ? '30 Days' : 'All Time'}
+              </span>
               <div className="w-px h-6 bg-zinc-700" />
               <button
                 onClick={handleDebugAgents}
@@ -2509,9 +2575,16 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
                     {/* Sparkline - trend over effective period */}
                     {(() => {
-                      const sparkPeriod = timeLock ? 'all' : aiPeriod;
-                      const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 90 };
-                      const sparkDays = daysMap[sparkPeriod] || 7;
+                      let sparkDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
+                      if (effectiveAiPeriod === 'all') {
+                        const allDaily = overview?.aiUsage?.byTool?.[agent.id]?.daily || {};
+                        const dateStrs = Object.keys(allDaily);
+                        if (dateStrs.length > 0) {
+                          const sorted = dateStrs.sort();
+                          const span = Math.ceil((new Date(sorted[sorted.length - 1]).getTime() - new Date(sorted[0]).getTime()) / 86400000) + 30;
+                          sparkDays = Math.min(180, Math.max(span, 60));
+                        } else { sparkDays = 60; }
+                      }
                       const days = eachDayOfInterval({ start: subDays(new Date(), sparkDays - 1), end: new Date() });
                       let data = days.map(d => {
                         const dayStr = format(d, 'yyyy-MM-dd');
@@ -2608,7 +2681,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   <TrendingUp className="w-5 h-5 text-violet-400" />
                   <div>
                     <div className="text-lg font-semibold">Usage Trend</div>
-                    <div className="text-sm text-zinc-500">Per agent, daily breakdown</div>
+                    <div className="text-sm text-zinc-500">{viewMode === 'model' ? 'Per model, daily breakdown' : 'Per agent, daily breakdown'}</div>
                   </div>
                   <div className="w-px h-6 bg-zinc-700" />
                   <div className="flex items-center gap-1 bg-zinc-800/50 rounded-lg p-0.5">
@@ -2623,6 +2696,21 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                       className={`px-2 py-1 rounded text-[10px] font-medium transition ${!showCityView ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-400 hover:text-white'}`}
                     >
                       Charts
+                    </button>
+                  </div>
+                  <div className="w-px h-6 bg-zinc-700" />
+                  <div className="flex items-center gap-1 bg-zinc-800/50 rounded-lg p-0.5">
+                    <button
+                      onClick={() => setViewMode('provider')}
+                      className={`px-2 py-1 rounded text-[10px] font-medium transition ${viewMode === 'provider' ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-400 hover:text-white'}`}
+                    >
+                      Provider
+                    </button>
+                    <button
+                      onClick={() => setViewMode('model')}
+                      className={`px-2 py-1 rounded text-[10px] font-medium transition ${viewMode === 'model' ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-400 hover:text-white'}`}
+                    >
+                      Model
                     </button>
                   </div>
                 </div>
@@ -2665,22 +2753,19 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                         </>
                       )}
                     </div>
-                  {/* Period Selector */}
-                  <div className="flex items-center gap-1 bg-zinc-800/50 rounded-lg p-1">
-                    {(['week', 'month', 'all'] as const).map(period => (
-                      <button
-                        key={period}
-                        onClick={() => !timeLock && setAiPeriod(period)}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
-                          (timeLock ? 'all' : aiPeriod) === period
-                            ? 'bg-violet-500/20 text-violet-400'
-                            : 'text-zinc-400 hover:text-white'
-                        }`}
-                      >
-                        {period === 'week' ? '7 Days' : period === 'month' ? '30 Days' : 'All Time'}
-                      </button>
-                    ))}
-                  </div>
+                    {/* All Time Lock Toggle — period switching is handled by top nav */}
+                    <button
+                      onClick={() => setTimeLock(!timeLock)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        timeLock
+                          ? 'bg-indigo-500/20 border border-indigo-500/40 text-indigo-300'
+                          : 'bg-zinc-800/50 text-zinc-400 hover:text-white'
+                      }`}
+                      title={timeLock ? 'Unlock timeframe (use nav)' : 'Lock to All Time'}
+                    >
+                      {timeLock ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                      <span>{timeLock ? 'All Time' : 'Lock All'}</span>
+                    </button>
                 </div>
               </div>
 
@@ -2698,13 +2783,12 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 }>
                   <div className="rounded-2xl overflow-hidden border border-zinc-800/50">
                     <AIUsageCityscape
-                      agents={aiAgents}
+                      agents={displayedAgents}
                       overview={overview}
                       metric={aiChartMode}
                       tokenDisplayMode={tokenDisplayMode}
                       loading={loading}
-                      period={aiPeriod}
-                      timeLock={timeLock}
+                      period={effectiveAiPeriod}
                     />
                   </div>
                 </Suspense>
@@ -2712,7 +2796,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
               {/* Input/Output Ratio — aggregate across all agents */}
               {(() => {
-                const activeAgents = aiAgents.filter(a => a.status !== 'inactive' && a.tokens > 0);
+                const activeAgents = displayedAgents.filter(a => a.status !== 'inactive' && a.tokens > 0);
                 const totalIn = activeAgents.reduce((s, a) => s + a.tokensIn, 0);
                 const totalOut = activeAgents.reduce((s, a) => s + a.tokensOut, 0);
                 const total = totalIn + totalOut;
@@ -2912,7 +2996,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                     <Activity className="w-5 h-5 text-emerald-400" />
                     <div>
                       <div className="text-lg font-semibold">Usage Distribution</div>
-                      <div className="text-sm text-zinc-500">By AI agent</div>
+                      <div className="text-sm text-zinc-500">{viewMode === 'model' ? 'By model' : 'By AI agent'}</div>
                     </div>
                   </div>
                 </div>
@@ -2967,8 +3051,16 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 });
                 if (!hasModelData) return null;
 
-                const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 90 };
-                const numDays = daysMap[timeLock ? 'all' : aiPeriod] || 7;
+                let numDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
+                if (effectiveAiPeriod === 'all') {
+                  const allDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail?.id || '']?.daily || {};
+                  const dateStrs = Object.keys(allDaily);
+                  if (dateStrs.length > 0) {
+                    const sorted = dateStrs.sort();
+                    const span = Math.ceil((new Date(sorted[sorted.length - 1]).getTime() - new Date(sorted[0]).getTime()) / 86400000) + 30;
+                    numDays = Math.min(180, Math.max(span, 60));
+                  } else { numDays = 60; }
+                }
                 const periodDays = eachDayOfInterval({ start: subDays(new Date(), numDays - 1), end: new Date() });
                 const modelColors = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6', '#8b5cf6'];
 
@@ -2976,7 +3068,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   : aiChartMode === 'messages' ? 'messageCount'
                   : aiChartMode === 'cost' ? 'cost'
                   : 'sessions';
-                  const metricLabel = aiChartMode === 'tokens'
+                const metricLabel = aiChartMode === 'tokens'
                     ? (tokenDisplayMode === 'input' ? 'Input Tokens' : tokenDisplayMode === 'output' ? 'Output Tokens' : 'Tokens')
                     : aiChartMode.charAt(0).toUpperCase() + aiChartMode.slice(1);
 
@@ -3087,38 +3179,10 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                         <div className="text-sm text-zinc-500">Grouped daily breakdown</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-0.5 bg-zinc-800/50 rounded-lg p-0.5">
-                        {(['tokens', 'messages', 'sessions', 'cost'] as const).map(mode => (
-                          <button
-                            key={mode}
-                            onClick={() => setCompareMetric(mode)}
-                            className={`px-2 py-1 rounded text-[10px] font-medium transition ${
-                              compareMetric === mode
-                                ? 'bg-violet-500/20 text-violet-400'
-                                : 'text-zinc-400 hover:text-white'
-                            }`}
-                          >
-                            {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                          </button>
-                        ))}
-                       </div>
-                      <div className="flex items-center gap-0.5 bg-zinc-800/50 rounded-lg p-0.5">
-                        {(['week', 'month', 'all'] as const).map(period => (
-                          <button
-                            key={period}
-                            onClick={() => setComparePeriod(period)}
-                            className={`px-2 py-1 rounded text-[10px] font-medium transition ${
-                              comparePeriod === period
-                                ? 'bg-violet-500/20 text-violet-400'
-                                : 'text-zinc-400 hover:text-white'
-                            }`}
-                          >
-                            {period === 'week' ? '7D' : period === 'month' ? '30D' : 'All'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    {/* Compare inherits period + metric from the global controls above */}
+                    <span className="text-[10px] text-zinc-500 bg-zinc-800/50 px-2 py-1 rounded">
+                      {timeLock ? 'All Time' : selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === '7day' ? '7 Days' : selectedPeriod === 'month' ? 'This Month' : selectedPeriod === '30day' ? '30 Days' : 'All Time'} · {aiChartMode.charAt(0).toUpperCase() + aiChartMode.slice(1)}
+                    </span>
                   </div>
 
                   {/* Agent Toggles */}
@@ -3145,8 +3209,19 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
                   <div className="h-72">
                     {(() => {
-                      const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 90 };
-                      const numDays = daysMap[comparePeriod] || 7;
+                      let numDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
+                      if (effectiveAiPeriod === 'all') {
+                        const byTool = overview?.aiUsage?.byTool || {};
+                        let allDates: string[] = [];
+                        for (const toolId of Object.keys(byTool)) {
+                          allDates = allDates.concat(Object.keys(byTool[toolId]?.daily || {}));
+                        }
+                        if (allDates.length > 0) {
+                          const sorted = allDates.sort();
+                          const span = Math.ceil((new Date(sorted[sorted.length - 1]).getTime() - new Date(sorted[0]).getTime()) / 86400000) + 30;
+                          numDays = Math.min(180, Math.max(span, 60));
+                        } else { numDays = 60; }
+                      }
                       const periodDays = eachDayOfInterval({ start: subDays(new Date(), numDays - 1), end: new Date() });
                       const labels = periodDays.map(d => format(d, numDays <= 7 ? 'EEE' : 'MMM dd'));
 
@@ -3156,14 +3231,14 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                           const dayStr = format(d, 'yyyy-MM-dd');
                           const dayData = overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr];
                           if (!dayData) return 0;
-                          if (compareMetric === 'tokens') {
+                          if (aiChartMode === 'tokens') {
                             if (tokenDisplayMode === 'input') return dayData.tokens_in || 0;
                             if (tokenDisplayMode === 'output') return dayData.tokens_out || 0;
                             return dayData.tokens || 0;
                           }
-                          if (compareMetric === 'messages') return dayData.messageCount || 0;
-                          if (compareMetric === 'sessions') return dayData.sessions || 0;
-                          if (compareMetric === 'cost') return dayData.cost || 0;
+                          if (aiChartMode === 'messages') return dayData.messageCount || 0;
+                          if (aiChartMode === 'sessions') return dayData.sessions || 0;
+                          if (aiChartMode === 'cost') return dayData.cost || 0;
                           return 0;
                         });
                         if (excludeOutliers) data = filterOutlierValues(data);
@@ -3198,12 +3273,12 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                 callbacks: {
                                   label: (ctx) => {
                                     const val = ctx.parsed.y || 0;
-                                    if (compareMetric === 'tokens') {
+                                    if (aiChartMode === 'tokens') {
                                       const mode = tokenDisplayMode === 'input' ? ' input' : tokenDisplayMode === 'output' ? ' output' : '';
                                       return ` ${ctx.dataset.label}: ${formatTokens(val)}${mode} tokens`;
                                     }
-                                    if (compareMetric === 'cost') return ` ${ctx.dataset.label}: ${formatCurrency(val)}`;
-                                    if (compareMetric === 'messages') return ` ${ctx.dataset.label}: ${val} messages`;
+                                    if (aiChartMode === 'cost') return ` ${ctx.dataset.label}: ${formatCurrency(val)}`;
+                                    if (aiChartMode === 'messages') return ` ${ctx.dataset.label}: ${val} messages`;
                                     return ` ${ctx.dataset.label}: ${val} sessions`;
                                   }
                                 }
@@ -3222,8 +3297,8 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                   font: { size: 10 },
                                   callback: (v) => {
                                     if (v === null) return '';
-                                    if (compareMetric === 'tokens') return formatTokens(v as number);
-                                    if (compareMetric === 'cost') return `$${(v as number).toFixed(2)}`;
+                                    if (aiChartMode === 'tokens') return formatTokens(v as number);
+                                    if (aiChartMode === 'cost') return `$${(v as number).toFixed(2)}`;
                                     return String(v);
                                   }
                                 },
@@ -4126,7 +4201,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
               {/* Top Metrics Grid — period-aware */}
               {(() => {
                 const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 9999 };
-                const numDays = daysMap[agentDetailPeriod] || 7;
+                const numDays = daysMap[effectiveAiPeriod] || 7;
                 const cutoff = numDays >= 9999 ? null : subDays(new Date(), numDays - 1);
                 const daily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {};
 
@@ -4150,7 +4225,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   periodSessions += (dayData as any).sessions || 0;
                 }
 
-                const periodLabel = agentDetailPeriod === 'week' ? 'Last 7 Days' : agentDetailPeriod === 'month' ? 'Last 30 Days' : 'All Time';
+                const periodLabel = timeLock ? 'All Time' : selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === '7day' ? '7 Days' : selectedPeriod === 'month' ? 'This Month' : selectedPeriod === '30day' ? '30 Days' : 'All Time';
 
                 return (
                   <>
@@ -4225,56 +4300,70 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 <div className="bg-zinc-800/50 rounded-xl p-4 lg:col-span-2">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="text-sm font-medium text-zinc-400">Daily Usage</h4>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-0.5 bg-zinc-700/50 rounded-md p-0.5">
-                        {(['tokens', 'messages', 'sessions', 'cost'] as const).map(mode => (
-                          <button
-                            key={mode}
-                            onClick={() => setAgentDetailMetric(mode)}
-                            className={`px-2 py-1 rounded text-[10px] font-medium transition ${
-                              agentDetailMetric === mode
-                                ? 'bg-violet-500/20 text-violet-400'
-                                : 'text-zinc-400 hover:text-white'
-                            }`}
-                          >
-                            {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-0.5 bg-zinc-700/50 rounded-md p-0.5">
-                        {(['week', 'month', 'all'] as const).map(period => (
-                          <button
-                            key={period}
-                            onClick={() => setAgentDetailPeriod(period)}
-                            className={`px-2 py-1 rounded text-[10px] font-medium transition ${
-                              agentDetailPeriod === period
-                                ? 'bg-violet-500/20 text-violet-400'
-                                : 'text-zinc-400 hover:text-white'
-                            }`}
-                          >
-                             {period === 'week' ? '7D' : period === 'month' ? '30D' : 'All'}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="flex items-center gap-1 bg-zinc-900/60 rounded-lg p-0.5">
+                      {(['tokens', 'messages', 'sessions', 'cost'] as const).map(mode => (
+                        <button
+                          key={mode}
+                          onClick={() => setAiChartMode(mode)}
+                          className={`px-2 py-1 rounded text-[10px] font-medium transition ${
+                            aiChartMode === mode
+                              ? 'bg-violet-500/20 text-violet-400'
+                              : 'text-zinc-500 hover:text-zinc-300'
+                          }`}
+                        >
+                          {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                        </button>
+                      ))}
+                      {aiChartMode === 'tokens' && <div className="w-px h-4 bg-zinc-700" />}
+                      {aiChartMode === 'tokens' && (
+                        <>
+                          {(['combined', 'input', 'output'] as const).map(sub => (
+                            <button
+                              key={sub}
+                              onClick={() => setTokenDisplayMode(sub)}
+                              className={`px-1.5 py-1 rounded text-[10px] font-medium transition ${
+                                tokenDisplayMode === sub
+                                  ? sub === 'input' ? 'bg-blue-500/20 text-blue-400'
+                                    : sub === 'output' ? 'bg-emerald-500/20 text-emerald-400'
+                                    : 'bg-zinc-700/50 text-zinc-300'
+                                  : 'text-zinc-500 hover:text-zinc-300'
+                              }`}
+                            >
+                              {sub === 'combined' ? 'All' : sub === 'input' ? 'In' : 'Out'}
+                            </button>
+                          ))}
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="h-48">
                     {(() => {
-                      const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 90 };
-                      const numDays = daysMap[agentDetailPeriod] || 7;
+                      let numDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
+                      if (effectiveAiPeriod === 'all') {
+                        const allDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {};
+                        const dateStrs = Object.keys(allDaily);
+                        if (dateStrs.length > 0) {
+                          const sorted = dateStrs.sort();
+                          const minDate = new Date(sorted[0]).getTime();
+                          const maxDate = new Date(sorted[sorted.length - 1]).getTime();
+                          const span = Math.ceil((maxDate - minDate) / 86400000) + 30;
+                          numDays = Math.min(180, Math.max(span, 60));
+                        } else {
+                          numDays = 60;
+                        }
+                      }
                       const periodDays = eachDayOfInterval({ start: subDays(new Date(), numDays - 1), end: new Date() });
                       const labels = periodDays.map(d => format(d, numDays <= 7 ? 'EEE' : 'MMM dd'));
                       const getMetricValue = (dayStr: string) => {
                         const dayData = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily?.[dayStr];
                         if (!dayData) return 0;
-                        if (agentDetailMetric === 'messages') return dayData.messageCount || 0;
-                        if (agentDetailMetric === 'sessions') return dayData.sessions || 0;
-                        if (agentDetailMetric === 'cost') return dayData.cost || 0;
+                        if (aiChartMode === 'messages') return dayData.messageCount || 0;
+                        if (aiChartMode === 'sessions') return dayData.sessions || 0;
+                        if (aiChartMode === 'cost') return dayData.cost || 0;
                         return 0;
                       };
 
-                      if (agentDetailMetric === 'tokens') {
-                        // Stacked bar: input (bottom) + output (top)
+                      if (aiChartMode === 'tokens') {
                         const inData = periodDays.map(d => {
                           const dayData = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily?.[format(d, 'yyyy-MM-dd')];
                           return dayData?.tokens_in || 0;
@@ -4283,36 +4372,53 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                           const dayData = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily?.[format(d, 'yyyy-MM-dd')];
                           return dayData?.tokens_out || 0;
                         });
-                        const stackedData = {
-                          labels,
-                          datasets: [
-                            {
-                              label: 'Input (You)',
-                              data: inData,
-                              backgroundColor: 'rgba(59, 130, 246, 0.6)',
-                              borderColor: '#3b82f6',
-                              borderWidth: 1,
-                              borderRadius: 2,
-                            },
-                            {
+                        const tokenIsStacked = tokenDisplayMode === 'combined';
+                        const tokenDatasets = tokenDisplayMode === 'output'
+                          ? [{
                               label: 'Output (AI)',
                               data: outData,
                               backgroundColor: 'rgba(16, 185, 129, 0.6)',
                               borderColor: '#10b981',
                               borderWidth: 1,
                               borderRadius: 2,
-                            }
-                          ]
-                        };
+                            }]
+                          : tokenDisplayMode === 'input'
+                          ? [{
+                              label: 'Input (You)',
+                              data: inData,
+                              backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                              borderColor: '#3b82f6',
+                              borderWidth: 1,
+                              borderRadius: 2,
+                            }]
+                          : [
+                              {
+                                label: 'Input (You)',
+                                data: inData,
+                                backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                                borderColor: '#3b82f6',
+                                borderWidth: 1,
+                                borderRadius: 2,
+                              },
+                              {
+                                label: 'Output (AI)',
+                                data: outData,
+                                backgroundColor: 'rgba(16, 185, 129, 0.6)',
+                                borderColor: '#10b981',
+                                borderWidth: 1,
+                                borderRadius: 2,
+                              }
+                            ];
+                        const tokenData = { labels, datasets: tokenDatasets };
                         return (
                           <Bar
-                            data={stackedData}
+                            data={tokenData}
                             options={{
                               responsive: true,
                               maintainAspectRatio: false,
                               plugins: {
                                 legend: {
-                                  display: true,
+                                  display: tokenIsStacked,
                                   position: 'top',
                                   labels: { color: '#71717a', font: { size: 9 }, boxWidth: 8, padding: 8, usePointStyle: true }
                                 },
@@ -4325,26 +4431,27 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                   callbacks: {
                                     label: (ctx) => {
                                       const val = ctx.parsed.y || 0;
-                                      return ` ${ctx.dataset.label}: ${formatTokens(val)} tokens`;
+                                      const label = ctx.dataset.label || '';
+                                      return ` ${label}: ${formatTokens(val)} tokens`;
                                     },
-                                    afterLabel: (ctx) => {
+                                    afterLabel: tokenIsStacked ? (ctx: any) => {
                                       const allIn = inData[ctx.dataIndex] || 0;
                                       const allOut = outData[ctx.dataIndex] || 0;
                                       const total = allIn + allOut;
                                       if (total === 0) return '';
                                       return ` Total: ${formatTokens(total)} (${((allIn / total) * 100).toFixed(0)}% in / ${((allOut / total) * 100).toFixed(0)}% out)`;
-                                    }
+                                    } : undefined
                                   }
                                 }
                               },
                               scales: {
                                 x: {
-                                  stacked: true,
+                                  stacked: tokenIsStacked,
                                   ticks: { color: '#71717a', maxTicksLimit: numDays <= 7 ? 7 : 8, font: { size: 10 } },
                                   grid: { display: false }
                                 },
                                 y: {
-                                  stacked: true,
+                                  stacked: tokenIsStacked,
                                   ticks: {
                                     color: '#71717a',
                                     font: { size: 10 },
@@ -4363,7 +4470,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                       const chartData = {
                         labels,
                         datasets: [{
-                          label: agentDetailMetric.charAt(0).toUpperCase() + agentDetailMetric.slice(1),
+                          label: aiChartMode.charAt(0).toUpperCase() + aiChartMode.slice(1),
                           data: periodDays.map(d => getMetricValue(format(d, 'yyyy-MM-dd'))),
                           backgroundColor: selectedAgentDetail.color + '40',
                           borderColor: selectedAgentDetail.color,
@@ -4388,8 +4495,8 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                 callbacks: {
                                   label: (ctx) => {
                                     const val = ctx.parsed.y || 0;
-                                    if (agentDetailMetric === 'cost') return ` ${formatCurrency(val)}`;
-                                    if (agentDetailMetric === 'messages') return ` ${val} messages`;
+                                    if (aiChartMode === 'cost') return ` ${formatCurrency(val)}`;
+                                    if (aiChartMode === 'messages') return ` ${val} messages`;
                                     return ` ${val} sessions`;
                                   }
                                 }
@@ -4402,7 +4509,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                   color: '#71717a',
                                   font: { size: 10 },
                                   callback: (v) => {
-                                    if (agentDetailMetric === 'cost') return `$${(v as number).toFixed(2)}`;
+                                    if (aiChartMode === 'cost') return `$${(v as number).toFixed(2)}`;
                                     return String(v);
                                   }
                                 },
@@ -4423,17 +4530,25 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   const modelNames = Object.keys(modelDaily);
                   if (modelNames.length <= 1) return null;
 
-                  const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 90 };
-                  const numDays = daysMap[agentDetailPeriod] || 7;
+                  let numDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
+                  if (effectiveAiPeriod === 'all') {
+                    const allDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {};
+                    const dateStrs = Object.keys(allDaily);
+                    if (dateStrs.length > 0) {
+                      const sorted = dateStrs.sort();
+                      const span = Math.ceil((new Date(sorted[sorted.length - 1]).getTime() - new Date(sorted[0]).getTime()) / 86400000) + 30;
+                      numDays = Math.min(180, Math.max(span, 60));
+                    } else { numDays = 60; }
+                  }
                   const periodDays = eachDayOfInterval({ start: subDays(new Date(), numDays - 1), end: new Date() });
                   const modelColors = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899'];
 
-                  const metricField = agentDetailMetric === 'tokens' ? 'tokens'
-                    : agentDetailMetric === 'messages' ? 'messageCount'
-                    : agentDetailMetric === 'cost' ? 'cost'
+                  const metricField = aiChartMode === 'tokens' ? 'tokens'
+                    : aiChartMode === 'messages' ? 'messageCount'
+                    : aiChartMode === 'cost' ? 'cost'
                     : 'sessions';
 
-                  const metricLabel = agentDetailMetric.charAt(0).toUpperCase() + agentDetailMetric.slice(1);
+                  const metricLabel = aiChartMode.charAt(0).toUpperCase() + aiChartMode.slice(1);
 
                   const datasets = modelNames.slice(0, 6).map((model, idx) => {
                     const modelData = modelDaily[model] || {};
@@ -4479,9 +4594,9 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                 callbacks: {
                                   label: (ctx) => {
                                     const val = ctx.parsed.y || 0;
-                                    if (agentDetailMetric === 'tokens') return ` ${formatTokens(val)} tokens`;
-                                    if (agentDetailMetric === 'cost') return ` ${formatCurrency(val)}`;
-                                    if (agentDetailMetric === 'messages') return ` ${val} messages`;
+                                    if (aiChartMode === 'tokens') return ` ${formatTokens(val)} tokens`;
+                                    if (aiChartMode === 'cost') return ` ${formatCurrency(val)}`;
+                                    if (aiChartMode === 'messages') return ` ${val} messages`;
                                     return ` ${val} sessions`;
                                   }
                                 }
@@ -4499,8 +4614,8 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                   color: '#71717a',
                                   font: { size: 10 },
                                   callback: (v) => {
-                                    if (agentDetailMetric === 'tokens') return formatTokens(v as number);
-                                    if (agentDetailMetric === 'cost') return `$${(v as number).toFixed(2)}`;
+                                    if (aiChartMode === 'tokens') return formatTokens(v as number);
+                                    if (aiChartMode === 'cost') return `$${(v as number).toFixed(2)}`;
                                     return String(v);
                                   }
                                 },
@@ -4540,7 +4655,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 {/* Model Breakdown — period-aware */}
                 {(() => {
                   const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 9999 };
-                  const numDays = daysMap[agentDetailPeriod] || 7;
+                  const numDays = daysMap[effectiveAiPeriod] || 7;
                   const cutoff = numDays >= 9999 ? null : subDays(new Date(), numDays - 1);
                   const modelDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.modelDaily || {};
 
@@ -4566,7 +4681,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   const models = Object.values(modelAgg).sort((a, b) => b.tokens - a.tokens);
                   if (models.length === 0) return null;
 
-                  const periodLabel = agentDetailPeriod === 'week' ? '7D' : agentDetailPeriod === 'month' ? '30D' : 'All Time';
+                  const periodLabel = timeLock ? 'All Time' : selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === '7day' ? '7 Days' : selectedPeriod === 'month' ? 'This Month' : selectedPeriod === '30day' ? '30 Days' : 'All Time';
 
                   return (
                     <div className="bg-zinc-800/50 rounded-xl p-4">

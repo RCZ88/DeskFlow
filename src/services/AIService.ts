@@ -132,7 +132,7 @@ interface TopicDigestInput {
   today: string;
 }
 
-const TOPIC_DIGEST_SYSTEM = `Output raw JSON array only. Each item: {"topic":"exact name","summary":"2-3 sentence recent development (under 55 words)","sources":[]}. If unknown, summary="No major recent developments reported". Never fabricate. Never use markdown or code fences.`;
+const TOPIC_DIGEST_SYSTEM = `Output JSON array. Each item: {"topic":"name","headline":"Headline","summary":"1-2 paragraph summary with data","date":"ISO date or recent","confidence":0.0-1.0,"source":{"name":"domain","url":"URL","authority":"high|medium|low"},"stats":{"label":"metric","value":number,"change":number,"trend":"up|down|flat"},"tags":["tag"],"sources":[{"title":"title","url":"URL"}]}. Required: topic, headline, summary, date. Never fabricate. Include numbers when available. Only JSON, no markdown.`;
 
 export class AIService {
   static async generateTopicDigest(apiKey: string, data: TopicDigestInput, model?: string, maxTokens?: number): Promise<{ content: any[]; usage?: any }> {

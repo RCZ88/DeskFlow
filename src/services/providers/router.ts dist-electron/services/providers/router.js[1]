@@ -1,0 +1,120 @@
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var router_exports = {};
+__export(router_exports, {
+  buildChain: () => buildChain,
+  runWithFallback: () => runWithFallback
+});
+module.exports = __toCommonJS(router_exports);
+var import_templates = require("./templates");
+var import_callProvider = require("./callProvider");
+function buildChain(state, feature) {
+  const enabled = state.providers.filter((p) => p.enabled);
+  const assigned = state.routing[feature] ?? state.routing.default;
+  console.log(`[PROV] buildChain feature=${feature} enabled=${enabled.length} assigned=${JSON.stringify(assigned)}`);
+  const resolve = (cfg) => {
+    const template = import_templates.PROVIDER_TEMPLATES[cfg.templateId];
+    if (!template) {
+      console.log(`[PROV] buildChain: no template for ${cfg.id} templateId=${cfg.templateId}`);
+      return null;
+    }
+    return { config: cfg, template };
+  };
+  const chain = [];
+  const primaryCfg = enabled.find((p) => p.id === assigned.providerId);
+  if (primaryCfg) {
+    console.log(`[PROV] buildChain: primary = ${primaryCfg.id} (${primaryCfg.templateId}) model=${assigned.model}`);
+    const p = resolve(primaryCfg);
+    if (p) chain.push({ provider: p, model: assigned.model });
+  } else {
+    console.log(`[PROV] buildChain: no primary found for providerId=${assigned.providerId}`);
+  }
+  enabled.sort((a, b) => a.priority - b.priority).filter((p) => p.id !== assigned.providerId).forEach((p) => {
+    const r = resolve(p);
+    if (r) {
+      const model = p.models[0] ?? assigned.model;
+      console.log(`[PROV] buildChain: fallback ${p.id} (${p.templateId}) model=${model}`);
+      chain.push({ provider: r, model });
+    }
+  });
+  console.log(`[PROV] buildChain: final chain length=${chain.length}`);
+  return chain;
+}
+async function callWithTokenTiers(provider, req, externalSignal) {
+  const cfg = provider.config;
+  if (cfg.monthlyTokenBudget && (cfg.tokensUsedThisMonth ?? 0) >= cfg.monthlyTokenBudget) {
+    console.log(`[PROV] ${cfg.id}: budget exhausted (${cfg.tokensUsedThisMonth}/${cfg.monthlyTokenBudget})`);
+    const e = new Error(`Budget exhausted for ${cfg.label}`);
+    e.status = 402;
+    throw e;
+  }
+  const tiers = [req.maxTokens ?? 1500, 100, 50, 40];
+  let lastErr;
+  for (const maxTokens of tiers) {
+    try {
+      console.log(`[PROV] ${cfg.id}: trying tier maxTokens=${maxTokens}`);
+      const res = await (0, import_callProvider.callProvider)(provider, { ...req, maxTokens }, externalSignal);
+      const used = (res.usage?.prompt_tokens ?? 0) + (res.usage?.completion_tokens ?? 0);
+      cfg.tokensUsedThisMonth = (cfg.tokensUsedThisMonth ?? 0) + used;
+      console.log(`[PROV] ${cfg.id}: tier maxTokens=${maxTokens} SUCCEEDED, used=${used} tokens`);
+      return res;
+    } catch (err) {
+      lastErr = err;
+      console.log(`[PROV] ${cfg.id}: tier maxTokens=${maxTokens} FAILED status=${err.status} msg=${err.message?.slice(0, 120)}`);
+      const isRetryable = err?.status === 402 || err?.name === "AbortError" || err?.status >= 500 && err?.status < 600;
+      if (!isRetryable) throw err;
+    }
+  }
+  console.log(`[PROV] ${cfg.id}: all tiers exhausted`);
+  throw lastErr;
+}
+async function runWithFallback(chain, req, externalSignal) {
+  console.log(`[PROV] runWithFallback: chain has ${chain.length} providers`);
+  for (const [i, link] of chain.entries()) {
+    console.log(`[PROV] chain[${i}]: ${link.provider.config.id} model=${link.model}`);
+  }
+  let lastErr;
+  const errors = [];
+  for (const [i, link] of chain.entries()) {
+    try {
+      console.log(`[PROV] runWithFallback: trying chain[${i}] ${link.provider.config.id} model=${link.model}`);
+      const result = await callWithTokenTiers(link.provider, { ...req, model: link.model }, externalSignal);
+      console.log(`[PROV] runWithFallback: chain[${i}] ${link.provider.config.id} SUCCEEDED`);
+      return { result, usedProviderId: link.provider.config.id };
+    } catch (err) {
+      console.log(`[PROV] runWithFallback: chain[${i}] ${link.provider.config.id} FAILED: ${err.message?.slice(0, 150)}`);
+      lastErr = err;
+      const kind = err?.name === "AbortError" ? "timeout" : "failure";
+      errors.push({ name: link.provider.config.label || link.provider.config.id, error: err.message || String(err), kind });
+    }
+  }
+  console.log(`[PROV] runWithFallback: ALL providers failed`);
+  const timeouts = errors.filter((e) => e.kind === "timeout");
+  const failures = errors.filter((e) => e.kind === "failure");
+  const parts = [];
+  if (timeouts.length) parts.push(`${timeouts.length} timed out (${timeouts.map((e) => e.name).join(", ")})`);
+  if (failures.length) parts.push(`${failures.length} failed (${failures.map((e) => `${e.name}: ${e.error}`).join("; ")})`);
+  if (errors.length) throw new Error(`All ${errors.length} provider(s) exhausted \u2014 ${parts.join("; ")}`);
+  throw lastErr ?? new Error("No providers available");
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  buildChain,
+  runWithFallback
+});

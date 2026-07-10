@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DeskFlow — Living Logo demo</title>
+<style>
+  :root{
+    --bg-primary:#09090b; --bg-glass:rgba(24,24,27,.80);
+    --border-glass:rgba(63,63,70,.50); --border-subtle:#27272a;
+    --accent-primary:#ec4899; --accent-secondary:#22d3ee;
+    --text-secondary:#a1a1aa; --text-muted:#52525b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg-primary);
+    font-family:'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    color:var(--text-secondary);display:flex;gap:40px;padding:40px;align-items:flex-start}
+
+  .glass{background:var(--bg-glass);backdrop-filter:blur(16px);border:1px solid var(--border-glass)}
+  .sidebar{width:256px;border-right:1px solid var(--border-subtle);border-radius:14px;overflow:hidden;height:520px;display:flex;flex-direction:column}
+  .logohead{padding:20px;display:flex;align-items:center;border-bottom:1px solid var(--border-subtle);flex:0 0 auto}
+  .nav{padding:16px 12px;display:flex;flex-direction:column;gap:8px}
+  .nav a{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;color:var(--text-secondary);font-size:14px;text-decoration:none}
+  .nav a.active{background:rgba(63,63,70,.35);color:#fff}
+  .dot{width:16px;height:16px;border-radius:5px;background:linear-gradient(135deg,var(--accent-primary),var(--accent-secondary));opacity:.85}
+  .label{margin:26px 0 8px;font-size:12px;color:var(--text-muted);letter-spacing:.04em}
+
+  /* ---------- LIVING LOGO ---------- */
+  .logo{position:relative;display:inline-flex;align-items:center;height:32px;cursor:pointer;
+    transition:transform .5s cubic-bezier(.16,1,.3,1)}
+  .logo:hover{transform:scale(1.04)}
+
+  .logo__glow{position:absolute;inset:-120% -35%;z-index:0;pointer-events:none;
+    background:radial-gradient(55% 130% at 32% 50%,rgba(236,72,153,.55),transparent 70%),
+              radial-gradient(55% 130% at 70% 50%,rgba(34,211,238,.45),transparent 70%);
+    filter:blur(16px);opacity:.28;
+    animation:logoGlow 5s ease-in-out infinite;will-change:opacity,transform}
+  .logo:hover .logo__glow{opacity:.7;animation-duration:3.2s}
+
+  .logo__img{position:relative;z-index:1;height:32px;width:auto;object-fit:contain;display:block;
+    filter:drop-shadow(0 1px 6px rgba(0,0,0,.35))}
+
+  .logo__shine{position:absolute;left:0;top:0;height:32px;width:120px;z-index:2;pointer-events:none;
+    background:linear-gradient(100deg,transparent 38%,rgba(255,255,255,.9) 50%,transparent 62%);
+    background-repeat:no-repeat;background-size:220% 100%;background-position:180% 0;
+    -webkit-mask:url(rheo-logo.png) left center/contain no-repeat;
+            mask:url(rheo-logo.png) left center/contain no-repeat;
+    animation:logoShine 5s ease-in-out infinite;will-change:background-position}
+  .logo:hover .logo__shine{animation-duration:2.6s}
+
+  @keyframes logoGlow{0%,100%{opacity:.22;transform:scale(.98)}50%{opacity:.42;transform:scale(1.03)}}
+  @keyframes logoShine{0%{background-position:180% 0}16%{background-position:-60% 0}100%{background-position:-60% 0}}
+
+  @media (prefers-reduced-motion:reduce){
+    .logo__glow{animation:none;opacity:.26}
+    .logo__shine{animation:none;background:none}
+    .logo:hover{transform:none}
+  }
+
+  /* forced states for QA (static frames) */
+  .frame{display:flex;flex-direction:column;gap:10px;align-items:center}
+  .frame .cap{font-size:12px;color:var(--text-muted)}
+  .stage{width:200px;height:80px;border-radius:12px;border:1px solid var(--border-subtle);
+    background:var(--bg-glass);display:flex;align-items:center;padding:0 20px}
+  .qa .logo__shine{animation:none;background-position:60% 0;opacity:1}
+  .qa .logo__glow{animation:none;opacity:.5}
+  .qa.hoverstate .logo{transform:scale(1.04)}
+  .qa.hoverstate .logo__glow{opacity:.75}
+</style>
+</head>
+<body>
+
+  <div class="sidebar glass">
+    <div class="logohead">
+      <a class="logo" href="#" aria-label="RHEO home">
+        <span class="logo__glow"></span>
+        <img class="logo__img" src="rheo-logo.png" alt="RHEO" />
+        <span class="logo__shine" aria-hidden="true"></span>
+      </a>
+    </div>
+    <div class="nav">
+      <a class="active"><span class="dot"></span>Dashboard</a>
+      <a><span class="dot"></span>Activity</a>
+      <a><span class="dot"></span>Rewind</a>
+      <a><span class="dot"></span>Insights</a>
+      <a><span class="dot"></span>Agents</a>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:22px">
+    <div class="frame">
+      <div class="cap">Idle (live glow breathing)</div>
+      <div class="stage">
+        <span class="logo">
+          <span class="logo__glow"></span>
+          <img class="logo__img" src="rheo-logo.png" alt="RHEO" />
+          <span class="logo__shine"></span>
+        </span>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="cap">Mid shimmer sweep (forced frame)</div>
+      <div class="stage qa">
+        <span class="logo">
+          <span class="logo__glow"></span>
+          <img class="logo__img" src="rheo-logo.png" alt="RHEO" />
+          <span class="logo__shine"></span>
+        </span>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="cap">Hover (scale + intensified glow)</div>
+      <div class="stage qa hoverstate">
+        <span class="logo">
+          <span class="logo__glow"></span>
+          <img class="logo__img" src="rheo-logo.png" alt="RHEO" />
+          <span class="logo__shine"></span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

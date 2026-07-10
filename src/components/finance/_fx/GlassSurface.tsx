@@ -7,7 +7,7 @@ interface GlassSurfaceProps {
   interactive?: boolean;
   className?: string;
   children: ReactNode;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent) => void;
   onPointerDown?: (e: React.PointerEvent) => void
   onPointerEnter?: () => void
   style?: React.CSSProperties;
@@ -30,18 +30,19 @@ export function GlassSurface({
     ? 'cursor-pointer transition-[background,box-shadow] duration-150 hover:bg-zinc-800/70'
     : '';
 
-  const Tag = interactive ? motion.button : motion.div;
-
   return (
-    <Tag
+    <motion.div
       onClick={onClick}
       onPointerDown={onPointerDown}
       onPointerEnter={onPointerEnter}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={interactive && onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
       className={`relative rounded-xl ${base} ${accentStyles} ${interactiveStyles} ${className}`}
       style={style}
     >
       <div className="pointer-events-none absolute inset-0 rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.10),transparent_42%)]" />
       {children}
-    </Tag>
+    </motion.div>
   );
 }

@@ -1,298 +1,212 @@
-# CONTEXT_BUNDLE — AiPage Structured Prompts + Parsing + Layout
+# CONTEXT BUNDLE — AI Assistant Page Redesign
 
-## Project Overview
-Deskflow — a desktop productivity tracker (Electron + React + Vite + Tailwind v4). Dark galaxy theme (`zinc-900` base). Tracks foreground apps, browser websites, sleep, and external activities. Has an AI hub at `/ai` with 7 features that call OpenRouter via a local API key.
+## 1. Project Overview
+DeskFlow is an Electron + React + better-sqlite3 desktop productivity tracker. The AI Assistant page (`/ai`) is a multi-section surface: Chat, Summary cards, Connectors, Daily Digest, Focus, Plan, Reflect. The user rejected the current UI as "WORSE" and demands a full revamp using all frontend design skills and MCPs.
 
-## File: `src/pages/AiPage.tsx` (528 lines)
-Exports `<AiPage />` — the entire AI hub. Currently renders ALL 7 sections stacked vertically in a `space-y-8` flex column. No tabs, no nav. Each section wrapped in `<motion.div>` with staggered fade-in (delay 0, 0.05, 0.1, ...).
+## 2. Design Tokens (src/index.css)
+```
+--bg-primary:     #09090b
+--bg-secondary:   #18181b
+--bg-tertiary:    #27272a
+--bg-elevated:    #2d2d31
+--bg-glass:       rgba(24, 24, 27, 0.80)
+--bg-glass-heavy: rgba(24, 24, 27, 0.92)
+--text-primary:   #f4f4f5
+--text-secondary: #a1a1aa
+--text-muted:     #52525b
+--text-disabled:  #3f3f46
+--accent-primary:   #ec4899
+--accent-hover:     #db2777
+--accent-muted:     rgba(236, 72, 153, 0.15)
+--accent-secondary: #22d3ee
+--success:         #34d399
+--warning:         #fbbf24
+--error:           #f87171
+--info:            #38bdf8
+--border-subtle:   #27272a
+--border-default:  #3f3f46
+--border-active:   #52525b
+--border-glass:    rgba(63, 63, 70, 0.50)
+--ease-out:    cubic-bezier(0.16, 1, 0.3, 1)
+--ease-in:     cubic-bezier(0.4, 0, 1, 1)
+--ease-inout:  cubic-bezier(0.4, 0, 0.2, 1)
+--fast:        150ms
+--normal:      250ms
+--slow:        400ms
+[data-page="ai"] { --page-accent: #ec4899; }
+```
+Fonts: Geist/Inter 13px body, JetBrains Mono for code/numbers. Dark mode only.
 
-**All current state variables (independent per section):**
-```typescript
-briefContent, briefLoading, briefError, briefCollapsed        // Daily Brief
-weeklyContent, weeklyLoading, weeklyError, weeklyDismissed    // Weekly Review
-digestTopics, digestLoading, digestError                      // Research Digest
-patternContent, patternLoading, patternError                  // Pattern Analyst (string | null)
-sleepContent, sleepLoading, sleepError                        // Sleep Optimizer (string | null)
-chatMessages: Message[], chatInput, chatLoading, chatEndRef   // Chat
-anomalies, anomaliesLoading                                   // Anomaly Alerts
+## 3. Token Constants (src/components/ai/tokens.ts)
+```ts
+export const SURFACE = {
+  base:     'bg-zinc-950',
+  card:     'bg-zinc-900/40',
+  cardHi:   'bg-zinc-900/60',
+  inset:    'bg-zinc-950/60',
+} as const
+export const RING = {
+  base:   'ring-1 ring-zinc-800/60',
+  hover:  'ring-zinc-700',
+  active: 'ring-zinc-600',
+  focus:  'focus-visible:ring-2 focus-visible:ring-pink-500/60 focus-visible:outline-none',
+} as const
+export const TEXT = {
+  primary:   'text-zinc-100',
+  secondary: 'text-zinc-400',
+  muted:     'text-zinc-500',
+  disabled:  'text-zinc-600',
+} as const
+export const ACCENT = {
+  pink:    { dot:'bg-pink-400',    bar:'bg-pink-500',    pill:'bg-pink-500/10 text-pink-300 ring-pink-500/20',    hex:'#f472b6' },
+  emerald: { dot:'bg-emerald-400', bar:'bg-emerald-500', pill:'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20', hex:'#10b981' },
+  amber:   { dot:'bg-amber-400',   bar:'bg-amber-500',   pill:'bg-amber-500/10 text-amber-300 ring-amber-500/20',   hex:'#f59e0b' },
+  violet:  { dot:'bg-violet-400',  bar:'bg-violet-500',  pill:'bg-violet-500/10 text-violet-300 ring-violet-500/20', hex:'#a78bfa' },
+  red:     { dot:'bg-red-400',     bar:'bg-red-500',     pill:'bg-red-500/10 text-red-300 ring-red-500/20',       hex:'#f87171' },
+} as const
+export const MOTION = {
+  fast: 0.15, normal: 0.25, slow: 0.40,
+  ease: [0.16, 1, 0.3, 1] as const,
+  easeInOut: [0.4, 0, 0.2, 1] as const,
+  stagger: 0.05,
+} as const
 ```
 
-**All IPC calls used:**
-```typescript
-window.deskflowAPI.getAiBrief({ type: 'daily' | 'weekly' })
-  → returns { success, content: { summary: string } | { wentWell, watchFor, focusSuggestion }, cached, error? }
-window.deskflowAPI.regenerateAiBrief({ type: 'daily' | 'weekly' })
-  → same return
-window.deskflowAPI.getTopicDigest()
-  → returns { success, topics: [{ topic, summary, sources? }], error? }
-window.deskflowAPI.checkAnomalies()
-  → returns { success, anomalies: [{ severity, detail }], error? }
-window.deskflowAPI.analyzePatterns()
-  → returns { success, content: string, error? }  ← CURRENTLY RAW TEXT
-window.deskflowAPI.analyzeSleep()
-  → returns { success, content: string, error? }  ← CURRENTLY RAW TEXT
-window.deskflowAPI.dataChatQuery({ query, history })
-  → returns { success, content: string, error? }
-window.deskflowAPI.onAiBriefReady((data) => void)  // ← event listener for daily/weekly
+## 4. Shared Primitives (src/components/ai/)
+- **GlassCard.tsx**: `rounded-xl p-5 bg-zinc-900/40 ring-1 ring-zinc-800/60`; optional accent left bar; `motion.div` with `whileHover={{ y: -2 }}`. Variants: default, elevated, interactive.
+- **SectionHead.tsx**: Accent bar + title + desc + right slot. Entrance animation.
+- **StatusDot.tsx**: Colored dot with optional breathe pulse.
+- **IconButton.tsx**: 32x32 icon button with tooltip, hover/active/disabled, focus ring.
+- **StateShell.tsx**: Renders loading/empty/error/ready states. AnimatePresence crossfade.
+- **index.ts**: Exports all above + `SURFACE, RING, TEXT, ACCENT, MOTION` from tokens.
+
+## 5. AiPage.tsx (src/pages/AiPage.tsx — 469 lines)
+Main page component. Structure:
+- Aurora background animation (CSS `@keyframes aurora`)
+- Sticky header with Bot icon, title, day label, mode pill, Settings/Features buttons
+- `motion.div` with stagger variants wrapping sections:
+  1. AI Chat hero (`GlassCard` with `AiChat` inside, h-[520px])
+  2. Context rail: grid xl:grid-cols-3 — SummaryGrid (2 cols) + ConnectorsPanel (1 col)
+  3. Daily Digest (DailyDigestBoard)
+  4. Focus & Plan: grid xl:grid-cols-2 — FocusBoard + PlanBoard
+  5. Reflect: ReflectFeed
+  6. Diagnostics (toggle)
+  7. Footer
+- State: goals, digestTopics, aiProviders, aiRouting, mode, suggestions, planGoals, etc.
+- IPC calls: getGoals, getTopicDigest, isDigestGenerating, onDigestGenerationComplete, getAiProviders, readPlanningMd, getLongtermGoals, suggestGoals, saveGoal, saveGoalReview, getGoalContext
+
+## 6. AiChat.tsx (src/components/AiChat/AiChat.tsx — 350 lines)
+Chat interface. Components: ChatHeader, MessageList, MessageBubble, ChatInput, ChatEmptyState, ChatErrorRow, BlockRenderer, TypewriterText, ThinkingIndicator, AgentProgressBar.
+- Uses `aiAgentService.processMessage()` with progress callback
+- Voice input via `useVoiceInput` hook
+- Thread persistence via `chatPersistence` (localStorage)
+- Connector context injection on inbox/calendar intent
+
+## 7. ChatInput.tsx (src/components/AiChat/ChatInput.tsx — 159 lines)
+- Auto-resize textarea, Enter to send, Shift+Enter newline
+- CharCountRing (SVG) appears at 80% length
+- VoiceInputButton integration
+- Send button with just-sent Check animation
+
+## 8. SummaryGrid.tsx (src/components/SummaryGrid.tsx — 124 lines)
+4-card grid: TodayOverviewCard, AiUsageCard, ProjectStatusCard, ContextSummaryCard.
+- Uses `useAiPageData` hook for caching
+- 60s refresh interval, pauses on visibilitychange
+- IPC: getDashboardAggregates, getAIUsageSummary, getProjects, getGoalsBatch
+
+## 9. ConnectorsPanel.tsx (src/components/ConnectorsPanel.tsx — 463 lines)
+- StateShell with loading/empty/error/ready
+- ConnectorCard: TypeIcon, name, StatusDot, actions (sync/test/remove/expand)
+- Sync progress bar (indeterminate animation)
+- Expanded ConnectorItemList with ItemFilterBar (All/Email/Event + search + unread toggle)
+- IPC: connectors.list, connectors.sync, connectors.test, connectors.remove, connectors.items
+
+## 10. FocusBoard.tsx (src/components/ai/focus/FocusBoard.tsx — 480 lines)
+- 3 metric cards (Done today, In progress, Focus time) with NumberTicker
+- Mode indicator (Morning/In-Progress/Review) with accent pill
+- Sections: From your plan, AI suggestions, Today's goals
+- GoalRow with CheckCircle, category dot, target seconds
+- ReviewPanel (evening mode): completion stats, feedback input
+- Empty state: "Plan your day" with Suggest goals button
+- Loading: skeleton cards + rows
+- Error: AlertCircle + Retry
+
+## 11. PlanBoard.tsx (src/components/ai/plan/PlanBoard.tsx — 722 lines)
+- Two-pane layout at xl (WeekPane + LongTermPane side by side), tabbed on smaller
+- WeekPane: read/write Planning.md with inline editor
+- LongTermPane: goal list with add, reorder, delete, bulk import
+- BulkImportDialog: AI-powered text-to-goals parsing
+- Empty states, skeletons, error states
+
+## 12. ReflectFeed.tsx (src/components/ai/reflect/ReflectFeed.tsx — 423 lines)
+- Filter tabs: All, Research, Goals
+- Timeline with vertical gradient line
+- FeedDigest: collapsible topic cards with sources
+- FeedHistory: collapsible day cards with goal status icons
+- Empty states per filter
+- Loading skeletons
+- IPC: getGoals (7 days)
+
+## 13. DailyDigestBoard.tsx (src/components/ai/digest/DailyDigestBoard.tsx — 287 lines)
+- Calendar icon, title, AI-curated badge, provider badge
+- StateShell with DigestSkeleton, EmptyNoTopics, EmptyReadyToGenerate
+- TopicCard: collapsible with summary + sources
+- Refresh button, Configure button
+- IPC: getTopicDigest, isDigestGenerating, onDigestGenerationComplete
+
+## 14. IPC Endpoints (relevant subset from src/preload.ts)
+```
+get-goals(date) → GoalDay
+get-goals-batch(startDate, endDate) → { days: GoalDay[] }
+get-longterm-goals → { success, goals }
+save-goal(date, goal) → { success }
+delete-goal(goalId) → { success }
+save-goal-review(date, reviewSummary) → { success }
+get-goal-context → { success, last7dByCategory }
+suggest-goals(date, ctx) → { success, suggestions }
+parseGoalDump(text) → { success, goals }
+read-planning-md → { content }
+write-planning-md(content) → { success }
+get-topic-digest(opts?) → { success, topics, reason }
+is-digest-generating → boolean
+onDigestGenerationComplete → event
+get-ai-providers → { providers, routing }
+save-ai-providers(state) → { success }
+get-ai-config → { apiKey, enabled, ... }
+save-ai-config(config) → { success }
+get-interest-topics → { topics }
+add-interest-topic(topic) → { success }
+remove-interest-topic(topic) → { success }
+get-dashboard-aggregates({ period }) → { overview, appStats }
+get-ai-usage-summary(period?) → { totalTokens, totalCost, byTool }
+get-projects → Project[]
+connectors.list → { success, connectors }
+connectors.add(connector) → { success, id }
+connectors.remove(id) → { success }
+connectors.test(id) → { success, ... }
+connectors.sync(id) → { success, newItems }
+connectors.items(id, opts?) → { items, hasMore, offset }
+provider-chat-call(data) → streaming via provider-chunk event
 ```
 
-**Current rendering pattern (problematic):**
-- Pattern Analyst: `patternContent.split('\n')` → `ContentList` component (raw bullet text)
-- Sleep: `sleepContent.split('\n')` → `ContentList` component (raw bullet text)
-- Daily Brief: `content.summary` → `<p>` tag (raw text)
-- Anomalies: `anomalies[].detail` → `<p>` tag (raw text)
-- Chat: raw text in message bubbles
+## 15. Backup Location
+Pre-redesign backup: `agent/backups/20260701-214701-ai-redesign-pre/`
+Current code has been modified by the agent and was rejected by the user.
+The prompt should instruct the target AI to redesign from scratch using the backup as the baseline.
 
-**Current inline sub-components** (all defined in AiPage.tsx):
-```typescript
-SectionHeader({ icon, accent, title, description, action? })
-ActionButton({ accent, loading, loadingLabel, label, onClick })
-EmptyState({ icon, title, description })
-ErrorBlock({ message })
-ContentList({ items: string[], color })  // ← split('\n') + map each line
-```
+## 16. Existing Spec (RESULT_NEW.md)
+`agent/docs/ai-page-redesign/RESULT_NEW.md` (773 lines) contains a detailed spec covering:
+- Design system tokens (matching tokens.ts)
+- Page layout with two-column xl shell
+- Sticky header spec
+- Chat interface (ChatHeader, MessageBubble, TypewriterText, AgentProgressBar, ThinkingIndicator, ChatInput, ChatEmptyState)
+- ConnectorsPanel with item browsing
+- Voice input refactor
+- Summary cards (4-card grid with MetricCard shell)
+- Empty/Loading/Error state patterns (StateShell)
+- Integration & data flow
+- State management & persistence
+- Implementation order (11 steps)
+- Self-audit checklist
 
-## File: `src/services/AIService.ts` (429 lines)
-All prompt templates + OpenRouter caller. 6 methods.
-
-### DAILY_BRIEF_PROMPT (line 167)
-CURRENT: Returns raw sentences. No JSON.
-```typescript
-"You are a sharp, honest productivity analyst. Write a tight 3-4 sentence briefing in second person. Output ONLY the text..."
-```
-Used by: `AIService.generateDailyBrief()` → returns `{ content: string, usage? }`
-
-### WEEKLY_REVIEW_SYSTEM (line 188)
-ALREADY returns JSON: `{ wentWell, watchFor, focusSuggestion }`
-Parsed via `parseAIJson()` with fallback.
-
-### TOPIC_DIGEST_SYSTEM (line 206)
-ALREADY returns JSON: `[{ topic, summary, sources? }]`
-Parsed via `parseAIJson()` with fallback.
-
-### ANOMALY_SYSTEM (line 234)
-ALREADY returns JSON: `{ hasAnomaly, anomalies: [{ severity, detail }] }`
-Parsed via `parseAIJson()` with fallback.
-
-### analyzePatterns prompt (line 331, inline in method body)
-CURRENT: Returns raw bullet text. No JSON.
-```
-"Output raw text only. 3-5 bullet points. Each bullet: name the pattern, cite specific data..."
-```
-Used by: `AIService.analyzePatterns()` → returns `{ content: string, usage? }`
-
-### analyzeSleep prompt (line 353, inline in method body)
-CURRENT: Returns raw bullet text. No JSON.
-```
-"Output raw text only. 2-4 bullet points. Each bullet: cite the data..."
-```
-Used by: `AIService.analyzeSleep()` → returns `{ content: string, usage? }`
-
-### dataChatQuery prompt (line 375)
-Returns raw conversational text. Keep as-is (chat needs natural language).
-
-### JSON parsing infrastructure (already exists):
-```typescript
-cleanAIJson(raw: string): string
-  - Strips ```json code fences
-  - Fixes single quotes → double quotes
-  - Unquotes bare keys: {key:} → {"key":}
-  - Removes trailing commas before } or ]
-  - Auto-closes unclosed brackets (handles truncated JSON)
-  - Replaces "..." with ""
-
-parseAIJson<T = any>(raw: string): T
-  - Calls cleanAIJson() then JSON.parse()
-```
-
-## File: `src/main.ts` — IPC Handlers (relevant sections)
-
-### generateDailyBriefAndCache (line 9304)
-```typescript
-async function generateDailyBriefAndCache(_event, key, apiKey): Promise<any> {
-  // queries daily_stats, computes totalHours/topApps/productivePct/etc.
-  const result = await AIService.generateDailyBrief(apiKey, { totalHours, topApps, ... });
-  const content = { summary: result.content, type: 'daily', modelUsed: briefModel };
-  // INSERT OR REPLACE INTO ai_briefs (type, date, content, ...)
-  return { success: true, content, cached: false };
-}
-```
-
-### analyze-patterns handler (line 9559)
-```typescript
-// queries 30 days of daily_stats, builds daySummaries
-const result = await AIService.analyzePatterns(apiKey, { dailySummary }, model);
-return { success: true, content: result.content };  // ← returns raw string
-```
-**NOT cached.** Always re-calls OpenRouter. No persistence.
-
-### analyze-sleep handler (line 9599)
-```typescript
-// queries external_sessions WHERE type='sleep', builds sleepSummary + prodSummary
-const result = await AIService.analyzeSleep(apiKey, { sleepSummary, productivitySummary }, model);
-return { success: true, content: result.content };  // ← returns raw string
-```
-**NOT cached.** Always re-calls OpenRouter. No persistence.
-
-## File: `src/preload.ts` — Bridges (lines 171-188)
-```typescript
-getAiBrief: (params) => ipcRenderer.invoke('get-ai-brief', params),
-regenerateAiBrief: (params) => ipcRenderer.invoke('regenerate-ai-brief', params),
-getTopicDigest: () => ipcRenderer.invoke('get-topic-digest'),
-checkAnomalies: () => ipcRenderer.invoke('check-anomalies'),
-analyzePatterns: () => ipcRenderer.invoke('analyze-patterns'),
-analyzeSleep: () => ipcRenderer.invoke('analyze-sleep'),
-dataChatQuery: (params) => ipcRenderer.invoke('data-chat-query', params),
-onAiBriefReady: (callback) => { ipcRenderer.on('ai-brief-ready', ...); return () => removeListener; },
-```
-
-## Existing Persistence (DB — `ai_briefs` table)
-```sql
-CREATE TABLE ai_briefs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  type TEXT NOT NULL,        -- 'daily' | 'weekly' | 'topic'
-  date TEXT NOT NULL,        -- YYYY-MM-DD
-  content TEXT,              -- JSON-stringified response
-  model_used TEXT,
-  tokens_used INTEGER,
-  created_at TEXT NOT NULL,
-  UNIQUE(type, date)
-);
-```
-- Daily Brief: cached in DB by date `type='daily', date=today`
-- Weekly Review: cached in DB by week key `type='weekly', date='2026-W23'`
-- Topic Digest: cached in DB by date `type='topic', date=today`
-- **Patterns, Sleep, Anomalies, Chat: NOT cached anywhere**
-
-## Components Available for Reuse
-
-### GlassCard (`src/components/GlassCard.tsx`)
-```typescript
-interface GlassCardProps {
-  variant?: 'default' | 'elevated' | 'interactive';
-  accent?: boolean;          // adds left border
-  accentColor?: string;      // hex for left border
-  className?: string;
-  children: React.ReactNode;
-}
-// Renders: rounded-xl p-5 bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60
-```
-
-### AiBriefCard (`src/components/AiBriefCard.tsx`)
-```typescript
-interface AiBriefCardProps {
-  content: { summary: string; type?: string; modelUsed?: string } | null;
-  loading: boolean;
-  error?: string;
-  onRegenerate: () => void;
-  onDismiss: () => void;
-  collapsed: boolean;
-  onToggle: () => void;
-}
-// GlassCard with gradient top bar, Sun icon, regenerate/dismiss buttons
-```
-
-### WeeklyReviewCard (`src/components/WeeklyReviewCard.tsx`)
-```typescript
-interface WeeklyReviewContent {
-  wentWell: string; watchFor: string; focusSuggestion: string;
-  weekStart?: string; weekEnd?: string;
-}
-// 3-column grid: wentWell (green) | watchFor (amber) | focusSuggestion (purple)
-```
-
-### TopicDigestCard (`src/components/TopicDigestCard.tsx`)
-```typescript
-interface TopicDigestItem {
-  topic: string; summary: string; sources?: Array<{ title: string; url: string }>;
-}
-// Accordion list of topics, expandable with source links
-```
-
-### LoadingState (`src/components/LoadingState.tsx`)
-```typescript
-interface LoadingStateProps {
-  variant?: 'spinner' | 'skeleton';
-  rows?: number;
-}
-```
-
-## Design Tokens — Galaxy Dark Theme
-```
-Background:     zinc-950 (base), zinc-900 (elevated), zinc-900/80 (glass)
-Text:           zinc-100 (primary), zinc-400 (secondary), zinc-600 (disabled)
-Border:         zinc-800/60 (glass), zinc-700 (active)
-Card padding:   p-5 (20px) — NEVER p-6 or p-8
-Border radius:  rounded-xl (12px) max — NEVER rounded-2xl or rounded-3xl
-
-Accent colors per section (current inline):
-- Patterns:     #10b981 (emerald-400)
-- Sleep:        #818cf8 (indigo-400)
-- Chat:         #f59e0b (amber-400)
-- Anomalies:    #ef4444 (red-400)
-- Daily Brief:  pink→purple→cyan gradient bar
-- Weekly:       green→amber→purple gradient bar
-- Research:     cyan-400 icon/title
-
-Animation tokens:
-- fast:   150ms (hover, toggles)
-- normal: 250ms (content transitions)
-- slow:   400ms (page transitions)
-- Easing: cubic-bezier(0.16, 1, 0.3, 1)
-- NEVER animate width/height/top/left — transform + opacity only
-- NEVER use spring physics
-- NEVER use box-shadow — use border brightness + glass layers
-- NEVER use pure black (#000) — always zinc-950 or similar
-
-Typography:
-- Page title:  text-xl font-bold (20px)
-- Card title:  text-sm font-semibold (14px)
-- Body:        text-sm (14px)
-- Meta:        text-xs (12px)
-- Badge:       text-[10px] or text-xs uppercase tracking-wider
-```
-
-## 21st.dev Available Components
-The following 21st.dev components have been found via search:
-
-### Stats Cards
-Metric card with icon, value, trend indicator (ArrowUp/ArrowDown):
-```tsx
-<div className="grid grid-cols-2 gap-6 w-full">
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-      <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-      <CreditCard className="h-4 w-4 text-muted-foreground" />
-    </CardHeader>
-    <CardContent>
-      <div className="text-2xl font-bold">$45,231.89</div>
-      <div className="flex items-center pt-1 text-xs text-green-600">
-        <ArrowUpRight className="mr-1 h-3 w-3" />
-        <span>+20.1% from last month</span>
-      </div>
-    </CardContent>
-  </Card>
-</div>
-```
-
-### Dashboard Overview
-Animated metric card with framer-motion hover lift, trend icon (up/down/neutral), configurable icon, value, trendChange:
-```tsx
-<DashboardMetricCard
-  title="Total Users"
-  value="2,350"
-  icon={Users}
-  trendChange="+180"
-  trendType="up"
-/>
-// Framer-motion whileHover={{ y: -4, boxShadow: "..." }}
-```
-
-## Constraints
-- Tailwind v4 only — no v3 `@tailwind` directives
-- No new npm dependencies — only React, framer-motion, lucide-react
-- No git commands
-- Card padding `p-5`, border radius `rounded-xl` max
-- No box-shadow, no animated layout (transform + opacity only)
-- Must build with `npm run build` — zero errors
-- Types `analyzePatterns`, `analyzeSleep`, `dataChatQuery` are MISSING from the window type declarations in App.tsx (they work at runtime via IPC). The target AI should add them to the type declarations.
+The target AI should read RESULT_NEW.md as the design spec.

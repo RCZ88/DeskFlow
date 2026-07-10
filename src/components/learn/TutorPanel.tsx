@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Brain, X, ChevronDown, ChevronUp, Sparkles, AlertTriangle, RefreshCw, Maximize2, MessageSquare } from 'lucide-react';
-import { CitationChip } from './CitationChip';
+import { Brain, X, Sparkles, AlertTriangle, RefreshCw, Maximize2, MessageSquare, StopCircle, Loader2 } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import type { TutorAnswer } from '../../shared/learn/types';
 
 type TutorState = 'idle' | 'streaming' | 'grounded' | 'out-of-scope' | 'error';
@@ -12,9 +12,9 @@ interface Props {
   nodeId: string;
   question: string;
   onQuestionChange: (v: string) => void;
-  answer: TutorAnswer | null;
-  loading: boolean;
-  onAsk: (nodeId: string, question: string) => void;
+  answer?: TutorAnswer | null;
+  loading?: boolean;
+  onAsk?: (nodeId: string, question: string) => void;
 }
 
 const SUGGESTIONS = [
@@ -24,33 +24,7 @@ const SUGGESTIONS = [
   'What are common misconceptions?',
 ];
 
-const TYPING_SPEED_MS = 15;
-
-function useTypingEffect(text: string, active: boolean): string {
-  const [displayed, setDisplayed] = useState('');
-  const indexRef = useRef(0);
-
-  useEffect(() => {
-    if (!active || !text) {
-      setDisplayed(text || '');
-      return;
-    }
-    indexRef.current = 0;
-    setDisplayed('');
-
-    const interval = setInterval(() => {
-      indexRef.current += 1;
-      setDisplayed(text.slice(0, indexRef.current));
-      if (indexRef.current >= text.length) {
-        clearInterval(interval);
-      }
-    }, TYPING_SPEED_MS);
-
-    return () => clearInterval(interval);
-  }, [text, active]);
-
-  return displayed;
-}
+const api = (window as any).deskflowAPI || (window as any).api;
 
 function renderAnswerHtml(md: string): string {
   return md
@@ -58,37 +32,105 @@ function renderAnswerHtml(md: string): string {
     .replace(/`([^`]+)`/g, '<code class="bg-zinc-800/60 rounded px-1 py-0.5 text-sm font-mono text-cyan-300">$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/\n/g, '<br/>');
+    .split(/\n\n+/)
+    .map(p => {
+      const trimmed = p.trim();
+      if (!trimmed) return '';
+      return `<p>${trimmed.replace(/\n/g, '<br/>')}</p>`;
+    })
+    .join('\n');
 }
 
-export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange, answer, loading, onAsk }: Props) {
+export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange, answer: v1Answer, loading: v1Loading, onAsk }: Props) {
+  const [v2Streaming, setV2Streaming] = useState(false);
+  const [v2Answer, setV2Answer] = useState('');
+  const [v2State, setV2State] = useState<TutorState>('idle');
+  const [v2Error, setV2Error] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
+  const [lastQuestion, setLastQuestion] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const streaming = loading && question;
-  const state: TutorState = streaming ? 'streaming' : answer ? (answer.escalated ? 'out-of-scope' : answer.answer_md.startsWith('Error') ? 'error' : 'grounded') : 'idle';
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const supportsV2 = !!(api?.learnTutorStream && api?.onTutorToken);
 
-  const displayText = useTypingEffect(answer?.answer_md || '', state === 'streaming');
+  const actualState: TutorState = v2Streaming ? 'streaming' : v2State;
 
   useEffect(() => {
-    if (open && inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (open && inputRef.current) inputRef.current.focus();
   }, [open]);
 
   useEffect(() => {
-    if (state === 'grounded' || state === 'out-of-scope' || state === 'error') {
+    if (actualState === 'grounded' || actualState === 'out-of-scope' || actualState === 'error') {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [state, displayText]);
+  }, [actualState, v2Answer]);
+
+  useEffect(() => {
+    return () => { cleanupRef.current?.(); };
+  }, []);
+
+  const handleSubmitV2 = useCallback(async (q: string) => {
+    cleanupRef.current?.();
+    setV2Streaming(true);
+    setV2State('streaming');
+    setV2Answer('');
+    setV2Error('');
+    setLastQuestion(q);
+    setShowSuggestions(false);
+
+    const blockId = `tutor-inline-${Date.now()}`;
+
+    const unsub = api.onTutorToken((data: { blockId: string; token: string; done: boolean }) => {
+      if (data.blockId !== blockId) return;
+      if (data.done) {
+        setV2Streaming(false);
+        setV2State(v2Answer.length > 0 ? 'grounded' : 'error');
+        if (v2Answer.length === 0) setV2Error('Empty response');
+        return;
+      }
+      setV2Answer(prev => prev + data.token);
+    });
+    cleanupRef.current = unsub;
+
+    try {
+      const result = await api.learnTutorStream({ nodeId, blockId, question: q });
+      if (!result || !result.ok) {
+        setV2Streaming(false);
+        setV2State('error');
+        setV2Error(result?.error || 'Failed to start stream');
+      }
+    } catch (err: any) {
+      setV2Streaming(false);
+      setV2State('error');
+      setV2Error(err?.message || 'Stream error');
+    }
+  }, [nodeId]);
 
   const handleSubmit = useCallback(() => {
-    if (!question.trim() || loading) return;
-    onAsk(nodeId, question.trim());
+    const q = question.trim();
+    if (!q) return;
+    if (v2Streaming) return;
     onQuestionChange('');
-    setShowSuggestions(false);
-  }, [question, loading, nodeId, onAsk, onQuestionChange]);
+    if (supportsV2) {
+      handleSubmitV2(q);
+    } else if (onAsk) {
+      onAsk(nodeId, q);
+      setShowSuggestions(false);
+      setLastQuestion(q);
+    }
+  }, [question, v2Streaming, supportsV2, onAsk, nodeId, onQuestionChange, handleSubmitV2]);
+
+  const cancelStream = useCallback(() => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    setV2Streaming(false);
+    if (v2Answer.length > 0) {
+      setV2State('grounded');
+    } else {
+      setV2State('idle');
+    }
+  }, [v2Answer]);
 
   if (!open) {
     return (
@@ -105,6 +147,10 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
     );
   }
 
+  const displayAnswer = v2Answer || v1Answer?.answer_md || '';
+  const displayState = supportsV2 ? actualState : (v1Loading ? 'streaming' : v1Answer ? (v1Answer.escalated ? 'out-of-scope' : 'grounded') : 'idle');
+  const isStreaming = supportsV2 ? v2Streaming : !!v1Loading;
+
   return (
     <motion.div
       initial={{ width: 0, opacity: 0 }}
@@ -116,11 +162,12 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 shrink-0">
         <span className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-          <Brain className="w-4 h-4 text-indigo-400" />
+          <Brain className="w-4 h-4 text-amber-400" />
           Tutor
+          {supportsV2 && <span className="px-1 py-0.5 rounded bg-amber-500/15 text-[9px] text-amber-400 font-medium uppercase">V2</span>}
         </span>
         <button
-          onClick={() => { onToggle(false); setShowSuggestions(true); }}
+          onClick={() => { onToggle(false); setShowSuggestions(true); setV2State('idle'); setV2Answer(''); }}
           className="w-6 h-6 flex items-center justify-center rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition"
           aria-label="Close tutor panel"
         >
@@ -132,7 +179,7 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
       <div className="flex-1 overflow-y-auto ws-scroll">
         <AnimatePresence mode="wait">
           {/* Idle state */}
-          {state === 'idle' && (
+          {displayState === 'idle' && (
             <motion.div
               key="idle"
               initial={{ opacity: 0 }}
@@ -141,8 +188,8 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
               className="p-4 space-y-4"
             >
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-4 h-4 text-indigo-400" />
+                <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
                 </div>
                 <div>
                   <p className="text-sm text-zinc-200 font-medium">Ask anything about this lesson</p>
@@ -169,7 +216,7 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
           )}
 
           {/* Streaming state */}
-          {state === 'streaming' && (
+          {displayState === 'streaming' && (
             <motion.div
               key="streaming"
               initial={{ opacity: 0 }}
@@ -177,26 +224,38 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
               exit={{ opacity: 0 }}
               className="p-4 space-y-3"
             >
-              <div className="flex items-start gap-2">
-                <div className="w-5 h-5 shrink-0 mt-0.5">
-                  <div className="w-4 h-4 border-2 border-zinc-600 border-t-indigo-400 rounded-full animate-spin" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
+                  <span className="text-xs text-zinc-500">Generating...</span>
                 </div>
-                <div className="text-sm text-zinc-200 leading-relaxed" dangerouslySetInnerHTML={{
-                  __html: renderAnswerHtml(displayText)
-                }} />
+                {supportsV2 && (
+                  <button
+                    onClick={cancelStream}
+                    className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-red-400 transition"
+                  >
+                    <StopCircle className="w-3 h-3" />
+                    Stop
+                  </button>
+                )}
               </div>
-              {displayText.length < (answer?.answer_md?.length || 0) && (
-                <div className="flex gap-1 justify-center">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+              {displayAnswer && (
+                <div className="text-sm text-zinc-200 leading-relaxed" dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(renderAnswerHtml(displayAnswer))
+                }} />
+              )}
+              {displayAnswer.length > 0 && (
+                <div className="flex gap-1 justify-center pt-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               )}
             </motion.div>
           )}
 
           {/* Grounded answer */}
-          {state === 'grounded' && answer && !answer.escalated && (
+          {displayState === 'grounded' && v1Answer && !v1Answer.escalated && !supportsV2 && (
             <motion.div
               key="grounded"
               initial={{ opacity: 0, y: 8 }}
@@ -205,65 +264,69 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
               className="p-4 space-y-3"
             >
               <div className="text-sm text-zinc-200 leading-relaxed" dangerouslySetInnerHTML={{
-                __html: renderAnswerHtml(answer.answer_md)
+                __html: DOMPurify.sanitize(renderAnswerHtml(v1Answer.answer_md))
               }} />
-
-              {/* Citations */}
-              {answer.citations.length > 0 && (
+              {v1Answer.citations.length > 0 && (
                 <div className="pt-2 border-t border-zinc-800">
                   <div className="flex flex-wrap gap-1.5">
-                    {answer.citations.map((c) => (
-                      <CitationChip key={c.id} id={c.id} url={c.url} title={c.title} />
+                    {v1Answer.citations.map((c: any) => (
+                      <span key={c.id} className="px-2 py-0.5 rounded-full bg-zinc-800/60 text-[10px] text-zinc-400 border border-zinc-700/40">{c.title}</span>
                     ))}
                   </div>
                 </div>
               )}
-
-              {/* Scope tag */}
-              {answer.scope && (
+              {v1Answer.scope && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] text-zinc-600 uppercase tracking-wider">Scope</span>
                   <span className="px-2 py-0.5 rounded-full bg-zinc-800/60 text-[10px] text-zinc-400 border border-zinc-700/40">
-                    {answer.scope}
+                    {v1Answer.scope}
                   </span>
                 </div>
               )}
-
-              {/* Confidence indicator */}
               <div className="flex items-center gap-2 text-[10px] text-zinc-600">
                 <div className="flex-1 h-1 rounded-full bg-zinc-800 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-indigo-500/60 transition-all duration-500"
-                    style={{ width: `${Math.round(answer.confidence * 100)}%` }}
-                  />
+                  <div className="h-full rounded-full bg-amber-500/60 transition-all duration-500" style={{ width: `${Math.round(v1Answer.confidence * 100)}%` }} />
                 </div>
-                <span>{Math.round(answer.confidence * 100)}% confidence</span>
+                <span>{Math.round(v1Answer.confidence * 100)}% confidence</span>
               </div>
-
-              {/* Assessment feedback */}
-              {answer.assessment && (
+              {v1Answer.assessment && (
                 <div className="p-3 rounded-lg bg-zinc-800/40 border border-zinc-700/40">
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-zinc-400">Assessment:</span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                      answer.assessment.outcome === 'demonstrated' ? 'text-emerald-400 bg-emerald-500/10' :
-                      answer.assessment.outcome === 'partial' ? 'text-amber-400 bg-amber-500/10' :
+                      v1Answer.assessment.outcome === 'demonstrated' ? 'text-emerald-400 bg-emerald-500/10' :
+                      v1Answer.assessment.outcome === 'partial' ? 'text-amber-400 bg-amber-500/10' :
                       'text-zinc-500 bg-zinc-700/30'
                     }`}>
-                      {answer.assessment.outcome}
+                      {v1Answer.assessment.outcome}
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-500 mt-1">{answer.assessment.rationale}</p>
-                  {answer.assessment.suggested_next && (
-                    <p className="text-[11px] text-indigo-400 mt-1">Next: {answer.assessment.suggested_next}</p>
+                  <p className="text-xs text-zinc-500 mt-1">{v1Answer.assessment.rationale}</p>
+                  {v1Answer.assessment.suggested_next && (
+                    <p className="text-[11px] text-amber-400 mt-1">Next: {v1Answer.assessment.suggested_next}</p>
                   )}
                 </div>
               )}
             </motion.div>
           )}
 
+          {/* Grounded (V2 or simple V1) */}
+          {displayState === 'grounded' && displayAnswer && !(displayState === 'grounded' && v1Answer && !v1Answer.escalated && !supportsV2) && (
+            <motion.div
+              key="grounded-v2"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="p-4"
+            >
+              <div className="text-sm text-zinc-200 leading-relaxed" dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(renderAnswerHtml(displayAnswer))
+              }} />
+            </motion.div>
+          )}
+
           {/* Out-of-scope */}
-          {state === 'out-of-scope' && answer && (
+          {displayState === 'out-of-scope' && v1Answer && (
             <motion.div
               key="out-of-scope"
               initial={{ opacity: 0 }}
@@ -278,15 +341,15 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
                   </div>
                   <div>
                     <p className="text-sm font-medium text-amber-300">Outside scope</p>
-                    <p className="text-xs text-zinc-400 mt-1 leading-relaxed">{answer.answer_md}</p>
+                    <p className="text-xs text-zinc-400 mt-1 leading-relaxed">{v1Answer.answer_md}</p>
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {answer.citations.map((c) => (
-                        <CitationChip key={c.id} id={c.id} url={c.url} title={c.title} />
+                      {v1Answer.citations.map((c: any) => (
+                        <span key={c.id} className="px-2 py-0.5 rounded-full bg-zinc-800/60 text-[10px] text-zinc-400 border border-zinc-700/40">{c.title}</span>
                       ))}
                     </div>
                     <button
                       onClick={() => console.log('Expand scope requested')}
-                      className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-xs font-medium transition border border-indigo-500/30"
+                      className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition border border-amber-500/30"
                     >
                       <Maximize2 className="w-3 h-3" />
                       Use wider model
@@ -298,7 +361,7 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
           )}
 
           {/* Error state */}
-          {state === 'error' && (
+          {displayState === 'error' && (
             <motion.div
               key="error"
               initial={{ opacity: 0 }}
@@ -313,9 +376,9 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
                   </div>
                   <div>
                     <p className="text-sm font-medium text-red-300">Something went wrong</p>
-                    <p className="text-xs text-zinc-400 mt-1 leading-relaxed">{answer?.answer_md || 'The tutor encountered an error processing your question.'}</p>
+                    <p className="text-xs text-zinc-400 mt-1 leading-relaxed">{v2Error || v1Answer?.answer_md || 'The tutor encountered an error processing your question.'}</p>
                     <button
-                      onClick={() => onAsk(nodeId, question)}
+                      onClick={() => { if (lastQuestion) { if (supportsV2) handleSubmitV2(lastQuestion); else if (onAsk) onAsk(nodeId, lastQuestion); } }}
                       className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800/60 hover:bg-zinc-700/60 text-zinc-300 text-xs font-medium transition border border-zinc-700/50"
                     >
                       <RefreshCw className="w-3 h-3" />
@@ -329,20 +392,20 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
         </AnimatePresence>
 
         {/* Previous messages history toggle */}
-        {!loading && answer && state === 'grounded' && (
+        {!isStreaming && displayAnswer && displayState === 'grounded' && (
           <div className="border-t border-zinc-800">
             <button
               onClick={() => setExpanded(!expanded)}
               className="w-full flex items-center justify-between px-4 py-2 text-[10px] text-zinc-600 hover:text-zinc-400 transition"
             >
               {expanded ? 'Hide' : 'Show'} conversation context
-              {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              <span className="text-zinc-600">{expanded ? '▲' : '▼'}</span>
             </button>
-            {expanded && question && (
+            {expanded && lastQuestion && (
               <div className="px-4 pb-3">
                 <div className="p-2 rounded-lg bg-zinc-800/30">
                   <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Your question</p>
-                  <p className="text-xs text-zinc-400">{question}</p>
+                  <p className="text-xs text-zinc-400">{lastQuestion}</p>
                 </div>
               </div>
             )}
@@ -367,13 +430,13 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
               }
             }}
             placeholder="Ask about this node..."
-            className="flex-1 px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-sm focus:border-indigo-500/50 focus:outline-none placeholder:text-zinc-600 transition"
-            disabled={loading}
+            className="flex-1 px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-sm focus:border-amber-500/50 focus:outline-none placeholder:text-zinc-600 transition"
+            disabled={isStreaming}
           />
           <button
             onClick={handleSubmit}
-            disabled={!question.trim() || loading}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 disabled:opacity-30 disabled:cursor-not-allowed transition border border-indigo-500/30"
+            disabled={!question.trim() || isStreaming}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 disabled:opacity-30 disabled:cursor-not-allowed transition border border-amber-500/30"
             aria-label="Ask tutor"
           >
             <MessageSquare className="w-3.5 h-3.5" />
@@ -381,10 +444,10 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
         </div>
         <div className="flex items-center justify-between mt-1.5">
           <span className="text-[10px] text-zinc-600">Press Enter to ask</span>
-          {answer && !loading && (
+          {!isStreaming && lastQuestion && displayAnswer && (
             <button
-              onClick={() => { onAsk(nodeId, question || 'Re-explain the current node'); }}
-              className="text-[10px] text-indigo-500 hover:text-indigo-400 transition"
+              onClick={handleSubmit}
+              className="text-[10px] text-amber-500 hover:text-amber-400 transition"
             >
               Re-ask
             </button>

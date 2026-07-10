@@ -1,0 +1,66 @@
+=====================================================================
+DESKFLOW FIX PACKET F2 — STOP SAVING SESSION ID BEFORE IT EXISTS
+=====================================================================
+FROM:  Architect (Notion AI)
+TO:    opencode (Hands & Eyes)  VIA  CZ (Relay)
+TYPE:  *** CODE CHANGES ONLY — DO NOT TEST. CZ tests by hand. ***
+INDEPENDENT of F1/F1.1. Can be done in the same build or separately.
+
+THE BUG (CZ has reported this repeatedly):
+  - On creating a NEW opencode session, the app immediately persists a
+    session ID and then tries to resume with `-s <id>`.
+  - That ID does not exist yet (the session was never actually created /
+    retrieved), so resume fails: "session doesn't exist / session code is
+    wrong."
+  - Root cause: the ID is saved at the WRONG time (before creation), and is
+    a guessed/auto value rather than the REAL id opencode assigned.
+
+REQUIRED BEHAVIOR (exactly as CZ specified):
+  1. To start a NEW session: launch opencode FRESH with NO resume flag.
+     Run plain `opencode` in the project cwd. Do NOT pass `-s <id>`.
+     Do NOT generate or persist any session ID at this point.
+  2. Let opencode actually CREATE the session.
+  3. AFTER the session exists, RETRIEVE the real session id from opencode
+     itself — use opencode's own session-listing mechanism (its session
+     list command) and take the MOST RECENT session. If no CLI exists,
+     read the latest session id from opencode's sessions store at
+     ~/.local/share/opencode/opencode.db. Determine the correct mechanism
+     from opencode; do not hardcode a guessed command that may not exist.
+  4. ONLY THEN persist that verified, real session id, bound to this
+     terminal/project, for future resume.
+  5. To RESUME later: pass `-s <id>` ONLY when a verified stored id exists.
+     Before resuming, confirm that id still appears in opencode's session
+     list. If it does NOT (stale id), DISCARD the stored id, start a fresh
+     session per step 1, and do not surface a "session doesn't exist" error.
+
+MAKE THESE CHANGES:
+FILE: src/pages/TerminalPage.tsx (initializeTerminal, launch path ~L767-879;
+      the `${agent} -s ${resumeId}` launch line ~L820)
+  - Remove the premature session-id assignment/persist that happens before
+    the session is created.
+  - Split launch into NEW vs RESUME:
+        NEW    -> spawn `opencode` (no -s); after ready + session created,
+                  retrieve real id (step 3) and persist (step 4).
+        RESUME -> only if a verified stored id exists AND is still present
+                  in opencode's session list; otherwise fall back to NEW.
+FILE: wherever session ids are persisted/read (the store used by the resume
+      path) and src/main.ts if session retrieval needs a main-process call
+      (e.g. to run the opencode session-list command or read opencode.db).
+  - Add a 'retrieve latest opencode session id' helper used after creation.
+  - Guard all writes: never persist a session id that was not returned by
+    opencode's own listing.
+
+DONE WHEN (hand back to CZ; do NOT test yourself):
+  - No code path persists a session id before opencode created it.
+  - NEW launches use no -s; RESUME validates the id against opencode's list.
+  - TYPECHECK pass / BUILD pass (report sizes) / DIFF listed.
+  - STATUS: AI Attempted Fix
+
+MANUAL TEST — GIVEN TO CZ (by hand):
+  - Create a new session: it should launch opencode fresh (no resume error),
+    and only after it's up should a session id be stored.
+  - Close + reopen / resume: it should resume the real session, or start
+    fresh cleanly if the stored id is gone — never show "session doesn't exist."
+=====================================================================
+END OF FIX PACKET F2
+=====================================================================

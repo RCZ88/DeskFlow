@@ -1,0 +1,106 @@
+=====================================================================
+DESKFLOW PACKET D2 — PTY SIZE / RESIZE  (CONFIRM + EXPERIMENT)
+=====================================================================
+FROM:  Architect (Notion AI)
+TO:    opencode (Hands & Eyes)  VIA  CZ (Relay)
+SUPERSEDES: nothing. Builds directly on D1 (Cycle 82) findings.
+
+WHAT D1 ESTABLISHED (do not re-test):
+  - Raw input pipeline is BYTE-CLEAN: onData -> pty.write is 1:1, one char
+    at a time, NO local echo. (P3 + P6 PASS)
+  - PTY is a REAL pty.spawn at DEFAULT 80x24, TERM=xterm-256color, cmd.exe.
+  - D1 only ever ran cmd.exe. opencode itself was NEVER launched, so its
+    screen mode + the agent-send payload were never captured.
+
+LEADING HYPOTHESIS (H1): The PTY is fixed at 80x24 and is NEVER resized to
+match the xterm viewport. opencode (Bubble Tea TUI) then miscomputes its
+redraw region -> content "pushes down" and the input line renders in the
+wrong place, so typed chars look like they don't land. ONE cause, BOTH
+symptoms.
+
+KEY UNBLOCK: You do NOT need the broken agent-init flow to test opencode.
+A plain terminal can run it. Just TYPE `opencode` + Enter inside the plain
+PTY terminal. That gives us real opencode ground-truth directly.
+
+=====================================================================
+PART 1 — CHEAP CAPTURES  (no agent session needed)
+=====================================================================
+
+D2-A. buildAgentInputPayload bytes (PURE FUNCTION — just log it once).
+  Add a one-time call at startup (or a tiny unit log) and report:
+     const p = buildAgentInputPayload('hello')
+     console.log('[D2] PAYLOAD_HEX', Buffer.from(p).toString('hex'))
+     console.log('[D2] PAYLOAD_RAW', JSON.stringify(p))
+  ALSO paste the CURRENT full source of buildAgentInputPayload().
+  (This is the ONLY divergence between the clean manual path and the agent
+  path, so we can see it without any session.)
+
+D2-B. Resize wiring audit (read-only). Answer precisely:
+  - Is there a FitAddon on the xterm? Where is fit() called?
+  - Is term.onResize wired to call pty.resize(cols, rows)?  Paste the code,
+    or write "NONE" if it does not exist.
+  - At spawn, are cols/rows passed to pty.spawn, or is it the 80x24 default?
+    Paste the spawn options object.
+
+=====================================================================
+PART 2 — THE EXPERIMENT (this IS the candidate fix; report before/after)
+=====================================================================
+The fix and the proof are the same action: size the PTY to the viewport and
+keep it synced. A TUI should ALWAYS have its PTY sized to what the user sees;
+this is correct regardless of outcome, and it directly tests H1.
+
+D2-C. Make the xterm fit and size the PTY to it ON SPAWN:
+  - Ensure FitAddon.fit() runs once the terminal element has its real size
+    (after layout/visible), THEN call pty.resize(term.cols, term.rows)
+    (route through your existing IPC if pty lives in main).
+  - Log it:  console.log('[D2] FIT', term.cols, term.rows)
+             console.log('[D2] PTY_RESIZE ->', cols, rows)   // in main, in the resize handler
+
+D2-D. Wire ongoing resize (if Part-1 audit found NONE):
+     term.onResize(({ cols, rows }) => deskflowAPI.terminalResize(terminalId, cols, rows))
+  and in main add a 'terminal:resize' handler -> ptyProcess.resize(cols, rows).
+  Keep the [D2] PTY_RESIZE log in that handler.
+
+D2-E. Capture opencode's real output mode (move the probe to the PLAIN path).
+  In the GENERAL pty data handler (the pty.onData -> broadcast path that
+  fires for ALL terminals, NOT the agent-init `if (st)` branch), log the
+  first ~1KB once per terminal:
+     console.log('[D2] OC_OUT', JSON.stringify(chunk.toString('utf8').slice(0,1024)))
+
+=====================================================================
+PART 3 — REPRODUCTION PROTOCOL  (CZ runs this by hand)
+=====================================================================
+With D2-C/D/E in place and the app rebuilt:
+  1. MAXIMIZE the DeskFlow window (make the terminal clearly taller than 24 rows).
+  2. Open a plain terminal (the + button).
+  3. Note the [D2] FIT and [D2] PTY_RESIZE numbers. Are rows now >> 24?
+  4. In that terminal TYPE:  opencode  <Enter>     (launch opencode itself)
+  5. Watch the [D2] OC_OUT log. Report whether it contains:
+        - alt screen:      \x1b[?1049h   (1b 5b 3f 31 30 34 39 68)
+        - bracketed paste: \x1b[?2004h   (1b 5b 3f 32 30 30 34 68)
+  6. Once opencode is up, TYPE a few characters and press Enter.
+        - Does the push-down STILL happen now that the PTY matches the viewport?
+        - Do the typed characters land in the input box correctly now?
+  7. Drag-resize the window once; confirm [D2] PTY_RESIZE fires with new rows.
+
+=====================================================================
+REPORT BACK
+=====================================================================
+  D2-A: PAYLOAD_HEX + PAYLOAD_RAW + source of buildAgentInputPayload
+  D2-B: FitAddon? onResize wiring? spawn cols/rows (paste or NONE)
+  D2-C/D: [D2] FIT and [D2] PTY_RESIZE numbers (before maximize vs after)
+  D2-E: the [D2] OC_OUT first-1KB dump (raw)
+  PART 3: push-down before vs after?  chars land Y/N?  resize fires Y/N?
+  Then: DIFF / TYPECHECK / BUILD / UI CHECK / STATUS
+
+INTERPRETATION KEY (so the next step is unambiguous):
+  - If push-down STOPS after the PTY matches the viewport -> H1 CONFIRMED,
+    bug fixed; keep the resize wiring, remove only [D2] logs.
+  - If push-down PERSISTS but OC_OUT shows ?1049h/?2004h -> root cause is
+    screen-mode/paste handling; D3 will target that with real opencode bytes.
+  - Either way we now have OPENCODE'S OWN output, which D1 never captured.
+
+This is the first test that exercises opencode itself, not cmd.exe.
+=====================================================================
+END OF PACKET D2
+=====================================================================

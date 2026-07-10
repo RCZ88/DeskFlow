@@ -1,0 +1,117 @@
+=====================================================================
+DESKFLOW FIX PACKET F1 — TERMINAL GEOMETRY (opencode "push-down")
+=====================================================================
+FROM:  Architect (Notion AI)
+TO:    opencode (Hands & Eyes)  VIA  CZ (Relay)
+TYPE:  *** CODE CHANGES ONLY — DO NOT TEST. CZ tests by hand. ***
+       Do NOT spend tokens launching/instrumenting the app. Make the
+       changes, typecheck, build, hand back. Testing is CZ's job now.
+
+GROUND TRUTH WE ALREADY HAVE (do not re-investigate):
+  - Real PTY; raw input is byte-clean (D1: onData->pty.write 1:1, no echo).
+  - Bug reproduces with PLAIN `opencode`, window MAXIMIZED, no agent, no
+    prompt insertion. => It is NOT input encoding. It is TERMINAL GEOMETRY
+    / RENDERING of a full-screen TUI inside xterm.js.
+  - SMOKING GUN from D2: after the "size the PTY" change, term.onResize
+    still reported cols 80 rows 24. That means the xterm instance is STILL
+    at its 80x24 DEFAULT — FitAddon is not actually fitting the container.
+    opencode then renders into an 80x24 logical grid inside a big visual
+    area -> every repaint pushes content down and the input line is mis-placed.
+
+WHY THIS DIAGNOSIS (known issue class, not a guess):
+  - xterm.js #3873: plain shell resizes fine, but full-screen TUIs
+    (nvim/tmux) break unless the fitted size truly propagates to the PTY.
+  - opencode #7893 + copilot-cli #1805 ("rocket scroll") + Termdock writeups:
+    TUI agents "jump/scroll/push down" specifically inside xterm.js terminals
+    while native terminals are fine. Root causes: wrong geometry, missing
+    Windows reflow mode, and EOL conversion.
+
+=====================================================================
+MAKE THESE CHANGES (ordered by impact). One coherent commit.
+=====================================================================
+
+--- CHANGE 1: Make FitAddon actually fit (THE primary fix) ---
+FILE: src/components/TerminalWindow.tsx (+ its CSS)
+WHY: onResize reporting 80x24 proves fit() ran against a container with no
+     resolved height (classic flexbox bug) OR before layout settled, so it
+     fell back to the default grid.
+DO:
+  1. Confirm FitAddon is imported, loadAddon'd on the Terminal, and that the
+     xterm container <div> fills its parent. The container AND every flex
+     ancestor between it and the page must have:  min-height: 0; and a
+     resolved height (e.g. flex:1 1 auto; overflow:hidden; height:100%).
+     A flex child WITHOUT `min-height:0` collapses so fit() sees ~0px and
+     returns 80x24. Fix the CSS first.
+  2. Replace the double-requestAnimationFrame wait with a ResizeObserver on
+     the container:
+         const ro = new ResizeObserver(() => { fitAddon.fit() })
+         ro.observe(containerEl)
+     Call fitAddon.fit() once after the observer reports a NON-ZERO size,
+     then spawn the PTY with term.cols/term.rows (already wired).
+  3. After fit(), assert in code that term.rows is > 24 when the window is
+     large; if it is still 24, the container is still collapsed (revisit #1).
+
+--- CHANGE 2: Propagate every fit to the PTY ---
+FILE: src/components/TerminalWindow.tsx + src/main.ts
+WHY: The TUI only re-lays-out when it receives a resize (SIGWINCH/ConPTY
+     resize). #3873: the fit must reach the PTY or the TUI keeps old geometry.
+DO:
+  - In the ResizeObserver/onResize path, after fitAddon.fit(), call the
+     resize IPC with the FITTED term.cols/term.rows (not stale values).
+  - In main, ensure the resize handler calls ptyProcess.resize(cols, rows)
+     with those exact numbers. (Verify it is not clamping to 80x24.)
+
+--- CHANGE 3: Fire ONE post-launch resize nudge ---
+FILE: src/components/TerminalWindow.tsx (or wherever a command/agent starts)
+WHY: Full-screen TUIs (opencode) frequently size correctly only on the FIRST
+     resize AFTER they start. A single nudge forces a clean re-layout.
+DO:
+  - ~250ms after the terminal becomes interactive (and again right after
+     `opencode` launches if you can detect it), call fitAddon.fit() and
+     re-send the PTY resize once. Keep it to a single nudge, not a loop.
+
+--- CHANGE 4: Remove EOL conversion on the xterm Terminal ---
+FILE: src/components/TerminalWindow.tsx (Terminal constructor options)
+WHY: If the Terminal is constructed with `convertEol: true`, every bare LF
+     is rewritten to CRLF. A TUI that emits bare LF for cursor moves then
+     gets pushed down a line on each repaint. TUIs do their own line
+     discipline — xterm must not rewrite EOLs.
+DO:
+  - Ensure `convertEol` is NOT set (or is false) in the Terminal options.
+
+--- CHANGE 5: Enable Windows reflow mode ---
+FILE: src/components/TerminalWindow.tsx (Terminal constructor options)
+WHY: On Windows (ConPTY) xterm needs to know the backend reflows lines, or
+     wrapped lines accumulate as extra rows (push-down). This is Windows-
+     specific and matches our cmd.exe/ConPTY setup.
+DO:
+  - Add `windowsMode: true` to the Terminal options (or, if on @xterm v5+
+     with the newer API, set `windowsPty: { backend: 'conpty' }`). Use
+     whichever your installed xterm version supports.
+
+=====================================================================
+DONE WHEN (hand back to CZ; do NOT test yourself)
+=====================================================================
+  - TYPECHECK: pass
+  - BUILD: pass (report main.cjs / preload.cjs sizes + timestamp)
+  - DIFF: list the files + the exact CSS/option changes made
+  - Confirm in code review (not runtime) that:
+       * the xterm container + flex ancestors have min-height:0 + resolved height
+       * fit() runs via ResizeObserver after non-zero size
+       * the FITTED cols/rows reach ptyProcess.resize
+       * convertEol is not true
+       * windowsMode (or windowsPty) is set
+  - STATUS: AI Attempted Fix
+
+=====================================================================
+MANUAL TEST — GIVEN TO CZ (human, by hand; ~60s)  [for CZ, not opencode]
+=====================================================================
+  1. Maximize DeskFlow.
+  2. + Open Terminal.
+  3. Type `opencode` + Enter.
+  4. Type a few chars + Enter.
+  Watch: does opencode still push down? do typed chars land in the box?
+  5. Drag-resize the window once; does opencode re-lay-out cleanly?
+=====================================================================
+END OF FIX PACKET F1
+=====================================================================

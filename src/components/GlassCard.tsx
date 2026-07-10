@@ -42,7 +42,7 @@ export function GlassCard({ variant = 'default', accent = 'none', className = ''
           <div className={`absolute inset-0 opacity-[0.03] pointer-events-none ${ac.bg}`} />
         </>
       )}
-      <div className="relative z-0">
+      <div className="relative z-0 flex flex-col min-h-0 flex-1">
         {children}
       </div>
     </div>

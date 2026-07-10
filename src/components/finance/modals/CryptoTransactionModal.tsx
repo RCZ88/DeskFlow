@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { Wallet, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react'
 import { TransactionModalShell } from './TransactionModalShell'
 import { useTransactionForm } from './useTransactionForm'
-import { ContextBand, TypeToggle, AdvancedToggle } from './modalParts'
+import { ContextBand, TypeToggle, AmountInput, AdvancedToggle, OnBehalfOfSection } from './modalParts'
 import { TransferWalletSelect } from './TransferWalletSelect'
 import { TransferDestinationPanel } from './TransferDestinationPanel'
 import { useCurrencyFormat, tint, parseMeta } from './modalUtils'
@@ -159,12 +159,19 @@ export const CryptoTransactionModal: React.FC<TxModalProps> = (props) => {
 									onSelect={setDestWalletId}
 									displayCurrency={props.displayCurrency}
 								/>
-								<TransferDestinationPanel
-									destWallet={destWallet}
-									accent={ACCENT}
-									format={format}
-									onMetadataChange={setDestMetadata}
-								/>
+              <TransferDestinationPanel
+                destWallet={destWallet}
+                accent={ACCENT}
+                format={format}
+                onMetadataChange={setDestMetadata}
+                sourceFee={(() => {
+                  const ft = meta.transfer_fee_type;
+                  const fv = parseFloat(meta.transfer_fee_value || '0');
+                  return ft && ft !== 'none' && fv > 0 ? { type: ft, value: fv } : null;
+                })()}
+                transferAmount={f.numericAmount}
+              />
+              <AmountInput accent={ACCENT} value={f.fee} onChange={f.setFee} symbol={symbol} label="Fee" />
 							</>
 						) : (
 							<>
@@ -188,16 +195,19 @@ export const CryptoTransactionModal: React.FC<TxModalProps> = (props) => {
 							</>
 						)}
 
+						{f.type === 'expense' && (
+							<OnBehalfOfSection accent={ACCENT} value={f.onBehalfOf} personId={f.ftPersonId} onValueChange={f.setOnBehalfOf} onPersonChange={(id, _name) => f.setFtPersonId(id)} persons={props.ftPersons} onAddPerson={props.onAddFtPerson} />
+						)}
+						<input type="date" value={f.date} onChange={(e) => f.setDate(e.target.value)}
+							className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 text-sm text-white outline-none focus:border-zinc-500" />
 						<AdvancedToggle open={f.showAdvanced} onToggle={() => f.setShowAdvanced(!f.showAdvanced)} />
 						{f.showAdvanced && (
-							<div className="flex gap-2">
+							<>
 								{f.type !== 'transfer' && (
 									<input inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="Fee"
-										className="flex-1 rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 font-mono text-sm text-white outline-none focus:border-zinc-500" />
+										className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 font-mono text-sm text-white outline-none focus:border-zinc-500" />
 								)}
-								<input type="date" value={f.date} onChange={(e) => f.setDate(e.target.value)}
-									className="flex-1 rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 text-sm text-white outline-none focus:border-zinc-500" />
-							</div>
+							</>
 						)}
 					</>
 				)
