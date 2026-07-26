@@ -6,6 +6,10 @@ export interface KpiData {
   totalCost: string;
   activeSessions: string;
   toolsModels: string;
+  totalTokensNum?: number;
+  totalCostNum?: number;
+  activeSessionsNum?: number;
+  toolsModelsNum?: number;
   loading?: boolean;
   empty?: boolean;
   error?: string;
@@ -26,6 +30,7 @@ export function KpiRow({ data }: { data: KpiData }) {
         icon={Bot}
         accent="violet"
         value={data.totalTokens}
+        numericValue={data.totalTokensNum}
         label="Total Tokens"
         trend={trends?.totalTokens}
         loading={loading}
@@ -38,6 +43,7 @@ export function KpiRow({ data }: { data: KpiData }) {
         icon={DollarSign}
         accent="emerald"
         value={data.totalCost}
+        numericValue={data.totalCostNum}
         label="Total Cost"
         trend={trends?.totalCost}
         loading={loading}
@@ -50,6 +56,7 @@ export function KpiRow({ data }: { data: KpiData }) {
         icon={Activity}
         accent="pink"
         value={data.activeSessions}
+        numericValue={data.activeSessionsNum}
         label="Active Sessions"
         trend={trends?.activeSessions}
         loading={loading}
@@ -62,6 +69,7 @@ export function KpiRow({ data }: { data: KpiData }) {
         icon={Wrench}
         accent="cyan"
         value={data.toolsModels}
+        numericValue={data.toolsModelsNum}
         label="Tools / Models"
         trend={trends?.toolsModels}
         loading={loading}

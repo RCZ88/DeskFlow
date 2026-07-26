@@ -47,11 +47,14 @@ export default function AICityscape({
   className,
 }: AICityscapeProps) {
   const prevAgentsFingerprintRef = useRef('');
+  const prevMetricKeyRef = useRef('');
   const prevHeroesRef = useRef<any[]>([]);
   const heroes = useMemo(() => {
-    const fp = agents?.map(a => `${a.id}:${a.tokens}:${a.sessions}:${a.cost}:${a.messageCount}:${a.status}`).join('|') ?? '';
-    if (fp === prevAgentsFingerprintRef.current) return prevHeroesRef.current;
-    prevAgentsFingerprintRef.current = fp;
+    const dataFp = agents?.map(a => `${a.id}:${a.tokens}:${a.sessions}:${a.cost}:${a.messageCount}:${a.status}`).join('|') ?? '';
+    const metricKey = `${metric}:${tokenDisplayMode}`;
+    if (dataFp === prevAgentsFingerprintRef.current && metricKey === prevMetricKeyRef.current) return prevHeroesRef.current;
+    prevAgentsFingerprintRef.current = dataFp;
+    prevMetricKeyRef.current = metricKey;
     if (!agents?.length) return [];
     const resolveMetric = (a: AIAgent): number => {
       if (metric === "tokens" && tokenDisplayMode === "input") return a.tokensIn
@@ -117,7 +120,7 @@ export default function AICityscape({
           )}
         </div>
       ) : (
-        <CityScene heroes={heroes} seed="deskflow" rings={10} />
+        <CityScene heroes={heroes} seed="deskflow" rings={10} hdrFile="/cyber_assets/hdri/night_sky.hdr" />
       )}
     </div>
   );

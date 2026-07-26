@@ -5,7 +5,7 @@ import {
   AlertTriangle, Palette, Network, Database, Activity, Settings,
   ExternalLink, Trophy, RotateCcw, Check, Timer,
   Target, PieChart, Code2, Clock4, Zap, Users, FileText,
-  Sliders, Search, Layers, Cpu, Grip, Layout, Brain,
+  Sliders, Search, Layers, Cpu, Grip, Layout, Brain, TrendingUp, Upload, Download, Rocket, Award, Smartphone,
 } from 'lucide-react';
 
 import { PageShell } from '../components/PageShell';
@@ -129,16 +129,16 @@ const FEATURES: Feature[] = [
     category: 'Core', status: 'released',
     description: 'Your intelligent companion for goal achievement and daily planning.',
     whatYoullFind: [
-      'Daily plan card with today\'s focus goals and AI suggestions',
-      'Context summary showing unfinished goals and weekly completions',
-      'Editable planning document with checklist parsing',
-      'Evening review mode for end-of-day reflection notes',
+      'Infinite canvas with pannable grid and zoom controls',
+      'Card types: goals, schedule, deadlines, responses, connectors',
+      'Minimap for bird\'s-eye navigation across the canvas',
+      'Command palette (Ctrl+K) for quick actions and card creation',
     ],
     whatYouCanDo: [
-      'Read today\'s focus goals from the daily plan card',
-      'Confirm AI has your weekly context for relevant suggestions',
-      'Toggle goals as you complete them and add new goals inline',
-      'Compose evening review notes and save reflections',
+      'Toggle between Canvas (spatial) and Deck (linear chat) modes',
+      'Drag cards to organize, pin to keep, auto-arrange by type',
+      'Scroll to zoom, drag background to pan, click minimap to jump',
+      'Type questions in the input bar or use the command palette',
     ],
     visualIcons: [Sparkles, Target, Brain],
     route: '/ai',
@@ -332,6 +332,102 @@ const FEATURES: Feature[] = [
     ],
     visualIcons: [Database, BarChart3, Search],
     route: '/database',
+  },
+  {
+    id: 'feature-specs', name: 'Feature Specs', icon: FileText,
+    category: 'Tracker Mind', status: 'beta',
+    description: 'Browse and copy feature specifications for AI context.',
+    whatYoullFind: [
+      'Sidebar with all features organized by category',
+      'Detail view with sections, components, and IPC endpoints',
+      'Copy as markdown for individual or all specs',
+    ],
+    whatYouCanDo: [
+      'Search and filter specs by name or description',
+      'Toggle MD View to see raw markdown',
+      'Copy specs to paste into AI context',
+    ],
+    visualIcons: [FileText, Search, Layers],
+    route: '/ide',
+  },
+  // ───────────────────────────────────────────────────
+  // Resume Builder
+  // ───────────────────────────────────────────────────
+  {
+    id: 'resume-hub', name: 'Resume Hub', icon: FileText,
+    category: 'Core', status: 'released',
+    description: 'Your resume dashboard — score, versions, and quick actions.',
+    whatYoullFind: [
+      'Animated score gauge showing resume quality out of 100',
+      'Quick action cards for Build, Import, Preview, and Export',
+      'Recent versions list with scores and dates',
+      'Profile summary with target role and stats',
+    ],
+    whatYouCanDo: [
+      'Click Build to start the 7-phase questionnaire',
+      'Import chat conversations to extract takeaways',
+      'Scan certifications with your phone camera',
+      'Save and compare multiple resume versions',
+    ],
+    visualIcons: [FileText, TrendingUp, Award],
+    route: '/resume',
+  },
+  {
+    id: 'resume-builder', name: 'Resume Builder', icon: Rocket,
+    category: 'Core', status: 'released',
+    description: 'Adaptive questionnaire with AI feedback and live preview.',
+    whatYoullFind: [
+      '7-phase non-linear questionnaire you can navigate freely',
+      'Voice input for long answers via built-in speech recognition',
+      'Resizable live preview with ATS-safe formatting',
+      'Detailed answer guides with include/exclude/tips',
+    ],
+    whatYouCanDo: [
+      'Click any phase tab to jump to that section',
+      'Use the mic button to dictate long answers',
+      'Drag the preview divider to resize',
+      'Follow the XYZ format for strong resume bullets',
+    ],
+    visualIcons: [Rocket, Sparkles, Target],
+    route: '/resume/build',
+  },
+  {
+    id: 'resume-import', name: 'Resume Import & Scan', icon: Upload,
+    category: 'Core', status: 'released',
+    description: 'Extract resume content from chats, docs, and certifications.',
+    whatYoullFind: [
+      'Chat transcript import from ChatGPT, Claude, and Cursor',
+      'Mobile phone scanning for certifications and credentials',
+      'Document upload with AI-powered content extraction',
+      'Takeaway review grid with confirm/reject actions',
+    ],
+    whatYouCanDo: [
+      'Paste chat conversations to extract resume-worthy items',
+      'Scan physical certificates with your phone camera',
+      'Upload PDFs and documents for AI analysis',
+      'Review and confirm extracted takeaways before using them',
+    ],
+    visualIcons: [Upload, Smartphone, Award],
+    route: '/resume/import',
+  },
+  {
+    id: 'resume-export', name: 'Resume Export & Reports', icon: Download,
+    category: 'Core', status: 'released',
+    description: 'Export your resume and view improvement reports.',
+    whatYoullFind: [
+      'PDF, Markdown, and JSON export formats',
+      'ATS compatibility score and keyword analysis',
+      'Version management with role-specific tailoring',
+      'Improvement suggestions and redline drafts',
+    ],
+    whatYouCanDo: [
+      'Choose export format and set target role',
+      'Compare resume versions side by side',
+      'View ATS score and keyword match rate',
+      'Get specific improvement suggestions',
+    ],
+    visualIcons: [Download, BarChart3, FileText],
+    route: '/resume/export',
   },
 ];
 

@@ -35,7 +35,7 @@ export function CheckDraw({
 			aria-label={label}
 			className={cn(
 				"inline-flex items-center justify-center rounded-full transition-colors",
-				"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/60",
+				"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60",
 				className,
 			)}
 		>

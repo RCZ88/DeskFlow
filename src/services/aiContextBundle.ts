@@ -99,10 +99,11 @@ export async function buildContextBundleDetailed(): Promise<ContextBundleResult>
     safe<unknown>(b && (() => (b.readPlanningMd as () => Promise<unknown>)()), null),
   ])
 
-  // ADDED — connectors context (was missing)
-  let connectors: unknown = null
+  // ADDED — connectors context (enhanced)
+  let connectors: any[] = []
   try {
-    connectors = b && await (b.connectorList as () => Promise<unknown>)()
+    const listResult = b && await (b.connectors?.list as () => Promise<any>)()
+    connectors = listResult?.connectors || []
   } catch {
     warnings.push('Connectors context failed')
   }
@@ -114,6 +115,18 @@ export async function buildContextBundleDetailed(): Promise<ContextBundleResult>
     activeGoals = goalsResult?.goals?.filter?.((g: any) => g.status === 'active').slice(0, 5) ?? null
   } catch {
     /* already warned above */
+  }
+
+  // ADDED — finance context
+  let financeSummary: any = null
+  let financeWallets: any[] = []
+  let financeSubscriptions: any = null
+  try {
+    financeSummary = await safe<unknown>(b && (() => (b.financeGetSummary as () => Promise<unknown>)()), null)
+    financeWallets = (await safe<any[]>(b && (() => (b.financeGetWallets as () => Promise<any>)()), [])) || []
+    financeSubscriptions = await safe<unknown>(b && (() => (b.financeGetSubscriptionIntelligence as () => Promise<unknown>)()), null)
+  } catch {
+    warnings.push('Finance context failed')
   }
 
   const dash = await safe<unknown>(
@@ -131,8 +144,46 @@ export async function buildContextBundleDetailed(): Promise<ContextBundleResult>
   if (projects) lines.push("### Active projects", clip(projects, 800))
   if (planning) lines.push("### Planning notes", clip(planning, 900))
 
-  // ADDED — connectors in context
-  if (connectors) lines.push("### Active connectors", clip(connectors, 600))
+  // ADDED — connectors in context (enhanced with items)
+  if (connectors.length > 0) {
+    lines.push("### Active connectors")
+    for (const c of connectors) {
+      lines.push(`- ${c.displayName} (${c.type}/${c.provider}) \u2014 ${c.status}`)
+      if (c.status === "connected") {
+        try {
+          const itemsResult = await b.connectors?.items(c.id, { limit: c.type === "email" ? 5 : 3 })
+          if (itemsResult?.success && itemsResult.items?.length > 0) {
+            for (const item of itemsResult.items) {
+              if (c.type === "email") {
+                const from = item.metadata?.from ? ` from ${item.metadata.from}` : ""
+                const read = item.is_read ? "" : " [UNREAD]"
+                lines.push(`  \u{1F4E7} ${item.subject || "(no subject)"}${from}${read} \u2014 ${item.date?.slice(0, 10)}`)
+              } else if (c.type === "calendar") {
+                const start = item.metadata?.startTime ? ` at ${item.metadata.startTime.slice(11, 16)}` : ""
+                lines.push(`  \u{1F4C5} ${item.summary || "(no title)"}${start} \u2014 ${item.date?.slice(0, 10)}`)
+              }
+            }
+          }
+        } catch {
+          // silently skip items for this connector
+        }
+      }
+    }
+    lines.push("")
+  }
+
+  // ADDED — finance data
+  if (financeSummary) lines.push("### Finance summary", clip(financeSummary, 800))
+  if (financeWallets.length > 0) {
+    const walletSummary = financeWallets.map((w: any) => ({
+      name: w.name,
+      type: w.type,
+      balance: w.balance,
+      currency: w.currency,
+    }))
+    lines.push("### Wallets", clip(walletSummary, 600))
+  }
+  if (financeSubscriptions) lines.push("### Subscriptions", clip(financeSubscriptions, 600))
 
   // ADDED — current focus (active goals)
   if (activeGoals) lines.push("### Current focus", clip(activeGoals, 400))

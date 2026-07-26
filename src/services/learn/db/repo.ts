@@ -10,7 +10,17 @@ export function runMigration(db: Database) {
   const files = fs.readdirSync(migrationsDir).filter((f: string) => f.endsWith('.sql')).sort();
   for (const file of files) {
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
-    db.exec(sql);
+    try {
+      db.exec(sql);
+    } catch (e: any) {
+      // Ignore "duplicate column name" errors from ALTER TABLE ADD COLUMN
+      // (column already added in a previous run)
+      if (e.message?.includes('duplicate column')) {
+        console.warn(`[Learn] Migration ${file}: column already exists, skipping`);
+        continue;
+      }
+      throw e;
+    }
   }
 }
 
@@ -20,27 +30,30 @@ export function upsertLesson(db: Database, lesson: {
   id: string; title: string; part: number; version: string;
   summary?: string; authored_by?: string; doc_json: string;
   status?: string; created_at: string; updated_at: string;
+  chapter?: string; original_prompt?: string;
 }) {
   const stmt = db.prepare(`
-    INSERT INTO learn_lessons (id, title, part, version, summary, authored_by, doc_json, status, created_at, updated_at)
-    VALUES (@id, @title, @part, @version, @summary, @authored_by, @doc_json, @status, @created_at, @updated_at)
+    INSERT INTO learn_lessons (id, title, part, version, summary, authored_by, doc_json, status, created_at, updated_at, chapter, original_prompt)
+    VALUES (@id, @title, @part, @version, @summary, @authored_by, @doc_json, @status, @created_at, @updated_at, @chapter, @original_prompt)
     ON CONFLICT(id) DO UPDATE SET
       title = @title, part = @part, version = @version, summary = @summary,
-      authored_by = @authored_by, doc_json = @doc_json, status = @status, updated_at = @updated_at
+      authored_by = @authored_by, doc_json = @doc_json, status = @status, updated_at = @updated_at,
+      chapter = @chapter, original_prompt = @original_prompt
   `);
   stmt.run({
     id: lesson.id, title: lesson.title, part: lesson.part, version: lesson.version,
     summary: lesson.summary || null, authored_by: lesson.authored_by || null,
     doc_json: lesson.doc_json, status: lesson.status || 'draft',
     created_at: lesson.created_at, updated_at: lesson.updated_at,
+    chapter: lesson.chapter || '', original_prompt: lesson.original_prompt || '',
   });
 }
 
 export function listLessons(db: Database, part?: number) {
   if (part != null) {
-    return db.prepare('SELECT id, title, part, version, status, created_at, updated_at FROM learn_lessons WHERE part = ? ORDER BY created_at DESC').all(part);
+    return db.prepare('SELECT id, title, part, version, status, chapter, original_prompt, created_at, updated_at FROM learn_lessons WHERE part = ? ORDER BY created_at DESC').all(part);
   }
-  return db.prepare('SELECT id, title, part, version, status, created_at, updated_at FROM learn_lessons ORDER BY part ASC, created_at DESC').all();
+  return db.prepare('SELECT id, title, part, version, status, chapter, original_prompt, created_at, updated_at FROM learn_lessons ORDER BY part ASC, created_at DESC').all();
 }
 
 export function getLesson(db: Database, lessonId: string) {

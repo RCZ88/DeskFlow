@@ -1,0 +1,26 @@
+--- a/src/components/finance/OverviewTab.tsx
++++ b/src/components/finance/OverviewTab.tsx
+@@ -459,22 +459,6 @@
+         </div>
+       </div>
+
+-      {/* ═══ SECTION 7: Advanced Analytics ═══ */}
+-      <div>
+-        <div className="flex items-center gap-2 mb-3">
+-          <div className="h-px flex-1 bg-gradient-to-r from-violet-500/40 via-violet-500/10 to-transparent" />
+-          <span className="text-[10px] font-semibold tracking-[0.12em] uppercase text-violet-500/70">Advanced Analytics</span>
+-          <div className="h-px flex-1 bg-gradient-to-l from-violet-500/40 via-violet-500/10 to-transparent" />
+-        </div>
+-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+-          <LiquidityWaterfall />
+-          <CashFlowRunway />
+-          <SubscriptionBurdenRadar />
+-          <WalletHealthScorecards />
+-          <div className="lg:col-span-2">
+-            <TransferCostMatrix />
+-          </div>
+-        </div>
+-      </div>
+     </div>
+   );
+ }

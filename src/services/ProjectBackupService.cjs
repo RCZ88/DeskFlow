@@ -1,0 +1,248 @@
+"use strict";
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { app } = require('electron');
+
+let archiver, globModule, extractZip;
+function loadDeps() {
+  if (!archiver) {
+    try { archiver = require('archiver'); } catch { archiver = null; }
+  }
+  if (!globModule) {
+    try { globModule = require('glob'); } catch { globModule = null; }
+  }
+  if (!extractZip) {
+    try { extractZip = require('extract-zip'); } catch { extractZip = null; }
+  }
+}
+
+const BACKUPS_DIR = path.join(app.getPath('userData'), 'project-backups');
+const BACKUP_DB_FILE = path.join(BACKUPS_DIR, 'backups.json');
+
+function ensureBackupsDir() {
+  if (!fs.existsSync(BACKUPS_DIR)) {
+    fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+  }
+}
+
+function loadManifest() {
+  ensureBackupsDir();
+  try {
+    if (fs.existsSync(BACKUP_DB_FILE)) {
+      return JSON.parse(fs.readFileSync(BACKUP_DB_FILE, 'utf-8'));
+    }
+  } catch {}
+  return [];
+}
+
+function saveManifest(manifest) {
+  ensureBackupsDir();
+  fs.writeFileSync(BACKUP_DB_FILE, JSON.stringify(manifest, null, 2));
+}
+
+function generateId() {
+  return crypto.randomBytes(8).toString('hex');
+}
+
+function getBackupPath(id) {
+  return path.join(BACKUPS_DIR, `${id}.zip`);
+}
+
+function getProjectFiles(projectPath) {
+  if (!globModule) return [];
+  const ignorePatterns = [
+    '**/node_modules/**', '**/.git/**', '**/dist/**', '**/.next/**',
+    '**/build/**', '**/target/**', '**/__pycache__/**', '**/.cache/**',
+    '**/*.zip', '**/*.tar.gz', '**/.env', '**/.env.local',
+    '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml',
+  ];
+  const allFiles = globModule.globSync('**/*', {
+    cwd: projectPath,
+    nodir: true,
+    dot: true,
+    ignore: ignorePatterns,
+    absolute: true,
+  });
+  return allFiles;
+}
+
+function registerProjectBackupIPC(db) {
+  const { ipcMain } = require('electron');
+
+  ipcMain.handle('projectBackup:create', async (_event, projectId, projectPath) => {
+    try {
+      loadDeps();
+      if (!archiver) return { success: false, error: 'archiver package not installed' };
+
+      const id = generateId();
+      const timestamp = new Date().toISOString();
+      const manifest = loadManifest();
+      const zipPath = getBackupPath(id);
+      const output = fs.createWriteStream(zipPath);
+      const archive = archiver('zip', { zlib: { level: 9 } });
+
+      return new Promise((resolve) => {
+        output.on('close', () => {
+          const stats = fs.statSync(zipPath);
+          const files = getProjectFiles(projectPath);
+          const entry = {
+            id,
+            projectId,
+            label: `Backup ${timestamp.slice(0, 10)} ${timestamp.slice(11, 19)}`,
+            timestamp,
+            fileCount: files.length,
+            totalSize: stats.size,
+            compressionRatio: stats.size > 0 && files.length > 0 ? stats.size / (files.length * 4096) : 0,
+            autoBackup: false,
+          };
+          manifest.push(entry);
+          saveManifest(manifest);
+          resolve({ success: true, data: entry });
+        });
+        archive.on('error', (err) => {
+          resolve({ success: false, error: err.message });
+        });
+        archive.pipe(output);
+        for (const f of files) {
+          archive.file(f, { name: path.relative(projectPath, f) });
+        }
+        archive.finalize();
+      });
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('projectBackup:list', async (_event, projectId) => {
+    try {
+      const manifest = loadManifest();
+      const filtered = projectId ? manifest.filter(e => e.projectId === projectId) : manifest;
+      filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      return { success: true, data: filtered };
+    } catch (err) {
+      return { success: false, error: String(err), data: [] };
+    }
+  });
+
+  ipcMain.handle('projectBackup:get', async (_event, backupId) => {
+    try {
+      const manifest = loadManifest();
+      const entry = manifest.find(e => e.id === backupId);
+      if (!entry) return { success: false, error: 'Backup not found' };
+      return { success: true, data: entry };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('projectBackup:delete', async (_event, backupId, projectId) => {
+    try {
+      let manifest = loadManifest();
+      const index = manifest.findIndex(e => e.id === backupId);
+      if (index === -1) return { success: false, error: 'Backup not found' };
+      const entry = manifest[index];
+      if (entry.projectId !== projectId) return { success: false, error: 'Backup does not belong to project' };
+      const zipPath = getBackupPath(backupId);
+      if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+      manifest.splice(index, 1);
+      saveManifest(manifest);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('projectBackup:restore', async (_event, projectId, backupId) => {
+    try {
+      loadDeps();
+      if (!extractZip) return { success: false, error: 'extract-zip package not installed' };
+
+      const manifest = loadManifest();
+      const entry = manifest.find(e => e.id === backupId);
+      if (!entry) return { success: false, error: 'Backup not found' };
+      if (entry.projectId !== projectId) return { success: false, error: 'Backup does not belong to project' };
+
+      const zipPath = getBackupPath(backupId);
+      if (!fs.existsSync(zipPath)) return { success: false, error: 'Backup zip file not found' };
+
+      await extractZip(zipPath, { dir: projectPath });
+      return { success: true, data: { restoredCount: entry.fileCount } };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('projectBackup:diff', async (_event, projectId, backupId) => {
+    try {
+      const manifest = loadManifest();
+      const entry = manifest.find(e => e.id === backupId);
+      if (!entry) return { success: false, error: 'Backup not found' };
+      if (entry.projectId !== projectId) return { success: false, error: 'Backup does not belong to project' };
+
+      const zipPath = getBackupPath(backupId);
+      if (!fs.existsSync(zipPath)) return { success: false, error: 'Backup zip file not found' };
+
+      loadDeps();
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip(zipPath);
+      const zipEntries = zip.getEntries();
+      const zipFiles = new Set(zipEntries.map(e => e.entryName).filter(e => !e.startsWith('__MACOSX')));
+
+      const currentFiles = getProjectFiles(projectPath);
+      const currentRel = new Set(currentFiles.map(f => path.relative(projectPath, f).replace(/\\/g, '/')));
+
+      const added = [];
+      const deleted = [];
+      const modified = [];
+      const unchanged = [];
+
+      for (const relPath of currentRel) {
+        if (!zipFiles.has(relPath)) {
+          added.push(relPath);
+        }
+      }
+
+      for (const relPath of zipFiles) {
+        if (!currentRel.has(relPath)) {
+          deleted.push(relPath);
+        }
+      }
+
+      for (const relPath of currentRel) {
+        if (zipFiles.has(relPath)) {
+          const currentAbs = path.join(projectPath, relPath);
+          try {
+            const currentContent = fs.readFileSync(currentAbs, 'utf-8');
+            const zipEntry = zip.getEntry(relPath);
+            if (zipEntry) {
+              const zipContent = zipEntry.getData().toString('utf-8');
+              if (currentContent !== zipContent) {
+                modified.push(relPath);
+              } else {
+                unchanged.push(relPath);
+              }
+            } else {
+              modified.push(relPath);
+            }
+          } catch {
+            modified.push(relPath);
+          }
+        }
+      }
+
+      return {
+        success: true,
+        data: { added, deleted, modified, unchanged, totalChanged: added.length + modified.length + deleted.length },
+      };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('projectBackup:schedule', async (_event, projectId, minutes) => {
+    return { success: true };
+  });
+}
+
+module.exports = { registerProjectBackupIPC };

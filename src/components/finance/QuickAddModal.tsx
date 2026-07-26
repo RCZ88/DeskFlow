@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, ArrowUpRight, ArrowDownRight, ArrowLeftRight, Check } from 'lucide-react';
 import { getCurrencyInfo } from './currency-data';
+import { CurrencyInput } from './CurrencyInput';
 import { DUR } from './_fx/financeMotion';
 import type { FinanceAccount, FinanceCategory, FinanceWallet } from './finance-types';
 
@@ -126,8 +127,9 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
       description,
       note,
       date,
-      on_behalf_of: type === 'expense' && onBehalfOf ? 1 : 0,
-      on_behalf_of_label: type === 'expense' && onBehalfOf && onBehalfOfLabel.trim() ? onBehalfOfLabel.trim() : null,
+      on_behalf_of: onBehalfOf ? 1 : 0,
+      on_behalf_of_label: onBehalfOf && onBehalfOfLabel.trim() ? onBehalfOfLabel.trim() : null,
+      use_person_balance: 0,
     });
     if (ok) {
       setSaving(false);
@@ -215,14 +217,12 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
                   className="p-5 space-y-3"
                 >
                   <motion.div variants={stagger} custom={0} initial="hidden" animate="show" className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm pointer-events-none">
                       {getCurrencyInfo(accountCurrency).symbol}
                     </span>
-                    <input
-                      type="number"
-                      step="0.01"
+                    <CurrencyInput
                       value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
+                      onChange={(v) => setAmount(String(v))}
                       placeholder="0.00"
                       autoFocus
                       className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg pl-7 pr-3 py-3 text-lg font-semibold text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"

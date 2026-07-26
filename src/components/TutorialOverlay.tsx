@@ -74,15 +74,46 @@ export default function TutorialOverlay() {
     const handleResize = () => requestAnimationFrame(updatePosition);
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleResize);
-    const observer = new ResizeObserver(handleScroll);
-    if (step.target) {
-      const el = document.querySelector(step.target);
-      if (el) observer.observe(el);
+
+    let observer: ResizeObserver | null = null;
+    let retryTimer: ReturnType<typeof setInterval> | null = null;
+    let retryCount = 0;
+    const MAX_RETRIES = 30;
+
+    const tryObserve = () => {
+      if (step.target) {
+        const el = document.querySelector(step.target);
+        if (el) {
+          observer = new ResizeObserver(handleScroll);
+          observer.observe(el);
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (!tryObserve()) {
+      retryTimer = setInterval(() => {
+        retryCount++;
+        const rect = getSpotlightRect(step);
+        if (rect) {
+          setSpotlightRect(rect);
+          setTargetFound(true);
+          tryObserve();
+          if (retryTimer) clearInterval(retryTimer);
+        } else if (retryCount >= MAX_RETRIES) {
+          if (retryTimer) clearInterval(retryTimer);
+          setSpotlightRect(null);
+          setTargetFound(false);
+        }
+      }, 150);
     }
+
     return () => {
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', handleResize);
-      observer.disconnect();
+      observer?.disconnect();
+      if (retryTimer) clearInterval(retryTimer);
     };
   }, [isVisible, step, updatePosition]);
 
@@ -118,7 +149,26 @@ export default function TutorialOverlay() {
   }, [isVisible, step, spotlightRect, spotSize, isAction]);
 
   useEffect(() => {
-    if (!isVisible || !step || isAction) return;
+    if (!isVisible) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeTutorial();
+      }
+      if (e.key === 'ArrowRight' || e.key === 'Enter') {
+        nextStep();
+      }
+      if (e.key === 'ArrowLeft') {
+        prevStep();
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [isVisible, closeTutorial, nextStep, prevStep]);
+
+  useEffect(() => {
+    if (!isVisible || !step || isAction || !targetFound) return;
     if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
     autoTimerRef.current = setTimeout(() => {
       if (!hoveredRef.current) nextStep();
@@ -126,7 +176,7 @@ export default function TutorialOverlay() {
     return () => {
       if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
     };
-  }, [isVisible, step, isAction, nextStep]);
+  }, [isVisible, step, isAction, nextStep, targetFound]);
 
   const isLastStep = stepIndex === totalSteps - 1;
   const cardStyle = getCardStyle(spotlightRect, step?.position || 'center');

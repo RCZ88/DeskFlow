@@ -48,21 +48,23 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
   const [activeFeatureName, setActiveFeatureName] = useState('');
   const [steps, setSteps] = useState<TutorialStep[]>([]);
   const completedRef = useRef<Set<string>>(loadCompleted());
+  const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [, force] = useState(0);
 
   const totalSteps = steps.length;
   const currentStep = totalSteps > 0 && stepIndex >= 0 && stepIndex < totalSteps ? steps[stepIndex] : null;
 
   const startTutorial = useCallback((featureId: string, tutorialSteps: TutorialStep[], featureName: string, route: string) => {
+    if (showTimerRef.current) clearTimeout(showTimerRef.current);
     setActiveFeatureId(featureId);
     setActiveFeatureName(featureName);
     setSteps(tutorialSteps);
     setStepIndex(0);
     setVisible(false);
     navigate(route);
-    requestAnimationFrame(() => {
+    showTimerRef.current = setTimeout(() => {
       setVisible(true);
-    });
+    }, 500);
   }, [navigate]);
 
   const markCompleted = useCallback((id: string) => {
@@ -89,6 +91,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const closeTutorial = useCallback(() => {
+    if (showTimerRef.current) clearTimeout(showTimerRef.current);
     setVisible(false);
     setActiveFeatureId(null);
     setSteps([]);

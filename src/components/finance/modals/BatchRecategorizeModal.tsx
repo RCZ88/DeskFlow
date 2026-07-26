@@ -26,7 +26,7 @@ export function BatchRecategorizeModal({ open, count, categories, busy, onCancel
 
   const handleCreateCategory = async (data: { name: string; type: string; icon?: string; color?: string }) => {
     try {
-      const res = await (window as any).deskflowAPI.financeCreateCategory(data)
+      const res = await (window as any).deskflowAPI?.financeCreateCategory?.(data)
       if (res?.id) {
         setPicked(res.id)
         return true

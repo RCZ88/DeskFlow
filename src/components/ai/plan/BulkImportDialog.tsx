@@ -128,7 +128,7 @@ export function BulkImportDialog({ open, onClose, onAnalyze, onSave }: BulkImpor
 								}
 							}}
 								placeholder="e.g. Ship the v2 onboarding flow"
-								className="flex-1 rounded-lg bg-zinc-950/60 px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/60"
+								className="flex-1 rounded-lg bg-zinc-950/60 px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60"
 							/>
 							{fields.length > 1 ? (
 								<button
@@ -157,7 +157,7 @@ export function BulkImportDialog({ open, onClose, onAnalyze, onSave }: BulkImpor
 						onChange={(e) => setDump(e.target.value)}
 						rows={5}
 						placeholder="Paste anything — a list, a paragraph, meeting notes. AI will pull out the goals."
-						className="w-full resize-none rounded-lg bg-zinc-950/60 p-3 text-[13px] text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/60"
+						className="w-full resize-none rounded-lg bg-zinc-950/60 p-3 text-[13px] text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60"
 					/>
 					<button
 						type="button"
@@ -186,7 +186,7 @@ export function BulkImportDialog({ open, onClose, onAnalyze, onSave }: BulkImpor
 											(p ?? []).map((x, j) => (j === i ? { ...x, title: e.target.value } : x)),
 										)
 									}
-									className="w-full rounded-md bg-zinc-950/60 px-2.5 py-1.5 text-[13px] text-zinc-100 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/60"
+									className="w-full rounded-md bg-zinc-950/60 px-2.5 py-1.5 text-[13px] text-zinc-100 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60"
 								/>
 							))}
 						</div>

@@ -6,7 +6,7 @@ import type { FinanceCategory } from '../finance-types';
 interface CategoryChipGridProps {
   categories: FinanceCategory[];
   selectedId: number | null;
-  onSelect: (id: number) => void;
+  onSelect: (id: number | null) => void;
   accent: string;
   onCreateCategory: (data: { name: string; type: string; icon?: string; color?: string }) => Promise<boolean>;
   /** The transaction type context (income/expense/transfer) so new categories are auto-typed. */
@@ -28,8 +28,14 @@ export function CategoryChipGrid({ categories, selectedId, onSelect, accent, onC
 
   return (
     <div className="flex flex-wrap gap-1.5">
+      {selectedId !== null && (
+        <button onClick={() => onSelect(null)}
+          className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-zinc-800/60 text-zinc-500 hover:text-zinc-300 border border-transparent transition-colors">
+          × None
+        </button>
+      )}
       {categories.map(cat => (
-        <button key={cat.id} onClick={() => onSelect(cat.id)}
+        <button key={cat.id} onClick={() => onSelect(selectedId === cat.id ? null : cat.id)}
           className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
             selectedId === cat.id ? 'bg-zinc-700/60 text-white ring-1 ring-zinc-500/50' : 'bg-zinc-800/60 text-zinc-400 hover:text-zinc-200 border border-transparent'
           }`}

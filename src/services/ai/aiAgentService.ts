@@ -104,6 +104,16 @@ Available tools (${tools.length} total):
 Security: ${JSON.stringify(securityGuard.getStats())}`
   }
 
+  async getSystemPromptAsync(): Promise<string> {
+    const basePrompt = this.getSystemPrompt()
+    const connectorContext = await this.buildConnectorContext()
+
+    return [
+      basePrompt,
+      connectorContext,
+    ].filter(Boolean).join('\n\n')
+  }
+
   private async buildConnectorContext(): Promise<string> {
     try {
       const api = (window as any).deskflowAPI;
@@ -133,7 +143,7 @@ Security: ${JSON.stringify(securityGuard.getStats())}`
 
     const extraContext = this.injectedContext;
     this.injectedContext = '';
-    const systemPrompt = this.getSystemPrompt() + extraContext;
+    const systemPrompt = (await this.getSystemPromptAsync()) + extraContext;
     let finalResponse = ''
 
     this.progressCallback?.({ round: 0, totalRounds: this.config.maxRounds, status: 'thinking', message: 'Starting AI response...' })

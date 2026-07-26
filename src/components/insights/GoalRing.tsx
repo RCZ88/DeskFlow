@@ -9,7 +9,6 @@ interface GoalRingProps {
   goal: number;
   unit?: string;
   label?: string;
-  /** Deep Focus session active -> the signature ember roars. */
   boost?: boolean;
 }
 
@@ -21,7 +20,6 @@ export function GoalRing({ current, goal, unit = 'min', label = 'Today\'s Focus'
   const circumference = 2 * Math.PI * 72;
   const offset = circumference * (1 - pct);
 
-  // One-shot milestone flare the first time the goal is reached.
   const reached = pct >= 1;
   const wasReached = useRef(reached);
   const [flare, setFlare] = useState(false);
@@ -44,11 +42,17 @@ export function GoalRing({ current, goal, unit = 'min', label = 'Today\'s Focus'
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       className="h-full"
     >
-      <GlassCard accent="emerald" className="h-full">
-        <div className="flex flex-col items-center gap-4 py-2">
+      <GlassCard className="h-full relative overflow-hidden">
+        {/* Subtle gradient glow */}
+        <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{ background: 'linear-gradient(135deg, #ec4899, transparent 60%)' }} />
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-pink-500/20 via-pink-500/5 to-transparent" />
+
+        <div className="relative flex flex-col items-center gap-4 py-2">
           {/* Header */}
           <div className="flex items-center gap-2">
-            <Target className="w-5 h-5 text-emerald-400" />
+            <div className="w-8 h-8 rounded-lg bg-pink-500/10 border border-pink-500/20 flex items-center justify-center">
+              <Target className="w-4 h-4 text-pink-400" />
+            </div>
             <span className="text-sm font-semibold text-zinc-300 tracking-tight">{label}</span>
           </div>
 
@@ -64,7 +68,7 @@ export function GoalRing({ current, goal, unit = 'min', label = 'Today\'s Focus'
                 animate={{ opacity: 0, scale: 1.5 }}
                 transition={{ duration: 0.9, ease: [0.34, 1.56, 0.64, 1] }}
                 className="absolute inset-0 rounded-full"
-                style={{ boxShadow: '0 0 24px 6px rgba(52,211,153,0.55)' }}
+                style={{ boxShadow: '0 0 24px 6px rgba(236,72,153,0.4)' }}
               />
             )}
 
@@ -80,14 +84,15 @@ export function GoalRing({ current, goal, unit = 'min', label = 'Today\'s Focus'
               />
               <defs>
                 <linearGradient id="goalGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#10b981" />
-                  <stop offset="100%" stopColor="#34d399" />
+                  <stop offset="0%" stopColor="#ec4899" />
+                  <stop offset="50%" stopColor="#f472b6" />
+                  <stop offset="100%" stopColor="#f9a8d4" />
                 </linearGradient>
               </defs>
             </svg>
 
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold text-emerald-400 tabular-nums">{Math.round(pct * 100)}%</span>
+              <span className="text-2xl font-bold text-pink-400 tabular-nums">{Math.round(pct * 100)}%</span>
               <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">complete</span>
             </div>
           </div>
@@ -110,14 +115,12 @@ export function GoalRing({ current, goal, unit = 'min', label = 'Today\'s Focus'
             </div>
           </div>
 
-          {/* Bottom minute label */}
           <div className="text-[11px] text-zinc-600 font-mono tabular-nums">
             {unit} tracked
           </div>
 
-          {/* Active focus indicator */}
           {boost && (
-            <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/70">
+            <div className="flex items-center gap-1.5 text-[11px] text-pink-400/70">
               <Zap className="w-3 h-3" />
               <span>Deep Focus active</span>
             </div>

@@ -299,12 +299,14 @@ export const AiChat: FC<Props> = ({ today: todayProp, onConfigure, providerBadge
             {isThinking && (
               <MessageBubble role="assistant" key="thinking">
                 {streamedContent ? (
-                  <TypewriterText
-                    nodes={parseStructuredResponse(streamedContent).nodes}
-                    refs={{}}
-                    onDone={() => {}}
-                    streaming
-                  />
+                  <div className="relative">
+                    <BlockRenderer
+                      nodes={parseStructuredResponse(streamedContent).nodes}
+                      refs={{}}
+                      onNavigate={() => {}}
+                    />
+                    <span className="inline-block w-[2px] h-[1em] -mb-[2px] bg-pink-400 ml-0.5 align-baseline animate-caret" />
+                  </div>
                 ) : (
                   <ThinkingIndicator />
                 )}

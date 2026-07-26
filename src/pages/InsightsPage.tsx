@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { subDays, format } from 'date-fns';
 import type { Period } from '../lib/dateRange';
 import { getDateRange } from '../lib/dateRange';
-import { BarChart3, Clock, Target, Moon, TrendingUp, TrendingDown, Activity, Zap, Sun, Globe, Monitor, PieChart, AlertTriangle, Info } from 'lucide-react';
+import { BarChart3, Clock, Target, Moon, TrendingUp, TrendingDown, Activity, Zap, Sun, Globe, Monitor, PieChart, AlertTriangle, Info, RefreshCw } from 'lucide-react';
 import { maxOf, maxBy } from '../utils/safeMath';
 import { motion } from 'framer-motion';
 import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
@@ -24,6 +24,9 @@ import {
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
+import { InsightCard } from '../components/insights/InsightCard';
+import { RewindPlayer } from '../components/insights/RewindPlayer';
+import type { InsightAtom } from '../shared/insights';
 
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
@@ -178,6 +181,33 @@ export default function InsightsPage({
     if (tab) setActiveTab(tab);
   }, []);
   const [dailyStats, setDailyStats] = useState<any[]>([]);
+  const [insightStrip, setInsightStrip] = useState<InsightAtom[]>([]);
+  const [rewindOpen, setRewindOpen] = useState(false);
+  const [insightLoading, setInsightLoading] = useState(true);
+  const insightFetchedRef = useRef<string>('');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const refreshAll = useCallback(() => {
+    setIsRefreshing(true);
+    setRefreshKey(k => k + 1);
+    setTimeout(() => setIsRefreshing(false), 600);
+  }, []);
+
+  // Auto-refresh when tab becomes visible or external data changes
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshAll();
+    };
+    const onExternalData = () => refreshAll();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('external-data-changed', onExternalData);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('external-data-changed', onExternalData);
+    };
+  }, [refreshAll]);
+
   useEffect(() => {
     const statsPeriod = parentPeriod === 'today' ? 'week' : parentPeriod === '7day' ? 'week' : parentPeriod === '30day' ? 'month' : parentPeriod === 'all' ? 'month' : parentPeriod;
     window.deskflowAPI?.getExternalStats(parentPeriod).then(setStats);
@@ -185,7 +215,22 @@ export default function InsightsPage({
     window.deskflowAPI?.getSleepTrends(parentPeriod, dateOffset).then(setSleepTrends);
     window.deskflowAPI?.getBestDays().then(setBestDays);
     window.deskflowAPI?.getDailyStats?.(statsPeriod as 'week' | 'month' | 'all').then((data: any) => setDailyStats(Array.isArray(data) ? data : []));
-  }, [parentPeriod, dateOffset]);
+  }, [parentPeriod, dateOffset, refreshKey]);
+
+  useEffect(() => {
+    // Only fetch when visible
+    if (document.visibilityState !== 'visible') return;
+    const fetchKey = `${parentPeriod}-${dateOffset}-${refreshKey}`;
+    // Skip if already fetched for this period+refresh combo
+    if (insightFetchedRef.current === fetchKey && insightStrip.length > 0) return;
+    setInsightLoading(true);
+    window.deskflowAPI?.getInsightStrip?.('day').then((data: any) => {
+      const arr = Array.isArray(data) ? data : [];
+      setInsightStrip(arr);
+      setInsightLoading(false);
+      if (arr.length > 0) insightFetchedRef.current = fetchKey;
+    }).catch(() => setInsightLoading(false));
+  }, [parentPeriod, dateOffset, refreshKey]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -211,9 +256,9 @@ export default function InsightsPage({
       }).catch((err: any) => setTypicalError(err?.message || 'Failed to load typical day data'));
     };
     fetchTypicalDay();
-    const interval = setInterval(fetchTypicalDay, 60000);
+    const interval = setInterval(fetchTypicalDay, 30000);
     return () => clearInterval(interval);
-  }, [parentPeriod, dateOffset]);
+  }, [parentPeriod, dateOffset, refreshKey]);
 
   const sleepTrendData = useMemo(() => {
     const labels: string[] = [];
@@ -508,6 +553,14 @@ export default function InsightsPage({
               </button>
             ))}
           </div>
+          <button
+            onClick={refreshAll}
+            disabled={isRefreshing}
+            className="p-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/30 transition-all duration-200 disabled:opacity-50"
+            title="Refresh insights"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
           <div className="text-xs text-zinc-500 bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-1.5">
             {dateOffset === 0
               ? parentPeriod === 'today' ? 'Today' : parentPeriod === 'week' ? 'This Week' : parentPeriod === '7day' ? 'Last 7 Days' : parentPeriod === 'month' ? 'This Month' : parentPeriod === '30day' ? 'Last 30 Days' : 'All Time'
@@ -553,6 +606,79 @@ export default function InsightsPage({
             </motion.div>
           ))}
         </motion.div>
+
+        {/* ── Insight Strip + Rewind Launcher ── */}
+        {(insightLoading || insightStrip.length > 0) && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                  <Zap className="w-3.5 h-3.5 text-purple-400" />
+                </div>
+                <span className="text-xs font-semibold text-zinc-300 tracking-wide uppercase">Today&apos;s Insights</span>
+              </div>
+              <button
+                onClick={() => setRewindOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 bg-zinc-800/50 border border-zinc-700/50 rounded-lg transition-colors hover:bg-zinc-700/50"
+              >
+                <Activity className="w-3.5 h-3.5" />
+                Your Rewind
+              </button>
+            </div>
+            {insightLoading ? (
+              <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="min-w-[200px] h-[120px] bg-zinc-800/30 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+                {insightStrip.map((atom) => (
+                  <InsightCard key={atom.id} atom={atom} compact />
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* ── Standalone Rewind Card ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <button
+            onClick={() => setRewindOpen(true)}
+            className="w-full group relative overflow-hidden rounded-xl border border-zinc-800/50 bg-gradient-to-br from-purple-500/8 via-pink-500/5 to-blue-500/8 p-5 text-left transition-all hover:border-purple-500/30 hover:from-purple-500/12 hover:via-pink-500/8 hover:to-blue-500/12"
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/10 to-transparent rounded-bl-full opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="flex items-center justify-between relative">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 group-hover:bg-purple-500/15 transition-colors">
+                  <Activity className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-200 group-hover:text-zinc-100 transition-colors">
+                    Your {format(new Date(), 'MMMM')} Rewind
+                  </h3>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    See your monthly story — top apps, focus streaks, and patterns
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-zinc-500 group-hover:text-purple-400 transition-colors">
+                <span>View</span>
+                <Activity className="w-4 h-4" />
+              </div>
+            </div>
+          </button>
+        </motion.div>
+
+        <RewindPlayer isOpen={rewindOpen} onClose={() => setRewindOpen(false)} />
 
         {activeTab === 'typical' && (
           <motion.div

@@ -2,8 +2,14 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { Terminal as TerminalIcon } from 'lucide-react';
 import { getDefaultAgent } from '../lib/defaults';
 import '@xterm/xterm/css/xterm.css';
+
+function debounce<T extends (...args: any[]) => void>(fn: T, ms: number) {
+  let t: ReturnType<typeof setTimeout>;
+  return (...args: Parameters<T>) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
 
 declare global {
   interface Window {
@@ -151,16 +157,21 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
       window.deskflowAPI?.terminalResize?.(terminalId, cols, rows);
     });
 
-    const ro = new ResizeObserver(() => {
-      if (containerRef.current && containerRef.current.clientWidth > 0 && containerRef.current.clientHeight > 0) {
-        fitAddon.fit();
-        if (terminal.rows <= 24 && containerRef.current.clientHeight > 200) {
-          console.warn('[FIT-FIX] fit() returned <=24 rows — container may still be collapsed', containerRef.current.clientHeight);
-        }
-        window.deskflowAPI?.terminalResize?.(terminalId, terminal.cols, terminal.rows);
-        ro.disconnect();
+    // [FIT-CRITICAL] Fit synchronously BEFORE onTerminalReady fires.
+    // The old code only fitted inside a ResizeObserver callback (async), so the
+    // PTY was spawned at wrong dimensions and OpenCode's TUI overflows.
+    if (containerRef.current && containerRef.current.clientWidth > 0 && containerRef.current.clientHeight > 0) {
+      try { fitAddon.fit(); } catch {}
+      // terminal.onResize callback handles IPC resize to PTY — no explicit call needed here
+      console.log('[FIT-INIT] Sync fit after open:', terminalId, 'cols', terminal.cols, 'rows', terminal.rows, 'h', containerRef.current.clientHeight);
+    }
+
+    // Single debounced ResizeObserver — fitAddon.fit() triggers terminal.onResize which handles IPC
+    const ro = new ResizeObserver(debounce(() => {
+      if (terminalRef.current && containerRef.current) {
+        try { fitAddon.fit(); } catch {}
       }
-    });
+    }, 150));
     ro.observe(containerRef.current);
 
     inputBuffers.set(terminalId, []);
@@ -179,6 +190,28 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
       terminalReadyStates.delete(terminalId);
     };
   }, [terminalId, onTerminalReady]);
+
+  // [FIT-CRITICAL] Listen for refit requests after PTY is spawned.
+  // The PTY might be spawned with dimensions from before fitAddon.fit() ran.
+  // This ensures xterm.js resizes to match the container after spawn.
+  useEffect(() => {
+    const evName = 'terminal:refit-' + terminalId;
+    const handler = () => {
+      const fa = fitAddonRef.current;
+      const t = terminalRef.current;
+      const c = containerRef.current;
+      if (!fa || !t || !c) return;
+      if (c.clientWidth > 0 && c.clientHeight > 0) {
+        try {
+          fa.fit();
+          // terminal.onResize callback handles IPC resize to PTY
+          console.log('[FIT-POST] Refit after spawn:', terminalId, 'cols', t.cols, 'rows', t.rows);
+        } catch {}
+      }
+    };
+    window.addEventListener(evName, handler);
+    return () => window.removeEventListener(evName, handler);
+  }, [terminalId]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -257,7 +290,7 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
           const t = terminalRef.current;
           if (fa && t) {
             fa.fit();
-            window.deskflowAPI?.terminalResize?.(terminalId, t.cols, t.rows);
+            // terminal.onResize callback handles IPC resize to PTY
           }
         }, 250);
       }
@@ -289,20 +322,54 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
     const handleResize = () => {
       if (fitAddonRef.current) {
         fitAddonRef.current.fit();
-        const terminal = terminalRef.current;
-        if (terminal) {
-          window.deskflowAPI?.terminalResize?.(terminalId, terminal.cols, terminal.rows);
-        }
+        // terminal.onResize callback handles IPC resize to PTY
       }
     };
 
-    const resizeObserver = new ResizeObserver(handleResize);
-    if (containerRef.current) resizeObserver.observe(containerRef.current);
     window.addEventListener('resize', handleResize);
 
     return () => {
-      resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
+    };
+  }, [terminalId]);
+
+  // Scrollback export/import for workspace save/load
+  useEffect(() => {
+    const t = terminalRef.current;
+    if (!t) return;
+
+    // Register export function: reads xterm.js buffer and returns text
+    const exportKey = `terminal:export-scrollback:${terminalId}`;
+    const exportHandler = () => {
+      try {
+        const buffer = t.buffer.active;
+        const lines: string[] = [];
+        const startLine = Math.max(0, buffer.baseY);
+        const endLine = buffer.baseY + buffer.length;
+        for (let i = startLine; i < endLine; i++) {
+          const line = buffer.getLine(i);
+          if (line) lines.push(line.translateToString(true));
+        }
+        return lines.join('\n');
+      } catch { return ''; }
+    };
+    (window as any).__terminalExportScrollback = (window as any).__terminalExportScrollback || {};
+    (window as any).__terminalExportScrollback[terminalId] = exportHandler;
+
+    // Register import function: writes saved content to terminal
+    const importKey = `terminal:import-scrollback:${terminalId}`;
+    const importHandler = (content: string) => {
+      if (!content || !t) return;
+      t.write('\x1b[2J\x1b[H'); // clear screen
+      t.write(content);
+      t.write('\r\n');
+    };
+    (window as any).__terminalImportScrollback = (window as any).__terminalImportScrollback || {};
+    (window as any).__terminalImportScrollback[terminalId] = importHandler;
+
+    return () => {
+      delete (window as any).__terminalExportScrollback?.[terminalId];
+      delete (window as any).__terminalImportScrollback?.[terminalId];
     };
   }, [terminalId]);
 
@@ -321,7 +388,7 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
         if (c.clientWidth > 0 && c.clientHeight > 0) {
           try {
             fa.fit();
-            window.deskflowAPI?.terminalResize?.(terminalId, t.cols, t.rows);
+            // terminal.onResize callback handles IPC resize to PTY
             console.log('[FIT-DBG] active re-fit', terminalId, 'cols', t.cols, 'rows', t.rows, 'containerH', c.clientHeight);
 
           } catch (e) { /* fit can throw if detached */ }
@@ -511,36 +578,91 @@ function PaneRenderer({
 // [PUSHDOWN-FIX] Measure the real on-screen size of a terminal pane so the PTY
 // is spawned at the correct cols/rows from the very first byte. Spawning at a
 // wrong 80x24 default and resizing afterwards is exactly what makes opencode's
-// full-screen TUI redraw and "push down" in xterm.js. The old code read a
-// `terminalRef` that does not exist in this scope, so it ALWAYS fell back to
-// 80x24. Falls back to 80x24 only when the pane is not laid out yet.
+// full-screen TUI redraw and "push down" in xterm.js.
 function measureSpawnSize(terminalId: string): { cols: number; rows: number } {
   try {
     const el = document.querySelector(`[data-terminal-id="${terminalId}"]`) as HTMLElement | null;
-    if (el) {
-      const rect = el.getBoundingClientRect();
-      // Prefer xterm's own measured cell box; fall back to the Consolas-14
-      // metrics this app configures the terminal with.
-      let cellW = 8.43;
-      let cellH = 17;
-      const measureEl = el.querySelector('.xterm-char-measure-element') as HTMLElement | null;
-      if (measureEl) {
-        const mw = measureEl.getBoundingClientRect().width;
-        if (mw > 0) cellW = mw;
-      }
-      const rowEl = el.querySelector('.xterm-rows > div') as HTMLElement | null;
-      if (rowEl) {
-        const rh = rowEl.getBoundingClientRect().height;
-        if (rh > 0) cellH = rh;
-      }
-      if (rect.width > 8 && rect.height > 8) {
-        const cols = Math.max(40, Math.floor((rect.width - 8) / cellW));
-        const rows = Math.max(10, Math.floor((rect.height - 8) / cellH));
+    if (!el) return { cols: 80, rows: 24 };
+
+    const rect = el.getBoundingClientRect();
+    const charMeasure = el.querySelector('.xterm-char-measure-element') as HTMLElement | null;
+    const rowEl = el.querySelector('.xterm-rows > div') as HTMLElement | null;
+
+    if (charMeasure && rowEl) {
+      // Use offsetWidth/Height for more reliable measurement
+      const charWidth = charMeasure.offsetWidth || 8.4;
+      const charHeight = rowEl.offsetHeight || 17;
+
+      // Account for xterm.js internal padding (~4px each side)
+      // Use exact measurement — only enforce minimum for truly tiny containers
+      let cols = Math.floor((rect.width - 8) / charWidth);
+      let rows = Math.floor((rect.height - 8) / charHeight);
+      cols = Math.max(20, cols);  // minimum 20 cols (not 40 — too aggressive)
+      rows = Math.max(5, rows);   // minimum 5 rows (not 10 — too aggressive)
+
+      if (cols > 0 && rows > 0) {
+        console.log(`[FIT] Measured: ${cols}x${rows} (cell: ${charWidth.toFixed(1)}x${charHeight.toFixed(1)})`);
         return { cols, rows };
       }
     }
-  } catch { /* fall through to default */ }
+  } catch (e) {
+    console.error('[FIT] measureSpawnSize error:', e);
+  }
+  console.warn('[FIT] measureSpawnSize fallback: 80x24');
   return { cols: 80, rows: 24 };
+}
+
+function waitForXtermLayout(terminalId: string, timeout = 2000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const el = document.querySelector(`[data-terminal-id="${terminalId}"]`) as HTMLElement | null;
+    if (!el) return resolve(false);
+    const checkReady = () => {
+      const measureEl = el.querySelector('.xterm-char-measure-element');
+      const rowsContainer = el.querySelector('.xterm-rows');
+      if (measureEl && rowsContainer && (rowsContainer as HTMLElement).children.length > 0) {
+        const rect = el.getBoundingClientRect();
+        const cellW = (measureEl as HTMLElement).offsetWidth;
+        const rowFirst = (rowsContainer as HTMLElement).children[0] as HTMLElement;
+        const cellH = rowFirst?.offsetHeight || 0;
+        if (cellW > 0 && cellH > 0 && rect.width > 0 && rect.height > 0) return true;
+      }
+      return false;
+    };
+    if (checkReady()) return resolve(true);
+    const observer = new MutationObserver(() => { if (checkReady()) { observer.disconnect(); resolve(true); } });
+    observer.observe(el, { childList: true, subtree: true });
+    const start = Date.now();
+    const interval = setInterval(() => {
+      if (checkReady() || Date.now() - start > timeout) { clearInterval(interval); observer.disconnect(); resolve(checkReady()); }
+    }, 50);
+  });
+}
+
+/**
+ * Wait for xterm.js to finish async font measurement.
+ * requestAnimationFrame only waits for browser layout, not xterm's internal
+ * char measurement via .xterm-char-measure-element.
+ */
+function waitForXtermMeasurement(terminalId: string, timeout = 3000): Promise<void> {
+  return new Promise((resolve) => {
+    const el = document.querySelector(`[data-terminal-id="${terminalId}"]`) as HTMLElement | null;
+    if (!el) { resolve(); return; }
+    const isReady = () => {
+      const measureEl = el.querySelector('.xterm-char-measure-element') as HTMLElement | null;
+      const rowsContainer = el.querySelector('.xterm-rows');
+      const firstRow = rowsContainer?.querySelector('div') as HTMLElement | null;
+      if (!measureEl || !firstRow) return false;
+      const cellW = measureEl.offsetWidth;
+      const cellH = firstRow.offsetHeight;
+      if (cellW <= 0 || cellH <= 0) return false;
+      return true;
+    };
+    if (isReady()) { resolve(); return; }
+    const start = Date.now();
+    const timer = setInterval(() => {
+      if (isReady() || Date.now() - start > timeout) { clearInterval(timer); resolve(); }
+    }, 50);
+  });
 }
 
 export function TerminalLayout({
@@ -598,40 +720,68 @@ export function TerminalLayout({
   const handleTerminalReady = useCallback(async (terminalId: string) => {
     console.log('[DEBUG:TW] handleTerminalReady called:', terminalId, 'spawnedTerminalsRef.has:', spawnedTerminalsRef.current.has(terminalId));
     if (spawnedTerminalsRef.current.has(terminalId)) {
-      console.log('[DEBUG:TW] handleTerminalReady: already spawned, dispatching ready-custom');
+      window.dispatchEvent(new CustomEvent('terminal:refit-' + terminalId));
       window.dispatchEvent(new CustomEvent('terminal:ready-custom', { detail: { id: terminalId } }));
       return;
     }
     spawnedTerminalsRef.current.add(terminalId);
-    // D2-C: wait for layout + fitAddon.fit() to have real dimensions
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const { cols, rows } = measureSpawnSize(terminalId);
+
+    // [GLM-APPROACH] Wait for xterm.js to have real dimensions directly
+    // This is more reliable than DOM math — xterm.js is the single source of truth
+    const terminal = terminalRef.current;
+    if (terminal) {
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          if (terminal.cols > 0 && terminal.rows > 0) {
+            resolve();
+          } else {
+            try { fitAddonRef.current?.fit(); } catch {}
+            setTimeout(check, 50);
+          }
+        };
+        check();
+      });
+    }
+
+    // Use xterm.js direct dimensions (GLM approach) instead of DOM bounding rect
+    const finalCols = terminal?.cols || 80;
+    const finalRows = terminal?.rows || 24;
+
     const agentType = getDefaultAgent();
-    console.log('[DEBUG:TW] handleTerminalReady: spawning terminal...', terminalId, agentType, 'cols', cols, 'rows', rows);
-    const result = await spawnTerminal(terminalId, projectPath, agentType, cols, rows);
+    console.log(`[FIT] Spawning terminal ${terminalId} at ${finalCols}x${finalRows}`);
+    const result = await spawnTerminal(terminalId, projectPath, agentType, finalCols, finalRows);
     console.log('[DEBUG:TW] handleTerminalReady: spawnTerminal result:', terminalId, JSON.stringify(result));
+
+    // CRITICAL: Refit after PTY spawn — verify dimensions match
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    try { fitAddonRef.current?.fit(); } catch {}
+    // terminal.onResize callback handles IPC resize to PTY
+    window.dispatchEvent(new CustomEvent('terminal:refit-' + terminalId));
     window.dispatchEvent(new CustomEvent('terminal:ready-custom', { detail: { id: terminalId } }));
     console.log('[DEBUG:TW] handleTerminalReady: done for', terminalId);
   }, [spawnTerminal, projectPath]);
 
   if (!layout || getLeafIds(layout).length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-zinc-500 bg-[#0d0d0d]">
-        <button
-          onClick={() => {
-            const newId = `term-${Date.now()}`;
-            const agentType = getDefaultAgent();
-            const { cols, rows } = measureSpawnSize(newId);
-            spawnedTerminalsRef.current.add(newId);
-            onLayoutChange({ type: 'leaf', terminalId: newId });
-            spawnTerminal(newId, projectPath, agentType, cols, rows).then(() => {
-              window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: newId } }));
-            });
-          }}
-          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm"
-        >
-          + Open Terminal
-        </button>
+      <div className="absolute inset-0 flex items-center justify-center text-zinc-500 bg-[#0d0d0d] overflow-hidden z-10">
+        <div className="flex flex-col items-center gap-3">
+          <TerminalIcon className="w-8 h-8 text-zinc-600" />
+          <button
+            onClick={() => {
+              const newId = `term-${Date.now()}`;
+              const agentType = getDefaultAgent();
+              const { cols, rows } = measureSpawnSize(newId);
+              spawnedTerminalsRef.current.add(newId);
+              onLayoutChange({ type: 'leaf', terminalId: newId });
+              spawnTerminal(newId, projectPath, agentType, cols, rows).then(() => {
+                window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: newId } }));
+              });
+            }}
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-sm whitespace-nowrap"
+          >
+            + Open Terminal
+          </button>
+        </div>
       </div>
     );
   }

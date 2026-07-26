@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, ChevronLeft, Import, BarChart3, Grid3X3, Network, FileUp, FileCode2, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2, Keyboard, SlidersHorizontal } from 'lucide-react';
+import { BookOpen, ChevronLeft, Import, BarChart3, Grid3X3, Network, FileUp, FileCode2, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2, Keyboard, SlidersHorizontal, Lightbulb, RotateCcw } from 'lucide-react';
 import { BlockRenderer } from './blocks/BlockRenderer';
 import { OnboardingPanel } from './OnboardingPanel';
 import { CreateLessonDialog } from './CreateLessonDialog';
 import { ValidationReport } from './ValidationReport';
 import { TutorPanel } from './TutorPanel';
+import { InlineAnswerCard, type InlineAnswerState, type InlineMode } from './InlineAnswerCard';
 
 import { MasteryRing } from './MasteryRing';
 import { CurriculumGraph } from './CurriculumGraph';
@@ -13,6 +14,10 @@ import { CurriculumGraph } from './CurriculumGraph';
 import { WelcomeEmptyState } from './WelcomeEmptyState';
 import { LessonLibrary } from './LessonLibrary';
 import { CurriculumShowcase } from './CurriculumShowcase';
+import { IntentLibrary } from './IntentLibrary';
+import { ProgressDashboard } from './ProgressDashboard';
+import { StudyView } from './StudyView';
+import { LessonDetailModal } from './LessonDetailModal';
 import { LearnerSetup } from './LearnerSetup';
 import { LearnerProfilePanel } from './LearnerProfilePanel';
 import { TableOfContents, type TOCHeading } from './TableOfContents';
@@ -28,7 +33,7 @@ import { DEFAULT_PROFILE } from '../../shared/learn/types';
 import { CURRICULUM_BLUEPRINT, type CurriculumPart } from '../../services/learn/curriculum';
 import { getSystemPromptForSlug } from '../../services/learn/topicPrompts';
 import { useMasteryStats } from './useMasteryStats';
-import { hasProfile, saveProfile, syncProfileFromDB, isSetupComplete } from '../../services/learn/learnerProfile';
+import { hasProfile, saveProfile, syncProfileFromDB, isSetupCompleteAsync } from '../../services/learn/learnerProfile';
 
 export interface LessonSeed {
   part: number;
@@ -37,7 +42,7 @@ export interface LessonSeed {
   topicPrompt: string;
 }
 
-type View = 'welcome' | 'showcase' | 'library' | 'reader' | 'import';
+type View = 'welcome' | 'showcase' | 'library' | 'reader' | 'import' | 'intents' | 'progress' | 'study';
 
 const api = window.deskflowAPI;
 
@@ -71,7 +76,11 @@ export function LearnPage() {
   const [completedItems, setCompletedItems] = useState<string[]>([]);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [detailLesson, setDetailLesson] = useState<LessonSummary | null>(null);
   const setupChecked = useRef(false);
+  const [inlineAnswer, setInlineAnswer] = useState<InlineAnswerState | null>(null);
+  const inlineStreamCleanup = useRef<(() => void) | null>(null);
+  const [tutorConfig, setTutorConfig] = useState<{ provider: string; model: string } | null>(null);
 
   const stats = useMasteryStats(progress, lessons);
 
@@ -86,13 +95,27 @@ export function LearnPage() {
     loadLessons();
   }, []);
 
+  // Fetch tutor config (provider/model info)
+  useEffect(() => {
+    if (api?.learnGetTutorConfig) {
+      api.learnGetTutorConfig().then((res: any) => {
+        if (res?.ok && res.data) setTutorConfig(res.data);
+      }).catch(() => {});
+    }
+  }, []);
+
+  // Cleanup inline stream listener
+  useEffect(() => {
+    return () => { inlineStreamCleanup.current?.(); };
+  }, []);
+
   // First-visit profile check (runs once, restores from DB if localStorage was cleared)
   useEffect(() => {
     if (setupChecked.current) return;
     setupChecked.current = true;
     (async () => {
-      // If setup was already completed before, never show again
-      if (isSetupComplete()) {
+      // If setup was already completed before (checks both localStorage AND DB), never show again
+      if (await isSetupCompleteAsync()) {
         console.log('[LearnPage] Setup already completed — skipping');
         return;
       }
@@ -285,7 +308,7 @@ export function LearnPage() {
     setTutorQuestion(question);
     setTutorLoading(true);
     try {
-      const result = await api.learnAskTutor({ nodeId, question });
+      const result = await api.learnAskTutor({ nodeId, question, mode: 'ask' });
       if (result.ok) {
         setTutorAnswer(result.data);
       }
@@ -305,11 +328,63 @@ export function LearnPage() {
     }
   }, []);
 
+  const dashboardGetDashboard = useCallback(async () => {
+    const r = await api.learnGetTutorDashboard();
+    if (!r.ok) throw new Error(r.error);
+    return r.data;
+  }, []);
+
+  const dashboardNavigateToNode = useCallback((nodeId: string) => {
+    const loadFirstMatching = async () => {
+      for (const l of lessons) {
+        const r = await api.learnGetLesson({ lessonId: l.id });
+        if (r.ok && r.data.nodes.some((n: any) => n.id === nodeId)) {
+          loadLesson(l.id);
+          setTimeout(() => setSelectedNode(nodeId), 100);
+          break;
+        }
+      }
+    };
+    loadFirstMatching();
+  }, [lessons]);
+
+  const startInlineAnswer = useCallback(async (nodeId: string, text: string, mode: InlineMode) => {
+    inlineStreamCleanup.current?.();
+    inlineStreamCleanup.current = null;
+    const blockId = `inline-${mode}-${Date.now()}`;
+    setInlineAnswer({ mode, text, loading: true, streamingText: '', blockId });
+    const unsub = api.onTutorToken((data: { blockId: string; token: string; done: boolean }) => {
+      if (data.blockId !== blockId) return;
+      if (data.done) { setInlineAnswer(prev => prev ? { ...prev, loading: false } : prev); return; }
+      if (data.token) { setInlineAnswer(prev => prev ? { ...prev, streamingText: prev.streamingText + data.token } : prev); }
+    });
+    inlineStreamCleanup.current = unsub;
+    try {
+      const result = await api.learnTutorStream({ nodeId, blockId, question: text, mode });
+      if (!result?.ok) { setInlineAnswer(prev => prev ? { ...prev, loading: false, error: result?.error || 'Failed' } : prev); }
+    } catch (err: any) { setInlineAnswer(prev => prev ? { ...prev, loading: false, error: err?.message || 'Stream error' } : prev); }
+  }, []);
+
+  const handleCloseInlineAnswer = useCallback(() => {
+    inlineStreamCleanup.current?.();
+    inlineStreamCleanup.current = null;
+    setInlineAnswer(null);
+  }, []);
+
+  const handleRetryInlineAnswer = useCallback(() => {
+    if (!inlineAnswer || !selectedNode) return;
+    startInlineAnswer(selectedNode, inlineAnswer.text, inlineAnswer.mode);
+  }, [inlineAnswer, selectedNode, startInlineAnswer]);
+
   const handleSelectionAsk = useCallback((text: string, mode: 'explain' | 'ask' | 'simpler' | 'deeper') => {
     if (!selectedNode) return;
-    const prefix = mode === 'explain' ? 'Explain: ' : mode === 'simpler' ? 'Simplify: ' : mode === 'deeper' ? 'Go deeper on: ' : '';
-    handleAskTutor(selectedNode, `${prefix}${text}`);
-  }, [selectedNode, handleAskTutor]);
+    if (mode === 'ask') {
+      setTutorOpen(true);
+      setTutorQuestion(text);
+      return;
+    }
+    startInlineAnswer(selectedNode, text, mode as InlineMode);
+  }, [selectedNode, startInlineAnswer]);
 
   const handleQuizSubmit = useCallback(async (nodeId: string, blockId: string, response: string) => {
     try {
@@ -438,6 +513,33 @@ export function LearnPage() {
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
                 Profile
+              </button>
+              <button
+                onClick={() => setView('intents')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition ${
+                  view === 'intents' ? 'text-amber-400 bg-amber-500/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30'
+                }`}
+              >
+                <Lightbulb className="w-3.5 h-3.5" />
+                Ideas
+              </button>
+              <button
+                onClick={() => setView('progress')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition ${
+                  view === 'progress' ? 'text-sage-400 bg-sage-400/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                Progress
+              </button>
+              <button
+                onClick={() => setView('study')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition ${
+                  view === 'study' ? 'text-clay-400 bg-clay-500/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30'
+                }`}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Study
               </button>
               <button
                 onClick={() => setShowOnboarding(true)}
@@ -569,37 +671,23 @@ export function LearnPage() {
                 key="library"
                 lessons={lessons}
                 loading={loading}
-                onOpen={loadLesson}
+                onOpen={(id) => loadLesson(id)}
+                onInfo={(id) => {
+                  const lesson = lessons.find(l => l.id === id);
+                  if (lesson) setDetailLesson(lesson);
+                }}
                 onCompose={() => setShowCreateDialog(true)}
                 onImport={() => setView('import')}
                 onWelcome={() => setView('showcase')}
                 stats={stats}
                 onOpenProfile={() => setShowProfilePanel(true)}
+                getDashboard={dashboardGetDashboard}
+                onNavigateToNode={dashboardNavigateToNode}
               />
-              {lessons.length > 0 && (
-                <div className="max-w-4xl mx-auto px-6 pb-8">
-                  <TutorDashboardSection
-                    getDashboard={async () => { const r = await api.learnGetTutorDashboard(); if (!r.ok) throw new Error(r.error); return r.data; }}
-                    onNavigateToNode={(nodeId) => {
-                      // Find which lesson contains this node and load it
-                      const loadFirstMatching = async () => {
-                        for (const l of lessons) {
-                          const r = await api.learnGetLesson({ lessonId: l.id });
-                          if (r.ok && r.data.nodes.some((n: any) => n.id === nodeId)) {
-                            loadLesson(l.id);
-                            setTimeout(() => setSelectedNode(nodeId), 100);
-                            break;
-                          }
-                        }
-                      };
-                      loadFirstMatching();
-                    }}
-                  />
-                </div>
-              )}
             </>
           )}
           {view === 'reader' && lessonData && (
+            <>
             <ReaderView
               key="reader"
               lesson={lessonData}
@@ -636,7 +724,12 @@ export function LearnPage() {
               onAddNote={handleAddNote}
               onDeleteNote={handleDeleteNote}
               onTogglePin={handleTogglePin}
+              tutorConfig={tutorConfig}
             />
+            {inlineAnswer && (
+              <InlineAnswerCard state={inlineAnswer} onClose={handleCloseInlineAnswer} onRetry={handleRetryInlineAnswer} />
+            )}
+            </>
           )}
           {view === 'import' && (
             <ImportView
@@ -657,6 +750,26 @@ export function LearnPage() {
               onShowOnboarding={() => setShowOnboarding(true)}
             />
           )}
+          {view === 'intents' && (
+            <IntentLibrary
+              key="intents"
+              onGenerateFromIntent={(intent) => {
+                setLessonSeed({
+                  part: 0,
+                  title: intent.title,
+                  scope: intent.description ? intent.description.split('\n').filter(Boolean) : [],
+                  topicPrompt: intent.context || '',
+                });
+                setShowCreateDialog(true);
+              }}
+            />
+          )}
+          {view === 'progress' && (
+            <ProgressDashboard key="progress" />
+          )}
+          {view === 'study' && (
+            <StudyView key="study" onBack={() => setView('library')} />
+          )}
         </AnimatePresence>
       </div>
 
@@ -664,6 +777,14 @@ export function LearnPage() {
       <LearnerSetup open={showSetup} onClose={() => setShowSetup(false)} />
       <LearnerProfilePanel open={showProfilePanel} onClose={() => setShowProfilePanel(false)} onRerunSetup={() => { setShowProfilePanel(false); setShowSetup(true); }} />
       <CreateLessonDialog seed={lessonSeed} open={showCreateDialog} onClose={() => { setShowCreateDialog(false); setLessonSeed(null); }} onImported={() => { loadLessons(); setView('library'); }} />
+      <LessonDetailModal
+        lesson={detailLesson}
+        open={!!detailLesson}
+        onClose={() => setDetailLesson(null)}
+        onDeleted={() => { setDetailLesson(null); loadLessons(); }}
+        onUpdated={() => { setDetailLesson(null); loadLessons(); }}
+        onOpenReader={(id) => { setDetailLesson(null); loadLesson(id); }}
+      />
     </div>
   );
 }

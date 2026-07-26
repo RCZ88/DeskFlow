@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, RefreshCw, Sparkles, Layers, History, Database, Search as SearchIcon, Settings } from 'lucide-react';
+import { AlertCircle, RefreshCw, Sparkles, Layers, History, Database, Search as SearchIcon, Settings, Brain, Users } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { listContainer, riseItem, tabPanel } from './workspace/_ds/motion';
 import { Chip, Skeleton, EmptyState } from './workspace/_ds/primitives';
@@ -49,13 +49,15 @@ const DEFAULT_CONFIG: ContextMaintenanceConfig = {
   tokenBudgets: { projectContext: 6000, sessionContext: 8000 },
 };
 
-type SectionId = 'overview' | 'contexts' | 'history' | 'compactions' | 'search' | 'settings';
+type SectionId = 'overview' | 'contexts' | 'history' | 'compactions' | 'search' | 'settings' | 'memory' | 'state';
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof Sparkles }[] = [
   { id: 'overview', label: 'Overview', icon: Sparkles },
   { id: 'contexts', label: 'Contexts', icon: Layers },
   { id: 'history', label: 'History', icon: History },
   { id: 'compactions', label: 'Compactions', icon: Database },
+  { id: 'memory', label: 'Memory', icon: Brain },
+  { id: 'state', label: 'State', icon: Users },
   { id: 'search', label: 'Search', icon: SearchIcon },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -367,6 +369,10 @@ export const ContextMaintenanceTab: React.FC<ContextMaintenanceTabProps> = ({
             <SettingsPanel config={config} onSave={async (newConfig) => { handleConfigSave(newConfig); }} />
           </div>
         );
+      case 'memory':
+        return <AgentMemoryPanel />;
+      case 'state':
+        return <MultiAgentStatePanel />;
       default:
         return null;
     }
@@ -457,5 +463,203 @@ const StatCard: React.FC<{ label: string; value: number; hint?: string }> = ({ l
     {hint && <p className="text-[10px] text-zinc-500">{hint}</p>}
   </div>
 );
+
+// ── Agent Memory Panel (hot/warm/cold tiers) ──
+const AgentMemoryPanel: React.FC = () => {
+  const [stats, setStats] = useState<any[]>([]);
+  const [hotMemories, setHotMemories] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadMemoryData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const dapi = (window as any).deskflowAPI;
+      const s = await dapi?.memoryStats?.();
+      setStats(s || []);
+      const hot = await dapi?.memoryGetHot?.(20);
+      setHotMemories(hot || []);
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadMemoryData(); }, [loadMemoryData]);
+
+  const handleSearch = useCallback(async () => {
+    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    const dapi = (window as any).deskflowAPI;
+    const results = await dapi?.memorySearch?.(searchQuery);
+    setSearchResults(results || []);
+  }, [searchQuery]);
+
+  const handleCompact = useCallback(async () => {
+    const dapi = (window as any).deskflowAPI;
+    await dapi?.memoryCompact?.();
+    loadMemoryData();
+  }, [loadMemoryData]);
+
+  const handleDelete = useCallback(async (id: string) => {
+    const dapi = (window as any).deskflowAPI;
+    await dapi?.memoryDelete?.(id);
+    loadMemoryData();
+  }, [loadMemoryData]);
+
+  const tierColors: Record<string, string> = { hot: 'border-red-500/50 bg-red-900/10', warm: 'border-amber-500/50 bg-amber-900/10', cold: 'border-zinc-600/50 bg-zinc-800/30' };
+  const categoryColors: Record<string, string> = {
+    correction: 'text-blue-400', invariant: 'text-red-400', root_cause: 'text-purple-400',
+    pattern: 'text-emerald-400', preference: 'text-amber-400', decision: 'text-cyan-400',
+    workflow: 'text-pink-400', error_recovery: 'text-orange-400',
+  };
+
+  return (
+    <div className="p-3 space-y-4">
+      <p className="text-[11px] text-zinc-500">Agent memories captured from corrections and lessons. Hot = in every prompt. Warm = sidebar only. Cold = archived.</p>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-2">
+        {['hot', 'warm', 'cold'].map(tier => {
+          const s = stats.find((st: any) => st.tier === tier);
+          return (
+            <div key={tier} className={`rounded-lg border p-2.5 ${tierColors[tier]}`}>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-400 capitalize">{tier}</div>
+              <div className="text-lg font-bold text-zinc-100">{s?.count || 0}</div>
+              {s && <div className="text-[10px] text-zinc-500">avg {((s.avg_importance || 0) * 100).toFixed(0)}%</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Hot memories preview */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5">In Every Prompt</div>
+        {hotMemories.length === 0 ? (
+          <div className="text-[11px] text-zinc-600 italic">No hot memories yet. Correct the agent or emit [save-memory] to capture lessons.</div>
+        ) : (
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {hotMemories.map((m: any) => (
+              <div key={m.id} className="flex items-start gap-2 text-[11px] p-2 rounded-lg bg-zinc-800/30 border-l-2 border-red-500/50 group">
+                <span className={`font-medium shrink-0 ${categoryColors[m.category] || 'text-zinc-400'}`}>[{m.category}]</span>
+                <span className="text-zinc-300 flex-1">{m.content}</span>
+                <button onClick={() => handleDelete(m.id)} className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 shrink-0">×</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Search */}
+      <div>
+        <div className="flex gap-1.5">
+          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()}
+            placeholder="Search memories..." className="flex-1 px-2.5 py-1.5 bg-zinc-800/60 border border-zinc-700/60 rounded-lg text-[11px] text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-600" />
+          <button onClick={handleSearch} className="px-2.5 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 rounded-lg text-[11px] text-zinc-300">Search</button>
+        </div>
+        {searchResults.length > 0 && (
+          <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+            {searchResults.map((m: any) => (
+              <div key={m.id} className="text-[11px] p-2 rounded-lg bg-zinc-800/30">
+                <span className={`font-medium ${categoryColors[m.category] || 'text-zinc-400'}`}>[{m.tier}]</span>{' '}
+                <span className="text-zinc-300">{m.content}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2">
+        <button onClick={handleCompact} className="px-3 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 rounded-lg text-[11px] text-zinc-300">Compact Now</button>
+        <button onClick={loadMemoryData} className="px-3 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 rounded-lg text-[11px] text-zinc-300">Refresh</button>
+      </div>
+    </div>
+  );
+};
+
+// ── Multi-Agent State Panel ──
+const MultiAgentStatePanel: React.FC = () => {
+  const [hubContent, setHubContent] = useState('');
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadStateData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const dapi = (window as any).deskflowAPI;
+      // Read the hub file
+      const hubResult = await dapi?.readProjectFile?.('agent/state.md');
+      if (hubResult?.success && hubResult.data) {
+        setHubContent(hubResult.data);
+      }
+      // Try to get active sessions
+      const sessionsResult = await dapi?.stateGetSessions?.();
+      setSessions(sessionsResult || []);
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadStateData(); }, [loadStateData]);
+
+  const handleRegenerateHub = useCallback(async () => {
+    const dapi = (window as any).deskflowAPI;
+    await dapi?.stateRegenerateHub?.();
+    loadStateData();
+  }, [loadStateData]);
+
+  // Parse hub content for active agents
+  const parseActiveAgents = (content: string) => {
+    const agents: { agent: string; session: string; cycle: string; status: string; focus: string }[] = [];
+    const tableMatch = content.match(/\| AGENT \| SESSION \| CYCLE \| STATUS \| FOCUS \| LAST SEEN \|[\s\S]*?(?=\n---|\n##|$)/);
+    if (tableMatch) {
+      const rows = tableMatch[0].split('\n').filter(r => r.startsWith('|') && !r.includes('---'));
+      for (const row of rows) {
+        const cells = row.split('|').map(c => c.trim()).filter(Boolean);
+        if (cells.length >= 5) {
+          agents.push({ agent: cells[0], session: cells[1], cycle: cells[2], status: cells[3], focus: cells[4] });
+        }
+      }
+    }
+    return agents;
+  };
+
+  const activeAgents = parseActiveAgents(hubContent);
+
+  return (
+    <div className="p-3 space-y-4">
+      <p className="text-[11px] text-zinc-500">Multi-agent state tracking. Each agent writes its own spoke file. Hub is auto-generated.</p>
+
+      {/* Active agents */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5">Active Agents</div>
+        {activeAgents.length === 0 ? (
+          <div className="text-[11px] text-zinc-600 italic">No active agents detected in hub.</div>
+        ) : (
+          <div className="space-y-1">
+            {activeAgents.map((a, i) => (
+              <div key={i} className="flex items-center gap-2 text-[11px] p-2 rounded-lg bg-zinc-800/30 border-l-2 border-cyan-500/50">
+                <span className="font-mono text-cyan-400 shrink-0">{a.agent}</span>
+                <span className="text-zinc-500 shrink-0">{a.session}</span>
+                <span className="text-zinc-400 flex-1 truncate">{a.focus}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${a.status === 'working' ? 'bg-green-900/30 text-green-400' : 'bg-zinc-700/50 text-zinc-500'}`}>{a.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Hub preview */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5">Hub File (agent/state.md)</div>
+        <pre className="text-[10px] text-zinc-400 bg-zinc-800/40 rounded-lg p-2.5 max-h-40 overflow-y-auto font-mono whitespace-pre-wrap">{hubContent || 'No hub content'}</pre>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2">
+        <button onClick={handleRegenerateHub} className="px-3 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 rounded-lg text-[11px] text-zinc-300">Regenerate Hub</button>
+        <button onClick={loadStateData} className="px-3 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 rounded-lg text-[11px] text-zinc-300">Refresh</button>
+      </div>
+    </div>
+  );
+};
 
 export default ContextMaintenanceTab;

@@ -5,6 +5,7 @@ import {
   Sparkles, Flag, ArrowUp, ArrowDown, Trash2, FileText, Brain, AlertCircle,
   CheckSquare, Square, Upload
 } from 'lucide-react';
+import { generateUUID } from '../lib/uuid';
 import { GlassCard, SectionHead, StateShell, IconButton, StatusDot, MOTION } from '../components/ai';
 import type { ViewState } from '../components/ai/StateShell';
 
@@ -76,7 +77,7 @@ export function LongTermPlanCard() {
     setSaving(true);
     try {
       const goal = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         title: newTitle.trim(),
         description: newDescription.trim() || undefined,
         category: newCategory,
@@ -170,7 +171,7 @@ export function LongTermPlanCard() {
     setImporting(true);
     try {
       const batch = selected.map((g, i) => ({
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         title: g.title,
         description: g.description || null,
         category: g.category || 'work',

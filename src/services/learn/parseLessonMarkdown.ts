@@ -36,7 +36,7 @@ export class LessonMarkdownError extends Error {
 
 const MASTERY: ReadonlySet<string> = new Set(['L0', 'L1', 'L2', 'L3', 'L4', 'L5']);
 // Must match validateFull()'s visual rule exactly: mermaid/image/widget/math.
-const VISUAL_TYPES: ReadonlySet<string> = new Set(['mermaid', 'image', 'widget', 'math', 'chart', 'finchart', 'flow', 'layer', 'svg']);
+const VISUAL_TYPES: ReadonlySet<string> = new Set(['mermaid', 'image', 'widget', 'math', 'chart', 'finchart', 'flow', 'layer', 'svg', 'code', 'table', 'viz_heatmap', 'viz_graph', 'viz_timeline', 'viz_concept_map', 'flashcard', 'layer_reveal', 'whiteboard', 'illustration']);
 
 function slug(s: string): string {
   return s
@@ -340,6 +340,191 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
       } else if (kind === 'html') {
         const htmlContent = inner.map((l) => l.raw).join('\n').trim();
         blocks.push({ id: id(), type: 'widget', kind: 'html', html: htmlContent, caption: args || undefined });
+      } else if (kind === 'layer_reveal') {
+        // :::layer_reveal {"title": "..."} or :::layer_reveal Title here
+        let title = args;
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(args); title = meta.title || args; } catch { /* use raw args as title */ }
+        const steps: Array<{ id: string; label: string; content: string; hint?: string; mastery_unlock?: string }> = [];
+        let currentStep: { id: string; label: string; content: string; hint?: string; mastery_unlock?: string } | null = null;
+        for (const line of inner) {
+          const stepMatch = line.text.match(/^Step\s+(\d+):\s*(.+)/i);
+          const hintMatch = line.text.match(/^Hint:\s*(.+)/i);
+          const unlockMatch = line.text.match(/^Unlock:\s*(.+)/i);
+          if (stepMatch) {
+            if (currentStep) steps.push(currentStep);
+            currentStep = { id: `step-${stepMatch[1]}`, label: stepMatch[2].trim(), content: '' };
+          } else if (hintMatch && currentStep) {
+            currentStep.hint = hintMatch[1].trim();
+          } else if (unlockMatch && currentStep) {
+            currentStep.mastery_unlock = unlockMatch[1].trim();
+          } else if (currentStep) {
+            currentStep.content += (currentStep.content ? '\n' : '') + line.text;
+          }
+        }
+        if (currentStep) steps.push(currentStep);
+        blocks.push({
+          id: id(),
+          type: 'layer_reveal',
+          meta: {
+            title: title || 'Steps',
+            steps: steps.map(s => ({ ...s, content: s.content.trim() })),
+            reveal_mode: (meta.reveal_mode as string) || 'sequential',
+            default_unlocked: (meta.default_unlocked as number) || 1,
+            allow_backtrack: (meta.allow_backtrack as boolean) !== false,
+          },
+        });
+      } else if (kind === 'viz_concept_map' || kind === 'concept_map') {
+        // :::viz_concept_map {"title": "..."} or :::viz_concept_map Title
+        let title = args;
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(args); title = meta.title || args; } catch { /* use raw args */ }
+        // Parse indented tree from inner content
+        const root = parseConceptMapTree(inner);
+        blocks.push({
+          id: id(),
+          type: 'viz_concept_map',
+          meta: {
+            root: { id: 'root', label: title || 'Concept Map', ...root },
+            max_depth: (meta.max_depth as number) || 5,
+            color_by_mastery: (meta.color_by_mastery as boolean) !== false,
+            collapsible: (meta.collapsible as boolean) !== false,
+          },
+        });
+      } else if (kind === 'flashcard') {
+        // :::flashcard {"deck_id": "...", "card_type": "basic"}
+        let cardMeta: Record<string, unknown> = {};
+        try { cardMeta = JSON.parse(args); } catch { /* empty meta */ }
+        let front = '';
+        let back = '';
+        for (const line of inner) {
+          const frontMatch = line.text.match(/^Front:\s*(.+)/i);
+          const backMatch = line.text.match(/^Back:\s*(.+)/i);
+          if (frontMatch) front = frontMatch[1].trim();
+          else if (backMatch) back = backMatch[1].trim();
+          else if (!front) front += (front ? '\n' : '') + line.text;
+          else back += (back ? '\n' : '') + line.text;
+        }
+        blocks.push({
+          id: id(),
+          type: 'flashcard',
+          meta: {
+            deck_id: (cardMeta.deck_id as string) || 'default',
+            card_type: (cardMeta.card_type as string) || 'basic',
+            front: front.trim(),
+            back: back.trim(),
+            tags: (cardMeta.tags as string[]) || [],
+          },
+        });
+      } else if (kind === 'viz_heatmap' || kind === 'heatmap') {
+        // :::viz_heatmap or :::viz_heatmap {"date_range": "last_90_days"}
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(args); } catch { /* empty */ }
+        blocks.push({
+          id: id(),
+          type: 'viz_heatmap',
+          meta: {
+            data_source: (meta.data_source as string) || 'study_sessions',
+            date_range: (meta.date_range as string) || 'last_90_days',
+            cell_size: (meta.cell_size as number) || 13,
+          },
+        });
+      } else if (kind === 'viz_graph' || kind === 'knowledge_graph') {
+        // :::viz_graph or :::viz_graph {"layout": "force"}
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(args); } catch { /* empty */ }
+        const nodes: Array<{ id: string; label: string; mastery_level?: string }> = [];
+        const edges: Array<{ id: string; source: string; target: string; label?: string }> = [];
+        for (const line of inner) {
+          const nodeMatch = line.text.match(/^-\s*node:\s*(.+?)\s*(?:\((.+?)\))?\s*$/i);
+          const edgeMatch = line.text.match(/^-\s*edge:\s*(.+?)\s*->\s*(.+?)(?:\s*\[(.+?)\])?\s*$/i);
+          if (nodeMatch) {
+            nodes.push({ id: nodeMatch[1].trim().toLowerCase().replace(/\s+/g, '-'), label: nodeMatch[1].trim(), mastery_level: nodeMatch[2]?.trim() });
+          } else if (edgeMatch) {
+            edges.push({ id: `e-${edges.length}`, source: edgeMatch[1].trim().toLowerCase().replace(/\s+/g, '-'), target: edgeMatch[2].trim().toLowerCase().replace(/\s+/g, '-'), label: edgeMatch[3]?.trim() });
+          }
+        }
+        blocks.push({
+          id: id(),
+          type: 'viz_graph',
+          meta: {
+            graph_type: (meta.graph_type as string) || 'force',
+            layout: (meta.layout as string) || 'force',
+            nodes,
+            edges,
+            highlight_mastery: (meta.highlight_mastery as boolean) !== false,
+          },
+        });
+      } else if (kind === 'viz_timeline' || kind === 'timeline') {
+        // :::viz_timeline or :::viz_timeline {"target_level": "L3"}
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(args); } catch { /* empty */ }
+        const events: Array<{ date: string; type: string; score?: number; description?: string }> = [];
+        const series: Array<{ date: string; value: number; target: number }> = [];
+        for (const line of inner) {
+          const eventMatch = line.text.match(/^-\s*(\d{4}-\d{2}-\d{2}):\s*(\w+)\s*(?:@\s*(\d+))?\s*[-–]\s*(.+)/i);
+          const seriesMatch = line.text.match(/^(\d{4}-\d{2}-\d{2}):\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+          if (eventMatch) {
+            events.push({ date: eventMatch[1], type: eventMatch[2], score: eventMatch[3] ? Number(eventMatch[3]) : undefined, description: eventMatch[4].trim() });
+          } else if (seriesMatch) {
+            series.push({ date: seriesMatch[1], value: Number(seriesMatch[2]), target: Number(seriesMatch[3]) });
+          }
+        }
+        blocks.push({
+          id: id(),
+          type: 'viz_timeline',
+          meta: {
+            node_id: (meta.node_id as string) || undefined,
+            date_range: (meta.date_range as string) || 'last_30_days',
+            show_events: (meta.show_events as boolean) !== false,
+            show_target_line: (meta.show_target_line as boolean) !== false,
+            target_level: (meta.target_level as string) || 'L3',
+            height: (meta.height as number) || 200,
+            events,
+            series,
+          },
+        });
+      } else if (kind === 'illustration') {
+        // :::illustration {"prompt": "...", "concept": "..."}
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(args); } catch { /* empty */ }
+        // Also check inner content for prompt if not in args
+        let prompt = (meta.prompt as string) || '';
+        let concept = (meta.concept as string) || '';
+        if (!prompt) {
+          // Try to extract from inner content
+          for (const line of inner) {
+            const promptMatch = line.text.match(/^prompt:\s*(.+)/i);
+            const conceptMatch = line.text.match(/^concept:\s*(.+)/i);
+            if (promptMatch) prompt = promptMatch[1].trim();
+            else if (conceptMatch) concept = conceptMatch[1].trim();
+            else if (!prompt) prompt += (prompt ? '\n' : '') + line.text;
+          }
+        }
+        blocks.push({
+          id: id(),
+          type: 'illustration',
+          meta: {
+            prompt: prompt.trim(),
+            concept: concept.trim() || undefined,
+            image_path: (meta.image_path as string) || undefined,
+            generated: false,
+          },
+        });
+      } else if (kind === 'whiteboard') {
+        // :::whiteboard {"read_only": true}
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(args); } catch { /* empty */ }
+        blocks.push({
+          id: id(),
+          type: 'whiteboard',
+          meta: {
+            read_only: (meta.read_only as boolean) || false,
+            allow_export: (meta.allow_export as boolean) !== false,
+            width: (meta.width as string) || '100%',
+            height: (meta.height as string) || '400px',
+          },
+        });
       } else {
         // unknown directive -> keep as prose so nothing is silently lost
         prose.push(inner.map((l) => l.raw).join('\n'));
@@ -351,6 +536,70 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
   }
   flushProse();
   return { blocks, grounding };
+}
+
+// ── Concept Map Tree Parser ────────────────────────────────────────────────
+
+function parseConceptMapTree(inner: Line[]): { label: string; description?: string; mastery_target?: string; misconception?: string; children?: any[] } {
+  const root: { label: string; children: any[] } = { label: '', children: [] };
+  const stack: { node: any; indent: number }[] = [{ node: root, indent: -1 }];
+
+  for (const line of inner) {
+    const text = line.text.replace(/\t/g, '  ');
+    const indent = text.length - text.trimStart().length;
+    const trimmed = text.trim();
+
+    // Skip empty lines
+    if (!trimmed) continue;
+
+    // Parse node: "- Label" or "- Label (L2)" or "- Label | description"
+    const nodeMatch = trimmed.match(/^-\s+(.+)/);
+    if (!nodeMatch) continue;
+
+    let label = nodeMatch[1].trim();
+    let description: string | undefined;
+    let mastery_target: string | undefined;
+    let misconception: string | undefined;
+
+    // Check for mastery level: "- Label (L2)"
+    const levelMatch = label.match(/\((L[0-5])\)\s*$/);
+    if (levelMatch) {
+      mastery_target = levelMatch[1];
+      label = label.replace(/\s*\([Ll]\d\)\s*$/, '').trim();
+    }
+
+    // Check for description: "- Label — description" or "- Label | description"
+    const descMatch = label.match(/^(.+?)\s*[—|]\s*(.+)/);
+    if (descMatch) {
+      label = descMatch[1].trim();
+      description = descMatch[2].trim();
+    }
+
+    // Check for misconception: "- Label !wrong belief → correction"
+    const miscMatch = label.match(/^(.+?)\s*!(.+?)\s*→\s*(.+)/);
+    if (miscMatch) {
+      label = miscMatch[1].trim();
+      misconception = `${miscMatch[2].trim()} → ${miscMatch[3].trim()}`;
+    }
+
+    const node: any = { id: label.toLowerCase().replace(/[^a-z0-9]+/g, '-'), label };
+    if (description) node.description = description;
+    if (mastery_target) node.mastery_target = mastery_target;
+    if (misconception) node.misconception = misconception;
+    node.children = [];
+
+    // Find parent based on indent
+    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
+      stack.pop();
+    }
+
+    const parent = stack[stack.length - 1].node;
+    parent.children.push(node);
+    stack.push({ node, indent });
+  }
+
+  // Return first child of root, or root itself
+  return root.children.length > 0 ? root.children[0] : { label: 'Concept Map', children: [] };
 }
 
 // ── Quiz ───────────────────────────────────────────────────────────────────

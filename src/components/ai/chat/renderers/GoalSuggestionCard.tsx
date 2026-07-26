@@ -28,7 +28,7 @@ export function GoalSuggestionCard({
   }
 
   return (
-    <CardShell title="Suggested goals · today" badge="goal_suggestion" icon="◎">
+    <CardShell title="Suggested goals · today" badge="goal_suggestion" accent="emerald" icon="◎">
       {visible.length === 0 ? (
         <div className="text-[12px] text-[var(--tm)]">All suggestions handled.</div>
       ) : visible.map((g) => {

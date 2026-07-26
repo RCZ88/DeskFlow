@@ -127,6 +127,25 @@ export class PairingCodeStore {
     const now = Date.now()
     return Array.from(this.codes.values()).filter((c) => now < c.expiresAt)
   }
+
+  /** Register an externally-generated code (e.g. from the sync server) so the relay can accept it. */
+  async registerExternalCode(code: string, terminalId: string, ttlMs = CODE_TTL_MS): Promise<PairingCode> {
+    const jwt = await new SignJWT({ sub: "pairing", terminalId })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime(`${Math.ceil(ttlMs / 1000)}s`)
+      .sign(this.secretKey)
+
+    const entry: PairingCode = {
+      code,
+      terminalId,
+      jwt,
+      expiresAt: Date.now() + ttlMs,
+      createdAt: Date.now(),
+    }
+    this.codes.set(code, entry)
+    return entry
+  }
 }
 
 // ── Terminal Relay Server ───────────────────────────────────────────
@@ -135,10 +154,11 @@ export function startTerminalRelay(
   port = 8788,
   onConnected?: (terminalId: string) => void,
 ): { wss: WebSocketServer | null; pairingStore: PairingCodeStore } {
-  const secret = process.env.RELAY_TICKET_SECRET
+  let secret = process.env.RELAY_TICKET_SECRET
   if (!secret) {
-    console.warn("[relay] RELAY_TICKET_SECRET not set — terminal relay disabled")
-    return { wss: null, pairingStore: new PairingCodeStore(new Uint8Array(0)) }
+    secret = crypto.randomBytes(32).toString("hex")
+    process.env.RELAY_TICKET_SECRET = secret
+    console.log("[relay] RELAY_TICKET_SECRET auto-generated (session-only)")
   }
 
   const secretKey = new TextEncoder().encode(secret)

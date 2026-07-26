@@ -1,164 +1,180 @@
-import { useMemo, useState } from 'react';
-import { Doughnut } from 'react-chartjs-2';
-import { ArcElement, Chart as ChartJS, Legend, Tooltip } from 'chart.js';
-import { Handshake } from 'lucide-react';
-import { GlassSurface } from './_fx/GlassSurface';
-import { CATEGORY_SPECTRUM } from './_fx/ChartTheme';
-import { formatCurrency } from './currency-data';
-import { useNumberMask } from '../../context/NumberMaskContext';
-import { maskNumber } from '../../utils/maskNumber';
-import type { FinanceSpendingByCategory, FinanceTransaction } from './finance-types';
+import React, { useMemo } from "react";
+import { Doughnut } from "react-chartjs-2";
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
+import { PieChart } from "lucide-react";
+import { formatCurrency as fmtCurrency, convertAmount } from "./currency-data";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-interface SpendingCategoryChartProps {
-  data: FinanceSpendingByCategory[];
+interface SpendingByCategory {
+  category: string;
+  amount: number;
+  color?: string;
+}
+
+interface Transaction {
+  id: number;
+  type: "income" | "expense" | "transfer";
+  amount: number;
+  category_id?: number;
+  on_behalf_of?: number;
+  on_behalf_of_label?: string;
+  description?: string;
+}
+
+interface Props {
+  data: SpendingByCategory[];
   baseCurrency: string;
   displayCurrency: string;
   convertAmount: (amount: number, from: string, to: string) => number;
-  allTransactions?: FinanceTransaction[];
+  allTransactions?: Transaction[];
 }
 
-export function SpendingCategoryChart({ data, baseCurrency, displayCurrency, convertAmount, allTransactions = [] }: SpendingCategoryChartProps) {
-  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const [includeFT, setIncludeFT] = useState(false);
+const CATEGORY_COLORS = [
+  "#ef4444", "#f97316", "#eab308", "#84cc16", "#22c55e",
+  "#06b6d4", "#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e",
+  "#14b8a6", "#a855f7", "#ec4899", "#6366f1", "#0ea5e9",
+];
 
-  const total = useMemo(() =>
-    data.reduce((s, c) => s + convertAmount(c.amount, baseCurrency, displayCurrency), 0),
-    [data, baseCurrency, displayCurrency, convertAmount]
-  );
+const FT_SHADES = [
+  "#fbbf24", "#f59e0b", "#d97706", "#b45309", "#92400e", "#78350f",
+];
 
-  // Compute Follow Through spending by category
-  const ftByCategory = useMemo(() => {
-    if (!includeFT) return [];
-    const ftTxns = allTransactions.filter(t => t.on_behalf_of === 1 && t.type === 'expense');
-    const byCat = new Map<number, { name: string; amount: number }>();
-    for (const t of ftTxns) {
-      const existing = byCat.get(t.category_id);
-      const amt = convertAmount(Math.abs(t.amount), baseCurrency, displayCurrency);
-      if (existing) {
-        existing.amount += amt;
-      } else {
-        // Try to find category name from the existing data or use generic
-        const catData = data.find(d => d.categoryId === t.category_id);
-        byCat.set(t.category_id, {
-          name: catData?.categoryName ?? `Category ${t.category_id}`,
-          amount: amt,
-        });
-      }
-    }
-    return Array.from(byCat.values()).sort((a, b) => b.amount - a.amount);
-  }, [includeFT, allTransactions, data, baseCurrency, displayCurrency, convertAmount]);
-
+export default function SpendingCategoryChart({ data, baseCurrency, displayCurrency, convertAmount: convert, allTransactions = [] }: Props) {
   const chartData = useMemo(() => {
-    const items = data.slice(0, 8);
-    const datasets: any[] = [{
-      data: items.map(c => convertAmount(c.amount, baseCurrency, displayCurrency)),
-      backgroundColor: items.map((_, i) => CATEGORY_SPECTRUM[i % CATEGORY_SPECTRUM.length] + 'CC'),
-      borderColor: items.map((_, i) => CATEGORY_SPECTRUM[i % CATEGORY_SPECTRUM.length]),
-      borderWidth: 1,
-      hoverOffset: 8,
-    }];
+    if (!data || data.length === 0) return { labels: [], data: [], bgColors: [], isFtFlags: [] };
 
-    // Add FT series as separate amber dataset
-    if (includeFT && ftByCategory.length > 0) {
-      const ftTotal = ftByCategory.reduce((s, c) => s + c.amount, 0);
-      datasets.push({
-        data: [ftTotal],
-        backgroundColor: ['#fbbf24CC'],
-        borderColor: ['#fbbf24'],
-        borderWidth: 1,
-        hoverOffset: 8,
+    const labels: string[] = [];
+    const values: number[] = [];
+    const bgColors: string[] = [];
+    const isFtFlags: boolean[] = [];
+
+    // Regular spending segments from data prop
+    data.forEach((item, idx) => {
+      labels.push(item.category);
+      const converted = convert(item.amount, baseCurrency, displayCurrency);
+      values.push(converted);
+      bgColors.push(item.color || CATEGORY_COLORS[idx % CATEGORY_COLORS.length]);
+      isFtFlags.push(false);
+    });
+
+    // Follow Through segments from transactions
+    const ftExpenses = allTransactions.filter(
+      (t) => t.type === "expense" && t.on_behalf_of && t.on_behalf_of > 0
+    );
+
+    if (ftExpenses.length > 0) {
+      const ftByLabel: Record<string, number> = {};
+      ftExpenses.forEach((t) => {
+        const label = t.on_behalf_of_label || t.description || "FT Other";
+        ftByLabel[label] = (ftByLabel[label] || 0) + Math.abs(t.amount);
+      });
+
+      Object.entries(ftByLabel).forEach(([name, amount], idx) => {
+        labels.push(`${name} (FT)`);
+        const converted = convert(amount, baseCurrency, displayCurrency);
+        values.push(converted);
+        bgColors.push(FT_SHADES[idx % FT_SHADES.length]);
+        isFtFlags.push(true);
       });
     }
 
-    const labels = items.map(c => c.categoryName);
-    if (includeFT && ftByCategory.length > 0) {
-      labels.push('Follow Through');
-    }
+    return { labels, data: values, bgColors, isFtFlags };
+  }, [data, allTransactions, baseCurrency, displayCurrency, convert]);
 
-    return { labels, datasets };
-  }, [data, baseCurrency, displayCurrency, convertAmount, includeFT, ftByCategory]);
+  const totalSpent = useMemo(
+    () => chartData.data.reduce((a, b) => a + b, 0),
+    [chartData]
+  );
 
-  const totalText = showNumbers
-    ? formatCurrency(total, displayCurrency)
-    : maskNumber(formatCurrency(total, displayCurrency), maskMode, maskFixedValue);
+  if (chartData.data.length === 0) {
+    return (
+      <div className="rounded-xl border border-zinc-700/30 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <PieChart className="w-4 h-4 text-zinc-500" />
+          <h3 className="text-sm font-semibold text-white">Spending by Category</h3>
+        </div>
+        <div className="flex flex-col items-center justify-center py-10 text-zinc-500">
+          <PieChart className="w-12 h-12 mb-3 opacity-30" />
+          <p className="text-sm">No spending data yet</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <GlassSurface className="p-5">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-zinc-500">
-          Spending by Category
+    <div className="rounded-xl border border-zinc-700/30 p-5 overflow-hidden">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <PieChart className="w-4 h-4 text-zinc-500" />
+          <h3 className="text-sm font-semibold text-white">Spending by Category</h3>
+        </div>
+        <span className="text-xs text-zinc-500">
+          Total: {fmtCurrency(totalSpent, displayCurrency)}
         </span>
-        {allTransactions.some(t => t.on_behalf_of === 1 && t.type === 'expense') && (
-          <button
-            onClick={() => setIncludeFT(!includeFT)}
-            className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full transition-colors ${
-              includeFT
-                ? 'bg-amber-400/15 text-amber-400'
-                : 'text-zinc-600 hover:text-zinc-400'
-            }`}
-          >
-            <Handshake className="w-3 h-3" />
-            {includeFT ? 'Hiding FT' : 'Include Follow Through'}
-          </button>
-        )}
       </div>
-      {data.length === 0 ? (
-        <div className="flex items-center justify-center py-12 text-zinc-600 text-xs">
-          No spending data this period
-        </div>
-      ) : (
-        <div className="grid grid-cols-[1fr,auto] gap-4 items-center mt-3">
-          <div className="relative h-[180px] flex items-center justify-center">
-            <Doughnut
-              data={chartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '68%',
-                plugins: {
-                  legend: { display: false },
-                  tooltip: { enabled: false },
-                },
-                onHover: (_, elements) => {
-                  setActiveIndex(elements.length > 0 ? elements[0].index : null);
-                },
-              }}
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-lg font-bold tabular-nums text-white">{totalText}</span>
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Total Spent</span>
-            </div>
-          </div>
 
-          {chartData && (
-            <div className="space-y-1.5">
-              {chartData.labels.map((label, i) => {
-                const val = chartData.datasets[0].data[i];
-                const pct = total > 0 ? (val / total) * 100 : 0;
-                const isActive = activeIndex === null || activeIndex === i;
-                return (
-                  <div
-                    key={label}
-                    className={`flex items-center gap-2 text-xs transition-opacity ${
-                      isActive ? 'opacity-100' : 'opacity-40'
-                    }`}
-                  >
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ backgroundColor: CATEGORY_SPECTRUM[i % CATEGORY_SPECTRUM.length] }}
-                    />
-                    <span className="text-zinc-400 truncate max-w-[80px]">{label}</span>
-                    <span className="text-zinc-500 tabular-nums">{pct.toFixed(0)}%</span>
-                  </div>
-                );
-              })}
+      <div className="relative w-full aspect-square max-h-[260px]">
+        <Doughnut
+          data={{
+            labels: chartData.labels,
+            datasets: [{
+              data: chartData.data,
+              backgroundColor: chartData.bgColors,
+              borderColor: "#18181b",
+              borderWidth: 2,
+              hoverOffset: 8,
+            }],
+          }}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: "65%",
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: "rgba(24,24,27,0.95)",
+                titleColor: "#fff",
+                bodyColor: "#a1a1aa",
+                borderColor: "rgba(113,113,122,0.3)",
+                borderWidth: 1,
+                padding: 10,
+                callbacks: {
+                  label: (context) => {
+                    const value = context.parsed as number;
+                    const pct = totalSpent > 0 ? ((value / totalSpent) * 100).toFixed(1) : "0.0";
+                    return `${context.label}: ${fmtCurrency(value, displayCurrency)} (${pct}%)`;
+                  },
+                },
+              },
+            },
+          }}
+        />
+      </div>
+
+      <div className="mt-4 space-y-1.5 max-h-[140px] overflow-y-auto">
+        {chartData.labels.map((label, idx) => {
+          const value = chartData.data[idx];
+          const pct = totalSpent > 0 ? ((value / totalSpent) * 100).toFixed(1) : "0.0";
+          const isFt = chartData.isFtFlags[idx];
+          return (
+            <div key={label} className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: chartData.bgColors[idx] }}
+                />
+                <span className={`truncate ${isFt ? "text-amber-400" : "text-zinc-400"}`}>
+                  {label}
+                </span>
+              </div>
+              <span className="text-zinc-500 flex-shrink-0 ml-2">
+                {fmtCurrency(value, displayCurrency)} ({pct}%)
+              </span>
             </div>
-          )}
-        </div>
-      )}
-    </GlassSurface>
+          );
+        })}
+      </div>
+    </div>
   );
 }

@@ -305,7 +305,7 @@ function ReviewPanel({
 				onChange={(e) => setText(e.target.value)}
 				placeholder="How did today go? What will you carry into tomorrow?"
 				rows={3}
-				className="w-full resize-none rounded-lg bg-zinc-950/60 p-3 text-[13px] text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/60"
+				className="w-full resize-none rounded-lg bg-zinc-950/60 p-3 text-[13px] text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60"
 			/>
 			<div className="mt-2 flex justify-end">
 				<button

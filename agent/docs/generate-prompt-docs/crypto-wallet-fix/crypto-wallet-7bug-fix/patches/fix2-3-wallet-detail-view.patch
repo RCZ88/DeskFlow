@@ -1,0 +1,100 @@
+--- a/src/components/finance/WalletDetailView.tsx
++++ b/src/components/finance/WalletDetailView.tsx
+@@ -389,20 +389,8 @@
+   // ── Derived values ─────────────────────────────────────────────────
+-  const fiatBalance = (transactions || [])
+-    .filter(t => t.type === 'transfer' && (t as any).to_wallet_id === wallet.id)
+-    .reduce((sum, t) => {
+-      const absAmount = Math.abs(Number(t.amount) || 0);
+-      return sum + (t.amount > 0 ? absAmount : -absAmount);
+-    }, 0);
++  const fiatBalance = wallet.balance || 0;
+
+-  const totalCost = assets.reduce((sum, a) => sum + (a.amount * a.avg_buy_price), 0);
+-
+-  const availableFiat = fiatBalance - totalCost;
+-
+-  const totalValue = useMemo(() => {
+-    const crypto = assets.reduce((sum, a) => {
+-      const p = prices.find(pr => pr.coin_id === a.coin_id);
+-      return sum + (a.amount * (p?.current_price || 0));
+-    }, 0);
+-    return availableFiat + crypto;
+-  }, [assets, prices, availableFiat]);
++  const cryptoPortfolioValue = useMemo(() => {
++    return assets.reduce((sum, a) => {
++      const p = prices.find(pr => pr.coin_id === a.coin_id);
++      return sum + (a.amount * (p?.current_price || 0));
++    }, 0);
++  }, [assets, prices]);
++
++  const totalValue = fiatBalance + cryptoPortfolioValue;
++  const availableFiat = fiatBalance;  // Cost already reflected in wallet.balance
+
+@@ -608,46 +596,72 @@
+-  const handleAddAsset = () => {
++  const handleAddAsset = async () => {
+     if (!selectedCoinId) return;
+     let amount: number;
++    let spentFiat: number = 0;
+     if (addMode === 'from-spend') {
+       if (!newTotalSpent || !newAssetAvgPrice) return;
+       const spent = parseFloat(newTotalSpent);
+       const avgPrice = parseFloat(newAssetAvgPrice);
+       if (!spent || !avgPrice) return;
+-      if (spent > availableFiat) {
+-        setFiatError(`Insufficient balance — you have ${fmtCurrency(availableFiat, displayCurrency)} available`);
++      if (spent > (wallet.balance || 0)) {
++        setFiatError(`Insufficient balance — you have ${fmtCurrency(wallet.balance || 0, displayCurrency)} available`);
+         return;
+       }
+       amount = spent / avgPrice;
++      spentFiat = spent;
+     } else {
+       if (!newAssetAmount) return;
+       amount = parseFloat(newAssetAmount);
++      spentFiat = amount * (parseFloat(newAssetAvgPrice) || 0);
+     }
+     const asset_type = selectedAssetType || 'crypto';
+-    const newAssets = [...assets, {
++    const symbol = selectedCoinId.split('-').pop()?.toUpperCase() || selectedCoinId.slice(0, 6).toUpperCase();
++    const name = searchCoin.split(' (')[0] || selectedCoinId;
++    const newAssets = [...assets, {
+       coin_id: selectedCoinId,
+-      symbol: selectedCoinId.split('-').pop()?.toUpperCase() || selectedCoinId.slice(0, 6).toUpperCase(),
++      symbol,
+       asset_type,
+-      name: searchCoin.split(' (')[0] || selectedCoinId,
++      name,
+       amount,
+       avg_buy_price: parseFloat(newAssetAvgPrice) || 0,
+     }];
+     onChange('assets', JSON.stringify(newAssets));
++    // Create transaction record for the buy
++    if (spentFiat > 0) {
++      try {
++        await window.electron.invoke('finance:create-transaction', {
++          account_id: wallet.account_id,
++          wallet_id: wallet.id,
++          category_id: 1,
++          type: 'expense',
++          amount: spentFiat,
++          description: `Buy ${amount.toFixed(6)} ${symbol}`,
++          note: `Crypto: ${name} (${selectedCoinId}) @ ${fmtCurrency(parseFloat(newAssetAvgPrice) || 0, displayCurrency)}`,
++          date: new Date().toISOString().split('T')[0],
++          time: new Date().toTimeString().slice(0, 5),
++          metadata: JSON.stringify({
++            coinId: selectedCoinId,
++            symbol,
++            qty: amount,
++            price: parseFloat(newAssetAvgPrice) || 0,
++            assetType: asset_type,
++          }),
++        });
++      } catch (err) {
++        console.error('Failed to create buy transaction:', err);
++      }
++    }
+     setNewAssetAmount('');
+     setNewTotalSpent('');
+     setNewAssetAvgPrice('');

@@ -1,4 +1,5 @@
 import { motion, useReducedMotion } from 'framer-motion'
+import { useId } from 'react'
 import { maxOf, minOf } from '../../utils/safeMath'
 
 interface SparklineProps {
@@ -21,6 +22,7 @@ export function Sparkline({
   className = '',
 }: SparklineProps) {
   const reduce = useReducedMotion()
+  const gradientId = useId()
   if (!data || data.length < 2) return null
 
   const max = maxOf(data, 1)
@@ -47,11 +49,16 @@ export function Sparkline({
       className={className}
       aria-hidden="true"
     >
+      <defs>
+        <linearGradient id={`sparkline-fill-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.18} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
       {fill && (
         <motion.path
           d={areaPath}
-          fill={color}
-          fillOpacity={0.12}
+          fill={`url(#sparkline-fill-${gradientId})`}
           initial={reduce ? undefined : { opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, ease: 'easeOut' }}
@@ -64,6 +71,7 @@ export function Sparkline({
         strokeWidth={strokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
+        style={{ filter: `drop-shadow(0 0 2px ${color}40)` }}
         initial={reduce ? undefined : { pathLength: 0 }}
         animate={{ pathLength: 1 }}
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}

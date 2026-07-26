@@ -42,12 +42,14 @@ async function main() {
   // Step 1: Renderer
   run('Step 1/4: Building renderer', 'npx vite build');
 
-  // Step 2: Preload
-  run('Step 2/4: Building preload', `npx vite build --ssr src/preload.ts --outDir "${PRELOAD_TEMP}"`);
-  const preloadSrc = resolve(PRELOAD_TEMP, 'assets/preload.js');
-  if (existsSync(preloadSrc)) renameSync(preloadSrc, resolve(OUT, 'preload.cjs'));
-  if (existsSync(PRELOAD_TEMP)) rmSync(PRELOAD_TEMP, { recursive: true, force: true });
-  console.log(`  preload: ${(statSync(resolve(OUT, 'preload.cjs')).size / 1024).toFixed(0)} KB`);
+  // Step 2: Preload (esbuild for real CJS output — Vite SSR emits ESM which Electron rejects)
+  const preloadOut = resolve(OUT, 'preload.cjs');
+  console.log('\n=== Step 2/4: Building preload ===');
+  execSync(
+    `npx esbuild "src/preload.ts" --outfile="${preloadOut}" --bundle --format=cjs --platform=node --target=node22 --external:electron`,
+    { cwd: ROOT, stdio: 'inherit', shell: true }
+  );
+  console.log(`  preload: ${(statSync(preloadOut).size / 1024).toFixed(0)} KB`);
 
   // Step 3: Pre-compile ALL .ts service + main files to .js (individual files, NOT bundled)
   console.log('\n=== Step 3/4: Pre-compiling services ===');

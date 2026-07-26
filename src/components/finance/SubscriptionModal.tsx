@@ -1,16 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, Calendar, DollarSign, Globe, Link2, Wallet, AlertTriangle, Save } from 'lucide-react';
+import { Bell, Calendar, DollarSign, Globe, Link2, Wallet, AlertTriangle, Save, Tag } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { formatCurrency, getCurrencyInfo, COMMON_CURRENCIES } from './currency-data';
-import type { FinanceSubscription, FinanceWallet } from './finance-types';
+import { CurrencyInput } from './CurrencyInput';
+import type { FinanceSubscription, FinanceWallet, FinanceCategory } from './finance-types';
 
 interface Props {
   subscription: FinanceSubscription | null;
   wallets: FinanceWallet[];
+  categories?: FinanceCategory[];
   displayCurrency: string;
   onClose: () => void;
   onSave: (data: any) => Promise<boolean>;
+  onMoveTransaction?: (subscriptionId: number, newWalletId: number) => Promise<boolean>;
 }
 
 const BILLING_CYCLES = [
@@ -42,14 +45,18 @@ const INITIAL = {
   cancel_reminder_days: 7,
   reminder_note: '',
   status: 'active',
+  subscription_type: 'recurring_autodebet',
+  category_id: null as number | null,
 };
 
-export function SubscriptionModal({ subscription, wallets, displayCurrency, onClose, onSave }: Props) {
+export function SubscriptionModal({ subscription, wallets, categories = [], displayCurrency, onClose, onSave, onMoveTransaction }: Props) {
   const [form, setForm] = useState({ ...INITIAL, currency: displayCurrency || 'USD' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [onBehalfOf, setOnBehalfOf] = useState(false);
   const [onBehalfOfLabel, setOnBehalfOfLabel] = useState('');
+  const [moveLastPayment, setMoveLastPayment] = useState(false);
+  const [originalWalletId, setOriginalWalletId] = useState<number | null>(null);
 
   useEffect(() => {
     if (subscription) {
@@ -67,7 +74,10 @@ export function SubscriptionModal({ subscription, wallets, displayCurrency, onCl
         cancel_reminder_days: subscription.cancel_reminder_days,
         reminder_note: subscription.reminder_note,
         status: subscription.status,
+        subscription_type: subscription.subscription_type || 'recurring_autodebet',
+        category_id: (subscription as any).category_id || null,
       });
+      setOriginalWalletId(subscription.wallet_id);
       setOnBehalfOf(subscription.on_behalf_of === 1);
       setOnBehalfOfLabel(subscription.on_behalf_of_label || '');
     } else {
@@ -82,6 +92,31 @@ export function SubscriptionModal({ subscription, wallets, displayCurrency, onCl
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
+  // Auto-calculate next_renewal_date from start_date + billing_cycle
+  const computeNextRenewal = useCallback((startDate: string, cycle: string, interval: number) => {
+    if (!startDate) return '';
+    const d = new Date(startDate);
+    const n = interval || 1;
+    switch (cycle) {
+      case 'weekly': d.setDate(d.getDate() + 7 * n); break;
+      case 'monthly': d.setMonth(d.getMonth() + n); break;
+      case 'quarterly': d.setMonth(d.getMonth() + 3 * n); break;
+      case 'yearly': d.setFullYear(d.getFullYear() + n); break;
+      default: d.setMonth(d.getMonth() + n); break;
+    }
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  // When editing a NEW subscription (not editing existing), auto-set next_renewal_date
+  useEffect(() => {
+    if (subscription) return; // Don't overwrite when editing existing
+    if (!form.start_date) return;
+    const next = computeNextRenewal(form.start_date, form.billing_cycle, form.billing_interval);
+    if (next && next !== form.next_renewal_date) {
+      setForm(prev => ({ ...prev, next_renewal_date: next }));
+    }
+  }, [form.start_date, form.billing_cycle, form.billing_interval, subscription]);
+
   const handleSubmit = async () => {
     setError(null);
     if (!form.wallet_id) { setError('Please select a wallet'); return; }
@@ -90,12 +125,16 @@ export function SubscriptionModal({ subscription, wallets, displayCurrency, onCl
     if (isNaN(price) || price < 0) { setError('Please enter a valid price'); return; }
     setSaving(true);
     try {
-      await onSave({
+      const ok = await onSave({
         ...form,
         price,
         on_behalf_of: onBehalfOf ? 1 : 0,
         on_behalf_of_label: onBehalfOf && onBehalfOfLabel.trim() ? onBehalfOfLabel.trim() : null,
       });
+      // Move last payment if checkbox checked and wallet changed
+      if (ok && moveLastPayment && subscription && originalWalletId && form.wallet_id !== originalWalletId) {
+        await onMoveTransaction?.(subscription.id, form.wallet_id);
+      }
     } catch { setError('Failed to save subscription'); }
     finally { setSaving(false); }
   };
@@ -146,9 +185,9 @@ export function SubscriptionModal({ subscription, wallets, displayCurrency, onCl
             <div>
               <label className="block text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5">Price</label>
               <div className="relative">
-                <input type="number" min="0" step="any" value={form.price} onChange={e => handleChange('price', e.target.value)}
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs font-medium pointer-events-none">{getCurrencyInfo(form.currency).symbol}</span>
+                <CurrencyInput value={form.price} onChange={(v) => handleChange('price', String(v))}
                   placeholder="0.00" className="w-full bg-zinc-800/60 text-sm text-white rounded-lg border border-zinc-700/50 pl-7 pr-3 py-2.5 outline-none placeholder:text-zinc-600 focus:border-zinc-500 tabular-nums transition-colors" />
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs font-medium">{getCurrencyInfo(form.currency).symbol}</span>
               </div>
             </div>
           </div>
@@ -166,7 +205,7 @@ export function SubscriptionModal({ subscription, wallets, displayCurrency, onCl
 
           {/* Wallet */}
           <div>
-            <label className="block text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5">Wallet</label>
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5">Payment Wallet</label>
             <select value={form.wallet_id} onChange={e => handleChange('wallet_id', Number(e.target.value))}
               className="w-full bg-zinc-800/60 text-sm text-white rounded-lg border border-zinc-700/50 px-3 py-2.5 outline-none focus:border-zinc-500 transition-colors">
               <option value={0} disabled>Select wallet</option>
@@ -174,9 +213,45 @@ export function SubscriptionModal({ subscription, wallets, displayCurrency, onCl
                 <option key={w.id} value={w.id}>{w.name} ({w.type})</option>
               ))}
             </select>
+            {/* Move last payment checkbox — only when editing and wallet changed */}
+            {subscription && originalWalletId !== null && form.wallet_id !== originalWalletId && form.wallet_id !== 0 && (
+              <label className="flex items-center gap-2 mt-2 cursor-pointer group">
+                <div onClick={() => setMoveLastPayment(v => !v)}
+                  className={`w-4 h-4 rounded border transition-colors flex items-center justify-center ${moveLastPayment ? 'bg-indigo-500 border-indigo-400' : 'border-zinc-600 bg-zinc-800 group-hover:border-zinc-500'}`}>
+                  {moveLastPayment && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                </div>
+                <span className="text-[11px] text-zinc-400 group-hover:text-zinc-300 transition-colors">
+                  Move last payment to this wallet
+                </span>
+              </label>
+            )}
           </div>
 
-          {/* Billing cycle */}
+          {/* Subscription Type */}
+          <div>
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5">Type</label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { value: 'recurring_autodebet', label: 'Auto-debit', desc: 'Charged automatically', icon: '⚡' },
+                { value: 'recurring_manual', label: 'Manual', desc: 'Pay each period', icon: '✋' },
+                { value: 'one_time', label: 'One-time', desc: 'No renewal', icon: '1️⃣' },
+              ].map(t => (
+                <button key={t.value} type="button" onClick={() => handleChange('subscription_type', t.value)}
+                  className={`p-2.5 rounded-lg border text-left transition-all ${
+                    form.subscription_type === t.value
+                      ? 'bg-indigo-500/15 border-indigo-500/50 text-indigo-300'
+                      : 'bg-zinc-800/30 border-zinc-700/50 text-zinc-400 hover:border-zinc-600'
+                  }`}>
+                  <div className="text-sm mb-0.5">{t.icon}</div>
+                  <div className="text-[11px] font-medium">{t.label}</div>
+                  <div className="text-[9px] text-zinc-500">{t.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Billing cycle — hidden for one-time */}
+          {form.subscription_type !== 'one_time' && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5">Billing cycle</label>
@@ -193,6 +268,7 @@ export function SubscriptionModal({ subscription, wallets, displayCurrency, onCl
               </div>
             )}
           </div>
+          )}
 
           {/* Dates */}
           <div className="grid grid-cols-2 gap-3">
@@ -271,6 +347,28 @@ export function SubscriptionModal({ subscription, wallets, displayCurrency, onCl
               ))}
             </div>
           </div>
+
+          {/* Category */}
+          {categories.length > 0 && (
+            <div>
+              <label className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5">
+                <Tag className="w-3 h-3" /> Category
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {categories.filter(c => c.type === 'expense').map(c => (
+                  <button key={c.id} onClick={() => handleChange('category_id', form.category_id === c.id ? null : c.id)}
+                    className="text-[11px] px-2.5 py-1 rounded-full transition-colors border"
+                    style={{
+                      backgroundColor: form.category_id === c.id ? `${c.color}20` : 'transparent',
+                      color: form.category_id === c.id ? c.color : '#71717a',
+                      borderColor: form.category_id === c.id ? c.color : 'transparent',
+                    }}>
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Error */}
           {error && (

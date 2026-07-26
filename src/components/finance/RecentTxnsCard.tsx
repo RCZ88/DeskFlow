@@ -4,7 +4,7 @@ import { formatCurrency } from './currency-data';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 import { TransactionDetailModal } from './TransactionDetailModal';
-import { Handshake, CircleCheck } from 'lucide-react';
+import { Handshake, CircleCheck, Bell } from 'lucide-react';
 import { getRepaymentStatus, getFtPerson } from '../../lib/receivables';
 import type { FinanceTransaction, FinanceAccount, FinanceCategory, FinanceWallet } from '../finance/finance-types';
 
@@ -93,18 +93,24 @@ export function RecentTxnsCard({
       ) : (
         recent.map((tx, i) => {
           const isFT = tx.on_behalf_of === 1 && tx.type === 'expense';
+          const isHistorical = tx.is_adjustment === 1;
+          const isSubscription = tx.description?.startsWith('Subscription:') || tx.note?.startsWith('Subscription:');
           const ftPerson = isFT ? getFtPerson(tx) : null;
           const repayment = isFT ? getRepaymentStatus(tx, transactions) : null;
           return (
           <div
             key={tx.id}
             onClick={() => setDetailTxn(tx)}
-            className={`flex items-center gap-3 py-2 border-b border-white/[0.03] last:border-0 hover:bg-white/[0.02] rounded-lg -mx-2 px-2 transition-colors cursor-pointer ${isFT ? 'border-l-2 border-l-amber-400 -ml-2 pl-3' : ''}`}
+            className={`flex items-center gap-3 py-2 border-b border-white/[0.03] last:border-0 hover:bg-white/[0.02] rounded-lg -mx-2 px-2 transition-colors cursor-pointer ${isFT ? 'border-l-2 border-l-amber-400 -ml-2 pl-3' : isSubscription ? 'border-l-2 border-l-indigo-400 -ml-2 pl-3' : isHistorical ? 'border-l-2 border-l-violet-400 -ml-2 pl-3' : ''}`}
           >
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
                 {isFT ? (
                   <Handshake className="w-3 h-3 text-amber-400 shrink-0" />
+                ) : isSubscription ? (
+                  <Bell className="w-3 h-3 text-indigo-400 shrink-0" />
+                ) : isHistorical ? (
+                  <span className="w-3 h-3 text-violet-400 shrink-0 text-[10px] font-bold">H</span>
                 ) : null}
                 <p className="text-sm font-semibold text-zinc-200 truncate">{tx.description || 'Transaction'}</p>
               </div>
@@ -122,16 +128,53 @@ export function RecentTxnsCard({
                 {isFT && repayment && !repayment.repaid && (
                   <span className="text-[9px] text-amber-400/60">owed</span>
                 )}
+                {isSubscription && (
+                  <span className="text-[9px] px-1 py-0 rounded bg-indigo-500/15 text-indigo-400 font-medium">recurring</span>
+                )}
+                {isHistorical && (
+                  <span className="text-[9px] px-1 py-0 rounded bg-violet-500/15 text-violet-400 font-medium">historical</span>
+                )}
+                {tx.merchant && (
+                  <span className="text-[9px] text-zinc-500">{tx.merchant}</span>
+                )}
               </div>
             </div>
-            <span className={`text-money text-sm font-semibold shrink-0 ${
-              (tx.amount ?? 0) >= 0 ? 'text-emerald-400' : 'text-[#fb7185]'
-            }`}>
-              {(tx.amount ?? 0) >= 0 ? '+' : '−'}
-              {showNumbers
-                ? formatCurrency(Math.abs(tx.amount ?? 0), displayCurrency)
-                : maskNumber(formatCurrency(Math.abs(tx.amount ?? 0), displayCurrency), maskMode, maskFixedValue)}
-            </span>
+            <div className="text-right shrink-0">
+              {(() => {
+                if (tx.metadata) {
+                  try {
+                    const m = typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : tx.metadata;
+                    if ((m.coinId || m.coin_id) && m.qty) {
+                      const sym = (m.symbol || '').toUpperCase();
+                      const qty = Number(m.qty);
+                      const price = Number(m.price) || 0;
+                      const fiatVal = qty * price;
+                      const sign = (tx.amount ?? 0) >= 0 ? '+' : '−';
+                      return (
+                        <>
+                          <p className={`text-sm font-semibold tabular-nums ${(tx.amount ?? 0) >= 0 ? 'text-emerald-400' : 'text-[#fb7185]'}`}>
+                            {sign}{qty.toFixed(8).replace(/\.?0+$/, '')} <span className="text-[#8B5CF6]">{sym}</span>
+                          </p>
+                          {fiatVal > 0 && (
+                            <p className="text-[10px] text-zinc-500 tabular-nums">≈ {formatCurrency(fiatVal, displayCurrency)}</p>
+                          )}
+                        </>
+                      );
+                    }
+                  } catch { /* ignore */ }
+                }
+                return (
+                  <span className={`text-money text-sm font-semibold shrink-0 ${
+                    (tx.amount ?? 0) >= 0 ? 'text-emerald-400' : 'text-[#fb7185]'
+                  }`}>
+                    {(tx.amount ?? 0) >= 0 ? '+' : '−'}
+                    {showNumbers
+                      ? formatCurrency(Math.abs(tx.amount ?? 0), displayCurrency)
+                      : maskNumber(formatCurrency(Math.abs(tx.amount ?? 0), displayCurrency), maskMode, maskFixedValue)}
+                  </span>
+                );
+              })()}
+            </div>
           </div>
           );
         })

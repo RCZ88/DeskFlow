@@ -54,6 +54,7 @@ export interface UseVoiceInput {
   supported: boolean;
   state: VoiceState;
   interim: string;
+  solidifying: boolean;
   error?: VoiceError;
   start: () => void;
   stop: () => void;
@@ -64,16 +65,19 @@ export function useVoiceInput({ onTranscript, silenceMs = 5000 }: UseVoiceInputO
   const [state, setState] = useState<VoiceState>('idle');
   const [supported, setSupported] = useState(true);
   const [interim, setInterim] = useState('');
+  const [solidifying, setSolidifying] = useState(false);
   const [error, setError] = useState<VoiceError | undefined>();
   const [countdownMs, setCountdownMs] = useState(silenceMs);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef<number>(0);
+  const solidifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearTimers = useCallback(() => {
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
     if (countdownTimerRef.current) { clearInterval(countdownTimerRef.current); countdownTimerRef.current = null; }
+    if (solidifyTimerRef.current) { clearTimeout(solidifyTimerRef.current); solidifyTimerRef.current = null; }
   }, []);
 
   const resetSilenceTimer = useCallback(() => {
@@ -104,7 +108,10 @@ export function useVoiceInput({ onTranscript, silenceMs = 5000 }: UseVoiceInputO
         const result = event.results[i];
         if (result.isFinal) {
           setInterim('');
+          setSolidifying(true);
           onTranscript(result[0].transcript);
+          if (solidifyTimerRef.current) clearTimeout(solidifyTimerRef.current);
+          solidifyTimerRef.current = setTimeout(() => setSolidifying(false), 800);
         }
       }
       resetSilenceTimer();
@@ -159,5 +166,5 @@ export function useVoiceInput({ onTranscript, silenceMs = 5000 }: UseVoiceInputO
     return () => clearTimers();
   }, [clearTimers]);
 
-  return { supported, state, interim, error, start, stop, countdownMs };
+  return { supported, state, interim, solidifying, error, start, stop, countdownMs };
 }

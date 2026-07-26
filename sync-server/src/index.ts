@@ -10,6 +10,7 @@ import { learnRoutes } from "./routes/learn.js"
 import { pairingRoutes } from "./routes/pairing.js"
 import { deviceRoutes } from "./routes/devices.js"
 import { phoneRoutes } from "./routes/phone.js"
+import { workspaceRoutes } from "./routes/workspace.js"
 
 const PORT = parseInt(process.env.PORT || "8787", 10)
 const HOST = process.env.HOST || "0.0.0.0"
@@ -23,6 +24,7 @@ async function main() {
         options: { colorize: true },
       },
     },
+    bodyLimit: 10 * 1024 * 1024, // 10MB — encrypted terminal messages can be large
   })
 
   // CORS
@@ -46,6 +48,7 @@ async function main() {
   await app.register(deviceRoutes, { prefix: "/v1/devices" })
   await app.register(phoneRoutes, { prefix: "/v1/phone" })
   await app.register(learnRoutes, { prefix: "/v1/learn" })
+  await app.register(workspaceRoutes, { prefix: "/v1/workspace" })
 
   // Graceful shutdown
   const shutdown = async () => {

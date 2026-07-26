@@ -202,6 +202,20 @@ export function registerLearnHandlers(
     return content.listLessons(part);
   });
 
+  ipcMain.handle('learn:listChapters', (_event, { part }: { part?: number } = {}) => {
+    try {
+      let rows: any[];
+      if (part != null) {
+        rows = db.prepare("SELECT DISTINCT chapter FROM learn_lessons WHERE part = ? AND chapter != '' ORDER BY chapter").all(part);
+      } else {
+        rows = db.prepare("SELECT DISTINCT chapter, part FROM learn_lessons WHERE chapter != '' ORDER BY part, chapter").all();
+      }
+      return { ok: true, data: rows.map((r: any) => r.chapter) };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('learn:getLesson', (_event, { lessonId }: { lessonId: string }) => {
     return content.getLesson(lessonId);
   });
@@ -216,8 +230,24 @@ export function registerLearnHandlers(
 
   // ── Tutor ──
 
-  ipcMain.handle('learn:askTutor', (_event, params: { nodeId: string; blockId?: string; question: string; personaMd?: string }) => {
+  ipcMain.handle('learn:askTutor', (_event, params: { nodeId: string; blockId?: string; question: string; personaMd?: string; mode?: 'explain' | 'ask' | 'simpler' | 'deeper' }) => {
     return tutor.ask(params);
+  });
+
+  ipcMain.handle('learn:getTutorConfig', () => {
+    try {
+      const aiSettings = db.prepare("SELECT value FROM learn_profile WHERE key = 'ai_provider'").get() as any;
+      const modelSettings = db.prepare("SELECT value FROM learn_profile WHERE key = 'ai_model'").get() as any;
+      return {
+        ok: true,
+        data: {
+          provider: aiSettings?.value || 'AI Provider',
+          model: modelSettings?.value || 'default model',
+        },
+      };
+    } catch {
+      return { ok: true, data: { provider: 'AI Provider', model: 'default model' } };
+    }
   });
 
   ipcMain.handle('learn:submitQuiz', (_event, params: { nodeId: string; blockId: string; response: string }) => {
@@ -228,9 +258,10 @@ export function registerLearnHandlers(
 
   ipcMain.handle('learn:tutorStream', async (event, params: {
     nodeId: string; blockId: string; question: string; convId?: string;
+    mode?: 'explain' | 'ask' | 'simpler' | 'deeper';
   }) => {
     if (!streamAi) {
-      const result = await tutorV2.ask(params);
+      const result = await tutorV2.ask({ nodeId: params.nodeId, blockId: params.blockId, question: params.question, mode: params.mode });
       if (result.ok) {
         event.sender.send('learn:tutorToken', { blockId: params.blockId, token: result.data.answer_md, done: true });
       } else {
@@ -238,7 +269,7 @@ export function registerLearnHandlers(
       }
       return result;
     }
-    const result = await tutorV2.askStream(params, (token: string) => {
+    const result = await tutorV2.askStream({ nodeId: params.nodeId, blockId: params.blockId, question: params.question, convId: params.convId, mode: params.mode }, (token: string) => {
       event.sender.send('learn:tutorToken', { blockId: params.blockId, token, done: false });
     });
     event.sender.send('learn:tutorToken', { blockId: params.blockId, token: '', done: true });
@@ -401,6 +432,28 @@ export function registerLearnHandlers(
       }
     }
 
+    // Inject all published node IDs so the AI can use exact slugs in @prereq lines
+    const allNodes = db.prepare(
+      'SELECT n.id, n.title, l.part FROM learn_nodes n JOIN learn_lessons l ON n.lesson_id = l.id ORDER BY l.part, n.id'
+    ).all() as any[];
+    if (allNodes.length > 0) {
+      const nodeList = allNodes.map((n: any) => `  ${n.id}  ("${n.title}", part ${n.part})`).join('\n');
+      userPrompt += `\n\n--- EXISTING NODE IDs (use EXACTLY these in @prereq lines) ---\n${nodeList}\n`;
+      userPrompt += `\nIMPORTANT: When referencing a prerequisite from another lesson, use the EXACT node ID from the list above. Do NOT guess or modify the ID — copy it character-for-character.`;
+    }
+
+    // Inject existing chapters so the AI can assign lessons to them or suggest new ones
+    const existingChapters = db.prepare(
+      "SELECT DISTINCT chapter, part FROM learn_lessons WHERE chapter != '' ORDER BY part, chapter"
+    ).all() as any[];
+    if (existingChapters.length > 0) {
+      const chapterList = existingChapters.map((c: any) => `  Part ${c.part}: "${c.chapter}"`).join('\n');
+      userPrompt += `\n\n--- EXISTING CHAPTERS (assign this lesson to one of these if it fits, otherwise create a new chapter name) ---\n${chapterList}\n`;
+      userPrompt += `\nIMPORTANT: Include a "chapter" field in the lesson metadata with the chapter name you chose.`;
+    } else {
+      userPrompt += `\n\nIMPORTANT: Include a "chapter" field in the lesson metadata with a descriptive chapter name for this lesson (e.g. "Introduction", "Core Concepts", "Advanced Topics").`;
+    }
+
     const fullPrompt = systemPrompt + '\n\n---\n\n' + userPrompt;
     return { ok: true, prompt: fullPrompt, systemPrompt, userPrompt };
   });
@@ -424,12 +477,21 @@ export function registerLearnHandlers(
         return { ok: false, error: `Could not compile the lesson: ${msg}`, raw };
       }
 
-      const valResult = validateFull(parsed);
+      const valResult = validateFull(parsed, new Set(db.prepare('SELECT id FROM learn_nodes').all().map((r: any) => r.id)));
       if (!valResult.ok) {
         return { ok: false, error: 'AI-generated lesson failed validation', validation: valResult, raw };
       }
 
-      return importer.importLdoc(parsed);
+      const result = importer.importLdoc(parsed);
+
+      // Store the original prompt used to generate this lesson
+      if (result.ok && result.data?.lessonId) {
+        try {
+          db.prepare('UPDATE learn_lessons SET original_prompt = ? WHERE id = ?').run(prompt, result.data.lessonId);
+        } catch { /* non-critical */ }
+      }
+
+      return result;
     } catch (e: any) {
       return { ok: false, error: e.message };
     }
@@ -452,5 +514,299 @@ export function registerLearnHandlers(
 
   ipcMain.handle('learn:getAllProfile', () => {
     try { return getAllProfileValues(db); } catch { return {}; }
+  });
+
+  // ── Flashcard & Visualization endpoints ──
+  const flashcardService = require('./services/flashcard.service');
+
+  ipcMain.handle('learn:getDueCards', async (_event, args: { deckId?: string; limit?: number }) => {
+    return flashcardService.getDueCards(db, args.deckId, args.limit);
+  });
+
+  ipcMain.handle('learn:submitCardReview', async (_event, args: { cardId: string; rating: number }) => {
+    return flashcardService.processReview(db, args.cardId, args.rating);
+  });
+
+  ipcMain.handle('learn:generateCards', async (_event, args: { deckId: string; nodeContent: string }) => {
+    try {
+      const aiResult = await callAi(`Generate flashcards for this content:\n${args.nodeContent}`);
+      const parsed = JSON.parse(aiResult);
+      return flashcardService.importGeneratedCards(db, args.deckId, parsed.cards || []);
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:getDeckStats', async (_event, args: { deckId: string }) => {
+    return flashcardService.getDeckStats(db, args.deckId);
+  });
+
+  ipcMain.handle('learn:getStudyHeatmap', async (_event, args: { days: number }) => {
+    try {
+      const days = args.days || 90;
+      const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const rows = db.prepare('SELECT date, duration, nodes_seen, quizzes_taken, cards_reviewed, mastery_gained FROM learn_sessions WHERE date >= ? ORDER BY date').all(startDate) as any[];
+      const heatmap = rows.map((r: any) => ({
+        date: r.date,
+        value: Math.min(1, (r.duration + r.quizzes_taken * 10 + r.cards_reviewed * 5) / 120),
+        details: {
+          nodesStudied: JSON.parse(r.nodes_seen || '[]').length,
+          quizzesTaken: r.quizzes_taken,
+          cardsReviewed: r.cards_reviewed,
+          masteryGain: JSON.parse(r.mastery_gained || '[]').reduce((s: number, v: any) => s + (v.gain || 0), 0),
+        },
+      }));
+      return { ok: true, data: heatmap };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:saveVizState', async (_event, args: { vizType: string; vizId: string; state: any }) => {
+    try {
+      db.prepare('INSERT OR REPLACE INTO learn_viz_state (id, user_id, viz_type, viz_id, state_json, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(`viz_${args.vizId}`, 'default', args.vizType, args.vizId, JSON.stringify(args.state), new Date().toISOString());
+      return { ok: true, data: null };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Copy Lesson Prompt (standalone system prompt for external AI chats) ──
+  ipcMain.handle('learn:getLessonSystemPrompt', () => {
+    const { composeAuthorSystemPrompt } = require('./promptLibrary');
+    const prompt = composeAuthorSystemPrompt(lib);
+    return { ok: true, data: prompt };
+  });
+
+  // ── Image Generation Settings ──
+  ipcMain.handle('learn:getImageGenSettings', () => {
+    try {
+      const row = db.prepare("SELECT value FROM learn_profile WHERE key = 'imageGenSettings'").get() as { value: string } | undefined;
+      const defaults = { enabled: false, model: 'dall-e-3', style: 'ian-xiaohei', costWarning: true };
+      if (!row) return { ok: true, data: defaults };
+      return { ok: true, data: { ...defaults, ...JSON.parse(row.value) } };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:setImageGenSettings', (_event, args: { enabled?: boolean; model?: string; style?: string }) => {
+    try {
+      const existing = db.prepare("SELECT value FROM learn_profile WHERE key = 'imageGenSettings'").get() as { value: string } | undefined;
+      const current = existing ? JSON.parse(existing.value) : {};
+      const updated = { ...current, ...args };
+      const now = new Date().toISOString();
+      if (existing) {
+        db.prepare("UPDATE learn_profile SET value = ?, updated_at = ? WHERE key = 'imageGenSettings'").run(JSON.stringify(updated), now);
+      } else {
+        db.prepare("INSERT INTO learn_profile (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)").run('imageGenSettings', JSON.stringify(updated), now, now);
+      }
+      return { ok: true, data: updated };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Learning Intents (saved ideas for future lessons) ──
+  ipcMain.handle('learn:saveIntent', async (_event, args: { title: string; description?: string; context?: string; category?: string }) => {
+    try {
+      const id = `intent_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      const now = new Date().toISOString();
+      db.prepare('INSERT INTO learn_intents (id, title, description, context, category, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, args.title, args.description || '', args.context || '', args.category || 'idea', 'saved', now, now);
+      return { ok: true, data: { id, created_at: now } };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:listIntents', async () => {
+    try {
+      const rows = db.prepare('SELECT * FROM learn_intents ORDER BY created_at DESC').all();
+      return { ok: true, data: rows };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:deleteIntent', async (_event, args: { id: string }) => {
+    try {
+      db.prepare('DELETE FROM learn_intents WHERE id = ?').run(args.id);
+      return { ok: true, data: null };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:updateIntent', async (_event, args: { id: string; status?: string; title?: string }) => {
+    try {
+      const updates: string[] = ['updated_at = ?'];
+      const params: any[] = [new Date().toISOString()];
+      if (args.status) { updates.push('status = ?'); params.push(args.status); }
+      if (args.title) { updates.push('title = ?'); params.push(args.title); }
+      params.push(args.id);
+      db.prepare(`UPDATE learn_intents SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      return { ok: true, data: null };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Lesson management (view source, edit, delete) ──
+  ipcMain.handle('learn:getLessonSource', async (_event, args: { lessonId: string }) => {
+    try {
+      const row = db.prepare('SELECT doc_json FROM learn_lessons WHERE id = ?').get(args.lessonId) as any;
+      if (!row) return { ok: false, error: 'Lesson not found' };
+      return { ok: true, data: row.doc_json };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:updateLessonMeta', async (_event, args: { lessonId: string; title?: string; part?: number; summary?: string; chapter?: string }) => {
+    try {
+      const updates: string[] = ['updated_at = ?'];
+      const params: any[] = [new Date().toISOString()];
+      if (args.title !== undefined) { updates.push('title = ?'); params.push(args.title); }
+      if (args.part !== undefined) { updates.push('part = ?'); params.push(args.part); }
+      if (args.summary !== undefined) { updates.push('summary = ?'); params.push(args.summary); }
+      if (args.chapter !== undefined) { updates.push('chapter = ?'); params.push(args.chapter); }
+      params.push(args.lessonId);
+      db.prepare(`UPDATE learn_lessons SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+      // Also update title in doc_json if changed
+      if (args.title !== undefined) {
+        const row = db.prepare('SELECT doc_json FROM learn_lessons WHERE id = ?').get(args.lessonId) as any;
+        if (row) {
+          const doc = JSON.parse(row.doc_json);
+          if (doc.lesson) doc.lesson.title = args.title;
+          if (args.part !== undefined) doc.lesson.part = args.part;
+          if (args.summary !== undefined) doc.lesson.summary = args.summary;
+          if (args.chapter !== undefined) doc.lesson.chapter = args.chapter;
+          db.prepare('UPDATE learn_lessons SET doc_json = ? WHERE id = ?').run(JSON.stringify(doc), args.lessonId);
+        }
+      }
+
+      return { ok: true, data: null };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:deleteLesson', async (_event, args: { lessonId: string }) => {
+    try {
+      // Cascade: delete nodes, prereqs, sources, chunks, progress, evidence
+      const nodeIds = db.prepare('SELECT id FROM learn_nodes WHERE lesson_id = ?').all(args.lessonId) as any[];
+      for (const n of nodeIds) {
+        db.prepare('DELETE FROM learn_node_prereqs WHERE node_id = ?').run(n.id);
+        db.prepare('DELETE FROM learn_sources WHERE node_id = ?').run(n.id);
+        db.prepare('DELETE FROM learn_chunks WHERE node_id = ?').run(n.id);
+        db.prepare('DELETE FROM learn_progress WHERE node_id = ?').run(n.id);
+        db.prepare('DELETE FROM learn_evidence WHERE node_id = ?').run(n.id);
+        db.prepare('DELETE FROM learn_notes WHERE node_id = ?').run(n.id);
+        db.prepare('DELETE FROM learn_actions WHERE node_id = ?').run(n.id);
+        db.prepare('DELETE FROM learn_conversations WHERE node_id = ?').run(n.id);
+      }
+      db.prepare('DELETE FROM learn_nodes WHERE lesson_id = ?').run(args.lessonId);
+      db.prepare('DELETE FROM learn_lessons WHERE id = ?').run(args.lessonId);
+      return { ok: true, data: null };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Image Generation ──
+  ipcMain.handle('learn:generateIllustration', async (_event, args: { prompt: string; nodeId?: string; lessonId?: string }) => {
+    try {
+      const { generateImage } = require('./services/imageGen.service');
+      
+      // Load image gen settings
+      const settingsRow = db.prepare("SELECT value FROM learn_profile WHERE key = 'imageGenSettings'").get() as { value: string } | undefined;
+      const settings = settingsRow ? JSON.parse(settingsRow.value) : { enabled: false };
+      if (!settings.enabled) return { ok: false, error: 'Image generation is disabled. Enable it in Learn → Profile → AI Illustrations.' };
+      if (!settings.providerId || !settings.model) return { ok: false, error: 'No provider or model selected. Configure in Learn → Profile → AI Illustrations.' };
+
+      // Load provider config from preferences
+      const prefs = db.prepare("SELECT value FROM learn_profile WHERE key = 'aiProviders'").get() as { value: string } | undefined;
+      // Also try the main preferences table
+      let providerConfig: any = null;
+      try {
+        const mainPrefs = require('electron').app.getPath('userData');
+        const prefsPath = require('path').join(mainPrefs, 'preferences.json');
+        const { readFileSync } = require('fs');
+        if (require('fs').existsSync(prefsPath)) {
+          const allPrefs = JSON.parse(readFileSync(prefsPath, 'utf-8'));
+          const providers = allPrefs.aiProviders ? JSON.parse(allPrefs.aiProviders) : { providers: [] };
+          providerConfig = providers.providers?.find((p: any) => p.id === settings.providerId && p.apiKey);
+        }
+      } catch { /* ignore */ }
+
+      if (!providerConfig) return { ok: false, error: `Provider "${settings.providerId}" not found or has no API key. Add it in Settings → AI Providers.` };
+
+      // Determine save directory
+      const lessonId = args.lessonId || args.nodeId?.split('-')[0] || 'general';
+      const assetsDir = require('path').join(require('electron').app.getPath('userData'), 'lyceum', 'illustrations', lessonId);
+
+      const result = await generateImage(
+        { prompt: args.prompt, style: settings.style || 'ian-xiaohei' },
+        { id: providerConfig.id, apiKey: providerConfig.apiKey, baseUrl: providerConfig.baseUrl, model: settings.model },
+        assetsDir,
+      );
+
+      return result;
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:explainWithImage', async (_event, args: { selectedText: string; contextText: string; nodeId?: string }) => {
+    try {
+      const { generateExplainPrompt, generateImage } = require('./services/imageGen.service');
+
+      // Step 1: AI generates illustration prompt from confused text
+      const promptResult = await generateExplainPrompt(args.selectedText, args.contextText, callAi);
+      if (!promptResult.ok) return { ok: false, error: promptResult.error };
+      if (!promptResult.data) return { ok: false, error: 'No prompt generated' };
+
+      // Step 2: Load image gen settings
+      const settingsRow = db.prepare("SELECT value FROM learn_profile WHERE key = 'imageGenSettings'").get() as { value: string } | undefined;
+      const settings = settingsRow ? JSON.parse(settingsRow.value) : { enabled: false };
+      if (!settings.enabled) return { ok: false, error: 'Image generation is disabled.' };
+      if (!settings.providerId || !settings.model) return { ok: false, error: 'No provider or model selected.' };
+
+      // Step 3: Load provider config
+      let providerConfig: any = null;
+      try {
+        const prefsPath = require('path').join(require('electron').app.getPath('userData'), 'preferences.json');
+        const { readFileSync, existsSync } = require('fs');
+        if (existsSync(prefsPath)) {
+          const allPrefs = JSON.parse(readFileSync(prefsPath, 'utf-8'));
+          const providers = allPrefs.aiProviders ? JSON.parse(allPrefs.aiProviders) : { providers: [] };
+          providerConfig = providers.providers?.find((p: any) => p.id === settings.providerId && p.apiKey);
+        }
+      } catch { /* ignore */ }
+
+      if (!providerConfig) return { ok: false, error: `Provider "${settings.providerId}" not found or has no API key.` };
+
+      // Step 4: Generate image
+      const assetsDir = require('path').join(require('electron').app.getPath('userData'), 'lyceum', 'illustrations', 'explained');
+      const imageResult = await generateImage(
+        { prompt: promptResult.data.prompt, style: settings.style || 'ian-xiaohei' },
+        { id: providerConfig.id, apiKey: providerConfig.apiKey, baseUrl: providerConfig.baseUrl, model: settings.model },
+        assetsDir,
+      );
+
+      return {
+        ok: imageResult.ok,
+        data: {
+          ...promptResult.data,
+          imagePath: imageResult.imagePath,
+        },
+        error: imageResult.error,
+      };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
   });
 }

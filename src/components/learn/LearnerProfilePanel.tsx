@@ -4,6 +4,7 @@ import { X, RotateCcw, RefreshCw } from 'lucide-react';
 import { loadProfile, saveProfile, updateKnob, resetProfile, setPriorKnowledge } from '../../services/learn/learnerProfile';
 import { CURRICULUM_BLUEPRINT } from '../../services/learn/curriculum';
 import { PROFILE_KNOBS } from '../../shared/learn/types';
+import { ImageGenSettings } from './ImageGenSettings';
 import type { LearnerProfile, ProfileKnob, MasteryLevel } from '../../shared/learn/types';
 
 interface Props {
@@ -141,6 +142,11 @@ export function LearnerProfilePanel({ open, onClose, onRerunSetup }: Props) {
                   );
                 })}
               </div>
+            </div>
+
+            {/* Image Generation Settings */}
+            <div className="pt-4 border-t border-zinc-800">
+              <ImageGenSettings />
             </div>
 
             {/* Actions */}

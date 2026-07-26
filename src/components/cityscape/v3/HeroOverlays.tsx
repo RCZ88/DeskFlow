@@ -18,6 +18,14 @@ function Roofline({ t }: { t: Tower }) {
 }
 
 function HeroLabel({ t }: { t: Tower }) {
+  const METRIC_UNITS: Record<string, string> = {
+    tokens: 'tok',
+    messages: 'msg',
+    sessions: 'sess',
+    cost: '$',
+  }
+  const unit = METRIC_UNITS[t.metric ?? 'tokens'] ?? 'tok'
+
   return (
     <Html
       position={[t.x, t.height + 10, t.z]}
@@ -36,7 +44,9 @@ function HeroLabel({ t }: { t: Tower }) {
           {t.label ?? t.agentId ?? ''}
         </div>
         <div style={{ fontSize: 16, color: '#cfe8ff' }}>
-          {`${fmt(t.tokens)} tok${t.active ? '  ● live' : ''}`}
+          {t.metric === 'cost'
+            ? `${t.metricValue != null ? '$' + t.metricValue.toFixed(2) : '—'}${t.active ? '  ● live' : ''}`
+            : `${fmt(t.metricValue)} ${unit}${t.active ? '  ● live' : ''}`}
         </div>
       </div>
     </Html>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { Newspaper, Sparkles, Compass } from "lucide-react"
 import { GlassCard } from "../GlassCard"
 import { SectionHead } from "../SectionHead"
 import { StateShell } from "../StateShell"
@@ -167,12 +168,14 @@ export interface DailyDigestBoardProps {
   onGenerate: () => void
   errorMessage?: string
   onDismissError?: () => void
+  variant?: "card" | "inset"
 }
 
 export function DailyDigestBoard(props: DailyDigestBoardProps) {
   const {
     state, topics, generating, provider,
     readyToGenerate, onRefresh, onConfigure, onGenerate, errorMessage, onDismissError,
+    variant = "card",
   } = props
 
   const freshness = useMemo(() => {
@@ -183,16 +186,17 @@ export function DailyDigestBoard(props: DailyDigestBoardProps) {
     return today ? "Updated today" : topics.length ? "Cached" : "\u2014"
   }, [topics])
 
-  return (
-    <GlassCard accent="cyan" className="dk-digest">
+  const content = (
+    <>
       <SectionHead
         hero
         accent="cyan"
-        icon={"\uD83D\uDCF0"}
+        icon={<Newspaper size={18} />}
         title="Research Digest"
         desc={provider ? `${provider} \u00B7 ${freshness}` : freshness}
         right={
           <button
+            data-refresh-digest
             className="dk-btn dk-ghost dk-mini"
             onClick={onRefresh}
             disabled={generating}
@@ -215,19 +219,19 @@ export function DailyDigestBoard(props: DailyDigestBoardProps) {
           empty={
             readyToGenerate ? (
               <div className="dk-empty">
-                <div className="dk-empty-ic">{"\u2728"}</div>
-                <div className="dk-empty-t">Ready to generate today{"'"}s digest</div>
-                <div className="dk-empty-s">Pull the latest on your topics with fresh data {"&"} sources.</div>
-                <button className="dk-btn dk-pri" onClick={onGenerate} disabled={generating}>
+                <Sparkles size={24} className="text-cyan-400/60" />
+                <h3>Ready to generate today{"'"}s digest</h3>
+                <p>Pull the latest on your topics with fresh data {"&"} sources.</p>
+                <button className="rounded-lg bg-cyan-500/15 border border-cyan-500/30 px-4 py-2 text-xs font-medium text-cyan-300 hover:bg-cyan-500/25 transition-colors" onClick={onGenerate} disabled={generating}>
                   {generating ? "Generating\u2026" : "Generate digest"}
                 </button>
               </div>
             ) : (
               <div className="dk-empty">
-                <div className="dk-empty-ic">{"\uD83E\uDDED"}</div>
-                <div className="dk-empty-t">No topics configured</div>
-                <div className="dk-empty-s">Add interests and we{"'"}ll build a daily, data-driven brief.</div>
-                <button className="dk-btn dk-pri" onClick={onConfigure}>Add topics</button>
+                <Compass size={24} className="text-zinc-500" />
+                <h3>No topics configured</h3>
+                <p>Add interests and we{"'"}ll build a daily, data-driven brief.</p>
+                <button className="rounded-lg bg-violet-500/15 border border-violet-500/30 px-4 py-2 text-xs font-medium text-violet-300 hover:bg-violet-500/25 transition-colors" onClick={onConfigure}>Add topics</button>
               </div>
             )
           }
@@ -246,8 +250,12 @@ export function DailyDigestBoard(props: DailyDigestBoardProps) {
           </div>
         </StateShell>
       </div>
-    </GlassCard>
+    </>
   )
+
+  if (variant === "inset") return content
+
+  return <GlassCard accent="cyan" className="dk-digest">{content}</GlassCard>
 }
 
 export default DailyDigestBoard

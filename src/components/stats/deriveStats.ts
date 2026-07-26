@@ -12,6 +12,10 @@ export interface DerivedStats {
   totalCost: string;
   activeSessions: string;
   toolsModels: string;
+  totalTokensNum: number;
+  totalCostNum: number;
+  activeSessionsNum: number;
+  toolsModelsNum: number;
   tokensByTool: { labels: string[]; values: number[] };
   sessionsByAgent: { labels: string[]; values: number[] };
   hasData: boolean;
@@ -58,6 +62,10 @@ export function deriveStats(raw: AnalyticsRawData): DerivedStats {
     totalCost: fmtCost(totalCost),
     activeSessions: String(activeSessions),
     toolsModels: String(toolsModels),
+    totalTokensNum: totalTokens,
+    totalCostNum: totalCost,
+    activeSessionsNum: activeSessions,
+    toolsModelsNum: toolsModels,
     tokensByTool: { labels: tokenEntries.map(e => e.tool), values: tokenEntries.map(e => e.tokens) },
     sessionsByAgent: { labels: sessionEntries.map(e => e[0]), values: sessionEntries.map(e => e[1]) },
     hasData: totalTokens > 0 || sessions.length > 0,

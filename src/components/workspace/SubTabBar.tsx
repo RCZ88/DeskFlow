@@ -48,7 +48,7 @@ export function SubTabBar({ tabs, active, onChange, accent }: {
   const dotColor = accent ? ACCENT_DOT[accent] : 'bg-zinc-400';
 
   return (
-    <div role="tablist" className="flex items-center gap-1 py-2 pr-4">
+    <div role="tablist" className="flex items-center gap-1 py-2 pr-4 shrink-0">
       {tabs.map((t) => {
         const on = t.key === active;
         const Icon = t.icon;

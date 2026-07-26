@@ -1,7 +1,10 @@
 // Shared types for the Lyceum "Learn" module — used by both main and renderer
 
 export type MasteryLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
-export type BlockType = 'prose' | 'math' | 'mermaid' | 'code' | 'image' | 'video' | 'widget' | 'quiz' | 'callout' | 'layer' | 'chart' | 'table' | 'flow' | 'finchart' | 'svg' | 'tutor' | 'proposal' | 'conversation' | 'notes';
+export type BlockType = 'prose' | 'math' | 'mermaid' | 'code' | 'image' | 'video' | 'widget' | 'quiz' | 'callout' | 'layer' | 'chart' | 'table' | 'flow' | 'finchart' | 'svg' | 'tutor' | 'proposal' | 'conversation' | 'notes'
+  | 'viz_heatmap' | 'viz_graph' | 'viz_timeline' | 'viz_concept_map'
+  | 'flashcard' | 'flashcard_occlusion' | 'layer_reveal' | 'whiteboard'
+  | 'illustration';
 export type QuizFormat = 'mcq' | 'numeric' | 'open';
 export type LessonStatus = 'draft' | 'valid' | 'published';
 export type EvidenceSource = 'tutor' | 'quiz' | 'self-report';
@@ -20,6 +23,7 @@ export interface LdocLesson {
   part: number;
   version: string;
   summary?: string;
+  chapter?: string;
   authored_by?: 'human' | 'ai' | 'hybrid';
 }
 
@@ -52,7 +56,15 @@ export type LdocBlock =
   | TutorBlock
   | ProposalBlock
   | ConversationBlock
-  | NotesBlock;
+  | NotesBlock
+  | VizHeatmapBlock
+  | VizGraphBlock
+  | VizTimelineBlock
+  | VizConceptMapBlock
+  | FlashcardBlockType
+  | LayerRevealBlockType
+  | WhiteboardBlockType
+  | IllustrationBlockType;
 
 export interface BaseBlock {
   id: string;
@@ -214,6 +226,8 @@ export interface LessonSummary {
   version: string;
   status: LessonStatus;
   nodeCount: number;
+  chapter: string;
+  original_prompt: string;
   created_at: string;
   updated_at: string;
 }
@@ -384,6 +398,123 @@ export interface ConversationBlock extends BaseBlock {
 export interface NotesBlock extends BaseBlock {
   type: 'notes';
   entries: NoteEntry[];
+}
+
+// ── Visualization Block Types ──
+
+export interface VizHeatmapBlock extends BaseBlock {
+  type: 'viz_heatmap';
+  meta: {
+    data_source?: string;
+    date_range?: string;
+    color_scale?: string;
+    cell_size?: number;
+    data?: Array<{
+      date: string;
+      value: number;
+      details: { nodesStudied: number; quizzesTaken: number; cardsReviewed: number; masteryGain: number };
+    }>;
+  };
+}
+
+export interface VizGraphBlock extends BaseBlock {
+  type: 'viz_graph';
+  meta: {
+    graph_type?: string;
+    layout?: string;
+    nodes_source?: string;
+    nodes?: Array<{ id: string; label: string; mastery_level?: string; part?: number; type?: string }>;
+    edges?: Array<{ id: string; source: string; target: string; label?: string; type?: string }>;
+    highlight_mastery?: boolean;
+  };
+}
+
+export interface VizTimelineBlock extends BaseBlock {
+  type: 'viz_timeline';
+  meta: {
+    node_id?: string;
+    lesson_id?: string;
+    date_range?: string;
+    show_events?: boolean;
+    show_target_line?: boolean;
+    target_level?: MasteryLevel;
+    height?: number;
+    events?: Array<{ date: string; type: string; score?: number; description?: string; from_level?: string; to_level?: string }>;
+    series?: Array<{ date: string; value: number; target: number }>;
+  };
+}
+
+export interface VizConceptMapBlock extends BaseBlock {
+  type: 'viz_concept_map';
+  meta: {
+    root: {
+      id: string;
+      label: string;
+      description?: string;
+      mastery_target?: string;
+      misconception?: string;
+      children?: any[];
+      collapsed?: boolean;
+    };
+    max_depth?: number;
+    color_by_mastery?: boolean;
+    collapsible?: boolean;
+    layout?: string;
+  };
+}
+
+export interface FlashcardBlockType extends BaseBlock {
+  type: 'flashcard' | 'flashcard_occlusion';
+  meta: {
+    deck_id: string;
+    card_type: string;
+    front: string;
+    back: string;
+    front_media?: { image?: string };
+    back_media?: { image?: string };
+    tags?: string[];
+    occlusions?: Array<{ x: number; y: number; width: number; height: number; label: string }>;
+    due?: string;
+    stability?: number;
+    difficulty?: number;
+    reps?: number;
+    lapses?: number;
+  };
+}
+
+export interface LayerRevealBlockType extends BaseBlock {
+  type: 'layer_reveal';
+  meta: {
+    title: string;
+    steps: Array<{ id: string; label: string; content: string; hint?: string; mastery_unlock?: MasteryLevel }>;
+    reveal_mode: 'sequential' | 'free' | 'mastery_gated';
+    default_unlocked?: number;
+    show_progress?: boolean;
+    allow_backtrack?: boolean;
+  };
+}
+
+export interface WhiteboardBlockType extends BaseBlock {
+  type: 'whiteboard';
+  meta: {
+    initial_data?: string;
+    read_only?: boolean;
+    allow_export?: boolean;
+    width?: string;
+    height?: string;
+  };
+}
+
+export interface IllustrationBlockType extends BaseBlock {
+  type: 'illustration';
+  meta: {
+    prompt: string;
+    concept?: string;
+    image_path?: string;
+    generated: boolean;
+    annotations?: string[];
+    error?: string;
+  };
 }
 
 export interface ConversationAction {

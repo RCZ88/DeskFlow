@@ -1,0 +1,54 @@
+
+◇ injected env (3) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+[DeskFlow] 📄 Loaded preferences
+[relay] RELAY_TICKET_SECRET auto-generated (session-only)
+[relay] terminal relay on 0.0.0.0:8788
+[DB MIGRATION] Fixed positive expense amounts ? negative
+[DeskFlow] ✅ SQLite database initialized at C:\Users\cleme\AppData\Roaming\RHEO\deskflow-data.db
+[Backfill] Rebuilding stats_daily and stats_hourly from 13310 logs...
+[Backfill] Complete.
+[DeskFlow] ? Vision/Critique module registered
+[DeskFlow] Registering Lyceum Learn module... db: OK
+[DeskFlow] ✅ Loaded category config
+[sync 2026-07-26T08:37:55.408Z] init check — syncUrl: true, db: true, syncUrlVal: http://127.0.0.1:8787
+[Tracker Mind] ✅ Loaded 54 problems from PROBLEMS.md
+[DeskFlow] No last close time, skipping morning prompt
+[DeskFlow] ✅ System tray created
+BUILD MARKER v4
+[DeskFlow] Preload path: C:\Users\cleme\Documents\COMPUTAH_SAYENCE\App Tracker\dist-electron\preload.cjs
+[DeskFlow] __dirname: C:\Users\cleme\Documents\COMPUTAH_SAYENCE\App Tracker\dist-electron
+[DeskFlow] 💤 Potential sleep gap detected: 896min since last focus
+[DeskFlow] ✅ Real window tracking started with active-win
+[DeskFlow] ✅ Browser tracking: ON
+[DeskFlow] ✅ Auto-start: disabled
+[sync 2026-07-26T08:37:58.664Z] NOT started — no auth token (user not signed in). Sync will start when user authenticates.
+[DeskFlow] Serving on http://localhost:63609
+[DeskFlow] 🌐 Browser tracking server started on port 54321 (localhost only)
+[Backup] startup: 27733 rows -> deskflow-2026-07-26T08-37-52-669Z.db.gz
+[DeskFlow] Page loaded successfully
+[DeskFlow] detect-usage-gaps: period=today found 2 gaps
+[DeskFlow] Dashboard page visibility: VISIBLE
+[DeskFlow] detect-usage-gaps: period=today found 2 gaps
+[FROZEN-DBG] get-dashboard-aggregates START week 0 0
+[FROZEN-DBG] get-dashboard-aggregates CACHE MISS — running queries
+[FROZEN-DBG] computePeriodRange done in 1 ms range: 2026-07-20 2026-07-27
+[TierMap] source=stats_daily rows=155 catTier=16 cats=["IDE","AI Tools","Developer Tools","Education","Productivity","Tools","Communication","Design","Search Engine","News","Uncategorized","Other","Entertainment","Social Media","Shopping","Gaming"]
+[TierMap] sample: app=9router.com cat=Entertainment tier=distracting
+[FROZEN-DBG] Q1 (stats_daily weekly) took 0 ms rows: 114
+[FROZEN-DBG] Q2 (logs hourly) took 0 ms rows: 31
+[FROZEN-DBG] Q3-4 (stats_daily group) took 1 ms
+[FROZEN-DBG] query 6 (recent logs 200) done in 0 ms
+[FROZEN-DBG] get-dashboard-aggregates TOTAL in 25 ms
+[FROZEN-DBG] dashboard cache stored for week|0|0
+[FROZEN-DBG] [FROZEN-DBG] Dashboard data received, setting state
+[DeskFlow] ✅ Logged: Electron → 53s
+[DeskFlow] ✅ Aggregates updated for Electron
+[DeskFlow] detect-usage-gaps: period=today found 2 gaps
+[DeskFlow] ✅ Logged: Comet → 35s
+[DeskFlow] ✅ Aggregates updated for Comet
+[DeskFlow] ✅ Logged: Electron → 5s
+[DeskFlow] ✅ Aggregates updated for Electron
+[DeskFlow] ✅ Logged: Visual Studio Code → 25s
+[DeskFlow] ✅ Aggregates updated for Visual Studio Code
+[DeskFlow] 📝 Checkpoint: Visual Studio Code → 25s
+[DeskFlow] detect-usage-gaps: period=today found 2 gaps

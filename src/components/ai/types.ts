@@ -55,6 +55,10 @@ export interface LongTermGoal {
 	status: "active" | "done" | "missed"
 	target_seconds?: number
 	priority: number
+	createdAt?: string
+	completedAt?: string
+	links?: any[]
+	parentId?: string
 }
 
 export interface TopicDigestItem {

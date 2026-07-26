@@ -1,13 +1,16 @@
-import type { FinanceFtPerson } from './finance-types';
+import type { FinanceFtPerson, FinanceWallet } from './finance-types';
 
 interface PersonCardProps {
   person: FinanceFtPerson;
+  wallets: FinanceWallet[];
   displayCurrency: string;
   onClick: () => void;
 }
 
-export function PersonCard({ person, displayCurrency, onClick }: PersonCardProps) {
+export function PersonCard({ person, wallets, displayCurrency, onClick }: PersonCardProps) {
   const balance = person.total_owed - person.total_paid;
+  const storedBalance = person.balance ?? 0;
+  const linkedWallet = person.wallet_id ? wallets.find(w => w.id === person.wallet_id) : null;
   const isSettled = balance <= 0 && person.transaction_count > 0;
   const initials = person.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
@@ -32,6 +35,18 @@ export function PersonCard({ person, displayCurrency, onClick }: PersonCardProps
           </span>
           {person.email && <span className="text-[10px] text-zinc-600 truncate max-w-[120px]">{person.email}</span>}
         </div>
+        {storedBalance > 0 && (
+          <div className="flex items-center gap-2 mt-1.5">
+            <span className="inline-flex items-center gap-1 rounded-md bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 text-[10px] font-medium text-violet-400">
+              Balance: {displayCurrency}{storedBalance.toFixed(2)}
+            </span>
+            {linkedWallet && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-zinc-700/40 border border-zinc-700/40 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                {linkedWallet.name}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isSettled ? 'bg-emerald-400' : 'bg-amber-400'}`} />
     </button>

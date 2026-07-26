@@ -1,0 +1,1014 @@
+---
+title: Git Beyond Commit and Push — Branches, Merges, and Recovery
+id: git-branches-merges-recovery
+part: 1
+version: 1.0.0
+summary: A mastery-oriented guide to Git's mental model, branching workflows, clean merges, and recovering from mistakes without destroying work.
+authored_by: ai
+---
+
+# The Git Mental Model: Commits Are Snapshots, Branches Are Pointers
+@mastery L3
+
+You have been using Git for a while now — `commit`, `push`, `diff`, and `checkout` are in your muscle memory. But `checkout` keeps biting you. It replaces files, destroys uncommitted work, and sometimes it feels like rolling a dice. Here is the truth: the reason `checkout` confuses you is not that it is complicated. It is that `checkout` does *three completely different things* depending on what you pass to it, and without the mental model of what Git actually *is*, you cannot predict which one it will pick.
+
+So before we touch a single branch, let us build the model. Everything else — branching, merging, rebasing, recovering — falls naturally out of this foundation.
+
+## Git stores snapshots, not diffs
+
+Some version control systems (like SVN's delta storage, or the common misconception about Git) store *changes* — "line 3 was changed from X to Y." Git does not work that way. Every commit stores a **complete snapshot** of every file in your project at that moment. If a file did not change between two commits, Git does not duplicate it; it stores a pointer to the previous version. But conceptually, a commit *is* a full picture of your project tree.
+
+This is why `git diff` is fast and why `git checkout` can be dangerous: checking out a commit means "replace my entire working directory with this snapshot." If you have uncommitted changes that conflict, Git either refuses (if they overlap) or silently overwrites them (if you force it).
+
+```bash
+# What git actually stores per commit:
+# commit <sha> {
+#   tree: <sha of the directory structure>
+#   parent: <sha of the previous commit>
+#   author: name <email> timestamp
+#   message: "your commit message"
+# }
+#
+# The tree points to blobs (file contents) and subtrees (directories).
+# Unchanged files point to the same blob SHA as the parent commit.
+```
+
+## The DAG: commits form a directed acyclic graph
+
+Each commit points to its parent (or parents, for merge commits). This creates a chain — or more precisely, a **directed acyclic graph (DAG)**. The `parent` field is what connects commits into history. A normal commit has one parent. A merge commit has two. The very first commit has none.
+
+```mermaid
+graph RL
+    C1["C1<br>init"] --> C0["(root)"]
+    C2["C2<br>add auth"] --> C1
+    C3["C3<br>fix login"] --> C2
+    C4["C4<br>add tests"] --> C3
+    C5["C5<br>dark mode"] --> C2
+
+    main["main"] --> C4
+    feature["feature/dark-mode"] --> C5
+    HEAD["HEAD"] --> main
+
+    style main fill:#4A90D9,color:#fff
+    style feature fill:#D9534F,color:#fff
+    style HEAD fill:#5CB85C,color:#fff
+```
+
+Read this diagram carefully. The commits (C1–C5) are the actual history. Everything else — `main`, `feature/dark-mode`, `HEAD` — is just a **label pointing at a commit**. That is the single most important sentence in this entire lesson:
+
+**A branch is not a collection of commits. A branch is a single pointer to one commit.**
+
+When you commit on `main`, Git creates a new commit whose parent is C4, then moves the `main` pointer forward to the new commit. That is it. That is all "committing to a branch" means. The branch label slides forward.
+
+`HEAD` is a special pointer — it points to *the branch you are currently on*. When you run `git commit`, Git reads HEAD to find your current branch, finds that branch's commit, uses it as the parent, creates the new commit, and advances the branch pointer. HEAD → main → C4 is the chain.
+
+## Why this model prevents disasters
+
+When you understand that `main` is just a pointer, several things become obvious:
+
+- **Creating a branch is instant.** Git does not copy any files. It writes a 41-byte file (the commit SHA + newline) at `.git/refs/heads/feature/dark-mode`. That is why branching in Git is nearly free, unlike SVN where branching copies the entire repository.
+
+- **Switching branches changes your working directory.** `git switch feature/dark-mode` means: look at the commit that `feature/dark-mode` points to, and make your working directory match that snapshot. If you have uncommitted changes that conflict with files in that snapshot, Git will refuse — it is protecting you. If the changes do not conflict (different files), Git carries them along.
+
+- **`git checkout <file>` is fundamentally different from `git checkout <branch>`.** Checking out a *branch* swaps your working directory to that branch's snapshot. Checking out a *file* means "throw away my changes to this file and replace it with the committed version." Same command, completely different operation. This is why `git checkout` destroys your work: you thought you were switching branches, but you passed a filename, and Git interpreted it as "discard my changes."
+
+This is also why Git 2.23 introduced `git switch` and `git restore` — to split the overloaded `checkout` into two unambiguous commands. We will use `switch` throughout this lesson.
+
+::: callout warning
+The command `git checkout .` (with a dot) means "discard ALL uncommitted changes in the entire working directory." There is no confirmation prompt. There is no undo for uncommitted work. If you have ever felt like Git "just replaced everything," this is almost certainly what happened — you ran a checkout variant that discarded your working directory changes.
+:::
+
+## The three areas of Git
+
+Before we move to branching, you need to understand the three areas, because every Git command operates on some combination of them:
+
+```bash
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Working Directory │ ──▶ │  Staging Area    │ ──▶ │  Repository (HEAD)│
+│  (your files on    │ add │  (index: what    │ commit│  (commits, the   │
+│   disk, what you   │ ──▶ │   will be in the │ ──▶ │   DAG we just     │
+│   are editing)     │     │   next commit)   │     │   drew)           │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+        ▲                                                   │
+        │           checkout / switch / restore             │
+        └───────────────────────────────────────────────────┘
+```
+
+1. **Working directory** — the actual files on your disk. What your editor sees.
+2. **Staging area (index)** — the set of changes you have `git add`-ed, ready to be committed.
+3. **Repository (HEAD)** — the committed snapshots, the DAG.
+
+- `git add` moves changes from working directory → staging.
+- `git commit` moves changes from staging → repository (creates a new commit, advances the branch pointer).
+- `git restore` (or legacy `git checkout -- <file>`) moves changes from repository → working directory, discarding your local edits.
+- `git reset` can move the branch pointer backward and optionally update staging and working directory to match.
+
+When you understand these three areas and how commands shuffle data between them, you can predict what any Git command will do without running it. That is the meta-skill.
+
+::: quiz mcq L3
+In Git's internal model, what is a branch?
+- [ ] A separate copy of the entire repository's files
+- [ ] A folder containing divergent changes
+- [x] A lightweight pointer to a single commit
+- [ ] A diff between two commits
+explain: A branch is just a named pointer (a ref) to one commit. Creating a branch does not copy any files — it writes a tiny file containing the commit SHA. This is why branching in Git is nearly instant and free.
+:::
+
+::: quiz mcq L3
+You run `git checkout main` and Git refuses, saying "Your local changes would be overwritten." What is actually happening?
+- [ ] The main branch is corrupted and needs to be reset
+- [ ] Git cannot find the main branch pointer
+- [x] You have uncommitted changes in your working directory that conflict with files in the main branch's snapshot, and Git is protecting them
+- [ ] You need to force the checkout with `--force` to proceed
+explain: Git is protecting your uncommitted work. When switching branches, Git needs to update your working directory to match the target branch's snapshot. If your uncommitted changes touch the same files, Git refuses rather than silently destroying them. You should commit, stash, or discard your changes first.
+:::
+
+::: grounding
+includes: Git's content-addressable snapshot model, the commit DAG, branches as lightweight pointers, HEAD as the current-branch pointer, and the three-area model (working directory, staging, repository).
+know: Git stores data as snapshots of the full project tree, not as file-based diffs, and unchanged files are shared between commits via identical blob hashes [progit]
+know: A branch in Git is a lightweight movable pointer to a single commit, not a copy of files; creating a branch writes only a 41-byte ref file [progit]
+know: HEAD is a special pointer that refers to the current branch, which in turn points to the current commit; this indirection is how Git knows where new commits attach [gitdocs]
+know: The git checkout command is overloaded — it switches branches, restores files, and checks out commits — which is why Git 2.23 introduced git switch and git restore to separate these concerns [gitdocs]
+misconception: A branch is a separate copy of all your files | A branch is just a pointer to one commit; no files are duplicated when you create one
+misconception: git checkout always means "switch to another branch" | checkout with a filename means "discard my changes to this file and restore the committed version," which is how uncommitted work gets destroyed
+excludes: internal git object model details (packfiles, reflogs internals);server-side hooks and administration;shallow clones and partial clone
+source: progit | Pro Git Book by Scott Chacon and Ben Straub | https://git-scm.com/book/en/v2
+source: gitdocs | Git Reference Documentation | https://git-scm.com/docs
+:::
+
+# Branching: Why and How to Separate Your Work
+@mastery L3
+@prereq the-git-mental-model-commits-are-snapshots-branches-are-pointers
+
+Now that you know a branch is just a pointer, the question becomes: why bother moving that pointer around? Why not just commit everything to `main`?
+
+You already suspect the answer — you said it yourself: "that's not a good practice." But let us make the reasoning precise, because understanding *why* will make the workflow feel natural rather than like a rule you are following on faith.
+
+## Why separate work into branches
+
+**1. `main` should always be deployable.** If you commit a half-finished feature to `main` and then need to fix an urgent bug, you have a problem: your bug fix commit sits on top of broken code. You cannot deploy `main` without deploying the half-finished feature. With branches, you can hotfix `main` directly, deploy it, and your feature work sits untouched on its own branch.
+
+**2. Isolation enables experimentation.** Want to try a refactor? Create a branch. If it goes wrong, you delete the branch — one command, no harm done. If you had done it on `main`, you would need to carefully revert individual commits, hoping you do not miss something.
+
+**3. Review and collaboration.** When you push a branch, you can open a Pull Request (PR). A PR is a conversation: "here is what I changed, here is why, please review before it goes into `main`." You cannot do this if everything goes straight to `main`. The branch boundary is what makes review possible.
+
+**4. Parallel work streams.** You are working on a feature. You suddenly need to context-switch to a bug. With branches: commit your feature work (even if incomplete), switch to `main`, create a `hotfix/bug-xyz` branch, fix it, merge it, switch back to your feature branch. Everything is clean. Without branches, you are stashing changes manually or copying files around.
+
+## The branching workflow, step by step
+
+Here is the workflow you should internalize. Every feature, every bugfix, every experiment follows this pattern:
+
+```bash
+# 1. Make sure you are on main and it is up to date
+git switch main
+git pull origin main
+
+# 2. Create a new branch for your work
+git switch -c feature/user-auth
+
+# 3. Work, stage, commit — repeat as needed
+git add src/auth.py
+git commit -m "add login endpoint"
+
+git add src/models.py
+git commit -m "add User model with password hashing"
+
+# 4. Push the branch to the remote (sets up tracking with -u)
+git push -u origin feature/user-auth
+
+# 5. Open a Pull Request on GitHub/GitLab (via the web UI)
+
+# 6. After the PR is merged, clean up
+git switch main
+git pull origin main          # get the merged changes
+git branch -d feature/user-auth  # delete local branch (safe — refuses if unmerged)
+git push origin --delete feature/user-auth  # delete remote branch
+```
+
+Read that workflow a few times. Notice the symmetry: you start from a clean `main`, you create a branch, you do your work, you merge it back, you clean up. The branch is born from `main` and returns to `main`. Nothing else gets polluted.
+
+::: callout tip
+The `-c` flag in `git switch -c feature/user-auth` means "create and switch in one step." It is equivalent to `git branch feature/user-auth` followed by `git switch feature/user-auth`, but nobody types both commands. Always use `-c`.
+:::
+
+## Branch naming conventions
+
+Names matter. A branch called `stuff` or `test2` tells you nothing three weeks later. Use a convention:
+
+| Prefix | Purpose | Example |
+|---|---|---|
+| `feature/` | New functionality | `feature/user-auth` |
+| `fix/` or `bugfix/` | Bug fixes | `fix/login-redirect-loop` |
+| `hotfix/` | Urgent production fix | `hotfix/sql-injection` |
+| `refactor/` | Code restructuring, no behavior change | `refactor/extract-auth-module` |
+| `experiment/` or `spike/` | Throwaway exploration | `spike/websocket-vs-sse` |
+| `docs/` | Documentation only | `docs/api-reference` |
+
+The slash creates a visual hierarchy in most Git UIs — GitHub and GitLab will group `feature/*` branches together. It is a minor thing that pays off when you have twenty branches.
+
+## `git switch` vs `git checkout` — the definitive guide
+
+Git 2.23 (August 2019) split the overloaded `checkout` into two commands. Here is the mapping:
+
+```bash
+# OLD (checkout does everything)              # NEW (split into switch + restore)
+git checkout feature/auth                  →  git switch feature/auth
+git checkout -b feature/auth               →  git switch -c feature/auth
+git checkout -                             →  git switch -           # go back to previous branch
+git checkout -- .                          →  git restore .           # discard working dir changes
+git checkout HEAD -- file.py               →  git restore --source=HEAD file.py
+git checkout <commit> -- file.py           →  git restore --source=<commit> file.py
+```
+
+The key insight: `switch` only ever changes which branch/commit your working directory is based on. It never discards individual file changes. `restore` only ever replaces file contents. It never switches branches. The ambiguity that destroyed your project is gone.
+
+```bash
+# These are now unambiguous:
+git switch feature/auth     # "I want to work on this branch" — refuses if uncommitted changes conflict
+git restore src/app.py      # "I want to throw away my changes to this file" — no branch switching involved
+```
+
+::: callout warning
+`git switch` will refuse to switch if you have uncommitted changes that conflict with the target branch. This is the safety net that `git checkout` did not reliably provide. If you see "error: Your local changes to the following files would be overwritten by checkout," that is Git protecting you. Do not use `--force` to bypass it unless you are certain you want to lose those changes.
+:::
+
+## Working with remote branches
+
+When you clone a repository, you get the `main` branch and a remote called `origin`. But `origin` has other branches too. Here is how to interact with them:
+
+```bash
+# See all branches (local and remote)
+git branch -a
+
+# Output looks like:
+#   feature/auth
+#   main
+#   remotes/origin/feature/auth
+#   remotes/origin/main
+#   remotes/origin/feature/dark-mode
+
+# Create a local branch that tracks a remote branch
+git switch feature/dark-mode
+# Git automatically creates a local branch tracking origin/feature/dark-mode
+
+# Fetch all remote branch updates without merging
+git fetch --all
+
+# Delete a remote branch (after it has been merged)
+git push origin --delete feature/dark-mode
+```
+
+The `remotes/origin/...` branches are **remote-tracking branches**. They are Git's record of where each branch was on the remote the last time you fetched. They are read-only — you cannot commit to them. They update only when you `git fetch` or `git pull`. This is why `git status` says "your branch is behind origin/main by 3 commits" — it is comparing your local `main` pointer to the `origin/main` pointer, which was set during your last fetch.
+
+## The figure below: a branching lifecycle
+
+::: figure
+<svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:700px;">
+  <!-- main branch line -->
+  <line x1="60" y1="70" x2="640" y2="70" stroke="#4A90D9" stroke-width="3" stroke-linecap="round"/>
+  <!-- feature branch line going down -->
+  <line x1="220" y1="70" x2="220" y2="180" stroke="#D9534F" stroke-width="3" stroke-linecap="round"/>
+  <line x1="220" y1="180" x2="460" y2="180" stroke="#D9534F" stroke-width="3" stroke-linecap="round"/>
+  <!-- merge line going back up -->
+  <line x1="460" y1="180" x2="460" y2="70" stroke="#D9534F" stroke-width="3" stroke-dasharray="6,4" stroke-linecap="round"/>
+
+  <!-- main commits -->
+  <circle cx="80" cy="70" r="14" fill="#4A90D9" stroke="#fff" stroke-width="2"/>
+  <text x="80" y="44" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">C1</text>
+  <text x="80" y="100" text-anchor="middle" font-size="11" fill="#666">init</text>
+
+  <circle cx="220" cy="70" r="14" fill="#4A90D9" stroke="#fff" stroke-width="2"/>
+  <text x="220" y="44" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">C2</text>
+  <text x="220" y="100" text-anchor="middle" font-size="11" fill="#666">branch point</text>
+
+  <circle cx="460" cy="70" r="14" fill="#4A90D9" stroke="#fff" stroke-width="2"/>
+  <text x="460" y="44" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">C4</text>
+  <text x="460" y="100" text-anchor="middle" font-size="11" fill="#666">bugfix on main</text>
+
+  <circle cx="580" cy="70" r="14" fill="#5CB85C" stroke="#fff" stroke-width="2"/>
+  <text x="580" y="44" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">M</text>
+  <text x="580" y="100" text-anchor="middle" font-size="11" fill="#666">merge commit</text>
+
+  <!-- feature commits -->
+  <circle cx="300" cy="180" r="14" fill="#D9534F" stroke="#fff" stroke-width="2"/>
+  <text x="300" y="215" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">F1</text>
+  <text x="300" y="232" text-anchor="middle" font-size="11" fill="#666">add login</text>
+
+  <circle cx="380" cy="180" r="14" fill="#D9534F" stroke="#fff" stroke-width="2"/>
+  <text x="380" y="215" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">F2</text>
+  <text x="380" y="232" text-anchor="middle" font-size="11" fill="#666">add signup</text>
+
+  <!-- branch labels -->
+  <rect x="560" y="52" width="60" height="22" rx="4" fill="#4A90D9"/>
+  <text x="590" y="68" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">main</text>
+  <rect x="560" y="52" width="60" height="22" rx="4" fill="#5CB85C" opacity="0"/>
+  
+  <rect x="360" y="250" width="120" height="22" rx="4" fill="#D9534F"/>
+  <text x="420" y="266" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">feature/auth</text>
+
+  <!-- annotations -->
+  <text x="350" y="135" text-anchor="middle" font-size="11" fill="#999" font-style="italic">branch created here</text>
+  <line x1="350" y1="140" x2="260" y2="165" stroke="#999" stroke-width="1" stroke-dasharray="2,2"/>
+
+  <text x="530" y="135" text-anchor="middle" font-size="11" fill="#999" font-style="italic">merged back (dashed)</text>
+  <line x1="510" y1="140" x2="470" y2="160" stroke="#999" stroke-width="1" stroke-dasharray="2,2"/>
+
+  <!-- timeline arrow -->
+  <text x="20" y="70" text-anchor="middle" font-size="11" fill="#999" transform="rotate(-90 20 70)">time →</text>
+</svg>
+:::
+
+This is the complete lifecycle: `main` moves forward (C1 → C2 → C4), a feature branch diverges at C2, gets two commits (F1, F2), and then merges back into `main` as merge commit M. After M, the feature branch can be deleted — its commits are now part of `main`'s history through the merge.
+
+## What happens when you switch branches with uncommitted changes
+
+This is the scenario that used to bite you. Let us trace it precisely:
+
+```bash
+# You are on main, editing src/app.py
+git switch -c feature/new-api
+# If src/app.py has no conflicts with the feature branch's version → changes carry over silently
+# If src/app.py was also modified on the feature branch → Git refuses, protects your changes
+
+# If Git refuses, you have three options:
+git stash              # temporarily save changes, clean working directory
+git switch feature/new-api  # now it works
+git stash pop          # restore your changes on the new branch
+
+# OR: commit your changes first (even a WIP commit)
+git add -A && git commit -m "WIP: partial app.py changes"
+git switch feature/new-api
+
+# OR: discard your changes (if you do not want them)
+git restore src/app.py
+git switch feature/new-api
+```
+
+The key insight: **Git refuses to switch when it would overwrite uncommitted changes.** This is a feature, not a bug. The old `git checkout` was less reliable about this, which is why `git switch` exists.
+
+::: quiz mcq L3
+You are on `main` with uncommitted changes to `config.py`. You run `git switch feature/config-update` and Git refuses. What should you do?
+- [ ] Use `git switch --force` to override the refusal
+- [ ] Delete `config.py` and try again
+- [x] Either `git stash` before switching, or commit the changes, or discard them with `git restore config.py` — the choice depends on whether you want to keep the changes
+- [ ] Close your editor and restart Git
+explain: Git is protecting your uncommitted changes. You have three valid paths: stash (save temporarily), commit (save permanently), or restore (discard). Never use --force here — it would destroy the very changes Git is protecting.
+:::
+
+::: quiz mcq L3
+Why should you avoid committing directly to `main`?
+- [ ] Git does not allow commits on the main branch
+- [ ] Commits on main are slower than on feature branches
+- [x] Direct commits to main make it impossible to review changes before they land, prevent isolation of incomplete work, and make hotfixes harder because main may contain unfinished features
+- [ ] Main branch has a smaller size limit than feature branches
+explain: The whole point of branching is that main stays clean, reviewed, and deployable. Direct commits bypass review, mix incomplete work with stable code, and make it impossible to deploy a fix without also deploying whatever else is on main.
+:::
+
+::: grounding
+includes: The rationale for branching (isolation, review, deployability, parallel work), the standard feature-branch workflow, branch naming conventions, git switch/restore vs legacy checkout, and remote branch tracking.
+know: Feature branching keeps main deployable by isolating incomplete or unreviewed work on separate branches that merge back only after review [progit]
+know: Git 2.23 introduced git switch and git restore to replace the overloaded git checkout, separating branch switching from file restoration [gitdocs]
+know: git switch refuses to switch branches when uncommitted changes would be overwritten, which is a safety feature that legacy checkout did not reliably provide [gitdocs]
+know: The -u flag in git push -u origin branch-name sets up upstream tracking, linking the local branch to the remote branch so future git pull and git push work without arguments [gitdocs]
+misconception: Creating a branch copies all your files | Creating a branch only writes a 41-byte pointer file; no files are copied
+misconception: You must use git checkout to switch branches | git switch is the modern, unambiguous command for branch switching; checkout is legacy and overloaded
+excludes: Git Flow and trunk-based development as formal methodologies;enterprise branch permission policies;monorepo branching strategies
+source: progit | Pro Git Book by Scott Chacon and Ben Straub | https://git-scm.com/book/en/v2
+source: gitdocs | Git Reference Documentation | https://git-scm.com/docs
+:::
+
+# Merging and Rebasing: Combining Branches Without Chaos
+@mastery L3
+@prereq branching-why-and-how-to-separate-your-work
+
+You have a feature branch with three commits. `main` has moved forward with two more commits since you branched off. Now you want to combine them. You have two options: **merge** or **rebase**. Understanding the difference — and when to use each — is what separates someone who uses Git from someone who understands Git.
+
+## The merge: fast-forward vs three-way
+
+When you run `git merge feature/auth` while on `main`, Git checks: has `main` moved since `feature/auth` diverged?
+
+**Fast-forward merge** — if `main` has NOT moved, Git simply slides the `main` pointer forward to point at the same commit as `feature/auth`. No new commit is created. The history is perfectly linear:
+
+```mermaid
+graph LR
+    subgraph "Before merge"
+        A1["A"] --> B1["B"]
+        B1 --> C1["C"]
+        B1 --> D1["D"]
+        D1 --> E1["E"]
+        M1["main"] --> C1
+        F1["feature"] --> E1
+    end
+    subgraph "After fast-forward"
+        A2["A"] --> B2["B"]
+        B2 --> D2["D"]
+        D2 --> E2["E"]
+        M2["main"] --> E2
+        F2["feature"] --> E2
+    end
+```
+
+**Three-way merge** — if `main` HAS moved, Git must combine both histories. It finds the common ancestor (the commit where the branches diverged), computes the changes on each side, and creates a new **merge commit** with two parents:
+
+```mermaid
+graph LR
+    A["A<br>common ancestor"] --> B["B"]
+    B --> C["C<br>main moved"]
+    B --> D["D"]
+    D --> E["E<br>feature work"]
+    C --> M["M<br>merge commit"]
+    E --> M
+    M2["main"] --> M
+    style M fill:#5CB85C,color:#fff
+    style M2 fill:#4A90D9,color:#fff
+```
+
+The merge commit M has two parents: C (from `main`) and E (from `feature`). This preserves the full history — you can see exactly when and how the branches diverged and merged.
+
+```bash
+# Fast-forward merge (main hasn't moved)
+git switch main
+git merge feature/auth
+# Output: "Updating abc1234..def5678. Fast-forward."
+# No merge commit created. History is linear.
+
+# Three-way merge (main has moved)
+git switch main
+git merge feature/auth
+# Output: "Merge made by the 'ort' strategy."
+# A merge commit is created with two parents.
+```
+
+## The rebase: replaying your commits
+
+Rebase does something fundamentally different. Instead of creating a merge commit, it **replays your feature branch's commits on top of the latest `main`**, as if you had started your feature branch from the current `main` instead of the old one.
+
+```mermaid
+graph LR
+    subgraph "Before rebase"
+        A1["A"] --> B1["B"]
+        B1 --> C1["C<br>main"]
+        B1 --> D1["D"]
+        D1 --> E1["E<br>feature"]
+    end
+    subgraph "After rebase feature onto main"
+        A2["A"] --> B2["B"]
+        B2 --> C2["C<br>main"]
+        C2 --> D2["D'<br>replayed"]
+        D2 --> E2["E'<br>replayed"]
+        F2["feature"] --> E2
+    end
+    style D2 fill:#D9534F,color:#fff
+    style E2 fill:#D9534F,color:#fff
+```
+
+Notice: D and E become D' and E'. They have **different SHA hashes** because they have different parents (C instead of B). The original D and E still exist in Git's object database (recoverable via reflog), but they are no longer part of any branch. The feature branch now looks like it was always based on the latest `main`.
+
+```bash
+# Rebase your feature branch onto the latest main
+git switch feature/auth
+git fetch origin
+git rebase origin/main
+
+# Then switch to main and fast-forward merge (no merge commit needed!)
+git switch main
+git merge feature/auth   # This is now a fast-forward because rebase replayed on top of main
+```
+
+The result is a perfectly linear history. No merge commit. No "merge branch X into main" noise.
+
+## Merge vs rebase: when to use each
+
+This is one of the most debated topics in Git, but the decision tree is actually simple:
+
+| Criterion | Merge | Rebase |
+|---|---|---|
+| Preserves exact history | Yes — every commit timestamp and order is preserved | No — replayed commits get new SHAs and timestamps |
+| Creates extra merge commits | Yes, for three-way merges | No — linear history |
+| History readability | Can be noisy with merge commits | Clean and linear |
+| Safe for shared branches | Yes — never rewrites history | No — rewrites commits, breaks collaborators |
+| Conflict resolution | All at once, in one merge | One commit at a time, during rebase |
+
+**The golden rule of rebase:** Never rebase commits that have been pushed to a remote and might be pulled by someone else. Rebase rewrites history. If someone else has based work on your original commits, and you rewrite those commits, their history diverges from yours in a way that is extremely painful to fix.
+
+```bash
+# SAFE: rebase a local feature branch before pushing (nobody else has it)
+git switch feature/auth
+git rebase main
+git push -u origin feature/auth
+
+# DANGEROUS: rebase a branch that others have already pulled
+git switch main
+git rebase origin/main   # DO NOT DO THIS if others share main
+git push --force         # This force-push overwrites remote history
+# Anyone who pulled the old main now has a broken local repository
+```
+
+::: callout caution
+`git push --force` is the command that makes rebase dangerous on shared branches. It overwrites the remote branch with your local version, discarding any commits that were on the remote but not on your local. If a teammate pushed commits that you did not have, those commits are gone from the remote. Use `--force-with-lease` instead, which refuses to push if the remote has been updated since your last fetch — it is a safety net that prevents the most common accident.
+:::
+
+## Conflict resolution: the part that scares everyone
+
+Merge conflicts happen when both branches changed the same lines of the same file, and Git cannot automatically determine which version to keep. Here is exactly what happens, step by step:
+
+```bash
+git switch main
+git merge feature/auth
+# Output:
+# Auto-merging src/app.py
+# CONFLICT (content): Merge conflict in src/app.py
+# Automatic merge failed; fix conflicts and then commit the result.
+```
+
+Git pauses the merge. Your working directory now contains conflict markers in the affected files:
+
+```python
+# src/app.py — what it looks like during a conflict
+
+def get_user(user_id):
+<<<<<<< HEAD
+    # Main branch version: use the new ORM
+    return db.session.query(User).filter_by(id=user_id).first()
+=======
+    # Feature branch version: use raw SQL
+    cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    return cursor.fetchone()
+>>>>>>> feature/auth
+```
+
+- `<<<<<<< HEAD` — your current branch (`main`) version
+- `=======` — the separator
+- `>>>>>>> feature/auth` — the incoming branch version
+
+**Your job:** edit the file to what the correct merged result should be. Delete the markers. Keep one version, keep the other, or write a combination:
+
+```python
+# Resolved version — I decided to use the ORM approach but add the error handling from the feature branch
+
+def get_user(user_id):
+    user = db.session.query(User).filter_by(id=user_id).first()
+    if user is None:
+        raise NotFoundError(f"User {user_id} not found")
+    return user
+```
+
+Then:
+
+```bash
+git add src/app.py              # mark the file as resolved
+git merge --continue            # finish the merge (creates the merge commit)
+# OR, if you want to bail out:
+git merge --abort               # undo everything, back to pre-merge state
+```
+
+::: callout tip
+During a rebase, conflicts are resolved one commit at a time. After fixing conflicts for a single commit, you run `git rebase --continue` to move to the next one. If a commit becomes empty after rebase (its changes were already applied on main), Git will ask if you want to skip it — run `git rebase --skip`. And as with merge, `git rebase --abort` cancels the whole thing and puts you back where you started.
+:::
+
+## A realistic merge walkthrough
+
+Let us trace through a complete scenario — the kind you will actually face:
+
+```bash
+# You started a feature branch a week ago
+git switch -c feature/payment-integration
+
+# You made 4 commits over the week
+# Meanwhile, your teammate merged 3 commits into main
+
+# Time to merge. First, update your local main
+git switch main
+git pull origin main
+
+# Option A: Merge (safe, preserves history)
+git switch feature/payment-integration
+git merge main
+# If conflicts: resolve them, git add, git merge --continue
+git switch main
+git merge feature/payment-integration   # fast-forward or merge commit
+git push origin main
+
+# Option B: Rebase (cleaner history, resolve conflicts per-commit)
+git switch feature/payment-integration
+git rebase main
+# If conflicts per commit: resolve, git add, git rebase --continue
+# If a commit is now empty: git rebase --skip
+git switch main
+git merge feature/payment-integration   # always fast-forward now
+git push origin main
+
+# Clean up
+git branch -d feature/payment-integration
+git push origin --delete feature/payment-integration
+```
+
+Notice that both options end the same way: the feature is on `main`, the branch is deleted. The difference is entirely in the shape of the commit history.
+
+::: layer L4 deeper
+## Interactive rebase: rewriting history before it goes public
+
+Interactive rebase (`git rebase -i`) is the tool for polishing your commit history before pushing. It lets you reorder, combine, edit, or drop commits on a local branch.
+
+```bash
+# Rebase the last 5 commits interactively
+git rebase -i HEAD~5
+```
+
+This opens your editor with a list of commits:
+
+```text
+pick abc1234 add payment model
+pick def5678 WIP: debugging stripe webhook
+pick ghi9012 fix typo in model
+pick jkl3456 add payment endpoint
+pick mno7890 add tests for payment
+
+# Commands:
+# p, pick   = use commit
+# r, reword = use commit, but edit the commit message
+# e, edit   = use commit, but stop for amending
+# s, squash = use commit, but meld into previous commit
+# f, fixup  = like "squash", but discard this commit's message
+# x, exec   = run command using shell
+# d, drop   = remove commit
+```
+
+You might rewrite this as:
+
+```text
+pick abc1234 add payment model
+fixup def5678 WIP: debugging stripe webhook    # squash into previous, discard message
+fixup ghi9012 fix typo in model                # squash into previous, discard message
+reword jkl3456 add payment endpoint            # keep, but edit the message
+pick mno7890 add tests for payment
+```
+
+Result: 5 messy commits become 3 clean ones. The WIP and typo commits are absorbed into the model commit as if they never existed separately. This is exactly the kind of cleanup you do *before* pushing — never after.
+
+The golden rule still applies: only rebase commits that have not been pushed to a shared remote. Once a commit is on `origin`, assume someone else has it.
+:::
+
+::: quiz mcq L3
+What is the key difference between a merge commit and a rebase?
+- [ ] Merge commits are faster to compute than rebases
+- [ ] Rebases create backup commits automatically; merges do not
+- [x] A merge commit preserves both branch histories by creating a commit with two parents; a rebase rewrites your branch's commits as if they were always based on the latest target branch, producing linear history with no merge commit
+- [ ] Merges can only be done on the main branch; rebases can be done on any branch
+explain: Merge preserves history exactly as it happened (divergence and convergence are visible). Rebase rewrites your commits with new parent pointers, making history linear. The tradeoff is historical accuracy (merge) vs. cleanliness (rebase).
+:::
+
+::: quiz mcq L3
+You rebased a local feature branch onto main and now want to push it to the remote for the first time. Which command should you use?
+- [ ] git push --force origin feature/auth
+- [ ] git push --force-with-lease origin feature/auth
+- [x] git push -u origin feature/auth (a normal push, since this is the first push — there is nothing on the remote to overwrite)
+- [ ] git rebase --push origin feature/auth
+explain: Since this is the first push, there is no remote history to conflict with. A normal `git push -u` is correct. Force push is only needed when the remote already has commits that your rebase has rewritten. The golden rule: never force-push to shared branches.
+:::
+
+::: quiz open L3
+Describe a scenario where you would choose rebase over merge, and explain why. Then describe a scenario where you would choose merge over rebase, and explain why.
+rubric: Should identify that rebase is appropriate for local, unpushed feature branches where clean linear history is desired (e.g., before opening a PR). Should identify that merge is appropriate for shared/public branches where rewriting history would break collaborators. Should mention the golden rule: never rebase commits that others may have pulled.
+:::
+
+::: grounding
+includes: Fast-forward and three-way merges, merge commits with two parents, rebase as commit replay, merge vs rebase decision criteria, the golden rule of rebase (never rewrite shared history), conflict markers and resolution workflow, and interactive rebase for history cleanup.
+know: A fast-forward merge occurs when the target branch has not moved since the source branch diverged; Git simply advances the pointer without creating a merge commit [progit]
+know: A three-way merge creates a merge commit with two parents when both branches have diverged from their common ancestor [progit]
+know: Rebase rewrites commits by replaying them on top of another branch, creating new commit SHAs; this produces linear history but rewrites history [progit]
+know: The golden rule of rebase is to never rebase commits that have been pushed to a shared remote, because rewriting shared history breaks collaborators' local repositories [progit]
+know: Merge conflicts are marked with angle-bracket delimiters (less-than, equals, greater-than) and are resolved by editing the file, staging it with git add, and continuing the merge or rebase [gitdocs]
+misconception: Rebase and merge do the same thing | Merge preserves history with a merge commit; rebase rewrites history by replaying commits, producing different commit SHAs
+misconception: Conflicts mean something went wrong | Conflicts are a normal part of merging divergent work; Git pauses so you can make a judgment call about what the correct combined result should be
+excludes: Advanced rebase scenarios (cherry-pick, bisect);submodule merge strategies;enterprise merge queue systems
+source: progit | Pro Git Book by Scott Chacon and Ben Straub | https://git-scm.com/book/en/v2
+source: gitdocs | Git Reference Documentation | https://git-scm.com/docs
+:::
+
+# Safety Nets: Stash, Reflog, Reset, and Recovery
+@mastery L3
+@prereq the-git-mental-model-commits-are-snapshots-branches-are-pointers branching-why-and-how-to-separate-your-work merging-and-rebasing-combining-branches-without-chaos
+
+This is the node you need most. You said `git checkout` "often breaks and destroys my project because it just replaces everything." By the end of this section, you will know exactly how to avoid that, and — critically — how to recover when something goes wrong anyway.
+
+## The three reset modes — visualized
+
+`git reset` is the command that moves the branch pointer backward. But it has three modes that control what happens to the staging area and working directory. This is the command that can destroy your work if you use `--hard`. Let us make it visual:
+
+::: html
+<div id="grd-demo">
+<style>
+#grd-demo { font-family: system-ui, -apple-system, sans-serif; padding: 16px; }
+#grd-demo h3 { margin: 0 0 8px 0; font-size: 18px; }
+#grd-demo .desc { font-size: 13px; color: #555; margin-bottom: 16px; line-height: 1.5; }
+#grd-demo .buttons { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+#grd-demo .btn { padding: 8px 16px; border: 2px solid; border-radius: 6px; cursor: pointer; font-size: 13px; font-family: monospace; background: white; transition: all 0.15s; }
+#grd-demo .btn-soft { border-color: #4A90D9; color: #4A90D9; }
+#grd-demo .btn-mixed { border-color: #F0AD4E; color: #8a6d3b; }
+#grd-demo .btn-hard { border-color: #D9534F; color: #D9534F; }
+#grd-demo .btn-reset { border-color: #aaa; color: #666; }
+#grd-demo .btn:hover { opacity: 0.75; }
+#grd-demo .btn.active { font-weight: bold; }
+#grd-demo .btn-soft.active { background: #E8F0FE; }
+#grd-demo .btn-mixed.active { background: #FFF8E1; }
+#grd-demo .btn-hard.active { background: #FDECEA; }
+#grd-demo .areas { display: flex; gap: 10px; margin-bottom: 16px; }
+#grd-demo .area { flex: 1; border: 2px solid #ddd; border-radius: 8px; padding: 10px; min-height: 150px; }
+#grd-demo .area h4 { margin: 0 0 8px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #888; }
+#grd-demo .area-commit { border-color: #4A90D9; }
+#grd-demo .area-staging { border-color: #F0AD4E; }
+#grd-demo .area-working { border-color: #5CB85C; }
+#grd-demo .item { padding: 4px 8px; margin: 3px 0; border-radius: 4px; font-size: 12px; font-family: monospace; }
+#grd-demo .item-commit { background: #E8F0FE; color: #1a5276; }
+#grd-demo .item-staged { background: #FFF8E1; color: #7d6608; }
+#grd-demo .item-working { background: #E8F8E8; color: #1e7e34; }
+#grd-demo .item-lost { background: #FDECEA; color: #a93226; text-decoration: line-through; opacity: 0.5; }
+#grd-demo .item-head { font-weight: bold; border: 2px solid currentColor; }
+#grd-demo .explanation { font-size: 13px; line-height: 1.6; padding: 12px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #4A90D9; }
+#grd-demo code { background: #eef; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+</style>
+<h3>git reset: three modes compared</h3>
+<div class="desc">Starting state: HEAD at C3, staging has a staged change, working dir has an unstaged change. Click each mode to see what <code>git reset --mode C2</code> does.</div>
+<div class="buttons">
+<button class="btn btn-soft" onclick="grd_show('soft', this)">--soft</button>
+<button class="btn btn-mixed" onclick="grd_show('mixed', this)">--mixed</button>
+<button class="btn btn-hard" onclick="grd_show('hard', this)">--hard</button>
+<button class="btn btn-reset" onclick="grd_show('initial', this)">&#8634; Reset Demo</button>
+</div>
+<div class="areas">
+<div class="area area-commit"><h4>Commit History (HEAD)</h4><div id="grd-commits"></div></div>
+<div class="area area-staging"><h4>Staging Area</h4><div id="grd-staging"></div></div>
+<div class="area area-working"><h4>Working Directory</h4><div id="grd-working"></div></div>
+</div>
+<div class="explanation" id="grd-expl">Click a button to see the effect.</div>
+</div>
+<script>
+function grd_render(id, items) {
+  var el = document.getElementById(id);
+  el.innerHTML = items.map(function(i) {
+    return '<div class="item ' + i.cls + (i.head ? ' item-head' : '') + '">' + i.label + '</div>';
+  }).join('');
+}
+function grd_show(mode, btn) {
+  var btns = document.querySelectorAll('#grd-demo .btn');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+  if (btn) btn.classList.add('active');
+  var c, s, w, e;
+  if (mode === 'initial') {
+    c = [{cls:'item-commit',label:'C1: init'},{cls:'item-commit',label:'C2: add feature'},{cls:'item-commit',label:'C3: fix bug',head:true}];
+    s = [{cls:'item-staged',label:'refactor utils.js'}];
+    w = [{cls:'item-working',label:'tweak README.md'}];
+    e = 'Starting state. HEAD points to C3. Staging has one staged change. Working dir has one unstaged change. Click a reset mode to see what happens when you run <code>git reset --mode C2</code>.';
+  } else if (mode === 'soft') {
+    c = [{cls:'item-commit',label:'C1: init'},{cls:'item-commit',label:'C2: add feature',head:true}];
+    s = [{cls:'item-staged',label:'refactor utils.js'},{cls:'item-staged',label:'fix bug (was C3)'}];
+    w = [{cls:'item-working',label:'tweak README.md'}];
+    e = '<strong>--soft</strong>: HEAD moves to C2. Staging and working dir are untouched. C3 changes are now staged. <strong>Nothing is lost.</strong> Use when you committed too early and want to re-commit with a different message or additional changes.';
+  } else if (mode === 'mixed') {
+    c = [{cls:'item-commit',label:'C1: init'},{cls:'item-commit',label:'C2: add feature',head:true}];
+    s = [];
+    w = [{cls:'item-working',label:'refactor utils.js'},{cls:'item-working',label:'fix bug (was C3)'},{cls:'item-working',label:'tweak README.md'}];
+    e = '<strong>--mixed</strong> (default): HEAD moves to C2. Staging is cleared. Working dir is untouched. All changes are now unstaged but still present. <strong>Nothing is lost.</strong> Use when you want to unstage and uncommit, then selectively re-stage.';
+  } else if (mode === 'hard') {
+    c = [{cls:'item-commit',label:'C1: init'},{cls:'item-commit',label:'C2: add feature',head:true}];
+    s = [{cls:'item-lost',label:'DESTROYED'}];
+    w = [{cls:'item-lost',label:'DESTROYED'},{cls:'item-lost',label:'DESTROYED'}];
+    e = '<strong>--hard</strong>: HEAD moves to C2. Staging is wiped. Working directory is overwritten. All uncommitted changes are <strong>permanently destroyed</strong>. C3 can be recovered via <code>git reflog</code>. Uncommitted changes are gone forever. This is the nuclear option.';
+  }
+  grd_render('grd-commits', c);
+  grd_render('grd-staging', s);
+  grd_render('grd-working', w);
+  document.getElementById('grd-expl').innerHTML = e;
+  window.parent.postMessage({type:'setHeight',height:document.body.scrollHeight},'*');
+}
+window.addEventListener('load', function() {
+  grd_show('initial', null);
+  window.parent.postMessage({type:'setHeight',height:document.body.scrollHeight},'*');
+});
+</script>
+:::
+
+Click through all three modes above before continuing. The key takeaway: `--soft` and `--mixed` never destroy uncommitted work. Only `--hard` does. If you remember nothing else, remember this: **`--hard` is the only reset mode that destroys data.**
+
+## `git revert` vs `git reset` — the critical distinction
+
+This trips up everyone. The difference is simple but consequential:
+
+- **`git reset`** moves the branch pointer *backward*, as if the later commits never happened. It **rewrites history**. The "undone" commits disappear from the branch. This is fine for local branches, but destructive on shared branches.
+
+- **`git revert`** creates a *new commit* that undoes the changes of a previous commit. It **preserves history** — the original commit stays, and a new "undo" commit is added on top. This is safe for shared branches because it does not rewrite anything.
+
+```bash
+# You committed a bug to main and pushed it. Two more commits came after.
+# History: A → B(bug) → C → D
+
+# WRONG: git reset --hard B  (rewrites history, breaks anyone who pulled C and D)
+# RIGHT: git revert B        (creates a new commit E that undoes B's changes)
+# Result: A → B(bug) → C → D → E(undoes B)
+```
+
+```bash
+# You committed locally but haven't pushed. Nobody else has these commits.
+# History (local only): A → B(typo) → C
+
+# FINE: git reset --hard B  (removes C, which nobody else has)
+# OR:   git revert C        (also works, but adds a revert commit unnecessarily)
+# OR:   git reset --soft B  (removes C but keeps the changes staged — safest)
+```
+
+The mental model: `reset` is for undoing things that only you have. `revert` is for undoing things that others might have.
+
+## `git stash` — the parking lot
+
+You are halfway through a change when you need to switch branches. You do not want to commit incomplete work (messy history), but you cannot switch because of uncommitted changes. Enter `git stash`:
+
+```bash
+# Park your current changes (working directory + staging area)
+git stash
+# Working directory is now clean — matches the last commit
+
+# Do whatever you need: switch branches, fix a bug, etc.
+git switch main
+git switch -c hotfix/urgent-bug
+# ... fix, commit, merge ...
+
+# Come back and restore your changes
+git switch feature/original-work
+git stash pop
+# Your changes are back, and the stash is removed from the stash list
+
+# Other stash operations:
+git stash list          # see all stashes (you can have multiple)
+git stash show -p       # see what's in the most recent stash (patch format)
+git stash drop          # delete the most recent stash without applying it
+git stash clear         # delete ALL stashes (dangerous — no confirmation)
+```
+
+::: callout tip
+`git stash pop` applies the stash AND removes it from the stash list. If there are conflicts when applying, Git leaves the stash in the list so you can try again or drop it manually. `git stash apply` applies the stash but keeps it in the list — useful if you want to apply the same stash to multiple branches.
+:::
+
+## `git reflog` — the safety net you did not know existed
+
+Here is the most reassuring fact in all of Git: **almost nothing is truly gone.** When you `git reset --hard`, delete a branch, or even do a bad rebase, the commits are not deleted — they are just unreachable from any branch. Git keeps them for approximately 90 days (configurable via `gc.reflogExpire`).
+
+The `reflog` (reference log) records every time HEAD or any branch pointer moves. It is your personal undo history:
+
+```bash
+git reflog
+# Output (most recent first):
+# a1b2c3d HEAD@{0}: reset: moving to HEAD~1
+# e4f5g6h HEAD@{1}: commit: add payment endpoint
+# i7j8k9l HEAD@{2}: commit: add payment model
+# m0n1o2p HEAD@{3}: checkout: moving from main to feature/payment
+# q3r4s5t HEAD@{4}: pull origin main
+```
+
+Each line shows where HEAD was at that moment. Even after a `reset --hard`, the "lost" commits are still there — you just need to find their SHA and reset back:
+
+```bash
+# You accidentally ran: git reset --hard HEAD~2
+# Two commits "disappeared"
+
+git reflog
+# Find the SHA where HEAD was BEFORE the reset (e.g., e4f5g6h)
+
+git reset --hard e4f5g6h
+# Your commits are back. The reflog remembered them.
+```
+
+```bash
+# You accidentally deleted a branch
+git branch -D feature/important-work
+
+git reflog
+# Find the last commit SHA that feature/important-work pointed to
+
+git branch feature/important-work <sha>
+# Branch restored, pointing at the right commit
+```
+
+::: callout warning
+The reflog only records *committed* state. Uncommitted changes (working directory edits that were never staged or committed) are NOT in the reflog. If you run `git restore .` or `git checkout .` and discard uncommitted work, the reflog cannot help you. For uncommitted staged changes, `git fsck --lost-found` can sometimes recover dangling blobs, but it is unreliable. The lesson: **commit early, commit often.** You can always amend or rebase later. Uncommitted work has no safety net.
+:::
+
+## `git restore` — the safe file recovery tool
+
+`git restore` is the modern replacement for the file-destruction half of `git checkout`. It is explicit about what it does:
+
+```bash
+# Discard uncommitted changes to a file (restore from HEAD)
+git restore src/app.py
+# This throws away your working directory changes to app.py.
+# The committed version replaces your edits. No confirmation. No undo.
+# BUT: it only touches the file you specify — it does NOT switch branches.
+
+# Restore a file from a specific commit (not HEAD)
+git restore --source=HEAD~2 src/app.py
+
+# Unstage a file (move from staging area back to working directory)
+git restore --staged src/app.py
+# The file's changes are still in your working directory, just no longer staged.
+
+# Combine: unstage AND discard changes
+git restore --staged --worktree src/app.py
+# Now the file matches HEAD exactly — all changes gone.
+```
+
+The key difference from `git checkout`: `restore` is explicit. `restore src/app.py` always means "replace this file's content." It never means "switch to a branch called src/app.py." The ambiguity is gone.
+
+## A recovery playbook
+
+Here are the scenarios you will actually face, and the exact commands to fix them:
+
+**Scenario 1: "I committed to the wrong branch"**
+```bash
+# You committed to main but meant to commit to feature/auth
+git switch feature/auth        # switch to the correct branch (carries the commit with you if no conflicts)
+# If Git refuses due to conflicts:
+git stash                      # stash the commit's changes... wait, it's already committed
+# Actually for committed work:
+git switch feature/auth
+git cherry-pick main           # copy the commit from main to feature/auth
+git switch main
+git reset --hard HEAD~1        # remove it from main (safe if not pushed)
+# If already pushed to main: git revert <commit-sha> instead of reset
+```
+
+**Scenario 2: "I ran git reset --hard and lost commits"**
+```bash
+git reflog                     # find the SHA before the reset
+git reset --hard <sha>         # restore to that point
+```
+
+**Scenario 3: "I deleted a branch I still needed"**
+```bash
+git reflog                     # find the SHA the branch pointed to
+git branch <branch-name> <sha> # recreate the branch at that commit
+```
+
+**Scenario 4: "I started a rebase and everything is broken"**
+```bash
+git rebase --abort             # cancels the rebase, returns to pre-rebase state
+# If you already finished the rebase but want to undo:
+git reflog                     # find the SHA before the rebase
+git reset --hard <sha>
+```
+
+**Scenario 5: "I accidentally force-pushed and overwrote someone's commits"**
+```bash
+# This is the hard one. The remote's reflog is not accessible to you.
+# The teammate whose commits were overwritten still has them locally.
+# They need to: git push --force-with-lease origin their-branch
+# Going forward: ALWAYS use --force-with-lease instead of --force
+```
+
+::: quiz mcq L3
+You ran `git reset --hard HEAD~3` and realized you lost three commits you needed. You have NOT pushed anything. How do you recover?
+- [ ] The commits are permanently deleted; there is no recovery
+- [ ] Run `git undo` three times
+- [x] Run `git reflog` to find the SHA where HEAD was before the reset, then `git reset --hard <sha>` to restore
+- [ ] Run `git checkout HEAD~3` to go back
+explain: The reflog records every HEAD movement. Even after --hard reset, the "lost" commits are still in Git's object database for ~90 days. Find the pre-reset SHA in the reflog and reset back to it.
+:::
+
+::: quiz mcq L3
+You need to undo a commit that has already been pushed to the shared `main` branch. Should you use `git reset` or `git revert`?
+- [ ] git reset --soft HEAD~1, because it is gentler than --hard
+- [ ] git reset --hard HEAD~1, because it completely removes the commit
+- [x] git revert HEAD, because it creates a new commit that undoes the changes without rewriting history that others may have already pulled
+- [ ] Either one works the same for pushed commits
+explain: reset rewrites history, which breaks anyone who has already pulled the original commits. revert creates a new "undo" commit on top, preserving history. For shared branches, always use revert.
+:::
+
+::: quiz open L3
+Your teammate says: "I ran `git checkout .` and lost an hour of uncommitted work. Can I get it back?" Explain what happened, whether recovery is possible, and how to prevent it in the future.
+rubric: Should explain that `git checkout .` discards all uncommitted working directory changes by restoring files from HEAD. Should note that uncommitted changes are NOT in the reflog, so recovery is extremely unlikely (only `git fsck --lost-found` has a small chance of finding staged blobs). Should recommend committing early and often, using `git stash` instead of discarding, and using `git restore` (which is more explicit) instead of the overloaded `git checkout`.
+:::
+
+::: grounding
+includes: The three git reset modes (soft, mixed, hard) and their effect on HEAD/staging/working directory, git revert vs git reset for shared vs local history, git stash for temporary work storage, git reflog as the recovery safety net, git restore as the modern file-recovery command, and a recovery playbook for common accidents.
+know: git reset --hard is the only reset mode that destroys uncommitted working directory changes; --soft and --mixed preserve working directory contents [progit]
+know: git revert creates a new commit that undoes a previous commit's changes, preserving history; git reset rewrites history by moving the branch pointer backward [progit]
+know: The reflog records every HEAD and branch pointer movement, making "lost" commits recoverable for approximately 90 days even after operations like reset --hard or branch deletion [gitdocs]
+know: git stash temporarily shelves uncommitted changes (both staged and unstaged) and restores a clean working directory; git stash pop applies and removes the stash [gitdocs]
+know: Uncommitted working directory changes that were never staged or committed are not recorded in the reflog and are generally unrecoverable if discarded [progit]
+misconception: git reset --hard permanently deletes commits | Commits are still in Git's object database for ~90 days and recoverable via reflog; only uncommitted working directory changes are truly lost
+misconception: git revert and git reset do the same thing | revert adds a new undo commit preserving history (safe for shared branches); reset rewrites history (safe only for local, unpushed work)
+excludes: Git internals (object storage, packfiles, gc);custom reflog configuration;bisect and cherry-pick as recovery tools;submodule recovery
+source: progit | Pro Git Book by Scott Chacon and Ben Straub | https://git-scm.com/book/en/v2
+source: gitdocs | Git Reference Documentation | https://git-scm.com/docs
+:::
+
+## Checklist
+- [ ] Can explain that a Git branch is a lightweight pointer to a commit, not a copy of files
+- [ ] Can create, switch, and delete branches using `git switch` and `git branch`
+- [ ] Follows a feature-branch workflow that keeps `main` clean and deployable
+- [ ] Can merge a feature branch into main and resolve conflicts using conflict markers
+- [ ] Understands when to use rebase (local, unpushed) vs merge (shared, pushed)
+- [ ] Can use `git stash` to temporarily save and restore uncommitted work
+- [ ] Can recover "lost" commits using `git reflog` and `git reset`
+- [ ] Knows the difference between `git reset --soft`, `--mixed`, and `--hard`
+- [ ] Can distinguish `git revert` (safe, new commit) from `git reset` (rewrites history)
+- [ ] Uses `git switch` and `git restore` instead of the overloaded `git checkout`

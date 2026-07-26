@@ -41,4 +41,5 @@ export interface ConfirmFill {
   slotEnd: string
   app: string
   category: string
+  activityId?: string
 }

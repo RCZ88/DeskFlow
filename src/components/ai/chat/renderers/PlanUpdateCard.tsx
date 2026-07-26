@@ -1,11 +1,12 @@
 import { useState } from "react"
+import { Check } from "lucide-react"
 import { CardShell } from "./CardShell"
 import type { CardAction, PlanChange } from "../parsed"
 
 const SIG: Record<string, { cls: string; glyph: string }> = {
   add:    { cls: "dk-add",  glyph: "+" },
   modify: { cls: "dk-mod",  glyph: "~" },
-  complete: { cls: "dk-done", glyph: "✓" },
+  complete: { cls: "dk-done", glyph: <Check size={11} /> },
 }
 
 const SIG_OP: Record<string, string> = {
@@ -26,6 +27,7 @@ export function PlanUpdateCard({
     <CardShell
       title="Plan update"
       badge="plan_update"
+      accent="violet"
       icon="⇄"
       subtitle={note || changes.length + " proposed change" + (changes.length === 1 ? "" : "s")}
       right={

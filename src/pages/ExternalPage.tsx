@@ -225,7 +225,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   const [manualSessionStartHours, setManualSessionStartHours] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getHours(); });
   const [manualSessionStartMinutes, setManualSessionStartMinutes] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getMinutes(); });
 const [sleepDebugData, setSleepDebugData] = useState<any>(null);
-  const [sleepFixResult, setSleepFixResult] = useState<{ fixed: number; message: string } | null>(null);
+  const [sleepFixResult, setSleepFixResult] = useState<{ fixed: number; message: string; updates?: Array<{ id: number; oldStart: string; newStart: string; oldDuration: number; newDuration: number }> } | null>(null);
   const [showSleepFixModal, setShowSleepFixModal] = useState(false);
    const dateInputRef = useRef<HTMLInputElement>(null);
 
@@ -1775,9 +1775,10 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                     const wasShifted = day.was_shifted || false;
                     
                     // Helper: resolve the actual calendar date for this bar's sleep
+                    // day.date is ALREADY the grouped bedtime date (shifted if needed)
+                    // was_shifted just tells us the raw started_at was on the next calendar day
                     const resolveDate = (offsetDays: number = 0) => {
                       const d = new Date(day.date + 'T00:00:00');
-                      if (wasShifted) d.setDate(d.getDate() + 1);
                       if (offsetDays) d.setDate(d.getDate() + offsetDays);
                       return d;
                     };
@@ -2598,13 +2599,37 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
               </div>
 
               {sleepFixResult.fixed > 0 ? (
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 mb-4">
-                  <p className="text-sm text-emerald-400 text-center font-medium">
-                    Fixed {sleepFixResult.fixed} session{sleepFixResult.fixed !== 1 ? 's' : ''}
-                  </p>
-                  <p className="text-[11px] text-emerald-400/60 text-center mt-1">
-                    Sessions with mismatched start/end dates have been corrected
-                  </p>
+                <div className="space-y-3 mb-4">
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+                    <p className="text-sm text-emerald-400 text-center font-medium">
+                      Fixed {sleepFixResult.fixed} session{sleepFixResult.fixed !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  {sleepFixResult.updates && sleepFixResult.updates.length > 0 && (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {sleepFixResult.updates.map((u) => {
+                        const oldDate = new Date(u.oldStart)
+                        const newDate = new Date(u.newStart)
+                        const fmt = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                        const oldDurH = Math.floor(u.oldDuration / 3600)
+                        const oldDurM = Math.round((u.oldDuration % 3600) / 60)
+                        const newDurH = Math.floor(u.newDuration / 3600)
+                        const newDurM = Math.round((u.newDuration % 3600) / 60)
+                        return (
+                          <div key={u.id} className="bg-zinc-800/60 rounded-lg px-3 py-2 text-[11px]">
+                            <div className="flex items-center gap-2 text-zinc-400">
+                              <span className="text-red-400/80 line-through">{fmt(oldDate)}</span>
+                              <span className="text-zinc-600">→</span>
+                              <span className="text-emerald-400">{fmt(newDate)}</span>
+                            </div>
+                            <div className="text-zinc-500 mt-0.5">
+                              Duration: {oldDurH}h {oldDurM}m → {newDurH}h {newDurM}m
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="bg-zinc-800/50 rounded-lg p-3 mb-4">

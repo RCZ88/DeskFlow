@@ -184,6 +184,27 @@ export async function assembleContext(projectPath: string, config: ContextConfig
     forceAdd(`[LAYER 2 — PATTERNS & CONVENTIONS]\n${truncated}\n`);
   }
 
+  // ── LAYER 2.5: HOT MEMORIES (auto-loaded critical lessons) ──
+  if (config.deep_memory?.enabled) {
+    try {
+      const dapi = (window as any).deskflowAPI;
+      const hotMemories = await dapi?.memoryGetHot?.(config.deep_memory.hot.max_entries || 15);
+      if (hotMemories && hotMemories.length > 0) {
+        const maxTokens = config.deep_memory.hot.max_tokens || 1200;
+        let output = '[LAYER 2.5 — CRITICAL MEMORIES (auto-loaded)]\nYou MUST remember these lessons from past sessions:\n';
+        let tokenCount = estimateTokens(output);
+        for (const m of hotMemories) {
+          const line = `• [${m.category.toUpperCase()}] ${m.content}\n`;
+          const lineTokens = estimateTokens(line);
+          if (tokenCount + lineTokens > maxTokens) break;
+          output += line;
+          tokenCount += lineTokens;
+        }
+        forceAdd(output);
+      }
+    } catch {}
+  }
+
   // ── LAYER 3: TASK CONTEXT — Problem-Aware Injection ──
   let layer3Content = '';
   if (opts?.problemId && opts?.problemId !== 'none') {

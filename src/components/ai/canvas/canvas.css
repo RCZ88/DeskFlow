@@ -1,0 +1,727 @@
+@import '../design-tokens.css';
+
+/* ═══ Canvas Container ═══ */
+.dk-canvas-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--dk-bg-base);
+  border-radius: var(--dk-radius-lg);
+  border: 1px solid var(--dk-border-default);
+}
+
+.dk-canvas-container.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  border-radius: 0;
+  border: none;
+}
+
+/* ═══ Viewport (pannable area) ═══ */
+.dk-canvas-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  background-color: var(--dk-bg-base);
+  background-image:
+    linear-gradient(var(--dk-border-subtle) 1px, transparent 1px),
+    linear-gradient(90deg, var(--dk-border-subtle) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.dk-canvas-viewport.panning {
+  cursor: grabbing;
+}
+
+/* ═══ Grid Layer (infinite, transformed) ═══ */
+.dk-canvas-grid-layer {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* ═══ Empty State ═══ */
+.dk-canvas-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--dk-text-faint);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+/* ═══ Toolbar ═══ */
+.dk-canvas-toolbar {
+  position: absolute;
+  top: var(--dk-space-3);
+  right: var(--dk-space-3);
+  display: flex;
+  gap: var(--dk-space-2);
+  z-index: 50;
+  background: var(--dk-bg-surface);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--dk-border-default);
+  border-radius: var(--dk-radius-md);
+  padding: var(--dk-space-2);
+  box-shadow: var(--dk-shadow-md);
+}
+
+.dk-canvas-toolbar button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--dk-radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--dk-text-muted);
+  cursor: pointer;
+  transition: all var(--dk-fast) var(--dk-ease);
+}
+
+.dk-canvas-toolbar button:hover {
+  background: var(--dk-bg-raised);
+  color: var(--dk-text-secondary);
+}
+
+.dk-canvas-toolbar button:active {
+  transform: scale(0.95);
+}
+
+/* ═══ Save Indicator ═══ */
+.dk-save-indicator {
+  position: absolute;
+  top: var(--dk-space-3);
+  left: var(--dk-space-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--dk-bg-surface);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--dk-border-default);
+  border-radius: var(--dk-radius-md);
+  font-size: 12px;
+  color: var(--dk-text-faint);
+  z-index: 50;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: all var(--dk-fast) var(--dk-ease);
+  pointer-events: none;
+}
+
+.dk-save-indicator.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.dk-save-indicator.saving { color: var(--dk-accent); }
+.dk-save-indicator.saved { color: var(--dk-success); }
+.dk-save-indicator.error { color: var(--dk-danger); }
+
+/* ═══ Cards ═══ */
+.dk-canvas-card {
+  position: absolute;
+  background: var(--dk-bg-surface);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--dk-border-default);
+  border-radius: var(--dk-radius-lg);
+  box-shadow: var(--dk-shadow-sm);
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow var(--dk-fast) var(--dk-ease), border-color var(--dk-fast) var(--dk-ease);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dk-canvas-card:hover {
+  border-color: var(--dk-border-strong);
+  box-shadow: var(--dk-shadow-md), var(--dk-shadow-glow);
+}
+
+.dk-canvas-card.dragging {
+  cursor: grabbing;
+  border-color: var(--dk-accent);
+  box-shadow: var(--dk-shadow-lg), 0 0 40px rgba(34, 211, 238, 0.1);
+  z-index: 1000 !important;
+}
+
+/* ═══ Pin Button ═══ */
+.dk-canvas-pin-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--dk-radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--dk-text-faint);
+  cursor: pointer;
+  transition: all var(--dk-fast) var(--dk-ease);
+}
+
+.dk-canvas-pin-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--dk-text-secondary);
+}
+
+.dk-canvas-pin-btn.pinned {
+  color: var(--dk-accent);
+}
+
+.dk-canvas-pin-btn.pinned:hover {
+  background: var(--dk-accent-dim);
+}
+
+/* ═══ Resize Handle ═══ */
+.dk-canvas-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity var(--dk-fast) var(--dk-ease);
+}
+
+.dk-canvas-card:hover .dk-canvas-resize-handle {
+  opacity: 1;
+}
+
+.dk-canvas-resize-handle::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--dk-text-faint);
+  border-bottom: 2px solid var(--dk-text-faint);
+  border-radius: 0 0 2px 0;
+}
+
+.dk-canvas-resize-handle:hover::after {
+  border-color: var(--dk-accent);
+}
+
+.dk-canvas-card.transient {
+  opacity: 0.85;
+  border-style: dashed;
+}
+
+/* ═══ Card Header ═══ */
+.dk-canvas-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--dk-border-subtle);
+  background: var(--dk-bg-raised);
+  flex-shrink: 0;
+}
+
+.dk-canvas-card-type {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dk-text-faint);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dk-canvas-card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.dk-canvas-card-actions button {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--dk-radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--dk-text-faint);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: all var(--dk-fast) var(--dk-ease);
+}
+
+.dk-canvas-card-actions button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--dk-text-secondary);
+}
+
+/* ═══ Card Body ═══ */
+.dk-canvas-card-body {
+  flex: 1;
+  padding: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dk-text-secondary);
+  overflow: auto;
+  min-height: 0;
+}
+
+/* ═══ Card Footer ═══ */
+.dk-canvas-card-footer {
+  padding: 10px 14px;
+  border-top: 1px solid var(--dk-border-subtle);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+/* ═══ Input Bar ═══ */
+.dk-canvas-input-bar {
+  position: absolute;
+  bottom: var(--dk-space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  max-width: 90vw;
+  z-index: 100;
+}
+
+.dk-canvas-input-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--dk-bg-raised);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--dk-border-strong);
+  border-radius: var(--dk-radius-lg);
+  box-shadow: var(--dk-shadow-lg);
+  transition: border-color var(--dk-fast) var(--dk-ease), box-shadow var(--dk-fast) var(--dk-ease);
+}
+
+.dk-canvas-input-inner:focus-within {
+  border-color: var(--dk-accent);
+  box-shadow: var(--dk-shadow-lg), 0 0 0 3px var(--dk-accent-dim);
+}
+
+.dk-canvas-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--dk-text-primary);
+  font-family: var(--dk-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.dk-canvas-input::placeholder {
+  color: var(--dk-text-placeholder);
+}
+
+.dk-canvas-input-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--dk-radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--dk-text-muted);
+  cursor: pointer;
+  transition: all var(--dk-fast) var(--dk-ease);
+  flex-shrink: 0;
+}
+
+.dk-canvas-input-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--dk-text-secondary);
+}
+
+.dk-canvas-input-btn.send {
+  background: var(--dk-accent);
+  color: var(--dk-bg-deep);
+}
+
+.dk-canvas-input-btn.send:hover {
+  background: #67e8f9;
+}
+
+.dk-canvas-input-btn.send:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.dk-canvas-input-btn.stop {
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--dk-danger);
+}
+
+.dk-canvas-input-btn.stop:hover {
+  background: rgba(248, 113, 113, 0.2);
+}
+
+.dk-canvas-input-btn.active {
+  background: rgba(244, 114, 182, 0.1);
+  color: #f472b6;
+  animation: dk-pulse 1.5s infinite;
+}
+
+@keyframes dk-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.dk-canvas-input-thinking {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dk-accent);
+  font-size: 12px;
+  padding-right: 8px;
+  border-right: 1px solid var(--dk-border-subtle);
+  margin-right: 4px;
+}
+
+/* ═══ Input Hints ═══ */
+.dk-canvas-input-hints {
+  display: flex;
+  justify-content: center;
+  gap: var(--dk-space-4);
+  margin-top: var(--dk-space-2);
+  font-size: 11px;
+  color: var(--dk-text-faint);
+  font-family: var(--dk-mono);
+}
+
+.dk-canvas-input-hints span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ═══ Transcript Rail (Deck mode only) ═══ */
+.dk-transcript-rail {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 380px;
+  max-width: 90vw;
+  height: 100vh;
+  background: var(--dk-bg-base);
+  border-left: 1px solid var(--dk-border-default);
+  display: flex;
+  flex-direction: column;
+  z-index: 200;
+  animation: railSlideIn var(--dk-normal) var(--dk-ease);
+}
+
+@keyframes railSlideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.dk-transcript-rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--dk-border-default);
+  flex-shrink: 0;
+}
+
+.dk-transcript-rail-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--dk-text-primary);
+}
+
+.dk-transcript-rail-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--dk-radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--dk-text-faint);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.dk-transcript-rail-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--dk-text-secondary);
+}
+
+.dk-transcript-rail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ═══ Rail Messages ═══ */
+.dk-rail-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dk-rail-msg-user { align-items: flex-end; }
+.dk-rail-msg-ai { align-items: flex-start; }
+
+.dk-rail-msg-bubble {
+  max-width: 90%;
+  padding: 10px 14px;
+  border-radius: var(--dk-radius-lg);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.dk-rail-msg-user .dk-rail-msg-bubble {
+  background: var(--dk-bg-raised);
+  color: var(--dk-text-primary);
+  border-bottom-right-radius: var(--dk-space-1);
+}
+
+.dk-rail-msg-ai .dk-rail-msg-bubble {
+  background: var(--dk-bg-surface);
+  color: var(--dk-text-secondary);
+  border: 1px solid var(--dk-border-default);
+  border-bottom-left-radius: var(--dk-space-1);
+}
+
+.dk-rail-msg-meta {
+  font-size: 10px;
+  color: var(--dk-text-faint);
+  display: flex;
+  gap: 8px;
+}
+
+/* ═══ Rail Input ═══ */
+.dk-rail-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--dk-border-default);
+  flex-shrink: 0;
+}
+
+.dk-rail-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.dk-rail-textarea {
+  flex: 1;
+  background: var(--dk-bg-input);
+  border: 1px solid var(--dk-border-default);
+  border-radius: var(--dk-radius-md);
+  padding: 10px 12px;
+  color: var(--dk-text-primary);
+  font-size: 13px;
+  font-family: var(--dk-sans);
+  resize: none;
+  outline: none;
+  min-height: 40px;
+  max-height: 120px;
+  line-height: 1.5;
+}
+
+.dk-rail-textarea:focus {
+  border-color: var(--dk-accent);
+}
+
+.dk-rail-send {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--dk-radius-md);
+  background: var(--dk-accent);
+  color: var(--dk-bg-deep);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--dk-fast) var(--dk-ease);
+}
+
+.dk-rail-send:hover { background: #67e8f9; }
+.dk-rail-send:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* ═══ Error Boundary ═══ */
+.dk-card-error {
+  padding: 20px;
+  text-align: center;
+  color: var(--dk-text-muted);
+}
+
+.dk-card-error-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dk-danger);
+  margin-bottom: 8px;
+}
+
+.dk-card-error-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+/* ═══ Animations ═══ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dk-canvas-card {
+  animation: fadeIn var(--dk-fast) var(--dk-ease);
+}
+
+/* ═══ Scrollbars ═══ */
+.dk-canvas-card-body::-webkit-scrollbar,
+.dk-transcript-rail-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dk-canvas-card-body::-webkit-scrollbar-thumb,
+.dk-transcript-rail-body::-webkit-scrollbar-thumb {
+  background: var(--dk-border-default);
+  border-radius: 2px;
+}
+
+/* ═══ Pan Animation (for recenter) ═══ */
+.dk-pan-animate {
+  transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Disable grid layer transition during card drag (data-attribute, no React state delay) */
+.dk-canvas-grid-layer[data-card-dragging] {
+  transition: none !important;
+}
+
+/* ═══ Find Cards Arrow ═══ */
+.dk-find-arrow {
+  position: absolute;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--dk-bg-raised);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--dk-accent);
+  border-radius: 999px;
+  color: var(--dk-text-secondary);
+  font-size: 12px;
+  font-family: var(--dk-sans);
+  cursor: pointer;
+  box-shadow: var(--dk-shadow-md);
+  animation: dk-arrow-bounce 1.5s ease-in-out infinite, dk-arrow-fade-in 200ms var(--dk-ease);
+  transition: all var(--dk-fast) var(--dk-ease);
+}
+
+.dk-find-arrow:hover {
+  background: var(--dk-bg-surface);
+  box-shadow: var(--dk-shadow-lg), var(--dk-shadow-glow);
+}
+
+.dk-find-arrow-icon {
+  font-size: 16px;
+  color: var(--dk-accent);
+  line-height: 1;
+}
+
+.dk-find-arrow-text {
+  font-weight: 500;
+}
+
+@keyframes dk-arrow-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes dk-arrow-fade-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ═══ Minimap ═══ */
+.dk-minimap {
+  position: absolute;
+  bottom: 80px;
+  right: var(--dk-space-4);
+  width: 160px;
+  height: 120px;
+  background: var(--dk-bg-raised);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--dk-border-default);
+  border-radius: var(--dk-radius-md);
+  box-shadow: var(--dk-shadow-md);
+  z-index: 80;
+  overflow: hidden;
+  transition: transform 200ms var(--dk-ease), box-shadow 200ms var(--dk-ease);
+  cursor: crosshair;
+}
+
+.dk-minimap:hover {
+  transform: scale(1.05);
+  box-shadow: var(--dk-shadow-glow);
+}
+
+.dk-minimap svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ═══ Toolbar disabled state ═══ */
+.dk-canvas-toolbar button.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.dk-canvas-toolbar button.disabled:hover {
+  background: transparent;
+  color: var(--dk-text-muted);
+}
+
+/* ═══ Toolbar separator ═══ */
+.dk-canvas-toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--dk-border-default);
+  flex-shrink: 0;
+}
+
+/* ═══ Zoom label ═══ */
+.dk-canvas-zoom-label {
+  font-size: 11px;
+  font-family: var(--dk-mono);
+  color: var(--dk-text-faint);
+  min-width: 36px;
+  text-align: center;
+  user-select: none;
+  flex-shrink: 0;
+}

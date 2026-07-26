@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react"
-import { Trash2 } from "lucide-react"
+import { Trash2, Sparkles, Shield, ShieldOff } from "lucide-react"
 import { MessageBubble } from "./MessageBubble"
 import { ThinkingIndicator } from "./ThinkingIndicator"
 import { AgentProgressBar, type AgentStep } from "./AgentProgressBar"
 import { ChatEmptyState, type ChatSuggestion } from "./ChatEmptyState"
 import { ChatInput } from "./ChatInput"
 import type { CardAction, ParsedMessage } from "./parsed"
+import type { ReactNode } from "react"
 
 export interface ChatMessage {
   id: string
@@ -38,6 +39,14 @@ export interface ChatPanelProps {
   contextWarnings?: string[]
   dismissError?: (index: number) => void
   onModelChange?: (provider: string, model: string) => void
+  historySlot?: ReactNode
+  memoryChips?: { id: string; text: string }[]
+  onNewThread?: () => void
+  onOpenCommands?: () => void
+  connectorStatus?: { unreadCount: number; todayEventCount: number; lastSyncTime?: string; syncing?: boolean }
+  onExpandConnectors?: () => void
+  autoApprove?: boolean
+  onToggleAutoApprove?: () => void
 }
 
 export function ChatPanel({
@@ -63,6 +72,14 @@ export function ChatPanel({
   contextWarnings,
   dismissError,
   onModelChange,
+  historySlot,
+  memoryChips,
+  onNewThread,
+  onOpenCommands,
+  connectorStatus,
+  onExpandConnectors,
+  autoApprove = false,
+  onToggleAutoApprove,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
@@ -85,14 +102,33 @@ export function ChatPanel({
   }, [messages, thinking, streaming])
 
   return (
-    <div className="dk-card dk-acc dk-pink dk-deck">
+    <div className="dk-chat-inner">
+      {/* History Drawer Overlay */}
+      {historySlot}
+
       <div className="dk-deckhead">
         <div className="dk-t">
-          <span className="dk-deck-ic">✦</span>
+          <span className="dk-deck-ic"><Sparkles size={14} /></span>
           DeskFlow Assistant
           <span className="dk-deck-meta">{provider ? "via " + provider : "copilot"}</span>
         </div>
         <div className="flex items-center gap-2">
+          {onToggleAutoApprove && (
+            <button
+              type="button"
+              onClick={onToggleAutoApprove}
+              title={autoApprove ? "Auto-approve ON — actions execute without confirmation" : "Auto-approve OFF — actions require confirmation"}
+              className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] transition-colors"
+              style={{
+                background: autoApprove ? "rgba(251,191,36,.12)" : "rgba(255,255,255,.04)",
+                color: autoApprove ? "#fbbf24" : "var(--tm)",
+                border: `1px solid ${autoApprove ? "rgba(251,191,36,.25)" : "var(--line)"}`,
+              }}
+            >
+              {autoApprove ? <Shield size={12} /> : <ShieldOff size={12} />}
+              <span style={{ fontFamily: "var(--mono)" }}>{autoApprove ? "Auto" : "Manual"}</span>
+            </button>
+          )}
           <span className={"dk-chip" + (online ? " dk-live" : "")} style={{ height: 26, fontSize: 11, padding: "0 10px" }}>
             <span className="dk-dot" />
             {online ? "Online" : "Offline"}
@@ -123,7 +159,7 @@ export function ChatPanel({
 
       <div ref={scrollRef} onScroll={onScroll} className={`dk-stream${empty ? " dk-stream--empty" : ""}`}>
         {empty ? (
-          <ChatEmptyState suggestions={suggestions} onPick={(p) => onInputChange?.(p)} />
+          <ChatEmptyState suggestions={suggestions} onPick={(p) => onInputChange?.(p)} onNewThread={onNewThread} />
         ) : (
           messages.map((mm) => (
             <MessageBubble
@@ -136,11 +172,24 @@ export function ChatPanel({
               actionResults={actionResults}
               connectorSyncing={connectorSyncing}
               streaming={Boolean(streaming) && mm.id === lastAssistant?.id}
+              autoApprove={autoApprove}
             />
           ))
         )}
         {thinking ? <ThinkingIndicator /> : null}
       </div>
+
+      {/* Memory Chips (NEW) */}
+      {memoryChips && memoryChips.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10, color: "var(--tm)", fontFamily: "var(--mono)" }}>Memories</span>
+          {memoryChips.map((chip) => (
+            <span key={chip.id} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "rgba(167,139,250,.10)", border: "1px solid rgba(167,139,250,.16)", color: "var(--violet)", fontFamily: "var(--mono)" }} title={chip.text}>
+              {chip.text.length > 28 ? chip.text.slice(0, 28) + "…" : chip.text}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="dk-cmdbar">
         <AgentProgressBar
@@ -153,10 +202,12 @@ export function ChatPanel({
           onStop={onStop}
           streaming={streaming}
           value={input}
-          onValueChange={onInputChange}
+          onChange={onInputChange}
           listening={listening}
           onToggleVoice={onToggleVoice}
           voiceSupported={voiceSupported}
+          userPrompts={messages.filter(m => m.role === "user").map(m => m.content)}
+          onOpenCommands={onOpenCommands}
         />
       </div>
     </div>

@@ -19,7 +19,7 @@ export function ChartDataCard({
   if (chartType === "bar") {
     const ds = datasets[0]
     return (
-      <CardShell title={title || "Chart"} badge="chart_data" icon="▰">
+      <CardShell title={title || "Chart"} badge="chart_data" accent="amber" icon="▰">
         <div className="dk-chart">
           {labels.map((lab, i) => {
             const v = ds?.data[i] ?? 0
@@ -45,7 +45,7 @@ export function ChartDataCard({
       return x + "," + y
     }) ?? []
     return (
-      <CardShell title={title || "Chart"} badge="chart_data" icon="▰">
+      <CardShell title={title || "Chart"} badge="chart_data" accent="amber" icon="▰">
         <svg viewBox={"0 0 " + W + " " + H} className="w-full" role="img" aria-label={title || "chart"}>
           <polyline fill="none" stroke="var(--cyan)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" points={pts.join(" ")} />
         </svg>
@@ -54,7 +54,7 @@ export function ChartDataCard({
   }
 
   return (
-    <CardShell title={title || "Chart"} badge="chart_data" icon="▰">
+    <CardShell title={title || "Chart"} badge="chart_data" accent="amber" icon="▰">
       <div className="text-[12px] text-[var(--tm)]">Pie chart: {labels.join(", ")}</div>
     </CardShell>
   )

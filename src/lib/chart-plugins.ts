@@ -37,12 +37,33 @@ export const centerText: Plugin = {
   id: 'centerText',
   afterDraw(chart) {
     const pluginOpts = chart.options.plugins?.centerText;
-    if (!pluginOpts || typeof pluginOpts !== 'object') return;
+    if (!pluginOpts || typeof pluginOpts !== 'object' || !pluginOpts.enabled) return;
     const { ctx, chartArea: { left, right, top, bottom } } = chart;
     const cx = (left + right) / 2;
     const cy = (top + bottom) / 2;
     const meta = chart.getDatasetMeta(0);
     if (!meta.total) return;
+    const centerValue = chart.data.datasets[0].data.reduce((a: number, b: number) => a + b, 0);
+    const mode = (pluginOpts as any).mode || 'time';
+    let displayText: string;
+    if (mode === 'currency') {
+      displayText = centerValue >= 1000000
+        ? `${(centerValue / 1000000).toFixed(1)}M`
+        : centerValue >= 1000
+        ? `${(centerValue / 1000).toFixed(1)}K`
+        : centerValue.toFixed(0);
+    } else if (mode === 'count') {
+      displayText = centerValue >= 1000000
+        ? `${(centerValue / 1000000).toFixed(1)}M`
+        : centerValue >= 10000
+        ? `${(centerValue / 1000).toFixed(1)}K`
+        : centerValue.toLocaleString();
+    } else {
+      // time mode (default) — seconds → h/m
+      const h = Math.floor(centerValue / 3600);
+      const m = Math.floor((centerValue % 3600) / 60);
+      displayText = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
     ctx.save();
     ctx.textAlign = 'center';
     ctx.fillStyle = '#71717a';
@@ -50,10 +71,7 @@ export const centerText: Plugin = {
     ctx.fillText('TOTAL', cx, cy - 12);
     ctx.fillStyle = '#fafafa';
     ctx.font = '700 22px "JetBrains Mono", monospace';
-    const centerValue = chart.data.datasets[0].data.reduce((a: number, b: number) => a + b, 0);
-    const h = Math.floor(centerValue / 3600);
-    const m = Math.floor((centerValue % 3600) / 60);
-    ctx.fillText(h > 0 ? `${h}h ${m}m` : `${m}m`, cx, cy + 12);
+    ctx.fillText(displayText, cx, cy + 12);
     ctx.restore();
   }
 };

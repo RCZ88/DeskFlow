@@ -1,25 +1,41 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, FileUp, Sparkles } from 'lucide-react';
-import type { LessonSummary } from '../../shared/learn/types';
+import { Plus, FileUp, Sparkles, BookMarked, LayoutGrid, Rows3 } from 'lucide-react';
+import type { LessonSummary, TutorDashboardData } from '../../shared/learn/types';
 import { BookCard } from './BookCard';
+import { BookSpine } from './BookSpine';
 import { BlurFade } from '../ui/blur-fade';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { MasteryStrip } from './MasteryStrip';
+import { TutorDashboardSection } from './TutorDashboardSection';
 import type { MasteryStats } from './useMasteryStats';
+import { CURRICULUM_BLUEPRINT } from '../../services/learn/curriculum';
 
 export interface LessonLibraryProps {
   lessons: LessonSummary[];
   loading?: boolean;
   onOpen: (id: string) => void;
+  onInfo?: (id: string) => void;
   onCompose: () => void;
   onImport: () => void;
   onWelcome?: () => void;
   stats?: MasteryStats;
   onOpenProfile?: () => void;
+  getDashboard?: () => Promise<TutorDashboardData>;
+  onNavigateToNode?: (nodeId: string) => void;
 }
 
-function LibrarySkeletons() {
+function LibrarySkeletons({ spine }: { spine?: boolean }) {
+  if (spine) {
+    return (
+      <div className="flex gap-2 items-end overflow-x-auto pb-4">
+        {Array.from({ length: 12 }).map((_, i) => (
+          <Skeleton key={i} className="w-12 rounded-md" style={{ height: 220 }} />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="grid grid-cols-2 gap-x-6 gap-y-9 sm:grid-cols-3 lg:grid-cols-4">
       {Array.from({ length: 8 }).map((_, i) => (
@@ -32,7 +48,11 @@ function LibrarySkeletons() {
   );
 }
 
-export function LessonLibrary({ lessons, loading, onOpen, onCompose, onImport, onWelcome, stats, onOpenProfile }: LessonLibraryProps) {
+type ViewMode = 'covers' | 'spines';
+
+export function LessonLibrary({ lessons, loading, onOpen, onInfo, onCompose, onImport, onWelcome, stats, onOpenProfile, getDashboard, onNavigateToNode }: LessonLibraryProps) {
+  const [viewMode, setViewMode] = useState<ViewMode>('covers');
+
   // Group lessons into shelves by part so the library reads like a curriculum.
   const shelves = new Map<number, LessonSummary[]>();
   for (const l of lessons) {
@@ -55,6 +75,32 @@ export function LessonLibrary({ lessons, loading, onOpen, onCompose, onImport, o
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* View toggle */}
+            <div className="flex items-center bg-zinc-800/60 border border-zinc-700/50 rounded-lg p-0.5 mr-2">
+              <button
+                onClick={() => setViewMode('covers')}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  viewMode === 'covers'
+                    ? 'bg-zinc-700 text-zinc-100 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+                title="Cover grid view"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode('spines')}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  viewMode === 'spines'
+                    ? 'bg-zinc-700 text-zinc-100 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+                title="Spine view"
+              >
+                <Rows3 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
             {onWelcome && (
               <button
                 onClick={onWelcome}
@@ -80,28 +126,101 @@ export function LessonLibrary({ lessons, loading, onOpen, onCompose, onImport, o
 
       {stats && <MasteryStrip stats={stats} onOpenNode={onOpen} onOpenProfile={onOpenProfile} />}
 
+      {getDashboard && lessons.length > 0 && (
+        <div className="mb-8">
+          <TutorDashboardSection
+            getDashboard={getDashboard}
+            onNavigateToNode={onNavigateToNode}
+          />
+        </div>
+      )}
+
       {loading ? (
-        <LibrarySkeletons />
-      ) : (
+        <LibrarySkeletons spine={viewMode === 'spines'} />
+      ) : viewMode === 'spines' ? (
+        // ── Spine View ──
         <div className="space-y-12">
-          {orderedParts.map((part) => (
-            <section key={part}>
-              <div className="mb-4 flex items-center gap-3">
-                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                <h2 className="font-mono text-[11px] uppercase tracking-[0.28em] text-zinc-400">
-                  Part {String(part).padStart(2, '0')}
-                </h2>
-                <span className="h-px flex-1 bg-white/10" />
-              </div>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-9 sm:grid-cols-3 lg:grid-cols-4">
-                {shelves.get(part)!.map((lesson, i) => (
-                  <BookCard key={lesson.id} lesson={lesson} index={i} onOpen={onOpen} />
+          {orderedParts.map((part) => {
+            const partLessons = shelves.get(part)!;
+            const partInfo = CURRICULUM_BLUEPRINT.find(p => p.part === part);
+            return (
+              <section key={part}>
+                <div className="mb-4 flex items-center gap-3">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  <h2 className="font-mono text-[11px] uppercase tracking-[0.28em] text-zinc-400">
+                    {partInfo?.emoji || '📖'} Part {String(part).padStart(2, '0')} — {partInfo?.title || `Part ${part}`}
+                  </h2>
+                  <span className="h-px flex-1 bg-white/10" />
+                </div>
+
+                <div className="flex gap-2 items-end overflow-x-auto pb-4 ws-scroll">
+                  {partLessons.map((lesson, i) => (
+                    <BookSpine
+                      key={lesson.id}
+                      lesson={lesson}
+                      index={i}
+                      onOpen={onOpen}
+                      onInfo={onInfo}
+                    />
+                  ))}
+                </div>
+
+                {/* wooden shelf rail */}
+                <div className="lyceum-shelf-rail mt-1 h-2 w-full rounded-full" />
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        // ── Cover Grid View ──
+        <div className="space-y-12">
+          {orderedParts.map((part) => {
+            const partLessons = shelves.get(part)!;
+            const chapters = new Map<string, LessonSummary[]>();
+            for (const l of partLessons) {
+              const ch = l.chapter || '';
+              const arr = chapters.get(ch) || [];
+              arr.push(l);
+              chapters.set(ch, arr);
+            }
+            const orderedChapters = Array.from(chapters.keys()).sort((a, b) => {
+              if (!a) return 1;
+              if (!b) return -1;
+              return a.localeCompare(b);
+            });
+
+            return (
+              <section key={part}>
+                <div className="mb-4 flex items-center gap-3">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  <h2 className="font-mono text-[11px] uppercase tracking-[0.28em] text-zinc-400">
+                    Part {String(part).padStart(2, '0')}
+                  </h2>
+                  <span className="h-px flex-1 bg-white/10" />
+                </div>
+
+                {orderedChapters.map((chapter) => (
+                  <div key={chapter || '__ungrouped__'} className="mb-6 last:mb-0">
+                    {chapter && (
+                      <div className="mb-3 flex items-center gap-2 ml-1">
+                        <BookMarked className="h-3 w-3 text-zinc-500" />
+                        <h3 className="text-xs font-medium text-zinc-500">{chapter}</h3>
+                        <span className="h-px flex-1 bg-white/5" />
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-9 sm:grid-cols-3 lg:grid-cols-4">
+                      {chapters.get(chapter)!.map((lesson, i) => (
+                        <BookCard key={lesson.id} lesson={lesson} index={i} onOpen={onOpen} onInfo={onInfo} />
+                      ))}
+                    </div>
+                  </div>
                 ))}
-              </div>
-              {/* wooden shelf rail */}
-              <div className="lyceum-shelf-rail mt-3 h-2 w-full rounded-full" />
-            </section>
-          ))}
+
+                {/* wooden shelf rail */}
+                <div className="lyceum-shelf-rail mt-3 h-2 w-full rounded-full" />
+              </section>
+            );
+          })}
         </div>
       )}
     </div>

@@ -14,6 +14,7 @@ export interface ParsedMessageRouterProps {
   onAction?: (a: CardAction) => void
   actionResults?: Record<string, "running" | "done" | "error">
   connectorSyncing?: Record<string, true>
+  autoApprove?: boolean
 }
 
 export function ParsedMessageRouter({
@@ -21,6 +22,7 @@ export function ParsedMessageRouter({
   onAction,
   actionResults,
   connectorSyncing,
+  autoApprove,
 }: ParsedMessageRouterProps) {
   switch (parsed.type) {
     case "goal_suggestion":
@@ -30,7 +32,7 @@ export function ParsedMessageRouter({
     case "stats_summary":
       return <StatsSummaryCard metrics={parsed.metrics} period={parsed.period} />
     case "action_list":
-      return <ActionListCard actions={parsed.actions} note={parsed.note} onAction={onAction} results={actionResults} />
+      return <ActionListCard actions={parsed.actions} note={parsed.note} onAction={onAction} results={actionResults} autoApprove={autoApprove} />
     case "digest_item":
       return <DigestTopicCard topic={parsed.topic} summary={parsed.summary} sources={parsed.sources} onAction={onAction} />
     case "connector_status":

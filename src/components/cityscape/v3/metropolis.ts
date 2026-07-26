@@ -6,6 +6,8 @@ export interface HeroInput {
   height01: number
   activity01?: number
   active?: boolean
+  metricValue?: number
+  metric?: 'tokens' | 'messages' | 'sessions' | 'cost'
   tokens?: number
   sessions?: number
   cost?: number
@@ -28,6 +30,8 @@ export interface Tower {
   isHero: boolean
   agentId?: string
   label?: string
+  metricValue?: number
+  metric?: 'tokens' | 'messages' | 'sessions' | 'cost'
   tokens?: number
   sessions?: number
   cost?: number
@@ -166,6 +170,8 @@ export function generateMetropolis(heroes: HeroInput[], opts: MetropolisOptions 
     t.litDensity = 0.45 + activity * 0.5
     t.agentId = hero.id
     t.label = hero.label
+    t.metricValue = hero.metricValue
+    t.metric = hero.metric
     t.tokens = hero.tokens
     t.sessions = hero.sessions
     t.cost = hero.cost

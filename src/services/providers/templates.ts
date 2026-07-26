@@ -44,13 +44,13 @@ export const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
     docsUrl: 'https://docs.github.com/github-models',
     supportsStream: true,
   },
-  gemini: {
-    id: 'gemini',
+  google: {
+    id: 'google',
     label: 'Google Gemini',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-    auth: { type: 'query', queryParam: 'key' },
-    suggestedModels: ['gemini-2.0-flash', 'gemini-2.0-flash-lite'],
-    docsUrl: 'https://ai.google.dev/gemini-api/docs/openai',
+    auth: { type: 'bearer' },
+    suggestedModels: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
+    docsUrl: 'https://ai.google.dev/gemini-api/docs/quickstart',
     supportsStream: true,
   },
   custom: {

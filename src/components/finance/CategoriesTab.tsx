@@ -40,11 +40,13 @@ interface CategoriesTabProps {
   displayCurrency: string;
   baseCurrency: string;
   onCreateCategory: (data: { name: string; type: FinanceCategory['type']; icon?: string; color?: string }) => Promise<boolean>;
+  onUpdateCategory?: (data: { id: number; name: string; type: string; icon: string; color: string }) => Promise<boolean>;
 }
 
-export function CategoriesTab({ categories, loading, error, onRetry, displayCurrency, baseCurrency, onCreateCategory }: CategoriesTabProps) {
+export function CategoriesTab({ categories, loading, error, onRetry, displayCurrency, baseCurrency, onCreateCategory, onUpdateCategory }: CategoriesTabProps) {
   const [showCreate, setShowCreate] = useState(false);
   const [colorPicker, setColorPicker] = useState<{ show: boolean; categoryId: number | null }>({ show: false, categoryId: null });
+  const [editing, setEditing] = useState<{ id: number; name: string; icon: string; color: string } | null>(null);
 
   const incomeCats = categories.filter(c => c.type === 'income' && !c.is_archived);
   const expenseCats = categories.filter(c => c.type === 'expense' && !c.is_archived);
@@ -60,11 +62,20 @@ export function CategoriesTab({ categories, loading, error, onRetry, displayCurr
     setColorPicker({ show: false, categoryId: null });
   };
 
-  const selectColor = (color: string) => {
-    if (colorPicker.categoryId) {
-      console.log('Change color for category:', colorPicker.categoryId, 'to', color);
+  const selectColor = async (color: string) => {
+    if (colorPicker.categoryId && onUpdateCategory) {
+      const cat = categories.find(c => c.id === colorPicker.categoryId);
+      if (cat) {
+        await onUpdateCategory({ id: cat.id, name: cat.name, type: cat.type, icon: cat.icon || 'CircleDollarSign', color });
+      }
     }
     closeColorPicker();
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editing || !onUpdateCategory) return;
+    await onUpdateCategory(editing);
+    setEditing(null);
   };
 
   const renderCategoryCard = (cat: FinanceCategory, accent: string, Icon: typeof TrendingUp) => (
@@ -75,28 +86,58 @@ export function CategoriesTab({ categories, loading, error, onRetry, displayCurr
       }`}
       style={{ borderColor: `${cat.color}20` }}
     >
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-1.5">
-          <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${cat.color}20` }}>
-            <Icon className="w-3 h-3" style={{ color: cat.color }} />
+      {editing?.id === cat.id ? (
+        <div className="space-y-2">
+          <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
+            className="w-full rounded-lg bg-zinc-800/80 border border-zinc-700/50 px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50" autoFocus />
+          <div className="flex flex-wrap gap-1">
+            {CATEGORY_ICONS.map(iconName => {
+              const Ic = ICON_MAP[iconName];
+              return Ic ? (
+                <button key={iconName} onClick={() => setEditing({ ...editing, icon: iconName })}
+                  className={`w-6 h-6 rounded flex items-center justify-center ${editing.icon === iconName ? 'bg-emerald-500/20 ring-1 ring-emerald-500/50' : 'hover:bg-zinc-700/50'}`}>
+                  <Ic className="w-3 h-3 text-zinc-400" />
+                </button>
+              ) : null;
+            })}
           </div>
-          <span className="text-xs font-medium text-zinc-200 truncate max-w-[120px]">{cat.name}</span>
+          <div className="flex gap-1">
+            <button onClick={handleSaveEdit} className="flex-1 px-2 py-1 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30">Save</button>
+            <button onClick={() => setEditing(null)} className="flex-1 px-2 py-1 rounded text-[10px] text-zinc-500 hover:text-zinc-300">Cancel</button>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={(e) => { e.stopPropagation(); openColorPicker(cat.id); }}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center p-0.5 rounded text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition-all focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-          >
-            <Tag className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
-      <div className="flex items-center justify-between mt-2">
-        <span className="text-[10px] text-zinc-500">Spent this period</span>
-        <span className="text-xs font-medium tabular-nums" style={{ color: cat.color }}>
-          {fc(Number((cat as any).amount) || 0)}
-        </span>
-      </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-1.5">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${cat.color}20` }}>
+                <Icon className="w-3 h-3" style={{ color: cat.color }} />
+              </div>
+              <span className="text-xs font-medium text-zinc-200 truncate max-w-[120px]">{cat.name}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={(e) => { e.stopPropagation(); setEditing({ id: cat.id, name: cat.name, icon: cat.icon || 'CircleDollarSign', color: cat.color }); }}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center p-0.5 rounded text-zinc-500 hover:text-blue-400 hover:bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-all"
+              >
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); openColorPicker(cat.id); }}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center p-0.5 rounded text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition-all"
+              >
+                <Tag className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between mt-2">
+            <span className="text-[10px] text-zinc-500">Spent this period</span>
+            <span className="text-xs font-medium tabular-nums" style={{ color: cat.color }}>
+              {fc(Number((cat as any).amount) || 0)}
+            </span>
+          </div>
+        </>
+      )}
     </GlassSurface>
   );
 

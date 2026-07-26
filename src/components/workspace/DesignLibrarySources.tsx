@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Sparkles, Wand2, BookOpen, MoreVertical, Play, Square } from 'lucide-react';
+import { Search, Sparkles, Wand2, BookOpen, MoreVertical, Play, Square, ExternalLink } from 'lucide-react';
 
 interface DesignLibrary {
   id: string;
@@ -23,7 +23,9 @@ interface DesignLibrarySourcesProps {
 
 export default function DesignLibrarySources({ libraries, onBrowse, onToggle, onConfigure, onStartServer, onStopServer }: DesignLibrarySourcesProps) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -37,14 +39,10 @@ export default function DesignLibrarySources({ libraries, onBrowse, onToggle, on
 
   const getStatusText = (status: DesignLibrary['status'], itemCount: number) => {
     switch (status) {
-      case 'connected':
-        return `Connected · ${itemCount} items`;
-      case 'connecting':
-        return 'Connecting...';
-      case 'error':
-        return 'Connection error';
-      default:
-        return 'Not connected';
+      case 'connected': return `Connected · ${itemCount} items`;
+      case 'connecting': return 'Connecting...';
+      case 'error': return 'Connection error';
+      default: return 'Not connected';
     }
   };
 
@@ -55,6 +53,15 @@ export default function DesignLibrarySources({ libraries, onBrowse, onToggle, on
       case 'error': return '#ef4444';
       default: return '#6b7280';
     }
+  };
+
+  const openMenu = (id: string) => {
+    const btn = buttonRefs.current.get(id);
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      setMenuPos({ x: rect.right - 160, y: rect.bottom + 4 });
+    }
+    setMenuOpen(id);
   };
 
   return (
@@ -73,10 +80,8 @@ export default function DesignLibrarySources({ libraries, onBrowse, onToggle, on
           return (
             <div
               key={library.id}
-              className="rounded-xl p-4 bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 flex flex-col gap-2 relative"
-              style={{
-                borderTop: `3px solid ${library.accentColor}/30`,
-              }}
+              className="rounded-xl p-4 bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 flex flex-col gap-2"
+              style={{ borderTop: `3px solid ${library.accentColor}/30` }}
             >
               {/* Header */}
               <div className="flex items-center justify-between">
@@ -84,45 +89,19 @@ export default function DesignLibrarySources({ libraries, onBrowse, onToggle, on
                   <Icon className="w-4 h-4" style={{ color: library.accentColor }} />
                   <span className="text-sm font-semibold text-zinc-100">{library.label}</span>
                 </div>
-                <div className="relative" ref={menuRef}>
-                  <button
-                    onClick={() => setMenuOpen(menuOpen === library.id ? null : library.id)}
-                    className="p-1 rounded-md text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/60 transition-colors duration-150"
-                  >
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                  {menuOpen === library.id && (
-                    <div className="absolute right-0 top-8 z-20 w-40 py-1 rounded-lg bg-zinc-800 border border-zinc-700/60 shadow-xl">
-                      <button
-                        onClick={() => { setMenuOpen(null); onConfigure?.(library.id); }}
-                        className="w-full px-3 py-1.5 text-xs text-left text-zinc-300 hover:bg-zinc-700/60 transition-colors"
-                      >
-                        Configure
-                      </button>
-                      <button
-                        onClick={() => { setMenuOpen(null); onToggle(library.id, !library.enabled); }}
-                        className="w-full px-3 py-1.5 text-xs text-left text-zinc-300 hover:bg-zinc-700/60 transition-colors"
-                      >
-                        {library.enabled ? 'Disable' : 'Enable'}
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <button
+                  ref={(el) => { if (el) buttonRefs.current.set(library.id, el); }}
+                  onClick={() => menuOpen === library.id ? setMenuOpen(null) : openMenu(library.id)}
+                  className="p-1 rounded-md text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/60 transition-colors duration-150"
+                >
+                  <MoreVertical className="w-3.5 h-3.5" />
+                </button>
               </div>
 
               {/* Status */}
               <div className="flex items-center gap-1.5 text-xs">
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: getStatusColor(library.status) }}
-                />
-                <span
-                  className={
-                    library.status === 'connected' ? 'text-zinc-400' :
-                    library.status === 'error' ? 'text-red-400' :
-                    'text-zinc-600'
-                  }
-                >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: getStatusColor(library.status) }} />
+                <span className={library.status === 'connected' ? 'text-zinc-400' : library.status === 'error' ? 'text-red-400' : 'text-zinc-600'}>
                   {getStatusText(library.status, library.itemCount)}
                 </span>
               </div>
@@ -132,43 +111,19 @@ export default function DesignLibrarySources({ libraries, onBrowse, onToggle, on
 
               {/* Actions */}
               <div className="flex gap-2 mt-1">
-                {isConnected ? (
-                  <>
-                    <button
-                      onClick={() => onBrowse(library.id)}
-                      disabled={!canBrowse}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium
-                        bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700/60
-                        disabled:opacity-40 disabled:cursor-not-allowed
-                        transition-colors duration-150"
-                    >
-                      Browse
-                    </button>
-                    <button
-                      onClick={() => onStopServer?.(library.id)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium
-                        bg-red-500/10 text-red-400 hover:bg-red-500/20
-                        transition-colors duration-150 inline-flex items-center gap-1"
-                    >
-                      <Square className="w-3 h-3" />
-                      Disconnect
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => onStartServer?.(library.id)}
-                    disabled={isConnecting}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium
-                      bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700/60
-                      disabled:opacity-50 disabled:cursor-wait
-                      transition-colors duration-150 inline-flex items-center gap-1"
-                  >
-                    {isConnecting ? (
-                      <span className="inline-block w-3 h-3 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <Play className="w-3 h-3" />
-                    )}
-                    {isConnecting ? 'Connecting...' : 'Connect'}
+                {canBrowse && (
+                  <button onClick={() => onBrowse(library.id)} className="flex-1 px-2 py-1.5 rounded-lg bg-zinc-800/60 text-zinc-300 text-[10px] font-medium hover:bg-zinc-700/60 transition-colors">
+                    Browse
+                  </button>
+                )}
+                {isConnected && onStopServer && (
+                  <button onClick={() => onStopServer(library.id)} className="px-2 py-1.5 rounded-lg bg-red-900/30 text-red-400 text-[10px] font-medium hover:bg-red-900/50 transition-colors">
+                    <Square className="w-3 h-3" />
+                  </button>
+                )}
+                {!isConnected && !isConnecting && onStartServer && (
+                  <button onClick={() => onStartServer(library.id)} className="px-2 py-1.5 rounded-lg bg-emerald-900/30 text-emerald-400 text-[10px] font-medium hover:bg-emerald-900/50 transition-colors">
+                    <Play className="w-3 h-3" />
                   </button>
                 )}
               </div>
@@ -176,12 +131,26 @@ export default function DesignLibrarySources({ libraries, onBrowse, onToggle, on
           );
         })}
       </div>
-      
-      {!libraries.some(lib => lib.enabled) && (
-        <div className="text-center py-4">
-          <p className="text-xs text-zinc-600">
-            Connect design libraries to browse 2000+ components and design systems
-          </p>
+
+      {/* Dropdown Menu — rendered via portal-like fixed positioning */}
+      {menuOpen && (
+        <div
+          ref={menuRef}
+          className="fixed z-[9999] w-40 py-1 rounded-lg bg-zinc-800 border border-zinc-700/60 shadow-xl"
+          style={{ left: menuPos.x, top: menuPos.y }}
+        >
+          <button
+            onClick={() => { const id = menuOpen; setMenuOpen(null); onConfigure?.(id); }}
+            className="w-full px-3 py-1.5 text-xs text-left text-zinc-300 hover:bg-zinc-700/60 transition-colors"
+          >
+            Configure
+          </button>
+          <button
+            onClick={() => { const id = menuOpen; const lib = libraries.find(l => l.id === id); setMenuOpen(null); if (lib) onToggle(id, !lib.enabled); }}
+            className="w-full px-3 py-1.5 text-xs text-left text-zinc-300 hover:bg-zinc-700/60 transition-colors"
+          >
+            {libraries.find(l => l.id === menuOpen)?.enabled ? 'Disable' : 'Enable'}
+          </button>
         </div>
       )}
     </div>

@@ -55,6 +55,19 @@ function trendInfo(data: number[] | undefined): { direction: 'up' | 'down' | 'fl
   return { direction: dir, label: `${pct}%` }
 }
 
+const stagger = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.08 } },
+}
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 16, filter: 'blur(6px)' },
+  show: {
+    opacity: 1, y: 0, filter: 'blur(0px)',
+    transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] },
+  },
+}
+
 export function SummaryStrip({ summary, loading, error, onRefresh }: SummaryStripProps) {
   const navigate = useNavigate()
   const reduce = useReducedMotion()
@@ -92,65 +105,88 @@ export function SummaryStrip({ summary, loading, error, onRefresh }: SummaryStri
   const reviewsTrend = trendInfo(s?.trends?.reviews)
   const sleepTrend = trendInfo(s?.trends?.sleep)
 
+  const cards = (
+    <>
+      <motion.div variants={fadeUp}>
+        <SummaryCard
+          title="Activity"
+          value={s ? fmtMin(s.focusMinutes) : '—'}
+          subtitle={s ? `${fmtMin(s.focusMinutes)} focus` : 'No activity data yet'}
+          icon={<BarChart className="w-4.5 h-4.5 text-emerald-400" />}
+          accentColor="from-emerald-500/15 to-emerald-600/5"
+          accentHex="#10b981"
+          onClick={() => navigate('/activity')}
+          trend={focusTrend}
+          sparkline={s?.trends?.focus && s.trends.focus.length >= 2 ? (
+            <Sparkline data={s.trends.focus} color="#34d399" width={80} height={24} />
+          ) : undefined}
+        />
+      </motion.div>
+      <motion.div variants={fadeUp}>
+        <SummaryCard
+          title="Finance"
+          value={s?.financeLocked ? '••••' : s ? fmtCurr(s.totalBalance) : '—'}
+          subtitle={s ? `${s.walletCount} wallet${s.walletCount !== 1 ? 's' : ''}` : 'No finance data yet'}
+          icon={<Wallet className="w-4.5 h-4.5 text-amber-400" />}
+          accentColor="from-amber-500/15 to-amber-600/5"
+          accentHex="#f59e0b"
+          onClick={() => navigate('/finance')}
+          masked={s?.financeLocked}
+          trend={s?.financeLocked ? undefined : balanceTrend}
+          sparkline={!s?.financeLocked && s?.trends?.balance && s.trends.balance.length >= 2 ? (
+            <Sparkline data={s.trends.balance} color="#fbbf24" width={80} height={24} />
+          ) : undefined}
+        />
+      </motion.div>
+      <motion.div variants={fadeUp}>
+        <SummaryCard
+          title="Learn"
+          value={s ? (s.dueReviews > 0 ? `${s.dueReviews} due` : '✓ All caught up') : '—'}
+          subtitle={s ? (s.dueReviews > 0 ? `${s.dueReviews} review${s.dueReviews !== 1 ? 's' : ''} pending` : 'No reviews due') : 'No learn data yet'}
+          icon={<GraduationCap className="w-4.5 h-4.5 text-cyan-400" />}
+          accentColor="from-cyan-500/15 to-cyan-600/5"
+          accentHex="#06b6d4"
+          onClick={() => navigate('/learn')}
+          trend={reviewsTrend}
+          sparkline={s?.trends?.reviews && s.trends.reviews.length >= 2 ? (
+            <Sparkline data={s.trends.reviews} color="#22d3ee" width={80} height={24} />
+          ) : undefined}
+        />
+      </motion.div>
+      <motion.div variants={fadeUp}>
+        <SummaryCard
+          title="External"
+          value={s ? (s.sleepSeconds > 0 ? fmtDur(s.sleepSeconds) : 'No sleep logged') : '—'}
+          subtitle={s ? (s.sleepSeconds > 0 ? `${Math.round(s.sleepSeconds / 3600)}h sleep` : 'Log sleep in External') : 'No external data yet'}
+          icon={<ExternalLink className="w-4.5 h-4.5 text-violet-400" />}
+          accentColor="from-violet-500/15 to-violet-600/5"
+          accentHex="#8b5cf6"
+          onClick={() => navigate('/external')}
+          trend={sleepTrend}
+          sparkline={s?.trends?.sleep && s.trends.sleep.length >= 2 ? (
+            <Sparkline data={s.trends.sleep.map(v => Math.round(v / 60))} color="#a78bfa" width={80} height={24} />
+          ) : undefined}
+        />
+      </motion.div>
+    </>
+  )
+
+  if (reduce) {
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+        {cards}
+      </div>
+    )
+  }
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.1, duration: reduce ? 0 : 0.25, ease: [0.16, 1, 0.3, 1] }}
+      variants={stagger}
+      initial="hidden"
+      animate="show"
       className="grid grid-cols-2 lg:grid-cols-4 gap-5"
     >
-      <SummaryCard
-        title="Activity"
-        value={s ? fmtMin(s.focusMinutes) : '—'}
-        subtitle={s ? `${fmtMin(s.focusMinutes)} focus` : 'No activity data yet'}
-        icon={<BarChart className="w-4 h-4 text-emerald-400" />}
-        accentColor="from-emerald-500/10 to-emerald-600/5"
-        onClick={() => navigate('/activity')}
-        trend={focusTrend}
-        sparkline={s?.trends?.focus && s.trends.focus.length >= 2 ? (
-          <Sparkline data={s.trends.focus} color="#34d399" width={80} height={24} />
-        ) : undefined}
-      />
-
-      <SummaryCard
-        title="Finance"
-        value={s?.financeLocked ? '••••' : s ? fmtCurr(s.totalBalance) : '—'}
-        subtitle={s ? `${s.walletCount} wallet${s.walletCount !== 1 ? 's' : ''}` : 'No finance data yet'}
-        icon={<Wallet className="w-4 h-4 text-amber-400" />}
-        accentColor="from-amber-500/10 to-amber-600/5"
-        onClick={() => navigate('/finance')}
-        masked={s?.financeLocked}
-        trend={s?.financeLocked ? undefined : balanceTrend}
-        sparkline={!s?.financeLocked && s?.trends?.balance && s.trends.balance.length >= 2 ? (
-          <Sparkline data={s.trends.balance} color="#fbbf24" width={80} height={24} />
-        ) : undefined}
-      />
-
-      <SummaryCard
-        title="Learn"
-        value={s ? (s.dueReviews > 0 ? `${s.dueReviews} due` : '✓ All caught up') : '—'}
-        subtitle={s ? (s.dueReviews > 0 ? `${s.dueReviews} review${s.dueReviews !== 1 ? 's' : ''} pending` : 'No reviews due') : 'No learn data yet'}
-        icon={<GraduationCap className="w-4 h-4 text-cyan-400" />}
-        accentColor="from-cyan-500/10 to-cyan-600/5"
-        onClick={() => navigate('/learn')}
-        trend={reviewsTrend}
-        sparkline={s?.trends?.reviews && s.trends.reviews.length >= 2 ? (
-          <Sparkline data={s.trends.reviews} color="#22d3ee" width={80} height={24} />
-        ) : undefined}
-      />
-
-      <SummaryCard
-        title="External"
-        value={s ? (s.sleepSeconds > 0 ? fmtDur(s.sleepSeconds) : 'No sleep logged') : '—'}
-        subtitle={s ? (s.sleepSeconds > 0 ? `${Math.round(s.sleepSeconds / 3600)}h sleep` : 'Log sleep in External') : 'No external data yet'}
-        icon={<ExternalLink className="w-4 h-4 text-violet-400" />}
-        accentColor="from-violet-500/10 to-violet-600/5"
-        onClick={() => navigate('/external')}
-        trend={sleepTrend}
-        sparkline={s?.trends?.sleep && s.trends.sleep.length >= 2 ? (
-          <Sparkline data={s.trends.sleep.map(v => Math.round(v / 60))} color="#a78bfa" width={80} height={24} />
-        ) : undefined}
-      />
+      {cards}
     </motion.div>
   )
 }

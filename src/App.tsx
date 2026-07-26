@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, useMemo, useRef, useCallback, memo, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import confetti from 'canvas-confetti';
 import { SidebarLogo } from './components/SidebarLogo';
 import {
@@ -33,6 +34,11 @@ import { AiPage } from './pages/AiPage';
 
 import InsightsPage from './pages/InsightsPage';
 import { FinancePage } from './pages/FinancePage';
+import ResumePage from './pages/ResumePage';
+import ResumeBuilderPage from './pages/ResumeBuilderPage';
+import ResumePreviewPage from './pages/ResumePreviewPage';
+import ResumeImportPage from './pages/ResumeImportPage';
+import ResumeExportPage from './pages/ResumeExportPage';
 import DashboardPage from './pages/DashboardPage';
 import FeatureSpecViewer from './components/FeatureSpecViewer';
 import AfkPromptModal from './components/AfkPromptModal';
@@ -784,6 +790,29 @@ function App() {
     checkSleepDetect();
   }, []);
 
+  // On mount, restore persisted AFK queue (survives app restart)
+  useEffect(() => {
+    const loadPersistedAfk = async () => {
+      try {
+        if (window.deskflowAPI?.loadAfkQueue) {
+          const persisted = await window.deskflowAPI.loadAfkQueue();
+          if (Array.isArray(persisted) && persisted.length > 0) {
+            // Validate entries — only restore those that aren't stale (>2 hours old)
+            const now = Date.now();
+            const MAX_AGE_MS = 2 * 60 * 60 * 1000;
+            const fresh = persisted.filter((e: any) => e.returnMs && (now - e.returnMs) < MAX_AGE_MS);
+            if (fresh.length > 0) {
+              setAfkPromptQueue(fresh);
+              afkQueueIdRef.current = Math.max(...fresh.map((e: any) => e.id || 0)) + 1;
+              console.log(`[DeskFlow] Restored ${fresh.length} persisted AFK prompt(s)`);
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    };
+    loadPersistedAfk();
+  }, []);
+
   // Listen for real-time sleep detection from main process
   useEffect(() => {
     if (window.deskflowAPI?.onSleepDetection) {
@@ -843,8 +872,18 @@ function App() {
       const deviceOff = new Date(now);
       deviceOff.setHours(sleepDetectCustomBedtime.hours, sleepDetectCustomBedtime.minutes, 0, 0);
 
+      // If bedtime is before 6 AM, it belongs to the previous day
+      // e.g., bedtime 1 AM on the 21st = 1 AM on the 20th
+      if (sleepDetectCustomBedtime.hours < 6) {
+        deviceOff.setDate(deviceOff.getDate() - 1);
+      }
+
       const fellAsleep = new Date(now);
       fellAsleep.setHours(sleepDetectFellAsleepAt.hours, sleepDetectFellAsleepAt.minutes, 0, 0);
+      // Apply same date correction for fell asleep if before 6 AM
+      if (sleepDetectFellAsleepAt.hours < 6 && fellAsleep.getTime() > now.getTime()) {
+        fellAsleep.setDate(fellAsleep.getDate() - 1);
+      }
 
       const wokeUp = new Date(now);
       wokeUp.setHours(sleepDetectWakeUpAt.hours, sleepDetectWakeUpAt.minutes, 0, 0);
@@ -852,23 +891,11 @@ function App() {
       const deviceOn = new Date(now);
       deviceOn.setHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes, 0, 0);
 
-                      // Handle midnight crossing
-                      // DO NOT advance fellAsleep here — it's typically on the SAME evening
-                      // as device off. Advancing it would inflate device_off_to_sleep_seconds
-                      // to 24h+, making actualSleepSeconds compute to 0 in get-sleep-trends.
-                      if (wokeUp <= deviceOff) {
-                        wokeUp.setDate(wokeUp.getDate() + 1);
-                        deviceOn.setDate(deviceOn.getDate() + 1);
-                      }
-                      // If fellAsleep is before device off by 10+ hours, it crossed midnight
-                      // (e.g., device off 23:00, fell asleep 01:00 next day)
-                      if (fellAsleep <= deviceOff) {
-                        const offMin = deviceOff.getHours() * 60 + deviceOff.getMinutes();
-                        const sleepMin = fellAsleep.getHours() * 60 + fellAsleep.getMinutes();
-                        if (offMin - sleepMin >= 600) {
-                          fellAsleep.setDate(fellAsleep.getDate() + 1);
-                        }
-                      }
+      // Handle midnight crossing: wake time must be after device off
+      if (wokeUp <= deviceOff) {
+        wokeUp.setDate(wokeUp.getDate() + 1);
+        deviceOn.setDate(deviceOn.getDate() + 1);
+      }
       if (deviceOn <= wokeUp) deviceOn.setDate(deviceOn.getDate() + 1);
 
       const deviceOffToSleepSec = Math.max(0, Math.round((fellAsleep.getTime() - deviceOff.getTime()) / 1000));
@@ -1262,6 +1289,13 @@ function App() {
     window.dispatchEvent(new CustomEvent('external-data-changed'));
   }, []);
 
+  // Persist AFK queue to disk so it survives app restart
+  useEffect(() => {
+    if (window.deskflowAPI?.saveAfkQueue) {
+      window.deskflowAPI.saveAfkQueue(afkPromptQueue).catch(() => {});
+    }
+  }, [afkPromptQueue]);
+
   // Listen for gap-drawer open event
   useEffect(() => {
     const handler = () => setShowGapDrawer(true);
@@ -1488,11 +1522,20 @@ function App() {
   // Ref to latest externalActivities for the idle return handler
   const externalActivitiesRef = useRef(externalActivities);
   externalActivitiesRef.current = externalActivities;
+
+  // Ref to latest timerState so idle detector can check externalRunning
+  const timerStateRef = useRef(timerState);
+  timerStateRef.current = timerState;
   
   // Keep idleReturnFnRef.current updated with the actual handler
   useEffect(() => {
     idleReturnFnRef.current = async () => {
       if (afkPromptShownRef.current) return;
+      // Skip AFK prompt if user already has an external activity running — they're not AFK
+      if (timerStateRef.current?.externalRunning) {
+        pendingIdleRangeRef.current = null;
+        return;
+      }
       afkPromptShownRef.current = true;
 
       const range = pendingIdleRangeRef.current;
@@ -1638,8 +1681,14 @@ function App() {
             idleStartRef.current = pendingIdleRangeRef.current.idleStart;
             setIsIdle(true);
             afkPromptShownRef.current = false;
+            // Pause main process tracking so pollForeground stops creating log entries
+            // during AFK. This creates a real gap in the logs table that gap-detection
+            // can find. When the user returns, setTracking(true) resumes and the gap
+            // detection code in pollForeground naturally handles the gap.
+            if (window.deskflowAPI?.setTracking) {
+              window.deskflowAPI.setTracking(false).catch(console.error);
+            }
           }
-          // DO NOT pause tracking and DO NOT discard the session — keep counting.
           setElapsedTime(prev => prev + 1);
           return;
         }
@@ -2261,16 +2310,15 @@ Trend: +14% vs. yesterday. Keep it up!`;
   const sidebarItems = [
     { icon: Home, label: 'Dashboard', path: '/' },
     { icon: Activity, label: 'Activity', path: '/activity' },
+    { icon: Brain, label: 'AI Assistant', path: '/ai' },
     { icon: GraduationCap, label: 'Learn', path: '/learn' },
+    { icon: FileText, label: 'Resume', path: '/resume' },
     { icon: Code2, label: 'IDE Projects', path: '/ide' },
     { icon: Clock4, label: 'External', path: '/external' },
-
-    { icon: Bot, label: 'AI Assistant', path: '/ai' },
     { icon: Wallet, label: 'Finance', path: '/finance' },
     { icon: BarChart3, label: 'Insights', path: '/reports' },
     { icon: Database, label: 'Database', path: '/database' },
     { icon: HeartHandshake, label: 'Life', path: '/life' },
-    { icon: GitBranch, label: 'Conductor', path: '/conductor' },
     { icon: Settings, label: 'Settings', path: '/settings' },
     { icon: BookOpen, label: 'Guide', path: '/guide' },
   ];
@@ -2280,7 +2328,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
     <div className="flex h-screen overflow-hidden bg-[#121212] text-white">
       {/* Sidebar */}
       <motion.div
-        className="border-r border-zinc-800 flex flex-col h-full glass overflow-hidden"
+        className="border-r border-zinc-800 flex flex-col h-full glass overflow-hidden z-20"
         animate={{ width: sidebarCollapsed ? 60 : 256 }}
         transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
       >
@@ -2366,7 +2414,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 >
                   <Smartphone className="w-3.5 h-3.5" />
                 </button>
-                <span className="text-[10px] text-zinc-600">DeskFlow v3.85</span>
+                <span className="text-[10px] text-zinc-600">RHEO v1.0.0</span>
               </div>
             </motion.div>
           )}
@@ -2374,7 +2422,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
       </motion.div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Gap Banner */}
         <AnimatePresence>
           {showGapBannerSetting && unfilledMinutes > 0 && (
@@ -2627,6 +2675,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
         {/* Main Scroll Area */}
         <div className={`flex-1 min-h-0 ${location.pathname === '/terminal' ? 'flex flex-col overflow-hidden' : 'overflow-auto p-5'}`}>
+          <ErrorBoundary>
           <AnimatePresence mode="sync">
             <Routes location={location} key={location.pathname}>
               {/* Dashboard */}
@@ -2664,6 +2713,12 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
               <Route path="/ai" element={<AiPage />} />
               <Route path="/finance" element={<FinancePage />} />
+              {/* Resume Builder */}
+              <Route path="/resume" element={<ResumePage />} />
+              <Route path="/resume/build" element={<ResumeBuilderPage />} />
+              <Route path="/resume/preview" element={<ResumePreviewPage />} />
+              <Route path="/resume/import" element={<ResumeImportPage />} />
+              <Route path="/resume/export" element={<ResumeExportPage />} />
                {/* Legacy routes — kept as redirect for any bookmarked URLs */}
                <Route path="/dashboard" element={<Navigate to="/" replace />} />
               <Route path="/old-dashboard" element={<Navigate to="/external" replace />} />
@@ -2673,7 +2728,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <Route path="/life" element={<Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Life...</div>}><LifePage /></Suspense>} />
 
               <Route path="/learn" element={<LearnPage />} />
-              <Route path="/conductor" element={<ConductorPage />} />
+              <Route path="/conductor" element={<div className="flex items-center justify-center h-full text-zinc-500 text-sm">Conductor is now in the workspace sidebar</div>} />
 
               <Route path="/ide-help" element={<IDEHelpPage />} />
 
@@ -2696,6 +2751,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
 <Route path="/settings" element={<SettingsPage logs={logs} appStats={allTimeAppStats} websiteStats={allTimeWebsiteStats} onRegisterSave={handleRegisterSave} onReloadData={loadData} onCategoryOverridesChange={setCategoryOverrides} onHasChangesChange={setSettingsHasChanges} timerBehavior={timerBehavior} setTimerBehavior={setTimerBehavior} trackerAppMode={trackerAppMode} setTrackerAppMode={setTrackerAppMode} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} onExternalActivityTiersChange={setExternalActivityTiers} showGapBannerSetting={showGapBannerSetting} setShowGapBannerSetting={setShowGapBannerSetting} />} />
             </Routes>
           </AnimatePresence>
+          </ErrorBoundary>
 
           {/* ── Unsaved Changes Warning Modal ── */}
           <AnimatePresence>

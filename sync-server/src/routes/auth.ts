@@ -1,10 +1,36 @@
-// routes/auth.ts — Pair + refresh endpoints
+// routes/auth.ts — Register, login, pair, pair/generate, refresh endpoints
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 import crypto from "crypto"
-import { signAccess, signRefresh, verifyToken } from "../auth.js"
+import { signAccess, signRefresh, verifyToken, requireAuth } from "../auth.js"
 import { getDb } from "../db/client.js"
 import { randomUUID } from "crypto"
+
+// ── Password hashing (Node built-in scrypt, no extra deps) ───────
+const SALT_BYTES = 32
+const HASH_BYTES = 64
+
+function hashPassword(password: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(SALT_BYTES)
+    crypto.scrypt(password, salt, HASH_BYTES, (err, derivedKey) => {
+      if (err) return reject(err)
+      resolve(salt.toString("hex") + ":" + derivedKey.toString("hex"))
+    })
+  })
+}
+
+function verifyPassword(password: string, stored: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const [saltHex, hashHex] = stored.split(":")
+    if (!saltHex || !hashHex) return resolve(false)
+    const salt = Buffer.from(saltHex, "hex")
+    crypto.scrypt(password, salt, HASH_BYTES, (err, derivedKey) => {
+      if (err) return reject(err)
+      resolve(crypto.timingSafeEqual(Buffer.from(hashHex, "hex"), derivedKey))
+    })
+  })
+}
 
 const PairBody = z.object({
   code: z.string().regex(/^[A-Z0-9]{8}$/).optional(),
@@ -22,7 +48,8 @@ export async function authRoutes(app: FastifyInstance) {
   //
   // Two modes:
   //   1. With `code` — phone pairing flow. Validates 8-char code against
-  //      pairing_codes table, marks used, creates anonymous user + device.
+  //      pairing_codes table. If user_id is set (from pair/generate), joins
+  //      that user. Otherwise creates anonymous user + device (legacy).
   //   2. Without `code` — legacy email flow (backward compat).
   app.post("/pair", async (req, reply) => {
     const parsed = PairBody.safeParse(req.body)
@@ -35,6 +62,7 @@ export async function authRoutes(app: FastifyInstance) {
     let relayHost: string | null = null
     let relayPort = 8788
     let terminalId: string | null = null
+    let userId: string
 
     // ── Code-based pairing (phone flow) ───────────────────────────
     if (code) {
@@ -42,7 +70,7 @@ export async function authRoutes(app: FastifyInstance) {
       const now = Math.floor(Date.now() / 1000)
 
       const row = await db.execute({
-        sql: "SELECT terminal_id, relay_host, relay_port, expires_at FROM pairing_codes WHERE code_hash = ? AND used = 0 AND expires_at > ?",
+        sql: "SELECT terminal_id, relay_host, relay_port, expires_at, user_id FROM pairing_codes WHERE code_hash = ? AND used = 0 AND expires_at > ?",
         args: [codeHash, now],
       })
 
@@ -55,35 +83,61 @@ export async function authRoutes(app: FastifyInstance) {
       relayHost = match.relay_host as string
       relayPort = (match.relay_port as number) || 8788
 
+      // If pairing code has a user_id (from pair/generate), join that user
+      const codeUserId = match.user_id as string | null
+
       // Mark code as used (one-time)
       await db.execute({
         sql: "UPDATE pairing_codes SET used = 1 WHERE code_hash = ?",
         args: [codeHash],
       })
-    }
 
-    // ── Find or create user ───────────────────────────────────────
-    let userId: string
-    if (email) {
-      const existing = await db.execute({
-        sql: "SELECT id FROM users WHERE email = ?",
-        args: [email],
-      })
-      if (existing.rows.length > 0) {
-        userId = existing.rows[0].id as string
+      if (codeUserId) {
+        // Join existing user (phone pairs to desktop's account)
+        userId = codeUserId
+        const userExists = await db.execute({
+          sql: "SELECT id FROM users WHERE id = ?",
+          args: [userId],
+        })
+        if (userExists.rows.length === 0) {
+          // Fallback: create user if somehow missing
+          userId = randomUUID()
+          await db.execute({
+            sql: "INSERT INTO users (id) VALUES (?)",
+            args: [userId],
+          })
+        }
       } else {
+        // Legacy flow: create anonymous user
         userId = randomUUID()
         await db.execute({
-          sql: "INSERT INTO users (id, email) VALUES (?, ?)",
-          args: [userId, email],
+          sql: "INSERT INTO users (id) VALUES (?)",
+          args: [userId],
         })
       }
     } else {
-      userId = randomUUID()
-      await db.execute({
-        sql: "INSERT INTO users (id) VALUES (?)",
-        args: [userId],
-      })
+      // ── Find or create user (legacy flow) ─────────────────────────
+      if (email) {
+        const existing = await db.execute({
+          sql: "SELECT id FROM users WHERE email = ?",
+          args: [email],
+        })
+        if (existing.rows.length > 0) {
+          userId = existing.rows[0].id as string
+        } else {
+          userId = randomUUID()
+          await db.execute({
+            sql: "INSERT INTO users (id, email) VALUES (?, ?)",
+            args: [userId, email],
+          })
+        }
+      } else {
+        userId = randomUUID()
+        await db.execute({
+          sql: "INSERT INTO users (id) VALUES (?)",
+          args: [userId],
+        })
+      }
     }
 
     // ── Create device ─────────────────────────────────────────────
@@ -156,5 +210,208 @@ export async function authRoutes(app: FastifyInstance) {
     } catch {
       return reply.status(401).send({ error: "invalid refresh token" })
     }
+  })
+
+  // ── Register ─────────────────────────────────────────────────────
+  // POST /v1/auth/register — create user with email + password
+  const RegisterBody = z.object({
+    email: z.string().email(),
+    password: z.string().min(8).max(128),
+    deviceName: z.string().optional(),
+    platform: z.string().optional(),
+  })
+
+  app.post("/register", async (req, reply) => {
+    const parsed = RegisterBody.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const { email, password, deviceName, platform } = parsed.data
+    const db = getDb()
+
+    // Check if email already registered
+    const existing = await db.execute({
+      sql: "SELECT id, password_hash FROM users WHERE email = ?",
+      args: [email],
+    })
+    if (existing.rows.length > 0) {
+      const row = existing.rows[0]
+      // If user exists but has no password (anonymous pair), allow setting password
+      if (row.password_hash) {
+        return reply.status(409).send({ error: "email already registered" })
+      }
+      // Upgrade anonymous user: set password
+      const passwordHash = await hashPassword(password)
+      await db.execute({
+        sql: "UPDATE users SET password_hash = ?, updated_at = unixepoch() WHERE id = ?",
+        args: [passwordHash, row.id as string],
+      })
+      // Create device + tokens for this user
+      const deviceId = randomUUID()
+      await db.execute({
+        sql: "INSERT INTO devices (id, user_id, name, platform) VALUES (?, ?, ?, ?)",
+        args: [deviceId, row.id as string, deviceName || "desktop", platform || "win32"],
+      })
+      const accessToken = await signAccess(row.id as string, deviceId, "1h")
+      const refreshToken = await signRefresh(row.id as string, deviceId, "30d")
+      const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 3600
+      await db.execute({
+        sql: "INSERT INTO refresh_tokens (token, user_id, device_id, expires_at) VALUES (?, ?, ?, ?)",
+        args: [refreshToken, row.id as string, deviceId, expiresAt],
+      })
+      await db.execute({
+        sql: "INSERT INTO audit_log (user_id, event, entity_type, entity_id, detail) VALUES (?, 'register_upgrade', 'device', ?, ?)",
+        args: [row.id as string, deviceId, JSON.stringify({ email, deviceName, platform })],
+      })
+      return { accessToken, refreshToken, userId: row.id as string, deviceId }
+    }
+
+    // New user
+    const userId = randomUUID()
+    const passwordHash = await hashPassword(password)
+    await db.execute({
+      sql: "INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)",
+      args: [userId, email, passwordHash],
+    })
+
+    const deviceId = randomUUID()
+    await db.execute({
+      sql: "INSERT INTO devices (id, user_id, name, platform) VALUES (?, ?, ?, ?)",
+      args: [deviceId, userId, deviceName || "desktop", platform || "win32"],
+    })
+
+    const accessToken = await signAccess(userId, deviceId, "1h")
+    const refreshToken = await signRefresh(userId, deviceId, "30d")
+    const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 3600
+    await db.execute({
+      sql: "INSERT INTO refresh_tokens (token, user_id, device_id, expires_at) VALUES (?, ?, ?, ?)",
+      args: [refreshToken, userId, deviceId, expiresAt],
+    })
+
+    await db.execute({
+      sql: "INSERT INTO audit_log (user_id, event, entity_type, entity_id, detail) VALUES (?, 'register', 'device', ?, ?)",
+      args: [userId, deviceId, JSON.stringify({ email, deviceName, platform })],
+    })
+
+    return { accessToken, refreshToken, userId, deviceId }
+  })
+
+  // ── Login ────────────────────────────────────────────────────────
+  // POST /v1/auth/login — authenticate with email + password
+  const LoginBody = z.object({
+    email: z.string().email(),
+    password: z.string(),
+    deviceName: z.string().optional(),
+    platform: z.string().optional(),
+  })
+
+  app.post("/login", async (req, reply) => {
+    const parsed = LoginBody.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const { email, password, deviceName, platform } = parsed.data
+    const db = getDb()
+
+    const row = await db.execute({
+      sql: "SELECT id, password_hash FROM users WHERE email = ?",
+      args: [email],
+    })
+    if (row.rows.length === 0) {
+      return reply.status(401).send({ error: "invalid email or password" })
+    }
+
+    const user = row.rows[0]
+    if (!user.password_hash) {
+      return reply.status(401).send({ error: "account has no password — register first" })
+    }
+
+    const valid = await verifyPassword(password, user.password_hash as string)
+    if (!valid) {
+      return reply.status(401).send({ error: "invalid email or password" })
+    }
+
+    const userId = user.id as string
+    const deviceId = randomUUID()
+    await db.execute({
+      sql: "INSERT INTO devices (id, user_id, name, platform) VALUES (?, ?, ?, ?)",
+      args: [deviceId, userId, deviceName || "desktop", platform || "win32"],
+    })
+
+    const accessToken = await signAccess(userId, deviceId, "1h")
+    const refreshToken = await signRefresh(userId, deviceId, "30d")
+    const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 3600
+    await db.execute({
+      sql: "INSERT INTO refresh_tokens (token, user_id, device_id, expires_at) VALUES (?, ?, ?, ?)",
+      args: [refreshToken, userId, deviceId, expiresAt],
+    })
+
+    await db.execute({
+      sql: "INSERT INTO audit_log (user_id, event, entity_type, entity_id, detail) VALUES (?, 'login', 'device', ?, ?)",
+      args: [userId, deviceId, JSON.stringify({ email, deviceName, platform })],
+    })
+
+    return { accessToken, refreshToken, userId, deviceId }
+  })
+
+  // ── Pair Generate ────────────────────────────────────────────────
+  // POST /v1/auth/pair/generate — server generates an 8-char pairing code
+  // Requires Bearer auth. Returns { code, expiresAt, expiresAtMs }.
+  const PairGenerateBody = z.object({
+    terminalId: z.string().optional(),
+    relayHost: z.string().optional(),
+    relayPort: z.number().int().optional(),
+  })
+
+  app.post("/pair/generate", { preHandler: requireAuth }, async (req, reply) => {
+    const { sub: userId } = (req as any).user
+    const parsed = PairGenerateBody.safeParse(req.body || {})
+    const { terminalId, relayHost, relayPort } = parsed.data || {}
+
+    const db = getDb()
+
+    // Generate 8-char uppercase alphanumeric code
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no I/0/O/1 to avoid confusion
+    let code = ""
+    const bytes = crypto.randomBytes(8)
+    for (let i = 0; i < 8; i++) {
+      code += chars[bytes[i] % chars.length]
+    }
+
+    const codeHash = crypto.createHash("sha256").update(code).digest("hex")
+    const now = Math.floor(Date.now() / 1000)
+    const expiresAt = now + 5 * 60 // 5 minutes
+
+    // Get device info for relay defaults
+    const deviceRow = await db.execute({
+      sql: "SELECT id FROM devices WHERE user_id = ? ORDER BY paired_at DESC LIMIT 1",
+      args: [userId],
+    })
+    const deviceId = deviceRow.rows.length > 0 ? deviceRow.rows[0].id as string : ""
+
+    // Get sync server host from env or default
+    const serverHost = process.env.SYNC_HOST || "0.0.0.0"
+    const serverPort = parseInt(process.env.PORT || "8787", 10)
+
+    await db.execute({
+      sql: `INSERT INTO pairing_codes (code_hash, terminal_id, relay_host, relay_port, expires_at, used, user_id)
+            VALUES (?, ?, ?, ?, ?, 0, ?)`,
+      args: [
+        codeHash,
+        terminalId || "default",
+        relayHost || serverHost,
+        relayPort || serverPort,
+        expiresAt,
+        userId,
+      ],
+    })
+
+    // Audit
+    await db.execute({
+      sql: "INSERT INTO audit_log (user_id, event, entity_type, entity_id, detail) VALUES (?, 'pair_generate', 'pairing', ?, ?)",
+      args: [userId, codeHash, JSON.stringify({ expiresAt })],
+    })
+
+    return { code, expiresAt, expiresAtMs: expiresAt * 1000 }
   })
 }

@@ -84,11 +84,10 @@ export function SelectionFloatingPill({ onAsk }: Props) {
               <button
                 key={mode.key}
                 onClick={() => handleMode(mode.key)}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition whitespace-nowrap"
+                className="flex items-center justify-center w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition"
                 title={`${mode.label} (${mode.shortcut})`}
               >
-                <mode.icon className="w-3 h-3" />
-                {mode.label}
+                <mode.icon className="w-3.5 h-3.5" />
               </button>
             ))}
           </div>

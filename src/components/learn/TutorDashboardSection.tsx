@@ -10,7 +10,7 @@ interface Props {
 
 function StatCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string | number; accent: string }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+    <div className="rounded-xl border border-white/10 bg-[#1c1917]/60 backdrop-blur-sm p-4">
       <div className="flex items-center gap-3">
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${accent}`}>
           {icon}
@@ -41,8 +41,8 @@ export function TutorDashboardSection({ getDashboard, onNavigateToNode }: Props)
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+      <div className="flex items-center justify-center py-6">
+        <Loader2 className="w-4 h-4 text-clay-400 animate-spin" />
       </div>
     );
   }
@@ -58,17 +58,17 @@ export function TutorDashboardSection({ getDashboard, onNavigateToNode }: Props)
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: 0.1 }}
       className="space-y-4"
     >
       <div className="flex items-center gap-2">
-        <Sparkles className="w-5 h-5 text-amber-400" />
-        <h3 className="text-base font-semibold text-zinc-100">Your Learning Dashboard</h3>
+        <Sparkles className="w-4 h-4 text-amber-400" />
+        <h3 className="font-serif text-sm font-semibold text-glow">Learning Dashboard</h3>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           icon={<Brain className="w-4 h-4 text-amber-400" />}
           label="Tutor Answers"
@@ -76,22 +76,22 @@ export function TutorDashboardSection({ getDashboard, onNavigateToNode }: Props)
           accent="bg-amber-500/10 text-amber-400"
         />
         <StatCard
-          icon={<MessageSquare className="w-4 h-4 text-sky-400" />}
+          icon={<MessageSquare className="w-4 h-4 text-clay-400" />}
           label="Questions Asked"
           value={totalQuestions}
-          accent="bg-sky-500/10 text-sky-400"
+          accent="bg-clay-500/10 text-clay-400"
         />
         <StatCard
-          icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}
+          icon={<TrendingUp className="w-4 h-4 text-sage-400" />}
           label="Avg Confidence"
           value={`${Math.round(avgConfidence * 100)}%`}
-          accent="bg-emerald-500/10 text-emerald-400"
+          accent="bg-sage-400/10 text-sage-400"
         />
         <StatCard
-          icon={<StickyNote className="w-4 h-4 text-purple-400" />}
+          icon={<StickyNote className="w-4 h-4 text-amber-300" />}
           label="Notes Taken"
           value={recentNotes.length}
-          accent="bg-purple-500/10 text-purple-400"
+          accent="bg-amber-500/10 text-amber-300"
         />
       </div>
 
@@ -107,8 +107,8 @@ export function TutorDashboardSection({ getDashboard, onNavigateToNode }: Props)
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Recent Notes</h4>
           <div className="space-y-1.5">
             {recentNotes.slice(0, 5).map((note) => (
-              <div key={note.id} className="flex items-start gap-2 px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-800/60">
-                <StickyNote className="w-3 h-3 text-emerald-400 mt-0.5 shrink-0" />
+              <div key={note.id} className="flex items-start gap-2 px-3 py-2 rounded-lg bg-[#1c1917]/40 border border-white/5">
+                <StickyNote className="w-3 h-3 text-sage-400 mt-0.5 shrink-0" />
                 <div className="min-w-0">
                   <p className="text-xs text-zinc-300 truncate">{note.text}</p>
                   {note.node_title && (
@@ -130,7 +130,7 @@ export function TutorDashboardSection({ getDashboard, onNavigateToNode }: Props)
               <button
                 key={node.node_id}
                 onClick={() => onNavigateToNode?.(node.node_id)}
-                className="px-2.5 py-1 rounded-full bg-zinc-800/60 border border-zinc-700/40 text-[11px] text-zinc-300 hover:bg-zinc-700/50 transition"
+                className="px-2.5 py-1 rounded-full bg-[#1c1917]/60 border border-white/10 text-[11px] text-zinc-300 hover:bg-[#1c1917]/80 transition"
               >
                 {node.title} ({node.count})
               </button>

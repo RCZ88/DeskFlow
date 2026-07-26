@@ -75,6 +75,8 @@ export type ParsedMessage =
       title?: string
     }
   | { type: "error"; message: string; recovery?: string }
+  | { type: "reminder_create"; text: string; dueDate?: string; goalId?: string }
+  | { type: "goal_event_link"; goalId: string; eventId: string; eventTitle: string }
 
 export type ParsedType = ParsedMessage["type"]
 
@@ -88,12 +90,20 @@ export type CardAction =
   | { kind: "open-url"; url: string }
   | { kind: "retry" }
   | { kind: "send-text"; text: string }
+  | { kind: "create-reminder"; text: string; dueDate?: string; goalId?: string }
+  | { kind: "link-goal-event"; goalId: string; eventId: string; eventTitle: string }
 
 export interface CardActionHandlers {
   acceptGoal?: (payload: any) => void;
   viewDetail?: (payload: any) => void;
   dismiss?: (messageId: string) => void;
   retry?: (payload: any) => void;
+  applyPlan?: (changes: PlanChange[]) => void;
+  runIpc?: (ipc: string, payload?: Record<string, unknown>) => void;
+  submitForm?: (values: Record<string, string | number | boolean>) => void;
+  syncConnector?: (id?: string, name?: string) => void;
+  openUrl?: (url: string) => void;
+  sendText?: (text: string) => void;
 }
 
 export function handleCardAction(
@@ -108,8 +118,32 @@ export function handleCardAction(
     case 'dismiss-goal':
       handlers.dismiss?.(messageId);
       break;
+    case 'apply-plan':
+      handlers.applyPlan?.(action.changes);
+      break;
+    case 'run-ipc':
+      handlers.runIpc?.(action.ipc, action.payload);
+      break;
+    case 'submit-form':
+      handlers.submitForm?.(action.values);
+      break;
+    case 'sync-connector':
+      handlers.syncConnector?.(action.id, action.name);
+      break;
+    case 'open-url':
+      handlers.openUrl?.(action.url);
+      break;
     case 'retry':
       handlers.retry?.(undefined);
+      break;
+    case 'send-text':
+      handlers.sendText?.(action.text);
+      break;
+    case 'create-reminder':
+      handlers.runIpc?.('createReminder', { text: action.text, dueDate: action.dueDate, goalId: action.goalId });
+      break;
+    case 'link-goal-event':
+      handlers.runIpc?.('linkGoalEvent', { goalId: action.goalId, eventId: action.eventId, eventTitle: action.eventTitle });
       break;
     default:
       break;
@@ -127,6 +161,8 @@ const ACCENT_BY_TYPE: Record<ParsedType, AccentKey> = {
   form_fill: "violet",
   chart_data: "amber",
   error: "red",
+  reminder_create: "emerald",
+  goal_event_link: "cyan",
 }
 
 export function accentForType(t: ParsedType): AccentKey {
@@ -144,6 +180,8 @@ const KNOWN_TYPES: string[] = [
   "form_fill",
   "chart_data",
   "error",
+  "reminder_create",
+  "goal_event_link",
 ]
 
 export function isParsedMessage(v: unknown): v is ParsedMessage {
@@ -201,6 +239,26 @@ export function serializeParsed(parsed?: ParsedMessage): string | undefined {
   } catch {
     return undefined
   }
+}
+
+export function parseReminderCreate(content: string): { type: "reminder_create"; text: string; dueDate?: string } | null {
+  try {
+    const json = JSON.parse(content)
+    if (json.type === "reminder_create" && json.text) {
+      return { type: "reminder_create", text: json.text, dueDate: json.dueDate }
+    }
+  } catch {}
+  return null
+}
+
+export function parseGoalEventLink(content: string): { type: "goal_event_link"; goalId: string; eventId: string; eventTitle: string } | null {
+  try {
+    const json = JSON.parse(content)
+    if (json.type === "goal_event_link" && json.goalId && json.eventId) {
+      return { type: "goal_event_link", goalId: json.goalId, eventId: json.eventId, eventTitle: json.eventTitle }
+    }
+  } catch {}
+  return null
 }
 
 export function formatStat(value: number, format?: StatMetric["format"]): string {

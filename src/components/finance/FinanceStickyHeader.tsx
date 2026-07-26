@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Lock as LockIcon, TrendingUp, TrendingDown, Eye, EyeOff } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Lock as LockIcon, TrendingUp, TrendingDown, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { formatCurrency as fmtCurrency } from './currency-data';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
@@ -17,6 +17,10 @@ interface FinanceStickyHeaderProps {
   sparklineData?: number[];
   monthlyTrends?: { month: string; income: number; expense: number }[];
   hasPassword?: boolean;
+  syncStatus?: { phase: string; wallets: number; updated: number } | null;
+  syncResults?: string[] | null;
+  onSyncBalances?: () => void;
+  onSyncDismiss?: () => void;
 }
 
 const EXPANDED_H = 112;
@@ -43,7 +47,7 @@ function getScrollParent(el: HTMLElement | null): HTMLElement | null {
 }
 
 export function FinanceStickyHeader({
-  isLocked, netWorth, displayCurrency, onToggleLock, trend, sparklineData, monthlyTrends, hasPassword = true,
+  isLocked, netWorth, displayCurrency, onToggleLock, trend, sparklineData, monthlyTrends, hasPassword = true, syncStatus, syncResults, onSyncBalances, onSyncDismiss,
 }: FinanceStickyHeaderProps) {
   const { showNumbers, setShowNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [shrunk, setShrunk] = useState(false);
@@ -154,6 +158,16 @@ export function FinanceStickyHeader({
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0 mb-0.5">
+                {onSyncBalances && (
+                  <button
+                    onClick={onSyncBalances}
+                    disabled={!!syncStatus}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-[11px] font-medium transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${syncStatus ? 'animate-spin' : ''}`} />
+                    {syncStatus ? syncStatus.phase : 'Sync'}
+                  </button>
+                )}
                 <button
                   onClick={() => setShowNumbers(!showNumbers)}
                   className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full bg-zinc-800/60 border border-white/5 text-zinc-500 hover:text-zinc-300 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
@@ -195,6 +209,16 @@ export function FinanceStickyHeader({
                 )}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
+                {onSyncBalances && (
+                  <button
+                    onClick={onSyncBalances}
+                    disabled={!!syncStatus}
+                    className="h-8 flex items-center gap-1 px-2.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${syncStatus ? 'animate-spin' : ''}`} />
+                    {syncStatus ? syncStatus.phase : 'Sync'}
+                  </button>
+                )}
                 <button
                   onClick={() => setShowNumbers(!showNumbers)}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800/60 border border-white/5 text-zinc-500 hover:text-zinc-300 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
@@ -216,6 +240,35 @@ export function FinanceStickyHeader({
           </motion.div>
         </div>
       </GlassSurface>
+
+      {/* Sync results — rendered OUTSIDE GlassSurface (which has overflow-hidden) */}
+      <AnimatePresence>
+        {syncResults && syncResults.length > 0 && !syncStatus && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="sticky top-[48px] z-[14] mx-4 sm:mx-6 mb-2"
+          >
+            <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px]">
+              <span className="text-emerald-400 mt-0.5 shrink-0">✓</span>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-emerald-300">
+                {syncResults.map((r, i) => (
+                  <span key={i}>{r}</span>
+                ))}
+              </div>
+              {onSyncDismiss && (
+                <button
+                  onClick={onSyncDismiss}
+                  className="ml-auto text-emerald-400/60 hover:text-emerald-400 transition-colors shrink-0"
+                  aria-label="Dismiss sync results"
+                >✕</button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

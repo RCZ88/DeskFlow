@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Layers, Clock } from 'lucide-react';
+import { Layers, Clock, Info } from 'lucide-react';
 import type { LessonSummary } from '../../shared/learn/types';
 import { Badge } from '../ui/badge';
 import { BlurFade } from '../ui/blur-fade';
@@ -30,9 +30,10 @@ export interface BookCardProps {
   lesson: LessonSummary;
   index?: number;
   onOpen: (id: string) => void;
+  onInfo?: (id: string) => void;
 }
 
-export function BookCard({ lesson, index = 0, onOpen }: BookCardProps) {
+export function BookCard({ lesson, index = 0, onOpen, onInfo }: BookCardProps) {
   const c = clothFor(lesson.part);
   const partLabel = `Part ${String(lesson.part).padStart(2, '0')}`;
   const coverStyle = {
@@ -116,6 +117,18 @@ export function BookCard({ lesson, index = 0, onOpen }: BookCardProps) {
               {lesson.status}
             </Badge>
           </div>
+
+          {/* info button — opens detail modal */}
+          {onInfo && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onInfo(lesson.id); }}
+              className="absolute bottom-3 right-3 p-1.5 rounded-lg bg-black/30 text-white/60 hover:text-white hover:bg-black/50 opacity-0 group-hover:opacity-100 transition-all duration-150"
+              title="Lesson details"
+              aria-label={`View details for ${lesson.title}`}
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         {/* page block + shelf shadow */}

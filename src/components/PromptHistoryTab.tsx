@@ -129,16 +129,22 @@ const PromptHistoryTab: React.FC<{
   useEffect(() => {
     const api = (window as any).deskflowAPI;
     if (!api?.onAiTaskUpdated) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const cleanup = api.onAiTaskUpdated((data: { terminalId: string; status: string; messageId?: string }) => {
       if (data.messageId) {
         const key = `${data.terminalId}:${data.messageId}`;
         liveStatusRef.current[key] = data.status;
-        setLiveStatuses({ ...liveStatusRef.current });
+        if (!debounceTimer) {
+          debounceTimer = setTimeout(() => {
+            setLiveStatuses({ ...liveStatusRef.current });
+            debounceTimer = null;
+          }, 500);
+        }
       } else {
         setEntries(prev => prev.map(e => (e.session_id === data.terminalId ? { ...e, status: data.status } : e)));
       }
     });
-    return () => { if (typeof cleanup === 'function') cleanup(); };
+    return () => { if (debounceTimer) clearTimeout(debounceTimer); if (typeof cleanup === 'function') cleanup(); };
   }, []);
 
   useEffect(() => {
@@ -152,17 +158,23 @@ const PromptHistoryTab: React.FC<{
   useEffect(() => {
     const api = (window as any).deskflowAPI;
     if (!api?.onAiTaskFileChanged) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const cleanup = api.onAiTaskFileChanged((data: { tasks: any[] }) => {
       if (!data.tasks?.length) return;
       const taskMap = new Map(data.tasks.map(t => [t.terminal_id + ':' + t.id, t]));
-      setEntries(prev => prev.map(e => {
-        for (const [key, task] of taskMap) {
-          if (key.startsWith(e.session_id)) return { ...e, status: task.status };
-        }
-        return e;
-      }));
+      if (!debounceTimer) {
+        debounceTimer = setTimeout(() => {
+          setEntries(prev => prev.map(e => {
+            for (const [key, task] of taskMap) {
+              if (key.startsWith(e.session_id)) return { ...e, status: task.status };
+            }
+            return e;
+          }));
+          debounceTimer = null;
+        }, 500);
+      }
     });
-    return () => { if (typeof cleanup === 'function') cleanup(); };
+    return () => { if (debounceTimer) clearTimeout(debounceTimer); if (typeof cleanup === 'function') cleanup(); };
   }, []);
 
   // ---- Handlers ----------------------------------------------------------

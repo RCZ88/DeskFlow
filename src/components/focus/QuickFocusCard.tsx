@@ -1,12 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GlassCard } from '../../components/GlassCard';
 import { Badge } from '../../components/ui/badge';
 import { AnimatedCircularProgressBar } from '../../components/ui/animated-circular-progress-bar';
 import { Particles } from '../../components/ui/particles';
 import { NumberTicker } from '../../components/ui/number-ticker';
+import { BorderBeam } from '../../components/ui/border-beam';
+import { AuroraText } from '../../components/ui/aurora-text';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Focus, Play, Square } from 'lucide-react';
+import { Focus, Play, Square, Clock, Timer } from 'lucide-react';
 import { fmtClock } from '../../features/focus/focusHelpers';
+
+type FocusMode = 'timer' | 'stopwatch';
 
 const PRESETS = [
   { label: '25m', sec: 25 * 60 },
@@ -37,15 +41,30 @@ interface QuickFocusCardProps {
 
 export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
   const [mins, setMins] = useState(25);
+  const [mode, setMode] = useState<FocusMode>('timer');
+  const [stopwatchElapsed, setStopwatchElapsed] = useState(0);
 
   const active = state.active;
   const plannedSec = mins * 60;
   const remainingSec = active ? state.remainingSec : plannedSec;
   const progressPct = active ? Math.max(0, Math.min(100, (remainingSec / plannedSec) * 100)) : 0;
 
+  useEffect(() => {
+    if (!active || mode !== 'stopwatch') return;
+    const interval = setInterval(() => {
+      setStopwatchElapsed(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [active, mode]);
+
+  useEffect(() => {
+    if (!active) setStopwatchElapsed(0);
+  }, [active]);
+
   return (
     <GlassCard accent="pink" className="relative overflow-hidden h-full">
       {active && <Particles className="opacity-50" quantity={14} color="#ec4899" opacity={0.14} />}
+      {active && <BorderBeam size={200} duration={8} colorFrom="#ec4899" colorTo="#f472b6" />}
       <div className="relative z-10 flex flex-col items-center gap-4">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
@@ -65,12 +84,15 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
           linearDurationMs={1000}
         >
           <NumberTicker
-            value={remainingSec}
+            value={active && mode === 'stopwatch' ? stopwatchElapsed : remainingSec}
             duration={active ? 600 : 200}
             formatter={fmtClock}
             className="text-2xl font-bold tabular-nums font-mono text-white"
           />
         </AnimatedCircularProgressBar>
+        <span className="text-[10px] text-zinc-500">
+          {active ? (mode === 'stopwatch' ? 'elapsed' : 'remaining') : mode === 'stopwatch' ? 'count up' : 'count down'}
+        </span>
 
         <AnimatePresence mode="wait">
           {active ? (
@@ -103,29 +125,59 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
               transition={crossfade.transition}
               className="w-full"
             >
-              <div className="flex gap-2 mb-3">
-                {PRESETS.map(p => (
-                  <motion.button
-                    key={p.sec}
-                    whileTap={tapScale}
-                    onClick={() => setMins(p.sec / 60)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
-                      mins === p.sec / 60
-                        ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
-                        : 'bg-zinc-800/60 text-zinc-400 border border-zinc-800/40 hover:bg-zinc-800'
-                    }`}
-                  >
-                    {p.label}
-                  </motion.button>
-                ))}
+              <div className="flex gap-1 mb-3 p-1 bg-zinc-800/40 rounded-lg">
+                <motion.button
+                  whileTap={tapScale}
+                  onClick={() => setMode('timer')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    mode === 'timer'
+                      ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
+                      : 'text-zinc-500 hover:text-zinc-400'
+                  }`}
+                >
+                  <Clock className="w-3 h-3" />
+                  Timer
+                </motion.button>
+                <motion.button
+                  whileTap={tapScale}
+                  onClick={() => setMode('stopwatch')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    mode === 'stopwatch'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : 'text-zinc-500 hover:text-zinc-400'
+                  }`}
+                >
+                  <Timer className="w-3 h-3" />
+                  Challenge
+                </motion.button>
               </div>
+              
+              {mode === 'timer' && (
+                <div className="flex gap-2 mb-3">
+                  {PRESETS.map(p => (
+                    <motion.button
+                      key={p.sec}
+                      whileTap={tapScale}
+                      onClick={() => setMins(p.sec / 60)}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                        mins === p.sec / 60
+                          ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
+                          : 'bg-zinc-800/60 text-zinc-400 border border-zinc-800/40 hover:bg-zinc-800'
+                      }`}
+                    >
+                      {p.label}
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+              
               <motion.button
                 whileTap={tapScale}
-                onClick={() => onStart(mins * 60, state.strictness)}
+                onClick={() => onStart(mode === 'stopwatch' ? 0 : mins * 60, state.strictness)}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 transition-colors"
               >
                 <Play className="w-4 h-4" />
-                Start {mins}-min focus
+                {mode === 'stopwatch' ? 'Start challenge' : `Start ${mins}-min focus`}
               </motion.button>
             </motion.div>
           )}

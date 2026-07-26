@@ -1,0 +1,37 @@
+--- a/src/components/finance/FinancePage.tsx
++++ b/src/components/finance/FinancePage.tsx
+@@ -1181,54 +1181,6 @@
+         </motion.div>
+       )}
+
+-      {activeTab === 'charts' && (
+-        <motion.div
+-          key="charts"
+-          initial={{ opacity: 0, y: 10 }}
+-          animate={{ opacity: 1, y: 0 }}
+-          exit={{ opacity: 0, y: -10 }}
+-          transition={{ duration: 0.2 }}
+-        >
+-          <div className="p-5 space-y-6">
+-            <h2 className="text-xl font-semibold text-zinc-200">Finance Charts</h2>
+-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+-              <GlassCard className="p-5">
+-                <h3 className="text-lg font-semibold text-zinc-200 mb-4">Net Worth Over Time</h3>
+-                ...
+-              </GlassCard>
+-              <GlassCard className="p-5">
+-                <h3 className="text-lg font-semibold text-zinc-200 mb-4">Income vs Expenses</h3>
+-                ...
+-              </GlassCard>
+-              <GlassCard className="p-5 lg:col-span-2">
+-                <h3 className="text-lg font-semibold text-zinc-200 mb-4">Spending by Category</h3>
+-                ...
+-              </GlassCard>
+-            </div>
+-          </div>
+-        </motion.div>
+-      )}
+-
+       {activeTab === 'wallets' && (
+         <motion.div
+           key="wallets"

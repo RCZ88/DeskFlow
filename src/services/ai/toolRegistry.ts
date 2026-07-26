@@ -435,6 +435,97 @@ function registerAll() {
       return { error: err.message };
     }
   })
+
+  // ========== Connector Actions ==========
+  r('replyToEmail', 'Draft a reply to an email. The user must confirm before sending.', {
+    connectorId: p('string', 'Connector ID', { required: true }),
+    emailId: p('string', 'Email item ID to reply to', { required: true }),
+    draft: p('string', 'Draft reply content', { required: true }),
+  }, 'confirm', 'connectors', async (params) => {
+    const gate = await checkAccess('connectors');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return {
+      _action: true,
+      kind: 'reply-email',
+      connectorId: params.connectorId,
+      emailId: params.emailId,
+      draft: params.draft,
+    };
+  })
+
+  r('createCalendarEvent', 'Create a new calendar event. The user must confirm.', {
+    connectorId: p('string', 'Calendar connector ID', { required: true }),
+    title: p('string', 'Event title', { required: true }),
+    startTime: p('string', 'ISO 8601 start time', { required: true }),
+    endTime: p('string', 'ISO 8601 end time'),
+    description: p('string', 'Event description'),
+  }, 'confirm', 'connectors', async (params) => {
+    const gate = await checkAccess('connectors');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return {
+      _action: true,
+      kind: 'create-event',
+      connectorId: params.connectorId,
+      title: params.title,
+      startTime: params.startTime,
+      endTime: params.endTime,
+      description: params.description,
+    };
+  })
+
+  r('updateCalendarEvent', 'Update an existing calendar event.', {
+    connectorId: p('string', 'Calendar connector ID', { required: true }),
+    eventId: p('string', 'Event item ID', { required: true }),
+    title: p('string', 'New title'),
+    startTime: p('string', 'New ISO 8601 start time'),
+    endTime: p('string', 'New ISO 8601 end time'),
+    description: p('string', 'New description'),
+  }, 'confirm', 'connectors', async (params) => {
+    const gate = await checkAccess('connectors');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return {
+      _action: true,
+      kind: 'update-event',
+      connectorId: params.connectorId,
+      eventId: params.eventId,
+      changes: {
+        ...(params.title && { title: params.title }),
+        ...(params.startTime && { startTime: params.startTime }),
+        ...(params.endTime && { endTime: params.endTime }),
+        ...(params.description && { description: params.description }),
+      },
+    };
+  })
+
+  r('deleteCalendarEvent', 'Delete a calendar event.', {
+    connectorId: p('string', 'Calendar connector ID', { required: true }),
+    eventId: p('string', 'Event item ID', { required: true }),
+  }, 'confirm', 'connectors', async (params) => {
+    const gate = await checkAccess('connectors');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return {
+      _action: true,
+      kind: 'delete-event',
+      connectorId: params.connectorId,
+      eventId: params.eventId,
+    };
+  })
+
+  r('markEmailRead', 'Mark an email as read or unread.', {
+    connectorId: p('string', 'Email connector ID', { required: true }),
+    emailId: p('string', 'Email item ID', { required: true }),
+    read: p('boolean', 'True to mark read, false for unread', { required: true }),
+  }, 'confirm', 'connectors', async (params) => {
+    const gate = await checkAccess('connectors');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return {
+      _action: true,
+      kind: 'mark-read',
+      connectorId: params.connectorId,
+      emailId: params.emailId,
+      read: params.read,
+    };
+  })
 }
 
 registerAll()

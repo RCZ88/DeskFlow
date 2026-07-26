@@ -22,38 +22,28 @@ import {
   Layers,
   Boxes,
   Zap,
-  Users,
   Clock,
   Activity,
   TrendingUp,
   ExternalLink,
   HelpCircle,
-  BookOpen,
   FolderOpen,
-  Settings,
   CheckCircle2,
   AlertCircle,
   Loader2,
   X,
-  TrendingDown,
-  DollarSign,
-  Download,
   BarChart3,
   Pencil,
-  RotateCcw,
   AlertTriangle,
   Search,
   Minus,
   FolderTree,
   Bot,
-  Settings2,
   LayoutDashboard,
   FolderGit2,
   Archive,
   FileText,
   Play,
-  Lock,
-  Unlock,
 } from 'lucide-react';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import {
@@ -69,7 +59,7 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { Line, Doughnut, Bar } from 'react-chartjs-2';
+import { Bar } from 'react-chartjs-2';
 import { format, subDays, eachDayOfInterval, formatDistanceToNow } from 'date-fns';
 const AnalyticsDashboard = lazy(() => import('../components/AnalyticsDashboard'));
 import { StatsDashboard } from '../components/stats/StatsDashboard';
@@ -79,9 +69,10 @@ import { SectionHeader } from '../components/SectionHeader';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
 import FeatureSpecPanel from '../components/FeatureSpecPanel';
+import { BackupTabPanel } from '../components/workspace/BackupTabPanel';
+import AIToolsTab from '../components/ai/AIToolsTab';
 
 ChartJS.register(CategoryScale, LinearScale, LogarithmicScale, PointElement, BarElement, LineElement, ArcElement, Tooltip, Legend, Filler);
-const AIUsageCityscape = lazy(() => import('../components/AICityscape').then(m => ({ default: m.default })));
 
 interface Overview {
   ides: any[];
@@ -353,10 +344,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
-  const [syncingAI, setSyncingAI] = useState(false);
-  const [syncProgress, setSyncProgress] = useState<string | null>(null);
-  const [aiSyncResult, setAiSyncResult] = useState<{ success: boolean; agents: Record<string, number> } | null>(null);
-  const [aiLastSyncAt, setAiLastSyncAt] = useState<string | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showAddProject, setShowAddProject] = useState(false);
   const [newProject, setNewProject] = useState({ name: '', path: '', repositoryUrl: '', defaultIde: '' });
@@ -386,8 +373,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [generatedCommitMsg, setGeneratedCommitMsg] = useState<string | null>(null);
   const [generatingMsg, setGeneratingMsg] = useState(false);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
-  const [showAgentDebug, setShowAgentDebug] = useState(false);
   const [aiChartMode, setAiChartMode] = useState<'tokens' | 'messages' | 'cost' | 'sessions'>('tokens');
   const [tokenDisplayMode, setTokenDisplayMode] = useState<'combined' | 'input' | 'output'>('combined');
   const [timeLock, setTimeLock] = useState(() => {
@@ -395,11 +380,12 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   });
   const [selectedAgentDetail, setSelectedAgentDetail] = useState<AIAgent | null>(null);
   const [agentDebugInfo, setAgentDebugInfo] = useState<any>(null);
-  const [compareAgents, setCompareAgents] = useState<string[]>([]);
   const [logScale, setLogScale] = useState(() => localStorage.getItem('ide-projects-log-scale') === 'true');
   const [excludeOutliers, setExcludeOutliers] = useState(() => localStorage.getItem('ide-projects-exclude-outliers') === 'true');
-  const [showCityView, setShowCityView] = useState(false);
-  const [viewMode, setViewMode] = useState<'provider' | 'model'>('provider');
+  const [modalPeriod, setModalPeriod] = useState<'today' | 'week' | '7day' | 'month' | '30day' | 'all'>('all');
+  const [modalExpandedPeriod, setModalExpandedPeriod] = useState<string | null>(null);
+  const [modalOverview, setModalOverview] = useState<any>(null);
+  const [modalLoading, setModalLoading] = useState(false);
 
   const effectiveAiPeriod = useMemo<'week' | 'month' | 'all'>(() => {
     if (timeLock) return 'all';
@@ -410,6 +396,16 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       default: return 'week';
     }
   }, [selectedPeriod, timeLock]);
+
+  const modalEffectivePeriod = useMemo<'week' | 'month' | 'all'>(() => {
+    switch (modalPeriod) {
+      case 'all': return 'all';
+      case 'month':
+      case '30day': return 'month';
+      case 'today': return 'week';
+      default: return 'week';
+    }
+  }, [modalPeriod]);
 
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -436,7 +432,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   const [projectLanguages, setProjectLanguages] = useState<Record<string, LanguageBreakdownItem[]>>({});
   const [projectLanguagesLoading, setProjectLanguagesLoading] = useState(false);
   const scannedPathsRef = useRef<Set<string>>(new Set());
-  const progressThrottleRef = useRef(0);
 
   useEffect(() => {
     const handler = (e: CustomEvent<{ status: 'idle' | 'provisioning' | 'provisioned' }>) => setProvisionStatus(e.detail.status);
@@ -577,9 +572,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     localStorage.setItem('ide-projects-onboarding-seen', 'true');
     const p = activeTab === 'ai' ? effectiveAiPeriod : selectedPeriod;
     loadOverview(p, dateOffset);
-    window.deskflowAPI?.getAISyncStatus().then(status => {
-      if (status?.lastRunAt) setAiLastSyncAt(status.lastRunAt);
-    }).catch(() => {});
   }, [selectedPeriod, dateOffset, activeTab, effectiveAiPeriod]);
 
   useEffect(() => {
@@ -679,6 +671,45 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     analyticsCacheRef.current = null;
     fetchAnalytics();
   }, [activeTab, selectedPeriod, dateOffset, effectiveAiPeriod, fetchAnalytics]);
+
+  // Fetch modal data independently — modal has its own period selector
+  const modalFetchReqIdRef = useRef(0);
+  useEffect(() => {
+    if (!selectedAgentDetail || !window.deskflowAPI) {
+      setModalOverview(null);
+      return;
+    }
+    let cancelled = false;
+    const reqId = ++modalFetchReqIdRef.current;
+    setModalLoading(true);
+
+    // Map modalPeriod to the period string the backend expects
+    const backendPeriod = modalPeriod === 'today' ? 'today'
+      : modalPeriod === 'week' ? 'week'
+      : modalPeriod === '7day' ? '7day'
+      : modalPeriod === 'month' ? 'month'
+      : modalPeriod === '30day' ? '30day'
+      : 'all';
+
+    console.log('[Modal] Fetching overview for period:', backendPeriod, 'agent:', selectedAgentDetail.id);
+    window.deskflowAPI.getIDEProjectsOverview(backendPeriod, 0).then((overviewData) => {
+      if (cancelled || reqId !== modalFetchReqIdRef.current) return;
+      console.log('[Modal] Overview loaded, aiUsage byTool keys:', Object.keys(overviewData?.aiUsage?.byTool || {}));
+      setModalOverview(overviewData);
+      setModalLoading(false);
+    }).catch((err) => {
+      console.error('[Modal] Failed to load overview:', err);
+      if (!cancelled && reqId === modalFetchReqIdRef.current) {
+        setModalOverview(null); // Fall back to page overview
+        setModalLoading(false);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [selectedAgentDetail, modalPeriod]);
+
+  // Modal data source: prefer modalOverview (independent fetch), fall back to page overview
+  const modalData = modalOverview || overview;
 
   const loadGitData = async (projectId: string) => {
     try {
@@ -784,83 +815,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       .sort((a, b) => b.count - a.count);
   }, [projectLanguages]);
 
-  const handleSyncAI = async () => {
-    setSyncingAI(true);
-    setSyncProgress('Starting AI sync...');
-    setAiSyncResult(null);
-    let cleanup: (() => void) | undefined;
-    try {
-      window.__probe?.expect?.('ai-sync-status', 'starting');
-      cleanup = window.deskflowAPI!.onAISyncProgress((data: any) => {
-        const now = Date.now();
-        if (now - progressThrottleRef.current < 100) return;
-        progressThrottleRef.current = now;
-        if (data.status === 'detecting') {
-          setSyncProgress(`Detecting ${data.name}...`);
-          window.__probe?.expect?.('ai-sync-' + data.name, { status: 'detecting', name: data.name });
-        } else if (data.status === 'parsing') {
-          setSyncProgress(`Parsing ${data.name} data...`);
-          window.__probe?.expect?.('ai-sync-' + data.name, { status: 'parsing', name: data.name });
-        } else if (data.status === 'saving') {
-          setSyncProgress(`Saving ${data.count} sessions from ${data.name}...`);
-          window.__probe?.expect?.('ai-sync-' + data.name, { status: 'done', name: data.name, count: data.count });
-        }
-      });
-      const result = await window.deskflowAPI!.syncAIUsage() as any;
-      if (result.success) {
-        const agents: Record<string, number> = {};
-        for (const [key, value] of Object.entries(result)) {
-          if (key !== 'success' && typeof value === 'number') {
-            agents[key] = value;
-          }
-        }
-        setAiSyncResult({ success: true, agents });
-        window.__probe?.expect?.('ai-sync-results', agents);
-        setSyncProgress('Refreshing data...');
-        await loadOverview();
-        const status = await window.deskflowAPI?.getAISyncStatus();
-        if (status?.lastRunAt) {
-          setAiLastSyncAt(status.lastRunAt);
-          window.__probe?.expect?.('ai-sync-last-run', status.lastRunAt);
-        }
-      } else {
-        setAiSyncResult({ success: false, agents: {} });
-        console.error('AI sync failed:', result.error || 'unknown error');
-        window.__probe?.expect?.('ai-sync-status', 'error');
-      }
-    } catch (err) {
-      console.error('AI sync failed:', err);
-      window.__probe?.expect?.('ai-sync-status', 'error');
-    } finally {
-      if (cleanup) cleanup();
-      setSyncingAI(false);
-      setSyncProgress(null);
-      window.__probe?.expect?.('ai-sync-status', 'finished');
-    }
-  };
-
-  const handleForceResyncAI = async () => {
-    setSyncingAI(true);
-    setSyncProgress('Clearing cache...');
-    try {
-      await window.deskflowAPI!.clearAISyncState();
-      await handleSyncAI();
-    } catch (e) {
-      console.error('Force resync failed:', e);
-      setSyncProgress('Force resync failed');
-      setSyncingAI(false);
-    }
-  };
-
-  const handleDebugAgents = async () => {
-    setShowAgentDebug(true);
-    try {
-      const info = await window.deskflowAPI!.debugAIAgents() as any;
-      setAgentDebugInfo(info);
-    } catch (err) {
-      console.error('Debug failed:', err);
-    }
-  };
 
   const handleAddProject = async () => {
     setAddProjectError(null);
@@ -1267,54 +1221,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     return agents;
   }, [workspaceAnalytics?.aiUsage?.byTool, overview?.aiUsage?.byTool]);
 
-  const displayedAgents = useMemo(() => {
-    if (viewMode === 'provider') return aiAgents;
-    const byTool = overview?.aiUsage?.byTool || {};
-    const modelMap: Record<string, { tokens: number; tokensIn: number; tokensOut: number; cost: number; sessions: number; messageCount: number; agents: string[]; lastUsed?: number }> = {};
-    for (const [agentId, data] of Object.entries(byTool)) {
-      const modelDaily = (data as any).modelDaily || {};
-      for (const [modelName, dayRecords] of Object.entries(modelDaily)) {
-        if (!modelMap[modelName]) modelMap[modelName] = { tokens: 0, tokensIn: 0, tokensOut: 0, cost: 0, sessions: 0, messageCount: 0, agents: [], lastUsed: 0 };
-        const entry = modelMap[modelName];
-        for (const [dayStr, dayData] of Object.entries(dayRecords as Record<string, any>)) {
-          entry.tokens += dayData.tokens || 0;
-          entry.tokensIn += dayData.tokens_in || 0;
-          entry.tokensOut += dayData.tokens_out || 0;
-          entry.cost += dayData.cost || 0;
-          entry.sessions += dayData.sessions || 0;
-          entry.messageCount += dayData.messageCount || 0;
-          const t = new Date(dayStr).getTime();
-          if (!isNaN(t) && t > entry.lastUsed!) entry.lastUsed = t;
-        }
-        if (!entry.agents.includes(agentId)) entry.agents.push(agentId);
-      }
-    }
-    const models = Object.entries(modelMap).sort((a, b) => b[1].tokens - a[1].tokens);
-    const modelAgents: AIAgent[] = models.map(([modelName, md], idx) => ({
-      id: `model-${modelName}`,
-      name: modelName.length > 28 ? modelName.slice(0, 25) + '...' : modelName,
-      icon: 'model',
-      color: MODEL_COLORS[idx % MODEL_COLORS.length],
-      tokens: md.tokens,
-      tokensIn: md.tokensIn,
-      tokensOut: md.tokensOut,
-      cost: md.cost,
-      sessions: md.sessions,
-      messageCount: md.messageCount,
-      status: md.tokens > 0 ? 'active' : 'idle',
-      lastUsed: md.lastUsed ? new Date(md.lastUsed) : undefined,
-      models: [modelName],
-    }));
-    if (modelAgents.length === 0) return aiAgents;
-    return modelAgents;
-  }, [viewMode, aiAgents, overview?.aiUsage?.byTool]);
-
-  useEffect(() => {
-      const activeIds = aiAgents.filter(a => a.status !== 'inactive').map(a => a.id);
-    if (compareAgents.length === 0 && activeIds.length > 0) {
-      setCompareAgents(activeIds);
-    }
-  }, [aiAgents]);
 
   function filterOutlierValues(values: number[], stddevMultiplier = 3): number[] {
     if (!excludeOutliers || values.length < 3) return values;
@@ -1327,135 +1233,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     return values.map(v => v > threshold ? 0 : v);
   }
 
-  const agentChartsData = useMemo(() => {
-    const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 365 };
-    const numDays = effectiveAiPeriod === 'all'
-      ? (() => {
-          const byTool = overview?.aiUsage?.byTool || {};
-          let minDate = Infinity;
-          let maxDate = -Infinity;
-          for (const tool of Object.values(byTool) as any[]) {
-            const daily = tool?.daily;
-            if (!daily) continue;
-            for (const d of Object.keys(daily)) {
-              const t = new Date(d).getTime();
-              if (!isNaN(t)) { if (t < minDate) minDate = t; if (t > maxDate) maxDate = t; }
-            }
-          }
-          if (maxDate > 0 && minDate < Infinity) {
-            return Math.min(180, Math.max(1, Math.ceil((maxDate - minDate) / 86400000) + 30));
-          }
-          return 60;
-        })()
-      : (daysMap[effectiveAiPeriod] || 7);
-
-    const lastDays = eachDayOfInterval({
-      start: subDays(new Date(), numDays - 1),
-      end: new Date()
-    });
-
-    const activeAgents = displayedAgents.filter(a => a.status !== 'inactive' && a.tokens > 0);
-
-    const getMetricValue = (agent: AIAgent, dayStr: string) => {
-      if (viewMode === 'model') {
-        const byTool = overview?.aiUsage?.byTool || {};
-        const modelName = agent.models[0];
-        if (!modelName) return 0;
-        let total = 0;
-        for (const tool of Object.values(byTool) as any[]) {
-          const dayData = tool?.modelDaily?.[modelName]?.[dayStr];
-          if (!dayData) continue;
-          if (aiChartMode === 'tokens') {
-            if (tokenDisplayMode === 'input') total += dayData.tokens_in || 0;
-            else if (tokenDisplayMode === 'output') total += dayData.tokens_out || 0;
-            else total += dayData.tokens || 0;
-          } else if (aiChartMode === 'messages') total += dayData.messageCount || 0;
-          else if (aiChartMode === 'sessions') total += dayData.sessions || 0;
-          else if (aiChartMode === 'cost') total += dayData.cost || 0;
-        }
-        return total;
-      }
-      const dayData = overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr];
-      if (!dayData) return 0;
-      if (aiChartMode === 'tokens') {
-        if (tokenDisplayMode === 'input') return dayData.tokens_in || 0;
-        if (tokenDisplayMode === 'output') return dayData.tokens_out || 0;
-        return dayData.tokens || 0;
-      }
-      if (aiChartMode === 'messages') return dayData.messageCount || 0;
-      if (aiChartMode === 'sessions') return dayData.sessions || 0;
-      if (aiChartMode === 'cost') return dayData.cost || 0;
-      return 0;
-    };
-
-    const metricLabel = aiChartMode === 'tokens'
-      ? tokenDisplayMode === 'input' ? 'Input Tokens' : tokenDisplayMode === 'output' ? 'Output Tokens' : 'Tokens'
-      : aiChartMode === 'messages' ? 'Messages' : aiChartMode === 'sessions' ? 'Sessions' : 'Cost';
-
-    const dayLabels = lastDays.map(d => format(d, 'MMM dd'));
-    const dayStrs = lastDays.map(d => format(d, 'yyyy-MM-dd'));
-
-    return activeAgents.map(agent => {
-      let data = lastDays.map((_, i) => getMetricValue(agent, dayStrs[i]));
-      if (excludeOutliers) data = filterOutlierValues(data);
-      if (logScale) data = data.map(v => v === 0 ? null : v) as number[];
-      return {
-        agentId: agent.id,
-        agentName: agent.name,
-        color: agent.color,
-        metricLabel,
-        chartData: {
-          labels: dayLabels,
-          datasets: [{
-            label: `${agent.name} - ${metricLabel}`,
-            data,
-            backgroundColor: agent.color + '40',
-            borderColor: agent.color,
-            borderWidth: 2,
-            borderRadius: 4,
-          }]
-        }
-      };
-    });
-  }, [displayedAgents, overview?.aiUsage?.byTool, effectiveAiPeriod, aiChartMode, tokenDisplayMode, logScale, excludeOutliers, viewMode]);
-
-  const agentDistributionData = useMemo(() => {
-    const activeAgents = displayedAgents.filter(a => a.status !== 'inactive');
-    const getAgentDisplayName = (id: string) => {
-      if (id.startsWith('model-')) return id.slice(6);
-      return AGENT_CONFIG[id]?.name || id;
-    };
-    const getValue = (agent: AIAgent) => {
-      if (aiChartMode === 'tokens') {
-        if (tokenDisplayMode === 'input') return agent.tokensIn;
-        if (tokenDisplayMode === 'output') return agent.tokensOut;
-        return agent.tokens;
-      }
-      if (aiChartMode === 'cost') return agent.cost;
-      if (aiChartMode === 'messages') return agent.messageCount;
-      return agent.sessions;
-    };
-    const getLabel = (agent: AIAgent) => {
-      const displayName = getAgentDisplayName(agent.id);
-      if (aiChartMode === 'tokens') {
-        const val = tokenDisplayMode === 'input' ? agent.tokensIn : tokenDisplayMode === 'output' ? agent.tokensOut : agent.tokens;
-        return `${displayName}: ${formatTokens(val)}`;
-      }
-      if (aiChartMode === 'cost') return `${displayName}: ${formatCurrency(agent.cost)}`;
-      if (aiChartMode === 'messages') return `${displayName}: ${agent.messageCount} msgs`;
-      return `${displayName}: ${agent.sessions} sessions`;
-    };
-    activeAgents.sort((a, b) => getValue(b) - getValue(a));
-    return {
-      labels: activeAgents.map(a => getLabel(a)),
-      datasets: [{
-        data: activeAgents.map(a => getValue(a)),
-        backgroundColor: activeAgents.map(a => a.color),
-        borderColor: '#0a0a0a',
-        borderWidth: 2,
-      }]
-    };
-  }, [displayedAgents, aiChartMode, tokenDisplayMode]);
 
   const filteredLanguages = useMemo(() => {
     const search = editProjectForm.primaryLanguage.toLowerCase();
@@ -1493,30 +1270,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           </button>
         </div>
       </div>
-
-      {/* AI Sync Result */}
-      <AnimatePresence>
-        {aiSyncResult && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-4 flex items-center gap-3"
-          >
-            <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-            </div>
-            <div className="flex-1">
-              <div className="text-sm text-white font-medium">AI Usage Synced</div>
-              <div className="text-xs text-zinc-400">
-                {Object.entries(aiSyncResult.agents).map(([agent, count]) => (
-                  `${agent}: ${count} records`
-                )).join(' • ')}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Tabs */}
       <div data-tutorial="ide.tabs" className="flex gap-1 p-1 bg-zinc-900/50 rounded-xl w-fit">
@@ -2290,1032 +2043,15 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
       {/* AI Tools Tab */}
       {activeTab === 'ai' && (
-        <div data-section="ide.ai-tools" className="space-y-6">
-          {/* Summary Bar */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="glass rounded-xl p-5 flex items-center justify-between"
-          >
-            <div className="flex items-center gap-3">
-              <Sparkles className="w-5 h-5 text-violet-400" />
-              <div>
-                <span className="text-white font-medium">AI Agents</span>
-                <span className="text-zinc-500 ml-2">{aiAgents.filter(a => a.status !== 'inactive').length} active</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="w-px h-6 bg-zinc-700" />
-              <button
-                onClick={handleSyncAI}
-                disabled={syncingAI}
-                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs disabled:opacity-50 transition-colors"
-                title="Import AI usage data"
-              >
-                <Sparkles className={`w-3.5 h-3.5 ${syncingAI ? 'animate-spin' : ''}`} />
-                {syncingAI ? 'Syncing...' : 'Sync AI'}
-              </button>
-              <button
-                onClick={handleForceResyncAI}
-                disabled={syncingAI}
-                className="flex items-center gap-2 px-2 py-1.5 text-[11px] bg-red-950/40 hover:bg-red-900/50 text-red-400 rounded-lg disabled:opacity-50 transition-colors"
-                title="Clear cache and re-scan all AI agent data from scratch"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Force Resync
-              </button>
-              {aiLastSyncAt && !syncingAI && (
-                <span className="text-[11px] text-zinc-500">
-                  Last: {(() => {
-                    const diff = Date.now() - new Date(aiLastSyncAt).getTime();
-                    const mins = Math.floor(diff / 60000);
-                    if (mins < 1) return 'just now';
-                    if (mins < 60) return `${mins}m ago`;
-                    const hours = Math.floor(mins / 60);
-                    if (hours < 24) return `${hours}h ago`;
-                    return formatDistanceToNow(new Date(aiLastSyncAt), { addSuffix: true });
-                  })()}
-                </span>
-              )}
-              <div className="w-px h-6 bg-zinc-700" />
-              <span className="text-[10px] text-zinc-500 bg-zinc-800/50 px-2 py-1 rounded">
-                {timeLock ? 'All Time' : selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === '7day' ? '7 Days' : selectedPeriod === 'month' ? 'This Month' : selectedPeriod === '30day' ? '30 Days' : 'All Time'}
-              </span>
-              <div className="w-px h-6 bg-zinc-700" />
-              <button
-                onClick={handleDebugAgents}
-                className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
-              >
-                {showAgentDebug ? 'Hide Details' : 'Show Details'}
-              </button>
-              <div className="w-px h-6 bg-zinc-700" />
-              <button
-                onClick={() => {
-                  const rows: string[] = ['Agent,Tokens,Messages,Sessions,Cost,Tokens/Msg,Cost/Session'];
-                  aiAgents.filter(a => a.status !== 'inactive').forEach(a => {
-                    rows.push(`${a.name},${a.tokens},${a.messageCount},${a.sessions},${a.cost.toFixed(4)},${a.messageCount > 0 ? Math.round(a.tokens / a.messageCount) : 0},${a.sessions > 0 ? (a.cost / a.sessions).toFixed(4) : 0}`);
-                  });
-                  const csv = rows.join('\n');
-                  const blob = new Blob([csv], { type: 'text/csv' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `ai-usage-${format(new Date(), 'yyyy-MM-dd')}.csv`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Export CSV
-              </button>
-            </div>
-          </motion.div>
-
-          {/* Global Chart Controls */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setLogScale(!logScale)}
-              className={`px-2 py-1 rounded text-[10px] font-medium transition ${
-                logScale ? 'bg-cyan-500/20 text-cyan-400' : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              Log
-            </button>
-            <button
-              onClick={() => setExcludeOutliers(!excludeOutliers)}
-              className={`px-2 py-1 rounded text-[10px] font-medium transition ${
-                excludeOutliers ? 'bg-amber-500/20 text-amber-400' : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              ♯ Out
-            </button>
-          </div>
-
-          {/* Stats Dashboard */}
-          <StatsDashboard
-            rawData={workspaceAnalytics}
-            loading={analyticsLoading}
-            error={analyticsError || undefined}
-            onRetry={() => { analyticsCacheRef.current = null; fetchAnalytics(); }}
-          />
-
-          {/* Debug Panel */}
-          <AnimatePresence>
-            {showAgentDebug && agentDebugInfo && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="glass rounded-xl p-5 overflow-hidden"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">Agent Detection Details</h3>
-                  <button
-                    onClick={() => setShowAgentDebug(false)}
-                    className="px-3 py-1 text-xs text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
-                  >
-                    Hide Details
-                  </button>
-                </div>
-
-                {/* Database State */}
-                {agentDebugInfo.database && (
-                  <div className="mb-4 p-4 bg-zinc-900/50 rounded-xl">
-                    <h4 className="text-sm font-medium text-zinc-400 mb-2">Database State</h4>
-                    {agentDebugInfo.database.error ? (
-                      <p className="text-red-400 text-sm">{agentDebugInfo.database.error}</p>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-4 text-sm">
-                        <div>
-                          <span className="text-zinc-500">Total Records:</span>
-                          <span className="text-white ml-2">{agentDebugInfo.database.totalRecords}</span>
-                        </div>
-                        <div>
-                          <span className="text-zinc-500">Total Tokens:</span>
-                          <span className="text-violet-400 ml-2"><TokenValue value={agentDebugInfo.database.totalTokens || 0} /></span>
-                        </div>
-                        <div>
-                          <span className="text-zinc-500">By Tool:</span>
-                          <span className="text-white ml-2">
-                            {agentDebugInfo.database.byTool?.map((t: any) => `${t.tool}: ${t.count}`).join(', ') || 'None'}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Agent Status Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {Object.entries(agentDebugInfo.agents || {}).map(([agentId, info]: [string, any]) => (
-                    <div key={agentId} className="bg-zinc-900/50 rounded-xl p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full ${info.detected ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                          <span className="text-white font-medium">{agentId}</span>
-                        </div>
-                        <span className={`text-xs px-2 py-0.5 rounded ${info.detected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                          {info.detected ? 'Detected' : 'Not Found'}
-                        </span>
-                      </div>
-                      <div className="space-y-2">
-                        <div>
-                          <span className="text-xs text-zinc-500">Paths:</span>
-                          <div className="text-xs text-zinc-400 font-mono mt-1">
-                            {info.paths.map((p: string, i: number) => (
-                              <div key={i} className="truncate" title={p}>{p}</div>
-                            ))}
-                          </div>
-                        </div>
-                        {info.sampleFiles && info.sampleFiles.length > 0 && (
-                          <div>
-                            <span className="text-xs text-zinc-500">Files Found:</span>
-                            {info.totalFiles > 0 && <span className="text-xs text-violet-400 ml-2">({info.totalFiles} total)</span>}
-                            <div className="text-xs text-zinc-400 font-mono mt-1 max-h-24 overflow-y-auto">
-                              {info.sampleFiles.slice(0, 5).map((f: string, i: number) => (
-                                <div key={i} className="truncate">{f}</div>
-                              ))}
-                              {info.sampleFiles.length > 5 && <div className="text-zinc-600">...and {info.sampleFiles.length - 5} more</div>}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Sync Result */}
-          <AnimatePresence>
-            {aiSyncResult && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="glass rounded-xl p-4"
-              >
-                <div className="flex items-center gap-3">
-                  <Sparkles className="w-5 h-5 text-emerald-400" />
-                  <div className="flex-1">
-                    <div className="text-sm text-white font-medium">Sync Complete</div>
-                    <div className="text-xs text-zinc-400">
-                      {Object.keys(aiSyncResult.agents).length > 0 ? (
-                        Object.entries(aiSyncResult.agents).map(([agent, count]) => (
-                          <span key={agent} className="mr-3">{agent}: <span className="text-violet-400">{count as number} records</span></span>
-                        ))
-                      ) : (
-                        <span>No new records found. Click "Show Details" to debug.</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Agent Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {aiAgents.map((agent, idx) => (
-              <motion.div
-                key={agent.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.05 }}
-                onClick={() => {
-                  setSelectedAgent(selectedAgent === agent.id ? null : agent.id);
-                  if (agent.status !== 'inactive') setSelectedAgentDetail(agent);
-                }}
-                className={`glass rounded-xl p-5 cursor-pointer transition-colors duration-150 hover:border-violet-500/50 ${
-                  selectedAgent === agent.id ? 'border-violet-500' : 'border-transparent'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center"
-                      style={{ backgroundColor: agent.color + '22' }}
-                    >
-                      <Code2 className="w-5 h-5" style={{ color: agent.color }} />
-                    </div>
-                    <div>
-                      <h3 className="text-white font-medium">{agent.name}</h3>
-                      <p className="text-xs text-zinc-500">{agent.models[0] || 'No model detected'}</p>
-                    </div>
-                  </div>
-                  <div className={`w-2 h-2 rounded-full ${
-                    agent.status === 'active' ? 'bg-emerald-400' :
-                    agent.status === 'idle' ? 'bg-amber-400' :
-                    agent.status === 'error' ? 'bg-red-400' : 'bg-zinc-600'
-                  }`} />
-                </div>
-
-                {agent.status !== 'inactive' ? (
-                  <>
-                    <div className="grid grid-cols-4 gap-3 mb-3">
-                      <div className="text-center">
-                        <div className="text-lg font-semibold text-white tabular-nums"><TokenValue value={agent.tokens} /></div>
-                        <div className="text-xs text-zinc-500">Tokens</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-lg font-semibold text-blue-400 tabular-nums">{agent.messageCount.toLocaleString()}</div>
-                        <div className="text-xs text-zinc-500">Messages</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-lg font-semibold text-emerald-400 tabular-nums"><CostValue value={agent.cost} /></div>
-                        <div className="text-xs text-zinc-500">Cost</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-lg font-semibold text-amber-400 tabular-nums">{agent.messageCount > 0 ? <TokenValue value={Math.round(agent.tokens / agent.messageCount)} /> : '—'}</div>
-                        <div className="text-xs text-zinc-500">Avg/Msg</div>
-                      </div>
-                    </div>
-
-                    {/* Sparkline - trend over effective period */}
-                    {(() => {
-                      let sparkDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
-                      if (effectiveAiPeriod === 'all') {
-                        const allDaily = overview?.aiUsage?.byTool?.[agent.id]?.daily || {};
-                        const dateStrs = Object.keys(allDaily);
-                        if (dateStrs.length > 0) {
-                          const sorted = dateStrs.sort();
-                          const span = Math.ceil((new Date(sorted[sorted.length - 1]).getTime() - new Date(sorted[0]).getTime()) / 86400000) + 30;
-                          sparkDays = Math.min(180, Math.max(span, 60));
-                        } else { sparkDays = 60; }
-                      }
-                      const days = eachDayOfInterval({ start: subDays(new Date(), sparkDays - 1), end: new Date() });
-                      let data = days.map(d => {
-                        const dayStr = format(d, 'yyyy-MM-dd');
-                        return overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr]?.tokens || 0;
-                      });
-                      if (excludeOutliers) data = filterOutlierValues(data);
-                      const hasData = data.some(v => v > 0);
-                      if (!hasData) return null;
-                      return (
-                        <div className="h-10 mb-3">
-                          <Line
-                            data={{
-                              labels: days.map(d => format(d, 'EEE')),
-                              datasets: [{
-                                data,
-                                borderColor: agent.color,
-                                backgroundColor: agent.color + '18',
-                                borderWidth: 1.5,
-                                pointRadius: 0,
-                                fill: true,
-                                tension: 0.3,
-                              }]
-                            }}
-                            options={{
-                              responsive: true,
-                              maintainAspectRatio: false,
-                              plugins: { legend: { display: false }, tooltip: { enabled: false } },
-                              scales: { x: { display: false }, y: { display: false } },
-                              layout: { padding: 0 },
-                            }}
-                          />
-                        </div>
-                      );
-                    })()}
-
-                    {agent.lastUsed && (
-                      <div className="flex items-center gap-2 text-xs text-zinc-500">
-                        <Clock className="w-3 h-3" />
-                        Last used: {format(agent.lastUsed, 'MMM dd, HH:mm')}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-center py-3">
-                    <span className="text-sm text-zinc-500">Not detected</span>
-                    {agentDebugInfo?.agents?.[agent.id]?.paths ? (
-                      <p className="text-xs text-zinc-600 mt-1 truncate mx-2" title={agentDebugInfo.agents[agent.id].paths[0]}>
-                        Looking in: {agentDebugInfo.agents[agent.id].paths[0]}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-zinc-600 mt-1">Install {agent.name} to start tracking</p>
-                    )}
-                    <p className="text-xs text-violet-500 mt-2">Click "Show Details" to debug</p>
-                  </div>
-                )}
-              </motion.div>
-            ))}
-
-            {/* Coming Soon Card for GitHub Copilot */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: aiAgents.length * 0.05 }}
-              className="glass rounded-xl p-5 border border-zinc-800"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
-                    <Monitor className="w-5 h-5 text-indigo-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-white font-medium">GitHub Copilot</h3>
-                    <p className="text-xs text-zinc-500">CLI Integration</p>
-                  </div>
-                </div>
-                <span className="px-2 py-1 bg-amber-500/20 text-amber-400 text-xs rounded-lg font-medium">Coming Soon</span>
-              </div>
-              <p className="text-sm text-zinc-500">
-                Connect your GitHub organization to track Copilot usage including code completions and chat interactions.
-              </p>
-            </motion.div>
-          </div>
-
-          {/* AI Charts Section */}
-          {aiAgents.filter(a => a.status !== 'inactive').length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
-            >
-              {/* Trend Header with Period + Metric selectors */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <TrendingUp className="w-5 h-5 text-violet-400" />
-                  <div>
-                    <div className="text-lg font-semibold">Usage Trend</div>
-                    <div className="text-sm text-zinc-500">{viewMode === 'model' ? 'Per model, daily breakdown' : 'Per agent, daily breakdown'}</div>
-                  </div>
-                  <div className="w-px h-6 bg-zinc-700" />
-                  <div className="flex items-center gap-1 bg-zinc-800/50 rounded-lg p-0.5">
-                    <button
-                      onClick={() => setShowCityView(true)}
-                      className={`px-2 py-1 rounded text-[10px] font-medium transition ${showCityView ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-400 hover:text-white'}`}
-                    >
-                      City
-                    </button>
-                    <button
-                      onClick={() => setShowCityView(false)}
-                      className={`px-2 py-1 rounded text-[10px] font-medium transition ${!showCityView ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-400 hover:text-white'}`}
-                    >
-                      Charts
-                    </button>
-                  </div>
-                  <div className="w-px h-6 bg-zinc-700" />
-                  <div className="flex items-center gap-1 bg-zinc-800/50 rounded-lg p-0.5">
-                    <button
-                      onClick={() => setViewMode('provider')}
-                      className={`px-2 py-1 rounded text-[10px] font-medium transition ${viewMode === 'provider' ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-400 hover:text-white'}`}
-                    >
-                      Provider
-                    </button>
-                    <button
-                      onClick={() => setViewMode('model')}
-                      className={`px-2 py-1 rounded text-[10px] font-medium transition ${viewMode === 'model' ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-400 hover:text-white'}`}
-                    >
-                      Model
-                    </button>
-                  </div>
-                </div>
-                  <div className="flex items-center gap-3">
-                    {/* Metric Selector */}
-                    <div className="flex items-center gap-1 bg-zinc-800/50 rounded-lg p-1">
-                      {(['tokens', 'messages', 'sessions', 'cost'] as const).map(mode => (
-                        <button
-                          key={mode}
-                          onClick={() => setAiChartMode(mode)}
-                          className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
-                            aiChartMode === mode
-                              ? 'bg-violet-500/20 text-violet-400'
-                              : 'text-zinc-400 hover:text-white'
-                          }`}
-                        >
-                          {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                        </button>
-                      ))}
-                      {aiChartMode === 'tokens' && (
-                        <div className="w-px h-5 bg-zinc-700 mx-1" />
-                      )}
-                      {aiChartMode === 'tokens' && (
-                        <>
-                          {(['combined', 'input', 'output'] as const).map(sub => (
-                            <button
-                              key={sub}
-                              onClick={() => setTokenDisplayMode(sub)}
-                              className={`px-2 py-1 rounded-md text-[10px] font-medium transition ${
-                                tokenDisplayMode === sub
-                                  ? sub === 'input' ? 'bg-blue-500/20 text-blue-400'
-                                    : sub === 'output' ? 'bg-emerald-500/20 text-emerald-400'
-                                    : 'bg-zinc-700/50 text-zinc-300'
-                                  : 'text-zinc-500 hover:text-zinc-300'
-                              }`}
-                            >
-                              {sub === 'combined' ? 'All' : sub === 'input' ? 'In' : 'Out'}
-                            </button>
-                          ))}
-                        </>
-                      )}
-                    </div>
-                    {/* All Time Lock Toggle — period switching is handled by top nav */}
-                    <button
-                      onClick={() => setTimeLock(!timeLock)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                        timeLock
-                          ? 'bg-indigo-500/20 border border-indigo-500/40 text-indigo-300'
-                          : 'bg-zinc-800/50 text-zinc-400 hover:text-white'
-                      }`}
-                      title={timeLock ? 'Unlock timeframe (use nav)' : 'Lock to All Time'}
-                    >
-                      {timeLock ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-                      <span>{timeLock ? 'All Time' : 'Lock All'}</span>
-                    </button>
-                </div>
-              </div>
-
-              {/* City View */}
-              {showCityView && (
-                <Suspense fallback={
-                  <GlassCard>
-                    <div className="h-[500px] flex items-center justify-center text-zinc-500">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-8 h-8 border-2 border-violet-500/30 border-t-violet-400 rounded-full animate-spin" />
-                        <span className="text-sm">Loading cityscape…</span>
-                      </div>
-                    </div>
-                  </GlassCard>
-                }>
-                  <div className="rounded-2xl overflow-hidden border border-zinc-800/50">
-                    <AIUsageCityscape
-                      agents={displayedAgents}
-                      overview={overview}
-                      metric={aiChartMode}
-                      tokenDisplayMode={tokenDisplayMode}
-                      loading={loading}
-                      period={effectiveAiPeriod}
-                    />
-                  </div>
-                </Suspense>
-              )}
-
-              {/* Input/Output Ratio — aggregate across all agents */}
-              {(() => {
-                const activeAgents = displayedAgents.filter(a => a.status !== 'inactive' && a.tokens > 0);
-                const totalIn = activeAgents.reduce((s, a) => s + a.tokensIn, 0);
-                const totalOut = activeAgents.reduce((s, a) => s + a.tokensOut, 0);
-                const total = totalIn + totalOut;
-                if (total === 0) return null;
-                const inRatio = total > 0 ? (totalIn / total) * 100 : 0;
-                const outRatio = total > 0 ? (totalOut / total) * 100 : 0;
-                const ratioValue = totalIn > 0 ? (totalOut / totalIn).toFixed(1) : '∞';
-                return (
-                  <GlassCard>
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500/20 to-emerald-500/20 flex items-center justify-center border border-blue-500/10">
-                          <BarChart3 className="w-4 h-4 text-blue-400" />
-                        </div>
-                        <div>
-                          <div className="text-lg font-semibold">Human vs AI Tokens</div>
-                          <div className="text-sm text-zinc-500">Input (you) vs Output (AI) across all agents</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3 px-3 py-1.5 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
-                        <span className="text-[10px] text-zinc-500 uppercase tracking-wider">In:Out</span>
-                        <span className="text-sm font-bold text-white font-mono">1:{ratioValue}</span>
-                      </div>
-                    </div>
-
-                    {/* Split bar */}
-                    <div className="relative h-10 bg-zinc-800/50 rounded-xl overflow-hidden mb-4 border border-zinc-700/30">
-                      <div className="absolute inset-0 flex" style={{ width: '100%' }}>
-                        <div
-                          className="h-full flex items-center justify-end px-3 transition-all"
-                          style={{
-                            width: `${inRatio}%`,
-                            background: 'linear-gradient(90deg, rgba(59,130,246,0.6), rgba(59,130,246,0.3))'
-                          }}
-                        >
-                          {inRatio > 8 && (
-                            <span className="text-[10px] font-semibold text-white drop-shadow-md">
-                              {inRatio.toFixed(0)}%
-                            </span>
-                          )}
-                        </div>
-                        <div
-                          className="h-full flex items-center px-3 transition-all"
-                          style={{
-                            width: `${outRatio}%`,
-                            background: 'linear-gradient(90deg, rgba(16,185,129,0.3), rgba(16,185,129,0.6))'
-                          }}
-                        >
-                          {outRatio > 8 && (
-                            <span className="text-[10px] font-semibold text-white drop-shadow-md">
-                              {outRatio.toFixed(0)}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Stats grid */}
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="bg-blue-500/5 rounded-xl p-3 border border-blue-500/10">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <div className="w-2 h-2 rounded-full bg-blue-400" />
-                          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Human Input</span>
-                        </div>
-                        <div className="text-sm font-bold text-blue-400">{formatTokens(totalIn)}</div>
-                        <div className="text-[9px] text-zinc-600 mt-0.5">{inRatio.toFixed(1)}% of total</div>
-                      </div>
-                      <div className="bg-emerald-500/5 rounded-xl p-3 border border-emerald-500/10">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">AI Output</span>
-                        </div>
-                        <div className="text-sm font-bold text-emerald-400">{formatTokens(totalOut)}</div>
-                        <div className="text-[9px] text-zinc-600 mt-0.5">{outRatio.toFixed(1)}% of total</div>
-                      </div>
-                      <div className="bg-zinc-800/50 rounded-xl p-3 border border-zinc-700/30">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Avg Ratio Per Agent</span>
-                        </div>
-                        <div className="text-sm font-bold text-white font-mono">
-                          1:{(() => {
-                            const agents = activeAgents.filter(a => a.tokensIn > 0);
-                            if (agents.length === 0) return '—';
-                            const avgOut = agents.reduce((s, a) => s + (a.tokensOut / a.tokensIn), 0) / agents.length;
-                            return avgOut.toFixed(1);
-                          })()}
-                        </div>
-                        <div className="text-[9px] text-zinc-600 mt-0.5">output per 1 input</div>
-                      </div>
-                    </div>
-
-                    {/* Per-agent ratio breakdown */}
-                    {activeAgents.length > 1 && (
-                      <div className="mt-4 space-y-1.5">
-                        <div className="text-[9px] text-zinc-600 uppercase tracking-wider mb-2">Per Agent</div>
-                        {activeAgents.map(agent => {
-                          const aIn = agent.tokensIn;
-                          const aOut = agent.tokensOut;
-                          const aTotal = aIn + aOut;
-                          if (aTotal === 0) return null;
-                          const aRatio = aIn > 0 ? (aOut / aIn).toFixed(1) : '∞';
-                          const aInPct = (aIn / aTotal) * 100;
-                          return (
-                            <div key={agent.id} className="flex items-center gap-3 p-2 bg-zinc-900/40 rounded-lg">
-                              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: agent.color }} />
-                              <span className="text-[11px] text-zinc-300 min-w-[80px]">{agent.name}</span>
-                              <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                                <div className="h-full flex">
-                                  <div className="h-full bg-blue-500/60 rounded-l-full" style={{ width: `${aInPct}%` }} />
-                                  <div className="h-full bg-emerald-500/60 rounded-r-full" style={{ width: `${100 - aInPct}%` }} />
-                                </div>
-                              </div>
-                              <span className="text-[10px] text-zinc-500 font-mono min-w-[60px] text-right">
-                                {formatTokens(aIn)} <span className="text-zinc-700">/</span> {formatTokens(aOut)}
-                              </span>
-                              <span className="text-[10px] text-amber-400 font-mono min-w-[40px] text-right">
-                                1:{aRatio}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </GlassCard>
-                );
-              })()}
-
-              {/* Charts (hidden when city view is active) */}
-              {!showCityView && (
-                <>
-              {/* Per-Agent Charts Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {agentChartsData.map((agentChart) => (
-                  <GlassCard key={agentChart.agentId}>
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: agentChart.color }} />
-                      <span className="text-sm font-medium text-white">{agentChart.agentName}</span>
-                      <span className="text-xs text-zinc-500 ml-auto">{agentChart.metricLabel}</span>
-                    </div>
-                    <div className="h-40">
-                      <Bar
-                        data={agentChart.chartData}
-                        options={{
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                              backgroundColor: 'rgba(24, 24, 27, 0.95)',
-                              titleColor: '#fff',
-                              bodyColor: '#a1a1aa',
-                              borderColor: '#3f3f46',
-                              borderWidth: 1,
-                              callbacks: {
-                                label: (ctx) => {
-                                  const val = ctx.parsed.y || 0;
-                                  if (aiChartMode === 'tokens') {
-                                    const mode = tokenDisplayMode === 'input' ? ' input' : tokenDisplayMode === 'output' ? ' output' : '';
-                                    return ` ${formatTokens(val)}${mode} tokens`;
-                                  }
-                                  if (aiChartMode === 'cost') return ` ${formatCurrency(val)}`;
-                                  if (aiChartMode === 'messages') return ` ${val} messages`;
-                                  return ` ${val} sessions`;
-                                }
-                              }
-                            }
-                          },
-                          scales: {
-                            x: { grid: { display: false }, ticks: { color: '#71717a', maxTicksLimit: 5, font: { size: 10 } } },
-                            y: {
-                              type: logScale ? 'logarithmic' as const : 'linear' as const,
-                              grid: { color: '#27272a' },
-                              ticks: {
-                                color: '#71717a',
-                                font: { size: 10 },
-                                callback: (v) => {
-                                  if (v === null) return '';
-                                  if (aiChartMode === 'tokens') return formatTokens(v as number);
-                                  if (aiChartMode === 'cost') return `$${(v as number).toFixed(2)}`;
-                                  return String(v);
-                                }
-                              },
-                              ...(logScale ? {} : { beginAtZero: true }),
-                            }
-                          },
-                        }}
-                      />
-                    </div>
-                  </GlassCard>
-                ))}
-              </div>
-
-              {/* Distribution Doughnut */}
-              <GlassCard>
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <Activity className="w-5 h-5 text-emerald-400" />
-                    <div>
-                      <div className="text-lg font-semibold">Usage Distribution</div>
-                      <div className="text-sm text-zinc-500">{viewMode === 'model' ? 'By model' : 'By AI agent'}</div>
-                    </div>
-                  </div>
-                </div>
-                <div className="h-64 flex items-center justify-center">
-                  {agentDistributionData.labels.length > 0 ? (
-                    <Doughnut
-                      data={agentDistributionData}
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        cutout: '65%',
-                        plugins: {
-                          legend: {
-                            position: 'bottom',
-                            labels: { color: '#a1a1aa', padding: 16, usePointStyle: true }
-                          },
-                          tooltip: {
-                            backgroundColor: 'rgba(24, 24, 27, 0.95)',
-                            titleColor: '#fff',
-                            bodyColor: '#a1a1aa',
-                            borderColor: '#3f3f46',
-                            borderWidth: 1,
-                            callbacks: {
-                              label: (ctx) => {
-                                const label = ctx.label || '';
-                                const value = ctx.parsed || 0;
-                                if (aiChartMode === 'tokens') {
-                                  const labelSuffix = tokenDisplayMode === 'input' ? ' input tokens' : tokenDisplayMode === 'output' ? ' output tokens' : ' tokens';
-                                  return ` ${label}: ${formatTokens(value)}${labelSuffix}`;
-                                }
-                                if (aiChartMode === 'cost') return ` ${label}: ${formatCurrency(value)}`;
-                                if (aiChartMode === 'messages') return ` ${label}: ${value} messages`;
-                                return ` ${label}: ${value} sessions`;
-                              }
-                            }
-                          }
-                        }
-                      }}
-                    />
-                  ) : (
-                    <p className="text-zinc-500">No data yet</p>
-                  )}
-                </div>
-              </GlassCard>
-
-              {/* Model Usage Timeline — Stacked per-model breakdown */}
-              {(() => {
-                const activeAgents = aiAgents.filter(a => a.status !== 'inactive' && a.tokens > 0);
-                const hasModelData = activeAgents.some(a => {
-                  const modelDaily = overview?.aiUsage?.byTool?.[a.id]?.modelDaily || {};
-                  return Object.keys(modelDaily).length > 1;
-                });
-                if (!hasModelData) return null;
-
-                let numDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
-                if (effectiveAiPeriod === 'all') {
-                  const allDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail?.id || '']?.daily || {};
-                  const dateStrs = Object.keys(allDaily);
-                  if (dateStrs.length > 0) {
-                    const sorted = dateStrs.sort();
-                    const span = Math.ceil((new Date(sorted[sorted.length - 1]).getTime() - new Date(sorted[0]).getTime()) / 86400000) + 30;
-                    numDays = Math.min(180, Math.max(span, 60));
-                  } else { numDays = 60; }
-                }
-                const periodDays = eachDayOfInterval({ start: subDays(new Date(), numDays - 1), end: new Date() });
-                const modelColors = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6', '#8b5cf6'];
-
-                const metricField = aiChartMode === 'tokens' ? 'tokens'
-                  : aiChartMode === 'messages' ? 'messageCount'
-                  : aiChartMode === 'cost' ? 'cost'
-                  : 'sessions';
-                const metricLabel = aiChartMode === 'tokens'
-                    ? (tokenDisplayMode === 'input' ? 'Input Tokens' : tokenDisplayMode === 'output' ? 'Output Tokens' : 'Tokens')
-                    : aiChartMode.charAt(0).toUpperCase() + aiChartMode.slice(1);
-
-                // Collect all models across all active agents
-                const allModels: { agent: string; model: string; color: string }[] = [];
-                for (const agent of activeAgents) {
-                  const modelDaily = overview?.aiUsage?.byTool?.[agent.id]?.modelDaily || {};
-                  for (const model of Object.keys(modelDaily)) {
-                    allModels.push({ agent: agent.name, model, color: agent.color });
-                  }
-                }
-
-                // Build datasets: one per model, stacked
-                const datasets = allModels.slice(0, 10).map((entry, idx) => {
-                  const modelDaily = overview?.aiUsage?.byTool?.[activeAgents.find(a => a.name === entry.agent)?.id]?.modelDaily?.[entry.model] || {};
-                  return {
-                    label: entry.model.length > 25 ? entry.model.slice(0, 22) + '...' : entry.model,
-                    data: periodDays.map(d => {
-                      const dayStr = format(d, 'yyyy-MM-dd');
-                      return modelDaily[dayStr]?.[metricField] || 0;
-                    }),
-                    backgroundColor: modelColors[idx % modelColors.length] + '70',
-                    borderColor: modelColors[idx % modelColors.length],
-                    borderWidth: 1,
-                    borderRadius: 2,
-                  };
-                });
-
-                return (
-                  <GlassCard>
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <Layers className="w-5 h-5 text-cyan-400" />
-                        <div>
-                          <div className="text-lg font-semibold">Model Usage Timeline</div>
-                          <div className="text-sm text-zinc-500">Per-model {metricLabel.toLowerCase()} — all agents</div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="h-64">
-                      <Bar
-                        data={{ labels: periodDays.map(d => format(d, numDays <= 7 ? 'EEE' : 'MMM dd')), datasets }}
-                        options={{
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          plugins: {
-                            legend: {
-                              display: true,
-                              position: 'top',
-                              labels: { color: '#71717a', font: { size: 9 }, boxWidth: 8, padding: 8 }
-                            },
-                            tooltip: {
-                              backgroundColor: 'rgba(24, 24, 27, 0.95)',
-                              titleColor: '#fff',
-                              bodyColor: '#a1a1aa',
-                              borderColor: '#3f3f46',
-                              borderWidth: 1,
-                              callbacks: {
-                                label: (ctx) => {
-                                  const val = ctx.parsed.y || 0;
-                                  if (aiChartMode === 'tokens') {
-                                    const mode = tokenDisplayMode === 'input' ? ' input' : tokenDisplayMode === 'output' ? ' output' : '';
-                                    return ` ${formatTokens(val)}${mode} tokens`;
-                                  }
-                                  if (aiChartMode === 'cost') return ` ${formatCurrency(val)}`;
-                                  if (aiChartMode === 'messages') return ` ${val} messages`;
-                                  return ` ${val} sessions`;
-                                }
-                              }
-                            }
-                          },
-                          scales: {
-                            x: {
-                              stacked: true,
-                              ticks: { color: '#71717a', maxTicksLimit: numDays <= 7 ? 7 : 8, font: { size: 10 } },
-                              grid: { display: false }
-                            },
-                            y: {
-                              stacked: true,
-                              ticks: {
-                                color: '#71717a',
-                                font: { size: 10 },
-                                callback: (v) => {
-                                  if (aiChartMode === 'tokens') return formatTokens(v as number);
-                                  if (aiChartMode === 'cost') return `$${(v as number).toFixed(2)}`;
-                                  return String(v);
-                                }
-                              },
-                              grid: { color: '#27272a' },
-                              beginAtZero: true,
-                            }
-                          }
-                        }}
-                      />
-                    </div>
-                  </GlassCard>
-                );
-              })()}
-
-              {/* Multi-Agent Comparison Chart */}
-              {aiAgents.filter(a => a.status !== 'inactive').length > 1 && (
-                <GlassCard>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <BarChart3 className="w-5 h-5 text-violet-400" />
-                      <div>
-                        <div className="text-lg font-semibold">Compare AI Agents</div>
-                        <div className="text-sm text-zinc-500">Grouped daily breakdown</div>
-                      </div>
-                    </div>
-                    {/* Compare inherits period + metric from the global controls above */}
-                    <span className="text-[10px] text-zinc-500 bg-zinc-800/50 px-2 py-1 rounded">
-                      {timeLock ? 'All Time' : selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === '7day' ? '7 Days' : selectedPeriod === 'month' ? 'This Month' : selectedPeriod === '30day' ? '30 Days' : 'All Time'} · {aiChartMode.charAt(0).toUpperCase() + aiChartMode.slice(1)}
-                    </span>
-                  </div>
-
-                  {/* Agent Toggles */}
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {aiAgents.filter(a => a.status !== 'inactive').map(agent => (
-                      <label key={agent.id} className="flex items-center gap-1.5 px-2 py-1 bg-zinc-800/50 rounded-lg cursor-pointer hover:bg-zinc-800 transition">
-                        <input
-                          type="checkbox"
-                          checked={compareAgents.includes(agent.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setCompareAgents(prev => [...prev, agent.id]);
-                            } else {
-                              setCompareAgents(prev => prev.filter(id => id !== agent.id));
-                            }
-                          }}
-                          className="w-3 h-3 rounded border-zinc-600"
-                        />
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: agent.color }} />
-                        <span className="text-xs text-zinc-300">{agent.name}</span>
-                      </label>
-                    ))}
-                  </div>
-
-                  <div className="h-72">
-                    {(() => {
-                      let numDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
-                      if (effectiveAiPeriod === 'all') {
-                        const byTool = overview?.aiUsage?.byTool || {};
-                        let allDates: string[] = [];
-                        for (const toolId of Object.keys(byTool)) {
-                          allDates = allDates.concat(Object.keys(byTool[toolId]?.daily || {}));
-                        }
-                        if (allDates.length > 0) {
-                          const sorted = allDates.sort();
-                          const span = Math.ceil((new Date(sorted[sorted.length - 1]).getTime() - new Date(sorted[0]).getTime()) / 86400000) + 30;
-                          numDays = Math.min(180, Math.max(span, 60));
-                        } else { numDays = 60; }
-                      }
-                      const periodDays = eachDayOfInterval({ start: subDays(new Date(), numDays - 1), end: new Date() });
-                      const labels = periodDays.map(d => format(d, numDays <= 7 ? 'EEE' : 'MMM dd'));
-
-                      const selected = aiAgents.filter(a => compareAgents.includes(a.id) && a.status !== 'inactive');
-                      const datasets = selected.map(agent => {
-                        let data = periodDays.map(d => {
-                          const dayStr = format(d, 'yyyy-MM-dd');
-                          const dayData = overview?.aiUsage?.byTool?.[agent.id]?.daily?.[dayStr];
-                          if (!dayData) return 0;
-                          if (aiChartMode === 'tokens') {
-                            if (tokenDisplayMode === 'input') return dayData.tokens_in || 0;
-                            if (tokenDisplayMode === 'output') return dayData.tokens_out || 0;
-                            return dayData.tokens || 0;
-                          }
-                          if (aiChartMode === 'messages') return dayData.messageCount || 0;
-                          if (aiChartMode === 'sessions') return dayData.sessions || 0;
-                          if (aiChartMode === 'cost') return dayData.cost || 0;
-                          return 0;
-                        });
-                        if (excludeOutliers) data = filterOutlierValues(data);
-                        if (logScale) data = data.map(v => v === 0 ? null : v) as number[];
-                        return {
-                          label: agent.name,
-                          data,
-                          backgroundColor: agent.color + 'CC',
-                          borderColor: agent.color,
-                          borderWidth: 1,
-                          borderRadius: 2,
-                        };
-                      });
-
-                      return (
-                        <Bar
-                          data={{ labels, datasets }}
-                          options={{
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                              legend: {
-                                position: 'bottom',
-                                labels: { color: '#a1a1aa', padding: 12, usePointStyle: true, font: { size: 11 } }
-                              },
-                              tooltip: {
-                                backgroundColor: 'rgba(24, 24, 27, 0.95)',
-                                titleColor: '#fff',
-                                bodyColor: '#a1a1aa',
-                                borderColor: '#3f3f46',
-                                borderWidth: 1,
-                                callbacks: {
-                                  label: (ctx) => {
-                                    const val = ctx.parsed.y || 0;
-                                    if (aiChartMode === 'tokens') {
-                                      const mode = tokenDisplayMode === 'input' ? ' input' : tokenDisplayMode === 'output' ? ' output' : '';
-                                      return ` ${ctx.dataset.label}: ${formatTokens(val)}${mode} tokens`;
-                                    }
-                                    if (aiChartMode === 'cost') return ` ${ctx.dataset.label}: ${formatCurrency(val)}`;
-                                    if (aiChartMode === 'messages') return ` ${ctx.dataset.label}: ${val} messages`;
-                                    return ` ${ctx.dataset.label}: ${val} sessions`;
-                                  }
-                                }
-                              }
-                            },
-                            scales: {
-                              x: {
-                                grid: { display: false },
-                                ticks: { color: '#71717a', maxTicksLimit: 8, font: { size: 10 } }
-                              },
-                              y: {
-                                type: logScale ? 'logarithmic' as const : 'linear' as const,
-                                grid: { color: '#27272a' },
-                                ticks: {
-                                  color: '#71717a',
-                                  font: { size: 10 },
-                                  callback: (v) => {
-                                    if (v === null) return '';
-                                    if (aiChartMode === 'tokens') return formatTokens(v as number);
-                                    if (aiChartMode === 'cost') return `$${(v as number).toFixed(2)}`;
-                                    return String(v);
-                                  }
-                                },
-                                ...(logScale ? {} : { beginAtZero: true }),
-                              }
-                            }
-                          }}
-                        />
-                      );
-                    })()}
-                  </div>
-                </GlassCard>
-              )}
-              </>)}
-            </motion.div>
-          )}
-        </div>
+        <AIToolsTab
+          overview={overview}
+          workspaceAnalytics={workspaceAnalytics}
+          analyticsLoading={analyticsLoading}
+          analyticsError={analyticsError}
+          onRetryAnalytics={() => { analyticsCacheRef.current = null; fetchAnalytics(); }}
+          selectedPeriod={selectedPeriod}
+          onDataRefresh={loadOverview}
+        />
       )}
 
       {/* Git Tab */}
@@ -3838,21 +2574,10 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           animate={{ opacity: 1, y: 0 }}
           className="space-y-6"
         >
-          <GlassCard>
-            <div className="flex items-center gap-3 mb-4">
-              <Archive className="w-6 h-6 text-zinc-400" />
-              <div>
-                <h2 className="text-xl font-semibold text-white">Backup</h2>
-                <p className="text-sm text-zinc-400">Backup snapshots for AI coding changes — coming soon</p>
-              </div>
-            </div>
-
-            <EmptyState
-              icon={<Archive className="w-8 h-8" />}
-              title="Backup system not yet active"
-              description="Create a backup before your next AI coding session to enable file-level restore"
-            />
-          </GlassCard>
+          <BackupTabPanel
+            projectId={selectedProject}
+            projectPath={overview?.projects?.find((p: any) => p.id === selectedProject)?.path || null}
+          />
         </motion.div>
       )}
 
@@ -4138,31 +2863,6 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
         )}
       </AnimatePresence>
 
-      {syncingAI && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 max-w-sm w-full mx-4 text-center"
-          >
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-violet-500/20 flex items-center justify-center">
-              <Sparkles className="w-8 h-8 text-violet-400 animate-spin" />
-            </div>
-            <h3 className="text-xl font-bold text-white mb-2">Syncing AI Usage</h3>
-            <p className="text-zinc-400 text-sm mb-4">{syncProgress || 'Please wait...'}</p>
-            <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
-              <motion.div
-                className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full"
-                initial={{ width: '0%' }}
-                animate={{ width: syncProgress ? '60%' : '30%' }}
-                transition={{ duration: 1.5, repeat: Infinity, repeatType: 'reverse' }}
-              />
-            </div>
-            <p className="text-xs text-zinc-500 mt-4">Do not close or switch tabs during sync</p>
-          </motion.div>
-        </div>
-      )}
-
       {/* AI Agent Detail Modal */}
       <AnimatePresence>
         {selectedAgentDetail && (
@@ -4198,12 +2898,80 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 </button>
               </div>
 
+              {/* Timeline Selector */}
+              <div className="flex items-center justify-center mb-5">
+                <div className="flex bg-zinc-800 rounded-full p-1 text-xs">
+                  <button
+                    onClick={() => { setModalExpandedPeriod(null); setModalPeriod('today'); }}
+                    className={`px-3 py-1.5 rounded-full transition ${modalPeriod === 'today' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  >
+                    Today
+                  </button>
+                  <div className="relative flex">
+                    {modalExpandedPeriod === 'week' ? (
+                      <>
+                        <button
+                          onClick={() => { setModalExpandedPeriod(null); setModalPeriod('week'); }}
+                          className={`px-3 py-1.5 rounded-full transition ${modalPeriod === 'week' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+                        >
+                          Week
+                        </button>
+                        <button
+                          onClick={() => { setModalExpandedPeriod(null); setModalPeriod('7day'); }}
+                          className={`px-3 py-1.5 rounded-full transition ${modalPeriod === '7day' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+                        >
+                          7 Day
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setModalExpandedPeriod('week')}
+                        className={`px-3 py-1.5 rounded-full transition ${modalPeriod === 'week' || modalPeriod === '7day' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+                      >
+                        {modalPeriod === '7day' ? '7 Day' : 'Week'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative flex">
+                    {modalExpandedPeriod === 'month' ? (
+                      <>
+                        <button
+                          onClick={() => { setModalExpandedPeriod(null); setModalPeriod('month'); }}
+                          className={`px-3 py-1.5 rounded-full transition ${modalPeriod === 'month' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+                        >
+                          Month
+                        </button>
+                        <button
+                          onClick={() => { setModalExpandedPeriod(null); setModalPeriod('30day'); }}
+                          className={`px-3 py-1.5 rounded-full transition ${modalPeriod === '30day' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+                        >
+                          30d
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setModalExpandedPeriod('month')}
+                        className={`px-3 py-1.5 rounded-full transition ${modalPeriod === 'month' || modalPeriod === '30day' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+                      >
+                        {modalPeriod === '30day' ? '30d' : 'Month'}
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => { setModalExpandedPeriod(null); setModalPeriod('all'); }}
+                    className={`px-3 py-1.5 rounded-full transition ${modalPeriod === 'all' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  >
+                    All Time
+                  </button>
+                </div>
+              </div>
+
               {/* Top Metrics Grid — period-aware */}
               {(() => {
                 const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 9999 };
-                const numDays = daysMap[effectiveAiPeriod] || 7;
+                const numDays = daysMap[modalEffectivePeriod] || 7;
                 const cutoff = numDays >= 9999 ? null : subDays(new Date(), numDays - 1);
-                const daily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {};
+                const daily = modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {};
 
                 let periodTokens = 0;
                 let periodTokensIn = 0;
@@ -4225,7 +2993,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   periodSessions += (dayData as any).sessions || 0;
                 }
 
-                const periodLabel = timeLock ? 'All Time' : selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === '7day' ? '7 Days' : selectedPeriod === 'month' ? 'This Month' : selectedPeriod === '30day' ? '30 Days' : 'All Time';
+                const periodLabel = modalPeriod === 'today' ? 'Today' : modalPeriod === 'week' ? 'This Week' : modalPeriod === '7day' ? '7 Days' : modalPeriod === 'month' ? 'This Month' : modalPeriod === '30day' ? '30 Days' : 'All Time';
 
                 return (
                   <>
@@ -4288,7 +3056,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
                     <FreeUsageStats 
                       agent={selectedAgentDetail} 
-                      dailyUsage={overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {}} 
+                      dailyUsage={modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {}} 
                       formatTokens={formatTokens}
                     />
                   </>
@@ -4338,9 +3106,9 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   </div>
                   <div className="h-48">
                     {(() => {
-                      let numDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
-                      if (effectiveAiPeriod === 'all') {
-                        const allDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {};
+                      let numDays = modalEffectivePeriod === 'week' ? 7 : modalEffectivePeriod === 'month' ? 30 : 7;
+                      if (modalEffectivePeriod === 'all') {
+                        const allDaily = modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {};
                         const dateStrs = Object.keys(allDaily);
                         if (dateStrs.length > 0) {
                           const sorted = dateStrs.sort();
@@ -4355,7 +3123,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                       const periodDays = eachDayOfInterval({ start: subDays(new Date(), numDays - 1), end: new Date() });
                       const labels = periodDays.map(d => format(d, numDays <= 7 ? 'EEE' : 'MMM dd'));
                       const getMetricValue = (dayStr: string) => {
-                        const dayData = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily?.[dayStr];
+                        const dayData = modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily?.[dayStr];
                         if (!dayData) return 0;
                         if (aiChartMode === 'messages') return dayData.messageCount || 0;
                         if (aiChartMode === 'sessions') return dayData.sessions || 0;
@@ -4365,11 +3133,11 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
                       if (aiChartMode === 'tokens') {
                         const inData = periodDays.map(d => {
-                          const dayData = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily?.[format(d, 'yyyy-MM-dd')];
+                          const dayData = modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily?.[format(d, 'yyyy-MM-dd')];
                           return dayData?.tokens_in || 0;
                         });
                         const outData = periodDays.map(d => {
-                          const dayData = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily?.[format(d, 'yyyy-MM-dd')];
+                          const dayData = modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily?.[format(d, 'yyyy-MM-dd')];
                           return dayData?.tokens_out || 0;
                         });
                         const tokenIsStacked = tokenDisplayMode === 'combined';
@@ -4526,13 +3294,13 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
                 {/* Model Usage Timeline */}
                 {(() => {
-                  const modelDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.modelDaily || {};
+                  const modelDaily = modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.modelDaily || {};
                   const modelNames = Object.keys(modelDaily);
                   if (modelNames.length <= 1) return null;
 
-                  let numDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7;
-                  if (effectiveAiPeriod === 'all') {
-                    const allDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {};
+                  let numDays = modalEffectivePeriod === 'week' ? 7 : modalEffectivePeriod === 'month' ? 30 : 7;
+                  if (modalEffectivePeriod === 'all') {
+                    const allDaily = modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.daily || {};
                     const dateStrs = Object.keys(allDaily);
                     if (dateStrs.length > 0) {
                       const sorted = dateStrs.sort();
@@ -4632,7 +3400,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
                 {/* Project Breakdown */}
                 {(() => {
-                  const projects = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.projects || [];
+                  const projects = modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.projects || [];
                   if (projects.length === 0) return null;
                   return (
                     <div className="bg-zinc-800/50 rounded-xl p-4">
@@ -4655,9 +3423,9 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 {/* Model Breakdown — period-aware */}
                 {(() => {
                   const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'all': 9999 };
-                  const numDays = daysMap[effectiveAiPeriod] || 7;
+                const numDays = daysMap[modalEffectivePeriod] || 7;
                   const cutoff = numDays >= 9999 ? null : subDays(new Date(), numDays - 1);
-                  const modelDaily = overview?.aiUsage?.byTool?.[selectedAgentDetail.id]?.modelDaily || {};
+                  const modelDaily = modalData?.aiUsage?.byTool?.[selectedAgentDetail.id]?.modelDaily || {};
 
                   // Aggregate modelBreakdown from modelDaily filtered by period
                   const modelAgg: Record<string, { model: string; tokens: number; tokens_in: number; tokens_out: number; messageCount: number; sessions: number }> = {};
@@ -4681,7 +3449,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                   const models = Object.values(modelAgg).sort((a, b) => b.tokens - a.tokens);
                   if (models.length === 0) return null;
 
-                  const periodLabel = timeLock ? 'All Time' : selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : selectedPeriod === '7day' ? '7 Days' : selectedPeriod === 'month' ? 'This Month' : selectedPeriod === '30day' ? '30 Days' : 'All Time';
+                  const periodLabel = modalPeriod === 'today' ? 'Today' : modalPeriod === 'week' ? 'This Week' : modalPeriod === '7day' ? '7 Days' : modalPeriod === 'month' ? 'This Month' : modalPeriod === '30day' ? '30 Days' : 'All Time';
 
                   return (
                     <div className="bg-zinc-800/50 rounded-xl p-4">

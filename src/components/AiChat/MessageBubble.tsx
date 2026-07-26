@@ -40,17 +40,20 @@ export const MessageBubble: FC<MessageBubbleProps> = ({ role, children, timestam
       <div className={`w-6 h-6 rounded-lg shrink-0 grid place-items-center ring-1 mt-0.5 ${
         isUser
           ? 'bg-pink-500/15 ring-pink-500/30'
-          : 'bg-zinc-800 ring-zinc-700'
+          : 'bg-gradient-to-br from-violet-500/15 to-pink-500/10 ring-1 ring-violet-500/25'
       }`}>
-        {isUser ? <User className="h-3.5 w-3.5 text-pink-300" /> : <Bot className="h-3.5 w-3.5 text-zinc-300" />}
+        {isUser ? <User className="h-3.5 w-3.5 text-pink-300" /> : <Bot className="h-3.5 w-3.5 text-violet-300" />}
       </div>
 
       <div className={`relative ${isUser ? 'max-w-[80%]' : 'max-w-[85%]'}`}>
         <div className={`relative rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
           isUser
             ? 'bg-pink-500/12 ring-1 ring-pink-500/20 text-zinc-100 rounded-tr-sm'
-            : 'bg-zinc-900/60 ring-1 ring-zinc-800/60 text-zinc-200 rounded-tl-sm'
+            : 'bg-gradient-to-br from-zinc-900/80 to-zinc-950/60 ring-1 ring-zinc-700/50 text-zinc-200 rounded-tl-sm shadow-[0_1px_8px_rgba(0,0,0,0.15)]'
         }`}>
+          {!isUser && (
+            <div className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-gradient-to-b from-violet-400/60 via-pink-400/40 to-transparent" />
+          )}
           {content && (
             <button
               onClick={handleCopy}
@@ -63,7 +66,7 @@ export const MessageBubble: FC<MessageBubbleProps> = ({ role, children, timestam
           {children}
         </div>
         {timeStr && (
-          <div className="text-[10px] text-zinc-600 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+          <div className={`text-[10px] text-zinc-600 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ${isUser ? 'text-right' : ''}`}>
             {timeStr}
           </div>
         )}

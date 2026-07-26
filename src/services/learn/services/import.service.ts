@@ -10,21 +10,29 @@ import type { LdocDocument, ImportResult, ValidationReport, Result } from '../..
 export class ImportService {
   constructor(private db: Database) {}
 
+  /** Get all published node IDs from the database for cross-lesson prereq resolution. */
+  private getPublishedNodeIds(): Set<string> {
+    const rows = this.db.prepare('SELECT id FROM learn_nodes').all() as any[];
+    return new Set(rows.map((r: any) => r.id));
+  }
+
   /**
    * Import from raw model output (text) with forgiving pre-parser + self-heal retry loop (§3.4).
    * Tries normal parse first; if validateFull fails, runs forgivingPreparser and retries once.
    */
   importRaw(raw: string): Result<ImportResult & { repairs?: string[] }> {
+    const publishedIds = this.getPublishedNodeIds();
+
     // First attempt: normal toLdoc
     let result = toLdoc(raw);
-    let validation = validateFull(result.doc);
+    let validation = validateFull(result.doc, publishedIds);
     let repairs: string[] = [];
 
     if (!validation.ok) {
       const prepared = forgivingPreparser(raw);
       repairs = prepared.repairs;
       result = toLdoc(prepared.text);
-      validation = validateFull(result.doc);
+      validation = validateFull(result.doc, publishedIds);
     }
 
     if (!validation.ok) {
@@ -45,8 +53,9 @@ export class ImportService {
 
   importLdoc(json: unknown, extraRepairs?: string[]): Result<ImportResult & { repairs?: string[] }> {
     try {
-      // 1. Validate
-      const validation = validateFull(json);
+      // 1. Validate (with published node IDs for cross-lesson prereq resolution)
+      const publishedIds = this.getPublishedNodeIds();
+      const validation = validateFull(json, publishedIds);
       if (!validation.ok) {
         return {
           ok: true,
@@ -90,6 +99,7 @@ export class ImportService {
           part: doc.lesson.part,
           version: doc.lesson.version,
           summary: doc.lesson.summary,
+          chapter: doc.lesson.chapter,
           authored_by: doc.lesson.authored_by,
           doc_json: JSON.stringify(doc),
           status: 'valid',

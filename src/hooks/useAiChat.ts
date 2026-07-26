@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { generateUUID } from '../lib/uuid'
 import {
   parseAssistantContent,
   serializeParsed,
@@ -8,10 +9,18 @@ import { buildContextBundleDetailed, todayIso } from "../services/aiContextBundl
 
 export interface ChatMsg {
   id: string
-  role: "user" | "assistant"
+  role: "user" | "assistant" | "system" | "tool"
   content: string
   timestamp?: number
   parsed?: ParsedMessage
+}
+
+export interface ChatThreadMeta {
+  threadDate: string
+  title?: string
+  messageCount: number
+  lastMessageAt?: number
+  preview?: string
 }
 
 type AnyRec = Record<string, unknown>
@@ -22,7 +31,11 @@ function bridge(): AnyRec | undefined {
 }
 
 function uid(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+  return generateUUID()
+}
+
+function getThreadDate(ts = Date.now()) {
+  return new Date(ts).toISOString().split("T")[0]
 }
 
 interface ProviderState {
@@ -47,13 +60,24 @@ export interface UseAiChat {
   streaming: boolean
   thinking: boolean
   error: string | null
-  contextWarnings: string[]            // ADDED
+  contextWarnings: string[]
   hasProvider: boolean
   send: (text?: string) => Promise<void>
   stop: () => void
   reset: () => Promise<void>
-  dismissError: () => void             // ADDED
+  dismissError: () => void
   setAssistantMessage: (id: string, patch: Partial<ChatMsg>) => void
+  addMessage: (msg: ChatMsg) => void
+  // History
+  threads: ChatThreadMeta[]
+  currentThreadDate: string
+  loadThread: (threadDate: string) => Promise<void>
+  deleteThread: (threadDate: string) => Promise<void>
+  renameThread: (threadDate: string, newTitle: string) => void
+  refreshThreads: () => Promise<void>
+  startNewThread: () => void
+  // Memory
+  memories: { id: string; text: string; category: string }[]
 }
 
 export function useAiChat(): UseAiChat {
@@ -62,21 +86,27 @@ export function useAiChat(): UseAiChat {
   const [streaming, setStreaming] = useState(false)
   const [thinking, setThinking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [contextWarnings, setContextWarnings] = useState<string[]>([])  // ADDED
+  const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [hasProvider, setHasProvider] = useState(true)
+  const [threads, setThreads] = useState<ChatThreadMeta[]>([])
+  const [currentThreadDate, setCurrentThreadDate] = useState(getThreadDate())
+  const [memories, setMemories] = useState<{ id: string; text: string; category: string }[]>([])
 
   const cleanupRef = useRef<null | (() => void)>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const streamingRef = useRef(false)  // ADDED — ref mirror to avoid stale closure
-  const threadDate = todayIso()
+  const streamingRef = useRef(false)
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const threadDateRef = useRef(currentThreadDate)
+  threadDateRef.current = currentThreadDate
 
   const persist = useCallback(
-    (msgs: ChatMsg[]) => {
+    (msgs: ChatMsg[], threadDate?: string) => {
       const b = bridge()
+      const td = threadDate ?? threadDateRef.current
       if (!b || typeof b.aiChatSave !== "function") return
       try {
         (b.aiChatSave as (a: AnyRec) => unknown)({
-          threadDate,
+          threadDate: td,
           messages: msgs.map((m) => ({
             role: m.role,
             content: m.content,
@@ -85,55 +115,127 @@ export function useAiChat(): UseAiChat {
           })),
         })
       } catch (e) {
-        console.error('[useAiChat] persist:', e);
+        console.error('[useAiChat] persist:', e)
       }
     },
-    [threadDate],
+    [],
   )
 
+  // Debounced persist — saves messages whenever they change, so navigating away never loses data
+  useEffect(() => {
+    if (messages.length === 0) return
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+    persistTimerRef.current = setTimeout(() => {
+      persist(messages)
+    }, 500)
+    return () => { if (persistTimerRef.current) clearTimeout(persistTimerRef.current) }
+  }, [messages, persist])
+
+  // Load threads list
+  const refreshThreads = useCallback(async () => {
+    try {
+      const b = bridge()
+      if (!b || typeof b.aiChatListThreads !== "function") return
+      const raw = await (b.aiChatListThreads as () => Promise<unknown>)()
+      const list = Array.isArray(raw) ? raw : (raw as any)?.threads || []
+      if (Array.isArray(list)) {
+        setThreads(list.map((t: any) => ({
+          threadDate: t.threadDate,
+          title: t.title,
+          messageCount: t.messageCount ?? 0,
+          lastMessageAt: t.lastMessageAt,
+          preview: t.preview,
+        })))
+      }
+    } catch (e) {
+      console.error('[useAiChat] refreshThreads:', e)
+    }
+  }, [])
+
+  useEffect(() => { refreshThreads() }, [refreshThreads])
+
+  // Load memories for a thread
+  const loadMemories = useCallback(async (threadDate: string) => {
+    try {
+      const b = bridge()
+      if (!b || typeof b.aiChatGetMemories !== "function") return
+      const mems = await (b.aiChatGetMemories as (d: string) => Promise<unknown>)(threadDate)
+      if (Array.isArray(mems)) {
+        setMemories(mems.map((m: any) => ({
+          id: m.id,
+          text: m.content,
+          category: m.category,
+        })))
+      }
+    } catch (e) {
+      console.error('[useAiChat] loadMemories:', e)
+    }
+  }, [])
+
+  // Load specific thread
+  const loadThread = useCallback(async (threadDate: string) => {
+    try {
+      const b = bridge()
+      if (!b || typeof b.aiChatLoad !== "function") return
+      const raw = await (b.aiChatLoad as (d: string) => Promise<unknown>)(threadDate) as
+        | Array<AnyRec>
+        | { messages?: Array<AnyRec> }
+        | null
+      const list = Array.isArray(raw) ? raw : raw?.messages || []
+      if (list.length) {
+        setMessages(
+          list.map((m) => {
+            const content = String(m.content ?? "")
+            const { text, parsed } = parseAssistantContent(
+              content,
+              (m.parsed_json as string | undefined) ?? null,
+            )
+            return {
+              id: uid(),
+              role: (m.role as "user" | "assistant") || "assistant",
+              content: parsed && parsed.type !== "text" ? text : content,
+              parsed: parsed && parsed.type !== "text" ? parsed : undefined,
+              timestamp: (m.timestamp as number) || undefined,
+            }
+          }),
+        )
+      } else {
+        setMessages([])
+      }
+      setCurrentThreadDate(threadDate)
+      setError(null)
+      setContextWarnings([])
+      await loadMemories(threadDate)
+    } catch (e) {
+      console.error('[useAiChat] loadThread:', e)
+      setError("Failed to load thread")
+    }
+  }, [loadMemories])
+
+  // Load today's thread on mount
+  useEffect(() => {
+    const today = getThreadDate()
+    setCurrentThreadDate(today)
+    loadThread(today)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Check provider
   useEffect(() => {
     const b = bridge()
     let cancelled = false
     ;(async () => {
       try {
-        if (b && typeof b.aiChatLoad === "function") {
-          const raw = (await (b.aiChatLoad as (d: string) => Promise<unknown>)(threadDate)) as
-            | Array<AnyRec>
-            | { messages?: Array<AnyRec> }
-            | null
-          const list = Array.isArray(raw) ? raw : raw?.messages || []
-          if (!cancelled && list.length) {
-            setMessages(
-              list.map((m) => {
-                const content = String(m.content ?? "")
-                const { text, parsed } = parseAssistantContent(
-                  content,
-                  (m.parsed_json as string | undefined) ?? null,
-                )
-                return {
-                  id: uid(),
-                  role: (m.role as "user" | "assistant") || "assistant",
-                  content: parsed && parsed.type !== "text" ? text : content,
-                  parsed: parsed && parsed.type !== "text" ? parsed : undefined,
-                  timestamp: (m.timestamp as number) || undefined,
-                }
-              }),
-            )
-          }
-        }
         if (b && typeof b.getAiProviders === "function") {
           const st = (await (b.getAiProviders as () => Promise<unknown>)()) as ProviderState
           if (!cancelled) setHasProvider(Boolean(pickTarget(st)))
         }
       } catch (e) {
-        console.error('[useAiChat] load thread:', e);
+        console.error('[useAiChat] checkProvider:', e)
       }
     })()
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadDate])
+    return () => { cancelled = true }
+  }, [])
 
   const setAssistantMessage = useCallback((id: string, patch: Partial<ChatMsg>) => {
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)))
@@ -148,7 +250,7 @@ export function useAiChat(): UseAiChat {
       clearTimeout(timeoutRef.current)
       timeoutRef.current = null
     }
-    streamingRef.current = false  // ADDED — keep ref in sync
+    streamingRef.current = false
     setStreaming(false)
     setThinking(false)
   }, [])
@@ -160,17 +262,76 @@ export function useAiChat(): UseAiChat {
     const b = bridge()
     try {
       if (b && typeof b.aiChatReset === "function") {
+        await (b.aiChatReset as (d: string) => Promise<unknown>)(threadDateRef.current)
+      }
+    } catch (e) {
+      console.error('[useAiChat] reset:', e)
+    }
+    await refreshThreads()
+  }, [stop, refreshThreads])
+
+  const deleteThread = useCallback(async (threadDate: string) => {
+    const b = bridge()
+    try {
+      if (b && typeof b.aiChatReset === "function") {
         await (b.aiChatReset as (d: string) => Promise<unknown>)(threadDate)
       }
     } catch (e) {
-      console.error('[useAiChat] reset:', e);
+      console.error('[useAiChat] deleteThread:', e)
     }
-  }, [stop, threadDate])
+    if (threadDate === threadDateRef.current) {
+      const newDate = getThreadDate()
+      setCurrentThreadDate(newDate)
+      setMessages([])
+      setError(null)
+      setContextWarnings([])
+      setMemories([])
+    }
+    await refreshThreads()
+  }, [refreshThreads])
+
+  const startNewThread = useCallback(() => {
+    const newDate = getThreadDate()
+    setCurrentThreadDate(newDate)
+    setMessages([])
+    setError(null)
+    setContextWarnings([])
+    setMemories([])
+  }, [])
+
+  const renameThread = useCallback((threadDate: string, newTitle: string) => {
+    try {
+      const b = bridge()
+      if (b && typeof b.aiChatRenameThread === "function") {
+        (b.aiChatRenameThread as (d: string, t: string) => Promise<unknown>)(threadDate, newTitle)
+      }
+    } catch (e) {
+      console.error('[useAiChat] renameThread:', e)
+    }
+    setThreads(prev => prev.map(t => t.threadDate === threadDate ? { ...t, title: newTitle } : t))
+  }, [])
+
+  // Extract memories from completed conversation
+  const extractMemories = useCallback(async (threadDate: string, msgs: ChatMsg[]) => {
+    try {
+      const b = bridge()
+      if (!b || typeof b.aiChatExtractMemories !== "function") return
+      const assistantMsgs = msgs.filter(m => m.role === "assistant" && m.content.length > 20)
+      if (assistantMsgs.length === 0) return
+      await (b.aiChatExtractMemories as (a: AnyRec) => Promise<unknown>)({
+        threadDate,
+        messages: assistantMsgs.map(m => ({ content: m.content, parsed: m.parsed })),
+      })
+      await loadMemories(threadDate)
+    } catch (e) {
+      console.error('[useAiChat] extractMemories:', e)
+    }
+  }, [loadMemories])
 
   const send = useCallback(
     async (textArg?: string) => {
       const text = (textArg ?? input).trim()
-      if (!text || streamingRef.current) return  // FIX — use ref instead of stale closure
+      if (!text || streamingRef.current) return
       const b = bridge()
       if (!b || typeof b.getAiProviders !== "function" || typeof b.providerChatCall !== "function") {
         setError("Chat backend unavailable.")
@@ -193,7 +354,7 @@ export function useAiChat(): UseAiChat {
         const st = (await (b.getAiProviders as () => Promise<unknown>)()) as ProviderState
         target = pickTarget(st)
       } catch (e) {
-        console.error('[useAiChat] pickTarget:', e);
+        console.error('[useAiChat] pickTarget:', e)
         target = null
       }
       if (!target) {
@@ -213,23 +374,32 @@ export function useAiChat(): UseAiChat {
 
       let systemPrompt = ""
       try {
-        // CHANGED — use detailed builder to surface warnings
         const bundle = await buildContextBundleDetailed()
         systemPrompt = bundle.content
         if (bundle.warnings.length) setContextWarnings(bundle.warnings)
       } catch (e) {
-        console.error('[useAiChat] buildContextBundle:', e);
+        console.error('[useAiChat] buildContextBundle:', e)
         systemPrompt = "You are DeskFlow AI."
       }
 
+      // Inject relevant memories into system prompt
+      const relevantMemories = memories
+        .filter(m => m.category === "preference" || m.category === "goal")
+        .map(m => m.text)
+        .slice(0, 5)
+
+      const memorySuffix = relevantMemories.length > 0
+        ? `\n\n[Relevant memories from past conversations]:\n${relevantMemories.map((m, i) => `${i + 1}. ${m}`).join("\n")}`
+        : ""
+
       const payloadMessages = [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: systemPrompt + memorySuffix },
         ...history,
         { role: "user", content: text },
       ]
 
       let full = ""
-      streamingRef.current = true  // ADDED — keep ref in sync
+      streamingRef.current = true
       setStreaming(true)
 
       const finish = (finalText: string) => {
@@ -299,11 +469,19 @@ export function useAiChat(): UseAiChat {
         })
         stop()
       }
+
+      // Extract memories after completion
+      const finalThreadDate = threadDateRef.current
+      await extractMemories(finalThreadDate, [...messages, userMsg, { id: assistantId, role: "assistant", content: full }])
+      await refreshThreads()
     },
-    [input, messages, persist, setAssistantMessage, stop],
+    [input, messages, persist, setAssistantMessage, stop, memories, extractMemories, refreshThreads],
   )
 
-  // ADDED — dismiss error without clearing messages
+  const addMessage = useCallback((msg: ChatMsg) => {
+    setMessages(prev => [...prev, msg])
+  }, [])
+
   const dismissError = useCallback(() => setError(null), [])
 
   useEffect(() => () => stop(), [stop])
@@ -315,12 +493,21 @@ export function useAiChat(): UseAiChat {
     streaming,
     thinking,
     error,
-    contextWarnings,  // ADDED
+    contextWarnings,
     hasProvider,
     send,
     stop,
     reset,
-    dismissError,     // ADDED
+    dismissError,
     setAssistantMessage,
+    addMessage,
+    threads,
+    currentThreadDate,
+    loadThread,
+    deleteThread,
+    renameThread,
+    refreshThreads,
+    startNewThread,
+    memories,
   }
 }

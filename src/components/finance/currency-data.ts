@@ -45,6 +45,41 @@ export const EXCHANGE_RATES: Record<string, number> = {
   BRL: 5.15,
 };
 
+// Live rates cache with staleness tracking
+let liveRates: Record<string, number> | null = null;
+let liveRatesFetchedAt = 0;
+const RATES_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+export async function fetchLiveRates(): Promise<Record<string, number>> {
+  if (liveRates && Date.now() - liveRatesFetchedAt < RATES_CACHE_TTL) {
+    return liveRates;
+  }
+  try {
+    const codes = Object.keys(EXCHANGE_RATES).join(',');
+    const res = await fetch(`https://api.exchangerate-api.com/v4/latest/USD`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data?.rates) {
+      liveRates = { USD: 1 };
+      for (const [code, rate] of Object.entries(data.rates)) {
+        if (EXCHANGE_RATES[code] !== undefined) {
+          liveRates[code] = rate as number;
+        }
+      }
+      liveRatesFetchedAt = Date.now();
+    }
+  } catch { /* fall back to static rates */ }
+  return liveRates || EXCHANGE_RATES;
+}
+
+export function getEffectiveRates(): Record<string, number> {
+  return liveRates || EXCHANGE_RATES;
+}
+
+export function isRatesStale(): boolean {
+  return !liveRates || Date.now() - liveRatesFetchedAt > RATES_CACHE_TTL;
+}
+
 const currencySymbolCache = new Map<string, CurrencyInfo>();
 for (const c of CURRENCIES) currencySymbolCache.set(c.code, c);
 
@@ -54,8 +89,9 @@ export function getCurrencyInfo(code: string): CurrencyInfo {
 
 export function convertAmount(amount: number, fromCurrency: string, toCurrency: string): number {
   if (fromCurrency === toCurrency) return amount;
-  const usdAmount = amount / (EXCHANGE_RATES[fromCurrency] || 1);
-  return usdAmount * (EXCHANGE_RATES[toCurrency] || 1);
+  const rates = getEffectiveRates();
+  const usdAmount = amount / (rates[fromCurrency] || 1);
+  return usdAmount * (rates[toCurrency] || 1);
 }
 
 export function formatCurrency(amount: number, currencyCode: string = 'USD'): string {

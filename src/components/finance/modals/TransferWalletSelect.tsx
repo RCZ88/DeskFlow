@@ -156,7 +156,7 @@ export function TransferWalletSelect({
                               </span>
                             </div>
                             <p className="text-[10px] text-zinc-500">
-                              {fc(w.type === 'physical' || w.type === 'cash' && w.metadata?.denominations
+                              {fc((w.type === 'physical' || w.type === 'cash') && w.metadata?.denominations
                                 ? (Array.isArray(w.metadata.denominations)
                                     ? w.metadata.denominations.reduce((sx: number, d: any) => sx + (d.value || 0) * (d.count || 0), 0)
                                     : (w.balance ?? 0))

@@ -3,6 +3,7 @@ import type { LearnerProfile, ProfileKnob, MasteryLevel } from '../../shared/lea
 
 const KEY = 'lyceum.learnerProfile.v1';
 const SETUP_COMPLETE_KEY = 'lyceum.setupComplete.v1';
+const SETUP_COMPLETE_DB_KEY = 'lyceum.setupComplete.v1';
 
 const api = window.deskflowAPI;
 
@@ -12,10 +13,43 @@ export function isSetupComplete(): boolean {
   } catch { return false; }
 }
 
+// Async version that also checks DB (for startup recovery)
+export async function isSetupCompleteAsync(): Promise<boolean> {
+  // Check localStorage first (fast path)
+  if (isSetupComplete()) return true;
+  // Check DB (recovery path)
+  if (api?.learnGetProfile) {
+    try {
+      const dbVal = await api.learnGetProfile({ key: SETUP_COMPLETE_DB_KEY });
+      if (dbVal === 'true') {
+        // Restore to localStorage
+        try { localStorage.setItem(SETUP_COMPLETE_KEY, 'true'); } catch {}
+        return true;
+      }
+    } catch (e) {
+      console.warn('[LearnerProfile] DB setup check failed:', e);
+    }
+  }
+  console.log('[LearnerProfile] Setup not complete — localStorage:', isSetupComplete(), ', api available:', !!api?.learnGetProfile);
+  return false;
+}
+
 export function markSetupComplete(): void {
   try {
     localStorage.setItem(SETUP_COMPLETE_KEY, 'true');
   } catch { /* ignore */ }
+  // Persist to DB — NOT fire-and-forget, await it
+  if (api?.learnSetProfile) {
+    api.learnSetProfile({ key: SETUP_COMPLETE_DB_KEY, value: 'true' })
+      .then((res: any) => {
+        if (!res?.ok) console.warn('[LearnerProfile] DB setupComplete write returned error:', res);
+      })
+      .catch((e: any) => {
+        console.error('[LearnerProfile] DB setupComplete write FAILED:', e);
+      });
+  } else {
+    console.warn('[LearnerProfile] learnSetProfile not available — setup flag only in localStorage');
+  }
 }
 
 export function clearSetupComplete(): void {

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 interface Person {
   id: number;
@@ -28,6 +29,8 @@ export function FTPersonCombobox({
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
 
   const selected = persons.find(p => p.id === value);
   const filtered = query
@@ -38,13 +41,21 @@ export function FTPersonCombobox({
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (containerRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  useEffect(() => {
+    if (open && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    }
+  }, [open]);
 
   const handleSelect = (person: Person) => {
     onChange(person.id, person.name);
@@ -87,8 +98,12 @@ export function FTPersonCombobox({
         )}
       </div>
 
-      {open && (
-        <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border border-amber-500/30 bg-zinc-800 shadow-xl">
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          className="fixed z-[9999] max-h-40 overflow-y-auto rounded-lg border border-amber-500/30 bg-zinc-800 shadow-xl"
+          style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
+        >
           {filtered.length === 0 && !showCreate && (
             <div className="px-2.5 py-2 text-[11px] text-zinc-500">No persons found</div>
           )}
@@ -112,7 +127,8 @@ export function FTPersonCombobox({
               + Create &ldquo;{query.trim()}&rdquo;
             </button>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

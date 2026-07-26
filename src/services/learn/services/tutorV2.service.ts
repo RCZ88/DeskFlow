@@ -19,6 +19,40 @@ If the answer isn't in FACTS, say you can't answer from this section.
 Be visual-first: prefer an analogy or a step list; cite fact ids [s1].
 Return JSON: { answer_md: string, used_source_ids: string[], used_fact_ids: string[], suggested_next?: "deeper"|"reinforce"|"remedial" }`;
 
+const V2_MODE_PROMPTS: Record<string, string> = {
+  explain: `You are an expert teacher. Explain the following concept clearly and thoroughly.
+Use analogies, step-by-step breakdowns, and concrete examples.
+Assume the learner has basic knowledge but needs a clear explanation.
+Ground your answer ONLY in the FACTS provided below. Cite fact ids [f1], [f2].
+Return JSON: { answer_md: string, used_source_ids: string[], used_fact_ids: string[], suggested_next?: "deeper"|"reinforce"|"remedial" }`,
+
+  simpler: `You are a patient tutor simplifying a concept.
+Rewrite the following in the simplest possible terms.
+Use everyday language, short sentences, and relatable analogies.
+A 12-year-old should be able to understand your explanation.
+Ground your answer ONLY in the FACTS provided below. Cite fact ids [f1], [f2].
+Return JSON: { answer_md: string, used_source_ids: string[], used_fact_ids: string[], suggested_next?: "deeper"|"reinforce"|"remedial" }`,
+
+  deeper: `You are an advanced instructor going deeper on a topic.
+Provide nuanced analysis, edge cases, advanced patterns, and connections to other concepts.
+Assume the learner already understands the basics and wants to go further.
+Ground your answer ONLY in the FACTS provided below. Cite fact ids [f1], [f2].
+Return JSON: { answer_md: string, used_source_ids: string[], used_fact_ids: string[], suggested_next?: "deeper"|"reinforce"|"remedial" }`,
+};
+
+export type TutorV2Mode = 'explain' | 'ask' | 'simpler' | 'deeper';
+
+function resolveV2SystemPrompt(mode?: string, personaMd?: string): string {
+  let base: string;
+  if (mode && mode !== 'ask' && V2_MODE_PROMPTS[mode]) {
+    base = V2_MODE_PROMPTS[mode];
+  } else {
+    base = V2_SYSTEM_PROMPT;
+  }
+  if (!personaMd) return base;
+  return `${personaMd}\n\n---\n\n## Core Tutor Instructions\n${base}`;
+}
+
 export class TutorServiceV2 {
   private grounding: GroundingService;
   private progress: ProgressService;
@@ -46,7 +80,7 @@ export class TutorServiceV2 {
 
   /** Stream a tutor answer, writing incremental tokens to the callback. */
   async askStream(
-    params: { nodeId: string; blockId: string; question: string; convId?: string },
+    params: { nodeId: string; blockId: string; question: string; convId?: string; mode?: TutorV2Mode },
     onToken: (chunk: string) => void,
   ): Promise<Result<{ answerMd: string; citations: { id: string; url: string; title: string }[] }>> {
     try {
@@ -54,6 +88,8 @@ export class TutorServiceV2 {
       const factsText = packet.must_know.map((f, i) => `[f${i + 1}] ${f.claim}`).join('\n');
       const sourcesText = packet.sources.map((s) => `[s${s.id}] ${s.title}: ${s.url}`).join('\n');
       const userPrompt = `FACTS:\n${factsText}\n\nSOURCES:\n${sourcesText}\n\nQUESTION: ${params.question}`;
+
+      const systemPrompt = resolveV2SystemPrompt(params.mode);
 
       if (!this.streamAi) {
         const answerResult = await this.callAi(userPrompt, this.systemPrompt, 500);
@@ -88,7 +124,7 @@ export class TutorServiceV2 {
   }
 
   /** Non-streaming ask (V1 compatible). */
-  async ask(params: { nodeId: string; blockId?: string; question: string }): Promise<Result<TutorAnswer>> {
+  async ask(params: { nodeId: string; blockId?: string; question: string; mode?: TutorV2Mode }): Promise<Result<TutorAnswer>> {
     try {
       const cacheKey = this.hashKey(params.nodeId, params.question);
       const cached = repo.getTutorCache(this.db, cacheKey);
@@ -113,7 +149,9 @@ export class TutorServiceV2 {
       const sourcesText = packet.sources.map((s) => `[s${s.id}] ${s.title}: ${s.url}`).join('\n');
       const userPrompt = `FACTS:\n${factsText}\n\nSOURCES:\n${sourcesText}\n\nQUESTION: ${params.question}`;
 
-      const answerResult = await this.callAi(userPrompt, this.systemPrompt, 500);
+      const systemPrompt = resolveV2SystemPrompt(params.mode);
+
+      const answerResult = await this.callAi(userPrompt, systemPrompt, 500);
       let answerMd = '';
       let usedSourceIds: string[] = [];
       let usedFactIds: string[] = [];

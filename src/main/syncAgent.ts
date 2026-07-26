@@ -93,19 +93,19 @@ export class SyncAgent {
   // ── Push local changes newer than cursor ──────────────────────────
   async push(): Promise<SyncPushResponse> {
     const changes: SyncChange[] = []
-    const limit = 500
+    const limit = 100
 
-    // terminal_sessions
+    // terminal_sessions — only columns that exist on the server schema
     const sessions = this.db
-      .prepare("SELECT * FROM terminal_sessions WHERE updated_at > datetime(?, 'unixepoch') LIMIT ?")
+      .prepare("SELECT id, topic, status, agent, working_directory, total_tokens, total_cost, created_at, updated_at FROM terminal_sessions WHERE updated_at > datetime(?, 'unixepoch') LIMIT ?")
       .all(this.cursor, limit) as Record<string, unknown>[]
     for (const row of sessions) {
       changes.push({ table: "terminal_sessions", row })
     }
 
-    // terminal_messages — encrypt content before upload
+    // terminal_messages — encrypt content before upload (server uses content_enc, not content)
     const msgs = this.db
-      .prepare("SELECT * FROM terminal_messages WHERE created_at > datetime(?, 'unixepoch') LIMIT ?")
+      .prepare("SELECT id, session_id, role, content, status, created_at FROM terminal_messages WHERE created_at > datetime(?, 'unixepoch') LIMIT ?")
       .all(this.cursor, limit) as Record<string, unknown>[]
     for (const row of msgs) {
       changes.push({
@@ -121,17 +121,17 @@ export class SyncAgent {
       })
     }
 
-    // workspace_problems
+    // workspace_problems — only columns that exist on the server schema
     const problems = this.db
-      .prepare("SELECT * FROM workspace_problems WHERE updated_at > datetime(?, 'unixepoch') LIMIT ?")
+      .prepare("SELECT id, title, status, priority, category, created_at, updated_at FROM workspace_problems WHERE updated_at > datetime(?, 'unixepoch') LIMIT ?")
       .all(this.cursor, limit) as Record<string, unknown>[]
     for (const row of problems) {
       changes.push({ table: "workspace_problems", row })
     }
 
-    // workspace_requests
+    // workspace_requests — only columns that exist on the server schema
     const requests = this.db
-      .prepare("SELECT * FROM workspace_requests WHERE updated_at > datetime(?, 'unixepoch') LIMIT ?")
+      .prepare("SELECT id, title, status, priority, category, description, created_at, updated_at FROM workspace_requests WHERE updated_at > datetime(?, 'unixepoch') LIMIT ?")
       .all(this.cursor, limit) as Record<string, unknown>[]
     for (const row of requests) {
       changes.push({ table: "workspace_requests", row })
@@ -148,7 +148,12 @@ export class SyncAgent {
       const body = await res.text().catch(() => "")
       throw new Error(`sync push failed ${res.status}: ${body}`)
     }
-    return (await res.json()) as SyncPushResponse
+    const result = (await res.json()) as SyncPushResponse
+    // Advance cursor after successful push so we don't re-push same rows
+    if (typeof result.cursor === "number" && result.cursor > this.cursor) {
+      this.cursor = result.cursor
+    }
+    return result
   }
 
   // ── Pull remote changes and merge (LWW by updated_at) ────────────

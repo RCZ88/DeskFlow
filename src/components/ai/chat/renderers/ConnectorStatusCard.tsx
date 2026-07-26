@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Plug } from "lucide-react"
 import { CardShell } from "./CardShell"
 import type { CardAction, ConnectorStatusItem } from "../parsed"
 
@@ -13,7 +14,7 @@ export function ConnectorStatusCard({
 }) {
   const [localSync, setLocalSync] = useState<Record<string, true>>({})
   return (
-    <CardShell title="Connectors" badge="connector_status" icon="🔌" subtitle={connectors.length + " configured"}>
+    <CardShell title="Connectors" badge="connector_status" accent="cyan" icon={<Plug size={14} />} subtitle={connectors.length + " configured"}>
       {connectors.map((c, i) => {
         const busy = syncing?.[c.name] || localSync[c.name] || c.status === "syncing"
         return (

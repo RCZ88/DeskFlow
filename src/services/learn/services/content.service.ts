@@ -20,6 +20,8 @@ export class ContentService {
           version: r.version,
           status: r.status,
           nodeCount,
+          chapter: r.chapter || '',
+          original_prompt: r.original_prompt || '',
           created_at: r.created_at,
           updated_at: r.updated_at,
         };

@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Shield, Search, Eye, X, Clock, Wallet, ArrowUpRight, RefreshCw } from 'lucide-react'
+import { Shield, Search, Eye, X, Clock, Wallet, ArrowUpRight, RefreshCw, Users, Bell, Tag } from 'lucide-react'
 import type { AuditLogEntry } from './finance-types'
 
 const EVENT_ICONS: Record<string, React.ReactNode> = {
   account_created: <Wallet className="w-3 h-3 text-emerald-400" />,
   wallet_created: <Wallet className="w-3 h-3 text-emerald-400" />,
+  wallet_updated: <RefreshCw className="w-3 h-3 text-blue-400" />,
+  wallet_archived: <Wallet className="w-3 h-3 text-amber-400" />,
+  wallet_deleted: <X className="w-3 h-3 text-red-400" />,
   wallet_fee_updated: <RefreshCw className="w-3 h-3 text-amber-400" />,
   transaction_created: <ArrowUpRight className="w-3 h-3 text-blue-400" />,
   transaction_updated: <RefreshCw className="w-3 h-3 text-amber-400" />,
@@ -13,6 +16,12 @@ const EVENT_ICONS: Record<string, React.ReactNode> = {
   balance_adjusted: <RefreshCw className="w-3 h-3 text-amber-400" />,
   balance_recalculated: <RefreshCw className="w-3 h-3 text-amber-400" />,
   all_balances_recalculated: <RefreshCw className="w-3 h-3 text-amber-400" />,
+  subscription_created: <Bell className="w-3 h-3 text-emerald-400" />,
+  subscription_updated: <RefreshCw className="w-3 h-3 text-amber-400" />,
+  subscription_deleted: <X className="w-3 h-3 text-red-400" />,
+  ft_person_created: <Users className="w-3 h-3 text-emerald-400" />,
+  category_created: <Tag className="w-3 h-3 text-emerald-400" />,
+  category_updated: <RefreshCw className="w-3 h-3 text-amber-400" />,
 }
 
 export function AuditLogTab({ displayCurrency }: { displayCurrency: string }) {

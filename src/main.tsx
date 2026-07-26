@@ -6,8 +6,8 @@ window.addEventListener('unhandledrejection', function () { /* captured by HTML 
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import { NumberMaskProvider } from './context/NumberMaskContext';
-import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import App from './App.tsx'
 import './index.css'
 import './styles/lyceum-learn-features.css'
 

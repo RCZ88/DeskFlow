@@ -1,3 +1,5 @@
+import { type ReactNode } from "react"
+import { BarChart3, Timer, Clock, Flame, Crosshair, Zap, TrendingUp, TrendingDown } from "lucide-react"
 import { CardShell } from "./CardShell"
 import type { StatMetric } from "../parsed"
 
@@ -12,7 +14,7 @@ const TINT: Record<string, { bg: string; fg: string }> = {
 
 export function StatsSummaryCard({ metrics, period }: { metrics: StatMetric[]; period?: string }) {
   return (
-    <CardShell title="Summary" badge="stats_summary" icon="📊" subtitle={period}>
+    <CardShell title="Summary" badge="stats_summary" accent="cyan" icon={<BarChart3 size={14} />} subtitle={period}>
       <div className="dk-mgrid">
         {metrics.map((m, i) => {
           const tint = TINT[m.icon ?? "pink"] ?? TINT.pink
@@ -38,10 +40,11 @@ export function StatsSummaryCard({ metrics, period }: { metrics: StatMetric[]; p
   )
 }
 
-function tintIcon(icon: string): string {
-  const map: Record<string, string> = {
-    Activity: "⏱", Clock: "⏰", Flame: "🔥", Target: "◎", Zap: "⚡", BarChart3: "📊",
-    TrendingUp: "▲", TrendingDown: "▼",
+function tintIcon(icon: string): ReactNode {
+  const map: Record<string, ReactNode> = {
+    Activity: <Timer size={14} />, Clock: <Clock size={14} />, Flame: <Flame size={14} />,
+    Target: <Crosshair size={14} />, Zap: <Zap size={14} />, BarChart3: <BarChart3 size={14} />,
+    TrendingUp: <TrendingUp size={14} />, TrendingDown: <TrendingDown size={14} />,
   }
   return map[icon] ?? icon
 }

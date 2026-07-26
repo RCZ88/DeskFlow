@@ -80,6 +80,7 @@ export interface FinanceTransaction {
   type: 'income' | 'expense' | 'transfer';
   amount: number;
   fee: number;
+  merchant: string | null;
   description: string | null;
   note: string | null;
   date: string;
@@ -93,6 +94,8 @@ export interface FinanceTransaction {
   on_behalf_of: number;
   on_behalf_of_label: string | null;
   ft_person_id: number | null;
+  is_adjustment: number;
+  metadata: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -108,6 +111,8 @@ export interface FinanceFtPerson {
   transaction_count: number;
   total_owed: number;
   total_paid: number;
+  balance: number;
+  wallet_id: number | null;
 }
 
 export interface FinanceFtPersonBalance {
@@ -216,4 +221,119 @@ export interface FinanceBalanceHistory {
   balance: number;
 }
 
-export type FinanceTabKey = 'overview' | 'wallets' | 'transactions' | 'categories' | 'people';
+export type FinanceTabKey = 'overview' | 'wallets' | 'transactions' | 'categories' | 'people' | 'charts';
+
+// ── Dashboard Enhancement Types ──
+
+export interface CryptoAssetEnhanced {
+  coin_id: string;
+  symbol: string;
+  name: string;
+  amount: number;
+  avg_buy_price: number;
+  current_price: number;
+  value: number;
+  cost_basis: number;
+  pnl: number;
+  pnl_percentage: number;
+}
+
+export interface CryptoPortfolioData {
+  walletId: number;
+  walletName: string;
+  currency: string;
+  fiatBalance: number;
+  cryptoPortfolioValue: number;
+  totalValue: number;
+  costBasis: number;
+  unrealizedPnL: number;
+  pnlPercentage: number;
+  fiatAllocation: number;
+  cryptoAllocation: number;
+  assets: CryptoAssetEnhanced[];
+}
+
+export interface LiquidityTier {
+  name: string;
+  amount: number;
+  color: string;
+  icon: string;
+  wallets: Array<{ id: number; name: string; balance: number; currency: string }>;
+  percentage: number;
+}
+
+export interface LiquidityData {
+  tiers: LiquidityTier[];
+  totalNetWorth: number;
+  liquidityScore: number;
+  liquidAmount: number;
+  lockedAmount: number;
+  transferSpeeds: Array<{ from: string; to: string; avgMinutes: number }>;
+}
+
+export interface SubscriptionIntelligence {
+  totalMonthlyCost: number;
+  burdenPercentage: number;
+  monthlyIncome: number;
+  subscriptionCount: number;
+  growthTrend: number;
+  upcomingRenewals: number;
+  urgentRenewals: number;
+  radarData: { axes: string[]; values: number[]; colors: string[] };
+  subscriptions: Array<{
+    id: number; name: string; price: number; currency: string;
+    billingCycle: string; monthlyEquivalent: number;
+    nextRenewalDate: string; daysUntilRenewal: number;
+    isUrgent: boolean; isWarning: boolean;
+  }>;
+}
+
+export interface RunwayData {
+  runwayMonths: number;
+  dailyBurnRate: number;
+  monthlyBurnRate: number;
+  committedMonthly: number;
+  totalMonthlyBurn: number;
+  liquidNetWorth: number;
+  breakEvenMonth: number | null;
+  trendDirection: number;
+  projectedBalances: Array<{ month: number; projectedBalance: number; isNegative: boolean }>;
+  dailyExpenseHistory: Array<{ date: string; amount: number }>;
+}
+
+export interface WalletHealth {
+  walletId: number;
+  name: string;
+  type: string;
+  balance: number;
+  currency: string;
+  healthScore: number;
+  balanceDrift: number;
+  transactionFrequency: number;
+  feeBurden: number;
+  sparklineData: Array<{ date: string; balance: number }>;
+  alerts: Array<{ type: string; message: string; severity: 'warning' | 'critical' | 'info' }>;
+}
+
+export interface TransferMatrixCell {
+  fromWalletId: number;
+  fromWalletName: string;
+  toWalletId: number;
+  toWalletName: string;
+  estimatedFee: number;
+  historicalAvgFee: number;
+  historicalAvgAmount: number;
+  transferCount: number;
+  efficiencyScore: number;
+  feeType: string;
+  feeValue: number;
+}
+
+export interface TransferMatrixData {
+  matrix: TransferMatrixCell[];
+  optimalRoutes: Array<{
+    from: string; to: string; path: string[];
+    totalFee: number; efficiencyScore: number;
+  }>;
+  walletCount: number;
+}

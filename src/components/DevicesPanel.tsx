@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Smartphone, Trash2, RefreshCw, Shield, ShieldOff, AlertTriangle, Monitor, Loader2 } from 'lucide-react';
+import { Smartphone, Trash2, RefreshCw, Shield, ShieldOff, AlertTriangle, Monitor, Loader2, Link } from 'lucide-react';
 import { GlassCard } from './GlassCard';
+import SyncPairModal from './SyncPairModal';
 
 interface Device {
   id: string;
@@ -18,6 +19,7 @@ export function DevicesPanel() {
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revokingAll, setRevokingAll] = useState(false);
   const [showRevokeAllConfirm, setShowRevokeAllConfirm] = useState(false);
+  const [showPairModal, setShowPairModal] = useState(false);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -117,6 +119,15 @@ export function DevicesPanel() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => setShowPairModal(true)}
+            className="px-2.5 py-1 rounded-md text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <Link className="w-3 h-3" />
+              Pair New Device
+            </span>
+          </button>
           <button
             onClick={fetchDevices}
             disabled={loading}
@@ -251,6 +262,9 @@ export function DevicesPanel() {
           ))}
         </div>
       )}
+
+      {/* Pair Modal */}
+      <SyncPairModal open={showPairModal} onClose={() => { setShowPairModal(false); fetchDevices(); }} />
     </div>
   );
 }

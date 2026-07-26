@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import DOMPurify from 'dompurify';
 import type { CalloutBlock } from '../../../shared/learn/types';
 
@@ -16,24 +16,36 @@ const TONE_STYLES: Record<string, string> = {
   red_bg: 'border-red-500/30 bg-red-500/10',
 };
 
-export function CalloutBlock({ block }: Props) {
+export const CalloutBlock = React.memo(function CalloutBlock({ block }: Props) {
   const toneStyle = TONE_STYLES[block.tone || 'default'] || TONE_STYLES.default;
 
+  const rendered = useMemo(() => {
+    const raw = block.md
+      .split('\n')
+      .map(line => {
+        let renderedLine = line
+          .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
+          .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code class="bg-zinc-800/60 rounded px-1 text-sm font-mono text-cyan-300">$1</code>');
+        return renderedLine;
+      })
+      .join('<br/>');
+    return DOMPurify.sanitize(raw);
+  }, [block.md]);
+
   return (
-    <div className={`my-4 p-4 rounded-xl border-l-4 ${toneStyle}`} data-block-id={block.id}>
+    <div
+      className={`my-4 p-4 rounded-xl border-l-4 ${toneStyle} select-text callout-block`}
+      style={{ lineHeight: '1.7' }}
+      data-block-id={block.id}
+    >
       <div className="flex items-start gap-3">
         {block.icon && <span className="text-lg shrink-0">{block.icon}</span>}
-        <div className="text-sm text-zinc-300 leading-relaxed">
-          {block.md.split('\n').map((line, i) => {
-            // Simple inline markdown
-            let rendered = line
-              .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
-              .replace(/\*(.+?)\*/g, '<em>$1</em>')
-              .replace(/`([^`]+)`/g, '<code class="bg-zinc-800/60 rounded px-1 text-sm font-mono text-cyan-300">$1</code>');
-            return <p key={i} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(rendered) }} className={i > 0 ? 'mt-1' : ''} />;
-          })}
-        </div>
+        <div
+          className="text-sm text-zinc-300"
+          dangerouslySetInnerHTML={{ __html: rendered }}
+        />
       </div>
     </div>
   );
-}
+}, (prev, next) => prev.block.id === next.block.id && prev.block.md === next.block.md);

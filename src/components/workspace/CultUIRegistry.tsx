@@ -63,9 +63,10 @@ const CATEGORIES = Array.from(new Set(CULT_COMPONENTS.map(c => c.category))).sor
 
 interface CultUIRegistryProps {
   onAddComponent: (component: { slug: string; name: string; source: string; category: string; code?: string }) => void;
+  onInstall?: (registryUrl: string) => void;
 }
 
-export default function CultUIRegistry({ onAddComponent }: CultUIRegistryProps) {
+export default function CultUIRegistry({ onAddComponent, onInstall }: CultUIRegistryProps) {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [copiedComponent, setCopiedComponent] = useState<string | null>(null);
@@ -138,6 +139,15 @@ export default function CultUIRegistry({ onAddComponent }: CultUIRegistryProps) 
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onInstall && (
+            <button
+              onClick={() => onInstall(comp.registryUrl)}
+              className="p-1.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 hover:text-cyan-300 transition-colors"
+              title="Install component"
+            >
+              <Terminal className="w-3 h-3" />
+            </button>
+          )}
           <button
             onClick={() => handleAdd(comp)}
             className="p-1.5 rounded bg-pink-500/20 text-pink-400 hover:bg-pink-500/30 hover:text-pink-300 transition-colors"

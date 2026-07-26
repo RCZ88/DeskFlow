@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Palette, Package, Grid, Zap, Paintbrush, LayoutPanelTop, Code2, Sparkles, Rabbit, Wind, Image } from 'lucide-react';
+import { Palette, Package, Grid, Zap, Paintbrush, LayoutPanelTop, Code2, Sparkles, Rabbit, Wind, Image, Loader2, Sparkle } from 'lucide-react';
 import { TasteKnobs, type TasteKnobValues } from '../components/workspace/TasteKnobs';
 import DesignLibrarySources from '../components/workspace/DesignLibrarySources';
 import { StyleReferences } from '../components/workspace/StyleReferences';
@@ -10,6 +10,11 @@ import LibraryConfigModal from '../components/workspace/LibraryConfigModal';
 import { ColorPicker } from '../components/workspace/ColorPicker';
 import CultUIRegistry from '../components/workspace/CultUIRegistry';
 import { MotionExplorer } from '../components/workspace/MotionExplorer';
+import { GlobalSearch } from '../components/workspace/GlobalSearch';
+import { MoodboardTab } from '../components/workspace/MoodboardTab';
+import { TokensTab } from '../components/workspace/TokensTab';
+import { TerminalCommandPalette } from '../components/workspace/TerminalCommandPalette';
+import { DesignSuiteStatus, logDesignCommand } from '../components/workspace/DesignSuiteStatus';
 
 export interface DesignLibraryDef {
   id: string;
@@ -206,6 +211,7 @@ async function buildFullContext(
   colors?: ColorEntry[],
   importedComponents?: ImportedComponent[],
   enabledLibraries?: DesignLibraryDef[],
+  moodboardItems?: any[],
 ): Promise<string> {
   const parts: string[] = [];
   parts.push(`<design_taste>`);
@@ -263,6 +269,23 @@ async function buildFullContext(
     parts.push('');
   }
 
+  if (moodboardItems && moodboardItems.length > 0) {
+    parts.push('<moodboard>');
+    for (const item of moodboardItems) {
+      parts.push(`  <aesthetic title="${item.title}" source="${item.source}" url="${item.imageUrl}">`);
+      if (item.description) parts.push(`    <description>${item.description}</description>`);
+      parts.push('  </aesthetic>');
+    }
+    parts.push('</moodboard>');
+    parts.push('');
+  }
+
+  if (colors && colors.length > 0) {
+    const cssVars = colors.map(c => `  --${c.role}: ${c.color};`).join('\n');
+    parts.push(`<design_tokens>\n<css_variables>\n:root {\n${cssVars}\n}\n</css_variables>\n</design_tokens>`);
+    parts.push('');
+  }
+
   parts.push('[END DESIGN CONTEXT]');
   return parts.join('\n');
 }
@@ -282,12 +305,42 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
   const [importedComponents, setImportedComponents] = useState<ImportedComponent[]>([]);
   const [showCultRegistry, setShowCultRegistry] = useState(false);
   const [showMotionExplorer, setShowMotionExplorer] = useState(false);
-  const [activeTab, setActiveTab] = useState<'sources' | 'motion' | 'registry'>('sources');
+  const [activeTab, setActiveTab] = useState<'moodboard' | 'tokens' | 'sources' | 'motion' | 'registry'>('sources');
+  const [startAllLoading, setStartAllLoading] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [moodboardItems, setMoodboardItems] = useState<any[]>([]);
 
   const openBrowse = (id: string) => setActiveBrowseLibrary(id);
   const closeBrowse = () => setActiveBrowseLibrary(null);
   const openConfig = (id: string) => setActiveConfigLibrary(id);
   const closeConfig = () => setActiveConfigLibrary(null);
+
+  const handleStartAll = async () => {
+    setStartAllLoading(true);
+    const mcpLibs = libraries.filter(l => (MCP_SOURCES.has(l.id) || REGISTRY_SOURCES.has(l.id)) && l.status === 'idle');
+    for (const lib of mcpLibs) {
+      const dapi = (window as any).deskflowAPI;
+      try {
+        if (REGISTRY_SOURCES.has(lib.id)) {
+          if (lib.id === 'aceternity') {
+            const result = await dapi?.aceternityFetchRegistry?.();
+            if (result?.success) {
+              setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, status: 'connected', itemCount: result.total || 0 } : l));
+            }
+          }
+        } else if (MCP_SOURCES.has(lib.id)) {
+          const result = await dapi?.mcpStartServer?.(lib.id);
+          if (result?.success) {
+            const status = await dapi?.mcpServerStatus?.(lib.id);
+            if (status?.status === 'running') {
+              setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, status: 'connected', itemCount: status.toolCount || 0 } : l));
+            }
+          }
+        }
+      } catch {}
+    }
+    setStartAllLoading(false);
+  };
 
   const handleToggle = (libraryId: string, enabled: boolean) => {
     setLibraries(prev => prev.map(lib => 
@@ -382,11 +435,11 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
     setLoadingContext(true);
     const enabledLibs = libraries.filter(lib => lib.enabled);
     const ctx = await buildFullContext(
-      taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs
+      taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs, moodboardItems
     );
     setPreview(ctx);
     setLoadingContext(false);
-  }, [taste, selectedRefs, styleDescription, colors, projectPath, importedComponents, libraries]);
+  }, [taste, selectedRefs, styleDescription, colors, projectPath, importedComponents, libraries, moodboardItems]);
 
   const handleSend = async () => {
     if (!activeTerminalId) return;
@@ -394,7 +447,7 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
     try {
       const enabledLibs = libraries.filter(lib => lib.enabled);
       const ctx = await buildFullContext(
-        taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs
+        taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs, moodboardItems
       );
       const dapi = (window as any).deskflowAPI;
       await dapi?.agentSend?.(activeTerminalId, ctx, 'claude');
@@ -422,7 +475,7 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
   const handleCopy = async () => {
     const enabledLibs = libraries.filter(lib => lib.enabled);
     const ctx = await buildFullContext(
-      taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs
+      taste, selectedRefs, projectPath, styleDescription, colors, importedComponents, enabledLibs, moodboardItems
     );
     navigator.clipboard?.writeText(ctx);
   };
@@ -473,6 +526,34 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
     refreshPreview();
   }, []);
 
+  // Cmd+K keyboard listener
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const handleInjectContext = useCallback((item: any) => {
+    setMoodboardItems(prev => [...prev, item]);
+  }, []);
+
+  const handleExecuteCommand = useCallback(async (command: string) => {
+    const dapi = (window as any).deskflowAPI;
+    if (!dapi || !activeTerminalId) return;
+
+    try {
+      logDesignCommand(command);
+      await dapi.terminalWriteRaw?.(activeTerminalId, command + '\n');
+    } catch (e) {
+      console.error('[DesignWorkspace] command failed', e);
+    }
+  }, [activeTerminalId]);
+
   const importedCounts = libraries
     .filter(lib => importedComponents.some(c => c.source === lib.id))
     .map(lib => ({
@@ -506,9 +587,28 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
         />
       </div>
 
-      {/* Tabs: Design Sources / Motion Explorer / Registry Browser */}
+      {/* Global Search + Start All */}
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <GlobalSearch libraries={libraries} onAddComponent={handleAddComponent} />
+        </div>
+        <button
+          onClick={handleStartAll}
+          disabled={startAllLoading}
+          className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-medium
+            bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 disabled:opacity-50
+            transition-colors duration-150 shrink-0"
+        >
+          {startAllLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+          {startAllLoading ? 'Starting...' : 'Start All'}
+        </button>
+      </div>
+
+      {/* Tabs: Moodboard / Tokens / Design Sources / Motion Explorer / Registry Browser */}
       <div className="flex gap-1 border-b border-zinc-800/40 pb-1">
         {[
+          { key: 'moodboard' as const, label: 'Moodboard', icon: Sparkle },
+          { key: 'tokens' as const, label: 'Tokens', icon: Palette },
           { key: 'sources' as const, label: 'Design Sources', icon: Package },
           { key: 'motion' as const, label: 'Motion Explorer', icon: Wind },
           { key: 'registry' as const, label: 'Registry Browser', icon: Paintbrush },
@@ -530,7 +630,23 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
             </button>
           );
         })}
+
+        {/* Cmd+K hint */}
+        <div className="ml-auto flex items-center gap-1.5 text-[10px] text-zinc-600">
+          <kbd className="px-1 py-0.5 rounded bg-zinc-800/60 text-zinc-500 font-mono text-[9px]">⌘K</kbd>
+          <span>Commands</span>
+        </div>
       </div>
+
+      {/* Moodboard Tab */}
+      {activeTab === 'moodboard' && (
+        <MoodboardTab activeTerminalId={activeTerminalId} onInjectContext={handleInjectContext} />
+      )}
+
+      {/* Tokens Tab */}
+      {activeTab === 'tokens' && (
+        <TokensTab colorEntries={colors} projectPath={projectPath} />
+      )}
 
       {activeTab === 'sources' && (
         <>
@@ -564,7 +680,13 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
       )}
 
       {activeTab === 'registry' && (
-        <CultUIRegistry onAddComponent={handleAddComponent} />
+        <CultUIRegistry
+          onAddComponent={handleAddComponent}
+          onInstall={projectPath ? (url) => {
+            const dapi = (window as any).deskflowAPI;
+            dapi?.designSuiteInstallComponent?.(url, projectPath);
+          } : undefined}
+        />
       )}
 
       <DesignComposeOutlet
@@ -602,6 +724,16 @@ export default function DesignWorkspacePage({ projectPath, activeTerminalId }: D
           ));
         }}
       />
+
+      {/* Terminal Command Palette */}
+      <TerminalCommandPalette
+        isOpen={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onExecute={handleExecuteCommand}
+      />
+
+      {/* Design Suite Status Bar */}
+      <DesignSuiteStatus className="border-t border-zinc-800/40 bg-zinc-900/30" />
     </div>
   );
 }

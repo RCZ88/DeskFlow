@@ -1,3 +1,22 @@
+interface ProjectBackupManifest {
+  id: string;
+  projectId: string;
+  label: string;
+  timestamp: string;
+  fileCount: number;
+  totalSize: number;
+  compressionRatio: number;
+  autoBackup: boolean;
+}
+
+interface ProjectBackupDiff {
+  added: string[];
+  deleted: string[];
+  modified: string[];
+  unchanged: string[];
+  totalChanged: number;
+}
+
 interface DeskflowAPI {
   onForegroundChange: (cb: (data: any) => void) => () => void;
   onTrackingHeartbeat: (cb: (data: any) => void) => () => void;
@@ -218,7 +237,7 @@ interface DeskflowAPI {
   financeGetSpendingByCategory: () => Promise<any[]>;
   financeGetMonthlyTrends: () => Promise<any[]>;
   financeGetOnBehalfOfSummary: () => Promise<{ totalExpense: number; breakdown: { label: string; total: number; count: number }[] }>;
-  financeGetFtPersons: () => Promise<{ id: number; name: string; email: string | null; phone: string | null; notes: string; created_at: string; updated_at: string; transaction_count: number; total_owed: number; total_paid: number }[]>;
+  financeGetFtPersons: () => Promise<{ id: number; name: string; email: string | null; phone: string | null; notes: string; created_at: string; updated_at: string; transaction_count: number; total_owed: number; total_paid: number; balance: number; wallet_id: number | null }[]>;
   financeGetFtPersonBalances: () => Promise<{ id: number; name: string; email: string | null; phone: string | null; total_owed: number; total_repaid: number; transaction_count: number }[]>;
   financeCreateFtPerson: (data: { name: string; email?: string; phone?: string; notes?: string }) => Promise<{ id: number; name: string; email: string | null; phone: string | null; notes: string; transaction_count: number; total_owed: number; total_paid: number } | null>;
   financeUpdateFtPerson: (data: { id: number; name?: string; email?: string; phone?: string; notes?: string }) => Promise<{ success: boolean; error?: string }>;
@@ -255,6 +274,7 @@ interface DeskflowAPI {
   financeGetCryptoHistory: (coinId: string, days?: number, currency?: string) => Promise<any[]>;
   financeRecalculateBalances: (walletId: number, dryRun?: boolean) => Promise<{ success: boolean; newBalance?: number; oldBalance?: number; breakdown?: any[]; initialBalance?: number; walletName?: string; error?: string }>;
   financeApplyRecalculatedBalance: (walletId: number) => Promise<{ success: boolean; newBalance?: number; oldBalance?: number; breakdown?: any[]; initialBalance?: number; walletName?: string; error?: string }>;
+  financeUpdateTransactionSortOrder: (updates: { id: number; sort_order: number }[]) => Promise<{ success: boolean; error?: string }>;
   financeRecalculateAllBalances: () => Promise<{ success: boolean; results?: any[]; error?: string }>;
   auditList: (params?: { entityType?: string; entityId?: number; limit?: number; offset?: number }) => Promise<{ rows: any[]; total: number }>;
   auditGet: (id: number) => Promise<any>;
@@ -265,7 +285,10 @@ interface DeskflowAPI {
 
   // Insight Engine
   getDailyFunFact: () => Promise<any | null>;
-  buildInsightRollup: (date: string) => Promise<{ ok: boolean; inserted?: number; error?: string }>;
+  buildInsightRollup: (date: string) => Promise<{ ok: boolean; error?: string }>;
+  getInsightStrip: (params?: { period?: string }) => Promise<any[]>;
+  getRewind: (period: string) => Promise<any | null>;
+  logInsightEvent: (atomId: string, eventType: string) => Promise<void>;
   getHomeSummary: () => Promise<{
     focusMinutes: number;
     walletCount: number;
@@ -306,6 +329,13 @@ interface DeskflowAPI {
   revokeDevice: (deviceId: string) => Promise<{ success: boolean; error?: string }>;
   revokeAllDevices: () => Promise<{ success: boolean; error?: string }>;
 
+  // Auth: register, login, pair generate, state, logout
+  authGetState: () => Promise<{ authenticated: boolean; userId: string | null; deviceId: string | null; syncUrl: string }>;
+  authRegister: (args: { email: string; password: string }) => Promise<{ success: boolean; userId?: string; deviceId?: string; error?: string }>;
+  authLogin: (args: { email: string; password: string }) => Promise<{ success: boolean; userId?: string; deviceId?: string; error?: string }>;
+  authPairGenerate: () => Promise<{ success: boolean; code?: string; expiresAt?: number; expiresAtMs?: number; syncUrl?: string; lanHost?: string; syncPort?: string; error?: string }>;
+  authLogout: () => Promise<{ success: boolean }>;
+
   // Learn profile
   learnGetProfile: ({ key }: { key: string }) => Promise<any>;
   learnSetProfile: ({ key, value }: { key: string; value: string }) => Promise<any>;
@@ -321,6 +351,52 @@ interface DeskflowAPI {
     onState: (cb: (state: { active: boolean; endsAt: number | null; remainingSec: number; strictness: string; paused: boolean }) => void) => (() => void);
     onEnded: (cb: (data: { outcome: string; reason: string | null; id: number }) => void) => (() => void);
   };
+
+  // ========== Project Backup (Design Workspace) ==========
+  projectBackup: {
+    create: (projectId: string, projectPath: string) => Promise<{ success: boolean; data?: ProjectBackupManifest; error?: string }>;
+    list: (projectId: string) => Promise<{ success: boolean; data: ProjectBackupManifest[]; error?: string }>;
+    get: (backupId: string) => Promise<{ success: boolean; data?: ProjectBackupManifest; error?: string }>;
+    delete: (backupId: string, projectId: string) => Promise<{ success: boolean; error?: string }>;
+    restore: (projectId: string, backupId: string) => Promise<{ success: boolean; data?: { restoredCount: number }; error?: string }>;
+    diff: (projectId: string, backupId: string) => Promise<{ success: boolean; data?: ProjectBackupDiff; error?: string }>;
+    schedule: (projectId: string, minutes: number) => Promise<{ success: boolean; error?: string }>;
+  };
+
+  // ========== Git Safety Layer ==========
+  gitSafety: {
+    check: (command: string) => Promise<GitSafetyCheckResult>;
+    getSettings: () => Promise<GitSafetySettings>;
+    setSettings: (settings: Partial<GitSafetySettings>) => Promise<{ success: boolean }>;
+    getPending: () => Promise<GitSafetyPending | null>;
+    confirmPending: (terminalId: string) => Promise<{ success: boolean; command?: string }>;
+    cancelPending: (terminalId: string) => Promise<{ success: boolean }>;
+  };
+}
+
+export interface GitSafetySettings {
+  enabled: boolean;
+  blockHardReset: boolean;
+  blockForcePush: boolean;
+  blockDestructive: boolean;
+  blockBranchDelete: boolean;
+  customPatterns: string[];
+  askBeforeAction: boolean;
+}
+
+export interface GitSafetyCheckResult {
+  dangerous: boolean;
+  patterns: string[];
+  command: string;
+  suggestion: string;
+}
+
+export interface GitSafetyPending {
+  terminalId: string;
+  command: string;
+  patterns: string[];
+  suggestion: string;
+  timestamp: number;
 }
 
 declare global {

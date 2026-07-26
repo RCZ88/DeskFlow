@@ -1,5 +1,6 @@
 import { SubTabBar, SubTabDef } from './SubTabBar';
 import { usePersistentSubTab } from '../../hooks/usePersistentSubTab';
+import { useRef, useEffect, useCallback, useState } from 'react';
 
 const ACCENT_TRUNK: Record<string, string> = {
   green: 'bg-green-500/30',
@@ -25,19 +26,39 @@ export function WorkspaceShell({ tabs, storageKey, render, onTabChange, accent }
   accent?: string;
 }) {
   const [active, setActive] = usePersistentSubTab(storageKey, tabs[0].key);
-  const handleChange = (key: string) => {
-    setActive(key);
-    onTabChange?.(key);
-  };
+  const handleChange = (key: string) => { setActive(key); onTabChange?.(key); };
   const trunkColor = accent ? ACCENT_TRUNK[accent] : 'bg-zinc-700';
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [scrollHeight, setScrollHeight] = useState(0);
+
+  const measure = useCallback(() => {
+    if (rootRef.current) {
+      const rect = rootRef.current.getBoundingClientRect();
+      setScrollHeight(rect.height);
+    }
+  }, []);
+
+  useEffect(() => {
+    measure();
+    window.addEventListener('resize', measure);
+    const obs = new ResizeObserver(measure);
+    if (rootRef.current) obs.observe(rootRef.current);
+    return () => { window.removeEventListener('resize', measure); obs.disconnect(); };
+  }, [measure]);
+
   return (
-    <div className="flex flex-1">
-      <div className="relative w-[18px] flex items-center justify-center shrink-0">
-        <div className={`w-0.5 h-full ${trunkColor}`} />
-      </div>
-      <div className="flex-1 flex flex-col min-w-0">
-        <SubTabBar tabs={tabs} active={active} onChange={handleChange} accent={accent} />
-        <div className="flex-1 overflow-y-auto">{render(active)}</div>
+    <div ref={rootRef} className="flex-1 min-h-0 min-w-0 flex flex-col relative">
+      <SubTabBar tabs={tabs} active={active} onChange={handleChange} accent={accent} />
+      <div
+        className="flex-1 min-h-0 relative overflow-y-auto"
+        style={{ height: scrollHeight ? `calc(${scrollHeight}px - 36px)` : '100%' }}
+      >
+        <div className="flex min-h-full min-w-0">
+          <div className={`w-0.5 shrink-0 self-stretch ${trunkColor}`} />
+          <div className="flex-1 min-w-0 px-3 py-3">
+            {render(active)}
+          </div>
+        </div>
       </div>
     </div>
   );

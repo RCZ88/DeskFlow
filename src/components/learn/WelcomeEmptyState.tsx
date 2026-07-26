@@ -1,7 +1,10 @@
 import { motion } from 'framer-motion';
-import { BookOpen, Wand2, FileUp, ClipboardPaste, Compass } from 'lucide-react';
+import { BookOpen, Wand2, FileUp, ClipboardPaste, Compass, Copy, Check } from 'lucide-react';
+import { useState, useCallback } from 'react';
 import { BlurFade } from '../ui/blur-fade';
 import { BorderBeam } from '../ui/border-beam';
+
+const api = (window as any).deskflowAPI;
 
 export interface WelcomeEmptyStateProps {
   onCompose: () => void;
@@ -16,7 +19,7 @@ interface QuickAction {
   icon: typeof Wand2;
   title: string;
   body: string;
-  run: (p: WelcomeEmptyStateProps) => void;
+  run: (p: WelcomeEmptyStateProps, setCopied?: (v: boolean) => void) => void;
 }
 
 const ACTIONS: QuickAction[] = [
@@ -52,6 +55,21 @@ const floatSpring = { type: 'spring' as const, stiffness: 260, damping: 22 };
 const floatLoop = { duration: 4, ease: 'easeInOut', repeat: Infinity };
 
 export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+
+  const handleCopyPrompt = useCallback(async () => {
+    try {
+      const result = await api.learnGetLessonSystemPrompt();
+      if (result.ok && result.data) {
+        await navigator.clipboard.writeText(result.data);
+        setCopiedPrompt(true);
+        setTimeout(() => setCopiedPrompt(false), 2500);
+      }
+    } catch (e) {
+      console.error('[Welcome] Failed to copy prompt:', e);
+    }
+  }, []);
+
   return (
     <div
       className="lyceum-welcome relative flex min-h-full w-full items-center justify-center overflow-hidden px-6 py-16"
@@ -148,7 +166,7 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
       {/* Quick actions */}
       <div className="absolute inset-x-0 bottom-0 mx-auto max-w-5xl px-6 pb-10">
         <BlurFade delay={0.32} inView>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-4">
             {ACTIONS.map((a) => {
               const Icon = a.icon;
               return (
@@ -163,6 +181,25 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
                 </button>
               );
             })}
+            {/* Copy Lesson Prompt — standalone, no topic input needed */}
+            <button
+              onClick={handleCopyPrompt}
+              className="group rounded-xl border border-dashed border-amber-500/30 bg-amber-500/[0.04] p-4 text-left transition-colors hover:border-amber-500/50 hover:bg-amber-500/[0.08]"
+            >
+              {copiedPrompt ? (
+                <Check className="h-4 w-4 text-emerald-400" />
+              ) : (
+                <Copy className="h-4 w-4 text-amber-400 transition-transform group-hover:scale-110" />
+              )}
+              <p className="mt-2 font-serif text-[15px] font-semibold text-glow">
+                {copiedPrompt ? 'Copied!' : 'Copy Lesson Prompt'}
+              </p>
+              <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
+                {copiedPrompt
+                  ? 'Paste into any AI chat to start generating .ldoc lessons'
+                  : 'System prompt for any AI — paste into ChatGPT, Claude, etc.'}
+              </p>
+            </button>
           </div>
         </BlurFade>
       </div>

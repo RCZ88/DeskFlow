@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { Handshake, TrendingUp, TrendingDown, ArrowRight } from "lucide-react";
 
@@ -15,6 +16,7 @@ export interface FollowThroughCardProps {
   breakdown: FollowThroughBreakdown[];
   trend: number[];
   onViewDetails?: () => void;
+  ftPersons?: { id: number; name: string; balance?: number; wallet_id?: number | null }[];
 }
 
 const fadeIn = {
@@ -40,6 +42,7 @@ export function FollowThroughCard({
   breakdown,
   trend,
   onViewDetails,
+  ftPersons = [],
 }: FollowThroughCardProps) {
   const fmt = (n: number) =>
     new Intl.NumberFormat(undefined, { style: "currency", currency }).format(n);
@@ -50,8 +53,15 @@ export function FollowThroughCard({
   return (
     <motion.section
       {...fadeIn}
-      className="rounded-xl border border-zinc-800/60 bg-zinc-900/80 backdrop-blur-xl p-5"
+      className="relative rounded-xl border border-zinc-800/60 bg-zinc-900/60 backdrop-blur-xl p-5 overflow-hidden"
     >
+      {/* Gradient glow background */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.06]"
+        style={{ background: 'linear-gradient(135deg, #f59e0b, transparent 60%)' }}
+      />
+      {/* Top edge highlight */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-amber-500/30 via-amber-500/10 to-transparent" />
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
@@ -131,18 +141,27 @@ export function FollowThroughCard({
             <div className="border-t border-zinc-800/50 pt-3">
               <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 mb-2">Owed by</p>
               <div className="space-y-1.5">
-                {breakdown.map((b) => (
-                  <div key={b.label} className="flex items-center justify-between py-1.5 px-2.5 rounded-lg hover:bg-zinc-800/30 transition-colors duration-150">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-6 h-6 rounded-full bg-amber-500/15 flex items-center justify-center shrink-0">
-                        <span className="text-[10px] font-bold text-amber-400">{b.label[0]?.toUpperCase()}</span>
+                {breakdown.map((b) => {
+                  const person = ftPersons.find(p => p.name === b.label);
+                  const storedBalance = person?.balance ?? 0;
+                  return (
+                    <div key={b.label} className="flex items-center justify-between py-1.5 px-2.5 rounded-lg hover:bg-zinc-800/30 transition-colors duration-150">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-6 h-6 rounded-full bg-amber-500/15 flex items-center justify-center shrink-0">
+                          <span className="text-[10px] font-bold text-amber-400">{b.label[0]?.toUpperCase()}</span>
+                        </div>
+                        <span className="text-sm text-zinc-300 truncate">{b.label}</span>
+                        <span className="text-[10px] text-zinc-600">({b.count})</span>
+                        {storedBalance > 0 && (
+                          <span className="inline-flex items-center rounded-md bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 text-[9px] font-medium text-violet-400">
+                            bal: {new Intl.NumberFormat(undefined, { style: "currency", currency }).format(storedBalance)}
+                          </span>
+                        )}
                       </div>
-                      <span className="text-sm text-zinc-300 truncate">{b.label}</span>
-                      <span className="text-[10px] text-zinc-600">({b.count})</span>
+                      <span className="text-sm font-medium tabular-nums text-zinc-200">{fmt(b.total)}</span>
                     </div>
-                    <span className="text-sm font-medium tabular-nums text-zinc-200">{fmt(b.total)}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

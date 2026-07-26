@@ -1,14 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Edit3, Trash2, ExternalLink, Bell, BellOff, Calendar, Wallet, CreditCard, RefreshCw, X, Check, AlertTriangle, DollarSign, ArrowUpRight } from 'lucide-react';
+import { Plus, Edit3, Trash2, ExternalLink, Bell, BellOff, Calendar, Wallet, CreditCard, RefreshCw, X, Check, AlertTriangle, DollarSign, ArrowUpRight, History, Zap, RotateCcw, CircleCheck, XCircle, Clock } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { formatCurrency } from './currency-data';
 import { SubscriptionModal } from './SubscriptionModal';
-import type { FinanceSubscription, FinanceWallet } from './finance-types';
+import type { FinanceSubscription, FinanceWallet, FinanceTransaction, FinanceCategory } from './finance-types';
 
 interface Props {
   subscriptions: FinanceSubscription[];
   wallets: FinanceWallet[];
+  categories?: FinanceCategory[];
+  transactions?: FinanceTransaction[];
   displayCurrency: string;
   loading?: boolean;
   error?: string | null;
@@ -18,6 +20,15 @@ interface Props {
   onDelete: (id: number) => Promise<boolean>;
   onRecordPayment?: (sub: FinanceSubscription) => Promise<void>;
   onNavigateToPage?: () => void;
+  onGenerateTransactions?: () => Promise<{ created: number; subscriptions: any[] }>;
+  onRefresh?: () => void;
+  onMoveTransaction?: (subscriptionId: number, newWalletId: number) => Promise<boolean>;
+  onRetryPayment?: (subscriptionId: number, walletId?: number, date?: string) => Promise<{ success: boolean; error?: string }>;
+  onToggleAutodebet?: (id: number) => Promise<boolean>;
+  onRecordPaymentManual?: (subscriptionId: number, walletId?: number, amount?: number, date?: string) => Promise<boolean>;
+  onGetPaymentHistory?: (subscriptionId: number) => Promise<any>;
+  onCancelPayment?: (subscriptionId: number, transactionId: number, reason?: string) => Promise<boolean>;
+  onNotify?: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 function daysUntil(dateStr: string): number {
@@ -71,12 +82,24 @@ function computeMonthlyCost(sub: FinanceSubscription): number {
   }
 }
 
-export function SubscriptionsTab({ subscriptions, wallets, displayCurrency, loading, error, onRetry, onCreate, onUpdate, onDelete, onRecordPayment, onNavigateToPage }: Props) {
+export function SubscriptionsTab({ subscriptions, wallets, categories = [], transactions = [], displayCurrency, loading, error, onRetry, onCreate, onUpdate, onDelete, onRecordPayment, onNavigateToPage, onGenerateTransactions, onRefresh, onMoveTransaction, onRetryPayment, onToggleAutodebet, onRecordPaymentManual, onGetPaymentHistory, onCancelPayment, onNotify }: Props) {
   const [showModal, setShowModal] = useState(false);
   const [editingSub, setEditingSub] = useState<FinanceSubscription | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
-  const [recordingPayment, setRecordingPayment] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  // Payment History Modal state
+  const [historySub, setHistorySub] = useState<FinanceSubscription | null>(null);
+  const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Record Payment Modal state
+  const [recordPaySub, setRecordPaySub] = useState<FinanceSubscription | null>(null);
+  const [recordPayDate, setRecordPayDate] = useState(new Date().toISOString().slice(0, 10));
+  const [recordPayWallet, setRecordPayWallet] = useState<number>(0);
+  const [recordPayAmount, setRecordPayAmount] = useState('');
+  const [recordPayError, setRecordPayError] = useState('');
 
   const walletMap = useMemo(() => {
     const m = new Map<number, FinanceWallet>();
@@ -105,6 +128,52 @@ export function SubscriptionsTab({ subscriptions, wallets, displayCurrency, load
   }, [filtered]);
 
   useEffect(() => { setConfirmDelete(null); }, [editingSub]);
+
+  // Load payment history for a subscription
+  const loadHistory = async (sub: FinanceSubscription) => {
+    setHistorySub(sub);
+    setHistoryLoading(true);
+    setPaymentHistory([]);
+    try {
+      if (onGetPaymentHistory) {
+        const result = await onGetPaymentHistory(sub.id);
+        if (result?.success) setPaymentHistory(result.paymentHistory || []);
+      }
+    } catch {} finally { setHistoryLoading(false); }
+  };
+
+  // Open record payment modal with smart defaults
+  const openRecordPayment = (sub: FinanceSubscription) => {
+    const startDate = sub.start_date ? new Date(sub.start_date) : new Date();
+    const day = startDate.getDate();
+    const today = new Date();
+    const defaultDate = new Date(today.getFullYear(), today.getMonth(), day);
+    if (defaultDate > today) defaultDate.setMonth(defaultDate.getMonth() - 1);
+    setRecordPaySub(sub);
+    setRecordPayDate(defaultDate.toISOString().slice(0, 10));
+    setRecordPayWallet(sub.wallet_id || 0);
+    setRecordPayAmount(String(sub.price));
+    setRecordPayError('');
+  };
+
+  // Submit record payment
+  const submitRecordPayment = async () => {
+    if (!recordPaySub) return;
+    if (!recordPayDate) { setRecordPayError('Select a date'); return; }
+    if (!recordPayWallet) { setRecordPayError('Select a wallet'); return; }
+    const amt = parseFloat(recordPayAmount);
+    if (isNaN(amt) || amt <= 0) { setRecordPayError('Enter a valid amount'); return; }
+    const wallet = walletMap.get(recordPayWallet);
+    if (wallet && (wallet.balance || 0) < amt) {
+      setRecordPayError(`Insufficient balance — need ${formatCurrency(amt, displayCurrency)}, have ${formatCurrency(wallet.balance || 0, displayCurrency)}`);
+      return;
+    }
+    try {
+      const ok = await onRecordPaymentManual?.(recordPaySub.id, recordPayWallet, amt, recordPayDate);
+      if (ok) { onNotify?.('Payment recorded', 'success'); setRecordPaySub(null); onRefresh?.(); }
+      else { setRecordPayError('Failed to record payment'); }
+    } catch { setRecordPayError('Error recording payment'); }
+  };
 
   if (loading) {
     return (
@@ -137,6 +206,26 @@ export function SubscriptionsTab({ subscriptions, wallets, displayCurrency, load
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-white">Subscriptions</h2>
         <div className="flex items-center gap-2">
+          {onGenerateTransactions && (
+            <button onClick={async () => {
+              setSyncing(true);
+              try {
+                const result = await onGenerateTransactions();
+                if (result && result.created > 0) {
+                  onNotify?.(`Synced ${result.created} payment${result.created > 1 ? 's' : ''} — backfilled from start dates`, 'success');
+                  onRefresh?.();
+                } else {
+                  onNotify?.('All subscriptions up to date — no missing payments', 'info');
+                }
+              } catch {
+                onNotify?.('Sync failed — try again', 'error');
+              } finally { setSyncing(false); }
+            }}
+              disabled={syncing}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors disabled:opacity-50">
+              <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} /> {syncing ? 'Syncing...' : 'Sync Payments'}
+            </button>
+          )}
           {onNavigateToPage && (
             <button onClick={onNavigateToPage}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors">
@@ -217,6 +306,12 @@ export function SubscriptionsTab({ subscriptions, wallets, displayCurrency, load
                             {sub.cancel_reminder_days === 0 && isActive && (
                               <BellOff className="w-3 h-3 text-zinc-600 shrink-0" title="No reminder" />
                             )}
+                            {sub.subscription_type === 'one_time' && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium">One-time</span>
+                            )}
+                            {sub.subscription_type === 'recurring_manual' && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium">Manual</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 mt-1">
                             {wallet && (
@@ -238,6 +333,54 @@ export function SubscriptionsTab({ subscriptions, wallets, displayCurrency, load
                               )}
                             </div>
                           )}
+                          {/* Payment status */}
+                          {sub.payment_status && sub.payment_status !== 'pending' && (
+                            <div className="flex items-center gap-2 mt-1.5">
+                              {sub.payment_status === 'paid' && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium flex items-center gap-1">
+                                  <Check className="w-2.5 h-2.5" /> Paid {sub.last_payment_date ? formatDate(sub.last_payment_date) : ''}
+                                </span>
+                              )}
+                              {sub.payment_status === 'failed' && (
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 font-medium inline-flex items-center gap-1 w-fit">
+                                    <XCircle size={10} /> Failed
+                                  </span>
+                                  {(() => {
+                                    let failedDates: string[] = [];
+                                    try { failedDates = JSON.parse(sub.metadata || '{}').failed_dates || []; } catch {}
+                                    if (failedDates.length > 0) {
+                                      return (
+                                        <div className="flex flex-wrap gap-1">
+                                          {failedDates.map(fd => (
+                                            <button key={fd} onClick={async (e) => {
+                                              e.stopPropagation();
+                                              const r = await onRetryPayment?.(sub.id, undefined, fd);
+                                              if (r?.success) { onNotify?.(`Paid ${formatDate(fd)}`, 'success'); onRefresh?.(); }
+                                              else onNotify?.(r?.error || 'Retry failed', 'error');
+                                            }} className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 transition-colors font-medium">
+                                              Retry {formatDate(fd)}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      );
+                                    }
+                                    return (
+                                      <button onClick={async (e) => {
+                                        e.stopPropagation();
+                                        const result = await onRetryPayment(sub.id);
+                                        if (result?.success) { onNotify?.('Payment retried successfully', 'success'); onRefresh?.(); }
+                                        else onNotify?.(result?.error || 'Retry failed', 'error');
+                                      }}
+                                        className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 transition-colors font-medium w-fit">
+                                        Retry
+                                      </button>
+                                    );
+                                  })()}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {sub.cancel_url && isActive && (
                             <a href={sub.cancel_url} target="_blank" rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 mt-1 transition-colors"
@@ -245,6 +388,25 @@ export function SubscriptionsTab({ subscriptions, wallets, displayCurrency, load
                               <ExternalLink className="w-3 h-3" /> Cancel link
                             </a>
                           )}
+                          {/* Transaction history for this subscription */}
+                          {(() => {
+                            const subTxns = transactions.filter(t => t.description?.includes(sub.name) && t.type === 'expense');
+                            if (subTxns.length === 0) return null;
+                            return (
+                              <div className="mt-2 pt-2 border-t border-zinc-700/30">
+                                <div className="text-[10px] text-zinc-600 mb-1">{subTxns.length} payment{subTxns.length > 1 ? 's' : ''}</div>
+                                <div className="space-y-0.5 max-h-[60px] overflow-y-auto">
+                                  {subTxns.slice(-4).reverse().map(t => (
+                                    <div key={t.id} className="flex items-center justify-between text-[10px]">
+                                      <span className="text-zinc-500">{t.date}</span>
+                                      <span className="text-zinc-400 tabular-nums">{formatCurrency(Math.abs(t.amount), displayCurrency)}</span>
+                                    </div>
+                                  ))}
+                                  {subTxns.length > 4 && <div className="text-[9px] text-zinc-600">+{subTxns.length - 4} more</div>}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-sm font-semibold text-white tabular-nums">
@@ -254,12 +416,34 @@ export function SubscriptionsTab({ subscriptions, wallets, displayCurrency, load
                             </span>
                           </span>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {isActive && onRecordPayment && (
-                              <button onClick={async () => { setRecordingPayment(sub.id); await onRecordPayment(sub); setRecordingPayment(null); }}
-                                disabled={recordingPayment === sub.id}
-                                className="p-1.5 rounded-lg hover:bg-emerald-500/20 text-zinc-500 hover:text-emerald-400 transition-colors disabled:opacity-50"
-                                title="Record payment">
-                                {recordingPayment === sub.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <DollarSign className="w-3.5 h-3.5" />}
+                            {/* Autodebet toggle */}
+                            {isActive && onToggleAutodebet && (
+                              <button onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleAutodebet(sub.id).then(ok => {
+                                  onNotify?.(ok ? (sub.autodebet ? 'Autodebet off' : 'Autodebet on') : 'Toggle failed', ok ? 'success' : 'error');
+                                  onRefresh?.();
+                                });
+                              }}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${sub.autodebet ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'}`}
+                                title={sub.autodebet ? 'Autodebet ON — click to disable' : 'Autodebet OFF — click to enable'}>
+                                {sub.autodebet ? '⚡ Auto' : '⏸ Manual'}
+                              </button>
+                            )}
+                            {/* Record payment */}
+                            {isActive && onRecordPaymentManual && (
+                              <button onClick={(e) => { e.stopPropagation(); openRecordPayment(sub); }}
+                                className="p-1.5 rounded-lg hover:bg-emerald-500/20 text-zinc-500 hover:text-emerald-400 transition-colors"
+                                title="Record manual payment">
+                                <DollarSign className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {/* Payment history */}
+                            {onGetPaymentHistory && (
+                              <button onClick={(e) => { e.stopPropagation(); loadHistory(sub); }}
+                                className="p-1.5 rounded-lg hover:bg-zinc-700/50 text-zinc-500 hover:text-zinc-300 transition-colors"
+                                title="Payment history">
+                                <History className="w-3.5 h-3.5" />
                               </button>
                             )}
                             <button onClick={() => { setEditingSub(sub); setShowModal(true); }}
@@ -268,7 +452,11 @@ export function SubscriptionsTab({ subscriptions, wallets, displayCurrency, load
                             </button>
                             {confirmDelete === sub.id ? (
                               <div className="flex items-center gap-1">
-                                <button onClick={async () => { await onDelete(sub.id); setConfirmDelete(null); }}
+                                <button onClick={async () => {
+                                  const ok = await onDelete(sub.id);
+                                  setConfirmDelete(null);
+                                  onNotify?.(ok ? 'Subscription deleted' : 'Delete failed', ok ? 'success' : 'error');
+                                }}
                                   className="p-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
                                   <Check className="w-3.5 h-3.5" />
                                 </button>
@@ -300,16 +488,173 @@ export function SubscriptionsTab({ subscriptions, wallets, displayCurrency, load
           <SubscriptionModal
             subscription={editingSub}
             wallets={wallets}
+            categories={categories}
             displayCurrency={displayCurrency}
             onClose={() => { setShowModal(false); setEditingSub(null); }}
             onSave={async (data) => {
-              const ok = editingSub
-                ? await onUpdate({ ...data, id: editingSub.id })
-                : await onCreate(data);
-              if (ok) { setShowModal(false); setEditingSub(null); }
-              return ok;
+              try {
+                const ok = editingSub
+                  ? await onUpdate({ ...data, id: editingSub.id })
+                  : await onCreate(data);
+                if (ok) {
+                  onNotify?.(editingSub ? 'Subscription updated' : 'Subscription created', 'success');
+                  setShowModal(false); setEditingSub(null);
+                } else {
+                  onNotify?.('Failed to save — try again', 'error');
+                }
+                return ok;
+              } catch {
+                onNotify?.('Failed to save — try again', 'error');
+                return false;
+              }
             }}
+            onMoveTransaction={onMoveTransaction}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Payment History Modal */}
+      <AnimatePresence>
+        {historySub && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[var(--z-modal)] flex items-center justify-center p-4"
+            onClick={() => setHistorySub(null)}>
+            <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-zinc-900 border border-zinc-700/50 rounded-xl w-full max-w-md max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">{historySub.name}</h3>
+                  <p className="text-[11px] text-zinc-500">{formatCurrency(historySub.price, displayCurrency)} / {historySub.billing_cycle}</p>
+                </div>
+                <button onClick={() => setHistorySub(null)} className="text-zinc-500 hover:text-zinc-300"><X size={16} /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                {historyLoading ? (
+                  <div className="text-center py-8 text-zinc-500 text-xs">Loading...</div>
+                ) : paymentHistory.length === 0 ? (
+                  <div className="text-center py-8 text-zinc-500 text-xs">No payment history</div>
+                ) : paymentHistory.map((record, idx) => (
+                  <div key={idx} className={`flex items-center justify-between p-3 rounded-lg border ${
+                    record.status === 'paid' ? 'border-emerald-900/30 bg-emerald-950/20' :
+                    record.status === 'failed' ? 'border-red-900/30 bg-red-950/20' :
+                    record.status === 'unpaid' ? 'border-zinc-800/30 bg-zinc-800/20' :
+                    'border-blue-900/30 bg-blue-950/20'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      {record.status === 'paid' ? <CircleCheck size={14} className="text-emerald-400" /> :
+                       record.status === 'failed' ? <XCircle size={14} className="text-red-400" /> :
+                       <Clock size={14} className="text-zinc-500" />}
+                      <div>
+                        <div className="text-xs font-medium text-zinc-200">{formatDate(record.date)}</div>
+                        <div className="text-[10px] text-zinc-500 capitalize">{record.status}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs font-medium text-zinc-200">{formatCurrency(record.amount, displayCurrency)}</div>
+                      {record.status === 'unpaid' && onRetryPayment && (
+                        <button onClick={async () => {
+                          const r = await onRetryPayment(historySub.id, undefined, record.date);
+                          if (r?.success) { onNotify?.('Payment retried', 'success'); loadHistory(historySub); onRefresh?.(); }
+                          else onNotify?.(r?.error || 'Retry failed', 'error');
+                        }} className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1 mt-1">
+                          <RotateCcw size={10} /> Retry
+                        </button>
+                      )}
+                      {record.status === 'paid' && record.txnId && onCancelPayment && (
+                        <button onClick={async () => {
+                          const ok = await onCancelPayment(historySub.id, record.txnId, 'User cancelled');
+                          if (ok) { onNotify?.('Payment cancelled', 'success'); loadHistory(historySub); onRefresh?.(); }
+                        }} className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-1 mt-1">
+                          <XCircle size={10} /> Cancel
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="p-4 border-t border-zinc-800 grid grid-cols-3 gap-2 text-center">
+                <div className="bg-zinc-800/50 rounded-lg p-2">
+                  <div className="text-lg font-bold text-emerald-400">{paymentHistory.filter(h => h.status === 'paid').length}</div>
+                  <div className="text-[10px] text-zinc-500">Paid</div>
+                </div>
+                <div className="bg-zinc-800/50 rounded-lg p-2">
+                  <div className="text-lg font-bold text-red-400">{paymentHistory.filter(h => h.status === 'failed').length}</div>
+                  <div className="text-[10px] text-zinc-500">Failed</div>
+                </div>
+                <div className="bg-zinc-800/50 rounded-lg p-2">
+                  <div className="text-lg font-bold text-zinc-400">{paymentHistory.filter(h => h.status === 'unpaid').length}</div>
+                  <div className="text-[10px] text-zinc-500">Unpaid</div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Record Payment Modal */}
+      <AnimatePresence>
+        {recordPaySub && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[var(--z-modal)] flex items-center justify-center p-4"
+            onClick={() => setRecordPaySub(null)}>
+            <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-zinc-900 border border-zinc-700/50 rounded-xl w-full max-w-sm">
+              <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Record Payment</h3>
+                  <p className="text-[11px] text-zinc-500">{recordPaySub.name}</p>
+                </div>
+                <button onClick={() => setRecordPaySub(null)} className="text-zinc-500 hover:text-zinc-300"><X size={16} /></button>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5 block flex items-center gap-1"><Calendar size={10} /> Payment Date</label>
+                  <input type="date" value={recordPayDate} onChange={e => setRecordPayDate(e.target.value)}
+                    className="w-full bg-zinc-800/60 text-sm text-white rounded-lg border border-zinc-700/50 px-3 py-2.5 outline-none focus:border-zinc-500" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5 block">Amount</label>
+                  <input type="number" value={recordPayAmount} onChange={e => setRecordPayAmount(e.target.value)}
+                    className="w-full bg-zinc-800/60 text-sm text-white rounded-lg border border-zinc-700/50 px-3 py-2.5 outline-none focus:border-zinc-500 tabular-nums" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5 block flex items-center gap-1"><Wallet size={10} /> Pay From</label>
+                  <select value={recordPayWallet} onChange={e => setRecordPayWallet(Number(e.target.value))}
+                    className="w-full bg-zinc-800/60 text-sm text-white rounded-lg border border-zinc-700/50 px-3 py-2.5 outline-none focus:border-zinc-500">
+                    <option value={0}>Select wallet</option>
+                    {wallets.filter(w => !w.is_archived).map(w => (
+                      <option key={w.id} value={w.id}>{w.name} — {formatCurrency(w.balance || 0, displayCurrency)}</option>
+                    ))}
+                  </select>
+                  {recordPayWallet > 0 && (() => {
+                    const w = walletMap.get(recordPayWallet);
+                    const amt = parseFloat(recordPayAmount) || 0;
+                    const ok = w && (w.balance || 0) >= amt;
+                    return (
+                      <div className={`text-[10px] mt-1 flex items-center gap-1 ${ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {ok ? <Check size={10} /> : <AlertTriangle size={10} />}
+                        {ok ? 'Sufficient balance' : `Need ${formatCurrency(amt, displayCurrency)}, have ${formatCurrency(w?.balance || 0, displayCurrency)}`}
+                      </div>
+                    );
+                  })()}
+                </div>
+                {recordPayError && (
+                  <div className="text-[11px] text-red-400 bg-red-500/10 rounded-lg p-2 flex items-center gap-1.5">
+                    <AlertTriangle size={12} /> {recordPayError}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-2 p-4 border-t border-zinc-800">
+                <button onClick={() => setRecordPaySub(null)} className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200">Cancel</button>
+                <button onClick={submitRecordPayment}
+                  className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 font-medium transition-colors">
+                  <Check size={12} /> Record
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </motion.div>

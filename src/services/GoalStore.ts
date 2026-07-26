@@ -106,4 +106,82 @@ export const GoalStore = {
     }
     this.saveDay(day);
   },
+
+  // ── Progress accumulation (for real-time focus tracking) ──
+
+  accumulateProgress(goalId: string, seconds: number): void {
+    try {
+      const key = `df_goal_accum_${goalId}`;
+      const current = parseInt(localStorage.getItem(key) || '0', 10);
+      localStorage.setItem(key, String(current + Math.floor(seconds)));
+    } catch { /* localStorage unavailable */ }
+  },
+
+  getAccumulated(goalId: string): number {
+    try {
+      return parseInt(localStorage.getItem(`df_goal_accum_${goalId}`) || '0', 10);
+    } catch { return 0; }
+  },
+
+  clearAccumulated(goalId: string): void {
+    try { localStorage.removeItem(`df_goal_accum_${goalId}`); } catch { /* ignore */ }
+  },
+
+  applyAccumulated(goal: Goal): Goal {
+    const extra = this.getAccumulated(goal.id);
+    if (extra <= 0) return goal;
+    const newProgress = (goal.progressSeconds || 0) + extra;
+    const target = goal.target?.targetSeconds || 3600;
+    return {
+      ...goal,
+      progressSeconds: Math.min(newProgress, target),
+      status: newProgress >= target ? 'completed' : goal.status,
+    };
+  },
+
+  applyAccumulatedToDay(date: string): Goal[] {
+    const day = this.getDay(date);
+    return day.goals.map(g => this.applyAccumulated(g));
+  },
+
+  clearAllAccumulated(): void {
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith('df_goal_accum_')) keys.push(k);
+      }
+      for (const k of keys) localStorage.removeItem(k);
+    } catch { /* ignore */ }
+  },
+
+  // ── Focus session linkage ──
+
+  setFocusLinkedGoal(goalId: string | null): void {
+    try {
+      if (goalId) localStorage.setItem('df_focus_linked_goal', goalId);
+      else localStorage.removeItem('df_focus_linked_goal');
+    } catch { /* ignore */ }
+  },
+
+  getFocusLinkedGoal(): string | null {
+    try { return localStorage.getItem('df_focus_linked_goal'); } catch { return null; }
+  },
+
+  // ── Suggestion rate limiting ──
+
+  canRequestSuggestion(): boolean {
+    try {
+      const key = 'df_goal_suggest_requests';
+      const raw = localStorage.getItem(key);
+      const requests: number[] = raw ? JSON.parse(raw) : [];
+      const now = Date.now();
+      const windowStart = now - 3600000;
+      const recent = requests.filter(t => t > windowStart);
+      if (recent.length >= 10) return false;
+      recent.push(now);
+      localStorage.setItem(key, JSON.stringify(recent));
+      return true;
+    } catch { return true; }
+  },
 };

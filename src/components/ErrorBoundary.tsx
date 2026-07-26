@@ -100,7 +100,7 @@ export class ErrorBoundary extends Component<Props, State> {
     const reloadCount = getPersistedErrorCount();
 
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#0a0a0a] text-white p-8">
+      <div className="flex flex-col items-center justify-center h-full bg-[#0a0a0a] text-white p-8">
         <div className="max-w-md text-center">
           <div className="text-red-400 text-6xl mb-6">!</div>
           <h1 className="text-2xl font-bold mb-4">Something went wrong</h1>

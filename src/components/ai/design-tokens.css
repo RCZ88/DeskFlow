@@ -1,0 +1,65 @@
+/* ═══════════════════════════════════════════════════════════════
+   UNIFIED DESIGN TOKENS — Canvas + Deck
+   Import this at the top of both canvas.css and deck.css
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Backgrounds */
+  --dk-bg-deep: #09090b;
+  --dk-bg-base: #111118;
+  --dk-bg-surface: rgba(20, 20, 25, 0.92);
+  --dk-bg-raised: rgba(30, 30, 35, 0.95);
+  --dk-bg-input: rgba(24, 24, 27, 0.9);
+
+  /* Text */
+  --dk-text-primary: #f4f4f5;
+  --dk-text-secondary: #d4d4d8;
+  --dk-text-muted: #a1a1aa;
+  --dk-text-faint: #71717a;
+  --dk-text-placeholder: #52525b;
+
+  /* Borders */
+  --dk-border-subtle: rgba(63, 63, 70, 0.25);
+  --dk-border-default: rgba(63, 63, 70, 0.5);
+  --dk-border-strong: rgba(63, 63, 70, 0.7);
+  --dk-border-focus: rgba(161, 161, 170, 0.4);
+
+  /* Accents — single cyan, use sparingly */
+  --dk-accent: #22d3ee;
+  --dk-accent-dim: rgba(34, 211, 238, 0.15);
+  --dk-success: #4ade80;
+  --dk-warning: #fbbf24;
+  --dk-danger: #f87171;
+
+  /* Shadows */
+  --dk-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --dk-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --dk-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --dk-shadow-glow: 0 0 30px rgba(34, 211, 238, 0.06);
+
+  /* Spacing */
+  --dk-space-1: 4px;
+  --dk-space-2: 8px;
+  --dk-space-3: 12px;
+  --dk-space-4: 16px;
+  --dk-space-5: 20px;
+  --dk-space-6: 24px;
+
+  /* Radius */
+  --dk-radius-sm: 6px;
+  --dk-radius-md: 10px;
+  --dk-radius-lg: 12px;
+
+  /* Grid */
+  --dk-cell: 40px;
+
+  /* Animation */
+  --dk-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dk-fast: 150ms;
+  --dk-normal: 250ms;
+  --dk-slow: 400ms;
+
+  /* Fonts */
+  --dk-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --dk-mono: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+}

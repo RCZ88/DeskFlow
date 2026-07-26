@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Search, Trash2, Lock as LockIcon, Calendar, X, Handshake, CircleCheck } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Search, Trash2, Lock as LockIcon, Calendar, X, Handshake, CircleCheck, Bell, ArrowUpDown, Clock } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
@@ -17,6 +17,102 @@ import { SelectionAggregatePanel } from './SelectionAggregatePanel';
 import { BatchRecategorizeModal } from './modals/BatchRecategorizeModal';
 import { exportTransactionsCsv } from './csvExport';
 import { getRepaymentStatus, getFtPerson } from '../../lib/receivables';
+
+function HistoricalReorderPanel({ transactions, displayCurrency, baseCurrency, onOrderChanged }: {
+  transactions: FinanceTransaction[]; displayCurrency: string; baseCurrency: string; onOrderChanged: () => void;
+}) {
+  const fc = (v: number) => fmtCurrency(convertAmount(v, baseCurrency, displayCurrency), displayCurrency);
+  const [order, setOrder] = useState<FinanceTransaction[]>(() =>
+    [...transactions].sort((a, b) => ((a as any).sort_order || 0) - ((b as any).sort_order || 0))
+  );
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const dragIdx = useRef<number | null>(null);
+
+  const moveItem = (from: number, to: number) => {
+    if (to < 0 || to >= order.length) return;
+    const next = [...order];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    setOrder(next);
+    setDirty(true);
+  };
+
+  const handleDragStart = (idx: number) => { dragIdx.current = idx; };
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); };
+  const handleDrop = (idx: number) => {
+    if (dragIdx.current !== null && dragIdx.current !== idx) {
+      moveItem(dragIdx.current, idx);
+    }
+    dragIdx.current = null;
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const updates = order.map((t, i) => ({ id: t.id, sort_order: i + 1 }));
+    await (window as any).deskflowAPI?.financeUpdateTransactionSortOrder(updates);
+    setSaving(false);
+    setDirty(false);
+    if (onOrderChanged) onOrderChanged();
+    else window.location.reload();
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between px-1 mb-1">
+        <span className="text-[10px] text-zinc-500">Drag to reorder chronological order</span>
+        <button onClick={handleSave} disabled={!dirty || saving}
+          className="text-[10px] px-2 py-0.5 rounded-full transition-colors disabled:opacity-40"
+          style={{ background: dirty ? 'rgba(139,92,246,0.2)' : 'transparent', color: dirty ? '#8B5CF6' : '#71717a' }}>
+          {saving ? 'Saving...' : dirty ? 'Sync Order' : 'No changes'}
+        </button>
+      </div>
+      {order.map((txn, idx) => {
+        let cryptoLabel: string | null = null;
+        let cryptoSymbol: string | null = null;
+        if (txn.metadata) {
+          try {
+            const m = typeof txn.metadata === 'string' ? JSON.parse(txn.metadata) : txn.metadata;
+            if (m.coinId || m.coin_id) {
+              cryptoSymbol = (m.symbol || '').toUpperCase();
+              const qty = Number(m.qty) || 0;
+              cryptoLabel = `${qty.toFixed(8).replace(/\.?0+$/, '')} ${cryptoSymbol}`;
+            }
+          } catch {}
+        }
+        const wallet = txn.wallet_id;
+        return (
+          <div key={txn.id} draggable onDragStart={() => handleDragStart(idx)}
+            onDragOver={handleDragOver} onDrop={() => handleDrop(idx)}
+            className="flex items-center gap-2 py-2 px-3 rounded-lg bg-violet-500/[0.06] border-l-2 border-l-violet-500/40 hover:bg-violet-500/10 transition-colors cursor-grab active:cursor-grabbing">
+            <div className="flex flex-col gap-0.5 shrink-0">
+              <button onClick={() => moveItem(idx, idx - 1)} className="text-zinc-600 hover:text-zinc-300"><svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" /></svg></button>
+              <button onClick={() => moveItem(idx, idx + 1)} className="text-zinc-600 hover:text-zinc-300"><svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg></button>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-mono text-violet-400/60 tabular-nums w-4 text-right">{idx + 1}</span>
+                <span className="text-[13px] text-zinc-300 truncate">{txn.description || 'Untitled'}</span>
+                {idx === 0 && <span className="text-[8px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-300">Earliest</span>}
+                {idx === order.length - 1 && order.length > 1 && <span className="text-[8px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-300">Latest</span>}
+              </div>
+              {cryptoLabel && <div className="text-[10px] text-[#8B5CF6]/70 mt-0.5 font-mono ml-5">{cryptoLabel}</div>}
+            </div>
+            <div className="text-right shrink-0">
+              {cryptoLabel ? (
+                <p className="text-[13px] font-semibold tabular-nums text-[#8B5CF6]">{cryptoLabel}</p>
+              ) : (
+                <p className={`text-[13px] font-semibold tabular-nums ${txn.type === 'income' ? 'text-emerald-400' : txn.type === 'transfer' ? 'text-amber-400' : 'text-red-400'}`}>
+                  {txn.type === 'expense' ? '-' : txn.type === 'income' ? '+' : ''}{fc(Math.abs(txn.amount))}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 interface TransactionsTabProps {
   transactions: FinanceTransaction[];
@@ -37,6 +133,8 @@ interface TransactionsTabProps {
   onUpdateTransaction?: (id: number, data: Record<string, any>) => Promise<boolean>;
   onVerifyPassword?: (password: string) => Promise<boolean>;
   onRecordFtRepayment?: (data: { originalTxId: number; personId?: number; amount: number; date: string; walletId?: number; description?: string; isOverpayment?: boolean }) => Promise<boolean>;
+  ftPersons?: { id: number; name: string; email?: string | null; phone?: string | null }[];
+  onAddFtPerson?: (name: string) => void;
 }
 
 const formatDateLabel = (dateStr: string) => {
@@ -54,12 +152,14 @@ const typeFilters = [
   { key: 'expense' as const, label: 'Expense', color: 'red' },
   { key: 'transfer' as const, label: 'Transfer', color: 'amber' },
   { key: 'ft' as const, label: 'Follow Through', color: 'amber' },
+  { key: 'historical' as const, label: 'Historical', color: 'violet' },
 ];
 
 const typeColors: Record<string, { icon: string; bg: string; border: string; text: string }> = {
   income: { icon: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-l-emerald-500/40', text: 'text-emerald-400' },
   expense: { icon: 'text-red-400', bg: 'bg-red-500/10', border: 'border-l-red-500/40', text: 'text-red-400' },
   transfer: { icon: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-l-amber-500/40', text: 'text-amber-400' },
+  historical: { icon: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-l-violet-500/40', text: 'text-violet-400' },
 };
 
 const WALLET_TYPE_LABEL: Record<string, string> = {
@@ -71,11 +171,22 @@ const WALLET_TYPE_COLOR: Record<string, string> = {
   cash: '#EC4899', physical: '#F97316', ewallet: '#06B6D4', other: '#6B7280',
 };
 
-export function TransactionsTab({ transactions, accounts, categories, wallets, loading, error, onRetry, displayCurrency, baseCurrency, onAddTransaction, onDeleteTransaction, onUpdateTransaction, onVerifyPassword }: TransactionsTabProps) {
+export function TransactionsTab({ transactions, accounts, categories, wallets, loading, error, onRetry, displayCurrency, baseCurrency, onAddTransaction, onDeleteTransaction, onUpdateTransaction, onVerifyPassword, ftPersons = [], onAddFtPerson }: TransactionsTabProps) {
+  const historicalRef = useRef<HTMLDivElement>(null);
+  const [showJumpBtn, setShowJumpBtn] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const jumpToHistorical = () => {
+    historicalRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchRef = useRef<ReturnType<typeof setTimeout>>();
-  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'transfer' | 'ft'>('all');
+  const [typeFilter, setTypeFilter] = useState<string[]>(['all']);
+  const [categoryFilter, setCategoryFilter] = useState<number[]>([]);
+  const [sortBy, setSortBy] = useState<'date' | 'amount' | 'name'>('date');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
@@ -84,6 +195,7 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
   const [detailTxn, setDetailTxn] = useState<FinanceTransaction | null>(null);
+  const [showReorder, setShowReorder] = useState(false);
   const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
 
   useEffect(() => {
@@ -94,12 +206,21 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
 
   const filtered = useMemo(() => {
     let list = transactions;
-    if (typeFilter !== 'all') {
-      if (typeFilter === 'ft') {
-        list = list.filter(t => t.on_behalf_of === 1 && t.type === 'expense');
-      } else {
-        list = list.filter(t => t.type === typeFilter);
-      }
+    // Multi-select type filter
+    const showAll = typeFilter.includes('all');
+    if (!showAll && typeFilter.length > 0) {
+      list = list.filter(t => {
+        for (const f of typeFilter) {
+          if (f === 'ft' && t.on_behalf_of === 1 && t.type === 'expense') return true;
+          if (f === 'historical' && t.is_adjustment === 1) return true;
+          if (f === t.type) return true;
+        }
+        return false;
+      });
+    }
+    // Multi-select category filter
+    if (categoryFilter.length > 0) {
+      list = list.filter(t => categoryFilter.includes(t.category_id));
     }
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
@@ -107,12 +228,22 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
     }
     if (dateStart) list = list.filter(t => (t.date || '') >= dateStart);
     if (dateEnd) list = list.filter(t => (t.date || '') <= dateEnd);
-    return list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  }, [transactions, typeFilter, debouncedSearch, dateStart, dateEnd]);
+    const dir = sortDir === 'desc' ? -1 : 1;
+    return list.sort((a, b) => {
+      if (sortBy === 'date') return dir * (a.date || '').localeCompare(b.date || '');
+      if (sortBy === 'amount') return dir * (Math.abs(a.amount) - Math.abs(b.amount));
+      if (sortBy === 'name') return dir * (a.description || '').localeCompare(b.description || '');
+      return 0;
+    });
+  }, [transactions, typeFilter, categoryFilter, debouncedSearch, dateStart, dateEnd, sortBy, sortDir]);
 
-  const grouped = useMemo(() => {
+  // Separate historical from regular, then group regular by date
+  const { regularGrouped, historicalTxns } = useMemo(() => {
+    const regularTxns = filtered.filter(t => !t.is_adjustment);
+    const histTxns = filtered.filter(t => t.is_adjustment);
+
     const groups: Record<string, { dateStr: string; txns: FinanceTransaction[]; netTotal: number }> = {};
-    for (const t of filtered) {
+    for (const t of regularTxns) {
       const key = t.date || 'Unknown';
       if (!groups[key]) {
         groups[key] = { dateStr: key, txns: [], netTotal: 0 };
@@ -120,8 +251,36 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
       groups[key].txns.push(t);
       groups[key].netTotal += t.type === 'income' ? t.amount : t.type === 'transfer' ? t.amount : -t.amount;
     }
-    return groups;
+    return { regularGrouped: groups, historicalTxns: histTxns };
   }, [filtered]);
+
+  // Show jump button when historical section is off-screen
+  useEffect(() => {
+    const el = historicalRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowJumpBtn(!entry.isIntersecting),
+      { threshold: 0, rootMargin: '-100px 0px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [historicalTxns.length]);
+
+  // Build ordered list with year separators
+  const orderedGroups = useMemo(() => {
+    const sortedKeys = Object.keys(regularGrouped).sort((a, b) => b.localeCompare(a));
+    const result: { type: 'year' | 'group'; key: string; year?: string; group?: typeof regularGrouped[string] }[] = [];
+    let lastYear = '';
+    for (const key of sortedKeys) {
+      const year = key.substring(0, 4);
+      if (year !== lastYear) {
+        result.push({ type: 'year', key: `year-${year}`, year });
+        lastYear = year;
+      }
+      result.push({ type: 'group', key, group: regularGrouped[key] });
+    }
+    return result;
+  }, [regularGrouped]);
 
   const fc = (amount: number) => fmtCurrency(convertAmount(amount, baseCurrency, displayCurrency), displayCurrency);
 
@@ -275,7 +434,7 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
     await handleDelete(id);
   };
 
-  const hasActiveFilters = debouncedSearch || typeFilter !== 'all' || dateStart || dateEnd;
+  const hasActiveFilters = debouncedSearch || !typeFilter.includes('all') || categoryFilter.length > 0 || dateStart || dateEnd;
 
   if (error) {
     return (
@@ -333,20 +492,44 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
               </button>
             )}
           </div>
-          <div className="flex bg-zinc-800/40 rounded-lg p-0.5 border border-zinc-700/30">
-            {typeFilters.map(tf => (
-              <button
-                key={tf.key}
-                onClick={() => setTypeFilter(tf.key)}
-                className={`relative px-3 py-1.5 rounded-md text-[11px] font-medium transition-all duration-150 ${
-                  typeFilter === tf.key
-                    ? 'bg-zinc-700/60 text-white shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                {tf.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-1">
+            {typeFilters.map(tf => {
+              const active = typeFilter.includes(tf.key);
+              const isAll = tf.key === 'all';
+              const selected = isAll ? typeFilter.includes('all') : active;
+              return (
+                <button
+                  key={tf.key}
+                  onClick={() => {
+                    if (isAll) {
+                      setTypeFilter(['all']);
+                    } else {
+                      setTypeFilter(prev => {
+                        const withoutAll = prev.filter(k => k !== 'all');
+                        if (withoutAll.includes(tf.key)) {
+                          const next = withoutAll.filter(k => k !== tf.key);
+                          return next.length === 0 ? ['all'] : next;
+                        }
+                        return [...withoutAll, tf.key];
+                      });
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-150 border ${
+                    selected
+                      ? isAll
+                        ? 'bg-zinc-700/60 text-white border-zinc-600/50 shadow-sm'
+                        : tf.color === 'emerald' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                        : tf.color === 'red' ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                        : tf.color === 'amber' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                        : tf.color === 'violet' ? 'bg-violet-500/15 text-violet-400 border-violet-500/30'
+                        : 'bg-zinc-700/60 text-white border-zinc-600/50'
+                      : 'bg-transparent text-zinc-500 border-zinc-700/30 hover:text-zinc-300 hover:border-zinc-600/50'
+                  }`}
+                >
+                  {tf.label}
+                </button>
+              );
+            })}
           </div>
           {selectionActive && (
             <button
@@ -377,17 +560,28 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
           />
           {hasActiveFilters && (
             <button
-              onClick={() => { setSearch(''); setTypeFilter('all'); setDateStart(''); setDateEnd(''); }}
+              onClick={() => { setSearch(''); setTypeFilter(['all']); setCategoryFilter([]); setDateStart(''); setDateEnd(''); }}
               className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 transition-colors"
             >
               Clear all
             </button>
           )}
         </div>
+        <div className="flex items-center gap-1.5">
+          <ArrowUpDown className="w-3 h-3 text-zinc-600 shrink-0" />
+          <span className="text-[10px] text-zinc-600">Sort:</span>
+          {(['date', 'amount', 'name'] as const).map(s => (
+            <button key={s} onClick={() => { if (sortBy === s) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortBy(s); setSortDir('desc'); } }}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${sortBy === s ? 'bg-zinc-700/60 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
+              {s === 'date' ? 'Date' : s === 'amount' ? 'Amount' : 'Name'}
+              {sortBy === s && <span className="ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>}
+            </button>
+          ))}
+        </div>
       </GlassSurface>
 
       {/* Transaction groups */}
-      {Object.keys(grouped).length === 0 ? (
+      {orderedGroups.length === 0 && historicalTxns.length === 0 ? (
         <EmptyState
           icon={<ArrowUpRight className="w-12 h-12" />}
           title={hasActiveFilters ? 'No matches' : 'No transactions yet'}
@@ -400,7 +594,19 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
         />
       ) : (
         <div className="space-y-5">
-          {Object.entries(grouped).map(([dateStr, group]) => (
+          {orderedGroups.map((entry) => {
+            if (entry.type === 'year') {
+              return (
+                <div key={entry.key} className="flex items-center gap-3 pt-2 pb-1 px-1">
+                  <div className="h-px flex-1 bg-zinc-700/50" />
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{entry.year}</span>
+                  <div className="h-px flex-1 bg-zinc-700/50" />
+                </div>
+              );
+            }
+            const group = entry.group!;
+            const dateStr = group.dateStr;
+              return (
               <div key={dateStr}>
               {/* Date header — clean separator */}
               <div className="flex items-center justify-between mb-3 px-1 group">
@@ -433,6 +639,8 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                     const tc = typeColors[txn.type] || typeColors.expense;
                     const { onPointerDown, onPointerEnter } = drag.getRowHandlers(txn.id)
                     const isFT = txn.on_behalf_of === 1 && txn.type === 'expense';
+                    const isHistorical = txn.is_adjustment === 1;
+                    const isSubscription = txn.description?.startsWith('Subscription:') || txn.note?.startsWith('Subscription:');
                     const ftPerson = isFT ? getFtPerson(txn) : null;
                     const repayment = isFT ? getRepaymentStatus(txn, transactions) : null;
                     return (
@@ -449,7 +657,7 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                         if (closest) return;
                         setDetailTxn(txn)
                       }}
-                      className={`!p-3.5 border-l-2 ${isFT ? 'border-l-amber-400 bg-amber-500/[0.03]' : tc.border} mx-0.5 transition-all duration-150 group relative`}
+                      className={`!p-3.5 border-l-2 ${isFT ? 'border-l-amber-400 bg-amber-500/[0.03]' : isSubscription ? 'border-l-indigo-400 bg-indigo-500/[0.03]' : isHistorical ? 'border-l-violet-400 bg-violet-500/[0.03]' : tc.border} mx-0.5 transition-all duration-150 group relative`}
                     >
                       {/* Checkbox — absolutely positioned so it NEVER pushes content */}
                       <div className="absolute left-2.5 top-1/2 -translate-y-1/2 z-10">
@@ -466,9 +674,13 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
 
                       <div className="flex items-center gap-3 pl-7">
                         {/* Type icon */}
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isFT ? 'bg-amber-500/15' : tc.bg}`}>
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isFT ? 'bg-amber-500/15' : isSubscription ? 'bg-indigo-500/15' : isHistorical ? 'bg-violet-500/15' : tc.bg}`}>
                           {isFT ? (
                             <Handshake className="w-4 h-4 text-amber-400" />
+                          ) : isSubscription ? (
+                            <Bell className="w-4 h-4 text-indigo-400" />
+                          ) : isHistorical ? (
+                            <ArrowUpRight className="w-4 h-4 text-violet-400" />
                           ) : txn.type === 'income' ? (
                             <ArrowUpRight className="w-4 h-4 text-emerald-400" />
                           ) : txn.type === 'expense' ? (
@@ -508,6 +720,16 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                                 {ftPerson ? `for ${ftPerson}` : 'Follow Through'}
                               </span>
                             ) : null}
+                            {isSubscription && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-indigo-500/15 text-indigo-400">
+                                recurring
+                              </span>
+                            )}
+                            {isHistorical && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-violet-500/15 text-violet-400">
+                                historical
+                              </span>
+                            )}
                             {isFT && repayment && (
                               repayment.repaid ? (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-500/15 text-emerald-400 inline-flex items-center gap-0.5">
@@ -527,17 +749,68 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                                 {txn.time}
                               </span>
                             )}
-                            {txn.fee > 0 && (
-                              <span className="text-[10px] text-zinc-500">fee: {fc(txn.fee)}</span>
+                            {(() => {
+                              if (txn.fee > 0) {
+                                let cryptoFee: string | null = null;
+                                if (txn.metadata) {
+                                  try {
+                                    const m = typeof txn.metadata === 'string' ? JSON.parse(txn.metadata) : txn.metadata;
+                                    if (m.fee && (m.coinId || m.coin_id) && m.symbol) {
+                                      const fv = Number(m.fee);
+                                      if (fv > 0) cryptoFee = `fee: ${fv.toFixed(8).replace(/\.?0+$/, '')} ${(m.symbol || '').toUpperCase()}`;
+                                    }
+                                  } catch { /* ignore */ }
+                                }
+                                if (cryptoFee) {
+                                  return <span className="text-[10px] text-red-400/70">{cryptoFee}</span>;
+                                }
+                                return <span className="text-[10px] text-zinc-500">fee: {fc(txn.fee)}</span>;
+                              }
+                              return null;
+                            })()}
+                            {txn.merchant && (
+                              <span className="text-[10px] text-zinc-500">{txn.merchant}</span>
                             )}
                           </div>
                         </div>
 
                         {/* Amount */}
-                        <p className={`text-[13px] font-semibold tabular-nums shrink-0 ${tc.text}`}>
-                          {txn.type === 'income' ? '+' : txn.type === 'expense' ? '-' : ''}
-                          {showNumbers ? fc(Math.abs(txn.amount)) : maskNumber(fc(Math.abs(txn.amount)), maskMode, maskFixedValue)}
-                        </p>
+                        <div className="text-right shrink-0">
+                          {(() => {
+                            let cryptoInfo: { symbol: string; qty: number } | null = null;
+                            if (txn.metadata) {
+                              try {
+                                const m = typeof txn.metadata === 'string' ? JSON.parse(txn.metadata) : txn.metadata;
+                                if ((m.coinId || m.coin_id) && m.qty) {
+                                  cryptoInfo = { symbol: (m.symbol || '').toUpperCase(), qty: Number(m.qty) };
+                                }
+                              } catch { /* ignore */ }
+                            }
+                            if (cryptoInfo) {
+                              const sign = txn.amount < 0 ? '−' : '+';
+                              const m = typeof txn.metadata === 'string' ? JSON.parse(txn.metadata) : txn.metadata;
+                              const fiatVal = (Number(m.qty) || 0) * (Number(m.price) || 0);
+                              return (
+                                <>
+                                  <p className={`text-[13px] font-semibold tabular-nums ${tc.text}`}>
+                                    {sign}{cryptoInfo.qty.toFixed(8).replace(/\.?0+$/, '')} <span className="text-[#8B5CF6]">{cryptoInfo.symbol}</span>
+                                  </p>
+                                  {fiatVal > 0 && (
+                                    <p className="text-[10px] text-zinc-500 tabular-nums">
+                                      ≈ {fc(fiatVal)}
+                                    </p>
+                                  )}
+                                </>
+                              );
+                            }
+                            return (
+                              <p className={`text-[13px] font-semibold tabular-nums ${tc.text}`}>
+                                {txn.type === 'income' ? '+' : txn.type === 'expense' ? '-' : ''}
+                                {showNumbers ? fc(Math.abs(txn.amount)) : maskNumber(fc(Math.abs(txn.amount)), maskMode, maskFixedValue)}
+                              </p>
+                            );
+                          })()}
+                        </div>
 
                         {/* Delete */}
                         <AnimatePresence mode="popLayout">
@@ -552,6 +825,11 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                             >
                               {deletePasswordTarget === txn.id ? (
                                 <div className="flex items-center gap-1.5">
+                                  {txn.type === 'transfer' && txn.transfer_id && (
+                                    <div className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[9px] text-amber-300 whitespace-nowrap">
+                                      This will delete both sides of the transfer
+                                    </div>
+                                  )}
                                   <div className="relative">
                                     <input
                                       type="password"
@@ -585,6 +863,9 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-1">
+                                  {txn.type === 'transfer' && txn.transfer_id && (
+                                    <span className="text-[9px] text-amber-400 whitespace-nowrap">Both sides will be deleted</span>
+                                  )}
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -629,7 +910,113 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                 })}
               </div>
             </div>
-          ))}
+          );
+          })}
+
+          {/* ── Historical Data section (bottom) ── */}
+          {historicalTxns.length > 0 && (
+            <div ref={historicalRef}>
+              <div className="flex items-center gap-3 pt-2 pb-1 px-1">
+                <div className="h-px flex-1 bg-violet-500/30" />
+                <span className="text-[10px] font-bold text-violet-400 uppercase tracking-widest">Historical Data</span>
+                <span className="text-[10px] text-violet-400/60 tabular-nums">{historicalTxns.length}</span>
+                <button onClick={() => setShowReorder(v => !v)}
+                  className="text-[9px] px-2 py-0.5 rounded-full transition-colors shrink-0"
+                  style={{ background: showReorder ? 'rgba(139,92,246,0.2)' : 'transparent', color: showReorder ? '#8B5CF6' : '#71717a' }}>
+                  {showReorder ? 'Done' : 'Reorder'}
+                </button>
+                <div className="h-px flex-1 bg-violet-500/30" />
+              </div>
+              {showReorder ? (
+                <HistoricalReorderPanel transactions={historicalTxns} displayCurrency={displayCurrency} baseCurrency={baseCurrency}
+                  onOrderChanged={() => { setShowReorder(false); onRetry?.(); }} />
+              ) : (
+                <div className="flex flex-col gap-3">
+                {historicalTxns.map(txn => {
+                  const cat = getCategory(txn.category_id);
+                  const acct = getAccount(txn.account_id);
+                  const wallet = getWallet(txn.wallet_id);
+                  const tc = typeColors[txn.type] || typeColors.expense;
+                  const { onPointerDown, onPointerEnter } = drag.getRowHandlers(txn.id);
+                  return (
+                    <GlassSurface
+                      key={txn.id}
+                      interactive
+                      onPointerDown={onPointerDown}
+                      onPointerEnter={onPointerEnter}
+                      onClick={(e: React.MouseEvent) => {
+                        if (drag.wasDragging()) return;
+                        const target = e.target as HTMLElement;
+                        const closest = target.closest('button, input, a, select, textarea');
+                        if (closest) return;
+                        setDetailTxn(txn);
+                      }}
+                      className="!p-3.5 border-l-2 border-l-violet-400 bg-violet-500/[0.03] mx-0.5 transition-all duration-150 group relative"
+                    >
+                      <div className="absolute left-2.5 top-1/2 -translate-y-1/2 z-10">
+                        <TransactionCheckbox
+                          checked={api.isSelected(txn.id)}
+                          onToggle={() => api.toggleOne(txn.id)}
+                          ariaLabel={`Select transaction ${txn.description}`}
+                        />
+                      </div>
+                      <div className="flex items-start gap-6 pl-6">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-[13px] text-zinc-300 truncate">{txn.description || 'Untitled'}</p>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-violet-500/15 text-violet-400">historical</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {cat && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${cat.color}15`, color: cat.color }}>{cat.name}</span>
+                            )}
+                            <span className="text-[10px] text-zinc-600">{acct?.name}</span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {(() => {
+                            let cryptoInfo: { symbol: string; qty: number } | null = null;
+                            if (txn.metadata) {
+                              try {
+                                const m = typeof txn.metadata === 'string' ? JSON.parse(txn.metadata) : txn.metadata;
+                                if ((m.coinId || m.coin_id) && m.qty) {
+                                  cryptoInfo = { symbol: (m.symbol || '').toUpperCase(), qty: Number(m.qty) };
+                                }
+                              } catch { /* ignore */ }
+                            }
+                            if (cryptoInfo) {
+                              const sign = txn.amount < 0 ? '−' : '+';
+                              const m = typeof txn.metadata === 'string' ? JSON.parse(txn.metadata) : txn.metadata;
+                              const fiatVal = (Number(m.qty) || 0) * (Number(m.price) || 0);
+                              return (
+                                <>
+                                  <p className={`text-[13px] font-semibold tabular-nums ${tc.text}`}>
+                                    {sign}{cryptoInfo.qty.toFixed(8).replace(/\.?0+$/, '')} <span className="text-[#8B5CF6]">{cryptoInfo.symbol}</span>
+                                  </p>
+                                  {fiatVal > 0 && (
+                                    <p className="text-[10px] text-zinc-500 tabular-nums">
+                                      ≈ {fc(fiatVal)}
+                                    </p>
+                                  )}
+                                </>
+                              );
+                            }
+                            return (
+                              <p className={`text-[13px] font-semibold tabular-nums ${tc.text}`}>
+                                {txn.type === 'income' ? '+' : txn.type === 'expense' ? '-' : ''}
+                                {showNumbers ? fc(Math.abs(txn.amount)) : maskNumber(fc(Math.abs(txn.amount)), maskMode, maskFixedValue)}
+                              </p>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    </GlassSurface>
+                  );
+                })}
+              </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -668,7 +1055,20 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
         onDelete={onDeleteTransaction}
         onUpdate={onUpdateTransaction}
         onVerifyPassword={onVerifyPassword}
+        ftPersons={ftPersons}
+        onAddFtPerson={onAddFtPerson}
       />
+
+      {/* Floating Jump to Historical button */}
+      {showJumpBtn && historicalTxns.length > 0 && (
+        <button
+          onClick={jumpToHistorical}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500/90 text-white text-xs font-medium shadow-lg shadow-violet-500/20 hover:bg-violet-400 transition-colors backdrop-blur-sm"
+        >
+          <Clock className="w-3.5 h-3.5" />
+          Jump to Historical ({historicalTxns.length})
+        </button>
+      )}
     </div>
   );
 }

@@ -16,9 +16,7 @@ export function CityLighting({
       <pointLight position={[70, 26, 70]} intensity={0.85} distance={190} decay={1.7} color={0x35e6ff} />
       <pointLight position={[-80, 26, -55]} intensity={0.85} distance={190} decay={1.7} color={0x7b2ff7} />
       {useHdr && (
-        hdrFile
-          ? <Environment files={hdrFile} background={false} environmentIntensity={0.7} />
-          : <Environment preset="night" background={false} environmentIntensity={0.55} />
+        <Environment files={hdrFile || '/cyber_assets/hdri/night_sky.hdr'} background={false} environmentIntensity={hdrFile ? 0.7 : 0.55} />
       )}
     </group>
   )

@@ -95,8 +95,21 @@ if (-not $NoDesktop) {
   Write-Host "[config] SYNC_URL = $env:SYNC_URL" -ForegroundColor DarkGray
   Write-Host "[config] RELAY_PORT = $env:RELAY_PORT" -ForegroundColor DarkGray
 
-  # Kill stale Electron instances
-  Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force
+  # Kill ONLY DeskFlow dev Electron instances (filter by project path — never kill other Electron apps)
+  # This uses WMI to check each electron.exe's command line, so only processes launched from
+  # THIS project directory are killed. Other Electron apps (production builds, different projects) are safe.
+  $projectPath = $scriptDir
+  $killed = 0
+  Get-CimInstance Win32_Process -Filter "Name = 'electron.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($_.CommandLine -and $_.CommandLine -like "*$projectPath*") {
+      Write-Host "[desktop] Killing DeskFlow dev instance (PID $($_.ProcessId))..." -ForegroundColor Yellow
+      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+      $killed++
+    }
+  }
+  if ($killed -eq 0) {
+    Write-Host "[desktop] No stale DeskFlow dev instances found" -ForegroundColor DarkGray
+  }
 
   # Clear dev env vars — this is production mode, not vite dev server
   Remove-Item Env:VITE_DEV_SERVER_URL -ErrorAction SilentlyContinue
@@ -152,6 +165,8 @@ if (-not $NoDesktop) {
   }
   # --- END REBUILD LOGIC ---
 
+  # Launch Electron
+  Write-Host "[desktop] Launching Electron..." -ForegroundColor Green
   npx electron .
 } else {
   Write-Host "`n=== Quick Reference ===" -ForegroundColor Cyan

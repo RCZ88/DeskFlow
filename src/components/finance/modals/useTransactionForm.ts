@@ -23,6 +23,9 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
 	const [ftPersonId, setFtPersonId] = useState<number | null>(null)
 	const [ftPersons, setFtPersons] = useState<{ id: number; name: string; email?: string | null; phone?: string | null }[]>([])
 	const [fee, setFee] = useState('')
+	const [merchant, setMerchant] = useState('')
+	const [isAdjustment, setIsAdjustment] = useState(false)
+	const [usePersonBalance, setUsePersonBalance] = useState(false)
 
 	const numericAmount = Number(amount.replace(/[^0-9.]/g, '')) || 0
 	const numericFee = Number(fee.replace(/[^0-9.]/g, '')) || 0
@@ -37,7 +40,7 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
 	}, [categoriesForType, categoryId])
 
 	const reset = useCallback(() => {
-		setAmount(''); setDescription(''); setNote(''); setShowAdvanced(false); setFee(''); setFtPersonId(null)
+		setAmount(''); setDescription(''); setNote(''); setShowAdvanced(false); setFee(''); setMerchant(''); setFtPersonId(null); setIsAdjustment(false)
 	}, [])
 
 	const persistPrefs = useCallback(() => {
@@ -56,21 +59,26 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
     type,
     amount: type === 'expense' ? -numericAmount : numericAmount,
     description: description.trim(),
+    merchant: merchant.trim() || undefined,
     date,
     note: note.trim() || undefined,
     on_behalf_of: onBehalfOf ? 1 : 0,
     on_behalf_of_label: onBehalfOf && ftLabel ? ftLabel : null,
     ft_person_id: onBehalfOf ? ftPersonId : null,
+    use_person_balance: onBehalfOf && usePersonBalance && ftPersonId ? 1 : 0,
     fee: numericFee,
+    is_adjustment: isAdjustment ? 1 : 0,
     ...extra,
-  }), [props.wallet, categoryId, type, numericAmount, description, date, note, onBehalfOf, ftPersonId, ftLabel, numericFee])
+  }), [props.wallet, categoryId, type, numericAmount, description, merchant, date, note, onBehalfOf, ftPersonId, ftLabel, numericFee, isAdjustment])
 
 	return {
 		type, setType, amount, setAmount, numericAmount,
-		description, setDescription, categoryId, setCategoryId,
+		description, setDescription, merchant, setMerchant, categoryId, setCategoryId,
 		date, setDate, note, setNote, showAdvanced, setShowAdvanced,
 		onBehalfOf, setOnBehalfOf, ftPersonId, setFtPersonId, ftPersons, setFtPersons,
 		fee, setFee, numericFee,
+		isAdjustment, setIsAdjustment,
+		usePersonBalance, setUsePersonBalance,
 		categoriesForType, reset, persistPrefs, buildPayload,
 	}
 }

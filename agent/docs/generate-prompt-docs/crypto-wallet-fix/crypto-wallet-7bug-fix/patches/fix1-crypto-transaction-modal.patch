@@ -1,0 +1,22 @@
+--- a/src/components/finance/CryptoTransactionModal.tsx
++++ b/src/components/finance/CryptoTransactionModal.tsx
+@@ -45,7 +45,7 @@
+     <TypeToggle
+       accent={ACCENT}
+       value={f.type}
+       onChange={f.setType}
+-      options={[{ id: 'income', label: 'Buy' }, { id: 'expense', label: 'Sell' }, { id: 'transfer', label: 'Send' }]}
++      options={[{ id: 'expense', label: 'Buy' }, { id: 'income', label: 'Sell' }, { id: 'transfer', label: 'Send' }]}
+     />
+
+@@ -96,8 +96,8 @@
+     const total = qn * pn + fn;
+     const net = total;
+     return !!(await props.onSubmit(f.buildPayload({
+-      amount: f.type === 'income' ? -net : net,
+-      description: f.description.trim() || `${f.type === 'income' ? 'Buy' : 'Sell'} ${qn} ${asset.symbol}`,
++      amount: f.type === 'expense' ? -net : net,
++      description: f.description.trim() || `${f.type === 'expense' ? 'Buy' : 'Sell'} ${qn} ${asset.symbol}`,
+       metadata: { coinId: asset.coinId, symbol: asset.symbol, qty: qn, price: pn, fee: fn, total },
+     })));
+   };

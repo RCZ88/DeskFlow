@@ -157,8 +157,15 @@ export function ConnectorsPanel({ onSetup }: ConnectorsPanelProps) {
   const handleTest = async (id: string) => {
     setTestingId(id);
     try {
-      await window.deskflowAPI!.connectors.test(id);
-    } catch {}
+      const r = await window.deskflowAPI!.connectors.test(id);
+      if (r?.success) {
+        alert(`Connected successfully (${r.latencyMs || '?'}ms)`);
+      } else {
+        alert(`Test failed: ${r?.message || 'Unknown error'}`);
+      }
+    } catch (e: any) {
+      alert(`Test failed: ${e.message || 'Unknown error'}`);
+    }
     setTestingId(null);
   };
 

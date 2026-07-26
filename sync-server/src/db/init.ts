@@ -159,6 +159,54 @@ export async function initDatabase() {
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
+    -- Phone-originated finance data (JSON blob per row)
+    CREATE TABLE IF NOT EXISTS finance (
+      id TEXT NOT NULL,
+      device_id TEXT,
+      value_json TEXT,
+      updated_at INTEGER NOT NULL DEFAULT 0,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      rev INTEGER NOT NULL DEFAULT 1,
+      user_id TEXT NOT NULL,
+      PRIMARY KEY (user_id, id)
+    );
+
+    -- Phone-originated goals data
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT NOT NULL,
+      device_id TEXT,
+      value_json TEXT,
+      updated_at INTEGER NOT NULL DEFAULT 0,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      rev INTEGER NOT NULL DEFAULT 1,
+      user_id TEXT NOT NULL,
+      PRIMARY KEY (user_id, id)
+    );
+
+    -- Phone-originated learning data
+    CREATE TABLE IF NOT EXISTS learning (
+      id TEXT NOT NULL,
+      device_id TEXT,
+      value_json TEXT,
+      updated_at INTEGER NOT NULL DEFAULT 0,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      rev INTEGER NOT NULL DEFAULT 1,
+      user_id TEXT NOT NULL,
+      PRIMARY KEY (user_id, id)
+    );
+
+    -- Phone-originated phone tracking data (foreground/background time)
+    CREATE TABLE IF NOT EXISTS phone_tracking (
+      id TEXT NOT NULL,
+      device_id TEXT,
+      value_json TEXT,
+      updated_at INTEGER NOT NULL DEFAULT 0,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      rev INTEGER NOT NULL DEFAULT 1,
+      user_id TEXT NOT NULL,
+      PRIMARY KEY (user_id, id)
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_terminal_sessions_user ON terminal_sessions(user_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_terminal_messages_user ON terminal_messages(user_id, created_at);
@@ -170,7 +218,39 @@ export async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_phone_telemetry_user ON phone_telemetry(user_id, recorded_at);
     CREATE INDEX IF NOT EXISTS idx_phone_telemetry_device ON phone_telemetry(device_id, recorded_at);
+    CREATE INDEX IF NOT EXISTS idx_finance_user ON finance(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_goals_user ON goals(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_learning_user ON learning(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_phone_tracking_user ON phone_tracking(user_id, updated_at);
   `)
+
+  // Migration: add device_id to existing tables (safe to run repeatedly)
+  const alterTables = [
+    "terminal_sessions",
+    "terminal_messages",
+    "workspace_problems",
+    "workspace_requests",
+  ]
+  for (const table of alterTables) {
+    try {
+      await db.execute({
+        sql: `ALTER TABLE ${table} ADD COLUMN device_id TEXT`,
+        args: [],
+      })
+    } catch {
+      // Column already exists — ignore
+    }
+  }
+
+  // Migration: add password_hash to users (for email/password auth)
+  try {
+    await db.execute({ sql: `ALTER TABLE users ADD COLUMN password_hash TEXT`, args: [] })
+  } catch { /* already exists */ }
+
+  // Migration: add user_id to pairing_codes (so pair endpoint knows which user to join)
+  try {
+    await db.execute({ sql: `ALTER TABLE pairing_codes ADD COLUMN user_id TEXT`, args: [] })
+  } catch { /* already exists */ }
 
   console.log("[db] schema initialized")
 }

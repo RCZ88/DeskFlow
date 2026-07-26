@@ -1,5 +1,5 @@
 import { type FC, useState, useRef, useCallback, useEffect, useImperativeHandle, forwardRef, type KeyboardEvent } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Zap } from 'lucide-react';
 import { sanitizeInput, MAX_INPUT_LENGTH } from '../../services/chatSafety';
 import { VoiceInputButton } from '../VoiceInputButton';
 import type { UseVoiceInput } from '../../hooks/useVoiceInput';
@@ -11,13 +11,14 @@ type Props = {
   voice: UseVoiceInput;
   overrideText?: string | null;
   onOverrideConsumed?: () => void;
+  onOpenCommands?: () => void;
 };
 
 export interface ChatInputHandle {
   appendText: (text: string) => void;
 }
 
-export const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, placeholder, voice, overrideText, onOverrideConsumed }, ref) => {
+export const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, placeholder, voice, overrideText, onOverrideConsumed, onOpenCommands }, ref) => {
   useImperativeHandle(ref, () => ({
     appendText: (t: string) => {
       setText(prev => {
@@ -85,6 +86,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled,
   const circumference = 2 * Math.PI * 7;
   const strokeDashoffset = circumference * (1 - Math.min(progress, 1));
 
+  const isSlashCommand = text.startsWith('/');
+  const slashMatch = isSlashCommand ? text.match(/^\/(\S*)(.*)$/) : null;
+  const slashCommand = slashMatch ? slashMatch[1] : '';
+  const slashArgs = slashMatch ? slashMatch[2] : '';
+
   return (
     <div className="border-t border-zinc-800/60 p-3 bg-zinc-950/60">
       <div className="flex items-end gap-2">
@@ -93,9 +99,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled,
             className="absolute inset-0 text-sm leading-relaxed px-0.5 py-0 pointer-events-none whitespace-pre-wrap break-words"
             aria-hidden="true"
           >
-            <span className="text-zinc-100">{text}</span>
+            {isSlashCommand ? (
+              <>
+                <span className="text-pink-400 font-medium">/{slashCommand}</span>
+                <span className={`text-zinc-100 transition-all duration-500 ${voice.solidifying ? 'voice-solidify' : ''}`}>{slashArgs}</span>
+              </>
+            ) : (
+              <span className={`text-zinc-100 transition-all duration-500 ${voice.solidifying ? 'voice-solidify' : ''}`}>{text}</span>
+            )}
             {voice.state === 'listening' && voice.interim && (
-              <span className="text-zinc-500">{text ? ' ' : ''}{voice.interim}</span>
+              <span className="text-zinc-400/60 animate-pulse">{text ? ' ' : ''}{voice.interim}</span>
             )}
           </div>
           <textarea
@@ -113,6 +126,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled,
           />
         </div>
         <VoiceInputButton voice={voice} disabled={disabled} />
+        {onOpenCommands && (
+          <button
+            onClick={onOpenCommands}
+            disabled={disabled}
+            className="grid place-items-center rounded-lg w-8 h-8 min-w-[44px] min-h-[44px] p-0 text-zinc-400 bg-zinc-900/60 ring-1 ring-zinc-800/60 hover:text-pink-300 hover:ring-pink-500/30 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Manage slash commands"
+          >
+            <Zap className="h-4 w-4" />
+          </button>
+        )}
         <button
           onClick={handleSend}
           disabled={!canSend}

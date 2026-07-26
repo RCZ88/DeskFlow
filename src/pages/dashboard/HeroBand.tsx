@@ -23,7 +23,7 @@ interface HeroBandProps {
   selectedExternalActivity: { id: number; name: string } | null;
   hasRealApp: boolean;
   currentApp: ForegroundData | null;
-  currentWebsite: { title?: string; url?: string; category?: string; domain?: string } | null;
+  currentWebsite: { title?: string; url?: string; category?: string; domain?: string; browserName?: string; profileName?: string; profileId?: string } | null;
   isInBrowser: boolean;
   lastTier: string | null;
   borderColor: string;
@@ -51,7 +51,10 @@ export function HeroBand({
   focusActive = false,
 }: HeroBandProps) {
   return (
-    <div className="flex flex-col w-full">
+    <div className="flex flex-col w-full gap-4">
+      {/* Daily insight — full width, above stopwatch */}
+      <FunFactHero />
+      {/* Stopwatch */}
       <div className="flex w-full">
         <StopwatchTimer
           displayTime={displayTime}
@@ -67,9 +70,6 @@ export function HeroBand({
           lastTier={lastTier}
           borderColor={borderColor}
         />
-      </div>
-      <div className="flex justify-end">
-        <FunFactHero />
       </div>
     </div>
   );

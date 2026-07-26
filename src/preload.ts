@@ -227,6 +227,17 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getDesignCachedData: (key: string) => ipcRenderer.invoke('get-design-cached-data', { key }),
   testDesignLibraryConnection: (serverId: string) => ipcRenderer.invoke('test-design-library-connection', { serverId }),
 
+  // Design Suite
+  designSuiteScrapeCari: (query: string) => ipcRenderer.invoke('design-suite:scrape-cari', { query }),
+  designSuiteScrapeFontsInUse: (mood: string) => ipcRenderer.invoke('design-suite:scrape-fontsinuse', { mood }),
+  designSuiteGetMotionTemplate: (id: string) => ipcRenderer.invoke('design-suite:get-motion-template', { id }),
+  designSuiteListMotionTemplates: () => ipcRenderer.invoke('design-suite:list-motion-templates'),
+  designSuiteInstallComponent: (registryUrl: string, projectPath: string) => ipcRenderer.invoke('design-suite:install-component', { registryUrl, projectPath }),
+  designSuiteSyncTokens: (cssVariables: string, projectPath: string, targetFile: 'globals.css' | 'tailwind.config.js') => ipcRenderer.invoke('design-suite:sync-tokens', { cssVariables, projectPath, targetFile }),
+  designSuiteGenerateColorUrl: (colors: { role: string; hex: string }[]) => ipcRenderer.invoke('design-suite:generate-color-url', { colors }),
+  designSuiteParseColorUrl: (url: string) => ipcRenderer.invoke('design-suite:parse-color-url', { url }),
+  designSuiteGenerateCssVars: (colors: { role: string; hex: string }[]) => ipcRenderer.invoke('design-suite:generate-css-vars', { colors }),
+
   // IDE Detection
   detectIDEs: () => ipcRenderer.invoke('detect-ides'),
   getIDEs: () => ipcRenderer.invoke('get-ides'),
@@ -252,6 +263,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   openProject: (projectId: string, ideId?: string) => ipcRenderer.invoke('open-project', projectId, ideId),
   detectProjectLanguage: (projectPath: string) => ipcRenderer.invoke('detect-project-language', projectPath),
   detectProjectsLanguages: (projectPaths: string[]) => ipcRenderer.invoke('detect-projects-languages', projectPaths),
+  countProjectLines: (projectPath: string, projectId: string, options?: any) => ipcRenderer.invoke('count-project-lines', projectPath, projectId, options),
+  getProjectLineStats: (projectId: string) => ipcRenderer.invoke('get-project-line-stats', projectId),
+  deleteProjectLineStats: (projectId: string) => ipcRenderer.invoke('delete-project-line-stats', projectId),
   scanIdeDefaultProjects: () => ipcRenderer.invoke('scan-ide-default-projects'),
   scanCustomDirectory: (rootDir: string) => ipcRenderer.invoke('scan-custom-directory', rootDir),
   getCustomScanDirs: () => ipcRenderer.invoke('get-custom-scan-dirs'),
@@ -261,7 +275,6 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   detectProjectScripts: (projectPath: string) => ipcRenderer.invoke('detect-project-scripts', projectPath),
   getProjectRunConfig: (projectId: string) => ipcRenderer.invoke('get-project-run-config', projectId),
   saveProjectRunConfig: (projectId: string, config: any) => ipcRenderer.invoke('save-project-run-config', projectId, config),
-  getAllRunConfigs: () => ipcRenderer.invoke('get-all-run-configs'),
   runProject: (projectId: string, config: any) => ipcRenderer.invoke('run-project', projectId, config),
   executeProjectCommand: (terminalId: string, command: string) => ipcRenderer.invoke('execute-project-command', terminalId, command),
   stopProject: (terminalId: string) => ipcRenderer.invoke('stop-project', terminalId),
@@ -279,6 +292,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   syncAIUsage: () => ipcRenderer.invoke('sync-ai-usage'),
   getAISyncStatus: () => ipcRenderer.invoke('get-ai-sync-status'),
   clearAISyncState: () => ipcRenderer.invoke('clear-ai-sync-state'),
+  getAISessionsPaginated: (tool: string, limit?: number, offset?: number) => ipcRenderer.invoke('get-ai-sessions-paginated', tool, limit, offset),
   debugAIAgents: () => ipcRenderer.invoke('debug-ai-agents'),
   onAISyncProgress: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
@@ -303,10 +317,18 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.on('terminal-output', handler);
     return () => ipcRenderer.removeListener('terminal-output', handler);
   },
-  spawnTerminal: (terminalId: string, cwd?: string, agentType?: string) => ipcRenderer.invoke('spawn-terminal', terminalId, cwd, agentType),
+  spawnTerminal: (terminalId: string, cwd?: string, agentType?: string, cols?: number, rows?: number) => ipcRenderer.invoke('spawn-terminal', terminalId, cwd, agentType, cols, rows),
   writeTerminal: (terminalId: string, data: string) => ipcRenderer.invoke('write-terminal', terminalId, data),
   resizeTerminal: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke('resize-terminal', terminalId, cols, rows),
   killTerminal: (terminalId: string) => ipcRenderer.invoke('kill-terminal', terminalId),
+  getResourceStats: () => ipcRenderer.invoke('terminal:get-resource-stats'),
+  getSystemStats: () => ipcRenderer.invoke('terminal:get-system-stats'),
+  onResourceStats: (callback: (stats: Record<string, { pid: number | null; alive: boolean; memMB: number; cpuPct: number; eventLoopLagMs: number; ts: number }>) => void) => {
+    const handler = (_event: any, stats: any) => callback(stats);
+    ipcRenderer.on('terminal:resource-stats', handler);
+    return () => ipcRenderer.removeListener('terminal:resource-stats', handler);
+  },
+
   onTerminalData: (callback: (terminalId: string, data: string) => void) => {
     const handler = (_event: any, terminalId: string, data: string) => callback(terminalId, data);
     ipcRenderer.on('terminal:data', handler);
@@ -318,10 +340,53 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     return () => ipcRenderer.removeListener('terminal:exit', handler);
   },
 
+  // Conductor IPC
+  conductorStart: (opts: any) => ipcRenderer.invoke('conductor:start', opts),
+  conductorPause: (missionId: string) => ipcRenderer.invoke('conductor:pause', missionId),
+  conductorResume: (missionId: string) => ipcRenderer.invoke('conductor:resume', missionId),
+  conductorKill: (missionId: string) => ipcRenderer.invoke('conductor:kill', missionId),
+  conductorSetAutonomy: (missionId: string, level: string) => ipcRenderer.invoke('conductor:set-autonomy', missionId, level),
+  conductorSendDirective: (missionId: string, text: string) => ipcRenderer.invoke('conductor:send-directive', missionId, text),
+  conductorResolveEscalation: (missionId: string, escalationId: string, decision: string, note?: string) => ipcRenderer.invoke('conductor:resolve-escalation', missionId, escalationId, decision, note),
+  conductorPromoteIntegration: (missionId: string) => ipcRenderer.invoke('conductor:promote', missionId),
+  conductorGetSnapshot: (missionId: string) => ipcRenderer.invoke('conductor:get-snapshot', missionId),
+  conductorListMissions: () => ipcRenderer.invoke('conductor:list-missions'),
+  onConductorSnapshot: (callback: (snapshot: any) => void) => {
+    const handler = (_event: any, snapshot: any) => callback(snapshot);
+    ipcRenderer.on('conductor:snapshot', handler);
+    return () => ipcRenderer.removeListener('conductor:snapshot', handler);
+  },
+  onConductorMessage: (callback: (msg: any) => void) => {
+    const handler = (_event: any, msg: any) => callback(msg);
+    ipcRenderer.on('conductor:message', handler);
+    return () => ipcRenderer.removeListener('conductor:message', handler);
+  },
+
+  // New Conductor IPC
+  conductorGetConfig: (configType: string, projectId?: string) => ipcRenderer.invoke('conductor:get-config', configType, projectId),
+  conductorSaveConfig: (configType: string, name: string, value: any, projectId?: string) => ipcRenderer.invoke('conductor:save-config', configType, name, value, projectId),
+  conductorGetMetrics: (missionId: string) => ipcRenderer.invoke('conductor:get-metrics', missionId),
+  conductorGetTemplates: () => ipcRenderer.invoke('conductor:get-templates'),
+  conductorSaveTemplate: (template: any) => ipcRenderer.invoke('conductor:save-template', template),
+  conductorGetProgress: (missionId: string) => ipcRenderer.invoke('conductor:get-progress', missionId),
+  conductorGetBudget: (missionId: string) => ipcRenderer.invoke('conductor:get-budget', missionId),
+  conductorRecoverAgent: (missionId: string, nodeId: string) => ipcRenderer.invoke('conductor:recover-agent', missionId, nodeId),
+  conductorEnforceBoundary: (nodeId: string, filePath: string) => ipcRenderer.invoke('conductor:enforce-boundary', nodeId, filePath),
+  conductorRegisterProvider: (config: any) => ipcRenderer.invoke('conductor:register-provider', config),
+  conductorListProviders: () => ipcRenderer.invoke('conductor:list-providers'),
+  conductorDeleteProvider: (providerId: string) => ipcRenderer.invoke('conductor:delete-provider', providerId),
+  conductorGetMissionHistory: () => ipcRenderer.invoke('conductor:get-mission-history'),
+  conductorEngineerWorkflow: (objective: string, templateId?: string) => ipcRenderer.invoke('conductor:engineer-workflow', objective, templateId),
+  onConductorSpawnTerminal: (callback: (data: { terminalId: string; cwd: string; cols: number; rows: number; agentType?: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('terminal:spawn-for-conductor', handler);
+    return () => ipcRenderer.removeListener('terminal:spawn-for-conductor', handler);
+  },
+
   // Consolidated Terminal API (new format — single arg objects)
   terminalWrite: (terminalId: string, data: string) => ipcRenderer.invoke('terminal:write-old-format', terminalId, data),
   terminalWriteRaw: (terminalId: string, data: string) => ipcRenderer.invoke('terminal:write-raw', terminalId, data),
-  terminalResize: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize-old-format', terminalId, cols, rows),
+  terminalResize: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', terminalId, cols, rows),
   terminalDestroy: (terminalId: string) => ipcRenderer.invoke('terminal:destroy-old-format', terminalId),
   onTerminalReady: (callback: (id: string) => void) => {
     const handler = (_event: any, id: string) => callback(id);
@@ -342,6 +407,28 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   verifyAgent: (agentType: string) => ipcRenderer.invoke('agent:verify', agentType),
   armHandshake: (terminalId: string) => ipcRenderer.invoke('agent:arm-handshake', terminalId),
   agentSend: (terminalId: string, data: string, agentType?: string) => ipcRenderer.invoke('agent:send', terminalId, data, agentType),
+  agentGetPhase: (terminalId: string) => ipcRenderer.invoke('agent:get-phase', terminalId),
+  onTerminalAnomaly: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('terminal:anomaly', handler);
+    return () => ipcRenderer.removeListener('terminal:anomaly', handler);
+  },
+  onCliUpdateAvailable: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('cli:update-available', handler);
+    return () => ipcRenderer.removeListener('cli:update-available', handler);
+  },
+  checkCliUpdates: () => ipcRenderer.invoke('cli:check-updates'),
+  generateAgentConfigs: (opts: any) => ipcRenderer.invoke('config:generate', opts),
+  previewAgentConfigs: (opts: any) => ipcRenderer.invoke('config:preview', opts),
+  detectModels: (agentType?: string) => ipcRenderer.invoke('models:detect', agentType),
+  setSessionModel: (terminalId: string, model: string, agentType?: string) => ipcRenderer.invoke('agent:set-model', terminalId, model, agentType),
+  onModelChanged: (callback: (data: { terminalId: string; model: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('agent:model-changed', handler);
+    return () => ipcRenderer.removeListener('agent:model-changed', handler);
+  },
+
   getAgentPhase: (terminalId: string) => ipcRenderer.invoke('agent:get-phase', terminalId),
   retryAgentLaunch: (terminalId: string, agentType: string) => ipcRenderer.invoke('agent:retry-launch', terminalId, agentType),
   onAgentIdle: (callback: (data: { terminalId: string; seq: number }) => void) => {
@@ -393,7 +480,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getTerminalSessionResumeId: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-resume-id', sessionId),
   getTerminalSessionById: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-by-id', sessionId),
   checkSessionExists: (sessionId: string) => ipcRenderer.invoke('check-session-exists', sessionId),
-  captureOpencodeSessionId: (workspaceDir: string) => ipcRenderer.invoke('capture-opencode-session-id', workspaceDir),
+  captureOpencodeSessionId: (workspaceDir: string, sinceTimestamp?: number) => ipcRenderer.invoke('capture-opencode-session-id', workspaceDir, sinceTimestamp),
+  listOpencodeSessions: (workspaceDir: string) => ipcRenderer.invoke('list-opencode-sessions', workspaceDir),
   terminalWriteDisplay: (terminalId: string, data: string) => ipcRenderer.invoke('terminal:write-display', terminalId, data),
   terminalLog: (...args: any[]) => ipcRenderer.invoke('terminal:log', ...args),
   updateSessionResumeId: (sessionId: string, resumeId: string) => ipcRenderer.invoke('update-session-resume-id', sessionId, resumeId),
@@ -462,13 +550,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // External Sessions
   startExternalSession: (activityId: string) => ipcRenderer.invoke('start-external-session', activityId),
-  startAfkSession: () => ipcRenderer.invoke('start-afk-session'),
-  stopAfkSession: (newActivityId?: string) => ipcRenderer.invoke('stop-afk-session', newActivityId),
-  reclassifyAfkSession: (sessionId: number, newActivityId: number) => ipcRenderer.invoke('reclassify-afk-session', sessionId, newActivityId),
-  debugSaveAfk: (data: { activityId: string; startedAt: string; endedAt: string }) => ipcRenderer.invoke('debug-save-afk', data),
-  batchSaveAfkSegments: (segments: Array<{ activityId: string; startedAt: string; endedAt: string }>) => ipcRenderer.invoke('batch-save-afk-segments', { segments }),
+  createExternalSessionsBatch: (segments: Array<{ activityId: string; startedAt: string; endedAt: string }>) => ipcRenderer.invoke('create-external-sessions-batch', { segments }),
   stopExternalSession: (sessionId: string, endTime?: string, deviceOffToSleepSeconds?: number, wakeUpToAppSeconds?: number) => ipcRenderer.invoke('stop-external-session', sessionId, endTime, deviceOffToSleepSeconds, wakeUpToAppSeconds),
-  updateExternalSession: (sessionId: string, updates: { duration_seconds?: number; started_at?: string; ended_at?: string }) => ipcRenderer.invoke('update-external-session', sessionId, updates),
+  updateExternalSession: (sessionId: string, updates: { duration_seconds?: number; started_at?: string; ended_at?: string; activity_id?: number }) => ipcRenderer.invoke('update-external-session', sessionId, updates),
   deleteExternalSession: (sessionId: string) => ipcRenderer.invoke('delete-external-session', sessionId),
    getExternalSessions: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-external-sessions', period),
    getActivityStats: (activityId: string) => ipcRenderer.invoke('get-activity-stats', activityId),
@@ -481,6 +565,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   checkSleepDetection: () => ipcRenderer.invoke('check-sleep-detection'),
   confirmSleep: (sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds: number; wake_up_to_app_seconds: number }) => ipcRenderer.invoke('confirm-sleep', sleepData),
   dismissSleepDetection: () => ipcRenderer.invoke('dismiss-sleep-detection'),
+  saveAfkQueue: (queue: any[]) => ipcRenderer.invoke('save-afk-queue', queue),
+  loadAfkQueue: () => ipcRenderer.invoke('load-afk-queue'),
+  clearAfkQueue: () => ipcRenderer.invoke('clear-afk-queue'),
   addExternalTime: (activityId: string, durationMinutes: number, started_at?: string, ended_at?: string) => ipcRenderer.invoke('add-external-time', { activityId, durationMinutes, started_at, ended_at }),
    getExternalStats: (period: 'today' | 'week' | 'month' | 'all') => ipcRenderer.invoke('get-external-stats', period),
    getSleepDebug: (period: string = 'week', dateOffset = 0) => ipcRenderer.invoke('get-sleep-debug', period, dateOffset),
@@ -755,6 +842,18 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   saveAiProviders: (state: any) => ipcRenderer.invoke('save-ai-providers', state),
   testAiProvider: (providerId: string) => ipcRenderer.invoke('test-ai-provider', providerId),
 
+  // AI Chat persistence (AiPage)
+  aiChatLoad: (threadDate: string) => ipcRenderer.invoke('ai-chat:load', threadDate),
+  aiChatSave: (data: { threadDate: string; messages: Array<{ role: string; content: string; parsed_json?: string; timestamp?: number }> }) => ipcRenderer.invoke('ai-chat:save', data),
+  aiChatReset: (threadDate: string) => ipcRenderer.invoke('ai-chat:reset', threadDate),
+  aiChatListThreads: () => ipcRenderer.invoke('ai-chat:list-threads'),
+  aiChatRenameThread: (threadDate: string, title: string) => ipcRenderer.invoke('ai-chat:rename', threadDate, title),
+  aiChatGetMemories: (threadDate: string) => ipcRenderer.invoke('ai-chat:get-memories', threadDate),
+  aiChatExtractMemories: (data: { threadDate: string; messages: Array<{ content: string; parsed?: any }> }) =>
+    ipcRenderer.invoke('ai-chat:extract-memories', data),
+  aiChatSend: (data: { threadDate: string; message: string; providerId?: string }) =>
+    ipcRenderer.invoke('ai-chat:send', data),
+
   // Streaming provider chat (AiChat)
   providerChatCall: (data: { provider: any; messages: Array<{ role: string; content: string }>; model?: string; maxTokens?: number; temperature?: number }) =>
     ipcRenderer.invoke('provider-chat-call', data),
@@ -774,6 +873,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   saveGoal: (date: string, goal: any) => ipcRenderer.invoke('save-goal', date, goal),
   deleteGoal: (goalId: string) => ipcRenderer.invoke('delete-goal', goalId),
   saveGoalReview: (date: string, reviewSummary: string) => ipcRenderer.invoke('save-goal-review', date, reviewSummary),
+  getGoalReview: (date: string) => ipcRenderer.invoke('get-goal-review', date),
+  saveGoalSuggestion: (data: { title: string; category: string; date: string; source: string; reason?: string }) =>
+    ipcRenderer.invoke('save-goal-suggestion', data),
   getGoalContext: () => ipcRenderer.invoke('get-goal-context'),
   parseGoalFeedback: (data: { message: string; goals: string[] }) => ipcRenderer.invoke('parse-goal-feedback', data),
   parseGoalDump: (text: string) => ipcRenderer.invoke('parse-goal-dump', text),
@@ -786,6 +888,30 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   saveGoalsBatch: (goals: any[]) => ipcRenderer.invoke('save-goals-batch', goals),
   linkGoalToEntity: (goalId: string, link: { type: 'problem' | 'request'; id: string; label?: string }) => ipcRenderer.invoke('link-goal-to-entity', goalId, link),
   unlinkGoalFromEntity: (goalId: string, type: 'problem' | 'request', entityId: string) => ipcRenderer.invoke('unlink-goal-from-entity', goalId, type, entityId),
+
+  // ========== Daily Goal Progress & Timeline ==========
+  getDailyGoalProgress: (date: string, goals: any[]) => ipcRenderer.invoke('get-daily-goal-progress', date, goals),
+  getGoalTimeline: (date: string) => ipcRenderer.invoke('get-goal-timeline', date),
+
+  // ========== Goal Reminders ==========
+  getReminders: () => ipcRenderer.invoke('get-reminders'),
+  createReminder: (data: { text: string; due_date?: string; goal_id?: string }) => ipcRenderer.invoke('create-reminder', data),
+  toggleReminder: (id: string, done: boolean) => ipcRenderer.invoke('toggle-reminder', id, done),
+  deleteReminder: (id: string) => ipcRenderer.invoke('delete-reminder', id),
+
+  // ========== Schedule & Planning ==========
+  getSchedule: () => ipcRenderer.invoke('get-schedule'),
+  addScheduleEntry: (entry: any) => ipcRenderer.invoke('add-schedule-entry', entry),
+  deleteScheduleEntry: (id: string) => ipcRenderer.invoke('delete-schedule-entry', id),
+  updateScheduleEntry: (id: string, patch: any) => ipcRenderer.invoke('update-schedule-entry', id, patch),
+  getDeadlines: (opts?: { days?: number; course?: string }) => ipcRenderer.invoke('get-deadlines', opts),
+  addDeadline: (dl: any) => ipcRenderer.invoke('add-deadline', dl),
+  updateDeadlineStatus: (id: string, status: string) => ipcRenderer.invoke('update-deadline-status', id, status),
+  deleteDeadline: (id: string) => ipcRenderer.invoke('delete-deadline', id),
+  snoozeDeadline: (id: string, minutes: number) => ipcRenderer.invoke('snooze-deadline', id, minutes),
+  getScheduleTemplates: () => ipcRenderer.invoke('get-schedule-templates'),
+  applyScheduleTemplate: (templateId: string) => ipcRenderer.invoke('apply-schedule-template', templateId),
+  saveScheduleTemplate: (data: { name: string; entries: any[] }) => ipcRenderer.invoke('save-schedule-template', data),
 
   // Checklist CRUD (AI Assistant)
   addProblemCheck: (data: { problemId: string; description: string; instruction?: string }) => ipcRenderer.invoke('add-problem-check', data),
@@ -805,8 +931,13 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     remove: (id: string) => ipcRenderer.invoke('connectors:remove', id),
     test: (id: string) => ipcRenderer.invoke('connectors:test', id),
     sync: (id: string) => ipcRenderer.invoke('connectors:sync', id),
-    items: (id: string, opts?: { type?: string; limit?: number }) => ipcRenderer.invoke('connectors:items', id, opts),
+    items: (id: string, opts?: { type?: string; limit?: number; offset?: number; search?: string; unreadOnly?: boolean }) => ipcRenderer.invoke('connectors:items', id, opts),
     status: (id: string) => ipcRenderer.invoke('connectors:status', id),
+    sendEmail: (data: { connectorId: string; to: string; subject: string; body: string; inReplyTo?: string }) => ipcRenderer.invoke('connectors:send-email', data),
+    createEvent: (data: { connectorId: string; title: string; startTime: string; endTime?: string; description?: string }) => ipcRenderer.invoke('connectors:create-event', data),
+    updateEvent: (data: { connectorId: string; eventId: string; changes: any }) => ipcRenderer.invoke('connectors:update-event', data),
+    deleteEvent: (data: { connectorId: string; eventId: string }) => ipcRenderer.invoke('connectors:delete-event', data),
+    markRead: (data: { connectorId: string; emailId: string; read: boolean }) => ipcRenderer.invoke('connectors:mark-read', data),
   },
 
   // Feature Specs
@@ -823,10 +954,16 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeCreateWallet: (data: any) => ipcRenderer.invoke('finance:create-wallet', data),
   financeUpdateWallet: (data: any) => ipcRenderer.invoke('finance:update-wallet', data),
   financeAdjustBalance: (id: number, newBalance: number) => ipcRenderer.invoke('finance:adjust-balance', { id, newBalance }),
+  financeUpdateInitialBalance: (id: number, initialBalance: number, password: string) => ipcRenderer.invoke('finance:update-initial-balance', { id, initialBalance, password }),
   financeGetWallet: (id: number) => ipcRenderer.invoke('finance:get-wallet', id),
   financeUpdateWalletMetadata: (payload: { id: number; metadata: Record<string, any> }) => ipcRenderer.invoke('finance:update-wallet-metadata', payload),
   financeFetchCryptoPrices: (coinIds: string[], currency?: string) => ipcRenderer.invoke('finance:fetch-crypto-prices', coinIds, currency || 'usd'),
   financeGetCryptoHistory: (coinId: string, days?: number, currency?: string) => ipcRenderer.invoke('finance:get-crypto-history', coinId, days, currency || 'usd'),
+  financeGetCryptoAssetHistory: (walletId: number, coinId: string) => ipcRenderer.invoke('finance:get-crypto-asset-history', walletId, coinId),
+  financeGetAllCoins: () => ipcRenderer.invoke('finance:get-all-coins'),
+  financeSearchAssets: (searchTerm: string, assetTypes?: string[]) => ipcRenderer.invoke('finance:search-assets', searchTerm, assetTypes),
+  financeFetchAssetPrices: (coinIds: string[], assetType?: string, currency?: string) => ipcRenderer.invoke('finance:fetch-asset-prices', coinIds, assetType || 'crypto', currency || 'usd'),
+  financeGetAssetHistory: (coinId: string, assetType?: string, days?: number, currency?: string) => ipcRenderer.invoke('finance:get-asset-history', coinId, assetType || 'crypto', days || 30, currency || 'usd'),
 
   financeGetCategories: () => ipcRenderer.invoke('finance:get-categories'),
   financeCreateCategory: (data: any) => ipcRenderer.invoke('finance:create-category', data),
@@ -834,8 +971,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   financeGetTransactions: (filters?: any) => ipcRenderer.invoke('finance:get-transactions', filters),
   financeCreateTransaction: (data: any) => ipcRenderer.invoke('finance:create-transaction', data),
+  financeCreateAdjustment: (data: any) => ipcRenderer.invoke('finance:create-adjustment', data),
   financeCreateTransfer: (data: any) => ipcRenderer.invoke('finance:create-transfer', data),
-  financeUpdateTransaction: (data: any) => ipcRenderer.invoke('finance:update-transaction', data),
+  financeUpdateTransaction: (idOrData: any, maybeData?: any) => ipcRenderer.invoke('finance:update-transaction', typeof idOrData === 'object' ? idOrData : { ...maybeData, id: idOrData }),
   financeDeleteTransaction: (id: number) => ipcRenderer.invoke('finance:delete-transaction', id),
   financeBatchUpdateCategory: (ids: number[], categoryId: number) =>
     ipcRenderer.invoke('finance:batch-update-category', { ids, categoryId }),
@@ -855,6 +993,10 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeSetRememberDevice: (remember: boolean, days: number) => ipcRenderer.invoke('finance:set-remember-device', remember, days),
   financeSetLockTimeout: (timeoutMs: number) => ipcRenderer.invoke('finance:set-lock-timeout', timeoutMs),
   financeGetSecuritySettings: () => ipcRenderer.invoke('finance:get-security-settings'),
+  financeGetAutoSave: () => ipcRenderer.invoke('finance:get-auto-save'),
+  financeSetAutoSave: (enabled: boolean) => ipcRenderer.invoke('finance:set-auto-save', enabled),
+  financeGetAutoRecalc: () => ipcRenderer.invoke('finance:get-auto-recalc'),
+  financeSetAutoRecalc: (enabled: boolean) => ipcRenderer.invoke('finance:set-auto-recalc', enabled),
   financeCheckPageAccess: () => ipcRenderer.invoke('finance:check-page-access'),
   financeBiometricUnlock: () => ipcRenderer.invoke('finance:biometric-unlock'),
   financeGetWebAuthnCredential: () => ipcRenderer.invoke('finance:get-webauthn-credential'),
@@ -872,38 +1014,54 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeGetPasswordRequirements: () => ipcRenderer.invoke('finance:get-password-requirements'),
   financeSetPasswordRequirement: (key: string, value: boolean) => ipcRenderer.invoke('finance:set-password-requirement', key, value),
 
-  // ─── FT Person Bridges ───
-  financeGetFtPersons: () => ipcRenderer.invoke('finance:get-ft-persons'),
-  financeGetFtPersonBalances: () => ipcRenderer.invoke('finance:get-ft-person-balances'),
-  financeCreateFtPerson: (data: { name: string; email?: string; phone?: string; notes?: string }) =>
-    ipcRenderer.invoke('finance:create-ft-person', data),
-  financeUpdateFtPerson: (data: { id: number; name?: string; email?: string; phone?: string; notes?: string }) =>
-    ipcRenderer.invoke('finance:update-ft-person', data),
-  financeDeleteFtPerson: (id: number) => ipcRenderer.invoke('finance:delete-ft-person', id),
-  financeRecordFtRepayment: (data: {
-    originalTxId: number; personId?: number; amount: number; date: string;
-    walletId?: number; accountId?: number; description?: string; isOverpayment?: boolean;
-  }) => ipcRenderer.invoke('finance:record-ft-repayment', data),
-
-  financeGetOnBehalfOfSummary: () => ipcRenderer.invoke('finance:get-on-behalf-of-summary'),
-  financeGetDashboardOverview: (currency) => ipcRenderer.invoke('finance:get-dashboard-overview', currency),
-  financeRecalculateBalances: (walletId, dryRun) => ipcRenderer.invoke('finance:recalculate-balances', walletId, dryRun),
-  financeApplyRecalculatedBalance: (walletId) => ipcRenderer.invoke('finance:apply-recalculated-balance', walletId),
-  financeRecalculateAllBalances: () => ipcRenderer.invoke('finance:recalculate-all-balances'),
-  // ========== Audit Log ==========
-  auditList: (params) => ipcRenderer.invoke('audit:list', params || {}),
-  auditGet: (id) => ipcRenderer.invoke('audit:get', id),
-  // ========== Subscriptions ==========
-  subscriptionsList: (walletId) => ipcRenderer.invoke('subscriptions:list', walletId),
-  subscriptionsCreate: (data) => ipcRenderer.invoke('subscriptions:create', data),
-  subscriptionsUpdate: (data) => ipcRenderer.invoke('subscriptions:update', data),
-  subscriptionsDelete: (id) => ipcRenderer.invoke('subscriptions:delete', id),
-  subscriptionsGetUpcomingRenewals: (days) => ipcRenderer.invoke('subscriptions:get-upcoming-renewals', days),
+  subscriptionsList: (walletId?: number) => ipcRenderer.invoke('subscriptions:list', walletId),
+  subscriptionsCreate: (data: any) => ipcRenderer.invoke('subscriptions:create', data),
+  subscriptionsUpdate: (data: any) => ipcRenderer.invoke('subscriptions:update', data),
+  subscriptionsDelete: (id: number) => ipcRenderer.invoke('subscriptions:delete', id),
+  subscriptionsGetUpcomingRenewals: (days?: number) => ipcRenderer.invoke('subscriptions:get-upcoming-renewals', days),
   subscriptionsGenerateDueTransactions: () => ipcRenderer.invoke('subscriptions:generate-due-transactions'),
-  subscriptionsSkipRenewal: (id) => ipcRenderer.invoke('subscriptions:skip-renewal', id),
-  subscriptionsCheckRenewals: () => ipcRenderer.invoke('subscriptions:check-renewals'),
-  subscriptionsGenerateTransaction: (id) => ipcRenderer.invoke('subscriptions:generate-transaction', id),
-  getHomeSummary: () => ipcRenderer.invoke('get-home-summary'),
+  subscriptionsSkipRenewal: (id: number) => ipcRenderer.invoke('subscriptions:skip-renewal', id),
+  subscriptionsMoveTransaction: (data: { subscriptionId: number; newWalletId: number }) => ipcRenderer.invoke('subscriptions:move-transaction', data),
+  subscriptionsRetryPayment: (data: { subscriptionId: number; walletId?: number; date?: string }) => ipcRenderer.invoke('subscriptions:retry-payment', data),
+  subscriptionsToggleAutodebet: (id: number) => ipcRenderer.invoke('subscriptions:toggle-autodebet', id),
+  subscriptionsRecordPayment: (data: { subscriptionId: number; walletId?: number; amount?: number; date?: string }) => ipcRenderer.invoke('subscriptions:record-payment', data),
+  subscriptionsGetPaymentHistory: (subscriptionId: number) => ipcRenderer.invoke('subscriptions:get-payment-history', subscriptionId),
+  subscriptionsCancelPayment: (data: { subscriptionId: number; transactionId: number; reason?: string }) => ipcRenderer.invoke('subscriptions:cancel-payment', data),
+
+  financeGetPersonBalances: (walletId: number) => ipcRenderer.invoke('finance:get-person-balances', walletId),
+  financeAttributeTransaction: (data: { txnId: number; personName: string; walletId: number }) => ipcRenderer.invoke('finance:attribute-transaction', data),
+  financeUnattributeTransaction: (data: { txnId: number; personName: string; walletId: number }) => ipcRenderer.invoke('finance:unattribute-transaction', data),
+  financeGetPersonsInWallet: (walletId: number) => ipcRenderer.invoke('finance:get-persons-in-wallet', walletId),
+
+  financeRecalculateBalances: (walletId?: number, preview?: boolean) => ipcRenderer.invoke('finance:recalculate-balances', walletId, preview),
+  financeApplyRecalculatedBalance: (walletId: number) => ipcRenderer.invoke('finance:apply-recalculated-balance', walletId),
+  financeUpdateTransactionSortOrder: (updates: { id: number; sort_order: number }[]) => ipcRenderer.invoke('finance:update-transaction-sort-order', updates),
+  financeFixHistoricalDates: () => ipcRenderer.invoke('finance:fix-historical-dates'),
+  financeGetOnBehalfOfSummary: () => ipcRenderer.invoke('finance:get-on-behalf-of-summary'),
+  financeGetFtPersons: () => ipcRenderer.invoke('finance:get-ft-persons'),
+  financeCreateFtPerson: (data: { name: string }) => ipcRenderer.invoke('finance:create-ft-person', data),
+  financeFtPersonTopup: (data: { personId: number; walletId: number; amount: number; description?: string; date?: string }) => ipcRenderer.invoke('finance:ft-person-topup', data),
+  financeFtPersonDeduct: (data: { personId: number; amount: number; description?: string }) => ipcRenderer.invoke('finance:ft-person-deduct', data),
+  financeFtPersonSetWallet: (data: { personId: number; walletId: number | null }) => ipcRenderer.invoke('finance:ft-person-set-wallet', data),
+  financeFtPersonEdit: (data: { personId: number; name?: string; email?: string; phone?: string; notes?: string }) => ipcRenderer.invoke('finance:ft-person-edit', data),
+  financeFtPersonDelete: (data: { personId: number }) => ipcRenderer.invoke('finance:ft-person-delete', data),
+  financeFtPersonSyncBalances: () => ipcRenderer.invoke('finance:ft-person-sync-balances'),
+  financeRecordFtRepayment: (data: { originalTxId: number; personId?: number; amount: number; date: string; walletId?: number; accountId?: number; description?: string; isOverpayment?: boolean }) => ipcRenderer.invoke('finance:ft-person-record-repayment', data),
+  financeUpdateWalletFees: (data: { id: number; transfer_fee_type: string; transfer_fee_value: number }) => ipcRenderer.invoke('finance:update-wallet-fees', data),
+
+  // ========== Finance Dashboard Enhancements ==========
+  financeGetCryptoUnifiedPortfolio: (walletId: number) => ipcRenderer.invoke('finance:get-crypto-unified-portfolio', walletId),
+  financeGetLiquidityBreakdown: () => ipcRenderer.invoke('finance:get-liquidity-breakdown'),
+  financeGetSubscriptionIntelligence: () => ipcRenderer.invoke('finance:get-subscription-intelligence'),
+  financeGetCashflowRunway: () => ipcRenderer.invoke('finance:get-cashflow-runway'),
+  financeGetWalletHealth: () => ipcRenderer.invoke('finance:get-wallet-health'),
+  financeGetTransferCostMatrix: () => ipcRenderer.invoke('finance:get-transfer-cost-matrix'),
+
+  // ========== Audit Log ==========
+  auditList: (opts?: { limit?: number; offset?: number; entity_type?: string; entity_id?: number }) => ipcRenderer.invoke('audit:list', opts || {}),
+  auditGet: (id: number) => ipcRenderer.invoke('audit:get', id),
+  auditGetForEntity: (entityType: string, entityId: number, limit?: number) => ipcRenderer.invoke('audit:get-for-entity', entityType, entityId, limit),
+
   // ========== Vision / Critique ==========
   vision: {
     health: () => ipcRenderer.invoke('vision:health'),
@@ -928,9 +1086,10 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   },
 
   // ========== Lyceum Learn Module ==========
-  learnImportLdoc: ({ json }: { json: unknown }) => ipcRenderer.invoke('learn:importLdoc', { json }),
-  learnValidate: ({ json }: { json: unknown }) => ipcRenderer.invoke('learn:validate', { json }),
+  learnImportLdoc: (payload: { source?: string; json?: unknown }) => ipcRenderer.invoke('learn:importLdoc', payload),
+  learnValidate: (payload: { source?: string; json?: unknown }) => ipcRenderer.invoke('learn:validate', payload),
   learnListLessons: (params?: { part?: number }) => ipcRenderer.invoke('learn:listLessons', params || {}),
+  learnListChapters: (params?: { part?: number }) => ipcRenderer.invoke('learn:listChapters', params || {}),
   learnGetLesson: ({ lessonId }: { lessonId: string }) => ipcRenderer.invoke('learn:getLesson', { lessonId }),
   learnGetNode: ({ nodeId }: { nodeId: string }) => ipcRenderer.invoke('learn:getNode', { nodeId }),
   learnGetGraph: (params?: { part?: number }) => ipcRenderer.invoke('learn:getGraph', params || {}),
@@ -946,13 +1105,100 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.invoke('learn:buildPrompt', params),
   learnGenerateLdoc: (params: { prompt: string; systemPrompt: string }) =>
     ipcRenderer.invoke('learn:generateLdoc', params),
+  learnListRecipes: () => ipcRenderer.invoke('learn:listRecipes'),
+  learnBuildPromptFromRecipe: (params: { recipeSlug: string; topic?: string; userInput?: string }) =>
+    ipcRenderer.invoke('learn:buildPromptFromRecipe', params),
+
+  // ========== Tutor V2 Streaming ==========
+  learnTutorStream: (params: { nodeId: string; blockId: string; question: string; convId?: string; mode?: 'explain' | 'ask' | 'simpler' | 'deeper' }) =>
+    ipcRenderer.invoke('learn:tutorStream', params),
+  onTutorToken: (callback: (data: { blockId: string; token: string; done: boolean }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('learn:tutorToken', handler);
+    return () => ipcRenderer.removeListener('learn:tutorToken', handler);
+  },
+
+  // ========== Tutor Config ==========
+  learnGetTutorConfig: () => ipcRenderer.invoke('learn:getTutorConfig'),
+  learnTutorAskV2: (params: { nodeId: string; blockId?: string; question: string }) =>
+    ipcRenderer.invoke('learn:tutorAskV2', params),
+
+  // ========== Permissions ==========
+  learnGetPermissions: () => ipcRenderer.invoke('learn:getPermissions'),
+  learnSetPermission: (perm: { resource: string; grant: string; rationale?: string }) =>
+    ipcRenderer.invoke('learn:setPermission', perm),
+
+  // ========== Notes ==========
+  learnAddNote: (params: { nodeId: string; text: string; tags?: string[]; blockRef?: string }) =>
+    ipcRenderer.invoke('learn:addNote', params),
+  learnGetNotes: (params: { nodeId: string }) =>
+    ipcRenderer.invoke('learn:getNotes', params),
+  learnGetAllNotes: (params?: { limit?: number }) =>
+    ipcRenderer.invoke('learn:getAllNotes', params || {}),
+  learnDeleteNote: (params: { noteId: string }) =>
+    ipcRenderer.invoke('learn:deleteNote', params),
+  learnToggleNotePin: (params: { noteId: string; pinned: boolean }) =>
+    ipcRenderer.invoke('learn:toggleNotePin', params),
+
+  // ========== Tutor V2 Extras ==========
+  learnCreateProposal: (params: { nodeId: string; blockId: string; title: string; bodyMd: string; actions: string[] }) =>
+    ipcRenderer.invoke('learn:createProposal', params),
+  learnDecideProposal: (params: { proposal_id: string; approved: boolean; reason?: string }) =>
+    ipcRenderer.invoke('learn:decideProposal', params),
+
+  // ========== Conversations ==========
+  learnStartConversation: (params: { id: string; nodeId: string; blockId: string }) =>
+    ipcRenderer.invoke('learn:startConversation', params),
+  learnAddMessage: (params: { nodeId: string; blockId?: string; role: string; text: string }) =>
+    ipcRenderer.invoke('learn:addMessage', params),
+  learnGetConversation: (params: { blockId: string }) =>
+    ipcRenderer.invoke('learn:getConversation', params),
+  learnResolveConversation: (params: { convId: string }) =>
+    ipcRenderer.invoke('learn:resolveConversation', params),
+
+  // ========== Dashboard ==========
+  learnGetTutorDashboard: () => ipcRenderer.invoke('learn:getTutorDashboard'),
+
+  // ========== Learner Profile ==========
+  learnGetProfile: ({ key }: { key: string }) => ipcRenderer.invoke('learn:getProfile', { key }),
+  learnSetProfile: ({ key, value }: { key: string; value: string }) => ipcRenderer.invoke('learn:setProfile', { key, value }),
+  learnDeleteProfile: ({ key }: { key: string }) => ipcRenderer.invoke('learn:deleteProfile', { key }),
+  learnGetAllProfile: () => ipcRenderer.invoke('learn:getAllProfile'),
+
+  // ========== Flashcard & Visualization ==========
+  learnGetDueCards: (args: { deckId?: string; limit?: number }) => ipcRenderer.invoke('learn:getDueCards', args),
+  learnSubmitCardReview: (args: { cardId: string; rating: number }) => ipcRenderer.invoke('learn:submitCardReview', args),
+  learnGenerateCards: (args: { deckId: string; nodeContent: string }) => ipcRenderer.invoke('learn:generateCards', args),
+  learnGetDeckStats: (args: { deckId: string }) => ipcRenderer.invoke('learn:getDeckStats', args),
+  learnGetStudyHeatmap: (args: { days: number }) => ipcRenderer.invoke('learn:getStudyHeatmap', args),
+  learnSaveVizState: (args: { vizType: string; vizId: string; state: any }) => ipcRenderer.invoke('learn:saveVizState', args),
+  learnGetLessonSystemPrompt: () => ipcRenderer.invoke('learn:getLessonSystemPrompt'),
+
+  // ========== Image Generation Settings ==========
+  learnGetImageGenSettings: () => ipcRenderer.invoke('learn:getImageGenSettings'),
+  learnSetImageGenSettings: (args: { enabled?: boolean; model?: string; style?: string }) => ipcRenderer.invoke('learn:setImageGenSettings', args),
+
+  // ========== Image Generation ==========
+  learnGenerateIllustration: (args: { prompt: string; nodeId?: string; lessonId?: string }) => ipcRenderer.invoke('learn:generateIllustration', args),
+  learnExplainWithImage: (args: { selectedText: string; contextText: string; nodeId?: string }) => ipcRenderer.invoke('learn:explainWithImage', args),
+
+  // ========== Learning Intents ==========
+  learnSaveIntent: (args: { title: string; description?: string; context?: string; category?: string }) => ipcRenderer.invoke('learn:saveIntent', args),
+  learnListIntents: () => ipcRenderer.invoke('learn:listIntents'),
+  learnDeleteIntent: (args: { id: string }) => ipcRenderer.invoke('learn:deleteIntent', args),
+  learnUpdateIntent: (args: { id: string; status?: string; title?: string }) => ipcRenderer.invoke('learn:updateIntent', args),
+
+  // ========== Lesson Management ==========
+  learnGetLessonSource: (args: { lessonId: string }) => ipcRenderer.invoke('learn:getLessonSource', args),
+  learnUpdateLessonMeta: (args: { lessonId: string; title?: string; part?: number; summary?: string; chapter?: string }) => ipcRenderer.invoke('learn:updateLessonMeta', args),
+  learnDeleteLesson: (args: { lessonId: string }) => ipcRenderer.invoke('learn:deleteLesson', args),
 
   // ========== Smart Gap Fill ==========
   getKnownApps: () => ipcRenderer.invoke('get-known-apps'),
   predictGapFill: (start: string, end: string, mode?: 'combined' | 'separate') =>
     ipcRenderer.invoke('predict-gap-fill', { start, end, mode: mode || 'combined' }),
-  confirmGapFill: (fills: Array<{ slotStart: string; slotEnd: string; app: string; category: string }>) =>
-    ipcRenderer.invoke('confirm-gap-fill', fills),
+   confirmGapFill: (fills: Array<{ slotStart: string; slotEnd: string; app: string; category: string; activityId?: string }>) =>
+     ipcRenderer.invoke('confirm-gap-fill', fills),
   predictDayGaps: (date: string, mode?: 'combined' | 'separate') =>
     ipcRenderer.invoke('predict-day-gaps', { date, mode: mode || 'combined' }),
 
@@ -973,83 +1219,97 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   },
   workspaceAllowClose: () => ipcRenderer.send('workspace-allow-close'),
 
-  // ========== Feature #1: Resource Stats ==========
-  getResourceStats: () => ipcRenderer.invoke('terminal:get-resource-stats'),
-  onResourceStats: (callback: (stats: Record<string, any>) => void) => {
-    const handler = (_event: any, terminalId: string, stats: any) => {
-      callback({ [terminalId]: stats });
-    };
-    ipcRenderer.on('terminal:resource-stats', handler);
-    return () => { ipcRenderer.removeListener('terminal:resource-stats', handler); };
-  },
-
-  // ========== Feature #2: Model Switcher ==========
-  detectModels: (agentType?: string) => ipcRenderer.invoke('models:detect', agentType),
-  setSessionModel: (terminalId: string, model: string, agentType?: string) => ipcRenderer.invoke('agent:set-model', terminalId, model, agentType),
-  onModelChanged: (callback: (data: { terminalId: string; model: string }) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
-    ipcRenderer.on('agent:model-changed', handler);
-    return () => { ipcRenderer.removeListener('agent:model-changed', handler); };
-  },
-
-  // ========== Feature #3: CLI Anomaly + Update ==========
-  onTerminalAnomaly: (callback: (data: { terminalId: string; kind: string; type: string; severity: string; detail: string; ts: number }) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
-    ipcRenderer.on('terminal:anomaly', handler);
-    return () => { ipcRenderer.removeListener('terminal:anomaly', handler); };
-  },
-  onCliUpdateAvailable: (callback: (list: Array<{ agent: string; current: string; latest: string; pkg: string }>) => void) => {
-    const handler = (_event: any, list: any) => callback(list);
-    ipcRenderer.on('cli:update-available', handler);
-    return () => { ipcRenderer.removeListener('cli:update-available', handler); };
-  },
-  checkCliUpdates: () => ipcRenderer.invoke('cli:check-updates'),
-
-  // ========== Feature #4: Config Generator ==========
-  generateAgentConfigs: (opts: { agent: string; scope: string; baseDir?: string; customDir?: string; overwrite?: boolean }) =>
-    ipcRenderer.invoke('config:generate', opts),
-  previewAgentConfigs: (opts: { agent: string; scope: string; baseDir?: string; customDir?: string }) =>
-    ipcRenderer.invoke('config:preview', opts),
-
-  // ========== Conductor: Autonomous Multi-Agent System ==========
-  conductorStart: (opts: any) => ipcRenderer.invoke('conductor:start', opts),
-  conductorPause: (missionId: string) => ipcRenderer.invoke('conductor:pause', missionId),
-  conductorResume: (missionId: string) => ipcRenderer.invoke('conductor:resume', missionId),
-  conductorKill: (missionId: string) => ipcRenderer.invoke('conductor:kill', missionId),
-  conductorSetAutonomy: (missionId: string, level: any) => ipcRenderer.invoke('conductor:set-autonomy', missionId, level),
-  conductorSendDirective: (missionId: string, text: string) => ipcRenderer.invoke('conductor:send-directive', missionId, text),
-  conductorResolveEscalation: (missionId: string, escalationId: string, decision: any, note?: string) => ipcRenderer.invoke('conductor:resolve-escalation', missionId, escalationId, decision, note),
-  conductorPromoteIntegration: (missionId: string) => ipcRenderer.invoke('conductor:promote-integration', missionId),
-  conductorGetSnapshot: (missionId: string) => ipcRenderer.invoke('conductor:get-snapshot', missionId),
-  conductorListMissions: () => ipcRenderer.invoke('conductor:list-missions'),
-  onConductorSnapshot: (callback: (data: any) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
-    ipcRenderer.on('conductor:snapshot', handler);
-    return () => { ipcRenderer.removeListener('conductor:snapshot', handler); };
-  },
-  onConductorMessage: (callback: (data: any) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
-    ipcRenderer.on('conductor:message', handler);
-    return () => { ipcRenderer.removeListener('conductor:message', handler); };
-  },
-
-  // ========== Pairing & Relay (mobile phone connection) ==========
+  // ========== Desktop Bridge: Sync + Relay ==========
+  syncStatus: () => ipcRenderer.invoke('sync:status'),
+  syncPushNow: () => ipcRenderer.invoke('sync:push-now'),
+  syncPullNow: () => ipcRenderer.invoke('sync:pull-now'),
+  syncFullSync: () => ipcRenderer.invoke('sync:full-sync'),
+  relayRequestTicket: (userId?: string) => ipcRenderer.invoke('relay:request-ticket', userId),
+  relayStatus: () => ipcRenderer.invoke('relay:status'),
   pairGenerateCode: (terminalId: string) => ipcRenderer.invoke('pair:generate-code', terminalId),
   pairRevoke: (code: string) => ipcRenderer.invoke('pair:revoke', code),
+  pairRevokeAll: () => ipcRenderer.invoke('pair:revoke-all'),
+  pairListActive: () => ipcRenderer.invoke('pair:list-active'),
+  listDevices: () => ipcRenderer.invoke('list-devices'),
+  revokeDevice: (deviceId: string) => ipcRenderer.invoke('revoke-device', deviceId),
+  revokeAllDevices: () => ipcRenderer.invoke('revoke-all-devices'),
+  // ========== Auth: Register / Login / Pair Generate / State ==========
+  authGetState: () => ipcRenderer.invoke('auth:get-state'),
+  authRegister: (args: { email: string; password: string }) => ipcRenderer.invoke('auth:register', args),
+  authLogin: (args: { email: string; password: string }) => ipcRenderer.invoke('auth:login', args),
+  authPairGenerate: () => ipcRenderer.invoke('auth:pair-generate'),
+  authLogout: () => ipcRenderer.invoke('auth:logout'),
   onRelayPaired: (callback: (data: { terminalId: string }) => void) => {
-    const handler = (_event: any, data: { terminalId: string }) => callback(data);
+    const handler = (_event: any, terminalId: string) => callback({ terminalId });
     ipcRenderer.on('relay:paired', handler);
     return () => { ipcRenderer.removeListener('relay:paired', handler); };
   },
 
-  // ========== Device management ==========
-  listDevices: () => ipcRenderer.invoke('devices:list'),
-  revokeDevice: (deviceId: string) => ipcRenderer.invoke('devices:revoke', deviceId),
-  revokeAllDevices: () => ipcRenderer.invoke('devices:revoke-all'),
+  // ========== Insight Engine ==========
+  getDailyFunFact: () => ipcRenderer.invoke('insights:daily-fun-fact'),
+  getInsightStrip: (params?: { period?: string }) => ipcRenderer.invoke('insights:strip', params || {}),
+  getRewind: (period: string) => ipcRenderer.invoke('insights:rewind', { period }),
 
-  // ========== Lyceum Learn — Profile ==========
-  learnGetProfile: ({ key }: { key: string }) => ipcRenderer.invoke('learn:getProfile', { key }),
-  learnSetProfile: ({ key, value }: { key: string; value: string }) => ipcRenderer.invoke('learn:setProfile', { key, value }),
-  learnDeleteProfile: ({ key }: { key: string }) => ipcRenderer.invoke('learn:deleteProfile', { key }),
-  learnGetAllProfile: () => ipcRenderer.invoke('learn:getAllProfile'),
+  // ========== Home Summary ==========
+  getHomeSummary: () => ipcRenderer.invoke('get-home-summary'),
+
+  // ========== Deep Focus ==========
+  focus: {
+    start: (cfg: { durationSec: number; strictness?: string }) => ipcRenderer.invoke('focus:start', cfg),
+    end: (outcome?: string) => ipcRenderer.invoke('focus:end', outcome || 'aborted'),
+    getState: () => ipcRenderer.invoke('focus:get-state'),
+    history: (opts?: { limit?: number }) => ipcRenderer.invoke('focus:history', opts || {}),
+    onState: (cb: (state: any) => void) => {
+      const handler = (_event: any, state: any) => cb(state);
+      ipcRenderer.on('focus:state', handler);
+      return () => { ipcRenderer.removeListener('focus:state', handler); };
+    },
+    onEnded: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('focus:ended', handler);
+      return () => { ipcRenderer.removeListener('focus:ended', handler); };
+    },
+  },
+
+  // ========== Resume Builder ==========
+  resume: {
+    getProfile: () => ipcRenderer.invoke('resume:getProfile'),
+    saveProfile: (profile: any) => ipcRenderer.invoke('resume:saveProfile', profile),
+    getTakeaways: (filters?: any) => ipcRenderer.invoke('resume:getTakeaways', filters),
+    saveTakeaway: (takeaway: any) => ipcRenderer.invoke('resume:saveTakeaway', takeaway),
+    updateTakeaway: (id: string, updates: any) => ipcRenderer.invoke('resume:updateTakeaway', id, updates),
+    deleteTakeaway: (id: string) => ipcRenderer.invoke('resume:deleteTakeaway', id),
+    extractFromChat: (transcript: string, source: string) => ipcRenderer.invoke('resume:extractFromChat', transcript, source),
+    getChatCompilations: () => ipcRenderer.invoke('resume:getChatCompilations'),
+    deleteChatCompilation: (id: string) => ipcRenderer.invoke('resume:deleteChatCompilation', id),
+    nextQuestion: (state: any) => ipcRenderer.invoke('resume:nextQuestion', state),
+    submitAnswer: (questionId: string, answer: any, phase: number) => ipcRenderer.invoke('resume:submitAnswer', questionId, answer, phase),
+    saveProgress: (progress: any) => ipcRenderer.invoke('resume:saveProgress', progress),
+    loadProgress: () => ipcRenderer.invoke('resume:loadProgress'),
+    compileResume: (data: any) => ipcRenderer.invoke('resume:compileResume', data),
+    runHrReview: (resumeDraft: any, targetJd: string) => ipcRenderer.invoke('resume:runHrReview', resumeDraft, targetJd),
+    getVersions: (profileId: string) => ipcRenderer.invoke('resume:getVersions', profileId),
+    saveVersion: (version: any) => ipcRenderer.invoke('resume:saveVersion', version),
+    deleteVersion: (id: string) => ipcRenderer.invoke('resume:deleteVersion', id),
+    exportPdf: (versionId: string, format: string) => ipcRenderer.invoke('resume:exportPdf', versionId, format),
+    getCertScans: () => ipcRenderer.invoke('resume:getCertScans'),
+    saveCertScan: (scan: any) => ipcRenderer.invoke('resume:saveCertScan', scan),
+    updateCertScan: (id: string, updates: any) => ipcRenderer.invoke('resume:updateCertScan', id, updates),
+    uploadDocument: (file: any) => ipcRenderer.invoke('resume:uploadDocument', file),
+    getDocuments: () => ipcRenderer.invoke('resume:getDocuments'),
+    deleteDocument: (id: string) => ipcRenderer.invoke('resume:deleteDocument', id),
+    getReports: () => ipcRenderer.invoke('resume:getReports'),
+    getAiSettings: () => ipcRenderer.invoke('resume:getAiSettings'),
+    saveAiSettings: (settings: any) => ipcRenderer.invoke('resume:saveAiSettings', settings),
+    testAiConnection: (settings: any) => ipcRenderer.invoke('resume:testAiConnection', settings),
+  },
+
+  // ========== Agent Memory System ==========
+  memoryGetHot: (limit?: number) => ipcRenderer.invoke('memory:get', 'hot', limit || 15),
+  memoryGetByTier: (tier: string, limit?: number) => ipcRenderer.invoke('memory:get', tier, limit || 50),
+  memorySearch: (query: string) => ipcRenderer.invoke('memory:search', query),
+  memoryAdd: (content: string, category: string) => ipcRenderer.invoke('memory:add', content, category),
+  memoryDelete: (id: string) => ipcRenderer.invoke('memory:delete', id),
+  memoryStats: () => ipcRenderer.invoke('memory:stats'),
+  memoryCompact: () => ipcRenderer.invoke('memory:compact'),
 });

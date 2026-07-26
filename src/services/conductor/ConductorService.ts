@@ -616,8 +616,14 @@ export class ConductorService {
   private ensureRepo(repoRoot: string) {
     try {
       this.git(repoRoot, ['rev-parse', '--is-inside-work-tree']);
+      try { this.git(repoRoot, ['rev-parse', 'HEAD']); } catch {
+        this.git(repoRoot, ['commit', '--allow-empty', '-m', 'chore: initial commit for Conductor']);
+        this.log('Made initial empty commit in ' + repoRoot);
+      }
     } catch {
-      throw new Error('Selected folder is not a git repository. Conductor requires git for branch isolation.');
+      this.log('Warning: ' + repoRoot + ' is not a git repository. Running without branch isolation.');
+      try { this.git(repoRoot, ['init']); this.log('Initialized empty git repo in ' + repoRoot); } catch { }
+      try { this.git(repoRoot, ['commit', '--allow-empty', '-m', 'chore: initial commit for Conductor']); } catch { }
     }
   }
 

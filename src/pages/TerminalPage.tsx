@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, GitBranch } from 'lucide-react';
+import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, Activity, Bot, GitBranch, Shield, Coins, Network } from 'lucide-react';
+import { AnomalyBadge } from '../components/AnomalyBadge';
 import type { PaneNode } from '../components/TerminalWindow';
 import { TerminalLayout, insertIntoLayout, getLeafIds, getGroupTrees, updateGroupTree } from '../components/TerminalWindow';
 import { MapEditor, swapLeavesInTree } from '../components/MapEditor';
@@ -15,10 +16,11 @@ import IssuesWorkspace from '../components/IssuesWorkspace';
 import { BugReportPanel } from '../components/BugReportPanel';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import ContextSidebar from '../components/ContextSidebar';
+import { WorkspaceMindMap } from '../components/WorkspaceMindMap';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
+import { stripAnsi } from '../lib/stripAnsi';
 import GeneralistDialog from '../components/GeneralistDialog';
-import { AnomalyBadge } from '../components/AnomalyBadge';
 import { RoutingDisambiguationDialog } from '../components/RoutingDisambiguationDialog';
 import { RoutingToast } from '../components/RoutingToast';
 import { SessionEditDialog } from '../components/SessionEditDialog';
@@ -28,15 +30,17 @@ import { notificationService } from '../services/NotificationService';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
 import { ProblemsTab, ProblemDetailModal, NewProblemDialog } from '../components/ProblemsTab';
-import BackupPanel from '../components/BackupPanel';
 import { SkillsTab } from '../components/SkillsTab';
 import PromptHistoryTab from '../components/PromptHistoryTab';
 import { RequestsTab, RequestDetailModal, NewRequestDialog } from '../components/RequestsTab';
 import { FilesTab } from '../components/FilesTab';
+import PerformanceMetricsPanel from '../components/workspace/PerformanceMetricsPanel';
+import { ConductorWorkspaceTab } from '../components/workspace/ConductorWorkspaceTab';
+import { WorkspaceDetailModal } from '../components/workspace/WorkspaceDetailModal';
 import { WorkspaceShell } from '../components/workspace/WorkspaceShell';
 import { usePersistentSubTab } from '../hooks/usePersistentSubTab';
 import PageContextPanel from '../components/PageContextPanel';
-import ConductorPanel from '../components/conductor/ConductorPanel';
+import FeatureLogicPanel from '../components/workspace/FeatureLogicPanel';
 import '@xterm/xterm/css/xterm.css';
 
 function generateTerminalId(): string {
@@ -133,13 +137,14 @@ const SUBPAGE_LABELS: Record<string, string> = {
   'work/files': 'Work / Files',
   'insights/analytics': 'Insights / Analytics',
   'insights/issues': 'Insights / Issues',
+  'insights/performance': 'Insights / Performance',
   'insights/bugs': 'Insights / Bugs',
   'studio/skills': 'Studio / Skills',
   'studio/design': 'Studio / Design',
-  'work/run-configs': 'Work / Run Configs',
   'context/context': 'Context / Context',
   'context/context-maintenance': 'Context / Maintenance',
   'context/page-context': 'Context / Page Context',
+  'context/feature-logic': 'Context / Feature Logic',
 };
 
 function CategoryBadge({ category }: { category?: string }) {
@@ -232,7 +237,6 @@ function SessionResourceStats({ stats }: { stats?: { pid: number | null; alive: 
   );
 }
 
-const SettingsIcon = Settings;
 function ConfigGenerator({ agent, baseDir }: { agent: string; baseDir: string }) {
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<'project' | 'global' | 'custom'>('project');
@@ -256,7 +260,7 @@ function ConfigGenerator({ agent, baseDir }: { agent: string; baseDir: string })
   return (
     <div className="relative">
       <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-zinc-800/70 ring-1 ring-inset ring-zinc-700 text-zinc-300 hover:ring-[color:var(--page-accent)]/50 hover:text-white transition-colors duration-150" title="Generate CLI config files (opencode.json, GEMINI.md, CLAUDE.md, codex)">
-        <SettingsIcon className="w-3 h-3" />
+        <Settings className="w-3 h-3" />
         <span>Configs</span>
       </button>
       {open ? (
@@ -277,175 +281,6 @@ function ConfigGenerator({ agent, baseDir }: { agent: string; baseDir: string })
             {busy ? 'Generating...' : 'Generate for ' + (agent || 'all')}
           </button>
           {result ? <div className="mt-2 text-[10px] text-zinc-400 break-words">{result}</div> : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function RunConfigsPanel({ projectId, projectPath, projects }: { projectId: string; projectPath: string; projects: Array<{ id: string; name: string; path: string }> }) {
-  const [configs, setConfigs] = useState<Array<{ projectId: string; name: string; path: string; config: any }>>([]);
-  const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState<Record<string, boolean>>({});
-  const [editProject, setEditProject] = useState<{ id: string; name: string; path: string } | null>(null);
-  const [editConfig, setEditConfig] = useState<any>(null);
-  const [result, setResult] = useState('');
-
-  const loadConfigs = useCallback(async () => {
-    setLoading(true);
-    try {
-      const api = (window as any).deskflowAPI;
-      if (!api?.getAllRunConfigs) return;
-      const r = await api.getAllRunConfigs();
-      if (r.success) setConfigs(r.configs || []);
-    } catch (e) { console.error('[RunConfigs] load error:', e); }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { loadConfigs(); }, [loadConfigs]);
-
-  const handleRun = useCallback(async (cfg: { projectId: string; name: string; path: string; config: any }) => {
-    const api = (window as any).deskflowAPI;
-    if (!api?.runProject) return;
-    setRunning(prev => ({ ...prev, [cfg.projectId]: true }));
-    try {
-      const r = await api.runProject(cfg.projectId, cfg.config);
-      if (r.success) {
-        setResult(`Running ${cfg.name}...`);
-      } else {
-        setResult(r.message || 'Failed to start');
-      }
-    } catch (e: any) { setResult(e.message || 'Error'); }
-    setTimeout(() => setRunning(prev => ({ ...prev, [cfg.projectId]: false })), 2000);
-  }, []);
-
-  const handleStop = useCallback(async (projectId: string) => {
-    const api = (window as any).deskflowAPI;
-    if (!api?.stopProject) return;
-    try {
-      const r = await api.stopProject(projectId);
-      if (r.success) setResult('Stopped');
-      else setResult(r.message || 'Stop failed');
-    } catch (e: any) { setResult(e.message || 'Error'); }
-  }, []);
-
-  const handleEdit = useCallback(async (p: { id: string; name: string; path: string }) => {
-    try {
-      const api = (window as any).deskflowAPI;
-      if (!api?.getProjectRunConfig) return;
-      const r = await api.getProjectRunConfig(p.id);
-      if (r.success) {
-        setEditConfig(r.config || { single: { command: '', port: '', cwd: '' }, frontend: { command: '', port: '', cwd: '' }, backend: { command: '', port: '', cwd: '' } });
-        setEditProject(p);
-      }
-    } catch (e) { console.error('[RunConfigs] edit error:', e); }
-  }, []);
-
-  const handleSaveEdit = useCallback(async () => {
-    if (!editProject || !editConfig) return;
-    try {
-      const api = (window as any).deskflowAPI;
-      if (!api?.saveProjectRunConfig) return;
-      await api.saveProjectRunConfig(editProject.id, editConfig);
-      setEditProject(null);
-      setEditConfig(null);
-      loadConfigs();
-    } catch (e) { console.error('[RunConfigs] save error:', e); }
-  }, [editProject, editConfig, loadConfigs]);
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-semibold text-zinc-300">Run Configurations</h3>
-        <button onClick={loadConfigs} className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors" title="Refresh">
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
-      {result ? (
-        <div className="px-2 py-1 rounded text-[10px] bg-green-500/10 text-green-400 border border-green-500/20">{result}</div>
-      ) : null}
-      {configs.length === 0 && !loading ? (
-        <div className="text-[11px] text-zinc-500 text-center py-6">No run configurations found.<br />Configure them in IDE Projects → Run Config.</div>
-      ) : null}
-      {configs.map(cfg => {
-        const hasSingle = cfg.config?.single?.command;
-        const hasFrontend = cfg.config?.frontend?.command;
-        const hasBackend = cfg.config?.backend?.command;
-        return (
-          <div key={cfg.projectId} className="bg-zinc-800/40 border border-zinc-700/30 rounded-lg p-3 space-y-2 hover:border-zinc-600/50 transition-colors">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-zinc-200 truncate">{cfg.name}</div>
-                <div className="text-[10px] text-zinc-500 truncate">{cfg.path}</div>
-              </div>
-              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                <button
-                  onClick={() => handleRun(cfg)}
-                  disabled={running[cfg.projectId]}
-                  className="px-2 py-1 rounded text-[10px] font-medium bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/30 hover:border-green-500/50 disabled:opacity-50 transition-colors flex items-center gap-1"
-                >
-                  <Play className="w-3 h-3" />
-                  {running[cfg.projectId] ? 'Starting...' : 'Run'}
-                </button>
-                <button
-                  onClick={() => handleStop(cfg.projectId)}
-                  className="px-2 py-1 rounded text-[10px] font-medium bg-red-600/20 text-red-400 border border-red-500/30 hover:bg-red-600/30 hover:border-red-500/50 transition-colors"
-                >
-                  Stop
-                </button>
-                <button
-                  onClick={() => handleEdit({ id: cfg.projectId, name: cfg.name, path: cfg.path })}
-                  className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {hasSingle ? <span className="px-1.5 py-0.5 rounded bg-zinc-700/50 text-[9px] text-zinc-400">Single: {cfg.config.single.command}</span> : null}
-              {hasFrontend ? <span className="px-1.5 py-0.5 rounded bg-zinc-700/50 text-[9px] text-zinc-400">FE: {cfg.config.frontend.command}</span> : null}
-              {hasBackend ? <span className="px-1.5 py-0.5 rounded bg-zinc-700/50 text-[9px] text-zinc-400">BE: {cfg.config.backend.command}</span> : null}
-            </div>
-          </div>
-        );
-      })}
-
-      {editProject && editConfig ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setEditProject(null); setEditConfig(null); }}>
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 w-full max-w-md mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h4 className="text-sm font-semibold text-zinc-200 mb-3">Edit Run Config — {editProject.name}</h4>
-            {(['single', 'frontend', 'backend'] as const).map(section => (
-              <div key={section} className="mb-3 p-2 bg-zinc-800/40 rounded-lg border border-zinc-700/30">
-                <label className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1 block">{section === 'single' ? 'Single Command' : section === 'frontend' ? 'Frontend' : 'Backend'}</label>
-                <div className="space-y-1.5">
-                  <input
-                    placeholder="Command (e.g. npm run dev)"
-                    value={editConfig[section]?.command || ''}
-                    onChange={e => setEditConfig((prev: any) => ({ ...prev, [section]: { ...prev[section], command: e.target.value } }))}
-                    className="w-full px-2 py-1 text-[11px] rounded bg-zinc-900 border border-zinc-700/50 text-zinc-200 placeholder-zinc-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/25 focus:outline-none transition-colors"
-                  />
-                  <div className="flex gap-1.5">
-                    <input
-                      placeholder="Port (optional)"
-                      value={editConfig[section]?.port || ''}
-                      onChange={e => setEditConfig((prev: any) => ({ ...prev, [section]: { ...prev[section], port: e.target.value } }))}
-                      className="flex-1 px-2 py-1 text-[11px] rounded bg-zinc-900 border border-zinc-700/50 text-zinc-200 placeholder-zinc-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/25 focus:outline-none transition-colors"
-                    />
-                    <input
-                      placeholder="Working dir (optional)"
-                      value={editConfig[section]?.cwd || ''}
-                      onChange={e => setEditConfig((prev: any) => ({ ...prev, [section]: { ...prev[section], cwd: e.target.value } }))}
-                      className="flex-1 px-2 py-1 text-[11px] rounded bg-zinc-900 border border-zinc-700/50 text-zinc-200 placeholder-zinc-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/25 focus:outline-none transition-colors"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-            <div className="flex gap-2 justify-end mt-2">
-              <button onClick={() => { setEditProject(null); setEditConfig(null); }} className="px-3 py-1.5 rounded text-[11px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">Cancel</button>
-              <button onClick={handleSaveEdit} className="px-3 py-1.5 rounded text-[11px] font-medium text-white bg-green-600 hover:bg-green-500 transition-colors">Save</button>
-            </div>
-          </div>
         </div>
       ) : null}
     </div>
@@ -488,11 +323,11 @@ const ACCENT_STRIP: Record<string, string> = {
 // Per-group accent classes for the sidebar nav (Frontend Design: per-section accents)
 const ACCENT_TEXT: Record<string, string> = {
 	orange: 'text-orange-300', green: 'text-green-300', purple: 'text-purple-300',
-	indigo: 'text-indigo-300', amber: 'text-amber-300',
+	indigo: 'text-indigo-300', amber: 'text-amber-300', rose: 'text-rose-300',
 };
 const ACCENT_BORDER: Record<string, string> = {
 	orange: 'border-orange-500/50', green: 'border-green-500/50', purple: 'border-purple-500/50',
-	indigo: 'border-indigo-500/50', amber: 'border-amber-500/50',
+	indigo: 'border-indigo-500/50', amber: 'border-amber-500/50', rose: 'border-rose-500/50',
 };
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
@@ -572,7 +407,7 @@ function TabPanel({ accent, children }: { accent: string; children: React.ReactN
 	return (
 		<div className="relative flex-1 min-h-0">
 			<span className={`absolute left-0 top-0 bottom-0 w-0.5 ${ACCENT_STRIP[accent]} opacity-60`} />
-			<div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
+			<div className="px-3 py-3 space-y-3">
 				{children}
 			</div>
 		</div>
@@ -588,17 +423,16 @@ function WorkspacesPanel({ projectId, currentName, onLoad, onSaveCurrent }: {
   const [items, setItems] = useState<Array<{ name: string; isActive: boolean; activeTab?: string; updatedAt?: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [newName, setNewName] = useState('');
+  const [showDetail, setShowDetail] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!projectId || !window.deskflowAPI?.listWorkspaces) { setItems([]); return; }
     setLoading(true);
     try {
       const res = await window.deskflowAPI.listWorkspaces({ projectId });
-      console.log('[WORKSPACES-DBG] listWorkspaces ->', JSON.stringify(res));
       if (res?.success && Array.isArray(res.data)) setItems(res.data);
       else setItems([]);
     } catch (e) {
-      console.warn('[WORKSPACES-DBG] list failed', e);
       setItems([]);
     } finally {
       setLoading(false);
@@ -616,12 +450,17 @@ function WorkspacesPanel({ projectId, currentName, onLoad, onSaveCurrent }: {
 
   return (
     <div className="relative flex-1 min-h-0">
-      <div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
+      <div className="px-3 py-3 space-y-3">
         <div className="flex items-center justify-between">
           <p className="text-xs text-zinc-500">Saved workspaces for this project</p>
-          <button onClick={refresh} className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded flex items-center gap-1">
-            <RefreshCw size={11} /> Refresh
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => setShowDetail(true)} className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded flex items-center gap-1">
+              View Details
+            </button>
+            <button onClick={refresh} className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded flex items-center gap-1">
+              <RefreshCw size={11} /> Refresh
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -675,17 +514,22 @@ function WorkspacesPanel({ projectId, currentName, onLoad, onSaveCurrent }: {
           </div>
         )}
       </div>
+      {showDetail && projectId && (
+        <WorkspaceDetailModal
+          projectId={projectId}
+          onClose={() => setShowDetail(false)}
+          onLoad={(name) => { onLoad(name); setShowDetail(false); }}
+          onDelete={async (name) => { await window.deskflowAPI?.deleteWorkspace?.({ projectId, name }); refresh(); }}
+        />
+      )}
     </div>
   );
 }
 
 function GroupPanel({ accent, children }: { accent: string; children: React.ReactNode }) {
 	return (
-		<div className="flex min-h-full" style={accentStyle(accent)}>
-			<span className={`w-0.5 shrink-0 ${ACCENT_STRIP[accent]} opacity-60`} />
-			<div className="flex-1 px-3 py-3 min-w-0 flex flex-col">
-				{children}
-			</div>
+		<div className="min-h-full">
+			{children}
 		</div>
 	);
 }
@@ -734,7 +578,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     return saved ? parseInt(saved) : 400;
   });
   const [isResizing, setIsResizing] = useState(false);
-  type GroupKey = 'setup' | 'work' | 'insights' | 'studio' | 'context';
+  type GroupKey = 'setup' | 'work' | 'insights' | 'studio' | 'conductor' | 'context';
   const [activeGroup, setActiveGroup] = useState<GroupKey>(() => {
     const saved = localStorage.getItem('terminal-activeGroup');
     return (saved as GroupKey) || 'setup';
@@ -842,13 +686,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [showInstructionInput, setShowInstructionInput] = useState(false);
   const [showInstructionPanel, setShowInstructionPanel] = useState(false);
   const [composeSkills, setComposeSkills] = useState<string[]>([]);
-  const [resourceStats, setResourceStats] = useState<Record<string, { pid: number | null; alive: boolean; memMB: number; cpuPct: number; eventLoopLagMs: number; ts: number }>>({});
-  useEffect(() => {
-    const api: any = (window as any).deskflowAPI;
-    if (!api || typeof api.onResourceStats !== 'function') return;
-    const unsub = api.onResourceStats((stats: any) => setResourceStats(stats || {}));
-    return typeof unsub === 'function' ? unsub : undefined;
-  }, []);
   const [terminalAnomalies, setTerminalAnomalies] = useState<Record<string, { kind: string; type: string; severity: 'low' | 'medium' | 'high'; detail: string; ts: number }>>({});
   const [cliUpdates, setCliUpdates] = useState<Array<{ agent: string; current: string; latest: string; pkg: string }>>([]);
   useEffect(() => {
@@ -857,6 +694,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     if (api && api.onTerminalAnomaly) subs.push(api.onTerminalAnomaly((d: any) => { setTerminalAnomalies((prev) => ({ ...prev, [d.terminalId]: { kind: d.kind, type: d.type, severity: d.severity, detail: d.detail, ts: d.ts } })); }));
     if (api && api.onCliUpdateAvailable) subs.push(api.onCliUpdateAvailable((list: any) => { setCliUpdates(Array.isArray(list) ? list : []); }));
     return () => { subs.forEach((u) => { try { u(); } catch (_e) { } }); };
+  }, []);
+  const [resourceStats, setResourceStats] = useState<Record<string, { pid: number | null; alive: boolean; memMB: number; cpuPct: number; eventLoopLagMs: number; ts: number }>>({});
+  useEffect(() => {
+    const api: any = (window as any).deskflowAPI;
+    if (!api || typeof api.onResourceStats !== 'function') return;
+    const unsub = api.onResourceStats((stats: any) => setResourceStats(stats || {}));
+    return typeof unsub === 'function' ? unsub : undefined;
   }, []);
   const [instructionText, setInstructionText] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -870,7 +714,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [workspaceName, setWorkspaceName] = useState<string>('default');
   const [showWorkspaceSaveAsDialog, setShowWorkspaceSaveAsDialog] = useState(false);
   const [workspaceSaveAsName, setWorkspaceSaveAsName] = useState('');
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => localStorage.getItem('workspace-auto-save') === 'true');
   const [showWorkspaceLoadDialog, setShowWorkspaceLoadDialog] = useState(false);
   const [workspaceList, setWorkspaceList] = useState<Array<{ name: string; isActive: boolean; sidebarWidth: number; activeTab: string; updatedAt: string }>>([]);
   const [workspaceListLoading, setWorkspaceListLoading] = useState(false);
@@ -1113,6 +956,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       }
 
       // ═══ WAIT FOR TERMINAL READY ═══
+      // Skip if terminal was just spawned — it's already ready
       try {
         await new Promise<void>((resolve) => {
           let done = false;
@@ -1123,13 +967,18 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               resolve();
             }
           });
-          setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 3000);
+          // Short timeout — terminal should be ready immediately after spawn
+          setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 500);
         });
       } catch {}
       console.log('[RESUME-DBG] terminal-ready wait complete for', terminalId);
 
       // small pause to let shell render
       await new Promise(r => setTimeout(r, 200));
+
+      // [PUSHDOWN-FIX] Clear any existing scrollback before TUI launches
+      // This prevents old shell output from appearing above the TUI
+      try { await window.deskflowAPI.terminalWrite(terminalId, '\x1b[2J\x1b[H\x1b[3J'); } catch {}
 
       // ═══ VERIFY resumeId against opencode's session list ═══
       // If the stored id no longer exists in opencode, discard it and start fresh.
@@ -1159,8 +1008,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       const cdCmd = projectPath ? `cd "${projectPath}"\r\n` : '';
       let launchCommand: string;
       if (resumeId && resumeId.trim().length > 0) {
-        // Only pass -s when user explicitly chose resume AND we have a real id
-        let resumeCmd = `${agent} -s ${resumeId}`;
+        // Use correct resume flag per agent type
+        const resumeFlags: Record<string, string> = {
+          opencode: '--resume',
+          claude: '--resume',
+          codex: '--session',
+          gemini: '--resume',
+        };
+        let resumeCmd = `${agent} ${resumeFlags[agent] || '-s'} ${resumeId}`;
         try {
           const prefs = await window.deskflowAPI?.getPreferences?.();
           const templates: Record<string, string> = prefs?.agentResumeCommands || {};
@@ -1171,13 +1026,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         } catch {}
         launchCommand = `${cdCmd}${resumeCmd}\r\n`;
       } else {
-        // Fresh launch — no -s flag, let opencode create the session itself
+        // Fresh launch — no resume flag, let agent create the session itself
         launchCommand = `${cdCmd}${agent}\r\n`;
       }
       const r2 = await window.deskflowAPI?.terminalWriteRaw?.(terminalId, launchCommand);
       console.log('[TerminalPage] Wrote launch command:', JSON.stringify(launchCommand), 'result:', r2);
 
       // ═══ WAIT FOR AGENT TO BE READY (capped so the UI never freezes) ═══
+      // Per-agent timeout: Claude needs 5s (Node.js cold start), others 1.5s
+      const readyTimeout = agent === 'claude' ? 5000 : 1500;
       await new Promise<void>((resolve) => {
         let done = false;
         const remover = window.deskflowAPI?.onAgentReady?.((data: { terminalId: string }) => {
@@ -1187,12 +1044,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             resolve();
           }
         });
-        // Cap at 5s: if the agent is slow we still proceed instead of hanging.
-        setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, 5000);
+        setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, readyTimeout);
       });
 
+      // ═══ DUMMY ENTER FALLBACK ═══
+      // If agent still hasn't reached ready, send a dummy Enter to wake the TUI
+      // This helps when the TUI is waiting for input before showing its prompt
+      try {
+        const phase = await (window.deskflowAPI as any)?.agentGetPhase?.(terminalId);
+        if (phase === 'launching') {
+          console.log('[TerminalPage] Agent still launching after timeout, sending dummy Enter to wake TUI');
+          await window.deskflowAPI?.terminalWriteRaw?.(terminalId, '\r');
+          // Wait 1s for TUI to process the Enter
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      } catch {}
+
       // ═══ SETTLE: let TUI fully grab the PTY before first flush ═══
-      await new Promise(r => setTimeout(r, 350));
+      await new Promise(r => setTimeout(r, 200));
 
       // ═══ HANDSHAKE REMOVED ═══
       // The bracketed-paste handshake was non-functional and added up to 10s of
@@ -1216,9 +1085,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       }
       if (parts.length > 0 && window.deskflowAPI?.agentSend) {
         const combined = parts.join('\n\n');
+        // Use agentSend instead of terminalWriteRaw — this goes through the agent state machine
+        // which queues the write if the agent is still launching, then flushes when ready
         const sendResult = await window.deskflowAPI.agentSend(terminalId, combined, agent);
         if (!sendResult?.success) {
-          showError(sendResult?.error || 'Failed to send initialization prompt to agent', 'error');
+          showError('Failed to send initialization prompt to terminal', 'error');
+        } else {
+          const mode = sendResult?.queued ? 'queued (waiting for agent ready)' : 'sent immediately';
+          console.log('[TerminalPage] Sent initialization prompt via agentSend:', combined.length, 'chars,', mode);
         }
       }
     } catch (e) {
@@ -1297,6 +1171,25 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     return () => cleanup?.();
   }, []);
 
+  const spawnTerminal = useCallback(async (terminalId: string, cwd?: string, agentType?: string, cols?: number, rows?: number) => {
+    if (!window.deskflowAPI) {
+      showError('Terminal API not available - cannot create terminal', 'error');
+      return false;
+    }
+    try {
+      const result = await window.deskflowAPI.spawnTerminal(terminalId, cwd || '', agentType, cols, rows);
+      if (!result.success) {
+        showError(`Failed to spawn shell: ${result.error || 'Unknown error'}`, 'error');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('[TerminalPage] spawnTerminal error:', e);
+      showError(`Terminal creation failed: ${(e as any).message}`, 'error');
+      return false;
+    }
+  }, [showError]);
+
   // Listen for agent timeouts
   useEffect(() => {
     if (!window.deskflowAPI?.onAgentTimeout) return;
@@ -1305,6 +1198,25 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     });
     return () => cleanup?.();
   }, []);
+
+  // Listen for conductor spawn requests
+  useEffect(() => {
+    if (!(window.deskflowAPI as any)?.onConductorSpawnTerminal) return;
+    const cleanup = (window.deskflowAPI as any).onConductorSpawnTerminal((data: { terminalId: string; cwd: string; cols: number; rows: number; agentType?: string }) => {
+      const exists = terminalTabsRef.current?.some(t => t.id === data.terminalId);
+      if (exists) return;
+      setTerminalTabs(prev => [...prev, {
+        id: data.terminalId,
+        name: `⚡${data.agentType || 'agent'}`,
+        sessionTopic: `Conductor: ${data.terminalId}`,
+        agent: data.agentType || 'claude',
+        cwd: data.cwd,
+        terminalType: 'agent',
+      }]);
+      spawnTerminal(data.terminalId, data.cwd, data.agentType);
+    });
+    return () => cleanup?.();
+  }, [spawnTerminal]);
 
   // Build agentStatuses for TerminalLayout overlay
   const agentStatuses = useMemo(() => {
@@ -1349,13 +1261,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   }, [selectedProject]);
 
   // Register terminal with binding
-  const registerTerminal = useCallback(async (terminalId: string) => {
+  const registerTerminal = useCallback(async (terminalId: string, agentType?: string) => {
     if (!window.deskflowAPI) return;
     try {
       await window.deskflowAPI.registerTerminal({
         terminalId,
         projectId: selectedProject || undefined,
-        agentType: 'claude',
+        agentType: agentType || 'claude',
         status: 'active'
       });
       setActiveTerminalId(terminalId);
@@ -1594,7 +1506,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: newTerminalId } }));
       
       // ═══ INITIALIZE AGENT ═══
-      await registerTerminal(newTerminalId);
+      await registerTerminal(newTerminalId, newSessionAgent);
       await initializeTerminal(newTerminalId, newSessionAgent, undefined, undefined, undefined, cwd);
 
       // ═══ WRITE USER PROMPT ═══
@@ -2013,28 +1925,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
   // Save workspace state on relevant changes (debounced)
   const saveWorkspaceDebounce = useRef<NodeJS.Timeout | null>(null);
+  const isRestoringRef = useRef(false);
 
   // Track unsaved workspace changes for beforeunload + navigation guard
-  const savedStateHash = useRef<string>('');
-  const getWorkspaceStateHash = useCallback(() => {
-    const sig = {
-      tabs: Object.keys(terminalTabs).sort().map(id => `${id}:${terminalTabs[id].name}:${terminalTabs[id].agent}:${terminalTabs[id].modelTier || ''}`),
-      layout: terminalLayout ? JSON.stringify(terminalLayout) : '',
-      sidebarWidth,
-      activeGroup,
-      presetCount: presets.length,
-    };
-    return JSON.stringify(sig);
-  }, [terminalTabs, terminalLayout, sidebarWidth, activeGroup, presets]);
-
-  const hasUnsavedChanges = useMemo(() => {
-    return getWorkspaceStateHash() !== savedStateHash.current;
-  }, [getWorkspaceStateHash]);
+  const hasUnsavedChanges = useMemo(() => Object.keys(terminalTabs).length > 0, [terminalTabs]);
 
   useEffect(() => {
     (window as any).__workspaceHasUnsavedChanges = hasUnsavedChanges;
   }, [hasUnsavedChanges]);
 
+  // beforeunload handler — warns if terminals are open
   useEffect(() => {
     if (!hasUnsavedChanges) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -2045,19 +1945,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     return () => window.removeEventListener('beforeunload', handler);
   }, [hasUnsavedChanges]);
 
-  // Auto-save: debounce save when changes occur and auto-save is enabled
-  const autoSaveTimer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => {
-    if (!autoSaveEnabled || !hasUnsavedChanges || !workspaceName) return;
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(() => {
-      handleSaveWorkspace(workspaceName);
-    }, 3000);
-    return () => {
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    };
-  }, [autoSaveEnabled, hasUnsavedChanges, workspaceName]);
-
   const handleSaveWorkspace = useCallback(async (name?: string) => {
     const wsProjectId = propProjectId || selectedProject;
     if (!wsProjectId || !window.deskflowAPI?.saveWorkspace) return;
@@ -2066,19 +1953,50 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       const terminalInfo = Object.fromEntries(
         Object.entries(terminalTabs).map(([id, info]) => [id, { name: info.name, agent: info.agent, modelTier: info.modelTier }])
       );
+
+      // Export terminal scrollback for each open terminal
+      const scrollbackData: Record<string, string> = {};
+      const exportFn = (window as any).__terminalExportScrollback;
+      if (exportFn) {
+        for (const terminalId of Object.keys(terminalTabs)) {
+          if (exportFn[terminalId]) {
+            try { scrollbackData[terminalId] = exportFn[terminalId](); } catch {}
+          }
+        }
+      }
+
+      const activeSubtabs: Record<string, string> = {};
+      try {
+        for (const key of ['setup', 'work', 'insights', 'studio', 'conductor', 'context']) {
+          const v = localStorage.getItem(`workspace-subtab-${key}`);
+          if (v) activeSubtabs[key] = v;
+        }
+      } catch {}
+      // Include session details for the workspace
+      const sessionDetails = sessions.slice(0, 50).map(s => ({
+        id: s.id,
+        topic: s.topic,
+        agent: s.agent,
+        status: s.status,
+        category: s.category,
+        terminal_id: s.terminal_id,
+        created_at: s.created_at,
+      }));
       const result = await window.deskflowAPI.saveWorkspace({
         projectId: wsProjectId,
         name: saveName,
         scope: 'project',
-        sidebarWidth,
         activeTab: activeGroup,
         terminalTabs: Object.keys(terminalTabs),
-        layout: terminalLayout,
-        openFiles: [],
-        activeTerminalId,
-        todos: [],
-        presets,
         terminalInfo,
+        sessionDetails,
+        scrollbackData,
+        layout: terminalLayout,
+        activeTerminalId,
+        presets,
+        analyticsPeriod,
+        sessionCategoryFilter,
+        activeSubtabs,
         configs: {
           modelReinjectThreshold,
           modelDefaultTier,
@@ -2090,19 +2008,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           syncCommandEnabled: localStorage.getItem('sync-command-enabled') === 'true',
           thoughtProcessEnabled: localStorage.getItem('thought-process-enabled') === 'true',
         },
-        analyticsPeriod,
-        sessionCategoryFilter,
         mapListRatio: Number(localStorage.getItem(`mapListRatio:${wsProjectId}`)) || 50,
       });
       if (result?.success) {
         setWorkspaceName(saveName);
-        savedStateHash.current = JSON.stringify({
-          tabs: Object.keys(terminalTabs).sort().map(id => `${id}:${terminalTabs[id].name}:${terminalTabs[id].agent}:${terminalTabs[id].modelTier || ''}`),
-          layout: terminalLayout ? JSON.stringify(terminalLayout) : '',
-          sidebarWidth,
-          activeGroup,
-          presetCount: presets.length,
-        });
         showError(`Workspace "${saveName}" saved`, 'info');
       } else {
         showError(result?.error || 'Failed to save workspace', 'error');
@@ -2110,7 +2019,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     } catch (err: any) {
       showError(err?.message || 'Failed to save workspace', 'error');
     }
-  }, [propProjectId, selectedProject, workspaceName, sidebarWidth, activeGroup, terminalTabs, terminalLayout, activeTerminalId, presets, analyticsPeriod, sessionCategoryFilter, modelReinjectThreshold, modelDefaultTier, modelDebugMode]);
+  }, [propProjectId, selectedProject, workspaceName, activeGroup, terminalTabs, terminalLayout, activeTerminalId, presets, sessions, analyticsPeriod, sessionCategoryFilter, modelReinjectThreshold, modelDefaultTier, modelDebugMode]);
 
   // Expose save function for App.tsx navigation guard
   useEffect(() => {
@@ -2120,12 +2029,20 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const handleLoadWorkspace = useCallback(async (name?: string) => {
     const wsProjectId = propProjectId || selectedProject;
     if (!wsProjectId || !window.deskflowAPI?.loadWorkspace) return;
+    isRestoringRef.current = true;
     try {
       const result = await window.deskflowAPI.loadWorkspace({ scope: 'project', projectId: wsProjectId, name });
       if (result?.success && result.data) {
         setWorkspaceName(result.data.name || 'default');
         if (result.data.sidebarWidth) setSidebarWidth(result.data.sidebarWidth);
         if (result.data.activeTab) setActiveGroup(result.data.activeTab as GroupKey);
+        if (result.data.activeSubtabs) {
+          try {
+            for (const [key, val] of Object.entries(result.data.activeSubtabs as Record<string, string>)) {
+              localStorage.setItem(`workspace-subtab-${key}`, val);
+            }
+          } catch {}
+        }
         if (result.data.presets?.length > 0) setPresets(result.data.presets);
 
         // Restore configs tab settings
@@ -2172,50 +2089,40 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         // Reconstruct terminals from saved terminalTabs
         const savedTabs = result.data.terminalTabs || [];
         const terminalInfo = result.data.terminalInfo || {};
-        if (savedTabs.length > 0 && !userCreatedTerminalRef.current) {
+        const scrollbackData = result.data.scrollbackData || {};
+        if (savedTabs.length > 0) {
           const proj = projects.find(p => p.id === wsProjectId);
           const cwd = proj?.path || '';
-
-          // First: populate terminalTabs so the tab bar shows them immediately
-          const restoredTabs: Record<string, { name: string; agent: string; modelTier?: string }> = {};
-          for (const terminalId of savedTabs) {
-            const info = terminalInfo[terminalId];
-            restoredTabs[terminalId] = {
-              name: info?.name || 'Terminal',
-              agent: info?.agent || 'opencode',
-              modelTier: info?.modelTier || 'mid',
-            };
-          }
-          setTerminalTabs(restoredTabs);
-
-          // Second: spawn terminal processes
           for (const terminalId of savedTabs) {
             if (!terminalTabsRef.current[terminalId]) {
               const info = terminalInfo[terminalId];
               window.dispatchEvent(new CustomEvent('create-terminal', {
-                detail: { terminalId, cwd, agent: info?.agent, sessionName: info?.name }
+                detail: { terminalId, cwd, agent: info?.agent || 'claude', sessionName: info?.name, restoring: true, initAgent: !!info?.agent }
               }));
             }
+          }
+          // Restore scrollback after terminals are created (wait for PTY ready)
+          if (Object.keys(scrollbackData).length > 0) {
+            setTimeout(() => {
+              const importFn = (window as any).__terminalImportScrollback;
+              if (!importFn) return;
+              for (const [terminalId, content] of Object.entries(scrollbackData)) {
+                if (importFn[terminalId] && content) {
+                  try { importFn[terminalId](content); } catch {}
+                }
+              }
+            }, 3000); // Wait for terminals to spawn and be ready
           }
         }
 
         if (result.data.activeTerminalId) {
           setActiveTerminalId(result.data.activeTerminalId);
         }
-
-        // Mark loaded state as clean
-        setTimeout(() => {
-          savedStateHash.current = JSON.stringify({
-            tabs: Object.keys(terminalTabs).sort().map(id => `${id}:${terminalTabs[id].name}:${terminalTabs[id].agent}:${terminalTabs[id].modelTier || ''}`),
-            layout: terminalLayout ? JSON.stringify(terminalLayout) : '',
-            sidebarWidth,
-            activeGroup,
-            presetCount: presets.length,
-          });
-        }, 100);
       }
     } catch (err: any) {
       showError(err?.message || 'Failed to load workspace', 'error');
+    } finally {
+      isRestoringRef.current = false;
     }
   }, [propProjectId, selectedProject, effectiveProjectId, projects]);
 
@@ -2265,6 +2172,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   useEffect(() => {
     const wsProjectId = propProjectId || selectedProject;
     if (!wsProjectId || !window.deskflowAPI?.saveWorkspace) return;
+    if (isRestoringRef.current) return;
     if (saveWorkspaceDebounce.current) clearTimeout(saveWorkspaceDebounce.current);
     saveWorkspaceDebounce.current = setTimeout(handleSaveWorkspace, 2000);
     return () => {
@@ -2287,26 +2195,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     }).finally(() => setLoadingExport(false));
   }, [selectedSessionDetail, sessions]);
 
-  const spawnTerminal = useCallback(async (terminalId: string, cwd?: string, agentType?: string) => {
-    console.log('[TerminalPage] spawnTerminal called:', terminalId, cwd, agentType);
-    if (!window.deskflowAPI) {
-      showError('Terminal API not available - cannot create terminal', 'error');
-      return false;
-    }
-    try {
-      const result = await window.deskflowAPI.spawnTerminal(terminalId, cwd || '', agentType);
-      if (!result.success) {
-        showError(`Failed to spawn shell: ${result.error || 'Unknown error'}`, 'error');
-        return false;
-      }
-      return true;
-    } catch (e) {
-      console.error('[TerminalPage] spawnTerminal error:', e);
-      showError(`Terminal creation failed: ${(e as any).message}`, 'error');
-      return false;
-    }
-  }, [showError]);
-
   const workspaceRestoredRef = useRef(false);
 
   useEffect(() => {
@@ -2320,15 +2208,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   }, [propProjectId, selectedProject, handleLoadWorkspace]);
 
   // Handle create-terminal events: spawn the PTY and notify the system
-  // Placed after spawnTerminal to avoid TDZ reference error
   useEffect(() => {
     const handleCreateTerminal = async (e: CustomEvent) => {
-      const d = e.detail as { terminalId: string; cwd?: string; agent?: string; sessionName?: string };
-      userCreatedTerminalRef.current = true;
+      const d = e.detail as { terminalId: string; cwd?: string; agent?: string; sessionName?: string; restoring?: boolean; initAgent?: boolean };
+      if (!d.restoring) {
+        userCreatedTerminalRef.current = true;
+      }
       window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: d.terminalId } }));
       await spawnTerminal(d.terminalId, d.cwd || propProjectPath, d.agent);
       window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: d.terminalId, agent: d.agent } }));
-      if (d.agent && d.agent.length > 0) {
+      if (d.initAgent && d.agent && d.agent.length > 0) {
         await initializeTerminal(d.terminalId, d.agent, undefined, undefined, undefined, d.cwd || propProjectPath);
       }
     };
@@ -2638,7 +2527,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           return;
         }
         window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: resolvedTerminalId } }));
-        await registerTerminal(resolvedTerminalId);
+        await registerTerminal(resolvedTerminalId, session.agent || 'claude');
         await initializeTerminal(resolvedTerminalId, session.agent || 'claude', resumeId || undefined, undefined, savedSystemPrompt, cwd);
       } else {
         setActiveTerminalId(resolvedTerminalId);
@@ -2774,12 +2663,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
     const handleTerminalCreated = async (e: CustomEvent<{ terminalId: string; agent?: string }>) => {
       const { terminalId } = e.detail;
+      const agent = e.detail.agent || getDefaultAgent();
       const proj = projects.find(p => p.id === selectedProject);
       setTerminalTabs(prev => {
         if (prev[terminalId]) return prev;
-        return { ...prev, [terminalId]: { name: proj?.name || 'Terminal', agent: 'shell' } };
+        return { ...prev, [terminalId]: { name: proj?.name || 'Terminal', agent, modelTier: 'mid' } };
       });
-      await registerTerminal(terminalId);
+      await registerTerminal(terminalId, agent);
+      // Initialize the agent (launch command + system prompt)
+      await initializeTerminal(terminalId, agent, undefined, undefined, undefined, propProjectPath);
     };
 
     const handleClosePane = (e: CustomEvent<{ terminalId: string }>) => {
@@ -2848,7 +2740,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   return (
     <PageShell page="terminal" className="flex-1 flex bg-black text-white !p-0 !space-y-0 relative overflow-hidden">
       {/* Main Terminal Area */}
-      <div style={accentStyle('cyan')} className="flex-1 flex flex-col bg-zinc-950">
+      <div style={accentStyle('cyan')} className="flex-1 flex flex-col bg-zinc-950 relative">
         <div className="flex items-center justify-between px-4 py-2 bg-zinc-950 border-b border-zinc-800/60">
           <div className="flex items-center gap-3">
             <Monitor className="w-4 h-4 text-green-500" />
@@ -2969,7 +2861,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   }}>
                   Quick
                 </ToolbarButton>
-                <ToolbarButton icon={Save} onClick={handleSaveCheckpoint}>
+                <ToolbarButton icon={Save} onClick={async () => { await handleSaveWorkspace(); }}>
                   Save
                 </ToolbarButton>
               </>
@@ -2977,23 +2869,29 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           </div>
         </div>
         
-        {/* Instruction Panel (full mode) */}
+        {/* Instruction Panel (overlay — does NOT push terminal content) */}
         {showInstructionPanel && activeTerminalId && (
-          <InstructionPanel
-            problems={allProblems}
-            requests={allRequests}
-            onSend={handleInstructionPanelSend}
-            onClose={() => setShowInstructionPanel(false)}
-            isSending={isSending}
-            projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path}
-            systemPromptLayers={systemPromptLayers}
-            defaultSkills={composeSkills}
-          />
+          <div className="absolute inset-x-0 top-[41px] bottom-0 z-50 flex flex-col pointer-events-none">
+            <div className="pointer-events-auto mx-4 mt-2 max-h-[70vh] overflow-y-auto rounded-xl bg-zinc-900/95 ring-1 ring-inset ring-zinc-700/50 shadow-2xl shadow-black/60 backdrop-blur-md">
+              <InstructionPanel
+                problems={allProblems}
+                requests={allRequests}
+                onSend={handleInstructionPanelSend}
+                onClose={() => setShowInstructionPanel(false)}
+                isSending={isSending}
+                projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path}
+                systemPromptLayers={systemPromptLayers}
+                defaultSkills={composeSkills}
+              />
+            </div>
+            <div className="flex-1" onClick={() => setShowInstructionPanel(false)} />
+          </div>
         )}
 
-        {/* Quick Instruction Input Bar */}
+        {/* Quick Instruction Input Bar (overlay — does NOT push terminal content) */}
         {showInstructionInput && activeTerminalId && (
-          <div className="px-4 py-2 bg-zinc-950/90 border-b border-zinc-800/60">
+          <div className="absolute inset-x-0 top-[41px] z-50 flex flex-col pointer-events-none">
+            <div className="pointer-events-auto mx-4 mt-2 rounded-xl bg-zinc-900/95 ring-1 ring-inset ring-zinc-700/50 shadow-2xl shadow-black/60 backdrop-blur-md px-4 py-2">
             {/* Quoted References Chips */}
             {quotedReferences.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2 px-0.5">
@@ -3119,6 +3017,17 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   {instructionText.length}/500
                 </span>
               </div>
+               {activeTerminalId && terminalAnomalies[activeTerminalId] ? (
+                <AnomalyBadge anomalies={[{ severity: terminalAnomalies[activeTerminalId].severity, detail: (terminalAnomalies[activeTerminalId].kind === 'update' ? 'Update: ' : (terminalAnomalies[activeTerminalId].type + ': ')) + terminalAnomalies[activeTerminalId].detail }]} loading={false} onDismiss={() => setTerminalAnomalies((prev) => { const n = Object.assign({}, prev); delete n[activeTerminalId]; return n; })} />
+              ) : null}
+              {cliUpdates.length > 0 ? (
+                <button onClick={() => (window as any).deskflowAPI && (window as any).deskflowAPI.checkCliUpdates && (window as any).deskflowAPI.checkCliUpdates()} title={cliUpdates.map((u) => u.agent + ' ' + u.current + ' -> ' + u.latest).join(', ')} className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-blue-500/10 text-blue-300 ring-1 ring-inset ring-blue-500/30 hover:ring-blue-400/60 transition-colors duration-150">
+                  <RefreshCw className="w-3 h-3" />
+                  <span>{cliUpdates.length === 1 ? (cliUpdates[0].agent + ' update') : (cliUpdates.length + ' CLI updates')}</span>
+                </button>
+              ) : null}
+              {activeTerminalId ? <ModelSwitcher terminalId={activeTerminalId} agent={terminalTabs[activeTerminalId]?.agent || 'opencode'} /> : null}
+              <ConfigGenerator agent={activeTerminalId ? (terminalTabs[activeTerminalId]?.agent || 'opencode') : 'all'} baseDir={propProjectPath || ''} />
                <ToolbarButton variant="primary" icon={Send} disabled={!instructionText.trim() || isSending || instructionText.length > 500} onClick={sendInstruction}>
                   {isSending ? (
                     <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
@@ -3127,25 +3036,12 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 <ToolbarButton icon={Save} onClick={handleSaveCheckpoint}>
                   Save
                 </ToolbarButton>
-                  {activeTerminalId ? <ModelSwitcher terminalId={activeTerminalId} agent={terminalTabs[activeTerminalId]?.agent || 'opencode'} /> : null}
-                <div className="h-6 w-px bg-zinc-700/50" />
-                {activeTerminalId && terminalAnomalies[activeTerminalId] ? (
-                  <AnomalyBadge anomalies={[{ severity: terminalAnomalies[activeTerminalId].severity, detail: (terminalAnomalies[activeTerminalId].kind === 'update' ? 'Update: ' : (terminalAnomalies[activeTerminalId].type + ': ')) + terminalAnomalies[activeTerminalId].detail }]} loading={false} onDismiss={() => setTerminalAnomalies((prev) => { const n = Object.assign({}, prev); delete n[activeTerminalId]; return n; })} />
-                ) : null}
-                {cliUpdates.length > 0 ? (
-                  <div className="h-6 w-px bg-zinc-700/50" />
-                ) : null}
-                {cliUpdates.length > 0 ? (
-                  <button onClick={() => (window as any).deskflowAPI && (window as any).deskflowAPI.checkCliUpdates && (window as any).deskflowAPI.checkCliUpdates()} title={cliUpdates.map((u) => u.agent + ' ' + u.current + ' -> ' + u.latest).join(', ')} className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-[color:var(--page-accent)]/10 text-[color:var(--page-accent)] ring-1 ring-inset ring-[color:var(--page-accent)]/30 hover:ring-[color:var(--page-accent)]/60 transition-colors duration-150">
-                    <RefreshCw className="w-3 h-3" />
-                    <span>{cliUpdates.length === 1 ? (cliUpdates[0].agent + ' update') : (cliUpdates.length + ' CLI updates')}</span>
-                  </button>
-                ) : null}
-                <ConfigGenerator agent={activeTerminalId ? (terminalTabs[activeTerminalId]?.agent || 'opencode') : 'all'} baseDir={propProjectPath || ''} />
                <button className={WS_ICON_BTN} onClick={() => { setShowInstructionInput(false); setInstructionText(''); }}>
                   <X className="w-4 h-4" />
                 </button>
             </div>
+            </div>
+            <div className="flex-1" onClick={() => setShowInstructionInput(false)} />
           </div>
         )}
         
@@ -3254,7 +3150,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           </button>
         </div>
 
-        <div className="flex-1 relative overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
           {terminalError && (
             <div className={`px-4 py-2 text-xs border-b ${
               terminalErrorType === 'error' ? 'bg-red-950/50 border-red-800/60 text-red-200' :
@@ -3320,7 +3216,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 };
                 return (
                   <div data-tutorial="term.panes"
-                    className="w-full h-full relative"
+                    className="flex-1 min-h-0 relative overflow-hidden"
                     onDragOver={(e) => {
                       if (draggedTabRef.current || draggedSessionId) e.preventDefault();
                     }}
@@ -3392,7 +3288,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       {/* Sidebar */}
       {sidebarOpen && (
         <div 
-          className="relative shrink-0 bg-zinc-950 ws-sidebar-edge flex flex-col"
+          className="relative shrink-0 bg-zinc-950 ws-sidebar-edge flex flex-col min-w-0 overflow-hidden"
           style={{ width: sidebarWidth }}
         >
           {/* Resize Handle */}
@@ -3406,34 +3302,33 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           </div>
           
           {/* Sidebar Header */}
-          <header className="flex items-center justify-between px-3 h-9 border-b border-zinc-800/60">
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Terminal</span>
+          <header className="flex items-center justify-between px-3 h-9 border-b border-zinc-800/60 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 truncate">Terminal</span>
             </div>
             <div className="flex items-center gap-1">
-              {/* Persistent save indicator */}
               <button
                 onClick={async () => { await handleSaveWorkspace(); }}
-                title={`Workspace: ${workspaceName} — click to save`}
-                className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] text-zinc-300 hover:text-white hover:bg-zinc-700/60 transition-colors border border-zinc-700/60"
+                title={`Save: ${workspaceName}`}
+                className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
               >
-                <Save className="w-3 h-3 text-zinc-400" />
-                <span className="max-w-[80px] truncate">{workspaceName}</span>
-                {hasUnsavedChanges && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" title="Unsaved changes — click to save" />}
+                <Save className="w-3.5 h-3.5" />
+                {hasUnsavedChanges && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
               </button>
-              <button onClick={() => setShowFeaturesDialog(true)} title="Workspace Features" className={WS_ICON_BTN}><Info className="w-3.5 h-3.5" /></button>
-              <button onClick={() => setShowGeneralistDialog(true)} title="Skill Configuration" className={WS_ICON_BTN}><BookOpen className="w-3.5 h-3.5" /></button>
-              <button onClick={() => setSidebarOpen(false)} title="Collapse sidebar" className={WS_ICON_BTN}><PanelLeftClose className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setShowFeaturesDialog(true)} title="Features" className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"><Info className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setShowGeneralistDialog(true)} title="Skills" className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"><BookOpen className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setSidebarOpen(false)} title="Close" className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"><PanelLeftClose className="w-3.5 h-3.5" /></button>
             </div>
           </header>
           {/* Group Tab Bar */}
-          <nav className="flex gap-px px-2 pt-1.5">
+          <nav className="flex flex-wrap gap-px px-2 pt-1.5 min-w-0 overflow-hidden">
             {([
               { key: 'setup' as const, icon: Settings, label: 'Setup', accent: 'orange' },
               { key: 'work' as const, icon: Monitor, label: 'Work', accent: 'green' },
               { key: 'insights' as const, icon: PieChart, label: 'Insights', accent: 'purple' },
               { key: 'studio' as const, icon: Sparkles, label: 'Studio', accent: 'indigo' },
+              { key: 'conductor' as const, icon: Bot, label: 'Conductor', accent: 'rose' },
               { key: 'context' as const, icon: Settings2, label: 'Context', accent: 'amber' },
             ]).map((g) => {
               const active = activeGroup === g.key;
@@ -3443,13 +3338,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   key={g.key}
                   onClick={() => { setFileChangedPulse(false); setActiveGroup(g.key); }}
                   title={g.label}
-                  className={`relative flex items-center gap-1.5 px-4 h-8 rounded-t-lg text-[11px] font-semibold tracking-wider transition-all duration-150 ${active
-                    ? `bg-zinc-800/80 text-zinc-100 border ${ACCENT_BORDER[g.accent]} border-b-0 -mb-px`
-                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30 border border-transparent'
+                  className={`relative flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-[11px] font-semibold tracking-wider transition-all duration-150 overflow-hidden min-w-0 ${active
+                    ? `bg-zinc-800/80 text-zinc-100 ring-1 ring-inset ${ACCENT_BORDER[g.accent]}`
+                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30'
                   }`}
                 >
-                  <Icon className={`w-3.5 h-3.5 ${active ? ACCENT_TEXT[g.accent] : 'opacity-80'}`} />
-                  <span>{g.label}</span>
+                  <Icon className={`w-3.5 h-3.5 shrink-0 ${active ? ACCENT_TEXT[g.accent] : 'opacity-80'}`} />
+                  <span className="truncate">{g.label}</span>
                   {g.key === 'work' && fileChangedPulse && (
                     <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full animate-ping" />
                   )}
@@ -3458,24 +3353,18 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             })}
           </nav>
           {/* Accent connectivity strip */}
-          <div className={`h-[3px] ${ACCENT_STRIP[{setup:'orange',work:'green',insights:'purple',studio:'indigo',context:'amber'}[activeGroup]]} opacity-60`}>
-            <div className={`h-full w-[18px] ${ACCENT_STRIP[{setup:'orange',work:'green',insights:'purple',studio:'indigo',context:'amber'}[activeGroup]]} opacity-80`} />
+          <div className={`h-[3px] ${ACCENT_STRIP[{setup:'orange',work:'green',insights:'purple',studio:'indigo',conductor:'rose',context:'amber'}[activeGroup] || 'bg-zinc-700']} opacity-60`}>
+            <div className={`h-full w-[18px] ${ACCENT_STRIP[{setup:'orange',work:'green',insights:'purple',studio:'indigo',conductor:'rose',context:'amber'}[activeGroup] || 'bg-zinc-700']} opacity-80`} />
           </div>
 
           {/* Content */}
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
             {activeGroup === 'setup' && (
               <WorkspaceShell accent="orange" tabs={[
                 { key: 'presets', icon: Zap, label: 'Presets' },
                 { key: 'configs', icon: Settings, label: 'Configs' },
-                { key: 'backup', icon: Database, label: 'Backup' },
               ]} storageKey="setup" render={(sub) => {
                 switch (sub) {
-                  case 'backup': return (
-                    <GroupPanel accent="orange">
-                      <BackupPanel />
-                    </GroupPanel>
-                  );
                   case 'presets': return (
                     <GroupPanel accent="green">
                       <ToolbarButton variant="primary" icon={Plus} onClick={() => setShowAddPreset(true)}>
@@ -4184,30 +4073,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                           )}
                         </div>
                       </SectionCard>
-
-                      {/* Auto-Save Toggle */}
-                      <SectionCard accent="orange" title="Auto-Save">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <span className="text-xs text-zinc-300">Auto-save workspace</span>
-                            <p className="text-[9px] text-zinc-600 mt-1">Automatically save workspace changes after 3s of inactivity</p>
-                          </div>
-                          <button
-                            onClick={() => {
-                              const v = !autoSaveEnabled;
-                              setAutoSaveEnabled(v);
-                              localStorage.setItem('workspace-auto-save', String(v));
-                            }}
-                            className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${
-                              autoSaveEnabled ? 'bg-orange-500/30 border border-orange-500/40' : 'bg-zinc-700 border border-zinc-600'
-                            }`}
-                          >
-                            <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${
-                              autoSaveEnabled ? 'translate-x-4 bg-orange-400' : 'translate-x-0.5 bg-zinc-400'
-                            }`} />
-                          </button>
-                        </div>
-                      </SectionCard>
                     </GroupPanel>
                   );
                   default: return null;
@@ -4275,34 +4140,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
             {activeGroup === 'work' && (
               <WorkspaceShell accent="green" tabs={[
-                 { key: 'sessions', icon: Clock, label: 'Sessions' },
-                 { key: 'swarm', icon: GitBranch, label: 'Swarm' },
-                 { key: 'map', icon: Monitor, label: 'Map' },
-                 { key: 'files', icon: Folder, label: 'Files' },
-                 { key: 'workspaces', icon: Save, label: 'Workspaces' },
-                 { key: 'run-configs', icon: Play, label: 'Run' },
-               ]} storageKey="work" render={(sub) => {
+                { key: 'sessions', icon: Clock, label: 'Sessions' },
+                { key: 'map', icon: Monitor, label: 'Map' },
+                { key: 'files', icon: Folder, label: 'Files' },
+                { key: 'workspaces', icon: Save, label: 'Workspaces' },
+              ]} storageKey="work" render={(sub) => {
                 switch (sub) {
-                   case 'swarm': return (
-                     <GroupPanel accent="green">
-                       <div className="relative flex-1 min-h-0">
-                         <div className="h-full overflow-y-auto ws-scroll px-3 py-3">
-                           {propProjectId || selectedProject ? (
-                             <ConductorPanel
-                               projectId={propProjectId || selectedProject}
-                               projectPath={propProjectPath || (projects.find(p => p.id === selectedProject)?.path || '')}
-                             />
-                           ) : (
-                             <div className="text-[11px] text-zinc-500 text-center py-8">Select a project to start swarming.</div>
-                           )}
-                         </div>
-                       </div>
-                     </GroupPanel>
-                   );
-                   case 'sessions': return (
-                     <GroupPanel accent="green">
-                       <div data-tutorial="term.sessions" className="relative flex-1 min-h-0">
-                        <div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
+                  case 'sessions': return (
+                    <GroupPanel accent="green">
+                      <div data-tutorial="term.sessions" className="relative flex-1 min-h-0">
+                        <div className="px-3 py-3 space-y-3">
                          {selectedSessionDetail ? (
                            <div>
                               <button
@@ -4370,7 +4217,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                           {sessionMessages.map((msg: any, i: number) => (
                                             <div key={i} className={`px-2 py-1 rounded text-[10px] ${msg.role === 'assistant' ? 'bg-cyan-900/20 border-l-2 border-cyan-500/30' : msg.role === 'user' ? 'bg-blue-900/20 border-l-2 border-blue-500/30' : 'bg-zinc-900/50 border-l-2 border-zinc-500/30'}`}>
                                               <span className="text-[9px] font-medium text-zinc-500 uppercase mr-1">{msg.role}</span>
-                                              <span className="text-zinc-300">{msg.content?.slice(0, 200)}{msg.content?.length > 200 ? '...' : ''}</span>
+                                              <span className="text-zinc-300">{stripAnsi(msg.content || '').slice(0, 200)}{stripAnsi(msg.content || '').length > 200 ? '...' : ''}</span>
                                             </div>
                                           ))}
                                         </div>
@@ -4383,15 +4230,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                          ) : (
                            <div>
                               <div className="flex gap-2 mb-4">
-                                <ToolbarButton variant="primary" icon={Plus} onClick={() => {
+                                <button onClick={() => {
                                     setNewSessionTerminalMode('create');
                                     setNewSessionSelectedTerminal('');
                                     setNewSessionAgent('claude');
                                     setNewSessionName('');
                                     setShowNewSessionDialog(true);
-                                  }}>
+                                  }} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-lg text-[11px] font-medium transition-colors duration-150 active:scale-95 bg-emerald-600 text-white hover:bg-emerald-500 ring-1 ring-inset ring-white/15 shadow-sm shadow-black/40">
+                                  <Plus className="w-3.5 h-3.5" />
                                   New Session
-                                </ToolbarButton>
+                                </button>
                                 <ToolbarButton onClick={() => setShowImportSessionsDialog(true)}>
                                   <TerminalIcon className="w-3 h-3" />
                                   Import
@@ -4505,7 +4353,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                           {session.description && (
                                             <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1">{session.description}</div>
                                           )}
-                                          <SessionResourceStats stats={session.terminal_id ? resourceStats[session.terminal_id] : undefined} />
                                           <div className="flex items-center gap-2 mt-0.5">
                                             <span className="text-[10px] text-zinc-500">{formatDate(session.created_at)}</span>
                                             {session.product_area && (
@@ -4515,6 +4362,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                               <span className="text-[10px] text-cyan-600 font-mono">Resume: {session.resume_id.slice(-12)}&hellip;</span>
                                             )}
                                           </div>
+                                          <SessionResourceStats stats={session.terminal_id ? resourceStats[session.terminal_id] : undefined} />
                                           {tags.length > 0 && (
                                             <div className="flex gap-1 mt-1 flex-wrap">
                                               {tags.slice(0, 5).map((t: string, i: number) => (
@@ -4612,7 +4460,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   case 'map': return (
                     <GroupPanel accent="green">
                       <div className="relative flex-1 min-h-0">
-                        <div className="h-full overflow-y-auto ws-scroll p-3 space-y-3">
+                        <div className="p-3 space-y-3">
                         <p className="text-xs text-zinc-500">Drag panes to rearrange or split • Click to focus</p>
                         <div className="min-h-0 overflow-hidden" style={{ flex: mapListRatio }}>
                           {terminalLayout ? (
@@ -4753,15 +4601,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                       <FilesTab projectId={selectedProject} projectPath={propProjectPath} projects={projects} onSelectProject={setSelectedProject} />
                     </GroupPanel>
                   );
-                  case 'run-configs': return (
-                    <GroupPanel accent="green">
-                      <div className="relative flex-1 min-h-0">
-                        <div className="h-full overflow-y-auto ws-scroll px-3 py-3 space-y-3">
-                          <RunConfigsPanel projectId={selectedProject} projectPath={propProjectPath} projects={projects} />
-                        </div>
-                      </div>
-                    </GroupPanel>
-                  );
                   default: return null;
                 }
               }} />
@@ -4772,6 +4611,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 { key: 'analytics', icon: PieChart, label: 'Analytics' },
                 { key: 'history', icon: MessageSquare, label: 'Prompts' },
                 { key: 'issues', icon: ListChecks, label: 'Issues' },
+                { key: 'performance', icon: Activity, label: 'Performance' },
                 { key: 'bugs', icon: Bug, label: 'Bugs' },
               ]} storageKey="insights" render={(sub) => {
                 switch (sub) {
@@ -4795,6 +4635,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         period={analyticsPeriod}
                         variant="full"
                       />
+                    </GroupPanel>
+                  );
+                  case 'performance': return (
+                    <GroupPanel accent="purple">
+                      <PerformanceMetricsPanel projectId={selectedProject} projectPath={propProjectPath} />
                     </GroupPanel>
                   );
                   case 'history': return (
@@ -4857,10 +4702,29 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               }} />
             )}
 
+            {activeGroup === 'conductor' && (
+              <WorkspaceShell accent="rose" tabs={[
+                { key: 'missions', icon: Bot, label: 'Missions' },
+                { key: 'approvals', icon: Shield, label: 'Approvals' },
+                { key: 'trace', icon: Activity, label: 'Trace' },
+                { key: 'budget', icon: Coins, label: 'Budget' },
+                { key: 'providers', icon: Zap, label: 'Providers' },
+                { key: 'templates', icon: Sparkles, label: 'Templates' },
+                { key: 'settings', icon: Settings, label: 'Settings' },
+              ]} storageKey="conductor" render={(sub) => {
+                return (
+                  <GroupPanel accent="rose">
+                    <ConductorWorkspaceTab activeTab={sub} projectId={selectedProject || propProjectId || undefined} repoPath={propProjectPath} userBranch="main" />
+                  </GroupPanel>
+                );
+              }} />
+            )}
+
             {activeGroup === 'context' && (
               <WorkspaceShell accent="amber" tabs={[
                 { key: 'context', icon: Settings2, label: 'Context' },
                 { key: 'context-maintenance', icon: Database, label: 'Maintenance' },
+                { key: 'context-map', icon: Network, label: 'Context Map' },
                 { key: 'page-context', icon: FileText, label: 'Page Context' },
               ]} storageKey="context" render={(sub) => {
                 switch (sub) {
@@ -4881,9 +4745,19 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                       />
                     </GroupPanel>
                   );
+                  case 'context-map': return (
+                    <GroupPanel accent="cyan">
+                      <WorkspaceMindMap projectPath={propProjectPath || ''} />
+                    </GroupPanel>
+                  );
                   case 'page-context': return (
                     <GroupPanel accent="blue">
                       <PageContextPanel projectPath={propProjectPath} />
+                    </GroupPanel>
+                  );
+                  case 'feature-logic': return (
+                    <GroupPanel accent="emerald">
+                      <FeatureLogicPanel />
                     </GroupPanel>
                   );
                   default: return null;
@@ -4906,7 +4780,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 localStorage.setItem('terminal-defaultAgent', agent);
                 setShowNewSessionDialog(false);
 
-                // Show session in list immediately while creation is in progress
+                // Show session in list immediately
                 const optimisticSession: Session = {
                   id: config.id,
                   agent,
@@ -4916,7 +4790,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 };
                 setSessions(prev => [optimisticSession, ...prev]);
 
-                // Resolve init content from config (skip when resuming existing session)
+                // Resolve init content
                 let initContent = config.initContent || '';
                 if (!config.resumeId && !config.initContent) {
                   if (config.includeDefaultInit) {
@@ -4929,7 +4803,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                       initContent = initContent ? `${initContent}\n\n${cust.data}` : cust.data;
                     }
                   }
-                  // Append problem/request context to init content
                   if (config.problemIds?.length) {
                     const ctx = config.problemIds.map(id => `- ${allProblems.find(p => p.id === id)?.title || id}`).join('\n');
                     initContent += `\n## Context: Problems\n${ctx}\n`;
@@ -4941,76 +4814,45 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 }
                 const systemPrompt = config.customSystemPrompt || undefined;
 
+                // ═══ DETERMINE TERMINAL ═══
                 let targetTerminalId = '';
-                 if (config.terminalMode === 'select' && config.selectedTerminal) {
-                   // Re-launch agent on existing terminal
-                   targetTerminalId = config.selectedTerminal;
-                   setActiveTerminalId(targetTerminalId);
-                   
-                     // Launch the agent on the existing terminal
-                    const NL = '\r\n';
-                    const cdCmd = cwd ? `cd "${cwd}"${NL}` : '';
-                    let resumeCmd = `${agent} -s ${config.resumeId}`;
-                    if (config.resumeId) {
-                      try {
-                        const prefs = await window.deskflowAPI?.getPreferences?.();
-                        const templates: Record<string, string> = prefs?.agentResumeCommands || {};
-                        const tmpl = templates[agent];
-                        if (tmpl) resumeCmd = tmpl.replace('{agent}', agent).replace('{resumeId}', config.resumeId);
-                      } catch {}
-                    }
-                    const launchCommand = config.resumeId ? `${cdCmd}${resumeCmd}${NL}` : `${cdCmd}${agent}${NL}`;
-                   await window.deskflowAPI?.terminalWrite?.(targetTerminalId, launchCommand);
-                   await new Promise(r => setTimeout(r, 500));
-                   
-                   if (systemPrompt) {
-                     await window.deskflowAPI?.terminalWrite?.(targetTerminalId, systemPrompt + '\r\n');
-                     await new Promise(r => setTimeout(r, 500));
-                   }
-                   
-                   // Write init content (from INITIALIZE.md, problems, requests)
-                   // NOTE: Do NOT write user prompts here - use InstructionPanel instead
-                   if (initContent) {
-                     await new Promise(r => setTimeout(r, 800));
-                     await window.deskflowAPI?.terminalWrite?.(targetTerminalId, initContent + '\r\n');
-                   }
-                 } else {
+                const isNewTerminal = config.terminalMode !== 'select' || !config.selectedTerminal;
+
+                if (isNewTerminal) {
+                  // ── CREATE NEW TERMINAL ──
                   targetTerminalId = generateTerminalId();
-                  const count = Object.keys(terminalTabs).length;
                   setTerminalTabs(prev => ({ ...prev, [targetTerminalId]: { name: proj?.name || sessionName, agent, modelTier: config.modelTier || config.contextConfig?.model_tier || 'mid' } }));
                   setActiveTerminalId(targetTerminalId);
                   const updatedLayout = insertIntoLayout(terminalLayout, targetTerminalId);
                   setTerminalLayout(updatedLayout);
                   saveLayout(updatedLayout);
                   sessionTerminalsRef.current.add(targetTerminalId);
-                  
-                  // ═══ SPAWN PTY AND WAIT FOR COMPLETION ═══
-                  // Spawn BEFORE initializing, don't just dispatch event
+
+                  // Spawn PTY
                   if (!window.deskflowAPI?.spawnTerminal) {
-                    console.error('[NewSessionDialog] Terminal API not available');
+                    console.error('[NewSession] Terminal API not available');
                     return;
                   }
                   const spawnRes = await window.deskflowAPI.spawnTerminal(targetTerminalId, cwd, agent);
                   if (!spawnRes?.success) {
-                    console.error('[NewSessionDialog] Failed to spawn terminal:', spawnRes?.error);
+                    console.error('[NewSession] Failed to spawn:', spawnRes?.error);
                     return;
                   }
                   window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: targetTerminalId } }));
-                  
-                  // ═══ REGISTER AND INITIALIZE ═══
-                  await registerTerminal(targetTerminalId);
-                  await initializeTerminal(targetTerminalId, agent, config.resumeId, undefined, systemPrompt, cwd);
-                  
-                  // ═══ WRITE INITIALIZATION CONTENT ═══
-                  if (initContent) {
-                    await new Promise(r => setTimeout(r, 800));
-                    const writeRes = await window.deskflowAPI?.terminalWrite?.(targetTerminalId, initContent + '\r\n');
-                    if (!writeRes?.success) {
-                      console.error('[NewSessionDialog] Failed to write init content:', writeRes?.error);
-                    }
-                  }
+
+                  // Register and initialize
+                  await registerTerminal(targetTerminalId, agent);
+                  await initializeTerminal(targetTerminalId, agent, config.resumeId, initContent, systemPrompt, cwd);
+                } else {
+                  // ── REUSE EXISTING TERMINAL ──
+                  targetTerminalId = config.selectedTerminal!;
+                  setActiveTerminalId(targetTerminalId);
+
+                  // Use initializeTerminal to properly launch agent (with correct resume flags)
+                  await initializeTerminal(targetTerminalId, agent, config.resumeId, initContent, systemPrompt, cwd);
                 }
 
+                // ═══ SAVE SESSION TO DB ═══
                 const sesResumeId = config.resumeId || undefined;
                 const subtab = localStorage.getItem(`workspace-subtab-${activeGroup}`) || 'sessions';
                 const sessionResult = await window.deskflowAPI?.saveTerminalSession?.({
@@ -5033,6 +4875,20 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 } else {
                   setSessions(prev => prev.filter(s => s.id !== config.id));
                   showError('Failed to save session', 'error');
+                }
+
+                // ═══ CAPTURE REAL OPENCODE SESSION ID ═══
+                if (cwd && !config.resumeId) {
+                  try {
+                    const capResult = await (window.deskflowAPI as any)?.captureOpencodeSessionId?.(targetTerminalId, cwd);
+                    if (capResult?.success && capResult.sessionId) {
+                      console.log('[NewSession] Captured opencode session:', capResult.sessionId);
+                      const updateBanner = `\r\n[captured] opencode session ${capResult.sessionId}\r\n`;
+                      (window.deskflowAPI as any)?.terminalWriteDisplay?.(targetTerminalId, updateBanner);
+                    }
+                  } catch (e) {
+                    console.warn('[NewSession] Session capture failed:', e);
+                  }
                 }
 
                 // ═══ BACKGROUND CAPTURE real opencode session ID (only for new sessions) ═══
@@ -5203,7 +5059,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                 <span className={`text-[9px] font-bold uppercase tracking-wider ${c.text}`}>{msg.role}</span>
                                 {msg.created_at && <span className="text-[10px] text-zinc-600">{new Date(msg.created_at).toLocaleTimeString()}</span>}
                               </div>
-                              <pre className="text-xs text-zinc-300 whitespace-pre-wrap font-mono break-words max-h-40 overflow-y-auto leading-relaxed">{msg.content.replace(/[\x1b\x9b][[\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\x07)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')}</pre>
+                              <pre className="text-xs text-zinc-300 whitespace-pre-wrap font-mono break-words max-h-40 overflow-y-auto leading-relaxed">{stripAnsi(msg.content)}</pre>
                             </div>
                           </div>
                         );
@@ -5262,57 +5118,26 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]" onClick={() => setShowCloseWorkspaceDialog(false)}>
           <GlassCard className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-base font-bold text-white mb-2">Close Workspace</h2>
-            <p className="text-sm text-zinc-400 mb-3">Save a checkpoint before closing, or discard changes?</p>
-            {hasUnsavedChanges && (
-              <div className="mb-4 p-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/40 space-y-1.5 text-[11px]">
-                <div className="flex items-center justify-between text-zinc-400">
-                  <span>Terminal tabs</span>
-                  <span className="text-zinc-200 font-medium">{Object.keys(terminalTabs).length}</span>
-                </div>
-                <div className="flex items-center justify-between text-zinc-400">
-                  <span>Sidebar width</span>
-                  <span className="text-zinc-200 font-medium">{sidebarWidth}px</span>
-                </div>
-                <div className="flex items-center justify-between text-zinc-400">
-                  <span>Active tab</span>
-                  <span className="text-zinc-200 font-medium capitalize">{activeGroup}</span>
-                </div>
-                {workspaceName && (
-                  <div className="flex items-center justify-between text-zinc-400">
-                    <span>Saved as</span>
-                    <span className="text-zinc-200 font-medium">{workspaceName}</span>
-                  </div>
-                )}
-              </div>
-            )}
-            {!hasUnsavedChanges && (
-              <p className="text-sm text-zinc-500 mb-4">No unsaved changes. Workspace is up to date.</p>
-            )}
+            <p className="text-sm text-zinc-400 mb-6">Save a checkpoint before closing, or discard changes?</p>
             <div className="flex flex-col gap-2">
-              {hasUnsavedChanges && (
-                <button
-                  onClick={async () => {
-                    setShowCloseWorkspaceDialog(false);
-                    await handleSaveWorkspace();
-                    onCloseWorkspace?.();
-                  }}
-                  className="w-full px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded text-sm font-medium"
-                >
-                  Save & Close
-                </button>
-              )}
+              <button
+                onClick={async () => {
+                  setShowCloseWorkspaceDialog(false);
+                  await handleSaveWorkspace();
+                  onCloseWorkspace?.();
+                }}
+                className="w-full px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded text-sm font-medium"
+              >
+                Save & Close
+              </button>
               <button
                 onClick={() => {
                   setShowCloseWorkspaceDialog(false);
                   onCloseWorkspace?.();
                 }}
-                className={`w-full px-4 py-2 rounded text-sm font-medium ${
-                  hasUnsavedChanges
-                    ? 'bg-zinc-700 hover:bg-zinc-600 text-zinc-300'
-                    : 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white'
-                }`}
+                className="w-full px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm"
               >
-                {hasUnsavedChanges ? 'Discard & Close' : 'Close Workspace'}
+                Discard & Close
               </button>
               <button
                 onClick={() => setShowCloseWorkspaceDialog(false)}
@@ -5426,7 +5251,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 shrink-0">
                   {ws.isActive && <span className="text-[10px] text-green-400 mr-1">active</span>}
                   <button
                     onClick={async (e) => {

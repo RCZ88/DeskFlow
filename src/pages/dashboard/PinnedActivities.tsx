@@ -4,6 +4,7 @@ import {
   ChevronRight, Check, Edit3, Plus, Minus, Play, X,
   BookOpen, Dumbbell, Activity, Moon, Utensils, Coffee, Bus, Book, Timer, Sun
 } from 'lucide-react';
+import { BorderBeam } from '../../components/ui/border-beam';
 
 interface ExternalActivity {
   id: number;
@@ -96,6 +97,15 @@ export function PinnedActivities({
             
             return (
               <motion.div key={activity.id} className="relative">
+                {isSelected && (
+                  <BorderBeam
+                    size={50}
+                    duration={6}
+                    colorFrom="#10b981"
+                    colorTo="#34d399"
+                    borderWidth={1.5}
+                  />
+                )}
                 <motion.button
                   onClick={() => {
                     if (pinnedActivitiesEditMode) {
@@ -110,10 +120,18 @@ export function PinnedActivities({
                   whileTap={{ scale: 0.97 }}
                   className={`w-full rounded-xl border transition-all duration-200 text-center overflow-hidden ${
                     isSelected
-                      ? 'bg-emerald-500/10 border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
-                      : 'bg-zinc-500/10 border-zinc-500/20 hover:border-zinc-500/30'
+                      ? 'border-emerald-500/50'
+                      : 'bg-zinc-500/10 border-zinc-500/20 hover:border-zinc-500/40 hover:bg-zinc-500/15'
                   }`}
-                  style={{ padding: isSelected ? '12px 12px 8px' : '16px 12px' }}
+                  style={{
+                    padding: isSelected ? '12px 12px 8px' : '16px 12px',
+                    background: isSelected
+                      ? 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(6,95,70,0.10))'
+                      : undefined,
+                    boxShadow: isSelected
+                      ? '0 0 24px rgba(16,185,129,0.12), inset 0 1px 0 rgba(16,185,129,0.20)'
+                      : undefined,
+                  }}
                 >
                   {isSelected && externalSessionRunning && (
                     <div className="flex items-center justify-center gap-1.5 mb-1.5">

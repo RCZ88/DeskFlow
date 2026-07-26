@@ -26,6 +26,11 @@ function getSourceAccent(source: LibraryId): string {
     case '21st-dev': return '#22d3ee';
     case 'aceternity': return '#a78bfa';
     case 'refero': return '#34d399';
+    case 'magicui': return '#f472b6';
+    case 'shadcn': return '#60a5fa';
+    case 'cult-ui': return '#fb923c';
+    case 'fragments-ui': return '#a78bfa';
+    case 'reactbits': return '#34d399';
   }
 }
 
@@ -54,6 +59,16 @@ export default function ComponentBrowserModal({ open, onClose, libraryId, onAddC
         result = await dapi?.mcpCallTool?.('21st-dev', 'get_component', { slug });
       } else if (libraryId === 'refero') {
         result = await dapi?.fetchReferoSystem?.(slug);
+      } else if (libraryId === 'magicui') {
+        result = await dapi?.mcpCallTool?.('magicui', 'get_registry_item', { name: slug });
+      } else if (libraryId === 'shadcn') {
+        result = await dapi?.mcpCallTool?.('shadcn-ui-mcp', 'get_component', { componentName: slug });
+      } else if (libraryId === 'cult-ui') {
+        result = await dapi?.mcpCallTool?.('cult-ui', 'get_component', { slug });
+      } else if (libraryId === 'fragments-ui') {
+        result = await dapi?.mcpCallTool?.('fragments-ui', 'get_component', { slug });
+      } else if (libraryId === 'reactbits') {
+        result = await dapi?.mcpCallTool?.('reactbits', 'get_component', { name: slug });
       }
       if (result?.success || result?.component) {
         const data = result.component || result.result?.content?.[0]?.text || {};
@@ -94,6 +109,16 @@ export default function ComponentBrowserModal({ open, onClose, libraryId, onAddC
         result = await dapi?.mcpCallTool?.('21st-dev', 'search_components', { query });
       } else if (libraryId === 'refero') {
         result = await dapi?.fetchReferoCatalog?.(false, query);
+      } else if (libraryId === 'magicui') {
+        result = await dapi?.mcpCallTool?.('magicui', 'search_registry_items', { query });
+      } else if (libraryId === 'shadcn') {
+        result = await dapi?.mcpCallTool?.('shadcn-ui-mcp', 'list_components', { query });
+      } else if (libraryId === 'cult-ui') {
+        result = await dapi?.mcpCallTool?.('cult-ui', 'search_components', { query });
+      } else if (libraryId === 'fragments-ui') {
+        result = await dapi?.mcpCallTool?.('fragments-ui', 'search_components', { query });
+      } else if (libraryId === 'reactbits') {
+        result = await dapi?.mcpCallTool?.('reactbits', 'search_components', { query });
       }
 
       if (result?.success) {
@@ -173,7 +198,13 @@ export default function ComponentBrowserModal({ open, onClose, libraryId, onAddC
               <div>
                 <h2 className="text-lg font-semibold text-zinc-100">
                   Browse Components — {libraryId === '21st-dev' ? '21st.dev' : 
-                                 libraryId === 'aceternity' ? 'Aceternity UI' : 'Refero'}
+                                 libraryId === 'aceternity' ? 'Aceternity UI' : 
+                                 libraryId === 'refero' ? 'Refero' : 
+                                 libraryId === 'magicui' ? 'Magic UI' : 
+                                 libraryId === 'shadcn' ? 'shadcn/ui' : 
+                                 libraryId === 'cult-ui' ? 'Cult UI' : 
+                                 libraryId === 'fragments-ui' ? 'Fragments UI' : 
+                                 libraryId === 'reactbits' ? 'React Bits' : 'Unknown'}
                 </h2>
                 <p className="text-sm text-zinc-500 mt-1">
                   Search and add components to your design context
@@ -267,7 +298,13 @@ export default function ComponentBrowserModal({ open, onClose, libraryId, onAddC
                         }}
                       >
                         {item.source === '21st-dev' ? '21st.dev' : 
-                         item.source === 'aceternity' ? 'Aceternity' : 'Refero'}
+                         item.source === 'aceternity' ? 'Aceternity' : 
+                         item.source === 'refero' ? 'Refero' : 
+                         item.source === 'magicui' ? 'Magic UI' : 
+                         item.source === 'shadcn' ? 'shadcn/ui' : 
+                         item.source === 'cult-ui' ? 'Cult UI' : 
+                         item.source === 'fragments-ui' ? 'Fragments UI' : 
+                         item.source === 'reactbits' ? 'React Bits' : 'Unknown'}
                       </span>
 
                       {/* Code Preview (expanded) */}

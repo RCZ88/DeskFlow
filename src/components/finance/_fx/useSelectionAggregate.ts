@@ -63,6 +63,7 @@ export function useSelectionAggregate(
     const day = new Map<string, number>()
 
     for (const t of rows) {
+      if (t.is_adjustment) continue; // Exclude historical adjustments from aggregate
       const abs = Math.abs(t.amount)
       if (t.type === 'income') inflow += abs
       else if (t.type === 'expense') {

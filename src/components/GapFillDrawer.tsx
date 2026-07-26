@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, Clock, ExternalLink, Monitor, Plus, Sparkles, X, ChevronDown } from 'lucide-react'
+import { Check, Clock, ExternalLink, Monitor, Plus, Sparkles, X, ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
 import type { ConfirmFill, Gap } from '../types/gaps'
 
 const DRAWER_HEIGHT = 'max-h-[80%]'
@@ -265,6 +265,27 @@ export function GapFillDrawer({
     setPickingFor((prev) => prev?.segId === segId ? null : prev)
   }, [redistributeEven])
 
+  const reorderSegment = useCallback((gapIdx: number, fromIdx: number, toIdx: number) => {
+    setGapStates((prev) => prev.map((gs, i) => {
+      if (i !== gapIdx) return gs
+      const segs = [...gs.segments]
+      const [moved] = segs.splice(fromIdx, 1)
+      segs.splice(toIdx, 0, moved)
+      return { ...gs, segments: segs }
+    }))
+  }, [])
+
+  const clearAllActivities = useCallback((gapIdx: number) => {
+    setGapStates((prev) => prev.map((gs, i) => {
+      if (i !== gapIdx) return gs
+      return {
+        ...gs,
+        segments: gs.segments.map((s) => ({ ...s, activityId: null, activityName: '', category: '' })),
+      }
+    }))
+    setPickingFor(null)
+  }, [])
+
   const setSegmentDuration = useCallback((gapIdx: number, segId: number, newSeconds: number) => {
     setGapStates((prev) => prev.map((gs, i) => {
       if (i !== gapIdx) return gs
@@ -363,6 +384,7 @@ export function GapFillDrawer({
           slotEnd: segEnd.toISOString(),
           app: seg.activityName,
           category: seg.category,
+          activityId: seg.activityId,
         })
         cursor = segEnd.getTime()
       }
@@ -483,6 +505,15 @@ export function GapFillDrawer({
                         {gs.segments.filter((s) => s.activityId).length}
                       </span>
                     )}
+                    {gs.segments.some((s) => s.activityId) && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); if (window.confirm('Clear all activity selections for this gap?')) clearAllActivities(gi); }}
+                        className='p-1 rounded-md text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition'
+                        title='Clear all selections'
+                      >
+                        <svg className='h-3.5 w-3.5' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14'/></svg>
+                      </button>
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); autofillGap(gi); }}
                       disabled={autoFilling}
@@ -558,14 +589,43 @@ export function GapFillDrawer({
 
                         {/* Segments */}
                         <div className='space-y-2'>
-                          {gs.segments.map((seg) => {
+                          {gs.segments.map((seg, segIdx) => {
                             const act = getActivity(seg.activityId)
                             const isPicking = pickingFor?.gapId === gi && pickingFor?.segId === seg.id
                             return (
-                              <div key={seg.id}>
-                                <div className='flex items-center gap-2 p-2 rounded-lg bg-zinc-800/50 border border-zinc-700/30'>
+                              <div
+                                key={seg.id}
+                                draggable
+                                onDragStart={(e) => { e.dataTransfer.setData('text/plain', String(segIdx)); e.dataTransfer.effectAllowed = 'move' }}
+                                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                                onDrop={(e) => { e.preventDefault(); const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10); if (!isNaN(fromIdx) && fromIdx !== segIdx) reorderSegment(gi, fromIdx, segIdx) }}
+                              >
+                                <div className='flex items-center gap-1.5 p-2 rounded-lg bg-zinc-800/50 border border-zinc-700/30 cursor-grab active:cursor-grabbing'>
+                                  {/* Drag handle + up/down */}
+                                  <div className='flex flex-col items-center shrink-0'>
+                                    <GripVertical className='w-3 h-3 text-zinc-600' />
+                                    <div className='flex flex-col -space-y-0.5'>
+                                      <button
+                                        onClick={() => { if (segIdx > 0) reorderSegment(gi, segIdx, segIdx - 1) }}
+                                        disabled={segIdx === 0}
+                                        className='p-0.5 rounded hover:bg-zinc-600/50 text-zinc-500 hover:text-zinc-300 disabled:opacity-20 disabled:cursor-not-allowed transition'
+                                        title='Move up'
+                                      >
+                                        <ChevronUp className='w-3 h-3' />
+                                      </button>
+                                      <button
+                                        onClick={() => { if (segIdx < gs.segments.length - 1) reorderSegment(gi, segIdx, segIdx + 1) }}
+                                        disabled={segIdx === gs.segments.length - 1}
+                                        className='p-0.5 rounded hover:bg-zinc-600/50 text-zinc-500 hover:text-zinc-300 disabled:opacity-20 disabled:cursor-not-allowed transition'
+                                        title='Move down'
+                                      >
+                                        <ChevronDown className='w-3 h-3' />
+                                      </button>
+                                    </div>
+                                  </div>
+
                                   {/* Duration control */}
-                                  <div className='flex items-center gap-1 w-[5.5rem] shrink-0'>
+                                  <div className='flex items-center gap-1 w-[5rem] shrink-0'>
                                     <button
                                       onClick={() => setSegmentDuration(gi, seg.id, seg.durationSeconds - 60)}
                                       className='p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition'
@@ -696,7 +756,6 @@ function ActivityPickerGrid({
       className='mt-1.5 ml-14 pl-3 border-l-2 border-zinc-700/40'
     >
       <div className='p-2 rounded-xl bg-zinc-800/80 border border-zinc-700/30'>
-        {/* Search */}
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -705,7 +764,6 @@ function ActivityPickerGrid({
           autoFocus
         />
 
-        {/* External activities section */}
         {filteredExt.length > 0 && (
           <>
             <div className='flex items-center gap-1.5 mb-1 px-1'>
@@ -731,7 +789,6 @@ function ActivityPickerGrid({
           </>
         )}
 
-        {/* Known apps section */}
         {filteredApps.length > 0 && (
           <>
             <div className='flex items-center gap-1.5 mb-1 px-1'>

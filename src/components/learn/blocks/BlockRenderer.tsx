@@ -22,6 +22,14 @@ import { TutorBlock } from './TutorBlock';
 import { ProposalBlock } from './ProposalBlock';
 import { ConversationBlock } from './ConversationBlock';
 import { NotesBlock } from './NotesBlock';
+import { HeatmapBlock } from './HeatmapBlock';
+import { KnowledgeGraphBlock } from './KnowledgeGraphBlock';
+import { FlashcardBlock } from './FlashcardBlock';
+import { LayerRevealBlock } from './LayerRevealBlock';
+import { ConceptMapBlock } from './ConceptMapBlock';
+import { MasteryTimelineBlock } from './MasteryTimelineBlock';
+import { WhiteboardBlock } from './WhiteboardBlock';
+import { IllustrationBlock } from './IllustrationBlock';
 
 interface BlockRendererProps {
   block: LdocBlock;
@@ -38,9 +46,9 @@ interface BlockRendererProps {
   onTogglePin?: (noteId: string) => void;
 }
 
-const VISUAL_TYPES = new Set(['mermaid', 'chart', 'flow', 'finchart', 'table', 'image', 'widget', 'svg', 'math', 'code', 'video']);
+const VISUAL_TYPES = new Set(['mermaid', 'chart', 'flow', 'finchart', 'table', 'image', 'widget', 'svg', 'math', 'code', 'video', 'viz_heatmap', 'viz_graph', 'viz_timeline', 'viz_concept_map', 'whiteboard', 'illustration']);
 
-export function BlockRenderer({ block, onAsk, onQuizSubmit, currentLevel, nodeId, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin }: BlockRendererProps) {
+export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, onQuizSubmit, currentLevel, nodeId, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin }: BlockRendererProps) {
   const sharedProps = { block, onAsk };
   const isVisual = VISUAL_TYPES.has(block.type);
   const wrapper = isVisual ? 'max-w-4xl w-full mx-auto' : 'max-w-[68ch] mx-auto';
@@ -89,6 +97,23 @@ export function BlockRenderer({ block, onAsk, onQuizSubmit, currentLevel, nodeId
       case 'notes':
         if (!nodeId) return null;
         return <NotesBlock block={block} nodeId={nodeId} onAddNote={onAddNote} onDeleteNote={onDeleteNote} onTogglePin={onTogglePin} />;
+      case 'viz_heatmap':
+        return <HeatmapBlock data={(block as any).meta?.data || []} meta={(block as any).meta || {}} />;
+      case 'viz_graph':
+        return <KnowledgeGraphBlock nodes={(block as any).meta?.nodes || []} edges={(block as any).meta?.edges || []} layout={(block as any).meta?.layout} />;
+      case 'flashcard':
+      case 'flashcard_occlusion':
+        return <FlashcardBlock meta={(block as any).meta || {}} />;
+      case 'layer_reveal':
+        return <LayerRevealBlock meta={(block as any).meta || {}} currentMastery={currentLevel} />;
+      case 'viz_concept_map':
+        return <ConceptMapBlock meta={(block as any).meta || {}} />;
+      case 'viz_timeline':
+        return <MasteryTimelineBlock meta={(block as any).meta || {}} events={(block as any).meta?.events || []} series={(block as any).meta?.series || []} />;
+      case 'whiteboard':
+        return <WhiteboardBlock meta={(block as any).meta || {}} />;
+      case 'illustration':
+        return <IllustrationBlock meta={(block as any).meta || {}} nodeId={nodeId} />;
       default:
         return <UnsupportedBlock block={block} />;
     }
@@ -98,7 +123,14 @@ export function BlockRenderer({ block, onAsk, onQuizSubmit, currentLevel, nodeId
     return <div className={wrapper}>{content}</div>;
   }
   return content;
-}
+}, (prev, next) => {
+  // Only re-render if the block reference changed or block content changed
+  return prev.block.id === next.block.id
+    && prev.block.type === next.block.type
+    && (prev.block as any).md === (next.block as any).md
+    && prev.currentLevel === next.currentLevel
+    && prev.nodeId === next.nodeId;
+});
 
 function UnsupportedBlock({ block }: { block: any }) {
   return (

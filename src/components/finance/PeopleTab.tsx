@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Users, Plus, Search, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Users, Plus, Search, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react';
 import type { FinanceFtPerson, FinanceTransaction, FinanceWallet } from './finance-types';
 import { PersonCard } from './PersonCard';
 import { PersonDetailModal } from './PersonDetailModal';
@@ -18,6 +18,7 @@ export function PeopleTab({ persons, transactions, wallets, displayCurrency, onR
   const [selectedPerson, setSelectedPerson] = useState<FinanceFtPerson | null>(null);
   const [paymentPerson, setPaymentPerson] = useState<FinanceFtPerson | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const filteredPersons = useMemo(() => {
     if (!searchQuery.trim()) return persons;
@@ -50,6 +51,17 @@ export function PeopleTab({ persons, transactions, wallets, displayCurrency, onR
     setSelectedPerson(person);
   }, []);
 
+  const handleSyncBalances = useCallback(async () => {
+    setSyncing(true);
+    try {
+      await (window as any).deskflowAPI?.financeFtPersonSyncBalances();
+      onRefresh();
+    } catch (err) {
+      console.error('[PeopleTab] sync error:', err);
+    }
+    setSyncing(false);
+  }, [onRefresh]);
+
   return (
     <div className="space-y-5 animate-in fade-in duration-300">
       {/* Header */}
@@ -61,10 +73,17 @@ export function PeopleTab({ persons, transactions, wallets, displayCurrency, onR
           </h2>
           <p className="text-xs text-zinc-500 mt-0.5">Track who owes you and manage repayments</p>
         </div>
-        <button onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors">
-          <Plus className="w-3.5 h-3.5" /> Add Person
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={handleSyncBalances} disabled={syncing}
+            className="flex items-center gap-1.5 rounded-lg bg-zinc-800/60 px-3 py-1.5 text-xs font-medium text-zinc-400 border border-zinc-700/50 hover:bg-zinc-700/60 hover:text-zinc-200 transition-colors disabled:opacity-50"
+            title="Sync all person balances from transactions">
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /> Sync
+          </button>
+          <button onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors">
+            <Plus className="w-3.5 h-3.5" /> Add Person
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -114,7 +133,7 @@ export function PeopleTab({ persons, transactions, wallets, displayCurrency, onR
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {filteredPersons.map(person => (
-            <PersonCard key={person.id} person={person} displayCurrency={displayCurrency} onClick={() => handlePersonClick(person)} />
+            <PersonCard key={person.id} person={person} wallets={wallets} displayCurrency={displayCurrency} onClick={() => handlePersonClick(person)} />
           ))}
         </div>
       )}

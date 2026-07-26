@@ -34,7 +34,7 @@ export function getLastCategoryId(walletType: string): number | null {
 
 /** Get the last-used date for a wallet type. Returns today's date string if not set. */
 export function getLastDate(walletType: string): string {
-  return loadPrefs()[walletType]?.lastDate ?? new Date().toISOString().slice(0, 10);
+  return loadPrefs()[walletType]?.lastDate ?? (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
 }
 
 /** Save the user's last-used preferences for a wallet type. */

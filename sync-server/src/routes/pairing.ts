@@ -43,9 +43,9 @@ export async function pairingRoutes(app: FastifyInstance) {
     }
 
     await db.execute({
-      sql: `INSERT INTO pairing_codes (code_hash, terminal_id, relay_host, relay_port, expires_at, used)
-            VALUES (?, ?, ?, ?, ?, 0)`,
-      args: [codeHash, terminal_id, relay_host, relay_port, expires_at],
+      sql: `INSERT INTO pairing_codes (code_hash, terminal_id, relay_host, relay_port, expires_at, used, user_id)
+            VALUES (?, ?, ?, ?, ?, 0, ?)`,
+      args: [codeHash, terminal_id, relay_host, relay_port, expires_at, userId],
     })
 
     // Audit

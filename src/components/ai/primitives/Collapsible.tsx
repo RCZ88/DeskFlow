@@ -34,7 +34,7 @@ export function Collapsible({
 				aria-expanded={open}
 				className={cn(
 					"flex w-full items-center gap-2 text-left",
-					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/60 rounded-lg",
+					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60 rounded-lg",
 					headerClassName,
 				)}
 			>

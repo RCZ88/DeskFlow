@@ -74,7 +74,7 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
       if (r) setPrices(r);
     } catch (e: any) { setError(e?.message || String(e)); }
     finally { setLoadingPrices(false); }
-  }, [JSON.stringify(coinIds)]);
+  }, [JSON.stringify(coinIds), displayCurrency]);
 
   useEffect(() => { fetchAllPrices(); }, [fetchAllPrices]);
 

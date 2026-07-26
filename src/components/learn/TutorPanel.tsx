@@ -15,6 +15,7 @@ interface Props {
   answer?: TutorAnswer | null;
   loading?: boolean;
   onAsk?: (nodeId: string, question: string) => void;
+  tutorConfig?: { provider: string; model: string } | null;
 }
 
 const SUGGESTIONS = [
@@ -41,7 +42,7 @@ function renderAnswerHtml(md: string): string {
     .join('\n');
 }
 
-export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange, answer: v1Answer, loading: v1Loading, onAsk }: Props) {
+export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange, answer: v1Answer, loading: v1Loading, onAsk, tutorConfig }: Props) {
   const [v2Streaming, setV2Streaming] = useState(false);
   const [v2Answer, setV2Answer] = useState('');
   const [v2State, setV2State] = useState<TutorState>('idle');
@@ -79,14 +80,17 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
     setLastQuestion(q);
     setShowSuggestions(false);
 
-    const blockId = `tutor-inline-${Date.now()}`;
+    const blockId = `tutor-chat-${Date.now()}`;
 
     const unsub = api.onTutorToken((data: { blockId: string; token: string; done: boolean }) => {
       if (data.blockId !== blockId) return;
       if (data.done) {
         setV2Streaming(false);
-        setV2State(v2Answer.length > 0 ? 'grounded' : 'error');
-        if (v2Answer.length === 0) setV2Error('Empty response');
+        setV2Answer(prev => {
+          setV2State(prev.length > 0 ? 'grounded' : 'error');
+          if (prev.length === 0) setV2Error('Empty response');
+          return prev;
+        });
         return;
       }
       setV2Answer(prev => prev + data.token);
@@ -94,7 +98,7 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
     cleanupRef.current = unsub;
 
     try {
-      const result = await api.learnTutorStream({ nodeId, blockId, question: q });
+      const result = await api.learnTutorStream({ nodeId, blockId, question: q, mode: 'ask' });
       if (!result || !result.ok) {
         setV2Streaming(false);
         setV2State('error');
@@ -174,6 +178,15 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {tutorConfig && (
+        <div className="px-4 py-1.5 border-b border-zinc-800/50 bg-zinc-900/40 shrink-0">
+          <p className="text-[10px] text-zinc-500 flex items-center gap-1.5">
+            <span className="w-1 h-1 rounded-full bg-emerald-500/60" />
+            Powered by <span className="text-zinc-400 font-medium">{tutorConfig.provider}</span> · <span className="text-zinc-400 font-medium">{tutorConfig.model}</span>
+          </p>
+        </div>
+      )}
 
       {/* Content area */}
       <div className="flex-1 overflow-y-auto ws-scroll">

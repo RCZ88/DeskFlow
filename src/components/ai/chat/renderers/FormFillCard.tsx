@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { ClipboardList } from "lucide-react"
 import { CardShell } from "./CardShell"
 import type { CardAction, FormField } from "../parsed"
 
@@ -40,7 +41,7 @@ export function FormFillCard({
   }
 
   return (
-    <CardShell title={title || "Fill in details"} badge="form_fill" icon="📋">
+    <CardShell title={title || "Fill in details"} badge="form_fill" accent="violet" icon={<ClipboardList size={14} />}>
       <div className="flex flex-col gap-2.5">
         {fields.map((f) => (
           <label key={f.name} className="flex flex-col gap-1">

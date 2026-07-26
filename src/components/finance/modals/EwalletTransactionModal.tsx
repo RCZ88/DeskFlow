@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Banknote } from 'lucide-react'
 import { TransactionModalShell } from './TransactionModalShell'
 import { useTransactionForm } from './useTransactionForm'
-import { ContextBand, TypeToggle, AmountInput, ProgressBar, OnBehalfOfSection } from './modalParts'
+import { ContextBand, TypeToggle, AmountInput, ProgressBar, OnBehalfOfSection, HistoricalToggle } from './modalParts'
 import { CategoryChipGrid } from './CategoryChipGrid'
 import { TransferWalletSelect } from './TransferWalletSelect'
 import { TransferDestinationPanel } from './TransferDestinationPanel'
@@ -27,6 +27,7 @@ export const EwalletTransactionModal: React.FC<TxModalProps> = (props) => {
 	const pct = dailyLimit > 0 ? (f.numericAmount / dailyLimit) * 100 : 0
 	const th = thresholdColor(pct)
 	const valid = f.numericAmount > 0 && (f.type !== 'transfer' || !!destWalletId)
+	const selectedPerson = f.ftPersonId ? props.ftPersons?.find(p => p.id === f.ftPersonId) : null
 
 	return (
 		<TransactionModalShell
@@ -75,6 +76,12 @@ export const EwalletTransactionModal: React.FC<TxModalProps> = (props) => {
 						<AmountInput accent={ACCENT} value={f.amount} onChange={f.setAmount} symbol={symbol} autoFocus />
 
 						<AmountInput accent={ACCENT} value={f.fee} onChange={f.setFee} symbol={symbol} label={f.type === 'transfer' ? 'Transfer Fee' : 'Transaction Fee'} />
+						<div>
+							<label className="block text-[10px] font-medium text-zinc-400 mb-1">Merchant / Store</label>
+							<input value={f.merchant} onChange={e => f.setMerchant(e.target.value)}
+								placeholder="e.g. Netflix, Starbucks, Amazon"
+								className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 text-xs text-white outline-none placeholder:text-zinc-600 focus:border-zinc-500" />
+						</div>
 
 						{f.type === 'transfer' ? (
 							<>
@@ -111,13 +118,14 @@ export const EwalletTransactionModal: React.FC<TxModalProps> = (props) => {
 								<input value={f.description} onChange={(e) => f.setDescription(e.target.value)} placeholder="Description"
 									className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-zinc-500" />
 								<CategoryChipGrid accent={ACCENT} categories={f.categoriesForType} selectedId={f.categoryId} onSelect={f.setCategoryId}
-									onCreateCategory={async () => false} categoryType={f.type} />
+									onCreateCategory={async (data) => { try { const res = await (window as any).deskflowAPI?.financeCreateCategory?.(data); if (res?.id) { f.setCategoryId(res.id); return true; } } catch {} return false; }} categoryType={f.type} />
 							</>
 						)}
 
-						{f.type === 'expense' && (
-							<OnBehalfOfSection accent={ACCENT} value={f.onBehalfOf} personId={f.ftPersonId} onValueChange={f.setOnBehalfOf} onPersonChange={(id, _name) => f.setFtPersonId(id)} persons={props.ftPersons} onAddPerson={props.onAddFtPerson} />
-						)}
+					<OnBehalfOfSection accent={ACCENT} value={f.onBehalfOf} personId={f.ftPersonId} onValueChange={f.setOnBehalfOf} onPersonChange={(id, _name) => f.setFtPersonId(id)} persons={props.ftPersons} onAddPerson={props.onAddFtPerson} usePersonBalance={f.usePersonBalance} onUsePersonBalanceChange={f.setUsePersonBalance} personBalance={selectedPerson?.balance} />
+{(f.type === 'income' || f.type === 'transfer') && (
+    <HistoricalToggle accent={ACCENT} value={f.isAdjustment} onChange={f.setIsAdjustment} />
+)}
 						<input type="date" value={f.date} onChange={(e) => f.setDate(e.target.value)}
 							className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-500" />
 					</>

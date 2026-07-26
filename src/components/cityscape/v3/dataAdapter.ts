@@ -46,6 +46,8 @@ export function toHeroes(rows: ByToolRow[], metric: 'tokens' | 'messages' | 'ses
         ? Math.max(0, 1 - r.lastActiveMsAgo / (1000 * 60 * 60 * 24))
         : (r.sessions ?? 0) / maxSess,
       active: r.active ?? (r.tokens ?? 0) > 0,
+      metricValue: rawVal,
+      metric,
       tokens: r.tokens,
       sessions: r.sessions,
       cost: r.cost,

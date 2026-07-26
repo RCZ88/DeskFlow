@@ -16,6 +16,7 @@ import {
   AlignLeft,
   List,
 } from 'lucide-react';
+import { ResourceInput, type Resource } from './ResourceInput';
 
 const api = (window as any).deskflowAPI;
 
@@ -115,8 +116,7 @@ export function CreateLessonDialog({
   const [inputMode, setInputMode] = useState<InputMode>('simple');
   const [userInput, setUserInput] = useState('');
   const [description, setDescription] = useState('');
-  const [contextDoc, setContextDoc] = useState('');
-  const [fileName, setFileName] = useState('');
+  const [resources, setResources] = useState<Resource[]>([]);
   const [numNodes, setNumNodes] = useState(5);
   const [prompt, setPrompt] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -127,23 +127,25 @@ export function CreateLessonDialog({
   const [building, setBuilding] = useState(false);
   const [validPrompt, setValidPrompt] = useState(false);
   const [genPhase, setGenPhase] = useState(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (open) {
+      setSaved(false);
       if (seed) {
         setInputMode('detailed');
         setDescription(seed.title);
         setUserInput(`I want to learn about ${seed.title}. The key areas are:\n${seed.scope.map((s) => `- ${s}`).join('\n')}`);
-        setContextDoc(seed.topicPrompt ? `Curriculum brief:\n${seed.topicPrompt}` : '');
+        if (seed.topicPrompt) {
+          setResources([{ id: 'res-seed', type: 'text', content: `Curriculum brief:\n${seed.topicPrompt}` }]);
+        }
       }
     } else {
       setStep('input');
       setInputMode('simple');
       setUserInput('');
       setDescription('');
-      setContextDoc('');
-      setFileName('');
+      setResources([]);
       setPrompt('');
       setCopied(false);
       setGenStatus('idle');
@@ -162,9 +164,10 @@ export function CreateLessonDialog({
     if (!canBuild) return;
     setBuilding(true);
     try {
+      const contextDoc = resources.map(r => r.content).join('\n\n---\n\n');
       const params = inputMode === 'simple'
-        ? { userInput: userInput.trim(), contextDoc: contextDoc.trim() || undefined }
-        : { topic: description.trim(), description: description.trim(), contextDoc: contextDoc.trim() || undefined, numNodes: numNodes > 0 ? numNodes : undefined };
+        ? { userInput: userInput.trim(), contextDoc: contextDoc || undefined }
+        : { topic: description.trim(), description: description.trim(), contextDoc: contextDoc || undefined, numNodes: numNodes > 0 ? numNodes : undefined };
       const result = await api.learnBuildPrompt(params);
       if (result.ok) {
         setPrompt(result.prompt);
@@ -219,6 +222,26 @@ export function CreateLessonDialog({
     setContextDoc('');
     setFileName('');
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleSaveForLater = async () => {
+    const title = inputMode === 'simple'
+      ? userInput.trim().slice(0, 80)
+      : description.trim();
+    if (!title) return;
+    try {
+      const context = resources.map(r => r.content).join('\n\n---\n\n');
+      await api.learnSaveIntent({
+        title,
+        description: inputMode === 'simple' ? userInput.trim() : description.trim(),
+        context: context || undefined,
+        category: seed ? 'curriculum' : 'idea',
+      });
+      setSaved(true);
+      setTimeout(() => { onClose(); }, 1200);
+    } catch (e: any) {
+      console.error('[CreateLessonDialog] Save failed:', e);
+    }
   };
 
   const handleGenerate = async () => {
@@ -383,36 +406,7 @@ export function CreateLessonDialog({
                     <label className="block text-xs font-medium text-zinc-500 mb-2">
                       Reference material <span className="text-zinc-600 font-normal">(optional)</span>
                     </label>
-                    {fileName ? (
-                      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-zinc-800/40 border border-zinc-700/50">
-                        <FileText className="w-4 h-4 text-clay-400 shrink-0" />
-                        <span className="text-sm text-zinc-300 truncate flex-1">{fileName}</span>
-                        <button
-                          onClick={handleClearFile}
-                          className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors duration-150 shrink-0"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <textarea
-                          value={contextDoc}
-                          onChange={(e) => setContextDoc(e.target.value)}
-                          placeholder="Paste reference notes, textbook excerpts, or documentation..."
-                          className="flex-1 px-3 py-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-clay-500/40 focus:ring-2 focus:ring-clay-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[60px]"
-                        />
-                        <input ref={fileInputRef} type="file" accept=".txt,.md,.json,.pdf" onChange={handleFileUpload} className="hidden" />
-                        <button
-                          onClick={() => fileInputRef.current?.click()}
-                          className="flex flex-col items-center justify-center gap-1 px-3 rounded-xl bg-zinc-800/40 border border-zinc-700/50 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600/60 transition-all duration-150 shrink-0"
-                          title="Upload a file"
-                        >
-                          <Paperclip className="w-4 h-4" />
-                          <span className="text-[10px]">File</span>
-                        </button>
-                      </div>
-                    )}
+                    <ResourceInput resources={resources} onChange={setResources} />
                   </div>
                 </motion.div>
               )}
@@ -447,36 +441,7 @@ export function CreateLessonDialog({
                     <label className="block text-xs font-medium text-zinc-500 mb-2">
                       Reference material <span className="text-zinc-600 font-normal">(optional)</span>
                     </label>
-                    {fileName ? (
-                      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-zinc-800/40 border border-zinc-700/50">
-                        <FileText className="w-4 h-4 text-clay-400 shrink-0" />
-                        <span className="text-sm text-zinc-300 truncate flex-1">{fileName}</span>
-                        <button
-                          onClick={handleClearFile}
-                          className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors duration-150 shrink-0"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <textarea
-                          value={contextDoc}
-                          onChange={(e) => setContextDoc(e.target.value)}
-                          placeholder="Paste reference notes, textbook excerpts, or documentation..."
-                          className="flex-1 px-3 py-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-clay-500/40 focus:ring-2 focus:ring-clay-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[60px]"
-                        />
-                        <input ref={fileInputRef} type="file" accept=".txt,.md,.json,.pdf" onChange={handleFileUpload} className="hidden" />
-                        <button
-                          onClick={() => fileInputRef.current?.click()}
-                          className="flex flex-col items-center justify-center gap-1 px-3 rounded-xl bg-zinc-800/40 border border-zinc-700/50 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600/60 transition-all duration-150 shrink-0"
-                          title="Upload a file"
-                        >
-                          <Paperclip className="w-4 h-4" />
-                          <span className="text-[10px]">File</span>
-                        </button>
-                      </div>
-                    )}
+                    <ResourceInput resources={resources} onChange={setResources} />
                   </div>
 
                   {/* Node count */}
@@ -673,17 +638,36 @@ export function CreateLessonDialog({
               </button>
 
               {step === 'input' && (
-                <button
-                  onClick={handleBuildPrompt}
-                  disabled={!canBuild}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-clay-500/20 hover:bg-clay-500/30 text-clay-300 text-sm font-medium transition-all duration-150 border border-clay-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {building ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" />Building...</>
-                  ) : (
-                    <><Sparkles className="w-4 h-4" />Generate Prompt</>
+                <div className="flex items-center gap-2">
+                  {(userInput.trim().length > 0 || description.trim().length > 0) && (
+                    <button
+                      onClick={handleSaveForLater}
+                      disabled={saved}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 border ${
+                        saved
+                          ? 'bg-sage-500/15 text-sage-300 border-sage-500/25'
+                          : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 hover:bg-zinc-700/60 hover:text-zinc-200'
+                      }`}
+                    >
+                      {saved ? (
+                        <><CheckCircle2 className="w-3.5 h-3.5" />Saved!</>
+                      ) : (
+                        <><FileText className="w-3.5 h-3.5" />Save for later</>
+                      )}
+                    </button>
                   )}
-                </button>
+                  <button
+                    onClick={handleBuildPrompt}
+                    disabled={!canBuild}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-clay-500/20 hover:bg-clay-500/30 text-clay-300 text-sm font-medium transition-all duration-150 border border-clay-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {building ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" />Building...</>
+                    ) : (
+                      <><Sparkles className="w-4 h-4" />Generate Prompt</>
+                    )}
+                  </button>
+                </div>
               )}
 
               {step === 'prompt' && (

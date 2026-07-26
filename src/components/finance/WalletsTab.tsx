@@ -1,8 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Wallet, Banknote, CreditCard, Landmark, PiggyBank, X, Edit3, Archive, Trash2, ArchiveRestore, Search, WalletCards, ChevronDown, Filter, RefreshCw } from 'lucide-react';
+import { Plus, Wallet, Banknote, CreditCard, Landmark, PiggyBank, X, Edit3, Archive, Trash2, ArchiveRestore, Search, WalletCards, ChevronDown, Filter, AlertTriangle } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
@@ -60,13 +60,12 @@ interface WalletsTabProps {
   onViewArchived?: () => void;
   archivedCount?: number;
   onWalletClick?: (id: number) => void;
-  onRecalculateBalance?: () => Promise<boolean>;
 }
 
 export function WalletsTab({
   accounts, wallets, loading, error, onRetry, displayCurrency,
   onCreateAccount, onCreateWallet, onArchiveWallet, onUpdateWallet,
-  onDeleteAccount, onDeleteWallet, onViewArchived, archivedCount, onWalletClick, onRecalculateBalance,
+  onDeleteAccount, onDeleteWallet, onViewArchived, archivedCount, onWalletClick,
 }: WalletsTabProps) {
   const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [search, setSearch] = useState('');
@@ -75,6 +74,8 @@ export function WalletsTab({
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateWallet, setShowCreateWallet] = useState<number | null>(null);
   const [showEditWallet, setShowEditWallet] = useState<FinanceWallet | null>(null);
+  const [cryptoPrices, setCryptoPrices] = useState<Record<string, number>>({});
+  const cryptoPriceFetchRef = useRef(false);
 
   const formatConverted = (amount: number, fromCurrency: string) => {
     return fmtCurrency(convertAmount(amount, fromCurrency, displayCurrency), displayCurrency);
@@ -84,6 +85,35 @@ export function WalletsTab({
     const formatted = formatConverted(amount, fromCurrency);
     return showNumbers ? formatted : maskNumber(formatted, maskMode, maskFixedValue);
   };
+
+  useEffect(() => {
+    const cryptoWallets = wallets.filter(w => w.type === 'crypto' && !w.is_archived);
+    if (cryptoWallets.length === 0) return;
+    const coinIds: string[] = [];
+    for (const w of cryptoWallets) {
+      if (!w.metadata) continue;
+      try {
+        const meta = typeof w.metadata === 'string' ? JSON.parse(w.metadata) : w.metadata;
+        const assets = meta.assets || [];
+        for (const a of assets) {
+          const cid = a.coin_id || a.coinId || a.asset;
+          if (cid && !coinIds.includes(cid)) coinIds.push(cid);
+        }
+      } catch { /* skip */ }
+    }
+    if (coinIds.length === 0) return;
+    if (cryptoPriceFetchRef.current) return;
+    cryptoPriceFetchRef.current = true;
+    (async () => {
+      try {
+        const prices = await (window as any).deskflowAPI?.financeFetchCryptoPrices(coinIds, displayCurrency) || [];
+        const map: Record<string, number> = {};
+        for (const p of prices) { map[p.coin_id] = p.current_price; }
+        setCryptoPrices(map);
+      } catch { /* best-effort */ }
+      finally { cryptoPriceFetchRef.current = false; }
+    })();
+  }, [wallets, displayCurrency]);
 
   const needsAccount = accounts.filter(a => !a.is_archived).length === 0;
 
@@ -114,11 +144,29 @@ export function WalletsTab({
               ? w.metadata.denominations.reduce((s: number, d: any) => s + (d.value || 0) * (d.count || 0), 0)
               : (w.balance ?? 0))
           : (w.balance ?? 0);
-        return sum + convertAmount(wb, w.currency || displayCurrency, displayCurrency);
+        let total = convertAmount(wb, w.currency || displayCurrency, displayCurrency);
+        // For crypto wallets: add live market value of crypto holdings
+        if (w.type === 'crypto' && w.metadata?.assets) {
+          try {
+            const assets = typeof w.metadata.assets === 'string' ? JSON.parse(w.metadata.assets) : w.metadata.assets;
+            if (Array.isArray(assets)) {
+              const cryptoMarketValue = assets.reduce((s: number, a: any) => {
+                const qty = Number(a.amount) || 0;
+                const cid = a.coin_id || a.coinId || a.asset || '';
+                const price = cryptoPrices[cid];
+                if (price) return s + (qty * price);
+                const costBasis = Number(a.avg_buy_price || a.avgBuyPrice) || 0;
+                return s + (qty * costBasis);
+              }, 0);
+              total += cryptoMarketValue;
+            }
+          } catch {}
+        }
+        return sum + total;
       }, 0);
       return { account, wallets: sectionWallets, totalBalance };
     }).filter(s => s.wallets.length > 0 || !search && !typeFilter);
-  }, [activeAccounts, filteredWallets, displayCurrency]);
+  }, [activeAccounts, filteredWallets, displayCurrency, cryptoPrices]);
 
   if (error) {
     return (
@@ -174,15 +222,6 @@ export function WalletsTab({
         icon={<Wallet className="w-4 h-4" />}
         action={
           <div className="flex items-center gap-2">
-            {onRecalculateBalance && (
-              <button
-                onClick={async () => { await onRecalculateBalance(); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-xs font-medium transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Sync Balances
-              </button>
-            )}
             {onViewArchived && (
               <button
                 onClick={onViewArchived}
@@ -328,12 +367,32 @@ export function WalletsTab({
                   {sectionWallets.map(w => {
                     const meta = walletMeta[w.type] || walletMeta.other;
                     const WalletIcon = meta.icon;
-                    const effectiveBalance = (w.type === 'physical' || w.type === 'cash') && w.metadata?.denominations
+                    let effectiveBalance = (w.type === 'physical' || w.type === 'cash') && w.metadata?.denominations
                       ? (Array.isArray(w.metadata.denominations)
                           ? w.metadata.denominations.reduce((s: number, d: any) => s + (d.value || 0) * (d.count || 0), 0)
                           : (w.balance ?? 0))
                       : (w.balance ?? 0);
-                    const balanceNum = convertAmount(effectiveBalance, w.currency || displayCurrency, displayCurrency);
+                    // For crypto wallets: wallet.balance is the available fiat (buys already deducted).
+                    // Add crypto market value to show total wallet value.
+                    let alreadyConverted = false;
+                    if (w.type === 'crypto' && w.metadata?.assets) {
+                      try {
+                        const assets = typeof w.metadata.assets === 'string' ? JSON.parse(w.metadata.assets) : w.metadata.assets;
+                        if (Array.isArray(assets)) {
+                          const cryptoMarketValue = assets.reduce((s: number, a: any) => {
+                            const qty = Number(a.amount) || 0;
+                            const cid = a.coin_id || a.coinId || a.asset || '';
+                            const price = cryptoPrices[cid];
+                            if (price) return s + (qty * price);
+                            const costBasis = Number(a.avg_buy_price || a.avgBuyPrice) || 0;
+                            return s + (qty * costBasis);
+                          }, 0);
+                          effectiveBalance = convertAmount(effectiveBalance, w.currency || displayCurrency, displayCurrency) + cryptoMarketValue;
+                          alreadyConverted = true;
+                        }
+                      } catch {}
+                    }
+                    const balanceNum = alreadyConverted ? effectiveBalance : convertAmount(effectiveBalance, w.currency || displayCurrency, displayCurrency);
                     return (
                       <motion.div
                         key={w.id}
@@ -356,6 +415,17 @@ export function WalletsTab({
                                 <p className="text-sm font-medium text-zinc-200 truncate">{w.name}</p>
                                 <div className="flex items-center gap-1.5 mt-0.5">
                                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-500">{meta.label}</span>
+                                  {(() => {
+                                    const isPhys = w.type === 'physical' || w.type === 'cash';
+                                    if (!isPhys || !w.metadata?.denominations || !Array.isArray(w.metadata.denominations)) return null;
+                                    const denomTotal = w.metadata.denominations.reduce((s: number, d: any) => s + (d.value || 0) * (d.count || 0), 0);
+                                    if (Math.abs(denomTotal - (w.balance ?? 0)) <= 0.01) return null;
+                                    return (
+                                      <span className="flex items-center gap-0.5 text-[9px] text-amber-400" title="Denominations don't match balance">
+                                        <AlertTriangle className="w-2.5 h-2.5" /> Sync
+                                      </span>
+                                    );
+                                  })()}
                                   {w.last_four && (
                                     <span className="text-[10px] text-zinc-600">&bull;&bull;&bull;&bull;{w.last_four}</span>
                                   )}
@@ -394,8 +464,8 @@ export function WalletsTab({
                           <div>
                             <p className={`text-lg font-bold tabular-nums ${balanceNum >= 0 ? 'text-zinc-100' : 'text-red-400'}`}>
                               {showNumbers
-                                ? formatConverted(effectiveBalance, w.currency || displayCurrency)
-                                : maskNumber(formatConverted(effectiveBalance, w.currency || displayCurrency), maskMode, maskFixedValue)
+                                ? (alreadyConverted ? fmtCurrency(effectiveBalance, displayCurrency) : formatConverted(effectiveBalance, w.currency || displayCurrency))
+                                : maskNumber(alreadyConverted ? fmtCurrency(effectiveBalance, displayCurrency) : formatConverted(effectiveBalance, w.currency || displayCurrency), maskMode, maskFixedValue)
                               }
                             </p>
                             {/* Provider/description line */}

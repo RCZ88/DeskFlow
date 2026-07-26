@@ -2,7 +2,7 @@ import type { ParsedResponse } from './wireFormat';
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   parsed: ParsedResponse;
   timestamp: number;
@@ -184,6 +184,16 @@ export function resetThread(threadId: string): void {
   if (existing) {
     existing.updatedAt = Date.now();
     existing.messageCount = 0;
+    saveIndex(index);
+  }
+}
+
+export function renameThread(threadId: string, newTitle: string): void {
+  const index = getIndex();
+  const existing = index.find(t => t.id === threadId);
+  if (existing) {
+    existing.title = newTitle;
+    existing.updatedAt = Date.now();
     saveIndex(index);
   }
 }

@@ -1,0 +1,1 @@
+=== Rebuilding main.cjs (Vite library mode) ===

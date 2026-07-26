@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Square, Target, Eye, EyeOff, Focus as FocusIcon } from 'lucide-react';
+import { Play, Square, Target, Eye, EyeOff, Focus as FocusIcon, Timer, Clock } from 'lucide-react';
 import { AnimatedCircularProgressBar } from '../../components/ui/animated-circular-progress-bar';
 import { Particles } from '../../components/ui/particles';
 import { NumberTicker } from '../../components/ui/number-ticker';
@@ -18,6 +18,8 @@ const PRESETS = [
   { label: '90m', sec: 90 * 60 },
 ];
 
+type FocusMode = 'timer' | 'stopwatch';
+
 interface FocusTimerProps {
   state: FocusPublicState | null | undefined;
   mins: number;
@@ -27,6 +29,9 @@ interface FocusTimerProps {
   onStart: () => void;
   onStop: () => void;
   justCompleted: boolean;
+  mode?: FocusMode;
+  onModeChange?: (mode: FocusMode) => void;
+  stopwatchElapsed?: number;
 }
 
 const tapScale = { scale: 0.95 };
@@ -37,10 +42,34 @@ const crossfade = {
   transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const },
 };
 
-export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, onStart, onStop, justCompleted }: FocusTimerProps) {
+export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, onStart, onStop, justCompleted, mode = 'timer', onModeChange, stopwatchElapsed = 0 }: FocusTimerProps) {
   const active = !!state?.active;
   const plannedSec = mins * 60;
-  const remainingSec = active ? state!.remainingSec : plannedSec;
+
+  // Client-side countdown for smooth timer display between server pushes
+  const [localRemaining, setLocalRemaining] = useState(state?.remainingSec ?? 0);
+  const lastServerUpdateRef = useRef<number>(Date.now());
+
+  // Sync from server state when it arrives
+  useEffect(() => {
+    if (state?.active && typeof state.remainingSec === 'number') {
+      setLocalRemaining(state.remainingSec);
+      lastServerUpdateRef.current = Date.now();
+    } else if (!state?.active) {
+      setLocalRemaining(plannedSec);
+    }
+  }, [state?.active, state?.remainingSec, state?.endsAt, plannedSec]);
+
+  // Tick down every second when active (timer mode only)
+  useEffect(() => {
+    if (!active || mode === 'stopwatch') return;
+    const interval = setInterval(() => {
+      setLocalRemaining(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [active, mode]);
+
+  const remainingSec = active ? localRemaining : plannedSec;
   const progressPct = active ? Math.max(0, Math.min(100, (remainingSec / plannedSec) * 100)) : 0;
 
   const statusLabel = active ? 'Active' : justCompleted ? 'Completed' : 'Idle';
@@ -49,6 +78,19 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
   const ringPrimary = active ? '#ec4899' : justCompleted ? '#34d399' : 'rgba(236,72,153,0.35)';
 
   const clockFormatter = useMemo(() => (v: number) => fmtClock(v), []);
+
+  const [stopwatchSec, setStopwatchSec] = useState(0);
+  
+  useEffect(() => {
+    if (active && mode === 'stopwatch') {
+      const interval = setInterval(() => {
+        setStopwatchSec(prev => prev + 1);
+      }, 1000);
+      return () => clearInterval(interval);
+    } else if (!active) {
+      setStopwatchSec(0);
+    }
+  }, [active, mode]);
 
   return (
     <GlassCard accent="pink" className="relative overflow-hidden h-full">
@@ -63,7 +105,7 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
         </div>
 
         <AnimatedCircularProgressBar
-          value={active ? progressPct : 100}
+          value={active ? (mode === 'stopwatch' ? Math.min(100, (stopwatchSec / 3600) * 100) : progressPct) : 100}
           size={168}
           strokeWidth={10}
           gaugePrimaryColor={ringPrimary}
@@ -73,13 +115,13 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
         >
           <div className="flex flex-col items-center">
             <NumberTicker
-              value={remainingSec}
+              value={mode === 'stopwatch' ? stopwatchSec : remainingSec}
               duration={active ? 600 : 200}
               formatter={clockFormatter}
               className="text-5xl font-bold tabular-nums font-mono text-white"
             />
             <span className="text-[10px] text-zinc-500 uppercase tracking-wider mt-1">
-              {active ? 'remaining' : `${mins} min session`}
+              {active ? (mode === 'stopwatch' ? 'elapsed' : 'remaining') : `${mins} min session`}
             </span>
           </div>
         </AnimatedCircularProgressBar>
@@ -115,23 +157,52 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
               transition={crossfade.transition}
               className="w-full"
             >
-              <div className="grid grid-cols-6 gap-2 mb-3">
-                {PRESETS.map(p => (
-                  <motion.button
-                    key={p.sec}
-                    whileTap={tapScale}
-                    onClick={() => onMinsChange(p.sec / 60)}
-                    className={`flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg text-[11px] font-semibold transition-colors ${
-                      mins === p.sec / 60
-                        ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
-                        : 'bg-zinc-800/60 text-zinc-400 border border-zinc-800/40 hover:bg-zinc-800'
-                    }`}
-                  >
-                    <Target className="w-3 h-3 opacity-70" />
-                    {p.label}
-                  </motion.button>
-                ))}
+              <div className="flex gap-2 mb-3">
+                <motion.button
+                  whileTap={tapScale}
+                  onClick={() => onModeChange?.('timer')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[11px] font-semibold transition-colors ${
+                    mode === 'timer'
+                      ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
+                      : 'bg-zinc-800/60 text-zinc-400 border border-zinc-800/40 hover:bg-zinc-800'
+                  }`}
+                >
+                  <Timer className="w-3 h-3" />
+                  Timer
+                </motion.button>
+                <motion.button
+                  whileTap={tapScale}
+                  onClick={() => onModeChange?.('stopwatch')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[11px] font-semibold transition-colors ${
+                    mode === 'stopwatch'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : 'bg-zinc-800/60 text-zinc-400 border border-zinc-800/40 hover:bg-zinc-800'
+                  }`}
+                >
+                  <Clock className="w-3 h-3" />
+                  Challenge
+                </motion.button>
               </div>
+
+              {mode === 'timer' && (
+                <div className="grid grid-cols-6 gap-2 mb-3">
+                  {PRESETS.map(p => (
+                    <motion.button
+                      key={p.sec}
+                      whileTap={tapScale}
+                      onClick={() => onMinsChange(p.sec / 60)}
+                      className={`flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg text-[11px] font-semibold transition-colors ${
+                        mins === p.sec / 60
+                          ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
+                          : 'bg-zinc-800/60 text-zinc-400 border border-zinc-800/40 hover:bg-zinc-800'
+                      }`}
+                    >
+                      <Target className="w-3 h-3 opacity-70" />
+                      {p.label}
+                    </motion.button>
+                  ))}
+                </div>
+              )}
 
               <button
                 onClick={() => onStrictChange(strict === 'non_allowed' ? 'distracting' : 'non_allowed')}
@@ -142,9 +213,15 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
                   Strict mode
                 </span>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full ${strict === 'non_allowed' ? 'bg-amber-500/15 text-amber-300' : 'bg-zinc-800 text-zinc-500'}`}>
-                  {strict === 'non_allowed' ? 'Only productive allowed' : 'Block distracting only'}
+                  {strict === 'non_allowed' ? 'Blocks distracting + neutral' : 'Blocks distracting only'}
                 </span>
               </button>
+              {strict === 'non_allowed' && (
+                <p className="text-[10px] text-amber-400/60 leading-relaxed text-center mb-3 px-2">
+                  Only productive apps allowed. Non-productive apps and sites will trigger a focus reminder overlay.
+                  Requires tracking set to "Track as Normal" in Settings for full enforcement.
+                </p>
+              )}
 
               <motion.button
                 whileTap={tapScale}
@@ -152,7 +229,7 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 transition-colors"
               >
                 <Play className="w-4 h-4" />
-                Start {mins}-min focus
+                {mode === 'stopwatch' ? 'Start challenge' : `Start ${mins}-min focus`}
               </motion.button>
             </motion.div>
           )}

@@ -16,7 +16,7 @@ export function PageShell({ variant = 'default', page, className = '', style, ch
   return (
     <div
       data-page={page}
-      className={`min-h-full ${layoutClass} ${className}`}
+      className={`${page === 'terminal' ? 'h-full min-h-0' : 'min-h-full'} ${layoutClass} ${className}`}
       style={{ animation: 'pageEnter var(--normal) var(--ease-out)', ...style }}
     >
       {children}

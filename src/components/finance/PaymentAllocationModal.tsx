@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
-import { X, Wallet, Check, AlertCircle, ArrowLeft, Calculator } from 'lucide-react';
+import { X, Wallet, Check, AlertCircle, ArrowLeft, Calculator, Calendar } from 'lucide-react';
 import type { FinanceFtPerson, FinanceTransaction, FinanceWallet } from './finance-types';
+import { CurrencyInput } from './CurrencyInput';
 import { computeAllocation, buildRepaymentDescription } from '../../lib/paymentAllocation';
 import { getRepaymentStatus } from '../../lib/receivables';
 
@@ -18,6 +19,7 @@ export function PaymentAllocationModal({
   open, onClose, person, transactions, wallets, displayCurrency, onRefresh
 }: PaymentAllocationModalProps) {
   const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [selectedWallet, setSelectedWallet] = useState<number | null>(wallets[0]?.id ?? null);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<number>>(new Set());
   const [autoMode, setAutoMode] = useState(true);
@@ -74,7 +76,7 @@ export function PaymentAllocationModal({
           item.txId === allocation.items[allocation.items.length - 1].txId;
         const result = await (window as any).deskflowAPI?.financeRecordFtRepayment({
           originalTxId: item.txId, personId: person.id, amount: item.allocatedAmount,
-          date: new Date().toISOString().split('T')[0], walletId: selectedWallet || undefined,
+          date: date, walletId: selectedWallet || undefined,
           accountId: personTxns[0]?.account_id,
           description: buildRepaymentDescription(person.name, allocation),
           isOverpayment: isOverpayment && allocation.overpaymentAmount > 0,
@@ -107,8 +109,8 @@ export function PaymentAllocationModal({
           <div>
             <label className="block text-[11px] font-medium text-zinc-400 mb-1.5 uppercase tracking-wider">Amount</label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm font-bold">{displayCurrency}</span>
-              <input type="number" step="0.01" min="0" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00"
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm font-bold pointer-events-none">{displayCurrency}</span>
+              <CurrencyInput value={amount} onChange={(v) => setAmount(String(v))} placeholder="0.00"
                 className="w-full rounded-xl bg-zinc-800/60 border border-zinc-700/60 pl-8 pr-3 py-2.5 text-sm font-bold text-zinc-100 placeholder-zinc-600 outline-none focus:border-amber-500/50 transition-colors" />
             </div>
           </div>
@@ -121,6 +123,15 @@ export function PaymentAllocationModal({
                 <option key={w.id} value={w.id}>{w.name} ({displayCurrency}{w.balance.toFixed(2)})</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5 uppercase tracking-wider">Date received</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="w-full rounded-xl bg-zinc-800/60 border border-zinc-700/60 pl-8 pr-3 py-2.5 text-xs text-zinc-200 outline-none focus:border-amber-500/50 transition-colors" />
+            </div>
           </div>
 
           {allocation && numericAmount > 0 && (

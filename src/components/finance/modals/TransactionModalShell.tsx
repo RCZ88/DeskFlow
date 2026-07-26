@@ -95,8 +95,8 @@ export function TransactionModalShell({
 					</button>
 				</div>
 
-				{/* Body */}
-				<div className="space-y-3">{children({ submit, phase, setCanSubmit })}</div>
+			{/* Body */}
+			<div className="max-h-[75vh] overflow-y-auto pr-1 space-y-3 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">{children({ submit, phase, setCanSubmit })}</div>
 
 				{/* Error */}
 				{phase === 'error' && errorMsg && (

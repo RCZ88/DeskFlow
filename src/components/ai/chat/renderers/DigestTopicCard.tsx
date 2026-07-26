@@ -1,3 +1,4 @@
+import { Newspaper } from "lucide-react"
 import { CardShell } from "./CardShell"
 import type { CardAction } from "../parsed"
 
@@ -47,7 +48,7 @@ export function DigestTopicCard(props: DigestTopicCardProps) {
   const primary = source ?? (sources?.[0] ? { name: sources[0].title, url: sources[0].url } : undefined)
 
   return (
-    <CardShell title={headline ?? topic} badge="digest_topic" icon={"\uD83D\uDCF0"}>
+    <CardShell title={headline ?? topic} badge="digest_topic" accent="cyan" icon={<Newspaper size={14} />}>
       {/* badge row: date + confidence + tags */}
       <div className="dk-news-meta dk-news-meta--chat">
         {dateLabel && <span className="dk-datebadge dk-date-today">{dateLabel}</span>}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronLeft, ChevronRight, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon, Layers, Search, Filter, Monitor, Tags, ListOrdered, AppWindow, Zap, Award, Timer, LayoutGrid } from 'lucide-react';
+import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronLeft, ChevronRight, ChevronDown, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon, Layers, Search, Filter, Monitor, Tags, ListOrdered, AppWindow, Zap, Award, Timer, LayoutGrid } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
@@ -95,6 +95,9 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
   const [availableBrowsers, setAvailableBrowsers] = useState<string[]>([]);
   const [extensionBrowser, setExtensionBrowser] = useState<string>('');
   const [hourlyChartMode, setHourlyChartMode] = useState<'bar' | 'line'>('bar');
+  const [selectedBrowserProfile, setSelectedBrowserProfile] = useState<string>('all');
+  const [availableBrowserProfiles, setAvailableBrowserProfiles] = useState<string[]>([]);
+  const [showLiveDetection, setShowLiveDetection] = useState(false);
   const scrollPosRef = useRef(0);
 
   // Save scroll position continuously
@@ -279,6 +282,18 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
       .sort((a, b) => b.totalDuration - a.totalDuration);
   }, [browserLogs]);
 
+  // Filter domain stats by selected browser profile
+  const filteredDomainStats = useMemo(() => {
+    if (selectedBrowserProfile === 'all') return domainStats;
+    return domainStats.filter((d: any) => d.browser_name === selectedBrowserProfile);
+  }, [domainStats, selectedBrowserProfile]);
+
+  // Filter browser logs by selected browser profile
+  const filteredBrowserLogs = useMemo(() => {
+    if (selectedBrowserProfile === 'all') return browserLogs;
+    return browserLogs.filter((l: any) => l.browser_name === selectedBrowserProfile);
+  }, [browserLogs, selectedBrowserProfile]);
+
   const fetchData = useCallback(async () => {
     if (!isMountedRef.current) return;
     
@@ -302,6 +317,10 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
       setDomainStats(domains || []);
       setCategoryStats(categories || []);
       setBrowserLogs(logs || []);
+      // Extract unique browser names from domain stats
+      const profileSet = new Set<string>();
+      (domains || []).forEach((d: any) => { if (d.browser_name) profileSet.add(d.browser_name); });
+      setAvailableBrowserProfiles(Array.from(profileSet).sort());
     } catch (err: any) {
       if (!isMountedRef.current) return;
       console.error('[BrowserActivity] Error fetching data:', err);
@@ -352,7 +371,7 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
 
   // Domain breakdown chart data
   const domainChartData = useMemo(() => {
-    const top10 = domainStats.slice(0, 10);
+    const top10 = filteredDomainStats.slice(0, 10);
     return {
       labels: top10.map(d => d.domain),
       datasets: [{
@@ -370,7 +389,7 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
         barPercentage: 0.8,
       }]
     };
-  }, [domainStats]);
+  }, [filteredDomainStats]);
 
   // Category pie chart data
   const categoryChartData = useMemo(() => {
@@ -565,9 +584,9 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
     }]
   };
 
-  // Total browser time
-  const totalBrowserTime = domainStats.reduce((sum, d) => sum + d.total_ms, 0);
-  const totalSessions = domainStats.reduce((sum, d) => sum + d.sessions, 0);
+  // Total browser time (filtered by profile)
+  const totalBrowserTime = filteredDomainStats.reduce((sum, d) => sum + d.total_ms, 0);
+  const totalSessions = filteredDomainStats.reduce((sum, d) => sum + d.sessions, 0);
 
   // Detail daily breakdown for selected domain
   const selectedDomainName = selectedDomainDetail?.domain || '';
@@ -720,7 +739,7 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { label: 'Total Browsing Time', value: totalBrowserTime, display: formatDuration(totalBrowserTime), numeric: false, sub: 'Across all sessions', icon: Clock, chipBg: 'rgba(59,130,246,0.14)', iconColor: '#3b82f6' },
-          { label: 'Unique Domains', value: domainStats.length, display: String(domainStats.length), numeric: true, sub: 'Different websites visited', icon: Globe, chipBg: 'rgba(16,185,129,0.14)', iconColor: '#10b981' },
+          { label: 'Unique Domains', value: filteredDomainStats.length, display: String(filteredDomainStats.length), numeric: true, sub: 'Different websites visited', icon: Globe, chipBg: 'rgba(16,185,129,0.14)', iconColor: '#10b981' },
           { label: 'Browsing Sessions', value: totalSessions, display: String(totalSessions), numeric: true, sub: null, icon: Activity, chipBg: 'rgba(139,92,246,0.14)', iconColor: '#8b5cf6' },
         ].map((stat, idx) => (
           <motion.div
@@ -748,79 +767,30 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
         ))}
       </div>
 
-       {/* Live Detection */}
-       <GlassCard>
-          <SectionHeader title="Live Detection" icon={<Terminal className="w-5 h-5" />}
-            action={
-              <div className="flex items-center gap-2">
-                <button onClick={() => setIsLiveMode(!isLiveMode)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors ${
-                    isLiveMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {isLiveMode ? <Pause size={12} /> : <Play size={12} />}
-                  {isLiveMode ? 'Live' : 'Paused'}
-                </button>
-                <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
-                <button onClick={handleSaveLogs} disabled={liveLogs.length === 0}
-                  className="px-3 py-1.5 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-xs flex items-center gap-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                  <Save size={12} /> Save
-                </button>
-              </div>
-            } />
-         <div className="flex gap-2 mb-3">
-          <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-              <Input
-                placeholder="Search domains..."
-                value={liveSearchQuery}
-                onChange={e => setLiveSearchQuery(e.target.value)}
-                className="pl-8 text-xs"
-              />
-            </div>
-           <div className="flex gap-1 bg-zinc-900 rounded-lg p-0.5 border border-zinc-800">
-             {(['all', 'info', 'warning', 'error'] as const).map(level => (
-               <button
-                 key={level}
-                 onClick={() => setLiveLevelFilter(level)}
-                 className={`px-2.5 py-1.5 text-xs rounded-md capitalize ${
-                   liveLevelFilter === level
-                     ? 'bg-zinc-700 text-white'
-                     : 'text-zinc-500 hover:text-zinc-300'
-                 }`}
-               >
-                 {level}
-               </button>
-             ))}
-           </div>
-         </div>
-         <div className="bg-zinc-950 rounded-xl border border-zinc-800/50 p-3 h-48 overflow-y-auto font-mono text-xs">
-           {displayedLiveLogs.length === 0 ? (
-             <div className="text-zinc-500 text-center py-8">
-               {liveLogs.length === 0 ? 'Live detection paused' : 'No matching events'}
-             </div>
-           ) : (
-             <div className="space-y-1">
-               {displayedLiveLogs.map((log) => (
-                 <div key={log.id} className="flex items-start gap-2">
-                   <span className="text-zinc-600 shrink-0">
-                     {dateFormat(new Date(log.timestamp), 'HH:mm:ss.SSS')}
-                   </span>
-                   <span className={`shrink-0 px-1.5 py-0.5 rounded ${
-                     log.level === 'error' ? 'bg-red-500/20 text-red-400' :
-                     log.level === 'warning' ? 'bg-amber-500/20 text-amber-400' :
-                     'bg-emerald-500/20 text-emerald-400'
-                   }`}>
-                     {(log.level || 'INFO').toUpperCase()}
-                   </span>
-                   <span className="text-blue-400">{log.domain}</span>
-                   {log.title && <span className="text-zinc-500 truncate">{log.title}</span>}
-                 </div>
-               ))}
-             </div>
-           )}
-         </div>
-       </GlassCard>
+      {/* Charts Row — Category + Top Domains (prominent, first after stats) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <GlassCard>
+          <SectionHeader title="Time by Category" icon={<BarChart3 className="w-5 h-5" />} />
+          <div className="h-72">
+            {categoryStats.length > 0 ? (
+              <Pie data={categoryChartData} options={categoryPieOptions} />
+            ) : (
+              <SectionState kind="empty" chart="pie" message="No category data" hint="Browse websites to see category breakdown" />
+            )}
+          </div>
+        </GlassCard>
+
+        <GlassCard>
+          <SectionHeader title="Top Domains" icon={<TrendingUp className="w-5 h-5" />} />
+          <div className="h-72">
+            {filteredDomainStats.length > 0 ? (
+              <Bar data={domainChartData} options={domainBarOptions} />
+            ) : (
+              <SectionState kind="empty" chart="bar" message="No domain data" hint="Browse websites to see top domains" />
+            )}
+          </div>
+        </GlassCard>
+      </div>
 
       {/* Hourly Activity Chart */}
       <GlassCard>
@@ -847,31 +817,6 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
           )}
         </div>
       </GlassCard>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <GlassCard>
-          <SectionHeader title="Time by Category" icon={<BarChart3 className="w-5 h-5" />} />
-          <div className="h-72">
-            {categoryStats.length > 0 ? (
-              <Pie data={categoryChartData} options={categoryPieOptions} />
-            ) : (
-              <SectionState kind="empty" chart="pie" message="No category data" />
-            )}
-          </div>
-        </GlassCard>
-
-        <GlassCard>
-          <SectionHeader title="Top Domains" icon={<TrendingUp className="w-5 h-5" />} />
-          <div className="h-72">
-            {domainStats.length > 0 ? (
-              <Bar data={domainChartData} options={domainBarOptions} />
-            ) : (
-              <SectionState kind="empty" chart="bar" message="No domain data" />
-            )}
-          </div>
-        </GlassCard>
-      </div>
 
       {/* Recent Activity - Aggregated by domain with dropdown */}
       <GlassCard>
@@ -962,13 +907,31 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
               <div className="text-sm text-zinc-500">All websites by total time</div>
             </div>
           </div>
-          <div className="text-xs text-zinc-500">{domainStats.length} domains</div>
+          <div className="flex items-center gap-3">
+            {availableBrowserProfiles.length > 0 && (
+              <select
+                value={selectedBrowserProfile}
+                onChange={e => setSelectedBrowserProfile(e.target.value)}
+                className="bg-zinc-800/80 border border-zinc-700/50 text-zinc-300 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+              >
+                <option value="all">All browsers</option>
+                {availableBrowserProfiles.map(p => (
+                  <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                ))}
+              </select>
+            )}
+            <div className="text-xs text-zinc-500">{filteredDomainStats.length} domains</div>
+          </div>
         </div>
-        {domainStats.length === 0 ? (
-          <SectionState kind="empty" message={timeMode === 'focus' ? 'No productive browsing data' : 'No browsing data yet'} hint={timeMode === 'focus' ? 'Switch to Total mode to see all websites' : 'Install the browser extension and start browsing'} />
+        {filteredDomainStats.length === 0 ? (
+          <SectionState
+            kind="empty"
+            message={timeMode === 'focus' ? 'No productive browsing data' : availableBrowserProfiles.length === 0 && selectedBrowserProfile === 'all' ? 'No browser profiles detected yet' : 'No browsing data yet'}
+            hint={timeMode === 'focus' ? 'Switch to Total mode to see all websites' : availableBrowserProfiles.length === 0 && selectedBrowserProfile === 'all' ? 'Install the browser extension to start tracking profiles' : 'Install the browser extension and start browsing'}
+          />
         ) : (
           <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.03 } } }}>
-            {domainStats.map((d, i) => (
+            {filteredDomainStats.map((d, i) => (
               <motion.div
                 key={d.domain}
                 variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } } }}
@@ -986,6 +949,21 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
                       <Globe className="w-3.5 h-3.5" style={{ color: CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Other'] }} />
                     </div>
                     <div className="font-medium text-sm text-white truncate">{d.domain}</div>
+                    {d.browser_name && (
+                      <div
+                        className="w-2 h-2 rounded-full shrink-0"
+                        title={d.browser_name}
+                        style={{
+                          backgroundColor:
+                            d.browser_name === 'chrome' ? '#3b82f6' :
+                            d.browser_name === 'firefox' ? '#ff6611' :
+                            d.browser_name === 'edge' ? '#0078d4' :
+                            d.browser_name === 'brave' ? '#fb542b' :
+                            d.browser_name === 'opera' ? '#ff1b2d' :
+                            d.browser_name === 'comet' ? '#8b5cf6' : '#6b7280'
+                        }}
+                      />
+                    )}
                   </div>
                   <Badge
                     variant="default"
@@ -1013,6 +991,104 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
             ))}
           </motion.div>
         )}
+      </GlassCard>
+
+      {/* Live Detection — collapsed by default, developer/debug tool */}
+      <GlassCard>
+        <button
+          onClick={() => setShowLiveDetection(!showLiveDetection)}
+          className="w-full flex items-center justify-between py-1 text-left group"
+        >
+          <div className="flex items-center gap-2">
+            <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${showLiveDetection ? 'rotate-0' : '-rotate-90'}`} />
+            <SectionHeader title="Live Detection" icon={<Terminal className="w-5 h-5" />}
+            action={
+              <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
+                {showLiveDetection && (
+                  <>
+                    <button onClick={() => setIsLiveMode(!isLiveMode)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors ${
+                        isLiveMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {isLiveMode ? <Pause size={12} /> : <Play size={12} />}
+                      {isLiveMode ? 'Live' : 'Paused'}
+                    </button>
+                    <button onClick={handleSaveLogs} disabled={liveLogs.length === 0}
+                      className="px-3 py-1.5 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-xs flex items-center gap-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                      <Save size={12} /> Save
+                    </button>
+                  </>
+                )}
+              </div>
+            } />
+          </div>
+        </button>
+        <AnimatePresence>
+          {showLiveDetection && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="flex gap-2 mb-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                  <Input
+                    placeholder="Search domains..."
+                    value={liveSearchQuery}
+                    onChange={e => setLiveSearchQuery(e.target.value)}
+                    className="pl-8 text-xs"
+                  />
+                </div>
+                <div className="flex gap-1 bg-zinc-900 rounded-lg p-0.5 border border-zinc-800">
+                  {(['all', 'info', 'warning', 'error'] as const).map(level => (
+                    <button
+                      key={level}
+                      onClick={() => setLiveLevelFilter(level)}
+                      className={`px-2.5 py-1.5 text-xs rounded-md capitalize ${
+                        liveLevelFilter === level
+                          ? 'bg-zinc-700 text-white'
+                          : 'text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-zinc-950 rounded-xl border border-zinc-800/50 p-3 h-48 overflow-y-auto font-mono text-xs">
+                {displayedLiveLogs.length === 0 ? (
+                  <div className="text-zinc-500 text-center py-8">
+                    {liveLogs.length === 0 ? 'No browser tracking events yet' : 'No matching events'}
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {displayedLiveLogs.map((log) => (
+                      <div key={log.id} className="flex items-start gap-2">
+                        <span className="text-zinc-600 shrink-0">
+                          {dateFormat(new Date(log.timestamp), 'HH:mm:ss.SSS')}
+                        </span>
+                        <span className={`shrink-0 px-1.5 py-0.5 rounded ${
+                          log.level === 'error' ? 'bg-red-500/20 text-red-400' :
+                          log.level === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                          'bg-emerald-500/20 text-emerald-400'
+                        }`}>
+                          {(log.level || 'INFO').toUpperCase()}
+                        </span>
+                        <span className="text-blue-400">{log.domain}</span>
+                        {log.title && <span className="text-zinc-500 truncate">{log.title}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </GlassCard>
 
       {/* Domain Detail Modal */}

@@ -12,6 +12,9 @@ export interface RecalculateBreakdown {
   date: string;
   type: 'income' | 'expense' | 'transfer';
   runningBalance: number;
+  is_adjustment?: number;
+  cryptoQty?: number;
+  cryptoSymbol?: string;
 }
 
 interface RecalculateBalanceModalProps {
@@ -61,11 +64,20 @@ export function RecalculateBalanceModal({
   const { incomeTotal, expenseTotal, incomeCount, expenseCount } = useMemo(() => {
     let inc = 0, exp = 0, incC = 0, expC = 0;
     for (const t of breakdown) {
-      if (t.type === 'income') { inc += t.delta; incC++; }
-      else if (t.type === 'expense') { exp += t.delta; expC++; }
-      else if (t.type === 'transfer') { if (t.delta > 0) inc += t.delta; else exp += t.delta; incC++; }
+      const amt = Number(t.amount) || Number(t.delta) || 0;
+      if (t.type === 'income') { inc += amt; incC++; }
+      else if (t.type === 'expense') { exp += amt; expC++; }
+      else if (t.type === 'transfer') {
+        if (t.cryptoQty != null) {
+          if (amt < 0) { exp += Math.abs(amt); expC++; }
+          else { inc += amt; incC++; }
+        } else {
+          if (amt > 0) inc += amt; else exp += Math.abs(amt);
+          incC++;
+        }
+      }
     }
-    return { incomeTotal: inc, expenseTotal: exp, incomeCount: incC, expenseCount: expC };
+    return { incomeTotal: inc, expenseTotal: Math.abs(exp), incomeCount: incC, expenseCount: expC };
   }, [breakdown]);
 
   return (
@@ -141,10 +153,16 @@ export function RecalculateBalanceModal({
                         <div className="text-[10px] text-zinc-500">{txn.date}</div>
                       </div>
                       <div className="text-right">
-                        <div className={`text-xs font-medium ${txn.delta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {txn.delta >= 0 ? '+' : ''}{txn.delta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                        <div className="text-[10px] text-zinc-500">{txn.runningBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                        {txn.cryptoQty != null ? (
+                          <div className={`text-xs font-medium ${txn.cryptoQty >= 0 ? 'text-violet-400' : 'text-red-400'}`}>
+                            {txn.cryptoQty >= 0 ? '+' : ''}{txn.cryptoQty.toFixed(8)} {txn.cryptoSymbol}
+                          </div>
+                        ) : (
+                          <div className={`text-xs font-medium ${(txn.delta || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {(txn.delta || 0) >= 0 ? '+' : ''}{(txn.delta || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                        )}
+                        <div className="text-[10px] text-zinc-500">{(txn.runningBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                       </div>
                     </motion.div>
                   ))}

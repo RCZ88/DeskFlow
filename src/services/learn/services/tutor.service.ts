@@ -17,6 +17,40 @@ When they need reinforcement, suggest "reinforce".
 When they need remedial content, suggest "remedial".
 Use the "escalate" flag only when the question fundamentally cannot be answered by this lesson's content.`;
 
+const MODE_SYSTEM_PROMPTS: Record<string, string> = {
+  explain: `You are an expert teacher. Explain the following concept clearly and thoroughly.
+Use analogies, step-by-step breakdowns, and concrete examples.
+Assume the learner has basic knowledge but needs a clear explanation.
+Ground your answer ONLY in the FACTS provided below. Cite fact ids [f1], [f2].
+Return JSON: { answer_md: string, used_source_ids: string[], used_fact_ids: string[], suggested_next?: "deeper"|"reinforce"|"remedial" }`,
+
+  simpler: `You are a patient tutor simplifying a concept.
+Rewrite the following in the simplest possible terms.
+Use everyday language, short sentences, and relatable analogies.
+A 12-year-old should be able to understand your explanation.
+Ground your answer ONLY in the FACTS provided below. Cite fact ids [f1], [f2].
+Return JSON: { answer_md: string, used_source_ids: string[], used_fact_ids: string[], suggested_next?: "deeper"|"reinforce"|"remedial" }`,
+
+  deeper: `You are an advanced instructor going deeper on a topic.
+Provide nuanced analysis, edge cases, advanced patterns, and connections to other concepts.
+Assume the learner already understands the basics and wants to go further.
+Ground your answer ONLY in the FACTS provided below. Cite fact ids [f1], [f2].
+Return JSON: { answer_md: string, used_source_ids: string[], used_fact_ids: string[], suggested_next?: "deeper"|"reinforce"|"remedial" }`,
+};
+
+export type TutorMode = 'explain' | 'ask' | 'simpler' | 'deeper';
+
+function resolveSystemPrompt(mode?: string, personaMd?: string): string {
+  let base: string;
+  if (mode && mode !== 'ask' && MODE_SYSTEM_PROMPTS[mode]) {
+    base = MODE_SYSTEM_PROMPTS[mode];
+  } else {
+    base = TUTOR_SYSTEM_PROMPT;
+  }
+  if (!personaMd) return base;
+  return `${personaMd}\n\n---\n\n## Core Tutor Instructions\n${base}`;
+}
+
 /**
  * Prepend persona + guardrails to the tutor prompt when the prompt library
  * resources are available. Call once during service construction.
@@ -48,7 +82,7 @@ export class TutorService {
     this.systemPrompt = personaMd ? prependTutorPersona(personaMd) : TUTOR_SYSTEM_PROMPT;
   }
 
-  async ask(params: { nodeId: string; blockId?: string; question: string; personaMd?: string }): Promise<Result<TutorAnswer>> {
+  async ask(params: { nodeId: string; blockId?: string; question: string; personaMd?: string; mode?: TutorMode }): Promise<Result<TutorAnswer>> {
     try {
       // 1. Check cache
       const cacheKey = this.hashKey(params.nodeId, params.question);
@@ -84,9 +118,7 @@ export class TutorService {
       const userPrompt = `FACTS:\n${factsText}\n\nMISCONCEPTIONS:\n${misconceptionsText}\n\nSOURCES:\n${sourcesText}\n\nQUESTION: ${params.question}`;
 
       // 5. Call small model for answer
-      const systemPrompt = params.personaMd
-        ? prependTutorPersona(params.personaMd)
-        : this.systemPrompt;
+      const systemPrompt = resolveSystemPrompt(params.mode, params.personaMd);
       let answerResult;
       try {
         answerResult = await this.callAi(userPrompt, systemPrompt, 500);
@@ -113,6 +145,24 @@ export class TutorService {
       const citations = packet.sources
         .filter((s) => usedSourceIds.includes(s.id))
         .map((s) => ({ id: s.id, url: s.url, title: s.title }));
+
+      // 6b. Enforce citation requirement — refuse to answer without sources
+      if (citations.length === 0 && packet.sources.length > 0) {
+        return {
+          answer_md: "I don't have enough information from the available sources to answer this question accurately. The topic may not be covered in the current lesson materials.",
+          used_source_ids: [],
+          used_fact_ids: [],
+          citations: [],
+          assessment: {
+            target_level: 'L1' as MasteryLevel,
+            outcome: 'partial' as EvidenceOutcome,
+            rationale: 'No relevant sources found for this question.',
+            suggested_next: 'review' as const,
+          },
+          escalated: false,
+          confidence: 0,
+        };
+      }
 
       // 7. Assessment (lightweight — skip if AI already strained)
       const assessment = {

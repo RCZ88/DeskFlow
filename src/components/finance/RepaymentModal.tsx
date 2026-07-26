@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Handshake, Calendar, AlertTriangle, Check, RotateCcw, Info } from 'lucide-react';
 import { getCurrencyInfo } from './currency-data';
+import { CurrencyInput } from './CurrencyInput';
 import type { FinanceTransaction, FinanceWallet } from './finance-types';
 
 interface RepaymentModalProps {
@@ -129,11 +130,12 @@ export function RepaymentModal({
                 )}
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">{symbol}</span>
-                <input
-                  type="number" step="0.01" min="0" value={amount}
-                  onChange={e => setAmount(e.target.value)}
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm pointer-events-none">{symbol}</span>
+                <CurrencyInput
+                  value={amount}
+                  onChange={(v) => setAmount(String(v))}
                   className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg pl-8 pr-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50 tabular-nums"
+                  placeholder="0.00"
                 />
               </div>
             </div>

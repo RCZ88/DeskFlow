@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Mail, Calendar, Loader2, Check, AlertCircle, ArrowRight, Server, User, Lock, Shield, Info, ExternalLink } from 'lucide-react';
+import { X, Mail, Calendar, Loader2, Check, AlertCircle, ArrowRight, Server, User, Lock, Shield, Info, ExternalLink, Plug } from 'lucide-react';
 
 interface ConnectorSetupModalProps {
   open: boolean;
@@ -11,7 +11,47 @@ interface ConnectorSetupModalProps {
 type Step = 'type' | 'provider' | 'credentials' | 'testing' | 'done';
 type ConnectorType = 'email' | 'calendar';
 
-const PROVIDER_DEFAULTS: Record<string, { hosts: { label: string; host: string; port: number }[] }> = {
+const CREDENTIALS_CACHE_KEY = 'deskflow-connector-credentials';
+
+interface CachedCredentials {
+  username: string;
+  password: string;
+  host?: string;
+  port?: string;
+  caldavUrl?: string;
+  displayName?: string;
+  providerIdx?: number;
+  connectorType: ConnectorType;
+}
+
+function loadCachedCredentials(type: ConnectorType): CachedCredentials | null {
+  try {
+    const raw = localStorage.getItem(CREDENTIALS_CACHE_KEY);
+    if (!raw) return null;
+    const all: Record<string, CachedCredentials> = JSON.parse(raw);
+    return all[type] || null;
+  } catch { return null; }
+}
+
+function saveCachedCredentials(type: ConnectorType, creds: CachedCredentials) {
+  try {
+    const raw = localStorage.getItem(CREDENTIALS_CACHE_KEY);
+    const all: Record<string, CachedCredentials> = raw ? JSON.parse(raw) : {};
+    all[type] = creds;
+    localStorage.setItem(CREDENTIALS_CACHE_KEY, JSON.stringify(all));
+  } catch {}
+}
+
+function loadAllCachedCredentials(): CachedCredentials | null {
+  try {
+    const raw = localStorage.getItem(CREDENTIALS_CACHE_KEY);
+    if (!raw) return null;
+    const all: Record<string, CachedCredentials> = JSON.parse(raw);
+    return all.email || all.calendar || null;
+  } catch { return null; }
+}
+
+const PROVIDER_DEFAULTS: Record<string, { hosts: { label: string; host: string; port: number; url?: string }[] }> = {
   email: {
     hosts: [
       { label: 'Gmail', host: 'imap.gmail.com', port: 993 },
@@ -51,6 +91,11 @@ const PROVIDER_INFO: Record<string, { securityNote: string; setupGuide: string; 
   },
 };
 
+const CALDAV_URL_MAP: Record<string, string> = {
+  'imap.gmail.com': 'https://apidata.googleusercontent.com/caldav/v2/',
+  'outlook.office365.com': 'https://outlook.office365.com/dav/',
+};
+
 export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetupModalProps) {
   const [step, setStep] = useState<Step>('type');
   const [connectorType, setConnectorType] = useState<ConnectorType | null>(null);
@@ -65,11 +110,15 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [alsoConnectCalendar, setAlsoConnectCalendar] = useState(false);
+  const [alsoConnectEmail, setAlsoConnectEmail] = useState(false);
+  const [creatingSecond, setCreatingSecond] = useState(false);
 
   const reset = () => {
     setStep('type'); setConnectorType(null); setProviderIdx(null);
     setDisplayName(''); setHost(''); setPort('993'); setUsername(''); setPassword('');
     setCalDavUrl(''); setTls(true); setTesting(false); setTestResult(null); setError(null);
+    setAlsoConnectCalendar(false); setAlsoConnectEmail(false); setCreatingSecond(false);
   };
 
   const handleClose = () => { reset(); onClose(); };
@@ -86,6 +135,16 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
     if ('port' in defaults) setPort(String(defaults.port));
     if ('url' in defaults && defaults.url) setCalDavUrl(defaults.url);
     setDisplayName(defaults.label);
+
+    // Pre-fill from cache if available
+    const cached = loadCachedCredentials(connectorType!);
+    if (cached) {
+      if (cached.username) setUsername(cached.username);
+      if (cached.password) setPassword(cached.password);
+      if (cached.host && connectorType === 'email') setHost(cached.host);
+      if (cached.port && connectorType === 'email') setPort(cached.port);
+    }
+
     setStep('credentials');
   };
 
@@ -94,9 +153,26 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
     setTestResult(null);
     setError(null);
     try {
+      // Auto-append email to CalDAV URL for Google/Outlook if not already present
+      let finalCalDavUrl = caldavUrl;
+      if (connectorType === 'calendar' && username.includes('@')) {
+        try {
+          const u = new URL(caldavUrl);
+          const h = u.hostname.toLowerCase();
+          const needsEmail = (
+            (h === 'apidata.googleusercontent.com' && /\/caldav\/v2\/?$/.test(u.pathname)) ||
+            (h === 'outlook.office365.com' && /\/dav\/?$/.test(u.pathname))
+          );
+          if (needsEmail) {
+            const base = u.pathname.endsWith('/') ? u.pathname : u.pathname + '/';
+            finalCalDavUrl = u.origin + base + username + '/';
+            setCalDavUrl(finalCalDavUrl);
+          }
+        } catch {}
+      }
       const config = connectorType === 'email'
         ? { host, port: Number(port), username, password, tls }
-        : { url: caldavUrl, username, password };
+        : { url: finalCalDavUrl, username, password };
       const addR = await window.deskflowAPI!.connectors.add({
         type: connectorType!, provider: connectorType === 'email' ? 'imap' : 'caldav',
         displayName, config,
@@ -105,10 +181,70 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
       const testR = await window.deskflowAPI!.connectors.test(addR.connector.id);
       setTestResult(testR);
       if (testR.success) {
+        // Cache credentials for reuse
+        saveCachedCredentials(connectorType!, {
+          username, password, host, port: String(port), caldavUrl,
+          displayName, providerIdx: providerIdx!, connectorType: connectorType!,
+        });
+
         await window.deskflowAPI!.connectors.sync(addR.connector.id);
+
+        // If email and "also connect calendar" is checked, create calendar connector
+        if (connectorType === 'email' && alsoConnectCalendar) {
+          setCreatingSecond(true);
+          try {
+            const baseUrl = CALDAV_URL_MAP[host] || 'https://apidata.googleusercontent.com/caldav/v2/';
+            const calUrl = baseUrl.endsWith('/') ? baseUrl + username : baseUrl + '/' + username + '/';
+            const calConfig = { url: calUrl, username, password };
+            const calAddR = await window.deskflowAPI!.connectors.add({
+              type: 'calendar', provider: 'caldav',
+              displayName: displayName.replace(/mail/i, '').trim() + ' Calendar' || 'Calendar',
+              config: calConfig,
+            });
+            if (calAddR.success && calAddR.connector) {
+              const calTestR = await window.deskflowAPI!.connectors.test(calAddR.connector.id);
+              if (calTestR.success) {
+                await window.deskflowAPI!.connectors.sync(calAddR.connector.id);
+              } else {
+                // Calendar failed but email succeeded — still proceed
+                console.warn('[Connectors] Calendar auto-connect failed:', calTestR.message);
+              }
+            }
+          } catch (calErr: any) {
+            console.warn('[Connectors] Calendar auto-connect error:', calErr.message);
+          }
+          setCreatingSecond(false);
+        }
+
+        // If calendar and "also connect email" is checked, create email connector
+        if (connectorType === 'calendar' && alsoConnectEmail) {
+          setCreatingSecond(true);
+          try {
+            const cached = loadCachedCredentials('email');
+            const imapHost = cached?.host || 'imap.gmail.com';
+            const imapPort = Number(cached?.port || '993');
+            const emailConfig = { host: imapHost, port: imapPort, username, password, tls: true };
+            const emailAddR = await window.deskflowAPI!.connectors.add({
+              type: 'email', provider: 'imap',
+              displayName: displayName.replace(/calendar/i, '').trim() + ' Email' || 'Email',
+              config: emailConfig,
+            });
+            if (emailAddR.success && emailAddR.connector) {
+              const emailTestR = await window.deskflowAPI!.connectors.test(emailAddR.connector.id);
+              if (emailTestR.success) {
+                await window.deskflowAPI!.connectors.sync(emailAddR.connector.id);
+              }
+            }
+          } catch (emailErr: any) {
+            console.warn('[Connectors] Email auto-connect error:', emailErr.message);
+          }
+          setCreatingSecond(false);
+        }
+
         setStep('done');
         onCreated?.();
       } else {
+        setError(testR.message || 'Connection failed — check your credentials and server URL');
         await window.deskflowAPI!.connectors.remove(addR.connector.id);
       }
     } catch (err: any) {
@@ -120,6 +256,10 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
   const currentProvider = providerIdx !== null ? PROVIDER_DEFAULTS[connectorType!].hosts[providerIdx] : null;
   const providerName = currentProvider?.label || '';
   const providerInfo = PROVIDER_INFO[providerName];
+
+  // Check if there's a cached credential available to show a hint
+  const hasCached = connectorType ? !!loadCachedCredentials(connectorType) : false;
+  const hasAnyCached = !!loadAllCachedCredentials();
 
   if (!open) return null;
 
@@ -148,8 +288,7 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                 <p className="text-xs text-zinc-500 mt-0.5">
                   {step === 'type' && 'Choose what to connect'}
                   {step === 'provider' && 'Select your provider'}
-                  {step === 'credentials' && 'Enter your credentials securely'}
-                  {step === 'testing' && 'Testing connection...'}
+                  {step === 'credentials' && (creatingSecond ? 'Connecting second service...' : 'Enter your credentials securely')}
                   {step === 'done' && 'Connected successfully!'}
                 </p>
               </div>
@@ -186,6 +325,12 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                       Connectors let DeskFlow read your email and calendar to power smarter planning.
                       Your data stays on your device — we never see your messages or events.
                     </p>
+                    {hasAnyCached && (
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-cyan-500/5 ring-1 ring-cyan-500/20 text-[11px] text-cyan-300">
+                        <Plug size={12} />
+                        Saved credentials found — fields will auto-fill
+                      </div>
+                    )}
                     <button onClick={() => selectType('email')} className="w-full flex items-center gap-3 p-4 rounded-lg bg-zinc-800/40 ring-1 ring-zinc-700/30 hover:bg-zinc-800/60 hover:ring-zinc-600/50 transition-all text-left">
                       <div className="grid h-10 w-10 place-items-center rounded-lg bg-pink-500/10 ring-1 ring-pink-500/20">
                         <Mail className="h-5 w-5 text-pink-400" />
@@ -243,14 +388,23 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                         {providerInfo.appPasswordUrl && (
                           <a
                             href={providerInfo.appPasswordUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              window.deskflowAPI?.openUrl?.(providerInfo.appPasswordUrl!);
+                            }}
                             className="inline-flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors"
                           >
                             Open {providerName} App Passwords page
                             <ExternalLink size={10} />
                           </a>
                         )}
+                      </div>
+                    )}
+
+                    {hasCached && (
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-500/5 ring-1 ring-emerald-500/20 text-[11px] text-emerald-300">
+                        <Check size={12} />
+                        Pre-filled from saved credentials
                       </div>
                     )}
 
@@ -274,13 +428,30 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                           <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} className="rounded border-zinc-600 bg-zinc-800 text-pink-500 focus:ring-pink-500/50" />
                           <span className="text-xs text-zinc-400">Use TLS/SSL (recommended)</span>
                         </label>
+                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-zinc-800/30 ring-1 ring-zinc-700/30">
+                          <input type="checkbox" checked={alsoConnectCalendar} onChange={(e) => setAlsoConnectCalendar(e.target.checked)} className="rounded border-zinc-600 bg-zinc-800 text-cyan-500 focus:ring-cyan-500/50" />
+                          <div>
+                            <span className="text-xs text-zinc-300 block">Also connect Calendar</span>
+                            <span className="text-[10px] text-zinc-500">Uses the same credentials to add CalDAV</span>
+                          </div>
+                        </label>
                       </>
                     )}
                     {connectorType === 'calendar' && (
-                      <div>
-                        <label className="text-xs text-zinc-500 mb-1 block">CalDAV URL</label>
-                        <input value={caldavUrl} onChange={(e) => setCalDavUrl(e.target.value)} className="w-full rounded-lg bg-zinc-800/60 px-3 py-2 text-sm text-zinc-100 font-mono ring-1 ring-zinc-700/50 focus:outline-none focus:ring-2 focus:ring-pink-500/50 placeholder:text-zinc-600" placeholder="https://apidata.googleusercontent.com/caldav/v2/" />
-                      </div>
+                      <>
+                        <div>
+                          <label className="text-xs text-zinc-500 mb-1 block">CalDAV URL</label>
+                          <input value={caldavUrl} onChange={(e) => setCalDavUrl(e.target.value)} className="w-full rounded-lg bg-zinc-800/60 px-3 py-2 text-sm text-zinc-100 font-mono ring-1 ring-zinc-700/50 focus:outline-none focus:ring-2 focus:ring-pink-500/50 placeholder:text-zinc-600" placeholder="https://apidata.googleusercontent.com/caldav/v2/" />
+                          <p className="text-[10px] text-zinc-600 mt-1">For Google/Outlook, your email will be auto-appended to the URL path</p>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-zinc-800/30 ring-1 ring-zinc-700/30">
+                          <input type="checkbox" checked={alsoConnectEmail} onChange={(e) => setAlsoConnectEmail(e.target.checked)} className="rounded border-zinc-600 bg-zinc-800 text-pink-500 focus:ring-pink-500/50" />
+                          <div>
+                            <span className="text-xs text-zinc-300 block">Also connect Email</span>
+                            <span className="text-[10px] text-zinc-500">Uses the same credentials to add IMAP</span>
+                          </div>
+                        </label>
+                      </>
                     )}
                     <div>
                       <label className="text-xs text-zinc-500 mb-1 block">Username / Email</label>
@@ -319,9 +490,11 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                         className="flex-1 flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium bg-pink-500/10 text-pink-300 ring-1 ring-pink-500/20 hover:bg-pink-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         {testing ? (
-                          <><Loader2 className="h-4 w-4 animate-spin" /> Testing...</>
+                          <><Loader2 className="h-4 w-4 animate-spin" /> {creatingSecond ? 'Connecting 2nd service...' : 'Testing...'}</>
                         ) : testResult?.success ? (
                           <><Check className="h-4 w-4" /> Connected</>
+                        ) : testResult && !testResult.success ? (
+                          <><X className="h-4 w-4" /> Failed — Retry</>
                         ) : (
                           'Test & Connect'
                         )}
@@ -336,17 +509,26 @@ export function ConnectorSetupModal({ open, onClose, onCreated }: ConnectorSetup
                       <Check className="h-6 w-6 text-emerald-400" />
                     </div>
                     <p className="text-sm font-medium text-zinc-100">{displayName} connected!</p>
-                    <p className="text-xs text-zinc-500 mt-1">Data will sync automatically in the background</p>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      {alsoConnectCalendar || alsoConnectEmail
+                        ? 'Both services connected — credentials saved for future use'
+                        : 'Data will sync automatically in the background'}
+                    </p>
                     <div className="mt-4 rounded-lg bg-zinc-800/30 px-4 py-3 text-left">
                       <p className="text-[11px] text-zinc-500 leading-relaxed">
                         <span className="font-medium text-zinc-400">What happens next:</span> DeskFlow will periodically
                         sync your {connectorType === 'email' ? 'emails' : 'calendar events'} to provide context
-                        for your daily planning. You can disconnect anytime from the Connectors panel.
+                        for your daily planning. You can add more accounts or disconnect anytime from the Connectors panel.
                       </p>
                     </div>
-                    <button onClick={handleClose} className="mt-4 rounded-lg px-6 py-2 text-sm font-medium bg-zinc-800 text-zinc-300 ring-1 ring-zinc-700 hover:bg-zinc-700 transition-colors">
-                      Done
-                    </button>
+                    <div className="flex gap-2 mt-4 justify-center">
+                      <button onClick={handleClose} className="rounded-lg px-6 py-2 text-sm font-medium bg-zinc-800 text-zinc-300 ring-1 ring-zinc-700 hover:bg-zinc-700 transition-colors">
+                        Done
+                      </button>
+                      <button onClick={() => { reset(); setStep('type'); }} className="rounded-lg px-4 py-2 text-xs font-medium bg-pink-500/10 text-pink-300 ring-1 ring-pink-500/20 hover:bg-pink-500/20 transition-colors">
+                        + Add Another
+                      </button>
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>

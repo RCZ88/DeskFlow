@@ -1,321 +1,494 @@
-import { useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { Plug, Plus, RefreshCw, Shield, Lock, Info, ChevronDown, ChevronUp, ExternalLink, AlertCircle } from "lucide-react"
-import { GlassCard } from "../GlassCard"
-import { SectionHead } from "../SectionHead"
-import { StatusDot } from "../StatusDot"
-import { IconButton } from "../IconButton"
-import { StateShell, EmptyState } from "../StateShell"
-import { SkeletonRow } from "../primitives/Skeleton"
-import { useMotionProps } from "../lib/motion"
-import { cn } from "../lib/cn"
-import { TEXT } from "../tokens"
-import type { DataState } from "../types"
+import { useState, useEffect, useCallback } from "react"
+import {
+  Mail, CalendarDays, RefreshCw, Trash2, ChevronDown, ChevronUp,
+  Loader2, AlertCircle, Search, X, Plus, Plug, Circle, Check
+} from "lucide-react"
+import type { ConnectorConfig, ConnectorItem } from "../../../types/connectors"
+import { useConnectorItems } from "../../../hooks/useConnectorItems"
+import { ConnectorItemModal } from "./ConnectorItemModal"
 
 export interface Connector {
-	id: string
-	name: string
-	status: "ready" | "busy" | "error" | "idle"
-	detail?: string
-	itemCount?: number
-	iconUrl?: string
-	type?: string
+  id: string
+  name: string
+  status: "ready" | "busy" | "error" | "idle"
+  detail?: string
+  itemCount?: number
+  iconUrl?: string
+  type?: string
 }
 
-export interface ConnectorsPanelProps {
-	state: DataState
-	connectors: Connector[]
-	syncingId?: string
-	onAdd?: () => void
-	onSync?: (id: string) => void
-	onOpen?: (id: string) => void
-	errorMessage?: string
-	onRetry?: () => void
-	onToast?: (msg: string, type: 'success' | 'error' | 'info') => void
-	onRefresh?: () => void
+interface ConnectorsPanelProps {
+  // From AiPage.tsx — THESE ARE THE CANONICAL PROP NAMES
+  state?: "loading" | "error" | "empty" | "ready"
+  connectors: Connector[]
+  errorMessage?: string
+  onRetry?: () => void
+  onAdd?: () => void
+  onSync?: (id: string) => void | Promise<void>
+  onToast?: (msg: string, type?: "success" | "error" | "info") => void
+  onRefresh?: () => void
+  onReply?: (connectorId: string, itemId: string, draft: string) => Promise<void>
+  onMarkRead?: (connectorId: string, itemId: string, read: boolean) => Promise<void>
+  onDelete?: (connectorId: string) => Promise<void>
+  onTest?: (id: string) => Promise<{ success: boolean; message: string }>
+  onSyncAll?: () => Promise<void>
 }
 
-const STATUS_TONE = {
-	ready: "ready",
-	busy: "busy",
-	error: "error",
-	idle: "idle",
-} as const
+export function ConnectorsPanel(props: ConnectorsPanelProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [filterType, setFilterType] = useState<"all" | "email" | "calendar">("all")
+  const [syncingAll, setSyncingAll] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [modalItem, setModalItem] = useState<{ item: ConnectorItem; type: "email" | "calendar"; connectorId: string } | null>(null)
 
-/**
- * ConnectorsPanel — Human-Centric revamp.
- *
- * Key UX decisions:
- * - Clear explanation of what connectors are and why they matter
- * - Prominent security information (credentials stored locally, not third-party)
- * - Educational empty state with step-by-step setup guidance
- * - Trust indicators throughout (shield icon, security badges)
- * - Progressive disclosure for security details
- */
-export function ConnectorsPanel({
-	state,
-	connectors,
-	syncingId,
-	onAdd,
-	onSync,
-	onOpen,
-	errorMessage,
-	onRetry,
-	onToast,
-	onRefresh,
-}: ConnectorsPanelProps) {
-	const m = useMotionProps()
-	const [pendingActions, setPendingActions] = useState<Record<string, 'test' | 'disconnect'>>({});
-	const [panelError, setPanelError] = useState<string | null>(null);
-	const [showSecurityInfo, setShowSecurityInfo] = useState(false);
+  const handleSyncAll = useCallback(async () => {
+    if (!props.onSync) return
+    setSyncingAll(true)
+    try {
+      for (const c of props.connectors) {
+        if (c.status === "ready" || c.status === "idle") {
+          await props.onSync(c.id)
+        }
+      }
+      props.onRefresh?.()
+      props.onToast?.("All connectors synced", "success")
+    } catch (e: any) {
+      props.onToast?.(e.message || "Sync failed", "error")
+    } finally {
+      setSyncingAll(false)
+    }
+  }, [props.onSync, props.connectors, props.onRefresh, props.onToast])
 
-	const handleTest = async (id: string) => {
-		setPendingActions(prev => ({ ...prev, [id]: 'test' }));
-		setPanelError(null);
-		try {
-			const r = await (window.deskflowAPI as any)?.connectorTest?.(id);
-			if (r?.success) onToast?.('Connector test succeeded', 'success');
-			else onToast?.(r?.error || 'Connector test failed', 'error');
-		} catch (err: any) {
-			onToast?.(err.message || 'Test failed', 'error');
-		} finally {
-			setPendingActions(prev => { const n = { ...prev }; delete n[id]; return n; });
-		}
-	};
+  const filteredConnectors = props.connectors.filter(c => {
+    if (filterType === "all") return true
+    return c.type === filterType
+  })
 
-	const handleDisconnect = async (id: string) => {
-		setPendingActions(prev => ({ ...prev, [id]: 'disconnect' }));
-		setPanelError(null);
-		try {
-			const r = await (window.deskflowAPI as any)?.connectorDelete?.(id);
-			if (r?.success === false) {
-				setPanelError(r?.error || 'Failed to disconnect');
-				onToast?.(r?.error || 'Failed to disconnect', 'error');
-			} else {
-				onToast?.('Connector disconnected', 'success');
-			}
-			onRefresh?.();
-		} catch (err: any) {
-			setPanelError(err.message);
-			onToast?.(err.message, 'error');
-			onRefresh?.();
-		} finally {
-			setPendingActions(prev => { const n = { ...prev }; delete n[id]; return n; });
-		}
-	};
+  if (props.state === "loading") {
+    return (
+      <div className="dk-card dk-acc dk-cyan" style={{ minHeight: 180 }}>
+        <div className="dk-microlabel" style={{ marginBottom: 12 }}>Connectors</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {[1, 2].map(i => (
+            <div key={i} style={{
+              height: 44, borderRadius: 10, background: "var(--surface-2)",
+              animation: "pulse 1.5s ease-in-out infinite",
+            }} />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
-	return (
-		<GlassCard accent="cyan" bar>
-			<SectionHead
-				accent="cyan"
-				icon={<Plug size={16} />}
-				title="Connectors"
-				desc="Synced sources"
-				right={<IconButton icon={<Plus size={15} />} label="Add connector" onClick={onAdd} />}
-			/>
+  if (props.state === "error" || props.errorMessage) {
+    return (
+      <div className="dk-card dk-acc dk-cyan">
+        <div className="dk-microlabel" style={{ marginBottom: 10 }}>Connectors</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--red)", marginBottom: 10 }}>
+          <AlertCircle size={14} />
+          {props.errorMessage}
+        </div>
+        {props.onRetry && (
+          <button onClick={props.onRetry} className="dk-topbar-btn">
+            Retry
+          </button>
+        )}
+      </div>
+    )
+  }
 
-			{/* Security Trust Badge */}
-			<div className="mx-4 mb-3 flex items-center gap-2 rounded-lg bg-emerald-500/5 px-3 py-2 ring-1 ring-emerald-500/10">
-				<Shield size={14} className="text-emerald-400 shrink-0" />
-				<span className="text-[11px] text-emerald-300/80">
-					Credentials stored locally on your device
-				</span>
-				<button
-					type="button"
-					onClick={() => setShowSecurityInfo(!showSecurityInfo)}
-					className="ml-auto p-0.5 rounded hover:bg-emerald-500/10 transition-colors"
-					aria-label={showSecurityInfo ? "Hide security details" : "Show security details"}
-				>
-					{showSecurityInfo ? (
-						<ChevronUp size={12} className="text-emerald-400/60" />
-					) : (
-						<ChevronDown size={12} className="text-emerald-400/60" />
-					)}
-				</button>
-			</div>
+  if (props.state === "empty" || filteredConnectors.length === 0) {
+    return (
+      <div className="dk-card dk-acc dk-cyan">
+        <div className="dk-microlabel" style={{ marginBottom: 10 }}>Connectors</div>
+        <div style={{ textAlign: "center", padding: "20px 10px" }}>
+          <Plug size={28} style={{ marginBottom: 8, opacity: 0.3 }} />
+          <div style={{ fontSize: 12, color: "var(--tm)", marginBottom: 4 }}>No connectors configured</div>
+          <div style={{ fontSize: 11, color: "var(--tm)", opacity: 0.7 }}>Add email or calendar in Settings</div>
+          {props.onAdd && (
+            <button
+              onClick={props.onAdd}
+              style={{
+                marginTop: 10, fontSize: 11, padding: "6px 14px", borderRadius: 8,
+                border: "1px solid var(--cyan)", background: "rgba(34,211,238,.12)",
+                color: "var(--cyan)", cursor: "pointer", fontFamily: "var(--mono)",
+              }}
+            >
+              <Plus size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+              Add your first connector
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
-			{/* Expandable Security Details */}
-			<AnimatePresence>
-				{showSecurityInfo && (
-					<motion.div
-						initial={{ height: 0, opacity: 0 }}
-						animate={{ height: "auto", opacity: 1 }}
-						exit={{ height: 0, opacity: 0 }}
-						transition={{ duration: 0.2 }}
-						className="overflow-hidden"
-					>
-						<div className="mx-4 mb-3 space-y-2 rounded-lg bg-zinc-800/30 px-3 py-3 ring-1 ring-zinc-700/30">
-							<div className="flex items-start gap-2">
-								<Lock size={12} className="text-zinc-400 mt-0.5 shrink-0" />
-								<p className="text-[11px] text-zinc-400 leading-relaxed">
-									Your email/password are stored in your local database and never sent to DeskFlow servers.
-									We use IMAP/CalDAV protocols to connect directly to your provider.
-								</p>
-							</div>
-							<div className="flex items-start gap-2">
-								<Info size={12} className="text-zinc-400 mt-0.5 shrink-0" />
-								<p className="text-[11px] text-zinc-400 leading-relaxed">
-									For Gmail, we recommend using an App Password (not your main password).
-									This gives DeskFlow read-only access to your email without exposing your account.
-								</p>
-							</div>
-							<a
-								href="https://myaccount.google.com/apppasswords"
-								target="_blank"
-								rel="noopener noreferrer"
-								className="inline-flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors"
-							>
-								How to generate a Gmail App Password
-								<ExternalLink size={10} />
-							</a>
-						</div>
-					</motion.div>
-				)}
-			</AnimatePresence>
+  return (
+    <>
+      <div className="dk-card dk-acc dk-cyan">
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div className="dk-microlabel">Connectors</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {props.onRefresh && (
+              <button onClick={props.onRefresh} className="dk-topbar-btn" style={{ height: 26, padding: "0 10px" }}>
+                <RefreshCw size={11} />
+                Refresh
+              </button>
+            )}
+            {props.onAdd && (
+              <button onClick={props.onAdd} className="dk-topbar-btn" style={{ height: 26, padding: "0 10px" }}>
+                <Plus size={11} />
+                Add
+              </button>
+            )}
+            {props.onSync && (
+              <button
+                onClick={handleSyncAll}
+                disabled={syncingAll}
+                className="dk-topbar-btn"
+                style={{ height: 26, padding: "0 10px" }}
+              >
+                {syncingAll ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />}
+                Sync All
+              </button>
+            )}
+          </div>
+        </div>
 
-			<StateShell
-				state={state}
-				errorMessage={errorMessage}
-				onRetry={onRetry}
-				loading={
-					<div className="space-y-2">
-						{[0, 1].map((i) => (
-							<SkeletonRow key={i} />
-						))}
-					</div>
-				}
-				empty={
-					<div className="px-4 py-5">
-						{/* Educational Empty State */}
-						<div className="text-center mb-4">
-							<div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-xl bg-cyan-500/10 ring-1 ring-cyan-500/20">
-								<Plug size={24} className="text-cyan-400" />
-							</div>
-							<h3 className="text-sm font-medium text-zinc-200 mb-1">Connect your email & calendar</h3>
-							<p className="text-xs text-zinc-500 max-w-[280px] mx-auto leading-relaxed">
-								Give DeskFlow context about your meetings, deadlines, and communications
-								to power smarter planning and prioritization.
-							</p>
-						</div>
+        {/* Search & Filter */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <div style={{
+            flex: 1, display: "flex", alignItems: "center", gap: 6,
+            background: "var(--surface-2)", border: "1px solid var(--line)",
+            borderRadius: 8, padding: "6px 10px",
+          }}>
+            <Search size={12} color="var(--tm)" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search items..."
+              style={{
+                flex: 1, background: "transparent", border: "none", outline: "none",
+                color: "var(--tp)", fontSize: 12, fontFamily: "var(--sans)",
+              }}
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tm)" }}>
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          <select
+            value={filterType}
+            onChange={e => setFilterType(e.target.value as any)}
+            style={{
+              background: "var(--surface-2)", border: "1px solid var(--line)",
+              borderRadius: 8, color: "var(--ts)", fontSize: 11,
+              fontFamily: "var(--mono)", padding: "6px 10px", cursor: "pointer",
+            }}
+          >
+            <option value="all">All</option>
+            <option value="email">Email</option>
+            <option value="calendar">Calendar</option>
+          </select>
+        </div>
 
-						{/* What You'll Get */}
-						<div className="space-y-2 mb-4">
-							<div className="flex items-start gap-2.5 rounded-lg bg-zinc-800/30 px-3 py-2.5">
-								<div className="grid h-6 w-6 place-items-center rounded-md bg-pink-500/10 shrink-0">
-									<span className="text-[11px]">📧</span>
-								</div>
-								<div>
-									<p className="text-[12px] font-medium text-zinc-300">Email Context</p>
-									<p className="text-[11px] text-zinc-500">See important messages and deadlines in your daily plan</p>
-								</div>
-							</div>
-							<div className="flex items-start gap-2.5 rounded-lg bg-zinc-800/30 px-3 py-2.5">
-								<div className="grid h-6 w-6 place-items-center rounded-md bg-cyan-500/10 shrink-0">
-									<span className="text-[11px]">📅</span>
-								</div>
-								<div>
-									<p className="text-[12px] font-medium text-zinc-300">Calendar Events</p>
-									<p className="text-[11px] text-zinc-500">Auto-block focus time around your meetings</p>
-								</div>
-							</div>
-						</div>
+        {/* Connector Cards */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {filteredConnectors.map(connector => (
+            <ConnectorCard
+              key={connector.id}
+              connector={connector}
+              isExpanded={expandedId === connector.id}
+              onToggle={() => setExpandedId(expandedId === connector.id ? null : connector.id)}
+              onSync={props.onSync ? () => props.onSync!(connector.id) : undefined}
+              onDelete={props.onDelete ? async () => {
+                setDeletingId(connector.id)
+                await props.onDelete!(connector.id)
+                setDeletingId(null)
+              } : undefined}
+              onTest={props.onTest ? () => props.onTest!(connector.id) : undefined}
+              searchQuery={searchQuery}
+              isDeleting={deletingId === connector.id}
+              onItemClick={(item) => setModalItem({ item, type: connector.type === "email" ? "email" : "calendar", connectorId: connector.id })}
+            />
+          ))}
+        </div>
+      </div>
 
-						{/* Setup Steps */}
-						<div className="rounded-lg bg-zinc-800/20 px-3 py-3 mb-4">
-							<p className="text-[11px] font-medium text-zinc-400 mb-2">How it works:</p>
-							<div className="space-y-1.5">
-								<div className="flex items-center gap-2">
-									<span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-700 text-[9px] font-medium text-zinc-300">1</span>
-									<span className="text-[11px] text-zinc-500">Choose your email or calendar provider</span>
-								</div>
-								<div className="flex items-center gap-2">
-									<span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-700 text-[9px] font-medium text-zinc-300">2</span>
-									<span className="text-[11px] text-zinc-500">Enter your credentials (stored locally only)</span>
-								</div>
-								<div className="flex items-center gap-2">
-									<span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-700 text-[9px] font-medium text-zinc-300">3</span>
-									<span className="text-[11px] text-zinc-500">DeskFlow syncs and organizes your data</span>
-								</div>
-							</div>
-						</div>
+      {/* Full-View Modal */}
+      {modalItem && (
+        <ConnectorItemModal
+          item={modalItem.item}
+          connectorType={modalItem.type}
+          onClose={() => setModalItem(null)}
+          onReply={props.onReply ? (itemId, draft) => props.onReply!(modalItem.connectorId, itemId, draft) : undefined}
+          onMarkRead={props.onMarkRead ? (itemId, read) => props.onMarkRead!(modalItem.connectorId, itemId, read) : undefined}
+          onDelete={props.onDelete ? () => props.onDelete!(modalItem.connectorId) : undefined}
+        />
+      )}
+    </>
+  )
+}
 
-						{/* CTA */}
-						<button
-							type="button"
-							onClick={onAdd}
-							className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-cyan-500/10 px-3 py-2.5 text-[12px] font-medium text-cyan-300 ring-1 ring-cyan-500/20 transition-colors hover:bg-cyan-500/20 hover:ring-cyan-500/30"
-						>
-							<Plus size={13} /> Add your first connector
-						</button>
-					</div>
-				}
-			>
-				{panelError && (
-					<div className="mx-4 mb-2 flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300 ring-1 ring-red-500/20">
-						<AlertCircle size={14} className="shrink-0" />
-						<span className="flex-1">{panelError}</span>
-						<button className="rounded bg-red-500/15 px-2 py-1 font-medium text-red-200 hover:bg-red-500/25 transition-colors" onClick={() => { setPanelError(null); onRefresh?.(); }}>Retry</button>
-						<button className="text-red-400 hover:text-red-200 transition-colors" onClick={() => setPanelError(null)}>Dismiss</button>
-					</div>
-				)}
-				<motion.ul variants={m.parent} initial="hidden" animate="show" className="space-y-1">
-					{connectors.map((c) => {
-						const syncing = syncingId === c.id || c.status === "busy"
-						const pending = pendingActions[c.id];
-						return (
-							<motion.li key={c.id} variants={m.item}>
-								<div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors duration-150 hover:bg-zinc-800/30">
-									<StatusDot tone={STATUS_TONE[c.status]} />
-									<button
-										type="button"
-										onClick={() => onOpen?.(c.id)}
-										className="flex min-w-0 flex-1 flex-col text-left"
-									>
-										<span className={cn("truncate text-[13px] font-medium", TEXT.primary)}>
-											{c.name}
-										</span>
-										{c.detail ? (
-											<span className={cn("truncate text-[11px]", TEXT.muted)}>{c.detail}</span>
-										) : null}
-									</button>
-									{typeof c.itemCount === "number" ? (
-										<span className="tabular-nums text-[11px] text-zinc-500">{c.itemCount}</span>
-									) : null}
-									<div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-										{pending === 'test' ? (
-											<span className="text-[11px] text-zinc-500">Testing…</span>
-										) : pending === 'disconnect' ? (
-											<span className="text-[11px] text-red-400">Disconnecting…</span>
-										) : (
-											<>
-												<button
-													type="button"
-													className="rounded px-1.5 py-1 text-[11px] font-medium text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors"
-													onClick={() => handleTest(c.id)}
-												>
-													Test
-												</button>
-												<IconButton
-													icon={<RefreshCw size={13} className={syncing ? "animate-spin motion-reduce:animate-none" : ""} />}
-													label={"Sync " + c.name}
-													onClick={() => onSync?.(c.id)}
-												/>
-												<button
-													type="button"
-													className="rounded px-1.5 py-1 text-[11px] font-medium text-red-500/60 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-													onClick={() => handleDisconnect(c.id)}
-												>
-													Disconnect
-												</button>
-											</>
-										)}
-									</div>
-								</div>
-							</motion.li>
-						)
-					})}
-				</motion.ul>
-			</StateShell>
-		</GlassCard>
-	)
+// --- Connector Card ---
+interface ConnectorCardProps {
+  connector: Connector
+  isExpanded: boolean
+  onToggle: () => void
+  onSync?: () => void | Promise<void>
+  onDelete?: () => void | Promise<void>
+  onTest?: () => Promise<{ success: boolean; message: string }>
+  searchQuery: string
+  isDeleting: boolean
+  onItemClick: (item: ConnectorItem) => void
+}
+
+function ConnectorCard(props: ConnectorCardProps) {
+  const { connector, isExpanded } = props
+  const [syncing, setSyncing] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const itemsHook = useConnectorItems(connector.id)
+
+  useEffect(() => {
+    if (testResult) {
+      const t = setTimeout(() => setTestResult(null), 5000)
+      return () => clearTimeout(t)
+    }
+  }, [testResult])
+
+  const isEmail = connector.type === "email"
+  const statusColor = connector.status === "ready" ? "var(--emerald)" : connector.status === "error" ? "var(--red)" : "var(--tm)"
+
+  useEffect(() => {
+    if (isExpanded) {
+      itemsHook.invalidate()
+      itemsHook.load({ search: props.searchQuery || undefined, limit: 10 })
+    }
+  }, [isExpanded, props.searchQuery])
+
+  const handleSync = useCallback(async () => {
+    if (!props.onSync) return
+    setSyncing(true)
+    try {
+      await props.onSync()
+      itemsHook.invalidate()
+      if (isExpanded) itemsHook.load({ search: props.searchQuery || undefined, limit: 10 })
+    } finally {
+      setSyncing(false)
+    }
+  }, [props.onSync, isExpanded, props.searchQuery])
+
+  const handleTest = useCallback(async () => {
+    if (!props.onTest) return
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = await props.onTest()
+      setTestResult(result || { success: true, message: 'Connected' })
+    } catch (err: any) {
+      setTestResult({ success: false, message: err?.message || 'Test failed' })
+    } finally {
+      setTesting(false)
+    }
+  }, [props.onTest])
+
+  return (
+    <div style={{
+      borderRadius: 12,
+      border: "1px solid var(--line)",
+      background: "var(--surface-2)",
+      overflow: "hidden",
+      transition: "border-color 0.2s ease",
+    }}>
+      {/* Card Header */}
+      <div
+        onClick={props.onToggle}
+        style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "10px 12px", cursor: "pointer",
+          userSelect: "none",
+        }}
+      >
+        <div style={{
+          width: 28, height: 28, borderRadius: 7,
+          background: isEmail ? "rgba(236,72,153,.12)" : "rgba(34,211,238,.12)",
+          border: `1px solid ${isEmail ? "rgba(236,72,153,.2)" : "rgba(34,211,238,.2)"}`,
+          display: "grid", placeItems: "center",
+        }}>
+          {isEmail ? <Mail size={13} color="var(--pink)" /> : <CalendarDays size={13} color="var(--cyan)" />}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--tp)", lineHeight: 1.3 }}>
+            {connector.name}
+          </div>
+          <div style={{ fontSize: 10, color: "var(--tm)", fontFamily: "var(--mono)", display: "flex", gap: 8, marginTop: 2 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 4, color: statusColor }}><Circle size={6} fill={statusColor} />{connector.status}</span>
+            {connector.itemCount != null && <span>{connector.itemCount} items</span>}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {props.onSync && (
+            <button onClick={(e) => { e.stopPropagation(); handleSync() }} disabled={syncing}
+              className="dk-iconbtn" style={{ width: 24, height: 24 }} title="Sync">
+              {syncing ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />}
+            </button>
+          )}
+          {props.onTest && (
+            <button onClick={(e) => { e.stopPropagation(); handleTest() }} disabled={testing}
+              className="dk-iconbtn" style={{
+                width: 24, height: 24,
+                background: testResult ? (testResult.success ? "rgba(52,211,153,.15)" : "rgba(248,113,113,.15)") : undefined,
+                borderColor: testResult ? (testResult.success ? "rgba(52,211,153,.3)" : "rgba(248,113,113,.3)") : undefined,
+              }} title={testResult ? testResult.message : "Test connection"}>
+              {testing ? <Loader2 size={11} className="spin" /> :
+               testResult?.success ? <Check size={11} color="var(--emerald)" /> :
+               testResult ? <X size={11} color="var(--red)" /> :
+               <AlertCircle size={11} />}
+            </button>
+          )}
+          {props.onDelete && (
+            <button onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(true) }} disabled={props.isDeleting}
+              className="dk-iconbtn" style={{ width: 24, height: 24 }} title="Delete">
+              {props.isDeleting ? <Loader2 size={11} className="spin" /> : <Trash2 size={11} />}
+            </button>
+          )}
+          {isExpanded ? <ChevronUp size={14} color="var(--tm)" /> : <ChevronDown size={14} color="var(--tm)" />}
+        </div>
+      </div>
+
+      {/* Delete Confirmation */}
+      {showDeleteConfirm && (
+        <div style={{
+          padding: "8px 12px", background: "rgba(248,113,113,.06)",
+          borderTop: "1px solid rgba(248,113,113,.12)",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+        }}>
+          <span style={{ fontSize: 11, color: "var(--red)" }}>Delete this connector?</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => setShowDeleteConfirm(false)} className="dk-topbar-btn" style={{ height: 26, padding: "0 10px" }}>
+              Cancel
+            </button>
+            <button onClick={() => { setShowDeleteConfirm(false); props.onDelete!() }}
+              className="dk-topbar-btn" style={{ height: 26, padding: "0 10px", color: "var(--red)", borderColor: "rgba(248,113,113,.3)" }}>
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Expanded Items */}
+      {isExpanded && (
+        <div style={{
+          borderTop: "1px solid var(--line)",
+          maxHeight: 320, overflowY: "auto",
+          padding: "8px 0",
+        }}>
+          {itemsHook.state.status === "loading" ? (
+            <div style={{ padding: 16, textAlign: "center" }}>
+              <Loader2 size={16} color="var(--tm)" className="spin" />
+            </div>
+          ) : itemsHook.state.status === "error" ? (
+            <div style={{ padding: 12, fontSize: 11, color: "var(--red)", textAlign: "center" }}>
+              {"message" in itemsHook.state ? itemsHook.state.message : "Error"}
+            </div>
+          ) : itemsHook.state.status === "ready" && itemsHook.state.data.items.length === 0 ? (
+            <div style={{ padding: 16, textAlign: "center", fontSize: 11, color: "var(--tm)" }}>
+              No items found. Try syncing.
+            </div>
+          ) : itemsHook.state.status === "ready" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {itemsHook.state.data.items.map((item: ConnectorItem) => (
+                <ConnectorItemRow key={item.id} item={item} onClick={() => props.onItemClick(item)} />
+              ))}
+              {itemsHook.state.data.hasMore && (
+                <button
+                  onClick={() => itemsHook.load({ offset: itemsHook.state.data.offset, limit: 10 })}
+                  style={{
+                    margin: "8px auto 4px", fontSize: 10, padding: "4px 12px",
+                    borderRadius: 6, border: "1px solid var(--line)",
+                    background: "transparent", color: "var(--tm)",
+                    cursor: "pointer", fontFamily: "var(--mono)",
+                  }}
+                >
+                  Load more
+                </button>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// --- Connector Item Row ---
+function ConnectorItemRow({ item, onClick }: { item: ConnectorItem; onClick: () => void }) {
+  const isEmail = item.itemType === "email"
+  const isUnread = item.read === false
+  const dateStr = item.date ? timeAgo(new Date(item.date)) : ""
+  const fromAddr = item.metadata?.from ? ` — ${item.metadata.from}` : ""
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "flex-start", gap: 8,
+        padding: "8px 12px", borderRadius: 6,
+        transition: "background 0.15s ease",
+        cursor: "pointer",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = "var(--raised)" }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent" }}
+    >
+      <div style={{
+        width: 6, height: 6, borderRadius: "50%", marginTop: 5,
+        background: isUnread ? "var(--pink)" : "transparent",
+        flex: "none",
+      }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 11.5, fontWeight: isUnread ? 600 : 400,
+          color: isUnread ? "var(--tp)" : "var(--ts)",
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        }}>
+          {item.subject || item.summary || "(no subject)"}
+        </div>
+        {item.summary && (
+          <div style={{
+            fontSize: 10.5, color: "var(--tm)", marginTop: 2,
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          }}>
+            {item.summary.slice(0, 80)}{item.summary.length > 80 ? "..." : ""}
+            {fromAddr}
+          </div>
+        )}
+      </div>
+      <div style={{
+        fontSize: 9.5, color: "var(--tm)", fontFamily: "var(--mono)",
+        flex: "none", whiteSpace: "nowrap",
+      }}>
+        {dateStr}
+      </div>
+    </div>
+  )
+}
+
+// --- Time Ago Helper ---
+function timeAgo(date: Date): string {
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(diff / 86400000)
+  if (minutes < 1) return "now"
+  if (minutes < 60) return `${minutes}m`
+  if (hours < 24) return `${hours}h`
+  if (days < 7) return `${days}d`
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown, Bell, RefreshCw, History } from 'lucide-react';
+import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown, Bell, RefreshCw, History, Users, BarChart3 } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { TabBar } from '../components/TabBar';
 import { GlassCard } from '../components/GlassCard';
@@ -13,6 +13,7 @@ import { TransactionsTab } from '../components/finance/TransactionsTab';
 import { CategoriesTab } from '../components/finance/CategoriesTab';
 import { SubscriptionRenewalBanner } from '../components/finance/SubscriptionRenewalBanner';
 import { AuroraBackground } from '../components/finance/_fx/AuroraBackground';
+import { FinanceChartsTab } from '../components/finance/FinanceChartsTab';
 import { getCurrencyInfo, formatCurrency, convertAmount } from '../components/finance/currency-data';
 import { pageContainer, tabPanel, fab, DUR } from '../components/finance/_fx/financeMotion';
 import { ArchivedItemsModal } from '../components/finance/ArchivedItemsModal';
@@ -22,6 +23,10 @@ import { WalletDetailView } from '../components/finance/WalletDetailView';
 import { SubscriptionsTab } from '../components/finance/SubscriptionsTab';
 import { SubscriptionsPageView } from './SubscriptionsPage';
 import { AuditLogTab } from '../components/finance/AuditLogTab';
+import { PeopleTab } from '../components/finance/PeopleTab';
+import { NetWorthLineChart } from '../components/finance/NetWorthLineChart';
+import { IncomeExpenseBarChart } from '../components/finance/IncomeExpenseBarChart';
+import { SpendingCategoryChart } from '../components/finance/SpendingCategoryChart';
 import { followThroughReceivable, netWorthWithReceivable } from '../lib/netWorth';
 import {
   BankTransactionModal, DebitTransactionModal, CreditTransactionModal,
@@ -54,9 +59,11 @@ const tabs: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'overview', label: 'Overview', icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
   { key: 'wallets', label: 'Wallets', icon: <Wallet className="w-3.5 h-3.5" /> },
   { key: 'transactions', label: 'Transactions', icon: <ArrowUpRight className="w-3.5 h-3.5" /> },
+  { key: 'people', label: 'People', icon: <Users className="w-3.5 h-3.5" /> },
   { key: 'categories', label: 'Categories', icon: <Tag className="w-3.5 h-3.5" /> },
   { key: 'subscriptions', label: 'Subscriptions', icon: <Bell className="w-3.5 h-3.5" /> },
   { key: 'audit', label: 'Audit Log', icon: <Shield className="w-3.5 h-3.5" /> },
+  { key: 'charts', label: 'Charts', icon: <BarChart3 className="w-3.5 h-3.5" /> },
 ];
 
 export function FinancePage() {
@@ -68,9 +75,12 @@ export function FinancePage() {
   useEffect(() => {
     const tab = (location.state as any)?.tab;
     if (tab) setActiveTab(tab);
+    // Pre-fetch live exchange rates
+    import('../components/finance/currency-data').then(m => m.fetchLiveRates()).catch(() => {});
   }, []);
   const [showWalletSelector, setShowWalletSelector] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [autoSave, setAutoSave] = useState(true);
   const [walletTxModal, setWalletTxModal] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedAccounts, setArchivedAccounts] = useState<FinanceAccount[]>([]);
@@ -82,6 +92,7 @@ export function FinancePage() {
   const [securitySettings, setSecuritySettings] = useState<any>(null);
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [wallets, setWallets] = useState<FinanceWallet[]>([]);
+  const [autoRecalc, setAutoRecalc] = useState(true);
   const [categories, setCategories] = useState<FinanceCategory[]>([]);
   const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
@@ -121,7 +132,44 @@ export function FinancePage() {
         }
       }).catch(() => { });
     }
+    if (window.deskflowAPI?.financeGetAutoSave) {
+      window.deskflowAPI.financeGetAutoSave().then(result => {
+        if (result && typeof result.enabled === 'boolean') {
+          setAutoSave(result.enabled);
+        }
+      }).catch(() => { });
+    }
+    if (window.deskflowAPI?.financeGetAutoRecalc) {
+      window.deskflowAPI.financeGetAutoRecalc().then(result => {
+        if (result && typeof result.enabled === 'boolean') {
+          setAutoRecalc(result.enabled);
+        }
+      }).catch(() => { });
+    }
   }, []);
+
+  // Auto-save effect: when autoSave is ON and wallet is dirty, save automatically
+  useEffect(() => {
+    if (autoSave && isDirty && selectedWalletId) {
+      const timer = setTimeout(() => {
+        // Trigger save by dispatching a custom event that WalletDetailView listens to
+        window.dispatchEvent(new CustomEvent('finance-auto-save'));
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [autoSave, isDirty, selectedWalletId]);
+
+  // Before unload warning when auto-save is OFF and there are unsaved changes
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!autoSave && isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [autoSave, isDirty]);
 
   useEffect(() => {
     if (window.deskflowAPI) {
@@ -218,6 +266,15 @@ export function FinancePage() {
     } finally {
       setLoading(false);
     }
+    // Auto-generate subscription transactions for due renewals
+    try {
+      const result = await (window as any).deskflowAPI?.subscriptionsGenerateDueTransactions();
+      if (result && result.created > 0) {
+        // Re-fetch to pick up newly created transactions
+        const txns = await (window.deskflowAPI?.financeGetTransactions() as Promise<FinanceTransaction[]>) ?? [];
+        setTransactions(txns);
+      }
+    } catch { /* silent — non-critical */ }
   }, []);
 
   useEffect(() => {
@@ -394,34 +451,51 @@ export function FinancePage() {
   }): Promise<boolean> => {
     try {
       if (data.type === 'transfer' && data.to_wallet_id) {
-        const result = await window.deskflowAPI?.financeCreateTransfer(data) as { transferId?: string; success?: boolean };
+        console.log('[FinancePage] Creating transfer:', JSON.stringify({ type: data.type, wallet_id: data.wallet_id, account_id: data.account_id, to_wallet_id: data.to_wallet_id, amount: data.amount, fee: data.fee, dest_amount: data.dest_amount }));
+        const result = await window.deskflowAPI?.financeCreateTransfer(data) as { transferId?: string; success?: boolean; error?: string };
+        console.log('[FinancePage] Transfer result:', JSON.stringify(result));
         if (result?.success) {
-          // Merge dest_metadata (e.g. denomination counts for physical wallets) into destination wallet metadata
-          if (data.dest_metadata && data.to_wallet_id) {
+          // For crypto transfers, the backend handles wallet metadata directly.
+          // Only merge dest_metadata for physical/cash denomination wallets.
+          if (data.dest_metadata && data.to_wallet_id && data.dest_metadata.denominations) {
             const dstWallet = wallets.find(w => w.id === data.to_wallet_id);
-            if (dstWallet) {
+            if (dstWallet && (dstWallet.type === 'physical' || dstWallet.type === 'cash')) {
               let meta: Record<string, any> = {};
               if (dstWallet.metadata) {
                 try { meta = typeof dstWallet.metadata === 'object' ? dstWallet.metadata : JSON.parse(dstWallet.metadata as string); } catch { meta = {}; }
               }
               const incomingDenoms = data.dest_metadata.denominations;
-              if (incomingDenoms) {
-                const existing = meta.denominations ?? {};
-                const merged: Record<string, number> = { ...existing };
-                for (const [d, n] of Object.entries(incomingDenoms)) {
-                  merged[+d] = (merged[+d] ?? 0) + (n as number);
-                }
-                meta.denominations = merged;
-                await window.deskflowAPI?.financeUpdateWalletMetadata({ id: data.to_wallet_id, metadata: meta });
+              const existing = meta.denominations ?? {};
+              const merged: Record<string, number> = { ...existing };
+              for (const [d, n] of Object.entries(incomingDenoms)) {
+                merged[+d] = (merged[+d] ?? 0) + (n as number);
               }
+              meta.denominations = merged;
+              await window.deskflowAPI?.financeUpdateWalletMetadata({ id: data.to_wallet_id, metadata: meta });
             }
           }
-          await fetchData(); return true;
+          await fetchData();
+          // Auto-recalc both source and destination wallets after transfer
+          if (autoRecalc && data.wallet_id) {
+            try { await window.deskflowAPI?.financeRecalculateBalances(data.wallet_id, false); } catch { /* best-effort */ }
+          }
+          if (autoRecalc && data.to_wallet_id) {
+            try { await window.deskflowAPI?.financeRecalculateBalances(data.to_wallet_id, false); } catch { /* best-effort */ }
+          }
+          await fetchData();
+          return true;
         }
-        return false;
+        throw new Error(result?.error || 'Transfer failed');
       }
       const result = await window.deskflowAPI?.financeCreateTransaction(data) as FinanceTransaction;
-      if (result) { await fetchData(); return true; }
+      if (result) {
+        await fetchData();
+        if (autoRecalc && data.wallet_id) {
+          try { await window.deskflowAPI?.financeRecalculateBalances(data.wallet_id, false); } catch { /* best-effort */ }
+          await fetchData();
+        }
+        return true;
+      }
       return false;
     } catch { return false; }
   };
@@ -429,17 +503,35 @@ export function FinancePage() {
   const handleDeleteTransaction = async (id: number): Promise<boolean> => {
     try {
       const result = await window.deskflowAPI?.financeDeleteTransaction(id) as { success: boolean };
-      if (result?.success) { await fetchData(); return true; }
+      if (result?.success) {
+        await fetchData();
+        if (autoRecalc) {
+          try { await window.deskflowAPI?.financeRecalculateBalances(undefined, false); } catch { /* best-effort */ }
+          await fetchData();
+        }
+        return true;
+      }
       return false;
     } catch { return false; }
   };
 
   const handleUpdateTransaction = async (id: number, data: Record<string, any>): Promise<boolean> => {
     try {
-      await window.deskflowAPI?.financeUpdateTransaction(id, data);
+      const result = await window.deskflowAPI?.financeUpdateTransaction(id, data);
+      if (result?.success === false) {
+        setNotifMsg('Failed to update transaction');
+        return false;
+      }
       await fetchData();
+      if (autoRecalc) {
+        try { await window.deskflowAPI?.financeRecalculateBalances(undefined, false); } catch { /* best-effort */ }
+        await fetchData();
+      }
       return true;
-    } catch { return false; }
+    } catch {
+      setNotifMsg('Failed to update transaction');
+      return false;
+    }
   };
 
   const handleCreateCategory = async (data: {
@@ -447,6 +539,16 @@ export function FinancePage() {
   }): Promise<boolean> => {
     try {
       const result = await window.deskflowAPI?.financeCreateCategory(data) as FinanceCategory;
+      if (result) { await fetchData(); return true; }
+      return false;
+    } catch { return false; }
+  };
+
+  const handleUpdateCategory = async (data: {
+    id: number; name: string; type: string; icon: string; color: string;
+  }): Promise<boolean> => {
+    try {
+      const result = await (window as any).deskflowAPI?.financeUpdateCategory(data);
       if (result) { await fetchData(); return true; }
       return false;
     } catch { return false; }
@@ -490,7 +592,18 @@ export function FinancePage() {
   };
 
   const handleCreateSubscription = async (data: any): Promise<boolean> => {
-    try { const result = await window.deskflowAPI?.subscriptionsCreate(data); if (result) { await fetchData(); return true; } return false; } catch { return false; }
+    try {
+      const result = await window.deskflowAPI?.subscriptionsCreate(data);
+      if (result) {
+        await fetchData();
+        if (result.hasBalance === false) {
+          // Return a special value to indicate insufficient balance
+          return true; // subscription created but no transaction
+        }
+        return true;
+      }
+      return false;
+    } catch { return false; }
   };
 
   const handleUpdateSubscription = async (data: any): Promise<boolean> => {
@@ -499,6 +612,30 @@ export function FinancePage() {
 
   const handleDeleteSubscription = async (id: number): Promise<boolean> => {
     try { const result = await window.deskflowAPI?.subscriptionsDelete(id); if (result?.success) { await fetchData(); return true; } return false; } catch { return false; }
+  };
+
+  const handleMoveSubscriptionTransaction = async (subscriptionId: number, newWalletId: number): Promise<boolean> => {
+    try { const result = await (window as any).deskflowAPI?.subscriptionsMoveTransaction({ subscriptionId, newWalletId }); if (result?.success) { await fetchData(); return true; } return false; } catch { return false; }
+  };
+
+  const handleRetrySubscriptionPayment = async (subscriptionId: number, walletId?: number, date?: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const result = await (window as any).deskflowAPI?.subscriptionsRetryPayment({ subscriptionId, walletId, date });
+      if (result?.success) { await fetchData(); }
+      return result || { success: false, error: 'Unknown error' };
+    } catch { return { success: false, error: 'Network error' }; }
+  };
+
+  const handleToggleAutodebet = async (id: number): Promise<boolean> => {
+    try { const result = await (window as any).deskflowAPI?.subscriptionsToggleAutodebet(id); return result?.success || false; } catch { return false; }
+  };
+
+  const handleRecordSubscriptionPayment = async (subscriptionId: number, walletId?: number, amount?: number, date?: string): Promise<boolean> => {
+    try {
+      const result = await (window as any).deskflowAPI?.subscriptionsRecordPayment({ subscriptionId, walletId, amount, date });
+      if (result?.success) { await fetchData(); return true; }
+      return false;
+    } catch { return false; }
   };
 
   const handleRecalculateBalance = async (walletId?: number): Promise<boolean> => {
@@ -521,25 +658,86 @@ export function FinancePage() {
       if (result?.success) {
         setShowRecalculateModal(false);
         setRecalculateData(null);
+        setNotifMsg(`Balance applied for ${recalculateData.walletName}`);
+        setTimeout(() => setNotifMsg(null), 3000);
         await fetchData();
+      } else {
+        setNotifMsg('Failed to apply balance');
+        setTimeout(() => setNotifMsg(null), 3000);
       }
-    } catch {}
+    } catch { setNotifMsg('Failed to apply balance'); setTimeout(() => setNotifMsg(null), 3000); }
   };
+
+  const [syncStatus, setSyncStatus] = useState<{ phase: string; wallets: number; updated: number } | null>(null);
+  const [syncResults, setSyncResults] = useState<string[] | null>(null);
 
   const handleRecalculateAllBalances = async () => {
     try {
-      const result = await window.deskflowAPI?.financeRecalculateAllBalances();
-      if (result?.success && result?.results) {
-        const updated = result.results.filter(r => r.success && r.difference !== 0).length;
-        if (updated > 0) {
-          setNotifMsg(`Updated ${updated} wallet${updated > 1 ? 's' : ''}`);
+      setSyncResults(null);
+      const results: string[] = [];
+
+      // Phase 1: Fix historical dates
+      setSyncStatus({ phase: 'Fixing historical dates...', wallets: 0, updated: 0 });
+      try {
+        const histResult = await window.deskflowAPI?.financeFixHistoricalDates() as any;
+        if (histResult?.fixed > 0) {
+          results.push(`Fixed ${histResult.fixed} historical transaction date(s) → 1900-01-01`);
         } else {
-          setNotifMsg('All wallets already balanced');
+          results.push('All historical dates already correct');
         }
-        setTimeout(() => setNotifMsg(null), 3000);
-        await fetchData();
+      } catch { results.push('Historical date fix skipped'); }
+
+      // Phase 2: Sync wallet balances
+      setSyncStatus({ phase: 'Scanning wallets...', wallets: 0, updated: 0 });
+      const wallets = await window.deskflowAPI?.financeGetWallets() as any[];
+      const totalWallets = wallets?.length || 0;
+      setSyncStatus({ phase: `Syncing ${totalWallets} wallets...`, wallets: totalWallets, updated: 0 });
+
+      let updatedCount = 0;
+      let balancedCount = 0;
+      for (const w of (wallets || [])) {
+        try {
+          setSyncStatus({ phase: `Syncing ${w.name || 'Wallet'}...`, wallets: totalWallets, updated: updatedCount });
+          const result = await window.deskflowAPI?.financeRecalculateBalances(w.id, true) as any;
+          if (result?.success) {
+            if (result.breakdown && result.breakdown.length > 0) {
+              const diff = Math.abs((result.newBalance || 0) - (result.oldBalance || 0));
+              if (diff > 0.01) {
+                await window.deskflowAPI?.financeApplyRecalculatedBalance(w.id);
+                updatedCount++;
+              } else {
+                balancedCount++;
+              }
+            }
+          }
+        } catch { /* skip wallet */ }
       }
-    } catch {}
+
+      if (updatedCount > 0) {
+        results.push(`Updated ${updatedCount} wallet balance(s)`);
+      }
+      if (balancedCount > 0) {
+        results.push(`${balancedCount} wallet(s) already balanced`);
+      }
+
+      // Phase 3: Crypto history backfill
+      setSyncStatus({ phase: 'Backfilling crypto history...', wallets: totalWallets, updated: updatedCount });
+      try {
+        await window.deskflowAPI?.financeRecalculateBalances() as any; // no walletId = all wallets path does crypto backfill
+        results.push('Crypto asset history backfilled');
+      } catch { results.push('Crypto history backfill skipped'); }
+
+      // Done
+      setSyncStatus({ phase: 'Done!', wallets: totalWallets, updated: updatedCount });
+      setSyncResults(results);
+      await fetchData();
+      setTimeout(() => { setSyncStatus(null); }, 5000);
+      setTimeout(() => { setSyncResults(null); }, 8000);
+    } catch {
+      setSyncStatus(null);
+      setSyncResults(['Sync failed — try again']);
+      setTimeout(() => { setSyncResults(null); setSyncStatus(null); }, 4000);
+    }
   };
 
   const handleCreateWallet = async (data: {
@@ -553,19 +751,20 @@ export function FinancePage() {
         provider: data.provider, last_four: data.last_four,
         balance: data.balance ?? 0, currency: data.currency,
       };
-      console.log('[handleCreateWallet] sending:', JSON.stringify(payload));
       const result = await window.deskflowAPI?.financeCreateWallet(payload) as { id: number };
-      console.log('[handleCreateWallet] result:', JSON.stringify(result), 'type of id:', typeof result?.id);
       if (result?.id) {
         if (data.metadata && Object.keys(data.metadata).length > 0) {
           await window.deskflowAPI?.financeUpdateWalletMetadata({ id: result.id, metadata: data.metadata });
         }
+        setNotifMsg(`"${data.name}" created`);
+        setTimeout(() => setNotifMsg(null), 3000);
         await fetchData();
         return true;
       }
-      console.warn('[handleCreateWallet] no result.id, returning false');
+      setNotifMsg('Failed to create wallet');
+      setTimeout(() => setNotifMsg(null), 3000);
       return false;
-    } catch (e) { console.error('[handleCreateWallet] error:', e); return false; }
+    } catch (e) { setNotifMsg('Failed to create wallet'); setTimeout(() => setNotifMsg(null), 3000); return false; }
   };
 
   const handleArchiveWallet = async (id: number): Promise<boolean> => {
@@ -623,8 +822,10 @@ export function FinancePage() {
     try {
       const result = await window.deskflowAPI?.financeUpdateWalletMetadata({ id, metadata }) as any;
       if (result?.id) { await fetchData(); return true; }
+      setNotifMsg('Failed to save metadata');
+      setTimeout(() => setNotifMsg(null), 3000);
       return false;
-    } catch { return false; }
+    } catch { setNotifMsg('Failed to save metadata'); setTimeout(() => setNotifMsg(null), 3000); return false; }
   };
 
   const handleWalletClick = (id: number) => {
@@ -634,10 +835,18 @@ export function FinancePage() {
   const handleDeleteWallet = async (id: number): Promise<boolean> => {
     if (!await checkPasswordRequirement('delete_wallet')) return false;
     try {
+      const walletName = wallets.find(w => w.id === id)?.name || 'Wallet';
       const result = await window.deskflowAPI?.financeDeleteWallet(id) as { success: boolean };
-      if (result?.success) { await fetchData(); return true; }
+      if (result?.success) {
+        setNotifMsg(`${walletName} deleted`);
+        setTimeout(() => setNotifMsg(null), 3000);
+        await fetchData();
+        return true;
+      }
+      setNotifMsg('Failed to delete wallet');
+      setTimeout(() => setNotifMsg(null), 3000);
       return false;
-    } catch { return false; }
+    } catch { setNotifMsg('Failed to delete wallet'); setTimeout(() => setNotifMsg(null), 3000); return false; }
   };
 
   const handleViewArchived = async () => {
@@ -673,8 +882,10 @@ export function FinancePage() {
     try {
       const result = await window.deskflowAPI?.financeUpdateWallet(data) as { success: boolean };
       if (result?.success) { await fetchData(); return true; }
+      setNotifMsg('Failed to update wallet');
+      setTimeout(() => setNotifMsg(null), 3000);
       return false;
-    } catch { return false; }
+    } catch { setNotifMsg('Failed to update wallet'); setTimeout(() => setNotifMsg(null), 3000); return false; }
   };
 
   const netWorth = useMemo(() =>
@@ -683,16 +894,40 @@ export function FinancePage() {
       const walletSum = wallets
         .filter(w => w.account_id === a.id && !w.is_archived)
         .reduce((ws, w) => {
-          const wb = (w.type === 'physical' || w.type === 'cash') && w.metadata?.denominations
-            ? (Array.isArray(w.metadata.denominations)
-                ? w.metadata.denominations.reduce((sx: number, d: any) => sx + (d.value || 0) * (d.count || 0), 0)
-                : (w.balance ?? 0))
-            : (w.balance ?? 0);
-          return ws + convertAmount(wb, w.currency, displayCurrency);
+          let total = 0;
+          if ((w.type === 'physical' || w.type === 'cash') && w.metadata?.denominations) {
+            // Physical: normalize denominations format (array or record)
+            const denoms = w.metadata.denominations;
+            if (Array.isArray(denoms)) {
+              total = denoms.reduce((sx: number, d: any) => sx + (d.value || 0) * (d.count || 0), 0);
+            } else if (typeof denoms === 'object') {
+              total = Object.entries(denoms).reduce((sx: number, [val, cnt]: [string, any]) => sx + (parseFloat(val) || 0) * (Number(cnt) || 0), 0);
+            } else {
+              total = w.balance ?? 0;
+            }
+          } else if ((w.type === 'crypto' || w.type === 'investment') && w.metadata?.assets) {
+            // Crypto: use wallet.balance (available fiat) + market value of assets
+            total = w.balance ?? 0;
+            try {
+              const assets = typeof w.metadata.assets === 'string' ? JSON.parse(w.metadata.assets) : w.metadata.assets;
+              if (Array.isArray(assets)) {
+                // Try to compute market value from assets (amount * price if available)
+                const marketValue = assets.reduce((cs: number, a: any) => {
+                  const amt = Number(a.amount) || 0;
+                  const price = Number(a.currentPrice || a.price || a.avg_buy_price || a.avgBuyPrice) || 0;
+                  return cs + (amt * price);
+                }, 0);
+                if (marketValue > 0) total += marketValue;
+              }
+            } catch { /* ignore */ }
+          } else {
+            total = w.balance ?? 0;
+          }
+          return ws + convertAmount(total, w.currency || baseCurrency, displayCurrency);
         }, 0);
       return s + walletSum;
     }, 0),
-    [accounts, wallets, displayCurrency]
+    [accounts, wallets, displayCurrency, baseCurrency]
   );
 
   const ftReceivable = useMemo(
@@ -708,11 +943,15 @@ export function FinancePage() {
     if (monthlyTrends.length < 2) return null;
     const last = monthlyTrends[monthlyTrends.length - 1];
     const prev = monthlyTrends[monthlyTrends.length - 2];
-    const lastTotal = last.income + last.expense;
-    const prevTotal = prev.income + prev.expense;
-    const diff = lastTotal - prevTotal;
-    const pct = prevTotal > 0 ? (diff / prevTotal) * 100 : 0;
-    return { value: diff, percent: pct };
+    const lastNet = last.net;
+    const prevNet = prev.net;
+    const diff = lastNet - prevNet;
+    // Use absolute prev value as base — if prev is 0 or very small, cap the percentage
+    const base = Math.abs(prevNet);
+    const pct = base > 1 ? (diff / base) * 100 : (diff > 0 ? 100 : diff < 0 ? -100 : 0);
+    // Cap extreme percentages to prevent 7000% display
+    const cappedPct = Math.max(-100, Math.min(1000, pct));
+    return { value: diff, percent: cappedPct };
   }, [monthlyTrends]);
 
   if (isLocked && !isFirstTime) {
@@ -822,7 +1061,18 @@ export function FinancePage() {
         </div>
 
         <div className="mb-6" style={{ display: selectedWalletId ? 'none' : undefined }}>
-          <TabBar tabs={tabs} activeKey={activeTab} onTabChange={(k) => { if (isDirty && !window.confirm('Discard unsaved changes?')) return; setActiveTab(k as FinanceTabKey); setSelectedWalletId(null); setIsDirty(false); }} />
+          <TabBar tabs={tabs} activeKey={activeTab} onTabChange={(k) => {
+            if (isDirty) {
+              if (autoSave) {
+                window.dispatchEvent(new CustomEvent('finance-auto-save'));
+              } else if (!window.confirm('Discard unsaved changes?')) {
+                return;
+              }
+            }
+            setActiveTab(k as FinanceTabKey);
+            setSelectedWalletId(null);
+            setIsDirty(false);
+          }} />
         </div>
 
         <FinanceStickyHeader
@@ -833,6 +1083,10 @@ export function FinancePage() {
           trend={trend}
           monthlyTrends={monthlyTrends}
           hasPassword={securitySettings?.hasPassword ?? true}
+          syncStatus={syncStatus}
+          syncResults={syncResults}
+          onSyncBalances={handleRecalculateAllBalances}
+          onSyncDismiss={() => setSyncResults(null)}
         />
 
         <SubscriptionRenewalBanner
@@ -854,6 +1108,8 @@ export function FinancePage() {
                 displayCurrency={displayCurrency}
                 transactions={transactions}
                 wallets={wallets}
+                accounts={accounts}
+                categories={categories}
                 onBack={() => setSelectedWalletId(null)}
                 onSaveMetadata={handleSaveMetadata}
                 onUpdateWallet={handleUpdateWallet}
@@ -861,6 +1117,20 @@ export function FinancePage() {
                 onAddTransaction={(walletType) => setWalletTxModal(walletType as any)}
                 onDirtyChange={setIsDirty}
                 onRecalculateBalance={handleRecalculateBalance}
+                onUpdateTransaction={handleUpdateTransaction}
+                onDeleteTransaction={handleDeleteTransaction}
+                onVerifyPassword={handleUnlock}
+                ftPersons={ftPersons}
+                onAddFtPerson={async (name: string) => {
+                  const result = await window.deskflowAPI?.financeCreateFtPerson({ name });
+                  if (result) {
+                    setFtPersons(prev => {
+                      if (prev.some(p => p.id === result.id)) return prev;
+                      return [...prev, result].sort((a, b) => a.name.localeCompare(b.name));
+                    });
+                  }
+                }}
+                onNotify={(msg, type) => { setNotifMsg(msg); setTimeout(() => setNotifMsg(null), 3000); }}
                 subscriptions={subscriptions}
               />
             );
@@ -928,7 +1198,6 @@ export function FinancePage() {
                     error={fetchError}
                     onRetry={fetchData}
                     onWalletClick={handleWalletClick}
-                    onRecalculateBalance={async () => { await handleRecalculateAllBalances(); return true; }}
                   />
                 </motion.div>
               )}
@@ -956,6 +1225,16 @@ export function FinancePage() {
                     onVerifyPassword={handleUnlock}
                     error={fetchError}
                     onRetry={fetchData}
+                    ftPersons={ftPersons}
+                    onAddFtPerson={async (name: string) => {
+                      const result = await window.deskflowAPI?.financeCreateFtPerson({ name });
+                      if (result) {
+                        setFtPersons(prev => {
+                          if (prev.some(p => p.id === result.id)) return prev;
+                          return [...prev, result].sort((a, b) => a.name.localeCompare(b.name));
+                        });
+                      }
+                    }}
                   />
                 </motion.div>
               )}
@@ -975,6 +1254,7 @@ export function FinancePage() {
                     displayCurrency={displayCurrency}
                     baseCurrency={baseCurrency}
                     onCreateCategory={handleCreateCategory}
+                    onUpdateCategory={handleUpdateCategory}
                     error={fetchError}
                     onRetry={fetchData}
                   />
@@ -1011,38 +1291,81 @@ export function FinancePage() {
                     data-section="finance.subscriptions"
                     subscriptions={subscriptions}
                     wallets={wallets}
+                    transactions={transactions}
                     categories={categories}
                     displayCurrency={displayCurrency}
                     onRefresh={fetchData}
                     onGenerateTransactions={handleGenerateSubscriptions}
                     onSkipRenewal={handleSkipRenewal}
                     onViewAll={() => setShowSubscriptionsPage(true)}
+                    onCreate={handleCreateSubscription}
+                    onUpdate={handleUpdateSubscription}
+                    onDelete={handleDeleteSubscription}
+                    onMoveTransaction={handleMoveSubscriptionTransaction}
+                    onRetryPayment={handleRetrySubscriptionPayment}
+                    onToggleAutodebet={handleToggleAutodebet}
+                    onRecordPaymentManual={handleRecordSubscriptionPayment}
+                    onGetPaymentHistory={async (subId) => {
+                      try { return await (window as any).deskflowAPI?.subscriptionsGetPaymentHistory?.(subId); }
+                      catch { return { success: false }; }
+                    }}
+                    onCancelPayment={async (subId, txnId, reason) => {
+                      try {
+                        const r = await (window as any).deskflowAPI?.subscriptionsCancelPayment?.({ subscriptionId: subId, transactionId: txnId, reason });
+                        if (r?.success) { await fetchData(); return true; }
+                        return false;
+    } catch (e: any) { console.error('[FinancePage] handleAddTransaction error:', e); throw e; }
+                    }}
+                    onNotify={(msg, type) => { setNotifMsg(msg); setTimeout(() => setNotifMsg(null), 3000); }}
                   />
                 </motion.div>
               )}
-              {activeTab === 'subscriptions' && showSubscriptionsPage && (
-                <motion.div
-                  key="subscriptions-full"
-                  variants={tabPanel}
-                  initial="enter"
-                  animate="center"
-                  exit="exit"
-                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                >
-                  <SubscriptionsPageView
-                    data-section="finance.subscriptions.full"
-                    subscriptions={subscriptions}
-                    wallets={wallets}
-                    categories={categories}
-                    displayCurrency={displayCurrency}
-                    onRefresh={fetchData}
-                    onGenerateTransactions={handleGenerateSubscriptions}
-                    onSkipRenewal={handleSkipRenewal}
-                    onBack={() => setShowSubscriptionsPage(false)}
-                  />
-                </motion.div>
-              )}
-              {activeTab === 'audit' && (
+               {activeTab === 'subscriptions' && showSubscriptionsPage && (
+                 <motion.div
+                   key="subscriptions-full"
+                   variants={tabPanel}
+                   initial="enter"
+                   animate="center"
+                   exit="exit"
+                   transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                 >
+                   <SubscriptionsPageView
+                     data-section="finance.subscriptions.full"
+                     subscriptions={subscriptions}
+                     wallets={wallets}
+                     categories={categories}
+                     displayCurrency={displayCurrency}
+                     onRefresh={fetchData}
+                     onGenerateTransactions={handleGenerateSubscriptions}
+                     onSkipRenewal={handleSkipRenewal}
+                     onBack={() => setShowSubscriptionsPage(false)}
+                   />
+                 </motion.div>
+               )}
+               {activeTab === 'charts' && (
+                 <motion.div
+                   key="charts"
+                   variants={tabPanel}
+                   initial="enter"
+                   animate="center"
+                   exit="exit"
+                   transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                 >
+                    <FinanceChartsTab
+                      spendingByCategory={spendingByCategory}
+                      monthlyTrends={monthlyTrends}
+                      allTransactions={transactions}
+                      wallets={wallets}
+                      displayCurrency={displayCurrency}
+                      baseCurrency={baseCurrency}
+                      loading={loading}
+                      error={fetchError}
+                      onRetry={fetchData}
+                    />
+                 </motion.div>
+               )}
+               {activeTab === 'audit' && (
+
                 <motion.div
                   key="audit"
                   variants={tabPanel}
@@ -1058,7 +1381,7 @@ export function FinancePage() {
                 </motion.div>
               )}
             </div>
-          );
+            );
         })()}
       </div>
 

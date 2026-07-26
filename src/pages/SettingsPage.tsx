@@ -5,7 +5,7 @@ import {
   Settings, Database, Clock, Download, Trash2, RefreshCw, Terminal,
   ChevronRight, X, Plus, GripVertical, Palette, Check, ChevronDown, Globe,
   ChevronLeft, Search, AlertTriangle, Sparkles, ChevronUp,
-  Eye, EyeOff, DollarSign, Shield, Key
+  Eye, EyeOff, DollarSign, Shield, Key, Save
 } from 'lucide-react';
 import {
   DndContext,
@@ -35,6 +35,7 @@ import { ProviderDiagnostics } from '../components/ProviderDiagnostics';
 import { GlassCard } from '../components/GlassCard';
 import { PageShell } from '../components/PageShell';
 import { DevicesPanel } from '../components/DevicesPanel';
+import BrowserProfileSettings from '../components/BrowserProfileSettings';
 
 interface SettingsPageProps {
   logs: any[];
@@ -96,6 +97,13 @@ const CATEGORY_COLORS: Record<string, string> = {
   'Design': '#a855f7',
   'Productivity': '#10b981',
   'Tools': '#f59e0b',
+  'Education': '#06b6d4',
+  'Developer Tools': '#10b981',
+  'Search Engine': '#0ea5e9',
+  'News': '#eab308',
+  'Shopping': '#f97316',
+  'Social Media': '#ef4444',
+  'Uncategorized': '#78716c',
   'Other': '#64748b',
 };
 
@@ -111,6 +119,15 @@ const PRESET_COLORS = [
   '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7',
   '#ec4899', '#f43f5e', '#64748b', '#78716c',
 ];
+
+// Wrapper that hides sections when they don't match the settings search
+function SearchableSection({ terms, search, children }: { terms: string[]; search: string; children: React.ReactNode }) {
+  if (!search.trim()) return <>{children}</>;
+  const q = search.toLowerCase();
+  const matches = terms.some(t => t.toLowerCase().includes(q) || q.includes(t.toLowerCase()));
+  if (!matches) return null;
+  return <>{children}</>;
+}
 
 // Custom color picker component with preset swatches - simplified circle design
 function ColorPicker({ value, onChange, size = 'md' }: { value: string; onChange: (color: string) => void; size?: 'sm' | 'md' }) {
@@ -870,6 +887,8 @@ export default function SettingsPage({
   const [originalSecuritySettings, setOriginalSecuritySettings] = useState<any>(null);
   const [financeCurrency, setFinanceCurrency] = useState('USD');
   const [originalFinanceCurrency, setOriginalFinanceCurrency] = useState('USD');
+  const [autoSave, setAutoSave] = useState(true);
+  const [autoRecalc, setAutoRecalc] = useState(true);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -888,6 +907,22 @@ export default function SettingsPage({
         if (result?.currency) {
           setFinanceCurrency(result.currency);
           setOriginalFinanceCurrency(result.currency);
+        }
+      }).catch(() => { });
+    }
+    // Load auto-save setting
+    if (window.deskflowAPI?.financeGetAutoSave) {
+      window.deskflowAPI.financeGetAutoSave().then(result => {
+        if (result && typeof result.enabled === 'boolean') {
+          setAutoSave(result.enabled);
+        }
+      }).catch(() => { });
+    }
+    // Load auto-recalc setting
+    if (window.deskflowAPI?.financeGetAutoRecalc) {
+      window.deskflowAPI.financeGetAutoRecalc().then(result => {
+        if (result && typeof result.enabled === 'boolean') {
+          setAutoRecalc(result.enabled);
         }
       }).catch(() => { });
     }
@@ -1015,6 +1050,27 @@ export default function SettingsPage({
   const [domainSearchFilter, setDomainSearchFilter] = useState('');
   const [colorTab, setColorTab] = useState<'apps' | 'websites'>('apps');
   const [colorSearchFilter, setColorSearchFilter] = useState('');
+  const [settingsSearch, setSettingsSearch] = useState('');
+
+  const settingsTabKeywords: Record<string, string[]> = {
+    category: ['category', 'categories', 'tier', 'productive', 'neutral', 'distracting', 'drag', 'drop', 'sync', 'custom', 'applications', 'apps', 'websites', 'domains', 'smart', 'categorization', 'keyword', 'external', 'activities'],
+    general: ['general', 'behavior', 'idle', 'threshold', 'neutral', 'distracting', 'pause', 'reset', 'ignore', 'auto-start', 'auto-export', 'animation', 'storage', 'export', 'csv', 'json', 'window mode'],
+    tracking: ['tracking', 'transient', 'background', 'recording', 'game', 'detection', 'browser', 'profiles', 'sleep', 'gap', 'max session', 'prompt history', 'visible prompts'],
+    prompts: ['prompts', 'system prompt', 'default', 'agent', 'resume', 'commands', 'instructions', 'general additions', 'opencode', 'claude', 'aider', 'codex', 'gemini'],
+    colors: ['colors', 'color', 'palette', 'theme', 'category color'],
+    ai: ['ai', 'openrouter', 'api key', 'provider', 'routing', 'daily brief', 'research', 'topics', 'usage', 'cost', 'data access', 'agent color', 'diagnostics', 'multi-provider'],
+    finance: ['finance', 'currency', 'auto-save', 'security', 'password', 'lock', 'masking', 'balance', 'recalculate'],
+    devices: ['devices', 'device'],
+  };
+
+  const findMatchingTab = (query: string): string | null => {
+    if (!query.trim()) return null;
+    const q = query.toLowerCase();
+    for (const [tabId, keywords] of Object.entries(settingsTabKeywords)) {
+      if (keywords.some(kw => q.includes(kw) || kw.includes(q))) return tabId;
+    }
+    return null;
+  };
   const [generatingColors, setGeneratingColors] = useState(false);
   const [pendingColors, setPendingColors] = useState<Record<string, string>>({});
   const [preAiColors, setPreAiColors] = useState<Record<string, string>>({});
@@ -1198,6 +1254,27 @@ export default function SettingsPage({
         </div>
       </div>
 
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
+        <input
+          type="text"
+          value={settingsSearch}
+          onChange={e => {
+            const v = e.target.value;
+            setSettingsSearch(v);
+            const matched = findMatchingTab(v);
+            if (matched) setActiveTab(matched as any);
+          }}
+          placeholder="Search settings..."
+          className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl pl-9 pr-9 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
+        />
+        {settingsSearch && (
+          <button onClick={() => setSettingsSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       <div className="flex gap-1 bg-zinc-900/50 p-1 rounded-xl">
         {tabs.map(tab => (
           <button
@@ -1217,6 +1294,7 @@ export default function SettingsPage({
       {activeTab === 'category' && (
         <div data-section="settings.category" className="space-y-4">
           {/* Data Sync Mode */}
+          <SearchableSection terms={['sync', 'forward', 'refactor', 'data sync mode']} search={settingsSearch}>
           <GlassCard>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -1261,8 +1339,10 @@ export default function SettingsPage({
               </div>
             )}
           </GlassCard>
+          </SearchableSection>
 
           {/* Custom Categories */}
+          <SearchableSection terms={['custom', 'categories', 'add category', 'new category']} search={settingsSearch}>
           <GlassCard>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -1326,8 +1406,10 @@ export default function SettingsPage({
               </button>
             </div>
           </GlassCard>
+          </SearchableSection>
 
           {/* Productivity Tiers */}
+          <SearchableSection terms={['productivity', 'tier', 'productive', 'neutral', 'distracting', 'drag', 'drop']} search={settingsSearch}>
           <GlassCard>
             <div className="mb-4">
               <h2 className="text-lg font-semibold">Productivity</h2>
@@ -1439,8 +1521,10 @@ export default function SettingsPage({
               </DragOverlay>
             </DndContext>
           </GlassCard>
+          </SearchableSection>
 
           {/* External Activities Tier Assignment */}
+          <SearchableSection terms={['external', 'activities', 'external activities']} search={settingsSearch}>
           {externalActivities.length > 0 && (
             <GlassCard>
               <div className="flex items-center justify-between mb-4">
@@ -1565,8 +1649,10 @@ export default function SettingsPage({
               )}
             </GlassCard>
           )}
+          </SearchableSection>
 
           {/* Applications Section - Carousel with Expandable Grid */}
+          <SearchableSection terms={['applications', 'apps', 'application']} search={settingsSearch}>
           <GlassCard>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -1781,8 +1867,10 @@ export default function SettingsPage({
               </motion.div>
             )}
           </GlassCard>
+          </SearchableSection>
 
           {/* Websites Section - Carousel with Expandable Grid */}
+          <SearchableSection terms={['websites', 'domains', 'website']} search={settingsSearch}>
           <GlassCard>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -2012,8 +2100,10 @@ export default function SettingsPage({
               </motion.div>
             )}
           </GlassCard>
+          </SearchableSection>
 
           {/* Smart Website Categorization Section */}
+          <SearchableSection terms={['smart', 'keyword', 'categorization', 'domain keywords']} search={settingsSearch}>
           <GlassCard>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -2325,11 +2415,13 @@ export default function SettingsPage({
               </motion.div>
             )}
           </GlassCard>
+          </SearchableSection>
         </div>
       )}
 
       {activeTab === 'general' && (
         <div data-section="settings.general" className="space-y-4">
+          <SearchableSection terms={['behavior', 'idle', 'threshold', 'neutral', 'distracting', 'pause', 'reset', 'ignore', 'auto-start', 'auto-export', 'animation', 'window mode', 'tracker behavior']} search={settingsSearch}>
           <GlassCard className="space-y-4">
             <div>
               <h2 className="text-lg font-semibold mb-3">App Tracker Behavior</h2>
@@ -2579,11 +2671,13 @@ export default function SettingsPage({
               </div>
             </div>
           </GlassCard>
+          </SearchableSection>
         </div>
       )}
 
       {activeTab === 'tracking' && (
         <div data-section="settings.tracking" className="space-y-4">
+          <SearchableSection terms={['tracking', 'transient', 'background', 'recording', 'game', 'detection', 'browser', 'profiles', 'sleep', 'gap', 'max session']} search={settingsSearch}>
           <GlassCard className="space-y-6">
             <div>
               <h2 className="text-lg font-semibold mb-1">Tracking Settings</h2>
@@ -2667,6 +2761,11 @@ export default function SettingsPage({
               </div>
             </div>
 
+            {/* Browser Profiles */}
+            <div className="pt-4 border-t border-zinc-700/50">
+              <BrowserProfileSettings />
+            </div>
+
             <div className="pt-4 border-t border-zinc-700/50"></div>
 
             <div className="space-y-2">
@@ -2738,8 +2837,10 @@ export default function SettingsPage({
               </div>
             </div>
           </GlassCard>
+          </SearchableSection>
 
           {/* Prompt History Settings */}
+          <SearchableSection terms={['prompt', 'history', 'visible prompts']} search={settingsSearch}>
           <GlassCard>
             <h2 className="text-lg font-semibold mb-3">Prompt History</h2>
             <div className="space-y-3">
@@ -2781,6 +2882,7 @@ export default function SettingsPage({
               </div>
             </div>
           </GlassCard>
+          </SearchableSection>
         </div>
       )}
 
@@ -2788,6 +2890,7 @@ export default function SettingsPage({
         <div data-section="settings.prompts" className="space-y-6">
 
           {/* 1. DEFAULT (read-only) */}
+          <SearchableSection terms={['default', 'baseline', 'app baseline']} search={settingsSearch}>
           <GlassCard>
             <div>
               <h3 className="text-cyan-400 font-semibold">Default · app baseline</h3>
@@ -2803,8 +2906,10 @@ export default function SettingsPage({
               </div>
             </details>
           </GlassCard>
+          </SearchableSection>
 
           {/* 2. GENERAL (generalAdditions) */}
+          <SearchableSection terms={['general', 'instructions', 'general additions']} search={settingsSearch}>
           <GlassCard>
             <div>
               <h3 className="text-blue-400 font-semibold">General · all projects · all agents</h3>
@@ -2819,8 +2924,10 @@ export default function SettingsPage({
               className="mt-2 w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 font-mono placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-colors duration-150"
             />
           </GlassCard>
+          </SearchableSection>
 
           {/* 3. AGENT-TYPE (claude/opencode/custom) */}
+          <SearchableSection terms={['agent', 'agent-type', 'claude', 'opencode', 'custom agent']} search={settingsSearch}>
           <GlassCard>
             <div>
               <h3 className="text-emerald-400 font-semibold">Agent-type · only this agent</h3>
@@ -2853,8 +2960,10 @@ export default function SettingsPage({
               })}
             </div>
           </GlassCard>
+          </SearchableSection>
 
           {/* 4. PROJECT (project:<id>) */}
+          <SearchableSection terms={['project', 'project prompt']} search={settingsSearch}>
           <GlassCard>
             <div>
               <h3 className="text-purple-400 font-semibold">Project · only the selected project</h3>
@@ -2880,7 +2989,9 @@ export default function SettingsPage({
               />
             </div>
           </GlassCard>
+          </SearchableSection>
 
+          <SearchableSection terms={['resume', 'commands', 'agent resume']} search={settingsSearch}>
           <GlassCard>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -2917,12 +3028,14 @@ export default function SettingsPage({
               })}
             </div>
           </GlassCard>
+          </SearchableSection>
         </div>
       )}
 
       {activeTab === 'colors' && (
         <div data-section="settings.colors" className="space-y-4">
           {/* Category Colors Section */}
+          <SearchableSection terms={['category', 'colors', 'category color', 'palette']} search={settingsSearch}>
           <GlassCard>
             <SectionHeader
               title="Category Colors"
@@ -2930,7 +3043,7 @@ export default function SettingsPage({
             />
             <p className="text-xs text-zinc-500 mb-4">Solar system colors</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-              {Object.keys(CATEGORY_COLORS).map((category) => (
+              {DEFAULT_CATEGORIES.map((category) => (
                 <div key={category} className="flex items-center gap-2 p-2.5 bg-zinc-800/40 hover:bg-zinc-800/70 rounded-lg border border-zinc-700/30 hover:border-zinc-600 transition-colors duration-150 group">
                   <ColorPicker
                     value={getCategoryColor(category)}
@@ -2942,8 +3055,10 @@ export default function SettingsPage({
               ))}
             </div>
           </GlassCard>
+          </SearchableSection>
 
           {/* App/Website Colors Section */}
+          <SearchableSection terms={['application', 'website', 'app color', 'website color']} search={settingsSearch}>
           <GlassCard>
             <SectionHeader
               title={`${colorTab === 'apps' ? 'Application' : 'Website'} Colors`}
@@ -3080,11 +3195,13 @@ export default function SettingsPage({
                 })}
             </div>
           </GlassCard>
+          </SearchableSection>
         </div>
       )}
 
       {activeTab === 'ai' && (
         <div data-section="settings.ai" className="space-y-4">
+          <SearchableSection terms={['openrouter', 'api key', 'provider', 'routing', 'daily brief', 'research', 'topics', 'usage', 'cost', 'data access', 'multi-provider']} search={settingsSearch}>
           <GlassCard className="space-y-6">
             <div>
               <h2 className="text-lg font-semibold mb-1">AI Assistant</h2>
@@ -3571,19 +3688,23 @@ export default function SettingsPage({
               </div>
             </div>
           </GlassCard>
+          </SearchableSection>
         </div>
       )}
 
       {activeTab === 'ai' && (
         <div data-section="settings.ai.diagnostics" className="space-y-4">
+          <SearchableSection terms={['diagnostics', 'provider diagnostics']} search={settingsSearch}>
           <GlassCard>
             <ProviderDiagnostics />
           </GlassCard>
+          </SearchableSection>
         </div>
       )}
 
       {activeTab === 'finance' && (
         <div data-section="settings.finance" className="space-y-4">
+          <SearchableSection terms={['currency', 'finance', 'auto-save', 'security', 'password', 'lock', 'masking', 'balance', 'recalculate']} search={settingsSearch}>
           <GlassCard className="space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
@@ -3634,6 +3755,64 @@ export default function SettingsPage({
                   </button>
                 ))}
               </div>
+            </div>
+          </GlassCard>
+
+          <GlassCard className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                <Save className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Finance Auto-Save</h2>
+                <p className="text-xs text-zinc-500">Automatically save changes to wallets and transactions</p>
+              </div>
+            </div>
+            <div className="pt-2 border-t border-zinc-700/50" />
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[11px] text-zinc-400">Auto-save wallet changes</span>
+                <p className="text-[10px] text-zinc-600 mt-0.5">When on, changes to wallets save automatically. When off, you'll be prompted to save before leaving.</p>
+              </div>
+              <button
+                onClick={() => {
+                  const next = !autoSave;
+                  setAutoSave(next);
+                  window.deskflowAPI?.financeSetAutoSave?.(next);
+                }}
+                className={`w-10 h-5 rounded-full transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950 ${autoSave ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+              >
+                <div className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${autoSave ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+          </GlassCard>
+
+          <GlassCard className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-violet-500/15 flex items-center justify-center">
+                <RefreshCw className="w-4 h-4 text-violet-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Balance Auto-Recalculate</h2>
+                <p className="text-xs text-zinc-500">Automatically verify wallet balances after each transaction</p>
+              </div>
+            </div>
+            <div className="pt-2 border-t border-zinc-700/50" />
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[11px] text-zinc-400">Auto-recalculate on transaction</span>
+                <p className="text-[10px] text-zinc-600 mt-0.5">When on, wallet balances are silently verified after adding, deleting, or editing a transaction. Off = faster but balances may drift.</p>
+              </div>
+              <button
+                onClick={() => {
+                  const next = !autoRecalc;
+                  setAutoRecalc(next);
+                  window.deskflowAPI?.financeSetAutoRecalc?.(next);
+                }}
+                className={`w-10 h-5 rounded-full transition-colors focus-visible:ring-2 ring-violet-500/50 ring-offset-2 ring-offset-zinc-950 ${autoRecalc ? 'bg-violet-500' : 'bg-zinc-700'}`}
+              >
+                <div className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${autoRecalc ? 'translate-x-5' : ''}`} />
+              </button>
             </div>
           </GlassCard>
 
@@ -3832,12 +4011,15 @@ export default function SettingsPage({
               </div>
             </GlassCard>
           )}
+          </SearchableSection>
         </div>
       )}
 
       {activeTab === 'devices' && (
         <div data-section="settings.devices" className="space-y-4">
+          <SearchableSection terms={['devices', 'device']} search={settingsSearch}>
           <DevicesPanel />
+          </SearchableSection>
         </div>
       )}
 

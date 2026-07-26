@@ -25,6 +25,7 @@ export class FocusManager {
   private overlay: BrowserWindow | null = null;
   private endTimer: NodeJS.Timeout | null = null;
   private current: { type: 'app' | 'website'; name: string } | null = null;
+  private overlayHideTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private db: Database.Database,
@@ -49,7 +50,9 @@ export class FocusManager {
       active: this.state.active,
       endsAt: this.state.endsAt,
       strictness: this.state.strictness,
-      remainingSec: this.state.endsAt ? Math.max(0, Math.round((this.state.endsAt - Date.now()) / 1000)) : 0,
+      remainingSec: this.state.endsAt
+        ? Math.max(0, Math.round((this.state.endsAt - Date.now()) / 1000))
+        : 0,
       paused: this.state.paused,
     };
   }
@@ -63,6 +66,7 @@ export class FocusManager {
     if (this.state.active) this.end('aborted', 'restart');
     const now = Date.now();
     const strictness = cfg.strictness ?? 'distracting';
+    const isStopwatch = cfg.durationSec === 0;
     const allowed = {
       apps: cfg.allowed?.apps ?? [],
       domains: cfg.allowed?.domains ?? [],
@@ -72,11 +76,18 @@ export class FocusManager {
       `INSERT INTO deep_focus_sessions (started_at, planned_sec, outcome, strictness, allowed_json)
        VALUES (?, ?, 'active', ?, ?)`
     ).run(new Date(now).toISOString(), cfg.durationSec, strictness, JSON.stringify(allowed));
-    this.state = { active: true, sessionId: Number(info.lastInsertRowid),
-      startedAt: now, endsAt: now + cfg.durationSec * 1000,
-      strictness, allowed, returnCount: 0, paused: false };
-    this.endTimer = setTimeout(() => this.complete(), cfg.durationSec * 1000);
-    console.log('[focus] start', { id: this.state.sessionId, durationSec: cfg.durationSec, strictness });
+    this.state = {
+      active: true, sessionId: Number(info.lastInsertRowid),
+      startedAt: now,
+      endsAt: isStopwatch ? null : now + cfg.durationSec * 1000,
+      strictness, allowed, returnCount: 0, paused: false,
+    };
+    // Only set auto-complete timer for countdown mode (durationSec > 0)
+    // Stopwatch mode has no auto-completion — user ends manually
+    if (!isStopwatch && cfg.durationSec > 0) {
+      this.endTimer = setTimeout(() => this.complete(), cfg.durationSec * 1000);
+    }
+    console.log('[focus] start', { id: this.state.sessionId, durationSec: cfg.durationSec, strictness, isStopwatch });
     this.pushState();
     return this.getPublicState();
   }
@@ -92,7 +103,13 @@ export class FocusManager {
   onForegroundApp(appName: string, category?: string) {
     if (!this.state.active || this.state.paused) return;
     const tier = this.classifyApp(appName, category);
-    if (this.isAllowed(tier, appName, 'app')) { this.hideOverlay(); return; }
+    if (this.isAllowed(tier, appName, 'app')) {
+      // Only hide overlay if no pending hide timer (user just returned)
+      if (!this.overlayHideTimer) this.hideOverlay();
+      return;
+    }
+    // Clear any pending hide timer — new distraction overrides
+    if (this.overlayHideTimer) { clearTimeout(this.overlayHideTimer); this.overlayHideTimer = null; }
     this.current = { type: 'app', name: appName };
     this.logEvent('distraction_shown', 'app', appName);
     console.log('[focus] app distraction', appName, tier);
@@ -102,10 +119,15 @@ export class FocusManager {
   onWebActivity(domain: string) {
     if (!this.state.active || this.state.paused) return { overlay: false };
     const tier = this.classifyDomain(domain);
-    if (this.isAllowed(tier, domain, 'website')) return { overlay: false };
+    if (this.isAllowed(tier, domain, 'website')) {
+      if (!this.overlayHideTimer) this.hideOverlay();
+      return { overlay: false };
+    }
+    if (this.overlayHideTimer) { clearTimeout(this.overlayHideTimer); this.overlayHideTimer = null; }
     this.current = { type: 'website', name: domain };
     this.logEvent('distraction_shown', 'website', domain);
     console.log('[focus] web distraction', domain, tier);
+    this.showOverlay({ type: 'website', name: domain, tier });
     return { overlay: true, endsAt: this.state.endsAt, domain };
   }
 
@@ -121,8 +143,12 @@ export class FocusManager {
     this.state.returnCount++;
     this.logEvent('returned', this.current?.type, this.current?.name);
     console.log('[focus] returned', this.current);
-    this.hideOverlay();
-    this.refocusMain();
+    // Keep overlay visible for 2s after returning so user sees the confirmation
+    if (this.overlayHideTimer) clearTimeout(this.overlayHideTimer);
+    this.overlayHideTimer = setTimeout(() => {
+      this.hideOverlay();
+      this.refocusMain();
+    }, 2000);
   }
 
   private complete() { this.end('completed', null); }
@@ -139,6 +165,7 @@ export class FocusManager {
           this.state.returnCount, this.state.sessionId);
     this.logEvent(outcome === 'completed' ? 'completed' : 'aborted');
     if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; }
+    if (this.overlayHideTimer) { clearTimeout(this.overlayHideTimer); this.overlayHideTimer = null; }
     console.log('[focus] end', { outcome, actualSec, reason });
     this.hideOverlay();
     const id = this.state.sessionId;
@@ -150,8 +177,8 @@ export class FocusManager {
   private showOverlay(payload: { type: 'app' | 'website'; name: string; tier: Tier }) {
     const display = screen.getPrimaryDisplay();
     if (!this.overlay) {
-      const overlayPreloadPath = path.join(__dirname, 'resources', 'focus', 'overlayPreload.cjs');
-      const overlayHtmlPath = path.join(__dirname, 'resources', 'focus', 'overlay.html');
+      const overlayPreloadPath = path.join(__dirname, '..', '..', 'resources', 'focus', 'overlayPreload.cjs');
+      const overlayHtmlPath = path.join(__dirname, '..', '..', 'resources', 'focus', 'overlay.html');
       this.overlay = new BrowserWindow({
         ...display.bounds, frame: false, transparent: true, resizable: false,
         movable: false, skipTaskbar: true, alwaysOnTop: true,

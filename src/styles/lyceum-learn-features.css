@@ -689,3 +689,77 @@
   border-radius: 50%;
   color: var(--text-secondary, #a8a29e);
 }
+
+/* ============================================================
+   Lyceum Text Selection Fix — Global CSS
+   ============================================================ */
+
+/* Force text selection on ALL descendants of .select-text — DOMPurify strips style attrs so we must use CSS */
+.select-text,
+.select-text *,
+.select-text *::before,
+.select-text *::after {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+
+/* Ensure scrollable containers don't block selection */
+.ws-scroll,
+.ws-scroll * {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+/* ProseBlock paragraph spacing — using divs not <p> to prevent selection snapping */
+.prose-block div {
+  margin-bottom: 1em;
+}
+
+.prose-block div:last-child {
+  margin-bottom: 0;
+}
+
+/* Ensure headers are also selectable */
+.prose-block h1,
+.prose-block h2,
+.prose-block h3 {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+/* CalloutBlock line spacing */
+.callout-block {
+  line-height: 1.7;
+}
+
+/* Code blocks — allow selection but keep monospace */
+pre code,
+code {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+/* Selection highlight colors (persistent highlights) */
+mark.lyceum-highlight-yellow {
+  background-color: rgba(234, 179, 8, 0.2);
+}
+mark.lyceum-highlight-green {
+  background-color: rgba(34, 197, 94, 0.2);
+}
+mark.lyceum-highlight-blue {
+  background-color: rgba(59, 130, 246, 0.2);
+}
+mark.lyceum-highlight-pink {
+  background-color: rgba(236, 72, 153, 0.2);
+}
+mark.lyceum-highlight-orange {
+  background-color: rgba(249, 115, 22, 0.2);
+}
+
+/* Mobile touch selection support */
+@media (pointer: coarse) {
+  .select-text {
+    -webkit-touch-callout: default !important;
+  }
+}

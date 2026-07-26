@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import katex from 'katex';
 import DOMPurify from 'dompurify';
 import type { ProseBlock } from '../../../shared/learn/types';
@@ -8,18 +8,15 @@ interface Props {
   onAsk?: (blockId: string, question: string) => void;
 }
 
-export function ProseBlock({ block, onAsk }: Props) {
-  // Simple markdown rendering — bold, italic, code, links, headers
-  const rendered = renderMarkdown(block.md);
+export const ProseBlock = React.memo(function ProseBlock({ block, onAsk }: Props) {
+  const rendered = useMemo(() => DOMPurify.sanitize(renderMarkdown(block.md)), [block.md]);
 
   return (
-    <div className="my-4 group relative" data-block-id={block.id}>
-      <div
-        className="text-[1.0625rem] leading-[1.7] text-zinc-200 max-w-[68ch] font-serif select-text"
-        style={{ userSelect: 'text' }}
-        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(rendered) }}
-      />
-      {/* Select-to-ask affordance */}
+    <div
+      className="my-4 group relative text-[1.0625rem] leading-[1.7] text-zinc-200 max-w-[68ch] font-serif select-text prose-block"
+      data-block-id={block.id}
+    >
+      <div dangerouslySetInnerHTML={{ __html: rendered }} />
       {onAsk && (
         <button
           onClick={() => {
@@ -34,7 +31,7 @@ export function ProseBlock({ block, onAsk }: Props) {
       )}
     </div>
   );
-}
+}, (prev, next) => prev.block.id === next.block.id && prev.block.md === next.block.md);
 
 function renderMarkdown(md: string): string {
   let text = md;
@@ -42,7 +39,7 @@ function renderMarkdown(md: string): string {
   // Protect inline code spans from further transforms
   const codeSpans: string[] = [];
   text = text.replace(/`([^`]+)`/g, (_, code) => {
-    codeSpans.push(`<code class="bg-zinc-800/60 rounded px-1 py-0.5 text-sm font-mono text-cyan-300">${code}</code>`);
+    codeSpans.push(`<code class="bg-zinc-800/60 rounded px-1 py-0.5 text-sm font-mono text-cyan-300 select-text">${code}</code>`);
     return `%%CODE${codeSpans.length - 1}%%`;
   });
 
@@ -61,7 +58,7 @@ function renderMarkdown(md: string): string {
     if (!isDivider(dividerLine)) { result.push(...tableBuf); tableBuf = []; return; }
     const headers = splitCells(headerLine);
     const bodyRows = tableBuf.slice(2).map(splitCells);
-    let html = '<table class="w-full my-4 text-[0.95rem] border-collapse"><thead><tr class="border-b border-zinc-600">';
+    let html = '<table class="w-full my-4 text-[0.95rem] border-collapse select-text"><thead><tr class="border-b border-zinc-600">';
     headers.forEach((h) => { html += `<th class="text-left py-2 px-3 font-semibold text-zinc-100">${h}</th>`; });
     html += '</tr></thead><tbody>';
     bodyRows.forEach((cells) => {
@@ -95,28 +92,28 @@ function renderMarkdown(md: string): string {
 
   // Code blocks
   text = text
-    .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="bg-zinc-800/50 rounded-lg p-3 my-2 overflow-x-auto text-sm font-mono text-zinc-300"><code>$2</code></pre>')
+    .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="bg-zinc-800/50 rounded-lg p-3 my-2 overflow-x-auto text-sm font-mono text-zinc-300 select-text"><code>$2</code></pre>')
     // Restore code placeholders
     .replace(/%%CODE(\d+)%%/g, (_, idx) => codeSpans[Number(idx)]);
 
   return text
     // Bold
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white select-text">$1</strong>')
     // Italic
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\*(.+?)\*/g, '<em class="select-text">$1</em>')
     // Headers
-    .replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold text-white mt-4 mb-2">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold text-white mt-4 mb-2">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-semibold text-white mt-4 mb-2">$1</h1>')
+    .replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold text-white mt-4 mb-2 select-text">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold text-white mt-4 mb-2 select-text">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-semibold text-white mt-4 mb-2 select-text">$1</h1>')
     // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-amber-400 hover:text-amber-300 underline" target="_blank" rel="noopener">$1</a>')
-    // Paragraph wrapping — gives browser proper block-level boundaries for text selection
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-amber-400 hover:text-amber-300 underline select-text" target="_blank" rel="noopener">$1</a>')
+    // Paragraph wrapping — use <div> instead of <p> to prevent browser selection snapping to <p> boundaries
     .split(/\n\n+/)
     .map(p => {
       const trimmed = p.trim();
       if (!trimmed) return '';
       if (trimmed.startsWith('<h')) return trimmed;
-      return `<p>${trimmed.replace(/\n/g, '<br/>')}</p>`;
+      return `<div class="mb-4 last:mb-0 select-text">${trimmed.replace(/\n/g, '<br/>')}</div>`;
     })
     .join('\n');
 }

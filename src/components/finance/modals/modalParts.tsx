@@ -77,9 +77,10 @@ export function AdvancedToggle({ open, onToggle }: { open: boolean; onToggle: ()
 	)
 }
 
-export function OnBehalfOfSection({ value, personId, onValueChange, onPersonChange, accent, persons = [], onAddPerson }: {
+export function OnBehalfOfSection({ value, personId, onValueChange, onPersonChange, accent, persons = [], onAddPerson, usePersonBalance, onUsePersonBalanceChange, personBalance }: {
   value: boolean; personId: number | null; onValueChange: (v: boolean) => void; onPersonChange: (personId: number | null, personName: string) => void; accent: string;
   persons?: { id: number; name: string; email?: string | null; phone?: string | null }[]; onAddPerson?: (name: string) => void;
+  usePersonBalance?: boolean; onUsePersonBalanceChange?: (v: boolean) => void; personBalance?: number;
 }) {
   return (
     <div className="pt-1">
@@ -101,12 +102,39 @@ export function OnBehalfOfSection({ value, personId, onValueChange, onPersonChan
                 onAddPerson={(name) => onAddPerson?.(name)}
                 placeholder="Who? (e.g. Mom's groceries)"
               />
+              {personId && (personBalance ?? 0) > 0 && onUsePersonBalanceChange && (
+                <label className="flex items-center gap-2 mt-2 cursor-pointer group/pfb">
+                  <div onClick={(e) => { e.stopPropagation(); onUsePersonBalanceChange(!usePersonBalance); }}
+                    className={`w-7 h-4 rounded-full transition-colors duration-200 relative ${usePersonBalance ? 'bg-amber-500/80' : 'bg-zinc-700/60'}`}>
+                    <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all duration-200 ${usePersonBalance ? 'left-[14px]' : 'left-0.5'}`} />
+                  </div>
+                  <div className="text-[10px] text-zinc-500 group-hover/pfb:text-zinc-400 transition-colors">
+                    Pay from their balance (<span className="font-mono text-amber-400/80">{(personBalance ?? 0).toFixed(2)}</span> available)
+                  </div>
+                </label>
+              )}
             </div>
           )}
         </div>
       </label>
     </div>
   );
+}
+
+export function HistoricalToggle({ accent, value, onChange }: { accent: string; value: boolean; onChange: (v: boolean) => void }) {
+	return (
+		<label className="flex items-center gap-2.5 cursor-pointer group">
+			<div onClick={(e) => { e.stopPropagation(); onChange(!value); }}
+				className={`w-9 h-5 rounded-full transition-colors duration-200 relative ${value ? 'bg-violet-500' : 'bg-zinc-700/60'}`}>
+				<div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-200 ${value ? 'left-[18px]' : 'left-0.5'}`} />
+			</div>
+			<div className="flex-1 min-w-0">
+				<div className="text-[11px] text-zinc-400 group-hover:text-zinc-300 transition-colors">
+					<span style={{ color: accent }} className="font-medium">Historical</span> — Affects balance chronologically, excluded from spending/income summaries
+				</div>
+			</div>
+		</label>
+	);
 }
 
 export function ProgressBar({ pct, color }: { pct: number; color: string }) {

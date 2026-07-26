@@ -340,6 +340,7 @@ export default function GapFillModal({
           slotEnd: segEnd.toISOString(),
           app: seg.activityName,
           category: seg.category,
+          activityId: seg.activityId,
         })
         cursor = segEnd.getTime()
       }

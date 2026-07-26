@@ -134,7 +134,7 @@ export function composeLearnerProfileBlock(p: LearnerProfile): string {
 export function loadPromptLibrary(readResource: (rel: string) => string | null): PromptLibrary {
   return {
     format: readResource('author-guide.md') ?? '',
-    capabilities: readResource('capabilities-manifest.md') ?? '',
+    capabilities: '', // deprecated — author-guide.md is the authoritative format reference
     style: readResource('prompts/master-prompt.md') ?? '',
     persona: readResource('prompts/coach-persona.md') ?? '',
     guardrails: readResource('prompts/guardrails.md') ?? '',
@@ -149,11 +149,6 @@ export function composeAuthorSystemPrompt(
 
   // 1. Format layer (always first — must win)
   parts.push(`## Format\n${lib.format}`);
-
-  // 1b. Capabilities manifest (block types the model can emit)
-  if (lib.capabilities) {
-    parts.push(`## Available Block Types\n${lib.capabilities}`);
-  }
 
   // 2. Style / master prompt
   parts.push(`## Teaching Style\n${lib.style}`);

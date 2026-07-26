@@ -33,6 +33,8 @@ const SOURCES: { id: LibraryId; label: string; accent: string; icon: any; desc: 
   { id: 'shadcn-ui-mcp', label: 'shadcn/ui MCP', accent: '#38bdf8', icon: Code2, desc: 'Multi-framework component docs' },
   { id: 'aidesigner', label: 'AIDesigner', accent: '#c084fc', icon: Sparkles, desc: 'Generate/refine designs via MCP' },
   { id: 'reactbits', label: 'React Bits', accent: '#f472b6', icon: Rabbit, desc: '135+ animated components, no API key' },
+  { id: 'swishy-motion', label: 'Swishy Motion', accent: '#fbbf24', icon: Sparkles, desc: 'Kinetic typography presets + easing curves' },
+  { id: 'variant', label: 'Variant', accent: '#c084fc', icon: Paintbrush, desc: 'Visual theme exploration canvas (opens variant.com)' },
 ];
 
 function defaultConfig(id: LibraryId): SourceConfig {
@@ -45,11 +47,15 @@ function defaultConfig(id: LibraryId): SourceConfig {
     'aidesigner': '',
     'reactbits': '',
     'cult-ui': '',
+    'swishy-motion': '',
+    'variant': '',
   };
   const registryUrls: Record<string, string> = {
     aceternity: 'https://ui.aceternity.com/registry',
     'cult-ui': 'https://www.cult-ui.com/r',
     'reactbits': 'https://reactbits.dev/registry',
+    'swishy-motion': '',
+    'variant': 'https://variant.com',
   };
   const apiKeys = ['21st-dev', 'refero', 'aidesigner'];
   return {
@@ -62,25 +68,25 @@ function defaultConfig(id: LibraryId): SourceConfig {
 }
 
 export default function LibraryConfigModal({ open, onClose, config: externalConfig, onSave, onConnectionChanged }: LibraryConfigModalProps) {
-  const [sources, setSources] = useState<Record<LibraryId, SourceConfig>>({
-    '21st-dev': defaultConfig('21st-dev'),
-    aceternity: defaultConfig('aceternity'),
-    refero: defaultConfig('refero'),
+  const [sources, setSources] = useState<Record<LibraryId, SourceConfig>>(() => {
+    const initial: Record<string, SourceConfig> = {};
+    for (const s of SOURCES) initial[s.id] = defaultConfig(s.id);
+    return initial as Record<LibraryId, SourceConfig>;
   });
-  const [connStatus, setConnStatus] = useState<Record<LibraryId, 'idle' | 'testing' | 'running' | 'error'>>({
-    '21st-dev': 'idle',
-    aceternity: 'idle',
-    refero: 'idle',
+  const [connStatus, setConnStatus] = useState<Record<LibraryId, 'idle' | 'testing' | 'running' | 'error'>>(() => {
+    const initial: Record<string, string> = {};
+    for (const s of SOURCES) initial[s.id] = 'idle';
+    return initial as Record<LibraryId, 'idle' | 'testing' | 'running' | 'error'>;
   });
-  const [connMsg, setConnMsg] = useState<Record<LibraryId, string>>({
-    '21st-dev': '',
-    aceternity: '',
-    refero: '',
+  const [connMsg, setConnMsg] = useState<Record<LibraryId, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const s of SOURCES) initial[s.id] = '';
+    return initial as Record<LibraryId, string>;
   });
-  const [loading, setLoading] = useState<Record<LibraryId, boolean>>({
-    '21st-dev': false,
-    aceternity: false,
-    refero: false,
+  const [loading, setLoading] = useState<Record<LibraryId, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const s of SOURCES) initial[s.id] = false;
+    return initial as Record<LibraryId, boolean>;
   });
 
   useEffect(() => {
@@ -97,7 +103,8 @@ export default function LibraryConfigModal({ open, onClose, config: externalConf
     setConnMsg(empty);
     setLoading(Object.fromEntries(allIds.map(id => [id, false])));
     loadCurrentStatus();
-  }, [open, externalConfig]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const loadCurrentStatus = async () => {
     const dapi = (window as any).deskflowAPI;
@@ -217,9 +224,9 @@ export default function LibraryConfigModal({ open, onClose, config: externalConf
             {/* Scrollable Content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {SOURCES.map(source => {
-                const cfg = sources[source.id];
-                const status = connStatus[source.id];
-                const message = connMsg[source.id];
+                const cfg = sources[source.id] || defaultConfig(source.id);
+                const status = connStatus[source.id] || 'idle';
+                const message = connMsg[source.id] || '';
                 const busy = loading[source.id] || status === 'testing';
                 const Icon = source.icon;
                 const isRunning = status === 'running';
@@ -243,8 +250,8 @@ export default function LibraryConfigModal({ open, onClose, config: externalConf
                         style={cfg.enabled ? { backgroundColor: `${source.accent}40` } : {}}
                       >
                         <span
-                          className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform duration-150 bg-zinc-400 ${
-                            cfg.enabled ? 'translate-x-5' : 'translate-x-0.5'
+                          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform duration-150 bg-zinc-400 ${
+                            cfg.enabled ? 'translate-x-5' : 'translate-x-0'
                           }`}
                           style={cfg.enabled ? { backgroundColor: source.accent } : {}}
                         />
@@ -265,7 +272,7 @@ export default function LibraryConfigModal({ open, onClose, config: externalConf
                             transition-colors duration-150"
                         />
                       </div>
-                      {(source.id === '21st-dev' || source.id === 'refero') && (
+                      {(source.id === '21st-dev' || source.id === 'refero' || source.id === 'aidesigner') && (
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">API Key</label>
                           <input
@@ -305,8 +312,8 @@ export default function LibraryConfigModal({ open, onClose, config: externalConf
                         style={cfg.autoStart ? { backgroundColor: `${source.accent}40` } : {}}
                       >
                         <span
-                          className={`absolute top-0.5 w-3 h-3 rounded-full transition-transform duration-150 bg-zinc-400 ${
-                            cfg.autoStart ? 'translate-x-4' : 'translate-x-0.5'
+                          className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full transition-transform duration-150 bg-zinc-400 ${
+                            cfg.autoStart ? 'translate-x-4' : 'translate-x-0'
                           }`}
                           style={cfg.autoStart ? { backgroundColor: source.accent } : {}}
                         />

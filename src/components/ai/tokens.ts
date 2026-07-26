@@ -16,7 +16,7 @@ export const RING = {
 	hover: "ring-zinc-700",
 	active: "ring-zinc-600",
 	focus:
-		"focus-visible:ring-2 focus-visible:ring-pink-500/60 focus-visible:outline-none",
+		"focus-visible:ring-2 focus-visible:ring-zinc-500/60 focus-visible:outline-none",
 } as const
 
 export const TEXT = {

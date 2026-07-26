@@ -646,6 +646,7 @@ export function FinanceLockScreen({ onUnlock, onSetup, onBiometricUnlock, isFirs
                         placeholder={isFirstTime ? 'Create master password' : 'Enter password'}
                         disabled={cooldownTime > 0}
                         icon={showPassword ? EyeOff : Eye}
+                        onIconClick={() => setShowPassword(!showPassword)}
                       />
 
                       {isFirstTime && (
@@ -657,17 +658,6 @@ export function FinanceLockScreen({ onUnlock, onSetup, onBiometricUnlock, isFirs
                           placeholder="Confirm master password"
                         />
                       )}
-
-                      {/* Show/hide password toggle */}
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors flex items-center gap-1.5"
-                        >
-                          {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                          {showPassword ? 'Hide password' : 'Show password'}
-                        </button>
-                      </div>
 
                       {/* Error */}
                       <AnimatePresence mode="wait">

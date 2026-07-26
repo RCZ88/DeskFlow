@@ -1,125 +1,212 @@
-import { useEffect, useRef, useState } from "react"
-import { motion, useReducedMotion } from "framer-motion"
-import { Mic, Square } from "lucide-react"
-import { CharCountRing } from "./CharCountRing"
+import { useEffect, useRef, useState, useCallback } from "react"
+import { Mic, Square, Send, Mail, Inbox, Calendar, ClipboardList, RefreshCw, Search, PenLine, Newspaper, Eye, Target, Zap } from "lucide-react"
+import { SlashCommandPalette } from "./SlashCommandPalette"
+import { getAllCommands } from "../../../services/customSlashCommands"
 
 export interface ChatInputProps {
-	onSend: (text: string) => void
-	onStop?: () => void
-	streaming?: boolean
-	disabled?: boolean
-	maxChars?: number
-	placeholder?: string
-	listening?: boolean
-	onToggleVoice?: () => void
-	voiceSupported?: boolean
-	value?: string
-	onValueChange?: (v: string) => void
+  value: string
+  onChange: (v: string) => void
+  onSend: (text: string) => void
+  onStop?: () => void
+  streaming?: boolean
+  listening?: boolean
+  onToggleVoice?: () => void
+  voiceSupported?: boolean
+  userPrompts?: string[]
+  onOpenCommands?: () => void
 }
 
-export function ChatInput({
-	onSend,
-	onStop,
-	streaming,
-	disabled,
-	maxChars = 4000,
-	placeholder = "Ask anything…",
-	listening,
-	onToggleVoice,
-	voiceSupported,
-	value,
-	onValueChange,
-}: ChatInputProps) {
-	const reduce = useReducedMotion()
-	const [internal, setInternal] = useState("")
-	const text = value ?? internal
-	const setText = (v: string) => {
-		if (onValueChange) onValueChange(v)
-		else setInternal(v)
-	}
-	const ref = useRef<HTMLTextAreaElement>(null)
+const SLASH_COMMANDS = [
+  { id: "unread", name: "/unread", desc: "Show unread emails", icon: <Mail size={14} />, category: "email" },
+  { id: "inbox", name: "/inbox", desc: "Show recent emails", icon: <Inbox size={14} />, category: "email" },
+  { id: "calendar", name: "/calendar", desc: "Show upcoming events", icon: <Calendar size={14} />, category: "calendar" },
+  { id: "today", name: "/today", desc: "Today schedule + emails", icon: <ClipboardList size={14} />, category: "combined" },
+  { id: "sync", name: "/sync", desc: "Sync all connectors", icon: <RefreshCw size={14} />, category: "action" },
+  { id: "email", name: "/email", desc: "Search emails", icon: <Search size={14} />, category: "email" },
+  { id: "plan", name: "/plan", desc: "Plan my day", icon: <PenLine size={14} />, category: "ai" },
+  { id: "digest", name: "/digest", desc: "Generate digest", icon: <Newspaper size={14} />, category: "ai" },
+  { id: "reflect", name: "/reflect", desc: "Reflect on today", icon: <Eye size={14} />, category: "ai" },
+  { id: "focus", name: "/focus", desc: "Start focus session", icon: <Target size={14} />, category: "ai" },
+]
 
-	useEffect(() => {
-		const el = ref.current
-		if (!el) return
-		el.style.height = "0px"
-		el.style.height = Math.min(el.scrollHeight, 160) + "px"
-	}, [text])
+export function ChatInput(props: ChatInputProps) {
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [paletteIndex, setPaletteIndex] = useState(0)
+  const [filteredCommands, setFilteredCommands] = useState(SLASH_COMMANDS)
+  const historyIndexRef = useRef(-1)
+  const draftRef = useRef("")
 
-	const canSend = text.trim().length > 0 && !disabled && text.length <= maxChars
-	const send = () => {
-		if (!canSend) return
-		onSend(text.trim())
-		setText("")
-	}
+  useEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = Math.min(el.scrollHeight, 140) + "px"
+  }, [props.value])
 
-	const showRing = text.length > maxChars * 0.7
+  const canSend = props.value.trim().length > 0 && !props.streaming
 
-	return (
-		<form className="dk-cmd" onSubmit={(e) => { e.preventDefault(); send() }}>
-			<span className="dk-cmd-pc">›_</span>
-			<textarea
-				ref={ref}
-				value={text}
-				rows={1}
-				disabled={disabled}
-				placeholder={placeholder}
-				onChange={(e) => setText(e.target.value)}
-				onKeyDown={(e) => {
-					if (e.key === "Enter" && !e.shiftKey) {
-						e.preventDefault()
-						send()
-					}
-				}}
-				className="dk-cmd-ph"
-				style={{ resize: "none" }}
-			/>
-			{showRing ? <CharCountRing count={text.length} max={maxChars} className="mb-1" /> : null}
-			<div className="dk-cmd-tools">
-				{onToggleVoice ? (
-					<button
-						type="button"
-						onClick={onToggleVoice}
-						disabled={!voiceSupported}
-						aria-pressed={listening}
-						aria-label={listening ? "Stop voice input" : "Start voice input"}
-						className="dk-iconbtn"
-						style={listening ? { background: "rgba(236,72,153,.2)", color: "var(--pink)", borderColor: "transparent" } : undefined}
-					>
-						{listening && !reduce ? (
-							<motion.span
-								aria-hidden
-								className="absolute inset-0 rounded-[9px] bg-pink-500/20"
-								initial={{ opacity: 0.6, scale: 1 }}
-								animate={{ opacity: 0, scale: 1.35 }}
-								transition={{ duration: 1.2, repeat: Infinity, ease: "easeOut" }}
-							/>
-						) : null}
-						<Mic size={14} className="relative" />
-					</button>
-				) : null}
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (paletteOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setPaletteIndex(i => (i + 1) % filteredCommands.length)
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setPaletteIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length)
+        return
+      }
+      if (e.key === "Enter") {
+        e.preventDefault()
+        const cmd = filteredCommands[paletteIndex]
+        if (cmd) {
+          props.onChange(cmd.name + " ")
+          setPaletteOpen(false)
+          taRef.current?.focus()
+        }
+        return
+      }
+      if (e.key === "Escape") {
+        setPaletteOpen(false)
+        return
+      }
+    }
 
-				{streaming ? (
-					<button
-						type="button"
-						onClick={onStop}
-						aria-label="Stop generating"
-						className="dk-iconbtn"
-						style={{ color: "var(--red)" }}
-					>
-						<Square size={12} className="fill-current" />
-					</button>
-				) : (
-					<button
-						type="submit"
-						disabled={!canSend}
-						aria-label="Send message"
-						className={"dk-iconbtn" + (canSend ? " dk-send" : "")}
-					>
-						➤
-					</button>
-				)}
-			</div>
-		</form>
-	)
+    if (e.key === "ArrowUp" && !props.value.trim()) {
+      e.preventDefault()
+      const prompts = props.userPrompts || []
+      if (prompts.length === 0) return
+      if (historyIndexRef.current === -1) {
+        draftRef.current = props.value
+      }
+      const nextIdx = historyIndexRef.current === -1
+        ? prompts.length - 1
+        : Math.max(0, historyIndexRef.current - 1)
+      historyIndexRef.current = nextIdx
+      props.onChange(prompts[nextIdx])
+      return
+    }
+
+    if (e.key === "ArrowDown" && historyIndexRef.current >= 0) {
+      e.preventDefault()
+      const prompts = props.userPrompts || []
+      const nextIdx = historyIndexRef.current + 1
+      if (nextIdx >= prompts.length) {
+        historyIndexRef.current = -1
+        props.onChange(draftRef.current)
+      } else {
+        historyIndexRef.current = nextIdx
+        props.onChange(prompts[nextIdx])
+      }
+      return
+    }
+
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      historyIndexRef.current = -1
+      if (canSend) props.onSend(props.value.trim())
+    }
+  }, [paletteOpen, filteredCommands, paletteIndex, canSend, props])
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    props.onChange(val)
+
+    if (val.startsWith("/") && !props.streaming) {
+      const query = val.slice(1).toLowerCase()
+      const builtIn = SLASH_COMMANDS.filter(c =>
+        c.name.toLowerCase().includes(query) ||
+        c.desc.toLowerCase().includes(query)
+      )
+      const custom = getAllCommands()
+        .filter(c => c.name.toLowerCase().includes(query) || c.description.toLowerCase().includes(query))
+        .map(c => ({ id: `custom-${c.id}`, name: `/${c.name}`, desc: c.description, icon: <Zap size={14} />, category: "custom" }))
+      const filtered = [...builtIn, ...custom]
+      setFilteredCommands(filtered.length > 0 ? filtered : SLASH_COMMANDS)
+      setPaletteOpen(true)
+      setPaletteIndex(0)
+    } else {
+      setPaletteOpen(false)
+    }
+  }, [props])
+
+  const handleSelectCommand = useCallback((cmd: typeof SLASH_COMMANDS[0]) => {
+    props.onChange(cmd.name + " ")
+    setPaletteOpen(false)
+    taRef.current?.focus()
+  }, [props])
+
+  return (
+    <div style={{ position: "relative" }}>
+      {/* Slash Command Palette */}
+      {paletteOpen && (
+        <SlashCommandPalette
+          commands={filteredCommands}
+          activeIndex={paletteIndex}
+          onSelect={handleSelectCommand}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
+
+      <div className="dk-input-wrap">
+        <textarea
+          ref={taRef}
+          className="dk-textarea"
+          rows={1}
+          value={props.value}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask anything, type / for commands..."
+          disabled={props.streaming}
+        />
+        <div className="dk-input-tools">
+          {props.onOpenCommands && (
+            <button
+              type="button"
+              onClick={props.onOpenCommands}
+              className="dk-iconbtn"
+              title="Manage slash commands"
+            >
+              <Zap size={14} />
+            </button>
+          )}
+          {props.onToggleVoice && (
+            <button
+              type="button"
+              onClick={props.onToggleVoice}
+              disabled={!props.voiceSupported}
+              className="dk-iconbtn"
+              style={props.listening ? { background: "rgba(236,72,153,.15)", color: "var(--pink)", borderColor: "transparent" } : undefined}
+              title={props.listening ? "Stop voice input" : "Start voice input"}
+            >
+              <Mic size={14} />
+            </button>
+          )}
+          {props.streaming ? (
+            <button
+              type="button"
+              onClick={props.onStop}
+              className="dk-iconbtn"
+              style={{ color: "var(--red)" }}
+              title="Stop generating"
+            >
+              <Square size={12} className="fill-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => canSend && props.onSend(props.value.trim())}
+              disabled={!canSend}
+              className="dk-iconbtn dk-send"
+              title="Send message"
+            >
+              <Send size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
