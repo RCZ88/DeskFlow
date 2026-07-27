@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown, Bell, RefreshCw, History, Users, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown, Bell, RefreshCw, History, Users, BarChart3, Receipt, Target } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { TabBar } from '../components/TabBar';
 import { GlassCard } from '../components/GlassCard';
@@ -24,6 +24,8 @@ import { SubscriptionsTab } from '../components/finance/SubscriptionsTab';
 import { SubscriptionsPageView } from './SubscriptionsPage';
 import { AuditLogTab } from '../components/finance/AuditLogTab';
 import { PeopleTab } from '../components/finance/PeopleTab';
+import { BudgetFixedExpensesTab } from '../components/finance/BudgetFixedExpensesTab';
+import { BudgetTab } from '../components/finance/BudgetTab';
 import { NetWorthLineChart } from '../components/finance/NetWorthLineChart';
 import { IncomeExpenseBarChart } from '../components/finance/IncomeExpenseBarChart';
 import { SpendingCategoryChart } from '../components/finance/SpendingCategoryChart';
@@ -34,7 +36,8 @@ import {
 } from '../components/finance/modals';
 import type {
   FinanceAccount, FinanceWallet, FinanceCategory, FinanceTransaction,
-  FinanceSummary, FinanceSpendingByCategory, FinanceMonthlyTrend, FinanceTabKey
+  FinanceSummary, FinanceSpendingByCategory, FinanceMonthlyTrend, FinanceTabKey,
+  FinanceFixedExpense, FixedExpenseSummary, FinanceBudget, BudgetStatus
 } from '../components/finance/finance-types';
 
 const SEED_CATEGORIES = [
@@ -62,6 +65,7 @@ const tabs: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'people', label: 'People', icon: <Users className="w-3.5 h-3.5" /> },
   { key: 'categories', label: 'Categories', icon: <Tag className="w-3.5 h-3.5" /> },
   { key: 'subscriptions', label: 'Subscriptions', icon: <Bell className="w-3.5 h-3.5" /> },
+  { key: 'budget', label: 'Budget & Expenses', icon: <Target className="w-3.5 h-3.5" /> },
   { key: 'audit', label: 'Audit Log', icon: <Shield className="w-3.5 h-3.5" /> },
   { key: 'charts', label: 'Charts', icon: <BarChart3 className="w-3.5 h-3.5" /> },
 ];
@@ -82,6 +86,8 @@ export function FinancePage() {
   const [isDirty, setIsDirty] = useState(false);
   const [autoSave, setAutoSave] = useState(true);
   const [walletTxModal, setWalletTxModal] = useState<string | null>(null);
+  const [preselectedFtPersonId, setPreselectedFtPersonId] = useState<number | null>(null);
+  const [preselectedOnBehalfOf, setPreselectedOnBehalfOf] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedAccounts, setArchivedAccounts] = useState<FinanceAccount[]>([]);
   const [archivedWallets, setArchivedWallets] = useState<FinanceWallet[]>([]);
@@ -99,6 +105,11 @@ export function FinancePage() {
   const [spendingByCategory, setSpendingByCategory] = useState<FinanceSpendingByCategory[]>([]);
   const [monthlyTrends, setMonthlyTrends] = useState<FinanceMonthlyTrend[]>([]);
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [fixedExpenses, setFixedExpenses] = useState<FinanceFixedExpense[]>([]);
+  const [fixedExpenseSummary, setFixedExpenseSummary] = useState<FixedExpenseSummary | null>(null);
+  const [budgets, setBudgets] = useState<FinanceBudget[]>([]);
+  const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [upcomingRenewals, setUpcomingRenewals] = useState<any[]>([]);
   const [ftPersons, setFtPersons] = useState<{ id: number; name: string }[]>([]);
   const [onBehalfOfSummary, setOnBehalfOfSummary] = useState<{ totalExpense: number; breakdown: { label: string; total: number; count: number }[] } | null>(null);
@@ -244,6 +255,15 @@ export function FinancePage() {
         (window.deskflowAPI?.financeGetFtPersons() as Promise<any[]>) ?? Promise.resolve([]),
         (window.deskflowAPI?.subscriptionsGetUpcomingRenewals(7) as Promise<any[]>) ?? Promise.resolve([]),
       ]);
+      // Fetch fixed expenses & budgets separately (fault-tolerant — won't kill main load)
+      let feList: FinanceFixedExpense[] = [];
+      let feSummary: FixedExpenseSummary | null = null;
+      let budList: FinanceBudget[] = [];
+      let budStatusData: BudgetStatus | null = null;
+      try { feList = (await window.deskflowAPI?.fixedExpensesList?.(selectedMonth)) || []; } catch { feList = []; }
+      try { feSummary = (await window.deskflowAPI?.fixedExpensesSummary?.(selectedMonth)) || null; } catch { feSummary = null; }
+      try { budList = (await window.deskflowAPI?.budgetsList?.()) || []; } catch { budList = []; }
+      try { budStatusData = (await window.deskflowAPI?.budgetsGetStatus?.(selectedMonth)) || null; } catch { budStatusData = null; }
       setAccounts(accts);
       setWallets(wals);
       setCategories(cats);
@@ -260,6 +280,10 @@ export function FinancePage() {
       })));
       setMonthlyTrends(trends);
       setOnBehalfOfSummary(obSummary);
+      setFixedExpenses(feList);
+      setFixedExpenseSummary(feSummary);
+      setBudgets(budList);
+      setBudgetStatus(budStatusData);
     } catch (err) {
       console.error('[FinancePage] fetch error:', err);
       setFetchError('Could not load finance data');
@@ -275,11 +299,15 @@ export function FinancePage() {
         setTransactions(txns);
       }
     } catch { /* silent — non-critical */ }
-  }, []);
+  }, [selectedMonth]);
 
   useEffect(() => {
     if (!isLocked) fetchData();
   }, [isLocked, fetchData]);
+
+  useEffect(() => {
+    if (!isLocked) fetchData();
+  }, [selectedMonth]);
 
   const resetLockTimer = useCallback(() => {
     if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
@@ -442,6 +470,15 @@ export function FinancePage() {
     } catch { return false; }
   };
 
+  const handleNewTransactionFromPerson = useCallback((personId: number) => {
+    // Find the first non-archived wallet to open the modal
+    const firstWallet = wallets.find(w => !w.is_archived);
+    if (!firstWallet) return;
+    setPreselectedFtPersonId(personId);
+    setPreselectedOnBehalfOf(true);
+    setWalletTxModal(firstWallet.type);
+  }, [wallets]);
+
   const handleAddTransaction = async (data: {
     account_id: number; wallet_id: number | null; category_id: number;
     type: string; amount: number;
@@ -487,7 +524,8 @@ export function FinancePage() {
         }
         throw new Error(result?.error || 'Transfer failed');
       }
-      const result = await window.deskflowAPI?.financeCreateTransaction(data) as FinanceTransaction;
+      const result = await window.deskflowAPI?.financeCreateTransaction(data) as any;
+      if (result?.error) throw new Error(result.error);
       if (result) {
         await fetchData();
         if (autoRecalc && data.wallet_id) {
@@ -496,8 +534,8 @@ export function FinancePage() {
         }
         return true;
       }
-      return false;
-    } catch { return false; }
+      throw new Error('Transaction returned no data from server');
+    } catch (e: any) { throw new Error(e?.message || 'Failed to save transaction'); }
   };
 
   const handleDeleteTransaction = async (id: number): Promise<boolean> => {
@@ -1275,6 +1313,7 @@ export function FinancePage() {
                     wallets={wallets}
                     displayCurrency={displayCurrency}
                     onRefresh={fetchData}
+                    onNewTransaction={handleNewTransactionFromPerson}
                   />
                 </motion.div>
               )}
@@ -1341,8 +1380,18 @@ export function FinancePage() {
                      onBack={() => setShowSubscriptionsPage(false)}
                    />
                  </motion.div>
-               )}
-               {activeTab === 'charts' && (
+                )}
+                {activeTab === 'budget' && (
+                  <motion.div key="budget" variants={tabPanel} initial="enter" animate="center" exit="exit"
+                    transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}>
+                    <BudgetFixedExpensesTab
+                      expenses={fixedExpenses} budgets={budgets}
+                      wallets={wallets} categories={categories}
+                      onRefresh={fetchData}
+                      onNotify={(msg, type) => { setNotifMsg(msg); setTimeout(() => setNotifMsg(null), 3000); }} />
+                  </motion.div>
+                )}
+                {activeTab === 'charts' && (
                  <motion.div
                    key="charts"
                    variants={tabPanel}
@@ -1470,11 +1519,13 @@ export function FinancePage() {
 
       {/* Wallet-type-specific transaction modals */}
       {walletTxModal && (() => {
-        const w = wallets.find(x => x.id === selectedWalletId);
+        // Find wallet: use selectedWalletId if set, otherwise find first matching type
+        let w = wallets.find(x => x.id === selectedWalletId);
+        if (!w) w = wallets.find(x => x.type === walletTxModal && !x.is_archived);
         if (!w) return null;
         const modalProps = {
           open: true,
-          onClose: () => { setWalletTxModal(null); },
+          onClose: () => { setWalletTxModal(null); setPreselectedFtPersonId(null); setPreselectedOnBehalfOf(false); },
           wallet: w,
           categories,
           wallets,
@@ -1493,6 +1544,8 @@ export function FinancePage() {
               });
             }
           },
+          initialFtPersonId: preselectedFtPersonId,
+          initialOnBehalfOf: preselectedOnBehalfOf,
         };
         switch (walletTxModal) {
           case 'bank': return <BankTransactionModal key={w.id} {...modalProps} />;

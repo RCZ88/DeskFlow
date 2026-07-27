@@ -372,6 +372,56 @@ process.on('uncaughtException', (err) => {
 
 ---
 
+## Entry 10 — "Cannot find module 'X'" on every launch (keeps cycling through different packages)
+
+**Symptom**
+
+App launches, immediately crashes with `Cannot find module 'cheerio'` / `'async-mutex'` / `'axios'` / `'html-to-image'` / etc. After fixing one, another appears. Feels like an infinite loop.
+
+**Root cause**
+
+Services in `src/services/` import npm packages, but those packages were never added to `package.json`. When a new service is created (often by AI), the author `import`s the package but doesn't run `npm install <package>`. The package works in dev (because it's in node_modules from a previous install or a different project), but the build bundles everything — so the missing dep only shows up at runtime.
+
+**Fast fix — install ALL missing deps at once (run once, solves the cycle):**
+
+```powershell
+cd "C:\Users\cleme\Documents\COMPUTAH_SAYENCE\App Tracker"
+npm install archiver async-mutex axios cheerio html-to-image exifr recharts cytoscape-dagre tabulator-tables
+```
+
+Then rebuild:
+```powershell
+node scripts/rebuild-main.mjs
+npx vite build
+```
+
+**Permanent fix — add a pre-launch guard:**
+
+Add to `scripts/verify-deps.mjs`:
+```javascript
+import { readFileSync } from 'fs';
+import { execSync } from 'child_process';
+const pkg = JSON.parse(readFileSync('package.json','utf8'));
+const allDeps = {...pkg.dependencies, ...pkg.devDependencies};
+const src = execSync('grep -roh "from [\"'\\']\\S*[\"'\\']" src/services/ 2>/dev/null',{encoding:'utf8'});
+const imports = [...new Set(src.match(/from ["']([^"./][^"']+)["']/g)?.map(m=>m.split(/["']/)[1].split('/')[0])||[])];
+const missing = imports.filter(d=>!allDeps[d]);
+if(missing.length){console.error('❌ Missing packages:',missing.join(', '));process.exit(1);}
+```
+
+Add to `package.json` scripts:
+```json
+"prestart": "node scripts/verify-deps.mjs && node scripts/verify-build.mjs"
+```
+
+**Prevention**
+
+- Every time a service file is created with `import X from 'npm-package'`, immediately run `npm install npm-package`.
+- Search `src/services/` for external imports before any build: `grep -rh "from ['\"](?!\.)" src/services/ | sort -u` — cross-reference against `package.json`.
+- **The rule:** if a `.ts` file imports a package that isn't in `package.json`, the build WILL fail at runtime. Don't trust that "it works in dev."
+
+---
+
 <aside>
 📌
 

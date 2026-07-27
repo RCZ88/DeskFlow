@@ -137,6 +137,8 @@
   box-shadow: var(--dk-shadow-sm);
   cursor: grab;
   user-select: none;
+  touch-action: none;
+  will-change: transform;
   transition: box-shadow var(--dk-fast) var(--dk-ease), border-color var(--dk-fast) var(--dk-ease);
   overflow: hidden;
   display: flex;
@@ -188,11 +190,13 @@
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 14px;
-  height: 14px;
+  width: 24px;
+  height: 24px;
   cursor: nwse-resize;
   opacity: 0;
   transition: opacity var(--dk-fast) var(--dk-ease);
+  z-index: 10;
+  touch-action: none;
 }
 
 .dk-canvas-card:hover .dk-canvas-resize-handle {
@@ -202,13 +206,14 @@
 .dk-canvas-resize-handle::after {
   content: '';
   position: absolute;
-  bottom: 3px;
-  right: 3px;
-  width: 8px;
-  height: 8px;
+  bottom: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
   border-right: 2px solid var(--dk-text-faint);
   border-bottom: 2px solid var(--dk-text-faint);
-  border-radius: 0 0 2px 0;
+  border-radius: 0 0 3px 0;
+  transition: border-color var(--dk-fast) var(--dk-ease);
 }
 
 .dk-canvas-resize-handle:hover::after {

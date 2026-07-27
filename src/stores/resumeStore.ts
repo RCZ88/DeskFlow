@@ -69,6 +69,7 @@ const defaultProgress: BuilderProgress = {
   currentQuestionId: '',
   phaseStatus: { 1: 'in_progress', 2: 'locked', 3: 'locked', 4: 'locked', 5: 'locked', 6: 'locked', 7: 'locked' },
   answers: {},
+  questionHistory: [],
   overallPercent: 0,
 };
 
@@ -246,6 +247,15 @@ export const useResumeStore = create<ResumeState>()(
       partialize: (s) => ({
         previewMode: s.previewMode,
         previewZoom: s.previewZoom,
+      }),
+      merge: (persisted: any, current: any) => ({
+        ...current,
+        ...persisted,
+        builderProgress: {
+          ...current.builderProgress,
+          ...persisted?.builderProgress,
+          questionHistory: persisted?.builderProgress?.questionHistory ?? [],
+        },
       }),
     }
   )

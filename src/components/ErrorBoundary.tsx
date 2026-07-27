@@ -86,9 +86,7 @@ export class ErrorBoundary extends Component<Props, State> {
   navigateTo = (path: string) => {
     clearPersistedError();
     window.location.hash = `#${path}`;
-    setTimeout(() => {
-      this.setState({ hasError: false, error: null, showAlternative: false });
-    }, 0);
+    this.setState({ hasError: false, error: null, showAlternative: false });
   };
 
   render() {
@@ -100,7 +98,7 @@ export class ErrorBoundary extends Component<Props, State> {
     const reloadCount = getPersistedErrorCount();
 
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-[#0a0a0a] text-white p-8">
+      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#0a0a0a] text-white p-8 overflow-auto">
         <div className="max-w-md text-center">
           <div className="text-red-400 text-6xl mb-6">!</div>
           <h1 className="text-2xl font-bold mb-4">Something went wrong</h1>
@@ -144,19 +142,31 @@ export class ErrorBoundary extends Component<Props, State> {
                 onClick={() => this.navigateTo('/')}
                 className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
               >
-                Go to Dashboard
+                Dashboard
               </button>
               <button
-                onClick={() => this.navigateTo('/stats')}
+                onClick={() => this.navigateTo('/activity')}
                 className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
               >
-                Go to Stats
+                Activity
+              </button>
+              <button
+                onClick={() => this.navigateTo('/terminal')}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
+              >
+                Terminal
+              </button>
+              <button
+                onClick={() => this.navigateTo('/ide')}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
+              >
+                IDE
               </button>
               <button
                 onClick={() => this.navigateTo('/settings')}
                 className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
               >
-                Go to Settings
+                Settings
               </button>
             </div>
           </div>

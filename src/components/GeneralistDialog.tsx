@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, ChevronRight, ChevronDown, ArrowRight, ArrowLeft, Diamond, X, BookOpen } from 'lucide-react';
 import SkillDynamicForm from './SkillDynamicForm';
+import { ModalShell, FORM_INPUT, FORM_SELECT } from './workspace/_ds/modal';
 
 interface SkillIO {
   name: string;
@@ -154,58 +155,43 @@ export default function GeneralistDialog({ onClose, onUseSkill }: GeneralistDial
   );
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
-      onClick={onClose}
+    <ModalShell
+      open={true}
+      onClose={onClose}
+      title="Skill Configuration"
+      subtitle={`${skills.length} skills available`}
+      accent="purple"
+      maxWidth="max-w-5xl"
     >
-      <div
-        className="bg-zinc-800 rounded-xl w-full max-w-5xl max-h-[85vh] overflow-hidden border border-zinc-700 flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-700/70 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <BookOpen className="w-4.5 h-4.5 text-violet-400" />
-            <h2 className="text-lg font-bold text-white">Skill Configuration</h2>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
-              {skills.length}
-            </span>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-200 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+      {/* Search + Filter bar */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search skills, inputs, outputs..."
+            className={`w-full pl-8 pr-3 py-1.5 text-[11px] ${FORM_INPUT}`}
+          />
         </div>
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className={`text-[11px] ${FORM_SELECT} !w-auto`}
+        >
+          {categories.map(cat => (
+            <option key={cat} value={cat}>
+              {cat === 'all' ? 'All Categories' : cat.charAt(0).toUpperCase() + cat.slice(1)}
+            </option>
+          ))}
+        </select>
+        <span className="text-[10px] text-zinc-500 shrink-0">
+          {filteredSkills.length} skill{filteredSkills.length !== 1 ? 's' : ''}
+        </span>
+      </div>
 
-        <div className="flex items-center gap-3 px-6 py-3 border-b border-zinc-700/50 shrink-0">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search skills, inputs, outputs..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-zinc-900/70 border border-zinc-700/50 rounded-lg text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-colors"
-            />
-          </div>
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="text-xs bg-zinc-900/60 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-zinc-300 focus:outline-none focus:ring-2 focus:ring-zinc-600/60 focus:border-zinc-600 transition-colors cursor-pointer"
-          >
-            {categories.map(cat => (
-              <option key={cat} value={cat}>
-                {cat === 'all' ? 'All Categories' : cat.charAt(0).toUpperCase() + cat.slice(1)}
-              </option>
-            ))}
-          </select>
-          <span className="text-[10px] text-zinc-500 shrink-0">
-            {filteredSkills.length} skill{filteredSkills.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-
-        <div className="overflow-y-auto px-6 py-4 flex-1">
+        <div className="px-1 py-1 flex-1">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <div className="w-6 h-6 border-2 border-violet-500/30 border-t-violet-400 rounded-full animate-spin" />
@@ -353,7 +339,6 @@ export default function GeneralistDialog({ onClose, onUseSkill }: GeneralistDial
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }

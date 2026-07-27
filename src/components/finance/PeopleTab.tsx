@@ -11,9 +11,10 @@ interface PeopleTabProps {
   wallets: FinanceWallet[];
   displayCurrency: string;
   onRefresh: () => void;
+  onNewTransaction?: (personId: number) => void;
 }
 
-export function PeopleTab({ persons, transactions, wallets, displayCurrency, onRefresh }: PeopleTabProps) {
+export function PeopleTab({ persons, transactions, wallets, displayCurrency, onRefresh, onNewTransaction }: PeopleTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<FinanceFtPerson | null>(null);
   const [paymentPerson, setPaymentPerson] = useState<FinanceFtPerson | null>(null);
@@ -142,7 +143,8 @@ export function PeopleTab({ persons, transactions, wallets, displayCurrency, onR
       {selectedPerson && (
         <PersonDetailModal open={true} onClose={() => setSelectedPerson(null)} person={selectedPerson}
           transactions={transactions} wallets={wallets} displayCurrency={displayCurrency}
-          onRecordPayment={() => handleRecordPayment(selectedPerson)} onRefresh={onRefresh} />
+          onRecordPayment={() => handleRecordPayment(selectedPerson)} onRefresh={onRefresh}
+          onNewTransaction={onNewTransaction} />
       )}
 
       {/* Payment Allocation Modal */}

@@ -54,7 +54,11 @@ function LedgerCard({ icon, label, value, accent, delay }: {
   );
 }
 
-export function ProgressDashboard() {
+interface ProgressDashboardProps {
+  embedded?: boolean;
+}
+
+export function ProgressDashboard({ embedded = false }: ProgressDashboardProps) {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +82,89 @@ export function ProgressDashboard() {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (embedded) {
+    return (
+      <div className="space-y-4">
+        <HeatmapBlock
+          data={heatmap}
+          meta={{ date_range: 'last_90_days', cell_size: 13 }}
+        />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <LedgerCard
+            icon={<BookOpen className="w-5 h-5 text-amber-400" />}
+            label="Cards Due"
+            value={dashboard?.total_answers ?? 0}
+            accent="bg-amber-500/10"
+            delay={0.12}
+          />
+          <LedgerCard
+            icon={<MessageSquare className="w-5 h-5 text-sky-400" />}
+            label="Q&A Total"
+            value={dashboard?.total_questions ?? 0}
+            accent="bg-sky-500/10"
+            delay={0.16}
+          />
+          <LedgerCard
+            icon={<Flame className="w-5 h-5 text-clay-400" />}
+            label="Day Streak"
+            value={dashboard?.streak_days ?? 0}
+            accent="bg-clay-500/10"
+            delay={0.20}
+          />
+          <LedgerCard
+            icon={<TrendingUp className="w-5 h-5 text-sage-400" />}
+            label="Avg Confidence"
+            value={`${Math.round((dashboard?.avg_confidence ?? 0) * 100)}%`}
+            accent="bg-sage-400/10"
+            delay={0.24}
+          />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Brain className="w-4 h-4 text-amber-400" />
+              <h3 className="text-sm font-medium text-zinc-200">Active Learning</h3>
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-500">Active conversations</span>
+                <span className="text-zinc-300 font-medium">{dashboard?.active_conversations ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-500">Open proposals</span>
+                <span className="text-zinc-300 font-medium">{dashboard?.open_proposals?.length ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-500">Notes taken</span>
+                <span className="text-zinc-300 font-medium">{dashboard?.recent_notes?.length ?? 0}</span>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <h3 className="text-sm font-medium text-zinc-200">Most Studied</h3>
+            </div>
+            {dashboard?.top_nodes && dashboard.top_nodes.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {dashboard.top_nodes.slice(0, 6).map((node) => (
+                  <span
+                    key={node.node_id}
+                    className="px-2.5 py-1 rounded-full bg-zinc-800/60 border border-zinc-700/40 text-[11px] text-zinc-300"
+                  >
+                    {node.title} ({node.count})
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-zinc-600">No study data yet.</p>
+            )}
+          </div>
+        </div>
       </div>
     );
   }

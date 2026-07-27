@@ -1,38 +1,29 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, ChevronLeft, Import, BarChart3, Grid3X3, Network, FileUp, FileCode2, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2, Keyboard, SlidersHorizontal, Lightbulb, RotateCcw } from 'lucide-react';
-import { BlockRenderer } from './blocks/BlockRenderer';
-import { OnboardingPanel } from './OnboardingPanel';
-import { CreateLessonDialog } from './CreateLessonDialog';
-import { ValidationReport } from './ValidationReport';
-import { TutorPanel } from './TutorPanel';
-import { InlineAnswerCard, type InlineAnswerState, type InlineMode } from './InlineAnswerCard';
-
-import { MasteryRing } from './MasteryRing';
-import { CurriculumGraph } from './CurriculumGraph';
-
-import { WelcomeEmptyState } from './WelcomeEmptyState';
+import { Grid3X3, Network, Keyboard } from 'lucide-react';
+import { LearnNavBar, type BreadcrumbSegment } from './LearnNavBar';
+import { LearnTabBar, type LearnView } from './LearnTabBar';
+import { LearnHome } from './LearnHome';
 import { LessonLibrary } from './LessonLibrary';
-import { CurriculumShowcase } from './CurriculumShowcase';
-import { IntentLibrary } from './IntentLibrary';
-import { ProgressDashboard } from './ProgressDashboard';
+import { ReaderView } from './ReaderView';
 import { StudyView } from './StudyView';
-import { LessonDetailModal } from './LessonDetailModal';
+import { IntentLibraryPanel } from './IntentLibraryPanel';
+import { ImportDialog } from './ImportDialog';
+import { ImportView } from './ImportView';
+import { CreateLessonDialog } from './CreateLessonDialog';
 import { LearnerSetup } from './LearnerSetup';
 import { LearnerProfilePanel } from './LearnerProfilePanel';
-import { TableOfContents, type TOCHeading } from './TableOfContents';
-import { ChecklistProgress } from './ChecklistProgress';
-import { AssessmentCard, AssessmentCardBlock, parseAssessmentBlock, type Question } from './AssessmentCard';
+import { OnboardingPanel } from './OnboardingPanel';
+import { LessonDetailModal } from './LessonDetailModal';
+import { InlineAnswerCard, type InlineAnswerState, type InlineMode } from './InlineAnswerCard';
+import { TutorPanel } from './TutorPanel';
+import { viewVariants, viewTransition } from './transitions';
+import { useMasteryStats } from './useMasteryStats';
 import { useHighlights } from './useHighlights';
-import { SelectionActions } from './SelectionActions';
-import { ReaderView } from './ReaderView';
-import { ImportView } from './ImportView';
-import { TutorDashboardSection } from './TutorDashboardSection';
-import type { LessonSummary, LessonWithNodes, RenderableNode, TutorAnswer, Result, ValidationIssue, MasteryLevel, NodeProgress, LessonSeed } from '../../shared/learn/types';
+import type { LessonSummary, LessonWithNodes, RenderableNode, TutorAnswer, ValidationIssue, MasteryLevel, NodeProgress, LessonSeed } from '../../shared/learn/types';
 import { DEFAULT_PROFILE } from '../../shared/learn/types';
 import { CURRICULUM_BLUEPRINT, type CurriculumPart } from '../../services/learn/curriculum';
 import { getSystemPromptForSlug } from '../../services/learn/topicPrompts';
-import { useMasteryStats } from './useMasteryStats';
 import { hasProfile, saveProfile, syncProfileFromDB, isSetupCompleteAsync } from '../../services/learn/learnerProfile';
 
 export interface LessonSeed {
@@ -42,12 +33,10 @@ export interface LessonSeed {
   topicPrompt: string;
 }
 
-type View = 'welcome' | 'showcase' | 'library' | 'reader' | 'import' | 'intents' | 'progress' | 'study';
-
 const api = window.deskflowAPI;
 
 export function LearnPage() {
-  const [view, setView] = useState<View>('welcome');
+  const [[view, direction], setViewState] = useState<[LearnView, number]>(['home', 0]);
   const [lessons, setLessons] = useState<LessonSummary[]>([]);
   const [selectedLesson, setSelectedLesson] = useState<string | null>(null);
   const [lessonData, setLessonData] = useState<LessonWithNodes | null>(null);
@@ -82,6 +71,10 @@ export function LearnPage() {
   const inlineStreamCleanup = useRef<(() => void) | null>(null);
   const [tutorConfig, setTutorConfig] = useState<{ provider: string; model: string } | null>(null);
 
+  // Modal states
+  const [intentPanelOpen, setIntentPanelOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+
   const stats = useMasteryStats(progress, lessons);
 
   const readerContainerRef = useRef<HTMLDivElement>(null);
@@ -91,11 +84,9 @@ export function LearnPage() {
   });
 
   // Load lessons on mount
-  useEffect(() => {
-    loadLessons();
-  }, []);
+  useEffect(() => { loadLessons(); }, []);
 
-  // Fetch tutor config (provider/model info)
+  // Fetch tutor config
   useEffect(() => {
     if (api?.learnGetTutorConfig) {
       api.learnGetTutorConfig().then((res: any) => {
@@ -105,36 +96,74 @@ export function LearnPage() {
   }, []);
 
   // Cleanup inline stream listener
-  useEffect(() => {
-    return () => { inlineStreamCleanup.current?.(); };
-  }, []);
+  useEffect(() => { return () => { inlineStreamCleanup.current?.(); }; }, []);
 
-  // First-visit profile check (runs once, restores from DB if localStorage was cleared)
+  // First-visit profile check
   useEffect(() => {
     if (setupChecked.current) return;
     setupChecked.current = true;
     (async () => {
-      // If setup was already completed before (checks both localStorage AND DB), never show again
-      if (await isSetupCompleteAsync()) {
-        console.log('[LearnPage] Setup already completed — skipping');
-        return;
-      }
-      // Restore from DB — localStorage gets cleared on some Electron reloads
+      if (await isSetupCompleteAsync()) return;
       await syncProfileFromDB();
       if (!hasProfile()) {
         saveProfile({ ...DEFAULT_PROFILE });
         setShowSetup(true);
-        console.log('[LearnPage] First visit — default profile saved to localStorage');
-      } else {
-        console.log('[LearnPage] Profile found — skipping setup');
       }
     })();
+  }, []);
+
+  // Navigation
+  const navigate = useCallback((next: LearnView) => {
+    const order: LearnView[] = ['home', 'library', 'reader', 'study'];
+    const dir = order.indexOf(next) > order.indexOf(view) ? 1 : -1;
+    if (next === 'home' || next === 'library') {
+      setSelectedLesson(null);
+      setLessonData(null);
+      setSelectedNode(null);
+      setTutorOpen(false);
+      setTutorAnswer(null);
+    }
+    setViewState([next, dir]);
+  }, [view]);
+
+  const openLesson = useCallback((id: string) => {
+    setSelectedLesson(id);
+    setViewState(['reader', 1]);
   }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      // Global shortcuts
+      if (e.key === 'Escape') {
+        if (showCreateDialog) { setShowCreateDialog(false); return; }
+        if (importDialogOpen) { setImportDialogOpen(false); return; }
+        if (intentPanelOpen) { setIntentPanelOpen(false); return; }
+        if (showProfilePanel) { setShowProfilePanel(false); return; }
+        if (showShortcuts) { setShowShortcuts(false); return; }
+        if (tutorOpen) { setTutorOpen(false); return; }
+        if (view !== 'home') { navigate('home'); return; }
+      }
+
+      // G-prefix navigation
+      if (e.key === 'g') {
+        const handler = (ev: KeyboardEvent) => {
+          if (ev.key === 'h') navigate('home');
+          if (ev.key === 'l') navigate('library');
+          if (ev.key === 's' && selectedLesson) navigate('study');
+          window.removeEventListener('keydown', handler);
+        };
+        window.addEventListener('keydown', handler, { once: true });
+        return;
+      }
+
+      if (e.key === 'c' && !showCreateDialog) setShowCreateDialog(true);
+      if (e.key === 'i' && !importDialogOpen) setImportDialogOpen(true);
+      if (e.key === '?' && view === 'reader') setShowShortcuts(s => !s);
+
+      // Reader-specific shortcuts
       if (view === 'reader' && lessonData) {
         const nodes = lessonData.nodes;
         const currentIdx = nodes.findIndex((n) => n.id === selectedNode);
@@ -152,41 +181,26 @@ export function LearnPage() {
           e.preventDefault();
           setTutorOpen(true);
         }
-        if (e.key === '/') {
-          e.preventDefault();
-        }
-        if (e.key === '?') {
-          e.preventDefault();
-          setShowShortcuts((s) => !s);
-        }
         if (e.key === 'g' && graphView === 'grid') {
           setGraphView('graph');
         } else if (e.key === 'g' && graphView === 'graph') {
           setGraphView('grid');
         }
       }
-      if (e.key === 'Escape' && tutorOpen) {
-        setTutorOpen(false);
-      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [view, lessonData, selectedNode, graphView, tutorOpen]);
+  }, [view, lessonData, selectedNode, graphView, tutorOpen, showCreateDialog, importDialogOpen, intentPanelOpen, showProfilePanel, showShortcuts, selectedLesson, navigate]);
 
+  // Data fetching
   const loadLessons = async () => {
     try {
       setLoading(true);
       const result = await api.learnListLessons();
-      if (result.ok) {
-        setLessons(result.data);
-      } else {
-        setError(result.error);
-      }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+      if (result.ok) setLessons(result.data);
+      else setError(result.error);
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
   };
 
   const loadLesson = async (lessonId: string) => {
@@ -196,19 +210,12 @@ export function LearnPage() {
       if (result.ok) {
         setLessonData(result.data);
         setSelectedLesson(lessonId);
-        setView('reader');
+        setViewState(['reader', 1]);
         const progResult = await api.learnGetProgress();
-        if (progResult.ok) {
-          setProgress(progResult.data);
-        }
-      } else {
-        setError(result.error);
-      }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+        if (progResult.ok) setProgress(progResult.data);
+      } else { setError(result.error); }
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
   };
 
   const handleImport = async () => {
@@ -216,14 +223,9 @@ export function LearnPage() {
       setLoading(true);
       const result = await api.learnImportLdoc({ source: importText });
       setImportResult(result);
-      if (result.ok && result.data.lessonId) {
-        loadLessons();
-      }
-    } catch (err: any) {
-      setImportResult({ ok: false, error: err.message });
-    } finally {
-      setLoading(false);
-    }
+      if (result.ok && result.data.lessonId) loadLessons();
+    } catch (err: any) { setImportResult({ ok: false, error: err.message }); }
+    finally { setLoading(false); }
   };
 
   const handleImportExample = async () => {
@@ -231,7 +233,7 @@ export function LearnPage() {
     try {
       const { found, content } = await api.learnGetWorkedExample();
       if (!found || !content) {
-        setImportResult({ ok: false, error: 'Worked example not found. Run the build to bundle resources.' });
+        setImportResult({ ok: false, error: 'Worked example not found.' });
         return;
       }
       setImportText(content);
@@ -241,21 +243,17 @@ export function LearnPage() {
       if (valResult.ok) {
         const r = await api.learnImportLdoc({ source: content });
         setImportResult(r);
-        if (r.ok && r.data.lessonId) {
-          loadLessons();
-        }
+        if (r.ok && r.data.lessonId) loadLessons();
       } else {
-        setView('import');
+        setImportDialogOpen(true);
         setImportMode('paste');
-        setImportResult({ ok: false, error: 'Worked example failed validation — see errors below.' });
+        setImportResult({ ok: false, error: 'Worked example failed validation.' });
       }
     } catch (err: any) {
       setImportResult({ ok: false, error: err.message });
-      setView('import');
+      setImportDialogOpen(true);
       setImportMode('paste');
-    } finally {
-      setImportingExample(false);
-    }
+    } finally { setImportingExample(false); }
   };
 
   const handlePickFile = async () => {
@@ -264,16 +262,15 @@ export function LearnPage() {
       if (result.canceled) return;
       setImportText(result.content);
       setImportMode('paste');
-      setView('import');
+      setImportDialogOpen(true);
       try {
         const valResult = await api.learnValidate({ source: result.content });
         setImportErrors(valResult.ok ? [] : valResult.errors);
         setImportWarnings(valResult.warnings || []);
-      } catch {
-      }
+      } catch {}
     } catch (err: any) {
       setImportResult({ ok: false, error: err.message });
-      setView('import');
+      setImportDialogOpen(true);
       setImportMode('paste');
     }
   };
@@ -288,44 +285,33 @@ export function LearnPage() {
       if (valResult.ok) {
         const r = await api.learnImportLdoc({ source: importText });
         setImportResult(r);
-        if (r.ok && r.data.lessonId) {
-          loadLessons();
-        }
+        if (r.ok && r.data.lessonId) loadLessons();
       } else {
-        setImportResult({ ok: false, error: 'Validation failed. Fix errors above and retry.' });
+        setImportResult({ ok: false, error: 'Validation failed.' });
       }
     } catch (err: any) {
       setImportErrors([{ rule: 'parse', message: err.message }]);
       setImportWarnings([]);
       setImportResult({ ok: false, error: err.message });
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
+  // Tutor callbacks
   const handleAskTutor = useCallback(async (nodeId: string, question: string) => {
     setTutorOpen(true);
     setTutorQuestion(question);
     setTutorLoading(true);
     try {
       const result = await api.learnAskTutor({ nodeId, question, mode: 'ask' });
-      if (result.ok) {
-        setTutorAnswer(result.data);
-      }
+      if (result.ok) setTutorAnswer(result.data);
     } catch (err: any) {
       setTutorAnswer({
         answer_md: `Error: ${err.message}`,
-        used_source_ids: [],
-        used_fact_ids: [],
-        citations: [],
-        scope: '',
+        used_source_ids: [], used_fact_ids: [], citations: [], scope: '',
         assessment: { target_level: 'L0' as MasteryLevel, outcome: 'wrong', rationale: err.message, suggested_next: 'reinforce' },
-        escalated: false,
-        confidence: 0,
+        escalated: false, confidence: 0,
       });
-    } finally {
-      setTutorLoading(false);
-    }
+    } finally { setTutorLoading(false); }
   }, []);
 
   const dashboardGetDashboard = useCallback(async () => {
@@ -378,11 +364,7 @@ export function LearnPage() {
 
   const handleSelectionAsk = useCallback((text: string, mode: 'explain' | 'ask' | 'simpler' | 'deeper') => {
     if (!selectedNode) return;
-    if (mode === 'ask') {
-      setTutorOpen(true);
-      setTutorQuestion(text);
-      return;
-    }
+    if (mode === 'ask') { setTutorOpen(true); setTutorQuestion(text); return; }
     startInlineAnswer(selectedNode, text, mode as InlineMode);
   }, [selectedNode, startInlineAnswer]);
 
@@ -391,172 +373,162 @@ export function LearnPage() {
       const result = await api.learnSubmitQuiz({ nodeId, blockId, response });
       if (result.ok) {
         const progResult = await api.learnGetProgress({ nodeId });
-        if (progResult.ok) {
-          setProgress((prev) => ({ ...prev, [nodeId]: progResult.data }));
-        }
+        if (progResult.ok) setProgress((prev) => ({ ...prev, [nodeId]: progResult.data }));
       }
       return result;
-    } catch (err: any) {
-      return { ok: false, error: err.message };
-    }
+    } catch (err: any) { return { ok: false, error: err.message }; }
   }, []);
 
-  // ── Tutor V2 callbacks ──
-
   const handleApproveProposal = useCallback(async (blockId: string) => {
-    try {
-      await api.learnDecideProposal({ proposal_id: blockId, approved: true });
-    } catch { /* ignore */ }
+    try { await api.learnDecideProposal({ proposal_id: blockId, approved: true }); } catch {}
   }, []);
 
   const handleRejectProposal = useCallback(async (blockId: string, reason?: string) => {
-    try {
-      await api.learnDecideProposal({ proposal_id: blockId, approved: false, reason });
-    } catch { /* ignore */ }
+    try { await api.learnDecideProposal({ proposal_id: blockId, approved: false, reason }); } catch {}
   }, []);
 
   const handleAddMessage = useCallback(async (blockId: string, text: string) => {
     if (!selectedNode) return;
-    try {
-      await api.learnAddMessage({ nodeId: selectedNode, blockId, role: 'user', text });
-    } catch { /* ignore */ }
+    try { await api.learnAddMessage({ nodeId: selectedNode, blockId, role: 'user', text }); } catch {}
   }, [selectedNode]);
 
   const handleResolveConversation = useCallback(async (blockId: string) => {
     try {
       const conv = await api.learnGetConversation({ blockId });
-      if (conv && conv.id) {
-        await api.learnResolveConversation({ convId: conv.id });
-      }
-    } catch { /* ignore */ }
+      if (conv && conv.id) await api.learnResolveConversation({ convId: conv.id });
+    } catch {}
   }, []);
 
   const handleAddNote = useCallback(async (blockId: string, text: string) => {
     if (!selectedNode) return;
-    try {
-      await api.learnAddNote({ nodeId: selectedNode, text, blockRef: blockId });
-    } catch { /* ignore */ }
+    try { await api.learnAddNote({ nodeId: selectedNode, text, blockRef: blockId }); } catch {}
   }, [selectedNode]);
 
   const handleDeleteNote = useCallback(async (noteId: string) => {
-    try {
-      await api.learnDeleteNote({ noteId });
-    } catch { /* ignore */ }
+    try { await api.learnDeleteNote({ noteId }); } catch {}
   }, []);
 
   const handleTogglePin = useCallback(async (noteId: string) => {
     try {
       const note = lessonData?.nodes.flatMap(n => n.blocks.filter((b: any) => b.type === 'notes').flatMap((b: any) => b.notes)).find((n: any) => n?.id === noteId);
       await api.learnToggleNotePin({ noteId, pinned: !note?.pinned });
-    } catch { /* ignore */ }
+    } catch {}
   }, [lessonData]);
 
   const currentNode = lessonData?.nodes.find((n) => n.id === selectedNode);
   const currentLevel = selectedNode ? progress[selectedNode]?.level : undefined;
 
-  // Welcome landing — full editorial page, no chrome
-  if (view === 'welcome') {
-    return (
-      <>
-        <WelcomeEmptyState
-          onCompose={() => setShowCreateDialog(true)}
-          onTryExample={handleImportExample}
-          onImport={() => setView('import')}
-          onPaste={() => { setView('import'); setImportMode('paste'); }}
-          onBrowse={() => setView('library')}
-        />
-        <OnboardingPanel open={showOnboarding} onClose={() => setShowOnboarding(false)} />
-        <LearnerSetup open={showSetup} onClose={() => setShowSetup(false)} />
-        <LearnerProfilePanel open={showProfilePanel} onClose={() => setShowProfilePanel(false)} onRerunSetup={() => { setShowProfilePanel(false); setShowSetup(true); }} />
-        <CreateLessonDialog seed={lessonSeed} open={showCreateDialog} onClose={() => { setShowCreateDialog(false); setLessonSeed(null); }} onImported={() => { loadLessons(); setView('library'); }} />
-      </>
-    );
-  }
+  // Breadcrumb
+  const breadcrumb = useMemo((): BreadcrumbSegment[] => {
+    const segs: BreadcrumbSegment[] = [{ label: 'Home', view: 'home' }];
+    if (view === 'library' || view === 'reader' || view === 'study') {
+      segs.push({ label: 'Library', view: 'library' });
+    }
+    if ((view === 'reader' || view === 'study') && selectedLesson) {
+      const title = lessons.find(l => l.id === selectedLesson)?.title ?? 'Lesson';
+      segs.push({ label: title, view: 'reader' });
+    }
+    if (view === 'study') segs.push({ label: 'Study', view: 'study' });
+    return segs;
+  }, [view, selectedLesson, lessons]);
+
+  // Render view
+  const renderView = () => {
+    switch (view) {
+      case 'home':
+        return (
+          <LearnHome
+            onCompose={() => setShowCreateDialog(true)}
+            onTryExample={handleImportExample}
+            onImport={() => setImportDialogOpen(true)}
+            onPaste={() => { setImportDialogOpen(true); setImportMode('paste'); }}
+            onBrowse={() => navigate('library')}
+          />
+        );
+      case 'library':
+        return (
+          <LessonLibrary
+            lessons={lessons}
+            loading={loading}
+            onOpen={(id) => loadLesson(id)}
+            onInfo={(id) => {
+              const lesson = lessons.find(l => l.id === id);
+              if (lesson) setDetailLesson(lesson);
+            }}
+            onCompose={() => setShowCreateDialog(true)}
+            onImport={() => setImportDialogOpen(true)}
+            onWelcome={() => navigate('home')}
+            stats={stats}
+            onOpenProfile={() => setShowProfilePanel(true)}
+            getDashboard={dashboardGetDashboard}
+            onNavigateToNode={dashboardNavigateToNode}
+          />
+        );
+      case 'reader':
+        return lessonData ? (
+          <ReaderView
+            lesson={lessonData}
+            selectedNode={selectedNode}
+            onSelectNode={setSelectedNode}
+            currentNode={currentNode}
+            currentLevel={currentLevel}
+            onAsk={handleAskTutor}
+            onSelectionAsk={handleSelectionAsk}
+            onQuizSubmit={handleQuizSubmit}
+            tutorOpen={tutorOpen}
+            setTutorOpen={setTutorOpen}
+            tutorQuestion={tutorQuestion}
+            setTutorQuestion={setTutorQuestion}
+            tutorAnswer={tutorAnswer}
+            tutorLoading={tutorLoading}
+            graphView={graphView}
+            progress={progress}
+            mobileOutlineOpen={mobileOutlineOpen}
+            setMobileOutlineOpen={setMobileOutlineOpen}
+            containerRef={readerContainerRef}
+            highlights={highlights}
+            completedItems={completedItems}
+            onToggleCheck={(id: string) => {
+              setCompletedItems((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+            }}
+            completedParts={completedParts}
+            onApproveProposal={handleApproveProposal}
+            onRejectProposal={handleRejectProposal}
+            onAddMessage={handleAddMessage}
+            onResolveConversation={handleResolveConversation}
+            onAddNote={handleAddNote}
+            onDeleteNote={handleDeleteNote}
+            onTogglePin={handleTogglePin}
+            tutorConfig={tutorConfig}
+          />
+        ) : null;
+      case 'study':
+        return <StudyView onBack={() => navigate('library')} />;
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div className="h-full flex flex-col" data-page="learn">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
-        <div className="flex items-center gap-3">
-          <BookOpen className="w-5 h-5 text-clay-400" />
-          <h1 className="text-lg font-semibold text-zinc-100">Learn</h1>
-          {view !== 'library' && (
-            <button
-              onClick={() => { setView('library'); setSelectedLesson(null); setLessonData(null); setSelectedNode(null); setTutorOpen(false); setTutorAnswer(null); }}
-              className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition"
-            >
-              <ChevronLeft className="w-3 h-3" />
-              Back to Library
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {(view === 'library' || view === 'showcase') && (
-            <>
-              <button
-                onClick={() => { setView('welcome'); setSelectedLesson(null); setLessonData(null); setSelectedNode(null); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30 transition"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                Home
-              </button>
-              <button
-                onClick={() => setView('showcase')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30 transition"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                Curriculum
-              </button>
-              <button
-                onClick={() => setShowProfilePanel(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50 transition"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                Profile
-              </button>
-              <button
-                onClick={() => setView('intents')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition ${
-                  view === 'intents' ? 'text-amber-400 bg-amber-500/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30'
-                }`}
-              >
-                <Lightbulb className="w-3.5 h-3.5" />
-                Ideas
-              </button>
-              <button
-                onClick={() => setView('progress')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition ${
-                  view === 'progress' ? 'text-sage-400 bg-sage-400/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30'
-                }`}
-              >
-                <BarChart3 className="w-3.5 h-3.5" />
-                Progress
-              </button>
-              <button
-                onClick={() => setView('study')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition ${
-                  view === 'study' ? 'text-clay-400 bg-clay-500/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30'
-                }`}
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Study
-              </button>
-              <button
-                onClick={() => setShowOnboarding(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30 transition"
-              >
-                <HelpCircle className="w-3.5 h-3.5" />
-                How it works
-              </button>
-            </>
-          )}
+    <div data-page="learn" className="h-full flex flex-col bg-[#0f0e0d] text-zinc-100">
+      <LearnNavBar
+        breadcrumb={breadcrumb}
+        onNavigate={navigate}
+        onOpenProfile={() => setShowProfilePanel(true)}
+        onOpenHelp={() => setShowOnboarding(true)}
+      />
+
+      <div className="flex flex-1 min-h-0">
+        <LearnTabBar view={view} onChange={navigate} activeLessonId={selectedLesson} />
+
+        <main className="flex-1 min-h-0 overflow-hidden relative">
+          {/* Reader-specific toolbar */}
           {view === 'reader' && lessonData && (
-            <div className="flex items-center gap-1">
+            <div className="absolute top-2 right-4 z-20 flex items-center gap-1">
               <button
                 onClick={() => setShowShortcuts(!showShortcuts)}
                 className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition"
                 title="Keyboard shortcuts"
-                aria-label="Keyboard shortcuts"
               >
                 <Keyboard className="w-4 h-4" />
               </button>
@@ -564,7 +536,6 @@ export function LearnPage() {
                 onClick={() => setGraphView('grid')}
                 className={`p-1.5 rounded transition ${graphView === 'grid' ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
                 title="Grid view"
-                aria-label="Grid view"
               >
                 <Grid3X3 className="w-4 h-4" />
               </button>
@@ -572,14 +543,33 @@ export function LearnPage() {
                 onClick={() => setGraphView('graph')}
                 className={`p-1.5 rounded transition ${graphView === 'graph' ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
                 title="Graph view"
-                aria-label="Graph view"
               >
                 <Network className="w-4 h-4" />
               </button>
             </div>
           )}
-        </div>
+
+          <AnimatePresence mode="wait" custom={direction}>
+            <motion.div
+              key={view}
+              custom={direction}
+              variants={viewVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={viewTransition}
+              className="h-full overflow-y-auto"
+            >
+              {renderView()}
+            </motion.div>
+          </AnimatePresence>
+        </main>
       </div>
+
+      {/* Inline answer card (reader) */}
+      {inlineAnswer && (
+        <InlineAnswerCard state={inlineAnswer} onClose={handleCloseInlineAnswer} onRetry={handleRetryInlineAnswer} />
+      )}
 
       {/* Keyboard shortcuts modal */}
       <AnimatePresence>
@@ -604,12 +594,17 @@ export function LearnPage() {
               </h3>
               <div className="space-y-2 text-xs">
                 {[
+                  ['g h', 'Go to Home'],
+                  ['g l', 'Go to Library'],
+                  ['g s', 'Go to Study'],
                   ['j / ↓', 'Next node'],
                   ['k / ↑', 'Previous node'],
                   ['a', 'Open tutor panel'],
                   ['g', 'Toggle graph view'],
+                  ['c', 'Compose lesson'],
+                  ['i', 'Import lesson'],
                   ['?', 'Toggle shortcuts'],
-                  ['Esc', 'Close tutor panel'],
+                  ['Esc', 'Close / go home'],
                 ].map(([key, desc]) => (
                   <div key={key} className="flex items-center justify-between">
                     <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700/50 text-zinc-300 font-mono text-[10px]">{key}</kbd>
@@ -622,161 +617,52 @@ export function LearnPage() {
         )}
       </AnimatePresence>
 
-      {/* Content */}
-      <div className="flex-1 min-h-0 overflow-auto">
-        <AnimatePresence mode="wait">
-          {view === 'showcase' && (
-            <CurriculumShowcase
-              key="showcase"
-              lessonsByPart={(() => {
-                const byPart: Record<number, { id: string; title: string }[]> = {};
-                lessons.forEach((l) => {
-                  const p = l.part ?? 0;
-                  if (!byPart[p]) byPart[p] = [];
-                  byPart[p].push({ id: l.id, title: l.title });
-                });
-                return byPart;
-              })()}
-              checklistByPart={(() => {
-                const byPart: Record<number, boolean[]> = {};
-                CURRICULUM_BLUEPRINT.forEach((p) => {
-                  byPart[p.part] = p.checklist.map((c) => completedItems.includes(c));
-                });
-                return byPart;
-              })()}
-              onGenerate={(part) => {
-                setSelectedPart(part);
-                setLessonSeed({
-                  part: part.part,
-                  title: part.title,
-                  scope: part.checklist,
-                  topicPrompt: getSystemPromptForSlug(part.slug),
-                });
-                setShowCreateDialog(true);
-              }}
-              onOpenLesson={(id) => loadLesson(id)}
-              onToggleChecklist={(part, i) => {
-                const item = CURRICULUM_BLUEPRINT[part]?.checklist[i];
-                if (item) {
-                  setCompletedItems((prev) =>
-                    prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item],
-                  );
-                }
-              }}
-            />
-          )}
-          {view === 'library' && (
-            <>
-              <LessonLibrary
-                key="library"
-                lessons={lessons}
-                loading={loading}
-                onOpen={(id) => loadLesson(id)}
-                onInfo={(id) => {
-                  const lesson = lessons.find(l => l.id === id);
-                  if (lesson) setDetailLesson(lesson);
-                }}
-                onCompose={() => setShowCreateDialog(true)}
-                onImport={() => setView('import')}
-                onWelcome={() => setView('showcase')}
-                stats={stats}
-                onOpenProfile={() => setShowProfilePanel(true)}
-                getDashboard={dashboardGetDashboard}
-                onNavigateToNode={dashboardNavigateToNode}
-              />
-            </>
-          )}
-          {view === 'reader' && lessonData && (
-            <>
-            <ReaderView
-              key="reader"
-              lesson={lessonData}
-              selectedNode={selectedNode}
-              onSelectNode={setSelectedNode}
-              currentNode={currentNode}
-              currentLevel={currentLevel}
-              onAsk={handleAskTutor}
-              onSelectionAsk={handleSelectionAsk}
-              onQuizSubmit={handleQuizSubmit}
-              tutorOpen={tutorOpen}
-              setTutorOpen={setTutorOpen}
-              tutorQuestion={tutorQuestion}
-              setTutorQuestion={setTutorQuestion}
-              tutorAnswer={tutorAnswer}
-              tutorLoading={tutorLoading}
-              graphView={graphView}
-              progress={progress}
-              mobileOutlineOpen={mobileOutlineOpen}
-              setMobileOutlineOpen={setMobileOutlineOpen}
-              containerRef={readerContainerRef}
-              highlights={highlights}
-              completedItems={completedItems}
-              onToggleCheck={(id: string) => {
-                setCompletedItems((prev) =>
-                  prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-                );
-              }}
-              completedParts={completedParts}
-              onApproveProposal={handleApproveProposal}
-              onRejectProposal={handleRejectProposal}
-              onAddMessage={handleAddMessage}
-              onResolveConversation={handleResolveConversation}
-              onAddNote={handleAddNote}
-              onDeleteNote={handleDeleteNote}
-              onTogglePin={handleTogglePin}
-              tutorConfig={tutorConfig}
-            />
-            {inlineAnswer && (
-              <InlineAnswerCard state={inlineAnswer} onClose={handleCloseInlineAnswer} onRetry={handleRetryInlineAnswer} />
-            )}
-            </>
-          )}
-          {view === 'import' && (
-            <ImportView
-              key="import"
-              importText={importText}
-              setImportText={setImportText}
-              onImport={handleImportWithValidation}
-              onPickFile={handlePickFile}
-              onImportExample={handleImportExample}
-              importingExample={importingExample}
-              loading={loading}
-              result={importResult}
-              mode={importMode}
-              setMode={setImportMode}
-              errors={importErrors}
-              warnings={importWarnings}
-              onJumpToNode={() => {}}
-              onShowOnboarding={() => setShowOnboarding(true)}
-            />
-          )}
-          {view === 'intents' && (
-            <IntentLibrary
-              key="intents"
-              onGenerateFromIntent={(intent) => {
-                setLessonSeed({
-                  part: 0,
-                  title: intent.title,
-                  scope: intent.description ? intent.description.split('\n').filter(Boolean) : [],
-                  topicPrompt: intent.context || '',
-                });
-                setShowCreateDialog(true);
-              }}
-            />
-          )}
-          {view === 'progress' && (
-            <ProgressDashboard key="progress" />
-          )}
-          {view === 'study' && (
-            <StudyView key="study" onBack={() => setView('library')} />
-          )}
-        </AnimatePresence>
-      </div>
-
+      {/* Modal overlays */}
+      <IntentLibraryPanel
+        open={intentPanelOpen}
+        onClose={() => setIntentPanelOpen(false)}
+        onGenerate={(intent) => {
+          setIntentPanelOpen(false);
+          setLessonSeed({
+            part: 0,
+            title: intent.title,
+            scope: intent.description ? intent.description.split('\n').filter(Boolean) : [],
+            topicPrompt: intent.context || '',
+          });
+          setShowCreateDialog(true);
+        }}
+      />
+      <ImportDialog open={importDialogOpen} onClose={() => setImportDialogOpen(false)}>
+        <ImportView
+          importText={importText}
+          setImportText={setImportText}
+          onImport={handleImportWithValidation}
+          onPickFile={handlePickFile}
+          onImportExample={handleImportExample}
+          importingExample={importingExample}
+          loading={loading}
+          result={importResult}
+          mode={importMode}
+          setMode={setImportMode}
+          errors={importErrors}
+          warnings={importWarnings}
+          onJumpToNode={() => {}}
+          onShowOnboarding={() => setShowOnboarding(true)}
+        />
+      </ImportDialog>
+      <CreateLessonDialog
+        seed={lessonSeed}
+        open={showCreateDialog}
+        onClose={() => { setShowCreateDialog(false); setLessonSeed(null); }}
+        onImported={() => { loadLessons(); navigate('library'); }}
+      />
       <OnboardingPanel open={showOnboarding} onClose={() => setShowOnboarding(false)} />
       <LearnerSetup open={showSetup} onClose={() => setShowSetup(false)} />
-      <LearnerProfilePanel open={showProfilePanel} onClose={() => setShowProfilePanel(false)} onRerunSetup={() => { setShowProfilePanel(false); setShowSetup(true); }} />
-      <CreateLessonDialog seed={lessonSeed} open={showCreateDialog} onClose={() => { setShowCreateDialog(false); setLessonSeed(null); }} onImported={() => { loadLessons(); setView('library'); }} />
+      <LearnerProfilePanel
+        open={showProfilePanel}
+        onClose={() => setShowProfilePanel(false)}
+        onRerunSetup={() => { setShowProfilePanel(false); setShowSetup(true); }}
+      />
       <LessonDetailModal
         lesson={detailLesson}
         open={!!detailLesson}

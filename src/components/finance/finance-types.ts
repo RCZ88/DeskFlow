@@ -221,7 +221,7 @@ export interface FinanceBalanceHistory {
   balance: number;
 }
 
-export type FinanceTabKey = 'overview' | 'wallets' | 'transactions' | 'categories' | 'people' | 'charts';
+// FinanceTabKey is defined at the bottom of this file after all interfaces
 
 // ── Dashboard Enhancement Types ──
 
@@ -337,3 +337,114 @@ export interface TransferMatrixData {
   }>;
   walletCount: number;
 }
+
+// ── Fixed Expenses ──
+
+export interface FinanceFixedExpense {
+  id: number;
+  wallet_id: number;
+  name: string;
+  description: string;
+  amount: number;
+  currency: string;
+  category_id: number | null;
+  billing_day: number;
+  is_active: number;
+  auto_create_transaction: number;
+  metadata: string | null;
+  created_at: string;
+  updated_at: string;
+  category_name?: string;
+  category_color?: string;
+  category_icon?: string;
+  wallet_name?: string;
+  wallet_currency?: string;
+  current_month_status?: 'pending' | 'paid' | 'skipped';
+  current_month_amount_paid?: number;
+  current_month_transaction_id?: number | null;
+  current_month_paid_date?: string | null;
+}
+
+export interface FinanceFixedExpensePayment {
+  id: number;
+  fixed_expense_id: number;
+  month: string;
+  status: 'pending' | 'paid' | 'skipped';
+  amount_paid: number | null;
+  transaction_id: number | null;
+  paid_date: string | null;
+  paid_by: 'manual' | 'auto' | 'quick';
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FixedExpenseSummary {
+  totalMonthlyFixed: number;
+  totalPaid: number;
+  totalRemaining: number;
+  percentagePaid: number;
+  byCategory: Array<{
+    categoryId: number | null;
+    categoryName: string;
+    categoryColor: string;
+    totalAmount: number;
+    paidAmount: number;
+    count: number;
+  }>;
+  overdueCount: number;
+  upcomingCount: number;
+}
+
+// ── Budgets ──
+
+export interface FinanceBudget {
+  id: number;
+  name: string;
+  type: 'total' | 'category';
+  category_id: number | null;
+  amount: number;
+  currency: string;
+  period: 'monthly' | 'weekly' | 'yearly';
+  alert_threshold: number;
+  is_active: number;
+  metadata: string | null;
+  created_at: string;
+  updated_at: string;
+  category_name?: string;
+  category_color?: string;
+  category_icon?: string;
+}
+
+export interface BudgetStatus {
+  budgets: Array<{
+    id: number;
+    name: string;
+    type: 'total' | 'category';
+    limit: number;
+    spent: number;
+    remaining: number;
+    percentage: number;
+    status: 'ok' | 'warning' | 'over';
+    category?: { id: number; name: string; color: string; icon: string };
+  }>;
+  totalBudget: number;
+  totalSpent: number;
+  totalRemaining: number;
+  overallPercentage: number;
+  overBudgetCount: number;
+  warningCount: number;
+}
+
+export interface RecurringPatternSuggestion {
+  suggestedName: string;
+  avgAmount: number;
+  frequency: number;
+  lastSeen: string;
+  category: string;
+  categoryId: number | null;
+  confidence: number;
+}
+
+// ── Extended tab key ──
+export type FinanceTabKey = 'overview' | 'wallets' | 'transactions' | 'categories' | 'people' | 'subscriptions' | 'budget' | 'audit' | 'charts';

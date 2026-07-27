@@ -68,12 +68,44 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
   const cardRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
   const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null)
+  const isDraggingRef = useRef(false)
 
+  // ── Resize handlers (defined FIRST so drag handlers can reference them) ──
+  const handleResizeDown = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    resizeRef.current = { startX: e.clientX, startY: e.clientY, origW: card.size.w, origH: card.size.h }
+    if (cardRef.current) {
+      cardRef.current.setPointerCapture(e.pointerId)
+    }
+  }, [card.size])
+
+  const handleResizeMove = useCallback((e: React.PointerEvent) => {
+    if (!resizeRef.current || !cardRef.current) return
+    const dx = (e.clientX - resizeRef.current.startX) / zoom
+    const dy = (e.clientY - resizeRef.current.startY) / zoom
+    const newW = Math.max(4, Math.min(20, Math.round((resizeRef.current.origW * CELL + dx) / CELL)))
+    const newH = Math.max(4, Math.min(20, Math.round((resizeRef.current.origH * CELL + dy) / CELL)))
+    cardRef.current.style.width = `${newW * CELL}px`
+    cardRef.current.style.height = `${newH * CELL}px`
+  }, [zoom])
+
+  const handleResizeUp = useCallback((e: React.PointerEvent) => {
+    if (!resizeRef.current || !cardRef.current) return
+    const dx = (e.clientX - resizeRef.current.startX) / zoom
+    const dy = (e.clientY - resizeRef.current.startY) / zoom
+    const newW = Math.max(4, Math.min(20, Math.round((resizeRef.current.origW * CELL + dx) / CELL)))
+    const newH = Math.max(4, Math.min(20, Math.round((resizeRef.current.origH * CELL + dy) / CELL)))
+    resizeRef.current = null
+    cardRef.current.releasePointerCapture(e.pointerId)
+    onResize?.(card.id, { w: newW, h: newH })
+  }, [card.id, onResize, zoom])
+
+  // ── Drag handlers ──
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button, input, textarea, select, a')) return
     if ((e.target as HTMLElement).closest('.dk-canvas-resize-handle')) return
 
-    // Read actual DOM position
     let startX = card.position.x
     let startY = card.position.y
     if (cardRef.current) {
@@ -95,15 +127,23 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
   }, [onDragStart])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (resizeRef.current) {
+      handleResizeMove(e)
+      return
+    }
     if (!dragRef.current || !cardRef.current) return
     const dx = (e.clientX - dragRef.current.startX) / zoom
     const dy = (e.clientY - dragRef.current.startY) / zoom
     const newX = dragRef.current.origX + dx
     const newY = dragRef.current.origY + dy
     cardRef.current.style.transform = `translate(${newX}px, ${newY}px)`
-  }, [zoom])
+  }, [zoom, handleResizeMove])
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (resizeRef.current) {
+      handleResizeUp(e)
+      return
+    }
     if (!dragRef.current) return
     const dx = (e.clientX - dragRef.current.startX) / zoom
     const dy = (e.clientY - dragRef.current.startY) / zoom
@@ -121,33 +161,7 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
     }
     onDragEnd(card.id, finalPos)
     onDragStop?.()
-  }, [card.id, card.zIndex, onDragEnd, onDragStop, zoom])
-
-  // Resize handlers
-  const handleResizeDown = useCallback((e: React.PointerEvent) => {
-    e.stopPropagation()
-    resizeRef.current = { startX: e.clientX, startY: e.clientY, origW: card.size.w, origH: card.size.h }
-  }, [card.size])
-
-  const handleResizeMove = useCallback((e: React.PointerEvent) => {
-    if (!resizeRef.current || !cardRef.current) return
-    const dx = (e.clientX - resizeRef.current.startX) / zoom
-    const dy = (e.clientY - resizeRef.current.startY) / zoom
-    const newW = Math.max(4, Math.min(20, Math.round((resizeRef.current.origW * CELL + dx) / CELL)))
-    const newH = Math.max(4, Math.min(20, Math.round((resizeRef.current.origH * CELL + dy) / CELL)))
-    cardRef.current.style.width = `${newW * CELL}px`
-    cardRef.current.style.height = `${newH * CELL}px`
-  }, [zoom])
-
-  const handleResizeUp = useCallback((e: React.PointerEvent) => {
-    if (!resizeRef.current || !cardRef.current) return
-    const dx = (e.clientX - resizeRef.current.startX) / zoom
-    const dy = (e.clientY - resizeRef.current.startY) / zoom
-    const newW = Math.max(4, Math.min(20, Math.round((resizeRef.current.origW * CELL + dx) / CELL)))
-    const newH = Math.max(4, Math.min(20, Math.round((resizeRef.current.origH * CELL + dy) / CELL)))
-    resizeRef.current = null
-    onResize?.(card.id, { w: newW, h: newH })
-  }, [card.id, onResize, zoom])
+  }, [card.id, card.zIndex, onDragEnd, onDragStop, zoom, handleResizeUp])
 
   const handleCardClick = useCallback((e: React.PointerEvent) => {
     // Only fire if not dragging or resizing
@@ -195,8 +209,6 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
         <div
           className="dk-canvas-resize-handle"
           onPointerDown={handleResizeDown}
-          onPointerMove={handleResizeMove}
-          onPointerUp={handleResizeUp}
         />
       </div>
     </CardErrorBoundary>

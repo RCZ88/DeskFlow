@@ -4,7 +4,8 @@ import {
   Database, Edit3, Clock, FolderKanban, Sliders, ShieldOff,
   Sparkles, Target, BarChart3, Moon, GitCommit, Globe, AppWindow,
   CheckSquare, PlusCircle, PlayCircle, RefreshCw,
-  MessageSquare, Zap, Bot, X, ChevronDown
+  MessageSquare, Zap, Bot, X, ChevronDown, ArrowRight,
+  Calendar, Bell, Brain, Terminal
 } from 'lucide-react';
 
 interface Feature {
@@ -12,12 +13,14 @@ interface Feature {
   title: string;
   description: string;
   details: string[];
+  tryIt?: string;
 }
 
 interface CapabilityGroup {
   icon: typeof Bot;
   title: string;
   color: string;
+  accentBorder: string;
   features: Feature[];
 }
 
@@ -25,7 +28,8 @@ const groups: CapabilityGroup[] = [
   {
     icon: Database,
     title: 'Read Data',
-    color: 'from-blue-500 to-cyan-400',
+    color: 'from-cyan-500 to-blue-500',
+    accentBorder: 'rgba(34,211,238,0.3)',
     features: [
       {
         icon: Target,
@@ -36,6 +40,7 @@ const groups: CapabilityGroup[] = [
           'View project details, activity breakdowns, and stats',
           'Check sleep data, trends, and patterns',
         ],
+        tryIt: 'Show me my goals for today',
       },
       {
         icon: BarChart3,
@@ -46,6 +51,7 @@ const groups: CapabilityGroup[] = [
           'See browser and app category breakdowns',
           'Analyze productivity trends over time',
         ],
+        tryIt: 'What are my productivity trends this week?',
       },
       {
         icon: Globe,
@@ -56,6 +62,7 @@ const groups: CapabilityGroup[] = [
           'Check recording modes and preferences',
           'Inspect category and tier configurations',
         ],
+        tryIt: 'What are my current tier assignments?',
       },
     ],
   },
@@ -63,6 +70,7 @@ const groups: CapabilityGroup[] = [
     icon: Edit3,
     title: 'Create & Update',
     color: 'from-emerald-500 to-teal-400',
+    accentBorder: 'rgba(52,211,153,0.3)',
     features: [
       {
         icon: CheckSquare,
@@ -73,6 +81,7 @@ const groups: CapabilityGroup[] = [
           'Edit existing goals and mark progress',
           'Set long-term objectives and track milestones',
         ],
+        tryIt: 'Add a goal: Read for 30 minutes today',
       },
       {
         icon: FolderKanban,
@@ -83,6 +92,7 @@ const groups: CapabilityGroup[] = [
           'Update project details and metadata',
           'Manage problems and issues for projects',
         ],
+        tryIt: 'Show me my active projects',
       },
       {
         icon: PlusCircle,
@@ -93,6 +103,7 @@ const groups: CapabilityGroup[] = [
           'Categorize activities with tiers (productive/neutral/distracting)',
           'Manual time entries for anything you did off-screen',
         ],
+        tryIt: 'Log a 1 hour workout as productive',
       },
     ],
   },
@@ -100,6 +111,7 @@ const groups: CapabilityGroup[] = [
     icon: Clock,
     title: 'Track Time',
     color: 'from-violet-500 to-purple-400',
+    accentBorder: 'rgba(167,139,250,0.3)',
     features: [
       {
         icon: PlayCircle,
@@ -110,6 +122,7 @@ const groups: CapabilityGroup[] = [
           'Stop active tracking sessions',
           'Switch between activities seamlessly',
         ],
+        tryIt: 'Start tracking focused work',
       },
       {
         icon: Moon,
@@ -120,6 +133,7 @@ const groups: CapabilityGroup[] = [
           'Log breaks and personal time',
           'View sleep quality trends',
         ],
+        tryIt: 'Log sleep from 11pm to 7am',
       },
       {
         icon: RefreshCw,
@@ -130,86 +144,84 @@ const groups: CapabilityGroup[] = [
           'Adjust durations for incorrectly tracked sessions',
           'Backfill missed tracking periods',
         ],
+        tryIt: 'Add 2 hours of coding to my project today',
       },
     ],
   },
   {
-    icon: FolderKanban,
-    title: 'Manage Projects',
+    icon: Calendar,
+    title: 'Schedule & Plan',
     color: 'from-amber-500 to-orange-400',
+    accentBorder: 'rgba(251,191,36,0.3)',
     features: [
       {
-        icon: PlusCircle,
-        title: 'Full CRUD',
-        description: 'Complete project lifecycle management',
+        icon: Calendar,
+        title: 'Weekly Schedule',
+        description: 'Set up your recurring weekly schedule',
         details: [
-          'Create, update, delete, and restore projects',
-          'Open projects directly in your IDE (VS Code, etc.)',
-          'Track commit history and calculate health scores',
+          'Add class/meeting times for each day',
+          'Set recurring schedule blocks with locations',
+          'View schedule alongside daily goals',
         ],
+        tryIt: 'Add Monday 9am-10am: Math class',
       },
       {
-        icon: GitCommit,
-        title: 'Git & Health',
-        description: 'Codebase insights',
+        icon: Bell,
+        title: 'Deadlines',
+        description: 'Track assignment and project deadlines',
         details: [
-          'View commit stats per project',
-          'Calculate project health based on activity',
-          'Identify stale or neglected projects',
+          'Add deadlines with due dates and priorities',
+          'Get reminded as deadlines approach',
+          'Auto-link deadlines to preparation goals',
         ],
+        tryIt: 'Add deadline: Report due Friday, high priority',
       },
       {
-        icon: 'Trash2' as any,
-        title: 'Problem Management',
-        description: 'Track issues within projects',
+        icon: Brain,
+        title: 'AI Planning',
+        description: 'Let AI suggest goals based on your schedule',
         details: [
-          'Add problems/issues to projects',
-          'Update status and priority of issues',
-          'Track resolution progress',
+          'AI analyzes schedule + deadlines to suggest goals',
+          'Smart time-blocking based on your patterns',
+          'End-of-day review and tomorrow planning',
         ],
+        tryIt: 'Suggest goals for today based on my schedule',
       },
     ],
   },
   {
-    icon: Sliders,
-    title: 'Configure',
+    icon: Terminal,
+    title: 'Connectors',
     color: 'from-pink-500 to-rose-400',
+    accentBorder: 'rgba(236,72,153,0.3)',
     features: [
-      {
-        icon: AppWindow,
-        title: 'App Tiers',
-        description: 'Set productivity classifications',
-        details: [
-          'Mark apps as productive, neutral, or distracting',
-          'Configure domain-level productivity tiers',
-          'Bulk-categorize by patterns',
-        ],
-      },
       {
         icon: Globe,
-        title: 'Recording Modes',
-        description: 'Control what gets tracked',
+        title: 'Email Integration',
+        description: 'Read and send emails through connectors',
         details: [
-          'Set browser recording mode (always/never/smart)',
-          'Configure app recording mode',
-          'Adjust category assignments and preferences',
+          'Connect Gmail, Outlook, or other email providers',
+          'Read unread emails and summaries',
+          'Send replies directly from the AI assistant',
         ],
+        tryIt: 'Show me my unread emails',
       },
       {
-        icon: Sparkles,
-        title: 'Preferences',
-        description: 'Personalize your tracker',
+        icon: Calendar,
+        title: 'Calendar Sync',
+        description: 'Sync and manage calendar events',
         details: [
-          'Set timer behavior and display preferences',
-          'Configure notification settings',
-          'Adjust any user-facing configuration',
+          'Connect Google Calendar or Outlook Calendar',
+          'View today\'s events and upcoming meetings',
+          'Create and update calendar events',
         ],
+        tryIt: 'What meetings do I have today?',
       },
     ],
   },
 ];
 
-function FeatureCard({ feature, index }: { feature: Feature; index: number }) {
+function FeatureCard({ feature, index, onTryIt }: { feature: Feature; index: number; onTryIt: (text: string) => void }) {
   const [expanded, setExpanded] = useState(false);
 
   const IconComponent = feature.icon;
@@ -218,45 +230,60 @@ function FeatureCard({ feature, index }: { feature: Feature; index: number }) {
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05, duration: 0.25 }}
+      transition={{ delay: index * 0.04, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
       className="group"
     >
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full text-left"
-      >
-        <div className="relative p-3 rounded-lg bg-zinc-800/50 border border-zinc-700/40 hover:border-zinc-600/50 transition-all duration-150 hover:bg-zinc-800/70">
+      <div className="relative rounded-lg border border-zinc-800/40 bg-zinc-900/40 backdrop-blur-sm overflow-hidden transition-all duration-200 hover:border-zinc-700/50 hover:bg-zinc-900/60">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full text-left p-3"
+        >
           <div className="flex items-start gap-2.5">
-            <div className="shrink-0 w-7 h-7 rounded-md bg-zinc-700/60 flex items-center justify-center">
+            <div className="shrink-0 w-7 h-7 rounded-md bg-zinc-800/60 flex items-center justify-center border border-zinc-700/30">
               <IconComponent className="w-3.5 h-3.5 text-zinc-300" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="font-medium text-xs text-zinc-200">{feature.title}</div>
               <div className="text-[11px] text-zinc-500 mt-0.5">{feature.description}</div>
             </div>
-            <ChevronDown className={`shrink-0 w-3.5 h-3.5 text-zinc-600 mt-0.5 transition-transform duration-150 ${expanded ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`shrink-0 w-3.5 h-3.5 text-zinc-600 mt-0.5 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
           </div>
+        </button>
 
+        <AnimatePresence>
           {expanded && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.15 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               className="overflow-hidden"
             >
-              <div className="mt-2 pt-2 border-t border-zinc-700/40 space-y-1">
-                {feature.details.map((detail, i) => (
-                  <div key={i} className="flex items-start gap-2 text-[11px] text-zinc-400">
-                    <div className="shrink-0 w-1 h-1 rounded-full bg-zinc-600 mt-1.5" />
-                    <span>{detail}</span>
-                  </div>
-                ))}
+              <div className="px-3 pb-3 space-y-2.5 border-t border-zinc-800/30 pt-2.5">
+                <div className="space-y-1">
+                  {feature.details.map((detail, i) => (
+                    <div key={i} className="flex items-start gap-2 text-[11px] text-zinc-400">
+                      <div className="shrink-0 w-1 h-1 rounded-full bg-zinc-600 mt-1.5" />
+                      <span>{detail}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {feature.tryIt && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onTryIt(feature.tryIt!); }}
+                    className="flex items-center gap-2 w-full px-3 py-2 rounded-md bg-violet-500/8 border border-violet-500/20 text-[11px] text-violet-300 hover:bg-violet-500/15 hover:border-violet-500/30 transition-all duration-150 group/try"
+                  >
+                    <Sparkles size={11} className="text-violet-400" />
+                    <span className="flex-1 text-left font-medium">Try: "{feature.tryIt}"</span>
+                    <ArrowRight size={10} className="text-violet-500 group-hover/try:text-violet-300 transition-colors" />
+                  </button>
+                )}
               </div>
             </motion.div>
           )}
-        </div>
-      </button>
+        </AnimatePresence>
+      </div>
     </motion.div>
   );
 }
@@ -264,9 +291,15 @@ function FeatureCard({ feature, index }: { feature: Feature; index: number }) {
 interface AIFeaturesModalProps {
   open: boolean;
   onClose: () => void;
+  onTryIt?: (prompt: string) => void;
 }
 
-export function AIFeaturesModal({ open, onClose }: AIFeaturesModalProps) {
+export function AIFeaturesModal({ open, onClose, onTryIt }: AIFeaturesModalProps) {
+  const handleTryIt = (text: string) => {
+    onTryIt?.(text);
+    onClose();
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -282,15 +315,15 @@ export function AIFeaturesModal({ open, onClose }: AIFeaturesModalProps) {
             initial={{ scale: 0.95, opacity: 0, y: 10 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 10 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="w-full max-w-2xl mx-4 max-h-[85vh] bg-zinc-950 border border-zinc-800/60 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden"
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col overflow-hidden rounded-xl border border-zinc-700/40 bg-[rgba(24,24,27,0.92)] backdrop-blur-xl shadow-2xl shadow-black/50"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800/60 shrink-0">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800/40 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
-                  <Bot className="w-4 h-4 text-white" />
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500/20 to-pink-500/20 border border-violet-500/20 flex items-center justify-center">
+                  <Bot className="w-4 h-4 text-violet-400" />
                 </div>
                 <div>
                   <h2 className="text-sm font-semibold text-zinc-100">AI Assistant Capabilities</h2>
@@ -306,18 +339,18 @@ export function AIFeaturesModal({ open, onClose }: AIFeaturesModalProps) {
             </div>
 
             {/* Quick tags */}
-            <div className="flex items-center gap-1.5 px-5 py-2 border-b border-zinc-800/40 shrink-0 bg-zinc-900/30">
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20">
+            <div className="flex items-center gap-1.5 px-5 py-2 border-b border-zinc-800/30 shrink-0 bg-zinc-900/20">
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/8 border border-emerald-500/15">
                 <MessageSquare className="w-2.5 h-2.5 text-emerald-400" />
-                <span className="text-[10px] text-emerald-300">Ask naturally</span>
+                <span className="text-[10px] text-emerald-300/80">Ask naturally</span>
               </div>
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20">
-                <Zap className="w-2.5 h-2.5 text-blue-400" />
-                <span className="text-[10px] text-blue-300">Real-time data</span>
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/8 border border-cyan-500/15">
+                <Zap className="w-2.5 h-2.5 text-cyan-400" />
+                <span className="text-[10px] text-cyan-300/80">Real-time data</span>
               </div>
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/20">
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-500/8 border border-violet-500/15">
                 <Sparkles className="w-2.5 h-2.5 text-violet-400" />
-                <span className="text-[10px] text-violet-300">Proactive suggestions</span>
+                <span className="text-[10px] text-violet-300/80">Proactive suggestions</span>
               </div>
             </div>
 
@@ -328,7 +361,7 @@ export function AIFeaturesModal({ open, onClose }: AIFeaturesModalProps) {
                   key={group.title}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 + gi * 0.06, duration: 0.25 }}
+                  transition={{ delay: 0.05 + gi * 0.05, duration: 0.25 }}
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <div className={`shrink-0 w-6 h-6 rounded-md bg-gradient-to-br ${group.color} flex items-center justify-center`}>
@@ -338,7 +371,7 @@ export function AIFeaturesModal({ open, onClose }: AIFeaturesModalProps) {
                   </div>
                   <div className="grid gap-1.5">
                     {group.features.map((feature, fi) => (
-                      <FeatureCard key={feature.title} feature={feature} index={fi + gi * 10} />
+                      <FeatureCard key={feature.title} feature={feature} index={fi + gi * 10} onTryIt={handleTryIt} />
                     ))}
                   </div>
                 </motion.div>
@@ -373,7 +406,7 @@ export function AIFeaturesModal({ open, onClose }: AIFeaturesModalProps) {
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-2 border-t border-zinc-800/40 shrink-0 bg-zinc-900/20">
+            <div className="px-5 py-2 border-t border-zinc-800/30 shrink-0 bg-zinc-900/15">
               <p className="text-[10px] text-zinc-600 text-center">
                 Just type what you need in natural language — I'll figure out the rest.
               </p>

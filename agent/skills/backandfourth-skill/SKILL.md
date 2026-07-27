@@ -137,11 +137,32 @@ components:
 
 **This is not a prompt. This is a conversation starter.**
 
-The `generate-prompt` skill solves problems by packaging them into a one-way brief. The `ai-collaboration-bridge` skill establishes a **two-way communication channel** between your AI coding agent (the "Project Owner") and a target AI (the "Specialist").
+The `generate-prompt` skill solves problems by packaging them into a one-way brief. The `ai-collaboration-bridge` skill establishes a **two-way communication channel** between three parties:
 
-The Project Owner knows the codebase. The Specialist knows how to solve the specific problem. This skill ensures their first handshake is so well-prepared that the Specialist can immediately ask intelligent, specific follow-up questions — and the Project Owner knows exactly where to find the answers.
+### 3-Party Roles (Real-World Setup)
 
-**Key principle:** The initial package must be "incomplete by design." It should contain enough context for the Specialist to understand the idea and identify what's missing. The Specialist then drives the conversation by requesting specific files, schemas, or clarifications. The Project Owner fetches them. This iterative refinement produces a far better result than a single monolithic prompt.
+| Role | Who | Responsibility |
+|------|-----|----------------|
+| **CZ (Human)** | The user | Relay messages between the two AIs. Copy-paste output from one into the other. Does NOT edit AI messages. |
+| **Project Owner (opencode)** | The coding agent running in this codebase | Knows the codebase. Gathers context. Writes artifacts to `agent/docs/`. Answers REQUEST questions with CONTEXT responses containing actual source code. |
+| **Specialist (External AI)** | Claude / GPT-4 / Gemini / etc. | Does NOT have codebase access. Debugs the problem or designs the solution. Asks REQUEST questions. Produces RESULT.md. |
+
+### How Communication Works
+
+```
+1. CZ tells opencode: "collaborate with [external AI] on [bug/idea]"
+2. opencode writes INITIAL_PROMPT.md (with full source code EMBEDDED — external AI has no file access)
+3. CZ copies INITIAL_PROMPT.md content → pastes into external AI chat
+4. External AI responds with REQUEST questions
+5. CZ copies REQUEST → pastes into opencode chat
+6. opencode answers with CONTEXT (actual source code)
+7. CZ copies CONTEXT → pastes into external AI chat
+8. Repeat 4-7 until external AI produces RESULT.md
+9. CZ copies RESULT.md → pastes into opencode chat
+10. opencode implements the fix
+```
+
+**Key principle:** The initial package must contain ALL relevant source code inline — the external AI has zero codebase access. The Specialist drives the conversation by requesting specific files or clarifications. The Project Owner fetches them. This iterative refinement produces a far better result than a single monolithic prompt.
 
 ## How This Differs from `generate-prompt`
 
@@ -149,10 +170,11 @@ The Project Owner knows the codebase. The Specialist knows how to solve the spec
 |---|---|---|
 | **Trigger** | AI coding agent hits a technical wall | User has a new idea or concept |
 | **Direction** | One-way: problem → solution | Two-way: idea ↔ refinement ↔ solution |
-| **Context** | Agent gathers everything upfront | Agent gathers "enough," Specialist asks for rest |
+| **Context** | Agent gathers everything upfront | Agent gathers source code inline; Specialist asks for rest |
 | **Output** | Single RESULT.md | Conversation thread + final RESULT.md |
-| **User role** | Passive (agent handles everything) | Active (user's idea is the seed) |
+| **User role** | Passive (agent handles everything) | Active relay — copy-pastes between two AIs |
 | **Best for** | Bug fixes, refactors, layout fixes | New features, architecture decisions, complex designs |
+| **External AI access** | N/A (single AI) | Zero — all source code must be embedded in messages |
 
 ---
 
@@ -315,9 +337,17 @@ After our conversation converges, produce:
 
 ## Phase 4: Conversation Protocol Design
 
-This is the "rules of engagement" document. Both AIs follow it.
+This is the "rules of engagement" document. All three parties follow it.
 
-### Specialist AI (Target AI) Rules
+### Communication Flow
+
+```
+External AI ←→ CZ (Human) ←→ opencode (Coding Agent)
+```
+
+CZ relays messages **verbatim** between the two AIs. Do not summarize or edit.
+
+### Specialist AI (External — has NO codebase access) Rules
 
 1. **Start with questions, not answers.** Before proposing a design, identify 3-5 specific context gaps.
 2. **Use REQUEST format:**
@@ -328,21 +358,30 @@ This is the "rules of engagement" document. Both AIs follow it.
 4. **Flag backend gaps immediately.** If you need an IPC channel that doesn't exist, say so.
 5. **When converged, produce RESULT.md** following the exact format from `generate-prompt` skill.
 
-### Project Owner AI (Coding Agent) Rules
+### Project Owner AI (opencode — has full codebase access) Rules
 
-1. **Fetch exactly what was requested.** Don't send extra files "just in case."
-2. **Use CONTEXT format:**
+1. **Embed ALL source code in INITIAL_PROMPT.md.** The external AI has zero file access — every relevant file must be pasted inline.
+2. **Fetch exactly what was requested.** Don't send extra files "just in case."
+3. **Use CONTEXT format:**
    ```
    CONTEXT: src/services/SessionService.ts (lines 45-89)
    [actual source code pasted here]
    ```
-3. **If a file doesn't exist, say so.** Don't make up code.
-4. **If the request is ambiguous, ask for clarification.**
-5. **Track the conversation state.** Maintain a running summary of decisions made.
+4. **If a file doesn't exist, say so.** Don't make up code.
+5. **If the request is ambiguous, ask CZ to clarify with the Specialist.**
+6. **Track the conversation state.** Write each round to `conversation/round-XX.md`.
+
+### CZ (Human — relay) Rules
+
+1. **Copy-paste verbatim.** Do not summarize, edit, or rephrase AI messages.
+2. **Paste INITIAL_PROMPT.md** into the external AI chat to start.
+3. **Paste each REQUEST** from external AI → into opencode chat.
+4. **Paste each CONTEXT** from opencode → into external AI chat.
+5. **When external AI produces RESULT.md**, paste it into opencode chat for implementation.
 
 ### Conversation State Tracker
 
-The Project Owner must maintain (in memory or a temp file):
+opencode maintains this in `conversation/round-XX.md`:
 
 ```
 Round 1:
@@ -386,41 +425,51 @@ The Project Owner then:
 
 ## Terminal Workspace Integration Notes
 
-This skill is designed to work WITHIN the DeskFlow terminal workspace. When the AI coding agent uses this skill:
+This skill is designed to work WITHIN the DeskFlow terminal workspace. The 3-party relay model:
 
-1. **Context gathering** happens via the agent's file system access (reading `src/`, `agent/`, etc.)
-2. **The Initial Prompt** can be sent to another AI via:
-   - A new terminal tab running a CLI agent (Claude Code, OpenCode, etc.)
-   - An HTTP API call to an AI service
-   - A clipboard paste for the user to send manually
-3. **The back-and-forth** can be managed:
-   - Automatically (if the target AI is also an API)
-   - Semi-automatically (agent pauses, user pastes response, agent continues)
-   - Manually (user acts as the bridge between two AIs)
+### How Context Flows
 
-### Skill Invocation from Terminal
+1. **opencode reads the codebase** — gathers relevant files, reads `src/`, `agent/`, etc.
+2. **opencode writes INITIAL_PROMPT.md** — ALL source code embedded inline (external AI has no file access)
+3. **CZ copy-pastes** INITIAL_PROMPT.md → external AI chat
+4. **External AI responds** with REQUEST questions
+5. **CZ copy-pastes** REQUEST → opencode chat
+6. **opencode answers** with CONTEXT (actual source code from codebase)
+7. **CZ copy-pastes** CONTEXT → external AI chat
+8. **Repeat** until external AI produces RESULT.md
+9. **CZ paste** RESULT.md → opencode chat
+10. **opencode implements** the fix
 
-When the user says "I have an idea for [X]" in the chat:
+### Skill Invocation
+
+When the user says "collaborate with [AI] on [X]":
 
 ```
-User: "I want to add a session timeline view to the sidebar"
-→ Agent detects: this is a new idea, not a bug fix
+User: "collaborate with Claude on the sidebar bug"
+→ Agent detects: this is a collaboration request
 → Agent invokes: ai-collaboration-bridge skill
-→ Agent asks: "Should I collaborate with Claude, GPT-4, or another AI?"
+→ Agent asks: "Which external AI? (Claude, GPT-4, Gemini, etc.)"
 → User selects target
-→ Agent executes Phase 1-5
-→ Agent presents: "I've prepared a collaboration package. Here is the Initial Prompt and Context Bundle."
+→ Agent reads codebase, gathers context
+→ Agent writes INITIAL_PROMPT.md with all source code embedded
+→ Agent presents: "INITIAL_PROMPT.md is ready. Copy its content into your [external AI] chat."
+→ CZ relays back-and-forth between the two AIs
+→ External AI produces RESULT.md
+→ CZ pastes RESULT.md into opencode
+→ opencode implements
 ```
 
 ---
 
 ## Anti-Patterns (What NOT To Do)
 
-1. **Don't send everything upfront.** The whole point is to let the Specialist drive context discovery.
+1. **Don't send file paths without code.** The external AI has zero codebase access — embed ALL source code inline.
 2. **Don't let the Specialist hallucinate APIs.** If it asks for a file, provide it. If the file doesn't exist, say so.
 3. **Don't skip the Context Gap Analysis.** You must know what you DON'T have.
 4. **Don't produce RESULT.md in Round 1.** The first output from the Specialist should be QUESTIONS, not answers.
 5. **Don't lose conversation state.** Track what was decided in each round.
+6. **Don't let CZ edit AI messages.** Relay must be verbatim — any rephrasing loses technical precision.
+7. **Don't assume the Specialist remembers context.** Each message must be self-contained.
 
 ---
 
@@ -429,7 +478,7 @@ User: "I want to add a session timeline view to the sidebar"
 After running this skill, the following files should exist:
 
 ```
-agent/docs/<idea-slug>/
+agent/docs/backandfourth-docs/<idea-slug>/
 ├── CONTEXT_BUNDLE.md          # Gathered codebase context
 ├── INITIAL_PROMPT.md          # First message to Specialist
 ├── CONVERSATION_PROTOCOL.md   # Rules of engagement

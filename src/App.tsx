@@ -252,6 +252,11 @@ import { GapFillDrawer } from './components/GapFillDrawer';
 import { TutorialProvider } from './contexts/TutorialContext';
 import TutorialOverlay from './components/TutorialOverlay';
 
+// DEBUG: Global hashchange listener
+window.addEventListener('hashchange', (e) => {
+  console.log('[HASHCHANGE]', e.oldURL, '→', e.newURL);
+});
+
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -2198,7 +2203,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
       setPendingNavigation(path);
       setShowUnsavedWarning(true);
     } else {
-      navigate(path);
+    navigate(path);
+    console.log('[NAV] navigate called — path:', path, 'window.location.hash:', window.location.hash, 'window.location.href:', window.location.href);
     }
   }, [navigate]);
 
@@ -2271,6 +2277,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
       return;
     }
     navigate(path);
+    console.log('[NAV] navigate called - path:', path, 'window.location.hash:', window.location.hash, 'window.location.href:', window.location.href);
   }, [location.pathname, settingsHasChanges, navigate]);
 
   // Listen for main process requesting save on window close
@@ -2326,9 +2333,10 @@ Trend: +14% vs. yesterday. Keep it up!`;
   return (
     <TutorialProvider>
     <div className="flex h-screen overflow-hidden bg-[#121212] text-white">
-      {/* Sidebar */}
+      {/* Sidebar — hidden on workspace (/terminal) since TerminalPage has its own sidebar */}
+      {location.pathname !== '/terminal' && (
       <motion.div
-        className="border-r border-zinc-800 flex flex-col h-full glass overflow-hidden z-20"
+        className="border-r border-zinc-800 flex flex-col h-full glass overflow-hidden z-[100]"
         animate={{ width: sidebarCollapsed ? 60 : 256 }}
         transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
       >
@@ -2368,7 +2376,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               return (
                 <motion.button
                   key={item.path}
-                  onClick={() => handleSidebarNavigation(item.path)}
+                  onClick={() => { console.log('[NAV] fired — path:', item.path, 'current:', location.pathname); handleSidebarNavigation(item.path); }}
                   className={`flex items-center rounded-xl text-sm transition-colors duration-150 ${sidebarCollapsed ? 'justify-center w-full px-0 py-3' : 'w-full gap-3.5 px-4 py-3'} ${isActive
                     ? 'bg-zinc-800 text-white'
                     : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
@@ -2420,6 +2428,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
           )}
         </AnimatePresence>
       </motion.div>
+      )}
 
       {/* Main Content */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -2437,69 +2446,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
             />
           )}
         </AnimatePresence>
-        {/* Top Bar */}
-        {location.pathname === '/terminal' ? (
-          <div className="flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-800">
-              <div className="flex items-center gap-1">
-              <button
-                onClick={() => {
-                  if ((window as any).__workspaceHasUnsavedChanges) {
-                    setPendingNavigation('/ide');
-                    setShowWorkspaceWarning(true);
-                  } else {
-                    navigate('/ide');
-                  }
-                }}
-                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
-                title="Back to IDE projects"
-              >
-                <Minus className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => {
-                  if ((window as any).__workspaceHasUnsavedChanges) {
-                    setPendingNavigation('/ide');
-                    setShowWorkspaceWarning(true);
-                  } else {
-                    navigate('/ide');
-                  }
-                }}
-                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
-                title="Close workspace"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <div className="flex items-center gap-3">
-                <Terminal className="w-5 h-5 text-[var(--page-accent)]" />
-                <div>
-                  <h2 className="text-white font-semibold">{terminalProjectInfo.name || 'Terminal'}</h2>
-                  {terminalProjectInfo.path && (
-                    <p className="text-xs text-zinc-500 font-mono">{terminalProjectInfo.path}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => window.dispatchEvent(new CustomEvent('trigger-provision'))}
-                disabled={provisionStatus === 'provisioning'}
-                className="px-2 py-1 bg-green-700 hover:bg-green-600 text-white text-xs rounded flex items-center gap-1 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-                title={provisionStatus === 'provisioned' ? 'Re-setup agent directory structure' : 'Setup agent directory structure'}
-              >
-                <FolderTree className="w-3 h-3" />
-                {provisionStatus === 'provisioned' ? 'Re-setup' : 'Setup'}
-              </button>
-              <button
-                onClick={() => window.dispatchEvent(new CustomEvent('open-new-agent'))}
-                className="px-2 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs rounded flex items-center gap-1 transition-colors duration-150"
-                title="Start a new AI agent session"
-              >
-                <Bot className="w-3 h-3" />
-                Initialize
-              </button>
-            </div>
-          </div>
-        ) : (
+        {/* Top Bar — workspace (/terminal) renders its own header via TerminalPage */}
+        {location.pathname !== '/terminal' && (
         <div className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 glass">
           <div className="flex items-center gap-4">
             <div className="text-lg font-semibold tracking-tight">
@@ -2676,7 +2624,6 @@ Trend: +14% vs. yesterday. Keep it up!`;
         {/* Main Scroll Area */}
         <div className={`flex-1 min-h-0 ${location.pathname === '/terminal' ? 'flex flex-col overflow-hidden' : 'overflow-auto p-5'}`}>
           <ErrorBoundary>
-          <AnimatePresence mode="sync">
             <Routes location={location} key={location.pathname}>
               {/* Dashboard */}
               <Route path="/" element={
@@ -2750,7 +2697,6 @@ Trend: +14% vs. yesterday. Keep it up!`;
               {/* Settings Page */}
 <Route path="/settings" element={<SettingsPage logs={logs} appStats={allTimeAppStats} websiteStats={allTimeWebsiteStats} onRegisterSave={handleRegisterSave} onReloadData={loadData} onCategoryOverridesChange={setCategoryOverrides} onHasChangesChange={setSettingsHasChanges} timerBehavior={timerBehavior} setTimerBehavior={setTimerBehavior} trackerAppMode={trackerAppMode} setTrackerAppMode={setTrackerAppMode} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} onExternalActivityTiersChange={setExternalActivityTiers} showGapBannerSetting={showGapBannerSetting} setShowGapBannerSetting={setShowGapBannerSetting} />} />
             </Routes>
-          </AnimatePresence>
           </ErrorBoundary>
 
           {/* ── Unsaved Changes Warning Modal ── */}

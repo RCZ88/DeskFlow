@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Loader2, Check } from 'lucide-react'
+import { X, Loader2, Check, Copy, CheckCheck } from 'lucide-react'
 import { tint } from './modalUtils'
 
 type Phase = 'idle' | 'submitting' | 'success' | 'error'
@@ -30,6 +30,7 @@ export function TransactionModalShell({
 	const [errorMsg, setErrorMsg] = useState<string | null>(null)
 	const [canSubmit, setCanSubmit] = useState(false)
 	const [mounted, setMounted] = useState(false)
+	const [copied, setCopied] = useState(false)
 	const dialogRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => { setMounted(true) }, [])
@@ -100,10 +101,30 @@ export function TransactionModalShell({
 
 				{/* Error */}
 				{phase === 'error' && errorMsg && (
-					<div className="mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs"
-						style={{ background: tint('#EF4444', 0.08), borderColor: tint('#EF4444', 0.25), color: '#FCA5A5' }}>
-						<span>{errorMsg}</span>
-						<button onClick={submit} className="ml-auto font-medium underline hover:no-underline">Retry</button>
+					<div className="mt-3 rounded-lg border px-3 py-2.5 text-xs"
+						style={{ background: tint('#EF4444', 0.08), borderColor: tint('#EF4444', 0.25) }}>
+						<div className="flex items-start gap-2">
+							<div className="flex-1 min-w-0">
+								<p className="font-medium text-red-300 mb-1">Transaction failed</p>
+								<p className="text-red-400/80 break-all leading-relaxed font-mono text-[10px]">{errorMsg}</p>
+							</div>
+							<button
+								onClick={async () => {
+									try {
+										await navigator.clipboard.writeText(errorMsg);
+										setCopied(true);
+										setTimeout(() => setCopied(false), 2000);
+									} catch {}
+								}}
+								className="flex-shrink-0 p-1.5 rounded-md hover:bg-red-500/10 text-red-400/60 hover:text-red-300 transition-colors"
+								title="Copy error details">
+								{copied ? <CheckCheck size={13} /> : <Copy size={13} />}
+							</button>
+						</div>
+						<button onClick={submit}
+							className="mt-2 w-full rounded-md bg-red-500/10 border border-red-500/20 py-1.5 text-[11px] font-medium text-red-300 hover:bg-red-500/20 transition-colors">
+							Retry
+						</button>
 					</div>
 				)}
 

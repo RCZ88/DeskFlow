@@ -6,9 +6,13 @@ import type { ChatMessage } from "../chat/ChatPanel"
 import type { CardAction } from "../chat/parsed"
 import type { ReactNode } from "react"
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Newspaper, Plug, Target, Calendar, RefreshCw, ChevronDown, Inbox, Maximize2, Minimize2, X, Clock, AlertTriangle } from "lucide-react"
+import {
+  Newspaper, Plug, Target, Calendar, RefreshCw, ChevronDown,
+  Inbox, Maximize2, Minimize2, X, Clock, AlertTriangle,
+  Plus, Sparkles, ListTodo, BookOpen
+} from "lucide-react"
 import type { AccentKey } from "../tokens"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 
 export interface DeckProps {
   messages: ChatMessage[]
@@ -55,6 +59,11 @@ export interface DeckProps {
   onExpandedCardChange?: (ids: Set<string>) => void
   autoApprove?: boolean
   onToggleAutoApprove?: () => void
+  onAddGoal?: () => void
+  onAddSchedule?: () => void
+  onAddDeadline?: () => void
+  onAddReminder?: () => void
+  onOpenFeatures?: () => void
 }
 
 interface ExpandableCardProps {
@@ -68,19 +77,23 @@ interface ExpandableCardProps {
   children: ReactNode
   loading?: boolean
   empty?: boolean
+  onAdd?: () => void
+  addLabel?: string
 }
 
-const accentMap: Record<string, { strip: string; icon: string; glow: string }> = {
-  cyan: { strip: "#22d3ee", icon: "text-cyan-400", glow: "rgba(34,211,238,0.08)" },
-  emerald: { strip: "#34d399", icon: "text-emerald-400", glow: "rgba(52,211,153,0.08)" },
-  violet: { strip: "#a78bfa", icon: "text-violet-400", glow: "rgba(167,139,250,0.08)" },
-  amber: { strip: "#fbbf24", icon: "text-amber-400", glow: "rgba(251,191,36,0.08)" },
-  pink: { strip: "#ec4899", icon: "text-pink-400", glow: "rgba(236,72,153,0.08)" },
-  rose: { strip: "#f43f5e", icon: "text-rose-400", glow: "rgba(244,63,94,0.08)" },
-  red: { strip: "#f87171", icon: "text-red-400", glow: "rgba(248,113,113,0.08)" },
+const accentMap: Record<string, { strip: string; icon: string; glow: string; bg: string; border: string }> = {
+  cyan: { strip: "#22d3ee", icon: "text-cyan-400", glow: "rgba(34,211,238,0.12)", bg: "rgba(34,211,238,0.06)", border: "rgba(34,211,238,0.2)" },
+  emerald: { strip: "#34d399", icon: "text-emerald-400", glow: "rgba(52,211,153,0.12)", bg: "rgba(52,211,153,0.06)", border: "rgba(52,211,153,0.2)" },
+  violet: { strip: "#a78bfa", icon: "text-violet-400", glow: "rgba(167,139,250,0.12)", bg: "rgba(167,139,250,0.06)", border: "rgba(167,139,250,0.2)" },
+  amber: { strip: "#fbbf24", icon: "text-amber-400", glow: "rgba(251,191,36,0.12)", bg: "rgba(251,191,36,0.06)", border: "rgba(251,191,36,0.2)" },
+  pink: { strip: "#ec4899", icon: "text-pink-400", glow: "rgba(236,72,153,0.12)", bg: "rgba(236,72,153,0.06)", border: "rgba(236,72,153,0.2)" },
+  rose: { strip: "#f43f5e", icon: "text-rose-400", glow: "rgba(244,63,94,0.12)", bg: "rgba(244,63,94,0.06)", border: "rgba(244,63,94,0.2)" },
+  red: { strip: "#f87171", icon: "text-red-400", glow: "rgba(248,113,113,0.12)", bg: "rgba(248,113,113,0.06)", border: "rgba(248,113,113,0.2)" },
 }
 
-function ExpandableCard({ id, icon, title, summary, accent, isExpanded, onToggle, children, loading, empty }: ExpandableCardProps) {
+function ExpandableCard({
+  id, icon, title, summary, accent, isExpanded, onToggle, children, loading, empty, onAdd, addLabel
+}: ExpandableCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [spotlight, setSpotlight] = useState({ x: 50, y: 0, opacity: 0 })
@@ -112,41 +125,49 @@ function ExpandableCard({ id, icon, title, summary, accent, isExpanded, onToggle
       <div
         ref={cardRef}
         id={`deck-card-${id}`}
-        className={`relative overflow-hidden rounded-xl border transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group
-          ${isExpanded
-            ? "border-zinc-600/60 bg-zinc-900/30 backdrop-blur-sm shadow-[0_0_60px_rgba(0,0,0,0.4)]"
-            : "border-zinc-800/60 bg-zinc-900/80 backdrop-blur-xl hover:border-zinc-700/60 hover:bg-zinc-900/70"}
-        `}
+        className="deck-glass-card group"
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
       >
+        {/* Spotlight hover glow */}
         <div
-          className="pointer-events-none absolute -inset-px rounded-xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+          className="pointer-events-none absolute -inset-px rounded-xl opacity-0 transition-opacity duration-300 group-hover:opacity-100 z-0"
           style={{
-            background: `radial-gradient(500px circle at ${spotlight.x}% ${spotlight.y}%, ${ac.glow}, transparent 60%)`,
-            opacity: spotlight.opacity * 0.6,
+            background: `radial-gradient(600px circle at ${spotlight.x}% ${spotlight.y}%, ${ac.glow}, transparent 60%)`,
+            opacity: spotlight.opacity * 0.5,
           }}
         />
+
+        {/* Accent left strip */}
         <div
           className="pointer-events-none absolute left-0 top-0 bottom-0 w-[3px] z-10 rounded-l-[inherit]"
-          style={{ background: `linear-gradient(180deg, ${ac.strip}, ${ac.strip}cc)` }}
+          style={{ background: `linear-gradient(180deg, ${ac.strip}, ${ac.strip}99)` }}
         />
+
+        {/* Top edge highlight line */}
+        <div
+          className="pointer-events-none absolute top-0 left-[3px] right-0 h-px z-10"
+          style={{ background: `linear-gradient(90deg, transparent, ${ac.strip}33 30%, ${ac.strip}22 70%, transparent)` }}
+        />
+
+        {/* Header */}
         <div className="relative z-20 flex items-center gap-3 w-full p-5 text-left bg-transparent border-none">
-          <span className={`flex-shrink-0 w-5 h-5 flex items-center justify-center ${ac.icon} transition-colors duration-150`}>
+          <span className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg ${ac.icon} transition-colors duration-150`}
+            style={{ background: ac.bg }}>
             {icon}
           </span>
           <div className="flex-1 min-w-0">
             <div className="text-[13px] font-semibold text-zinc-100 leading-tight">{title}</div>
             {!isExpanded && (
               <div className="text-[11px] text-zinc-500 leading-tight truncate mt-0.5">
-                {showEmptyState ? "No data yet" : summary}
+                {showEmptyState ? (addLabel || "No data yet") : summary}
               </div>
             )}
           </div>
           <button
             type="button"
             onClick={() => setFullPageOpen(true)}
-            className="flex-shrink-0 h-6 w-6 flex items-center justify-center rounded-md hover:bg-zinc-800/60 text-zinc-600 hover:text-zinc-300 transition-colors opacity-0 group-hover:opacity-100"
+            className="flex-shrink-0 h-7 w-7 flex items-center justify-center rounded-lg hover:bg-zinc-800/60 text-zinc-600 hover:text-zinc-300 transition-all opacity-0 group-hover:opacity-100"
             title="Full page"
           >
             <Maximize2 size={12} />
@@ -156,7 +177,7 @@ function ExpandableCard({ id, icon, title, summary, accent, isExpanded, onToggle
             onClick={onToggle}
             aria-expanded={isExpanded}
             aria-controls={`${id}-body`}
-            className="flex-shrink-0 flex items-center justify-center h-6 w-6 rounded-md hover:bg-zinc-800/60 text-zinc-500 hover:text-zinc-300 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-500/50"
+            className="flex-shrink-0 flex items-center justify-center h-7 w-7 rounded-lg hover:bg-zinc-800/60 text-zinc-500 hover:text-zinc-300 transition-all outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-500/50"
           >
             <motion.div
               animate={{ rotate: isExpanded ? 180 : 0 }}
@@ -167,20 +188,34 @@ function ExpandableCard({ id, icon, title, summary, accent, isExpanded, onToggle
           </button>
         </div>
 
-        <div
-          className={`grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
-        >
+        {/* Collapsible body */}
+        <div className={`relative z-20 grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
           <div className="overflow-hidden min-h-0">
-            <div ref={bodyRef} className="p-6 lg:p-8 pt-0">
+            <div ref={bodyRef} className="p-5 pt-0">
               {loading ? (
-                <div className="flex items-center gap-2 py-3">
+                <div className="flex items-center gap-3 py-4">
                   <div className="w-3 h-3 border-2 border-zinc-600/40 border-t-zinc-400 rounded-full animate-spin" />
                   <span className="text-xs text-zinc-500">Loading...</span>
                 </div>
               ) : empty ? (
-                <div className="flex flex-col items-center gap-2 py-6 text-center">
-                  <Inbox size={20} className="text-zinc-600" />
-                  <p className="text-xs text-zinc-500">Nothing here yet. Start a conversation or add data to see results.</p>
+                <div className="flex flex-col items-center gap-3 py-6 text-center">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: ac.bg, border: `1px solid ${ac.border}` }}>
+                    <Inbox size={20} className={ac.icon} style={{ opacity: 0.6 }} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-zinc-400 font-medium">Nothing here yet</p>
+                    <p className="text-[11px] text-zinc-600 mt-0.5">{addLabel || "Add data to see results"}</p>
+                  </div>
+                  {onAdd && (
+                    <button
+                      onClick={onAdd}
+                      className="deck-add-btn"
+                      style={{ '--btn-accent': ac.strip, '--btn-glow': ac.glow, '--btn-bg': ac.bg } as React.CSSProperties}
+                    >
+                      <Plus size={12} />
+                      <span>{addLabel || "Add"}</span>
+                    </button>
+                  )}
                 </div>
               ) : (
                 children
@@ -190,31 +225,20 @@ function ExpandableCard({ id, icon, title, summary, accent, isExpanded, onToggle
         </div>
       </div>
 
-      {/* Full-page overlay — absolute so it doesn't cover the app sidebar */}
+      {/* Full-page overlay */}
       {fullPageOpen && (
-        <div className="absolute inset-0 z-[200] flex flex-col bg-zinc-950/92 backdrop-blur-xl">
-          {/* Richer header with summary + actions */}
+        <div className="absolute inset-0 z-[200] flex flex-col deck-fullpage-backdrop">
           <div className="flex items-center justify-between px-6 lg:px-10 py-4 border-b border-zinc-800/60 flex-none">
             <div className="flex items-center gap-4">
-              <span className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-800/80 ${ac.icon}`}>
-                {icon}
+              <span className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg" style={{ background: ac.bg }}>
+                <span className={ac.icon}>{icon}</span>
               </span>
               <div>
-                <h2 className="text-[16px] font-semibold text-zinc-100">{title}</h2>
+                <h2 className="text-[15px] font-semibold text-zinc-100">{title}</h2>
                 <p className="text-[11px] text-zinc-500 mt-0.5">{summary || "Full view"}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {id === "digest" && (
-                <button
-                  type="button"
-                  onClick={() => { document.querySelector('[data-refresh-digest]')?.click(); }}
-                  className="flex items-center gap-1.5 rounded-lg border border-zinc-800/60 bg-zinc-900/80 px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors"
-                >
-                  <RefreshCw size={11} />
-                  Refresh
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => setFullPageOpen(false)}
@@ -226,18 +250,27 @@ function ExpandableCard({ id, icon, title, summary, accent, isExpanded, onToggle
               </button>
             </div>
           </div>
-
-          {/* Spacious, full-width content area with better typography */}
           <div className="flex-1 overflow-y-auto p-6 lg:p-10">
             <div className="max-w-5xl mx-auto">
               {empty ? (
-                <div className="flex flex-col items-center gap-3 py-16 text-center">
-                  <Inbox size={32} className="text-zinc-600" />
+                <div className="flex flex-col items-center gap-4 py-16 text-center">
+                  <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: ac.bg, border: `1px solid ${ac.border}` }}>
+                    <Inbox size={28} className={ac.icon} style={{ opacity: 0.5 }} />
+                  </div>
                   <p className="text-sm text-zinc-500 max-w-md">
                     {id === "digest" ? "No digest topics yet. Configure your interests to get started." :
                      id === "connectors" ? "No connectors configured. Add email or calendar to see items here." :
+                     id === "schedule" ? "No schedule entries. Add your weekly schedule to see it here." :
+                     id === "deadlines" ? "No upcoming deadlines. Add deadlines to track them here." :
+                     id === "daily-planner" ? "No planner data. Add goals and schedule entries to fill your planner." :
                      "Nothing here yet."}
                   </p>
+                  {onAdd && (
+                    <button onClick={onAdd} className="deck-add-btn" style={{ '--btn-accent': ac.strip, '--btn-glow': ac.glow, '--btn-bg': ac.bg } as React.CSSProperties}>
+                      <Plus size={14} />
+                      <span>{addLabel || "Add"}</span>
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="text-[14px] leading-relaxed text-zinc-200 space-y-6
@@ -251,7 +284,6 @@ function ExpandableCard({ id, icon, title, summary, accent, isExpanded, onToggle
               )}
             </div>
           </div>
-
         </div>
       )}
     </>
@@ -261,7 +293,6 @@ function ExpandableCard({ id, icon, title, summary, accent, isExpanded, onToggle
 export function AiPageDeck(props: DeckProps) {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
 
-  // Sync expanded cards from parent
   useEffect(() => {
     if (props.expandedCardIds) {
       setExpandedCards(props.expandedCardIds)
@@ -295,103 +326,121 @@ export function AiPageDeck(props: DeckProps) {
 
   const digestSummary = props.glanceMetrics?.length
     ? `${props.glanceMetrics.length} topics`
-    : "No digest yet"
+    : undefined
 
   const connectorsSummary = props.connectorStatus
     ? `${props.connectorStatus.unreadCount} unread, ${props.connectorStatus.todayEventCount} today`
-    : "No connectors"
+    : undefined
 
-  const focusSummary = props.focusSlot ? "Active goals" : "No active goals"
-  const planSummary = props.planSlot ? "Long-term goals" : "No long-term goals"
-  const reflectSummary = props.reflectSlot ? "Daily reflections" : "No reflections"
-  const dailyPlannerSummary = props.dailyPlannerSlot ? "Today's schedule & goals" : "No planner data"
-  const scheduleSummary = props.scheduleSlot ? "Weekly schedule" : "No schedule"
-  const deadlineSummary = props.deadlineSlot ? "Upcoming deadlines" : "No deadlines"
+  const focusSummary = props.focusSlot ? "Active goals" : undefined
+  const planSummary = props.planSlot ? "Long-term goals" : undefined
+  const reflectSummary = props.reflectSlot ? "Daily reflections" : undefined
+  const dailyPlannerSummary = props.dailyPlannerSlot ? "Today's schedule & goals" : undefined
+  const scheduleSummary = props.scheduleSlot ? "Weekly schedule" : undefined
+  const deadlineSummary = props.deadlineSlot ? "Upcoming deadlines" : undefined
 
+  // ALL cards always visible — no filtering
   const cardDefs = [
     {
       id: "digest",
-      icon: <Newspaper size={18} />,
+      icon: <Newspaper size={16} />,
       title: "Daily Digest",
       summary: digestSummary,
       accent: "cyan" as AccentKey,
       slot: props.digestSlot,
       loading: false,
       empty: !props.glanceMetrics?.length,
+      onAdd: undefined,
+      addLabel: "Configure interests to generate digests",
     },
     {
       id: "connectors",
-      icon: <Plug size={18} />,
+      icon: <Plug size={16} />,
       title: "Connectors",
       summary: connectorsSummary,
       accent: "cyan" as AccentKey,
       slot: props.connectorsSlot,
       loading: false,
       empty: !props.connectorStatus,
+      onAdd: () => props.onOpenSettings?.(),
+      addLabel: "Connect email or calendar",
     },
     {
       id: "focus",
-      icon: <Target size={18} />,
+      icon: <Target size={16} />,
       title: "Focus",
       summary: focusSummary,
       accent: "emerald" as AccentKey,
       slot: props.focusSlot,
       loading: false,
       empty: !props.focusSlot,
+      onAdd: props.onAddGoal,
+      addLabel: "Add your first goal",
     },
     {
       id: "plan",
-      icon: <Calendar size={18} />,
+      icon: <BookOpen size={16} />,
       title: "Plan",
       summary: planSummary,
       accent: "violet" as AccentKey,
       slot: props.planSlot,
       loading: false,
       empty: !props.planSlot,
+      onAdd: props.onAddGoal,
+      addLabel: "Create long-term goals",
     },
     {
       id: "reflect",
-      icon: <RefreshCw size={18} />,
+      icon: <RefreshCw size={16} />,
       title: "Reflect",
       summary: reflectSummary,
       accent: "amber" as AccentKey,
       slot: props.reflectSlot,
       loading: false,
       empty: !props.reflectSlot,
+      onAdd: undefined,
+      addLabel: "Reflections appear after daily reviews",
     },
     {
       id: "daily-planner",
-      icon: <Calendar size={18} />,
+      icon: <Calendar size={16} />,
       title: "Daily Planner",
-      summary: props.dailyPlannerSlot ? "Today's goals & timeline" : "No planner data",
-      accent: "cyan" as AccentKey,
+      summary: dailyPlannerSummary,
+      accent: "emerald" as AccentKey,
       slot: props.dailyPlannerSlot,
       loading: false,
       empty: !props.dailyPlannerSlot,
+      onAdd: props.onAddGoal,
+      addLabel: "Plan your day with goals",
     },
     {
       id: "schedule",
-      icon: <Clock size={18} />,
+      icon: <Clock size={16} />,
       title: "Schedule",
       summary: scheduleSummary,
-      accent: "emerald" as AccentKey,
+      accent: "cyan" as AccentKey,
       slot: props.scheduleSlot,
       loading: false,
       empty: !props.scheduleSlot,
+      onAdd: props.onAddSchedule,
+      addLabel: "Add weekly schedule entries",
     },
     {
       id: "deadlines",
-      icon: <AlertTriangle size={18} />,
+      icon: <AlertTriangle size={16} />,
       title: "Deadlines",
       summary: deadlineSummary,
       accent: "rose" as AccentKey,
       slot: props.deadlineSlot,
       loading: false,
       empty: !props.deadlineSlot,
+      onAdd: props.onAddDeadline,
+      addLabel: "Track upcoming deadlines",
     },
   ]
 
-  const visibleCards = cardDefs.filter(c => c.slot).sort((a, b) => {
+  // Sort: expanded first, then by original order
+  const sortedCards = [...cardDefs].sort((a, b) => {
     const aExp = expandedCards.has(a.id)
     const bExp = expandedCards.has(b.id)
     if (aExp && !bExp) return -1
@@ -401,27 +450,28 @@ export function AiPageDeck(props: DeckProps) {
 
   return (
     <>
+      {/* Glance metrics bar */}
       {(hasMetrics || hasConnectorStatus) && (
-        <div className="flex items-center gap-4 p-[6px_14px] mb-4 rounded-xl bg-zinc-900/50 border border-zinc-800/60 text-[11px] text-zinc-400 flex-none overflow-x-auto scrollbar-none">
+        <div className="deck-metrics-bar">
           {(props.glanceMetrics ?? []).map((m, i) => (
-            <div key={i} className="flex items-center gap-[5px] whitespace-nowrap cursor-pointer px-[6px] py-[2px] rounded-[5px] transition-colors duration-150 hover:bg-zinc-800/50">
-              <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-[0.5px]">{m.label}</span>
-              <span className="font-semibold text-zinc-100 ml-1 tabular-nums">{m.value}</span>
+            <div key={i} className="deck-metrics-item">
+              <span className="deck-metrics-label">{m.label}</span>
+              <span className="deck-metrics-value">{m.value}</span>
             </div>
           ))}
           {hasMetrics && hasConnectorStatus && <div className="w-px h-[14px] bg-zinc-800 flex-none" />}
           {props.connectorStatus && (
             <>
-              <div className="flex items-center gap-[5px] whitespace-nowrap cursor-pointer px-[6px] py-[2px] rounded-[5px] transition-colors duration-150 hover:bg-zinc-800/50" onClick={handleExpandConnectors}>
+              <div className="deck-metrics-item cursor-pointer" onClick={handleExpandConnectors}>
                 <span className={`w-[5px] h-[5px] rounded-full bg-emerald-400 flex-none ${props.connectorStatus.syncing ? "animate-pulse" : ""}`} />
                 <span>{props.connectorStatus.unreadCount} unread</span>
               </div>
-              <div className="flex items-center gap-[5px] whitespace-nowrap cursor-pointer px-[6px] py-[2px] rounded-[5px] transition-colors duration-150 hover:bg-zinc-800/50" onClick={handleExpandConnectors}>
+              <div className="deck-metrics-item cursor-pointer" onClick={handleExpandConnectors}>
                 <span className="w-[5px] h-[5px] rounded-full bg-cyan-400 flex-none" />
                 <span>{props.connectorStatus.todayEventCount} today</span>
               </div>
               {props.connectorStatus.lastSyncTime && (
-                <div className="font-mono text-[10px] text-zinc-500">{props.connectorStatus.lastSyncTime}</div>
+                <div className="font-mono text-[10px] text-zinc-600">{props.connectorStatus.lastSyncTime}</div>
               )}
             </>
           )}
@@ -430,7 +480,8 @@ export function AiPageDeck(props: DeckProps) {
 
       {props.historySlot}
 
-      <div className="relative bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/60 rounded-xl flex flex-col overflow-hidden shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_8px_32px_rgba(0,0,0,0.25)]" style={{ flex: 1, minHeight: 400 }}>
+      {/* Chat panel */}
+      <div className="deck-chat-container">
         <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-[3px] z-[2] bg-gradient-to-b from-pink-500 to-pink-700" />
         <ChatPanel
           messages={props.messages}
@@ -465,46 +516,47 @@ export function AiPageDeck(props: DeckProps) {
         />
       </div>
 
-      {visibleCards.length > 0 && (
-        <motion.div
-          layout
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4"
-          initial="hidden"
-          animate="visible"
-          variants={{
-            hidden: {},
-            visible: { transition: { staggerChildren: 0.06 } },
-          }}
-        >
-          {visibleCards.map((card) => {
-            const open = expandedCards.has(card.id)
-            return (
-              <motion.div
-                key={card.id}
-                className={open ? "col-span-full" : ""}
-                variants={{
-                  hidden: { opacity: 0, y: 20, scale: 0.97 },
-                  visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } },
-                }}
+      {/* Card grid — ALL cards always visible */}
+      <motion.div
+        layout
+        className="deck-card-grid"
+        initial="hidden"
+        animate="visible"
+        variants={{
+          hidden: {},
+          visible: { transition: { staggerChildren: 0.05 } },
+        }}
+      >
+        {sortedCards.map((card) => {
+          const open = expandedCards.has(card.id)
+          return (
+            <motion.div
+              key={card.id}
+              className={open ? "col-span-full" : ""}
+              variants={{
+                hidden: { opacity: 0, y: 16, scale: 0.98 },
+                visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] } },
+              }}
+            >
+              <ExpandableCard
+                id={card.id}
+                icon={card.icon}
+                title={card.title}
+                summary={card.summary}
+                accent={card.accent}
+                isExpanded={open}
+                onToggle={() => toggleCard(card.id)}
+                loading={card.loading}
+                empty={card.empty}
+                onAdd={card.onAdd}
+                addLabel={card.addLabel}
               >
-                <ExpandableCard
-                  id={card.id}
-                  icon={card.icon}
-                  title={card.title}
-                  summary={card.summary}
-                  accent={card.accent}
-                  isExpanded={open}
-                  onToggle={() => toggleCard(card.id)}
-                  loading={card.loading}
-                  empty={card.empty}
-                >
-                  {card.slot}
-                </ExpandableCard>
-              </motion.div>
-            )
-          })}
-        </motion.div>
-      )}
+                {card.slot}
+              </ExpandableCard>
+            </motion.div>
+          )
+        })}
+      </motion.div>
     </>
   )
 }

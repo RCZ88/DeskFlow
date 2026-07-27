@@ -274,6 +274,13 @@ export default function AIToolsTab({
   // ── Session history tool selection ──
   const [sessionTool, setSessionTool] = useState<string | null>(null)
 
+  // ── Detail view mode (popup modal vs inline dropdown) ──
+  const [detailViewMode, setDetailViewMode] = useState<'popup' | 'dropdown'>(() => {
+    try {
+      return (localStorage.getItem('ide-projects-detail-view') as 'popup' | 'dropdown') || 'popup'
+    } catch { return 'popup' }
+  })
+
   // ── Derived period ──
   const effectiveAiPeriod = useMemo<'week' | 'month' | 'all'>(() => {
     if (timeLock) return 'all'
@@ -283,6 +290,8 @@ export default function AIToolsTab({
       case 'month':
       case '30day':
         return 'month'
+      case '7day':
+        return 'week'
       default:
         return 'week'
     }
@@ -512,6 +521,16 @@ export default function AIToolsTab({
     }
   }, [aiAgents])
 
+  // Sync compareAgents when viewMode changes (tool IDs ≠ model IDs)
+  useEffect(() => {
+    const activeIds = displayedAgents
+      .filter((a) => a.status !== 'inactive' && a.tokens > 0)
+      .map((a) => a.id)
+    if (activeIds.length > 0) {
+      setCompareAgents(activeIds)
+    }
+  }, [viewMode])
+
   function filterOutlierValues(
     values: number[],
     stddevMultiplier = 3
@@ -528,7 +547,7 @@ export default function AIToolsTab({
   }
 
   const agentChartsData = useMemo(() => {
-    const daysMap: Record<string, number> = { week: 7, month: 30, all: 365 }
+    const daysMap: Record<string, number> = { week: 7, month: 30, all: 90 }
     const numDays =
       effectiveAiPeriod === 'all'
         ? (() => {
@@ -548,10 +567,10 @@ export default function AIToolsTab({
             }
             if (maxDate > 0 && minDate < Infinity) {
               return Math.min(
-                180,
+                365,
                 Math.max(
-                  1,
-                  Math.ceil((maxDate - minDate) / 86400000) + 30
+                  7,
+                  Math.ceil((maxDate - minDate) / 86400000) + 14
                 )
               )
             }
@@ -559,8 +578,27 @@ export default function AIToolsTab({
           })()
         : daysMap[effectiveAiPeriod] || 7
 
+    const startDate = effectiveAiPeriod === 'all'
+      ? (() => {
+          const byTool = overview?.aiUsage?.byTool || {}
+          let minDate = Infinity
+          for (const tool of Object.values(byTool) as any[]) {
+            const daily = tool?.daily
+            if (!daily) continue
+            for (const d of Object.keys(daily)) {
+              const t = new Date(d).getTime()
+              if (!isNaN(t) && t < minDate) minDate = t
+            }
+          }
+          if (minDate < Infinity) {
+            return subDays(new Date(minDate), 3)
+          }
+          return subDays(new Date(), numDays - 1)
+        })()
+      : subDays(new Date(), numDays - 1)
+
     const lastDays = eachDayOfInterval({
-      start: subDays(new Date(), numDays - 1),
+      start: startDate,
       end: new Date(),
     })
 
@@ -615,13 +653,16 @@ export default function AIToolsTab({
             ? 'Sessions'
             : 'Cost'
 
-    const dayLabels = lastDays.map((d) => format(d, 'MMM dd'))
+    const dayLabels = lastDays.map((d) => format(d, numDays <= 14 ? 'MMM dd' : 'MMM dd'))
     const dayStrs = lastDays.map((d) => format(d, 'yyyy-MM-dd'))
 
     return activeAgents.map((agent) => {
-      let data = lastDays.map((_, i) => getMetricValue(agent, dayStrs[i]))
-      if (excludeOutliers) data = filterOutlierValues(data)
-      if (logScale) data = data.map((v) => (v === 0 ? null : v)) as number[]
+      const rawData = lastDays.map((_, i) => getMetricValue(agent, dayStrs[i]))
+      let data = excludeOutliers ? filterOutlierValues(rawData) : rawData
+      const pointData = data.map((v) => (v === 0 ? null : v)) as (number | null)[]
+      if (logScale) {
+        data = data.map((v) => (v === 0 ? null : v)) as number[]
+      }
       return {
         agentId: agent.id,
         agentName: agent.name,
@@ -632,11 +673,29 @@ export default function AIToolsTab({
           datasets: [
             {
               label: `${agent.name} - ${metricLabel}`,
-              data,
-              backgroundColor: agent.color + '40',
+              data: logScale ? data : pointData,
+              backgroundColor: (ctx: any) => {
+                const chart = ctx.chart
+                const { ctx: canvasCtx, chartArea } = chart
+                if (!chartArea) return agent.color + '25'
+                const g = canvasCtx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+                g.addColorStop(0, agent.color + '35')
+                g.addColorStop(0.6, agent.color + '12')
+                g.addColorStop(1, agent.color + '00')
+                return g
+              },
               borderColor: agent.color,
               borderWidth: 2,
-              borderRadius: 4,
+              pointRadius: (ctx: any) => {
+                const val = ctx.raw
+                return val !== null && val !== 0 ? 3 : 0
+              },
+              pointBackgroundColor: agent.color,
+              pointBorderColor: agent.color,
+              pointHoverRadius: 5,
+              fill: true,
+              tension: 0.35,
+              spanGaps: false,
             },
           ],
         },
@@ -831,6 +890,27 @@ export default function AIToolsTab({
             </button>
             <div className="w-px h-5 bg-zinc-700/60" />
             <button
+              onClick={() => {
+                const next = detailViewMode === 'popup' ? 'dropdown' : 'popup'
+                setDetailViewMode(next)
+                try { localStorage.setItem('ide-projects-detail-view', next) } catch {}
+              }}
+              className={cn(
+                'flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg transition-colors duration-150 ring-1',
+                detailViewMode === 'dropdown'
+                  ? 'bg-emerald-500/15 ring-emerald-500/30 text-emerald-300'
+                  : 'text-zinc-500 bg-zinc-800/50 hover:text-zinc-200 ring-zinc-700/40'
+              )}
+            >
+              {detailViewMode === 'dropdown' ? (
+                <ChevronDown className="w-3 h-3" />
+              ) : (
+                <Monitor className="w-3 h-3" />
+              )}
+              {detailViewMode === 'dropdown' ? 'Dropdown' : 'Popup'}
+            </button>
+            <div className="w-px h-5 bg-zinc-700/60" />
+            <button
               onClick={handleDebugAgents}
               className="px-2.5 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200 bg-zinc-800/70 hover:bg-zinc-700/70 rounded-lg ring-1 ring-zinc-700/60 transition-colors duration-150"
             >
@@ -927,7 +1007,7 @@ export default function AIToolsTab({
           >
             <GlassCard>
               <div className="flex items-center justify-between mb-4">
-                <SectionHeader title="Tool Detection Details" icon={Bot} />
+                <SectionHeader title="Tool Detection Details" icon={<Bot />} />
                 <button
                   onClick={() => setShowAgentDebug(false)}
                   className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors duration-150 text-zinc-500 hover:text-zinc-200"
@@ -964,9 +1044,11 @@ export default function AIToolsTab({
                       <div>
                         <span className="text-zinc-500">By Tool:</span>
                         <span className="text-zinc-100 ml-2">
-                          {agentDebugInfo.database.byTool
-                            ?.map((t: any) => `${t.tool}: ${t.count}`)
-                            .join(', ') || 'None'}
+                          {Array.isArray(agentDebugInfo.database.byTool)
+                            ? agentDebugInfo.database.byTool
+                                .map((t: any) => `${t.tool}: ${t.count}`)
+                                .join(', ') || 'None'
+                            : 'None'}
                         </span>
                       </div>
                     </div>
@@ -1012,7 +1094,7 @@ export default function AIToolsTab({
                             Paths
                           </span>
                           <div className="text-[11px] text-zinc-400 font-mono mt-1">
-                            {info.paths.map((p: string, i: number) => (
+                            {(info.paths || []).map((p: string, i: number) => (
                               <div key={i} className="truncate" title={p}>
                                 {p}
                               </div>
@@ -1298,31 +1380,24 @@ export default function AIToolsTab({
             const agent = selectedAgentDetail
             const toolDaily = overview?.aiUsage?.byTool?.[agent.id]?.daily || {}
             const periodDays = eachDayOfInterval({
-              start: subDays(
-                new Date(),
-                effectiveAiPeriod === 'week'
-                  ? 6
-                  : effectiveAiPeriod === 'month'
-                    ? 29
-                    : (() => {
-                        const dateStrs = Object.keys(toolDaily)
-                        if (dateStrs.length > 0) {
-                          const sorted = dateStrs.sort()
-                          return Math.min(
-                            180,
-                            Math.max(
-                              Math.ceil(
-                                (new Date(sorted[sorted.length - 1]).getTime() -
-                                  new Date(sorted[0]).getTime()) /
-                                  86400000
-                              ) + 30,
-                              60
-                            )
-                          )
-                        }
-                        return 60
-                      })()
-              ),
+              start: (() => {
+                if (effectiveAiPeriod === 'all') {
+                  const dateStrs = Object.keys(toolDaily)
+                  if (dateStrs.length > 0) {
+                    const sorted = dateStrs.sort()
+                    return subDays(new Date(sorted[0]), 3)
+                  }
+                  return subDays(new Date(), 60)
+                }
+                return subDays(
+                  new Date(),
+                  effectiveAiPeriod === 'week'
+                    ? 6
+                    : effectiveAiPeriod === 'month'
+                      ? 29
+                      : 29
+                )
+              })(),
               end: new Date(),
             })
             const periodDayStrs = periodDays.map((d) => format(d, 'yyyy-MM-dd'))
@@ -1391,8 +1466,9 @@ export default function AIToolsTab({
                     ? 'Sessions'
                     : 'Cost'
 
-            return (
+            return detailViewMode === 'popup' ? (
               <motion.div
+                key="detail-popup"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -1578,12 +1654,27 @@ export default function AIToolsTab({
                                       logScale && v === 0 ? null : v
                                     ) as (number | null)[],
                                     borderColor: agent.color,
-                                    backgroundColor: agent.color + '20',
+                                    backgroundColor: (ctx: any) => {
+                                      const chart = ctx.chart
+                                      const { ctx: canvasCtx, chartArea } = chart
+                                      if (!chartArea) return agent.color + '20'
+                                      const g = canvasCtx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+                                      g.addColorStop(0, agent.color + '30')
+                                      g.addColorStop(0.6, agent.color + '10')
+                                      g.addColorStop(1, agent.color + '00')
+                                      return g
+                                    },
                                     borderWidth: 2,
-                                    pointRadius: 2,
+                                    pointRadius: (ctx: any) => {
+                                      const val = ctx.raw
+                                      return val !== null && val !== 0 ? 3 : 0
+                                    },
                                     pointBackgroundColor: agent.color,
+                                    pointBorderColor: agent.color,
+                                    pointHoverRadius: 5,
+                                    spanGaps: false,
                                     fill: true,
-                                    tension: 0.3,
+                                    tension: 0.35,
                                   },
                                 ],
                               }}
@@ -1598,9 +1689,11 @@ export default function AIToolsTab({
                                     bodyColor: '#a1a1aa',
                                     borderColor: '#27272a',
                                     borderWidth: 1,
+                                    cornerRadius: 8,
+                                    padding: { top: 10, bottom: 10, left: 14, right: 14 },
                                     callbacks: {
                                       label: (ctx) => {
-                                        const val = ctx.parsed.y || 0
+                                        const val = ctx.parsed?.y ?? 0
                                         if (aiChartMode === 'tokens')
                                           return ` ${formatTokens(val)} tokens`
                                         if (aiChartMode === 'cost')
@@ -1615,20 +1708,23 @@ export default function AIToolsTab({
                                 scales: {
                                   x: {
                                     grid: { display: false },
+                                    border: { color: 'rgba(113,113,122,0.12)' },
                                     ticks: {
-                                      color: '#52525b',
+                                      color: '#71717a',
                                       maxTicksLimit: 10,
-                                      font: { size: 10 },
+                                      font: { size: 10, weight: '500' as const },
                                     },
                                   },
                                   y: {
                                     type: logScale
                                       ? ('logarithmic' as const)
                                       : ('linear' as const),
-                                    grid: { color: '#1c1c1f' },
+                                    grid: { color: 'rgba(113,113,122,0.06)' },
+                                    border: { color: 'rgba(113,113,122,0.12)' },
                                     ticks: {
-                                      color: '#52525b',
+                                      color: '#71717a',
                                       font: { size: 10 },
+                                      padding: 8,
                                       callback: (v) => {
                                         if (v === null) return ''
                                         if (aiChartMode === 'tokens')
@@ -1701,6 +1797,96 @@ export default function AIToolsTab({
                     )}
                   </div>
                 </motion.div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="detail-dropdown"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-9 h-9 rounded-lg flex items-center justify-center"
+                        style={{ backgroundColor: agent.color + '22' }}
+                      >
+                        <Code2 className="w-4 h-4" style={{ color: agent.color }} />
+                      </div>
+                      <div>
+                        <h3 className="text-[13px] font-semibold text-zinc-100">{agent.name}</h3>
+                        <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+                          <div className={cn('w-1.5 h-1.5 rounded-full', agent.status === 'active' ? 'bg-emerald-400' : agent.status === 'idle' ? 'bg-amber-400' : 'bg-zinc-600')} />
+                          <span>{agent.status === 'active' ? 'Active' : agent.status === 'idle' ? 'Idle' : 'Not detected'}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { setSelectedAgent(null); setSelectedAgentDetail(null) }}
+                      className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors duration-150 text-zinc-500 hover:text-zinc-200"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {agent.status !== 'inactive' && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                        {[
+                          { label: 'Tokens', comp: <TokenValue value={totalTokens} />, color: 'text-zinc-100' },
+                          { label: 'Input', comp: <TokenValue value={totalIn} />, color: 'text-blue-400' },
+                          { label: 'Output', comp: <TokenValue value={totalOut} />, color: 'text-emerald-400' },
+                          { label: 'Ratio', comp: <span>{inOutRatio}</span>, color: 'text-amber-400' },
+                          { label: 'Messages', comp: <span>{totalMessages.toLocaleString()}</span>, color: 'text-blue-400' },
+                          { label: 'Cost', comp: <CostValue value={totalCost} />, color: 'text-emerald-400' },
+                        ].map((s) => (
+                          <div key={s.label} className="bg-zinc-950/60 rounded-lg p-2 text-center ring-1 ring-zinc-800/50">
+                            <div className={cn('text-sm font-bold tabular-nums', s.color)}>{s.comp}</div>
+                            <div className="text-[8px] text-zinc-600 uppercase tracking-wider mt-0.5">{s.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="h-48">
+                        <Line
+                          data={{
+                            labels: modalChartLabels,
+                            datasets: [{
+                              label: `${agent.name} - ${modalChartLabel}`,
+                              data: modalChartClean.map((v) => logScale && v === 0 ? null : v) as (number | null)[],
+                              borderColor: agent.color,
+                              backgroundColor: (ctx: any) => {
+                                const chart = ctx.chart
+                                const { ctx: canvasCtx, chartArea } = chart
+                                if (!chartArea) return agent.color + '20'
+                                const g = canvasCtx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+                                g.addColorStop(0, agent.color + '30')
+                                g.addColorStop(1, agent.color + '00')
+                                return g
+                              },
+                              borderWidth: 2,
+                              pointRadius: (ctx: any) => ctx.raw !== null && ctx.raw !== 0 ? 2 : 0,
+                              pointBackgroundColor: agent.color,
+                              fill: true,
+                              tension: 0.35,
+                              spanGaps: false,
+                            }],
+                          }}
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(9,9,11,0.95)', titleColor: '#fff', bodyColor: '#a1a1aa', borderColor: '#27272a', borderWidth: 1, cornerRadius: 8 } },
+                            scales: {
+                              x: { grid: { display: false }, border: { color: 'rgba(113,113,122,0.12)' }, ticks: { color: '#71717a', maxTicksLimit: 8, font: { size: 9 } } },
+                              y: { type: logScale ? ('logarithmic' as const) : ('linear' as const), grid: { color: 'rgba(113,113,122,0.06)' }, border: { color: 'rgba(113,113,122,0.12)' }, ticks: { color: '#71717a', font: { size: 9 }, padding: 6 }, ...(logScale ? {} : { beginAtZero: true }) },
+                            },
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </motion.div>
             )
           })()}
@@ -2123,12 +2309,16 @@ export default function AIToolsTab({
                         {agentChart.metricLabel}
                       </span>
                     </div>
-                    <div className="h-40">
-                      <Bar
+                    <div className="h-52">
+                      <Line
                         data={agentChart.chartData}
                         options={{
                           responsive: true,
                           maintainAspectRatio: false,
+                          interaction: {
+                            mode: 'index',
+                            intersect: false,
+                          },
                           plugins: {
                             legend: { display: false },
                             tooltip: {
@@ -2137,9 +2327,13 @@ export default function AIToolsTab({
                               bodyColor: '#a1a1aa',
                               borderColor: '#27272a',
                               borderWidth: 1,
+                              cornerRadius: 8,
+                              padding: { top: 10, bottom: 10, left: 14, right: 14 },
+                              titleFont: { weight: '600' as const, size: 13 },
+                              bodyFont: { size: 12 },
                               callbacks: {
                                 label: (ctx) => {
-                                  const val = ctx.parsed.y || 0
+                                  const val = ctx.parsed?.y ?? 0
                                   if (aiChartMode === 'tokens') {
                                     const mode =
                                       tokenDisplayMode === 'input'
@@ -2161,20 +2355,23 @@ export default function AIToolsTab({
                           scales: {
                             x: {
                               grid: { display: false },
+                              border: { color: 'rgba(113,113,122,0.12)' },
                               ticks: {
-                                color: '#52525b',
-                                maxTicksLimit: 5,
-                                font: { size: 10 },
+                                color: '#71717a',
+                                maxTicksLimit: effectiveAiPeriod === 'week' ? 7 : 8,
+                                font: { size: 10, weight: '500' as const },
                               },
                             },
                             y: {
                               type: logScale
                                 ? ('logarithmic' as const)
                                 : ('linear' as const),
-                              grid: { color: '#1c1c1f' },
+                              grid: { color: 'rgba(113,113,122,0.06)' },
+                              border: { color: 'rgba(113,113,122,0.12)' },
                               ticks: {
-                                color: '#52525b',
+                                color: '#71717a',
                                 font: { size: 10 },
+                                padding: 8,
                                 callback: (v) => {
                                   if (v === null) return ''
                                   if (aiChartMode === 'tokens')
@@ -2271,12 +2468,15 @@ export default function AIToolsTab({
                 const activeAgents = aiAgents.filter(
                   (a) => a.status !== 'inactive' && a.tokens > 0
                 )
-                const hasModelData = activeAgents.some((a) => {
+                const allModelNames = new Set<string>()
+                for (const agent of activeAgents) {
                   const modelDaily =
-                    overview?.aiUsage?.byTool?.[a.id]?.modelDaily || {}
-                  return Object.keys(modelDaily).length > 1
-                })
-                if (!hasModelData) return null
+                    overview?.aiUsage?.byTool?.[agent.id]?.modelDaily || {}
+                  for (const modelName of Object.keys(modelDaily)) {
+                    allModelNames.add(modelName)
+                  }
+                }
+                if (allModelNames.size === 0) return null
 
                 let numDays =
                   effectiveAiPeriod === 'week'
@@ -2284,29 +2484,37 @@ export default function AIToolsTab({
                     : effectiveAiPeriod === 'month'
                       ? 30
                       : 7
+                let modelAnchorDate: Date | null = null
                 if (effectiveAiPeriod === 'all') {
-                  const allDaily =
-                    overview?.aiUsage?.byTool?.[
-                      selectedAgentDetail?.id || ''
-                    ]?.daily || {}
-                  const dateStrs = Object.keys(allDaily)
-                  if (dateStrs.length > 0) {
-                    const sorted = dateStrs.sort()
+                  const byTool = overview?.aiUsage?.byTool || {}
+                  let allDates: string[] = []
+                  let minDate = Infinity
+                  for (const tool of Object.values(byTool) as any[]) {
+                    const toolDates = Object.keys(tool?.daily || {})
+                    allDates = allDates.concat(toolDates)
+                    for (const d of toolDates) {
+                      const t = new Date(d).getTime()
+                      if (!isNaN(t) && t < minDate) minDate = t
+                    }
+                  }
+                  if (allDates.length > 0) {
+                    const sorted = allDates.sort()
                     const span =
                       Math.ceil(
-                        (new Date(
-                          sorted[sorted.length - 1]
-                        ).getTime() -
+                        (new Date(sorted[sorted.length - 1]).getTime() -
                           new Date(sorted[0]).getTime()) /
                           86400000
-                      ) + 30
-                    numDays = Math.min(180, Math.max(span, 60))
+                      ) + 14
+                    numDays = Math.min(365, Math.max(span, 60))
+                    if (minDate < Infinity) {
+                      modelAnchorDate = subDays(new Date(minDate), 3)
+                    }
                   } else {
                     numDays = 60
                   }
                 }
                 const periodDays = eachDayOfInterval({
-                  start: subDays(new Date(), numDays - 1),
+                  start: modelAnchorDate || subDays(new Date(), numDays - 1),
                   end: new Date(),
                 })
                 const modelColors = [
@@ -2340,28 +2548,24 @@ export default function AIToolsTab({
                     : aiChartMode.charAt(0).toUpperCase() +
                       aiChartMode.slice(1)
 
-                const allModels: {
-                  agent: string
-                  model: string
-                  color: string
-                }[] = []
+                const allModelsMap = new Map<string, { agent: string; model: string; color: string }>()
                 for (const agent of activeAgents) {
                   const modelDaily =
                     overview?.aiUsage?.byTool?.[agent.id]?.modelDaily || {}
                   for (const model of Object.keys(modelDaily)) {
-                    allModels.push({
-                      agent: agent.name,
-                      model,
-                      color: agent.color,
-                    })
+                    if (!allModelsMap.has(model)) {
+                      allModelsMap.set(model, {
+                        agent: agent.name,
+                        model,
+                        color: agent.color,
+                      })
+                    }
                   }
                 }
+                const allModels = Array.from(allModelsMap.values())
 
                 const datasets = allModels.slice(0, 10).map((entry, idx) => {
-                  const modelDaily =
-                    overview?.aiUsage?.byTool?.[
-                      activeAgents.find((a) => a.name === entry.agent)?.id
-                    ]?.modelDaily?.[entry.model] || {}
+                  const byTool = overview?.aiUsage?.byTool || {}
                   return {
                     label:
                       entry.model.length > 25
@@ -2369,7 +2573,19 @@ export default function AIToolsTab({
                         : entry.model,
                     data: periodDays.map((d) => {
                       const dayStr = format(d, 'yyyy-MM-dd')
-                      return modelDaily[dayStr]?.[metricField] || 0
+                      let total = 0
+                      for (const tool of Object.values(byTool) as any[]) {
+                        const dayData = tool?.modelDaily?.[entry.model]?.[dayStr]
+                        if (!dayData) continue
+                        if (aiChartMode === 'tokens') {
+                          if (tokenDisplayMode === 'input') total += dayData.tokens_in || 0
+                          else if (tokenDisplayMode === 'output') total += dayData.tokens_out || 0
+                          else total += dayData.tokens || 0
+                        } else if (aiChartMode === 'messages') total += dayData.messageCount || 0
+                        else if (aiChartMode === 'sessions') total += dayData.sessions || 0
+                        else if (aiChartMode === 'cost') total += dayData.cost || 0
+                      }
+                      return total
                     }),
                     backgroundColor:
                       modelColors[idx % modelColors.length] + '70',
@@ -2397,7 +2613,7 @@ export default function AIToolsTab({
                         </div>
                       </div>
                     </div>
-                    <div className="h-64">
+                    <div className="h-72">
                       <Bar
                         data={{
                           labels: periodDays.map((d) =>
@@ -2414,12 +2630,13 @@ export default function AIToolsTab({
                           plugins: {
                             legend: {
                               display: true,
-                              position: 'top',
+                              position: 'bottom',
                               labels: {
-                                color: '#52525b',
-                                font: { size: 9 },
-                                boxWidth: 8,
-                                padding: 8,
+                                color: '#71717a',
+                                font: { size: 10 },
+                                boxWidth: 10,
+                                padding: 10,
+                                usePointStyle: true,
                               },
                             },
                             tooltip: {
@@ -2428,6 +2645,7 @@ export default function AIToolsTab({
                               bodyColor: '#a1a1aa',
                               borderColor: '#27272a',
                               borderWidth: 1,
+                              cornerRadius: 8,
                               callbacks: {
                                 label: (ctx) => {
                                   const val = ctx.parsed.y || 0
@@ -2453,18 +2671,20 @@ export default function AIToolsTab({
                             x: {
                               stacked: true,
                               ticks: {
-                                color: '#52525b',
+                                color: '#71717a',
                                 maxTicksLimit:
                                   numDays <= 7 ? 7 : 8,
-                                font: { size: 10 },
+                                font: { size: 10, weight: '500' as const },
                               },
                               grid: { display: false },
+                              border: { color: 'rgba(113,113,122,0.12)' },
                             },
                             y: {
                               stacked: true,
                               ticks: {
-                                color: '#52525b',
+                                color: '#71717a',
                                 font: { size: 10 },
+                                padding: 8,
                                 callback: (v) => {
                                   if (aiChartMode === 'tokens')
                                     return formatTokens(v as number)
@@ -2473,10 +2693,13 @@ export default function AIToolsTab({
                                   return String(v)
                                 },
                               },
-                              grid: { color: '#1c1c1f' },
+                              grid: { color: 'rgba(113,113,122,0.06)' },
+                              border: { color: 'rgba(113,113,122,0.12)' },
                               beginAtZero: true,
                             },
                           },
+                          barPercentage: 0.82,
+                          categoryPercentage: 0.85,
                         }}
                       />
                     </div>
@@ -2485,8 +2708,12 @@ export default function AIToolsTab({
               })()}
 
               {/* Multi-Agent Comparison Chart */}
-              {aiAgents.filter((a) => a.status !== 'inactive').length >
-                1 && (
+              {(() => {
+                const activeForCompare = viewMode === 'model'
+                  ? displayedAgents.filter((a) => a.status !== 'inactive' && a.tokens > 0)
+                  : aiAgents.filter((a) => a.status !== 'inactive' && a.tokens > 0)
+                if (activeForCompare.length < 1) return null
+                return (
                 <GlassCard>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2.5">
@@ -2495,7 +2722,7 @@ export default function AIToolsTab({
                       </div>
                       <div>
                         <h3 className="text-[13px] font-semibold text-zinc-100">
-                          Compare AI Tools
+                          Compare {viewMode === 'model' ? 'Models' : 'AI Tools'}
                         </h3>
                         <p className="text-[11px] text-zinc-600">
                           Grouped daily breakdown
@@ -2516,16 +2743,14 @@ export default function AIToolsTab({
                                 : selectedPeriod === '30day'
                                   ? '30 Days'
                                   : 'All Time'}{' '}
-                      \u00b7{' '}
+                      ·{' '}
                       {aiChartMode.charAt(0).toUpperCase() +
                         aiChartMode.slice(1)}
                     </span>
                   </div>
 
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {aiAgents
-                      .filter((a) => a.status !== 'inactive')
-                      .map((agent) => (
+                    {activeForCompare.map((agent) => (
                         <label
                           key={agent.id}
                           className="flex items-center gap-1.5 px-2 py-1 bg-zinc-900/60 rounded-lg cursor-pointer hover:bg-zinc-800/60 transition-colors duration-150 ring-1 ring-zinc-800/40"
@@ -2566,16 +2791,21 @@ export default function AIToolsTab({
                           : effectiveAiPeriod === 'month'
                             ? 30
                             : 7
+                      let anchorDate: Date | null = null
                       if (effectiveAiPeriod === 'all') {
                         const byTool =
                           overview?.aiUsage?.byTool || {}
                         let allDates: string[] = []
+                        let minDate = Infinity
                         for (const toolId of Object.keys(byTool)) {
-                          allDates = allDates.concat(
-                            Object.keys(
-                              byTool[toolId]?.daily || {}
-                            )
+                          const toolDates = Object.keys(
+                            byTool[toolId]?.daily || {}
                           )
+                          allDates = allDates.concat(toolDates)
+                          for (const d of toolDates) {
+                            const t = new Date(d).getTime()
+                            if (!isNaN(t) && t < minDate) minDate = t
+                          }
                         }
                         if (allDates.length > 0) {
                           const sorted = allDates.sort()
@@ -2585,18 +2815,21 @@ export default function AIToolsTab({
                                 sorted[sorted.length - 1]
                               ).getTime() -
                                 new Date(sorted[0]).getTime()) /
-                                86400000
-                            ) + 30
+                                  86400000
+                            ) + 14
                           numDays = Math.min(
-                            180,
+                            365,
                             Math.max(span, 60)
                           )
+                          if (minDate < Infinity) {
+                            anchorDate = subDays(new Date(minDate), 3)
+                          }
                         } else {
                           numDays = 60
                         }
                       }
                       const periodDays = eachDayOfInterval({
-                        start: subDays(new Date(), numDays - 1),
+                        start: anchorDate || subDays(new Date(), numDays - 1),
                         end: new Date(),
                       })
                       const labels = periodDays.map((d) =>
@@ -2606,34 +2839,55 @@ export default function AIToolsTab({
                         )
                       )
 
-                      const selected = aiAgents.filter(
-                        (a) =>
-                          compareAgents.includes(a.id) &&
-                          a.status !== 'inactive'
+                      const selected = activeForCompare.filter(
+                        (a) => compareAgents.includes(a.id)
                       )
                       const datasets = selected.map((agent) => {
-                        let data = periodDays.map((d) => {
-                          const dayStr = format(d, 'yyyy-MM-dd')
-                          const dayData =
-                            overview?.aiUsage?.byTool?.[
-                              agent.id
-                            ]?.daily?.[dayStr]
-                          if (!dayData) return 0
-                          if (aiChartMode === 'tokens') {
-                            if (tokenDisplayMode === 'input')
-                              return dayData.tokens_in || 0
-                            if (tokenDisplayMode === 'output')
-                              return dayData.tokens_out || 0
-                            return dayData.tokens || 0
-                          }
-                          if (aiChartMode === 'messages')
-                            return dayData.messageCount || 0
-                          if (aiChartMode === 'sessions')
-                            return dayData.sessions || 0
-                          if (aiChartMode === 'cost')
-                            return dayData.cost || 0
-                          return 0
-                        })
+                        let data: number[]
+                        if (viewMode === 'model') {
+                          const modelName = agent.models[0]
+                          if (!modelName) return { label: agent.name, data: [], backgroundColor: agent.color + 'CC', borderColor: agent.color, borderWidth: 1, borderRadius: 2 }
+                          data = periodDays.map((d) => {
+                            const dayStr = format(d, 'yyyy-MM-dd')
+                            const byTool = overview?.aiUsage?.byTool || {}
+                            let total = 0
+                            for (const tool of Object.values(byTool) as any[]) {
+                              const dayData = tool?.modelDaily?.[modelName]?.[dayStr]
+                              if (!dayData) continue
+                              if (aiChartMode === 'tokens') {
+                                if (tokenDisplayMode === 'input') total += dayData.tokens_in || 0
+                                else if (tokenDisplayMode === 'output') total += dayData.tokens_out || 0
+                                else total += dayData.tokens || 0
+                              } else if (aiChartMode === 'messages') total += dayData.messageCount || 0
+                              else if (aiChartMode === 'sessions') total += dayData.sessions || 0
+                              else if (aiChartMode === 'cost') total += dayData.cost || 0
+                            }
+                            return total
+                          })
+                        } else {
+                          data = periodDays.map((d) => {
+                            const dayStr = format(d, 'yyyy-MM-dd')
+                            const dayData =
+                              overview?.aiUsage?.byTool?.[
+                                agent.id
+                              ]?.daily?.[dayStr]
+                            if (!dayData) return 0
+                            if (aiChartMode === 'tokens') {
+                              if (tokenDisplayMode === 'input')
+                                return dayData.tokens_in || 0
+                              if (tokenDisplayMode === 'output')
+                                return dayData.tokens_out || 0
+                              return dayData.tokens || 0
+                            }
+                            if (aiChartMode === 'messages')
+                              return dayData.messageCount || 0
+                            if (aiChartMode === 'sessions')
+                              return dayData.sessions || 0
+                            if (aiChartMode === 'cost')
+                              return dayData.cost || 0
+                            return 0
+                          })
+                        }
                         if (excludeOutliers)
                           data = filterOutlierValues(data)
                         if (logScale)
@@ -2673,6 +2927,7 @@ export default function AIToolsTab({
                                 bodyColor: '#a1a1aa',
                                 borderColor: '#27272a',
                                 borderWidth: 1,
+                                cornerRadius: 8,
                                 callbacks: {
                                   label: (ctx) => {
                                     const val =
@@ -2700,20 +2955,23 @@ export default function AIToolsTab({
                             scales: {
                               x: {
                                 grid: { display: false },
+                                border: { color: 'rgba(113,113,122,0.12)' },
                                 ticks: {
-                                  color: '#52525b',
+                                  color: '#71717a',
                                   maxTicksLimit: 8,
-                                  font: { size: 10 },
+                                  font: { size: 10, weight: '500' as const },
                                 },
                               },
                               y: {
                                 type: logScale
                                   ? ('logarithmic' as const)
                                   : ('linear' as const),
-                                grid: { color: '#1c1c1f' },
+                                grid: { color: 'rgba(113,113,122,0.06)' },
+                                border: { color: 'rgba(113,113,122,0.12)' },
                                 ticks: {
-                                  color: '#52525b',
+                                  color: '#71717a',
                                   font: { size: 10 },
+                                  padding: 8,
                                   callback: (v) => {
                                     if (v === null) return ''
                                     if (aiChartMode === 'tokens')
@@ -2730,13 +2988,16 @@ export default function AIToolsTab({
                                   : { beginAtZero: true }),
                               },
                             },
+                            barPercentage: 0.82,
+                            categoryPercentage: 0.85,
                           }}
                         />
                       )
                     })()}
                   </div>
                 </GlassCard>
-              )}
+                )
+              })()}
             </>
           )}
         </motion.div>

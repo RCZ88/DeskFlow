@@ -5,6 +5,8 @@ import {
   Clock, Activity, Cpu, TrendingUp, Code2,
   PieChart as PieChartIcon, FileText, Timer, Wrench, Loader2
 } from 'lucide-react';
+import { WorkspaceCard } from './workspace/_ds/containers';
+import { listContainer, riseItem } from './workspace/_ds/motion';
 import { format } from 'date-fns';
 import {
   Chart as ChartJS,
@@ -64,16 +66,17 @@ function StatCard({ icon: Icon, iconColor, iconBg, value, label, sub, delay = 0 
   icon: any; iconColor: string; iconBg: string; value: string; label: string; sub?: string; delay?: number;
 }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay, duration: 0.3 }}
-      className="glass rounded-xl p-4 flex items-center gap-3 min-w-0">
-      <div className={`flex-shrink-0 w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center`}>
-        <Icon className={`w-5 h-5 ${iconColor}`} />
-      </div>
-      <div className="min-w-0">
-        <div className="text-lg font-semibold text-white truncate">{value}</div>
-        <div className="text-xs text-zinc-500 truncate">{label}</div>
-        {sub && <div className="text-[10px] text-zinc-600 truncate">{sub}</div>}
-      </div>
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay, duration: 0.3 }}>
+      <WorkspaceCard className="flex items-center gap-3 min-w-0 !p-4">
+        <div className={`flex-shrink-0 w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center`}>
+          <Icon className={`w-5 h-5 ${iconColor}`} />
+        </div>
+        <div className="min-w-0">
+          <div className="text-lg font-semibold text-white truncate">{value}</div>
+          <div className="text-xs text-zinc-500 truncate">{label}</div>
+          {sub && <div className="text-[10px] text-zinc-600 truncate">{sub}</div>}
+        </div>
+      </WorkspaceCard>
     </motion.div>
   );
 }
@@ -83,20 +86,22 @@ function ChartCard({ title, icon: Icon, subtitle, children, isEmpty, emptyText, 
 }) {
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}
-      className={`glass rounded-xl p-5 ${full ? 'col-span-2' : ''}`}>
-      <div className="flex items-center gap-2 mb-1">
-        <Icon className="w-4 h-4 text-zinc-400" />
-        <h3 className="text-sm font-medium text-zinc-200">{title}</h3>
-      </div>
-      {subtitle && <p className="text-[11px] text-zinc-600 mb-3">{subtitle}</p>}
-      <div className="relative" style={{ height: isEmpty ? 200 : 240 }}>
-        {isEmpty ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600">
-            <BarChart3 className="w-8 h-8 mb-2 opacity-30" />
-            <span className="text-xs">{emptyText}</span>
-          </div>
-        ) : children}
-      </div>
+      className={full ? 'col-span-2' : ''}>
+      <WorkspaceCard className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Icon className="w-4 h-4 text-zinc-400" />
+          <h3 className="text-sm font-medium text-zinc-200">{title}</h3>
+        </div>
+        {subtitle && <p className="text-[11px] text-zinc-600 mb-3">{subtitle}</p>}
+        <div className="relative" style={{ height: isEmpty ? 200 : 240 }}>
+          {isEmpty ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600">
+              <BarChart3 className="w-8 h-8 mb-2 opacity-30" />
+              <span className="text-xs">{emptyText}</span>
+            </div>
+          ) : children}
+        </div>
+      </WorkspaceCard>
     </motion.div>
   );
 }
@@ -304,7 +309,7 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
         )}
 
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.35 }}
-          className="glass rounded-xl p-5">
+          className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5">
           <div className="flex items-center gap-2 mb-4">
             <Wrench className="w-4 h-4 text-purple-400" />
             <h3 className="text-sm font-medium text-zinc-200">AI Usage Summary</h3>
@@ -363,7 +368,7 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.35 }}
-            className="glass rounded-xl p-5">
+            className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5">
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="w-4 h-4 text-rose-400" />
               <h3 className="text-sm font-medium text-zinc-200">Problems Progress</h3>
@@ -400,7 +405,7 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
             )}
           </motion.div>
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4, duration: 0.35 }}
-            className="glass rounded-xl p-5">
+            className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5">
             <div className="flex items-center gap-2 mb-3">
               <FileText className="w-4 h-4 text-blue-400" />
               <h3 className="text-sm font-medium text-zinc-200">Requests Progress</h3>
@@ -512,7 +517,7 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
       </div>
 
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.35 }}
-        className="glass rounded-xl p-5">
+        className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5">
         <div className="flex items-center gap-2 mb-4">
           <Wrench className="w-4 h-4 text-purple-400" />
           <h3 className="text-sm font-medium text-zinc-200">AI Usage Summary</h3>
@@ -571,7 +576,7 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.35 }}
-          className="glass rounded-xl p-5">
+          className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="w-4 h-4 text-rose-400" />
             <h3 className="text-sm font-medium text-zinc-200">Problems Progress</h3>
@@ -608,7 +613,7 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
           )}
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4, duration: 0.35 }}
-          className="glass rounded-xl p-5">
+          className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5">
           <div className="flex items-center gap-2 mb-3">
             <FileText className="w-4 h-4 text-blue-400" />
             <h3 className="text-sm font-medium text-zinc-200">Requests Progress</h3>

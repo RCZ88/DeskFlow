@@ -108,8 +108,8 @@ export function StatsDashboard({ rawData, loading, error, onRetry }: StatsDashbo
         borderColor: stats.tokensByTool.labels.map((_, i) => CHART_BORDERS[i % CHART_BORDERS.length]),
         borderWidth: 1.5,
         borderRadius: { topLeft: 6, topRight: 6 },
-        barPercentage: 0.7,
-        categoryPercentage: 0.8,
+        barPercentage: 0.85,
+        categoryPercentage: 0.75,
       }],
     };
   }, [stats]);
@@ -124,8 +124,8 @@ export function StatsDashboard({ rawData, loading, error, onRetry }: StatsDashbo
         borderColor: stats.sessionsByAgent.labels.map((_, i) => CHART_BORDERS[(i + 1) % CHART_BORDERS.length]),
         borderWidth: 1.5,
         borderRadius: { topLeft: 6, topRight: 6 },
-        barPercentage: 0.7,
-        categoryPercentage: 0.8,
+        barPercentage: 0.85,
+        categoryPercentage: 0.75,
       }],
     };
   }, [stats]);

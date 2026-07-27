@@ -1057,6 +1057,25 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeGetWalletHealth: () => ipcRenderer.invoke('finance:get-wallet-health'),
   financeGetTransferCostMatrix: () => ipcRenderer.invoke('finance:get-transfer-cost-matrix'),
 
+  // ========== Fixed Expenses ==========
+  fixedExpensesList: (month?: string) => ipcRenderer.invoke('fixed-expenses:list', month),
+  fixedExpensesCreate: (data: any) => ipcRenderer.invoke('fixed-expenses:create', data),
+  fixedExpensesUpdate: (data: any) => ipcRenderer.invoke('fixed-expenses:update', data),
+  fixedExpensesDelete: (id: number) => ipcRenderer.invoke('fixed-expenses:delete', id),
+  fixedExpensesMarkPaid: (data: any) => ipcRenderer.invoke('fixed-expenses:mark-paid', data),
+  fixedExpensesSkipMonth: (data: any) => ipcRenderer.invoke('fixed-expenses:skip-month', data),
+  fixedExpensesUnmarkPaid: (data: any) => ipcRenderer.invoke('fixed-expenses:unmark-paid', data),
+  fixedExpensesPaymentHistory: (id: number) => ipcRenderer.invoke('fixed-expenses:payment-history', id),
+  fixedExpensesDetectRecurring: () => ipcRenderer.invoke('fixed-expenses:detect-recurring'),
+  fixedExpensesSummary: (month?: string) => ipcRenderer.invoke('fixed-expenses:summary', month),
+
+  // ========== Budgets ==========
+  budgetsList: () => ipcRenderer.invoke('budgets:list'),
+  budgetsCreate: (data: any) => ipcRenderer.invoke('budgets:create', data),
+  budgetsUpdate: (data: any) => ipcRenderer.invoke('budgets:update', data),
+  budgetsDelete: (id: number) => ipcRenderer.invoke('budgets:delete', id),
+  budgetsGetStatus: (month?: string) => ipcRenderer.invoke('budgets:get-status', month),
+
   // ========== Audit Log ==========
   auditList: (opts?: { limit?: number; offset?: number; entity_type?: string; entity_id?: number }) => ipcRenderer.invoke('audit:list', opts || {}),
   auditGet: (id: number) => ipcRenderer.invoke('audit:get', id),

@@ -23,7 +23,7 @@ The AI agent (opencode) operates amnesiac between sessions. It repeatedly makes 
   "mcp": {
     "@21st-dev/magic": { "type": "local", "command": ["node", "scripts/mcp-launcher.mjs", "21st-dev"], "enabled": true },
     "probe": { "type": "local", "command": ["node", "C:/Users/cleme/Documents/COMPUTAH_SAYENCE/probe/dist/index.js"], "enabled": true },
-    "notion": { "type": "local", "command": ["npx", "-y", "@suekou/mcp-notion-server"], "environment": { "NOTION_API_TOKEN": "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" }, "enabled": true },
+    "notion": { "type": "local", "command": ["npx", "-y", "@suekou/mcp-notion-server"], "environment": { "NOTION_API_TOKEN": "REDACTED_NOTION_API_TOKEN" }, "enabled": true },
     "shadcn": { "type": "local", "command": ["npx", "-y", "shadcn@latest", "mcp"], "enabled": true },
     "magicui": { "type": "local", "command": ["npx", "-y", "@magicuidesign/mcp@latest"], "enabled": true },
     "lucide": { "type": "local", "command": ["npx", "-y", "lucide-icons-mcp"], "enabled": true },

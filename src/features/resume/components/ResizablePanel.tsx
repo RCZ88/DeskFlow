@@ -1,66 +1,70 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { GripVertical } from 'lucide-react';
 
-interface ResizablePanelProps {
-  defaultWidth?: number;
-  minWidth?: number;
-  maxWidth?: number;
+interface SplitPanelProps {
+  left: React.ReactNode;
+  right: React.ReactNode;
+  defaultRatio?: number;
+  minRatio?: number;
+  maxRatio?: number;
   storageKey?: string;
-  children: React.ReactNode;
   className?: string;
 }
 
 export function ResizablePanel({
-  defaultWidth = 400,
-  minWidth = 300,
-  maxWidth = 800,
-  storageKey = 'resume-preview-width',
-  children,
+  left,
+  right,
+  defaultRatio = 55,
+  minRatio = 30,
+  maxRatio = 80,
+  storageKey = 'resume-split-ratio',
   className = '',
-}: ResizablePanelProps) {
-  const [width, setWidth] = useState(() => {
+}: SplitPanelProps) {
+  const [ratio, setRatio] = useState<number>(() => {
     try {
       const saved = localStorage.getItem(storageKey);
-      return saved ? parseInt(saved, 10) : defaultWidth;
+      const parsed = saved ? parseFloat(saved) : defaultRatio;
+      if (Number.isNaN(parsed)) return defaultRatio;
+      return Math.max(minRatio, Math.min(maxRatio, parsed));
     } catch {
-      return defaultWidth;
+      return defaultRatio;
     }
   });
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
-  const startWidthRef = useRef(0);
+  const startRatioRef = useRef(0);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setIsDragging(true);
     startXRef.current = e.clientX;
-    startWidthRef.current = width;
-  }, [width]);
+    startRatioRef.current = ratio;
+  }, [ratio]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging) return;
-    const delta = startXRef.current - e.clientX;
-    const newWidth = Math.max(minWidth, Math.min(maxWidth, startWidthRef.current + delta));
-    setWidth(newWidth);
-  }, [isDragging, minWidth, maxWidth]);
+    if (!isDragging || !containerRef.current) return;
+    const containerWidth = containerRef.current.offsetWidth;
+    if (containerWidth <= 0) return;
+    const deltaPct = ((startXRef.current - e.clientX) / containerWidth) * 100;
+    const newRatio = Math.max(minRatio, Math.min(maxRatio, startRatioRef.current + deltaPct));
+    setRatio(newRatio);
+  }, [isDragging, minRatio, maxRatio]);
 
   const handleMouseUp = useCallback(() => {
-    if (isDragging) {
-      setIsDragging(false);
-      try {
-        localStorage.setItem(storageKey, String(width));
-      } catch { /* ignore */ }
-    }
-  }, [isDragging, width, storageKey]);
+    if (!isDragging) return;
+    setIsDragging(false);
+    try {
+      localStorage.setItem(storageKey, String(ratio));
+    } catch { /* ignore */ }
+  }, [isDragging, ratio, storageKey]);
 
   useEffect(() => {
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    }
+    if (!isDragging) return;
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
@@ -72,28 +76,42 @@ export function ResizablePanel({
   return (
     <div ref={containerRef} className={`flex h-full ${className}`}>
       <div
-        style={{ width: `${width}px` }}
-        className="shrink-0 overflow-y-auto scrollbar-thin"
+        style={{ flexBasis: `${ratio}%` }}
+        className="shrink-0 grow-0 min-w-0 h-full overflow-y-auto scrollbar-thin"
       >
-        {children}
+        {left}
       </div>
 
-      {/* Drag Handle */}
       <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-valuenow={Math.round(ratio)}
+        aria-valuemin={minRatio}
+        aria-valuemax={maxRatio}
         onMouseDown={handleMouseDown}
-        className={`w-1 shrink-0 cursor-col-resize flex items-center justify-center group transition-colors duration-150 ${
+        onDoubleClick={() => setRatio(defaultRatio)}
+        title="Drag to resize · Double-click to reset"
+        className={`w-1.5 shrink-0 grow-0 cursor-col-resize flex items-center justify-center group relative transition-colors duration-150 ${
           isDragging
             ? 'bg-[var(--page-accent)]'
-            : 'bg-zinc-700 hover:bg-zinc-500'
+            : 'bg-zinc-700/50 hover:bg-zinc-500'
         }`}
       >
+        <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
         <GripVertical
-          className={`w-3 h-3 transition-colors duration-150 ${
+          className={`relative w-3 h-3 transition-colors duration-150 ${
             isDragging
               ? 'text-white'
               : 'text-zinc-500 group-hover:text-zinc-300'
           }`}
         />
+      </div>
+
+      <div
+        style={{ flexBasis: `${100 - ratio}%` }}
+        className="shrink-0 grow-0 min-w-0 h-full overflow-y-auto scrollbar-thin"
+      >
+        {right}
       </div>
     </div>
   );

@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, AlertTriangle, CheckCircle, Clock, GitBranch } from 'lucide-react';
+import { ChevronDown, ChevronRight, AlertTriangle, CheckCircle, GitBranch } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { WorkspaceCard, WorkspaceSection } from './_ds/containers';
+import { listContainer, riseItem, expandPanel, DUR, EASE_OUT } from './_ds/motion';
+import { WorkspaceStatusBadge } from './_ds/badges';
+import { EmptyState, Skeleton } from './_ds/primitives';
 
 interface FeatureEntry {
   name: string;
@@ -8,18 +13,15 @@ interface FeatureEntry {
   mermaid: string;
 }
 
-const STATUS_COLORS = {
-  implemented: 'text-emerald-400 bg-emerald-900/20',
-  partial: 'text-amber-400 bg-amber-900/20',
-  broken: 'text-red-400 bg-red-900/20',
-  planned: 'text-zinc-400 bg-zinc-800/30',
+const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  implemented: { label: 'Implemented', cls: 'text-emerald-300 bg-emerald-500/15 ring-1 ring-emerald-500/30' },
+  partial:     { label: 'Partial',     cls: 'text-amber-300 bg-amber-500/15 ring-1 ring-amber-500/30' },
+  broken:      { label: 'Broken',      cls: 'text-red-300 bg-red-500/15 ring-1 ring-red-500/30' },
+  planned:     { label: 'Planned',     cls: 'text-zinc-400 bg-zinc-500/15 ring-1 ring-zinc-500/30' },
 };
 
-const SEVERITY_COLORS = {
-  critical: 'text-red-400',
-  high: 'text-orange-400',
-  medium: 'text-amber-400',
-  low: 'text-zinc-500',
+const SEVERITY_ICON: Record<string, string> = {
+  critical: 'text-red-400', high: 'text-orange-400', medium: 'text-amber-400', low: 'text-zinc-500',
 };
 
 export default function FeatureLogicPanel() {
@@ -79,81 +81,114 @@ export default function FeatureLogicPanel() {
   const criticalGaps = features.reduce((sum, f) => sum + f.gaps.filter(g => g.severity === 'critical').length, 0);
 
   return (
-    <div className="p-3 space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <GitBranch size={14} className="text-[var(--page-accent)]" />
-          <h3 className="text-[12px] font-semibold text-white">Feature Logic</h3>
-        </div>
-        <div className="flex items-center gap-2">
-          {criticalGaps > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/30 text-red-400">{criticalGaps} critical</span>
-          )}
-          {totalGaps > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">{totalGaps} gaps</span>
-          )}
-        </div>
-      </div>
+    <div className="flex flex-col gap-3 p-3 min-h-0 overflow-y-auto ws-scroll">
+      <WorkspaceSection
+        title="Feature Logic"
+        icon={GitBranch}
+        accent="amber"
+        action={
+          <div className="flex items-center gap-2">
+            {criticalGaps > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full text-red-300 bg-red-500/15 ring-1 ring-red-500/30 font-medium">
+                {criticalGaps} critical
+              </span>
+            )}
+            {totalGaps > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full text-amber-300 bg-amber-500/15 ring-1 ring-amber-500/30 font-medium">
+                {totalGaps} gaps
+              </span>
+            )}
+          </div>
+        }
+      >
+        {loading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 rounded-xl" />)}
+          </div>
+        ) : features.length === 0 ? (
+          <EmptyState
+            icon={<GitBranch className="w-5 h-5" />}
+            title="No features documented yet"
+            hint="Feature registry will appear here once documented."
+          />
+        ) : (
+          <motion.div
+            className="flex flex-col gap-1"
+            variants={listContainer} initial="hidden" animate="show"
+          >
+            {features.map((f) => {
+              const isOpen = expanded === f.name;
+              const badge = STATUS_BADGE[f.status] ?? STATUS_BADGE.planned;
 
-      {/* Feature list */}
-      {loading ? (
-        <div className="text-[11px] text-zinc-500">Loading...</div>
-      ) : features.length === 0 ? (
-        <div className="text-[11px] text-zinc-600 italic">No features documented yet.</div>
-      ) : (
-        <div className="space-y-1">
-          {features.map((f) => (
-            <div key={f.name} className="rounded-lg bg-zinc-800/30 border border-zinc-700/30 overflow-hidden">
-              {/* Feature header */}
-              <button
-                onClick={() => setExpanded(expanded === f.name ? null : f.name)}
-                className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-zinc-800/50 transition-colors"
-              >
-                {expanded === f.name ? <ChevronDown size={12} className="text-zinc-500" /> : <ChevronRight size={12} className="text-zinc-500" />}
-                <span className="text-[11px] font-medium text-zinc-200 flex-1">{f.name}</span>
-                <span className={`text-[9px] px-1.5 py-0.5 rounded ${STATUS_COLORS[f.status]}`}>{f.status}</span>
-                {f.gaps.length > 0 && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-900/20 text-amber-400">{f.gaps.length}</span>
-                )}
-              </button>
+              return (
+                <motion.div key={f.name} variants={riseItem}>
+                  <WorkspaceCard variant="inset" className="!p-0 overflow-hidden">
+                    <button
+                      onClick={() => setExpanded(isOpen ? null : f.name)}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-zinc-800/30 transition-colors duration-150"
+                    >
+                      <motion.div
+                        animate={{ rotate: isOpen ? 90 : 0 }}
+                        transition={{ duration: DUR.fast, ease: EASE_OUT }}
+                      >
+                        <ChevronRight size={12} className="text-zinc-500" />
+                      </motion.div>
+                      <span className="text-[12px] font-medium text-zinc-200 flex-1">{f.name}</span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${badge.cls}`}>
+                        {badge.label}
+                      </span>
+                      {f.gaps.length > 0 && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">
+                          {f.gaps.length}
+                        </span>
+                      )}
+                    </button>
 
-              {/* Expanded content */}
-              {expanded === f.name && (
-                <div className="px-2.5 pb-2.5 space-y-2 border-t border-zinc-700/20">
-                  {/* Mermaid diagram */}
-                  {f.mermaid && (
-                    <div className="mt-2">
-                      <div className="text-[9px] uppercase tracking-wider text-zinc-500 mb-1">Flow</div>
-                      <pre className="text-[10px] text-zinc-400 bg-zinc-900/50 rounded p-2 overflow-x-auto font-mono whitespace-pre-wrap">{f.mermaid}</pre>
-                    </div>
-                  )}
+                    <AnimatePresence initial={false}>
+                      {isOpen && (
+                        <motion.div
+                          variants={expandPanel} initial="hidden" animate="show" exit="exit"
+                          className="overflow-hidden"
+                        >
+                          <div className="px-3 pb-3 space-y-3 border-t border-zinc-800/40">
+                            {f.mermaid && (
+                              <div className="mt-2">
+                                <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-semibold">Flow</span>
+                                <pre className="mt-1 text-[10px] text-zinc-400 bg-zinc-950/60 rounded-lg p-2.5 overflow-x-auto font-mono whitespace-pre-wrap ring-1 ring-zinc-800/40">
+                                  {f.mermaid}
+                                </pre>
+                              </div>
+                            )}
 
-                  {/* Gaps */}
-                  {f.gaps.length > 0 && (
-                    <div>
-                      <div className="text-[9px] uppercase tracking-wider text-zinc-500 mb-1">Open Gaps</div>
-                      {f.gaps.map((g, i) => (
-                        <div key={i} className="flex items-start gap-1.5 text-[10px] py-0.5">
-                          <AlertTriangle size={10} className={`${SEVERITY_COLORS[g.severity]} mt-0.5 shrink-0`} />
-                          <span className="text-zinc-400">{g.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {f.gaps.length === 0 && (
-                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
-                      <CheckCircle size={10} />
-                      <span>No open gaps</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+                            {f.gaps.length > 0 ? (
+                              <div>
+                                <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-semibold">Open Gaps</span>
+                                <div className="mt-1 space-y-1">
+                                  {f.gaps.map((g, i) => (
+                                    <div key={i} className="flex items-start gap-2 text-[11px] py-1">
+                                      <AlertTriangle size={11} className={`${SEVERITY_ICON[g.severity]} mt-0.5 shrink-0`} />
+                                      <span className="text-zinc-400">{g.text}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 mt-1">
+                                <CheckCircle size={11} />
+                                <span>No open gaps</span>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </WorkspaceCard>
+                </motion.div>
+              );
+            })}
+          </motion.div>
+        )}
+      </WorkspaceSection>
     </div>
   );
 }

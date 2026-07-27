@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RotateCcw, Loader2, BookOpen, Flame, ArrowLeft } from 'lucide-react';
+import { RotateCcw, Loader2, BookOpen, Flame, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { BlurFade } from '../ui/blur-fade';
 
 const api = (window as any).deskflowAPI;

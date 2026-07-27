@@ -62,14 +62,18 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
   }, [active]);
 
   return (
-    <GlassCard accent="pink" className="relative overflow-hidden h-full">
-      {active && <Particles className="opacity-50" quantity={14} color="#ec4899" opacity={0.14} />}
-      {active && <BorderBeam size={200} duration={8} colorFrom="#ec4899" colorTo="#f472b6" />}
+    <GlassCard className="relative overflow-hidden h-full bg-[#09090b] border border-zinc-800/60 rounded-xl p-5" accent="violet">
+      {/* Aurora Effect */}
+      <div className="absolute top-[-50%] left-[-10%] right-[-10%] h-[200px]
+                      bg-[radial-gradient(ellipse_at_center,_rgba(139,92,246,0.15)_0%,_transparent_70%)]
+                      blur-2xl pointer-events-none" />
+      {active && <Particles className="opacity-40" quantity={14} color="#8b5cf6" opacity={0.15} />}
+      {active && <BorderBeam size={200} duration={8} colorFrom="#8b5cf6" colorTo="#6366f1" />}
       <div className="relative z-10 flex flex-col items-center gap-4">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
-            <Focus className="w-4 h-4 text-pink-400" />
-            <h3 className="text-sm font-semibold text-zinc-200">Deep Focus</h3>
+            <Focus className="w-4 h-4 text-violet-400" />
+            <h3 className="text-sm font-semibold text-zinc-100">Deep Focus</h3>
           </div>
           <Badge variant={active ? 'default' : 'secondary'}>{active ? 'Active' : 'Idle'}</Badge>
         </div>
@@ -78,7 +82,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
           value={active ? progressPct : 100}
           size={112}
           strokeWidth={8}
-          gaugePrimaryColor={active ? '#ec4899' : 'rgba(236,72,153,0.35)'}
+          gaugePrimaryColor={active ? '#8b5cf6' : 'rgba(139,92,246,0.35)'}
           gaugeSecondaryColor="rgba(255,255,255,0.06)"
           linear={active}
           linearDurationMs={1000}
@@ -131,7 +135,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
                   onClick={() => setMode('timer')}
                   className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all ${
                     mode === 'timer'
-                      ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
+                      ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
                       : 'text-zinc-500 hover:text-zinc-400'
                   }`}
                 >
@@ -161,7 +165,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
                       onClick={() => setMins(p.sec / 60)}
                       className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
                         mins === p.sec / 60
-                          ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
+                          ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
                           : 'bg-zinc-800/60 text-zinc-400 border border-zinc-800/40 hover:bg-zinc-800'
                       }`}
                     >

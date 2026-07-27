@@ -81,6 +81,10 @@ export interface TxModalProps {
 	onAddFtPerson?: (name: string) => void
 	onSubmit: (data: Record<string, any>) => Promise<{ id: number } | null>
 	onClose: () => void
+	/** Pre-select a follow-through person when opening from Person Detail */
+	initialFtPersonId?: number | null
+	/** Pre-enable follow-through mode */
+	initialOnBehalfOf?: boolean
 }
 
 /** Currency formatting hook — returns { format(number), symbol } for the display currency. */

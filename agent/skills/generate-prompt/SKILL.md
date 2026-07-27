@@ -234,7 +234,20 @@ After any MCP-sourced component, the target AI must:
 
 **Before writing the prompt, create a CONTEXT_BUNDLE.md.** The target AI receiving the prompt does NOT have access to your codebase. The context bundle replaces that gap.
 
-Save to `agent/docs/<relevant-dir>/CONTEXT_BUNDLE.md` and include:
+**Folder naming convention (STRICT — must follow exactly):**
+```
+agent/docs/generate-prompt-docs/<descriptive-name>-DDMMYYYY/
+```
+- `<descriptive-name>` = short kebab-case description of the task (e.g., `dashboard-redesign`, `ai-assistant-fix`, `finance-revamp`)
+- `-DDMMYYYY` = today's date with NO separators (e.g., `-27072026`)
+- Example: `agent/docs/generate-prompt-docs/dashboard-redesign-27072026/`
+- The folder MUST be unique. Check existing folders first. If a folder with the same name+date exists, append a suffix (e.g., `-v2`).
+
+**Inside the folder, create two files:**
+1. `CONTEXT_BUNDLE.md` — the code context
+2. `PROMPT.md` — the prompt to send to the target AI
+
+Save CONTEXT_BUNDLE.md to `agent/docs/generate-prompt-docs/<name>-DDMMYYYY/CONTEXT_BUNDLE.md` and include:
 
 - **Relevant source code** — copy-paste exact lines, file paths, and line numbers for every file the solution touches
 - **Data structures** — schemas, interfaces, types, enums
@@ -315,9 +328,10 @@ Prompt should feel like a high-level technical brief:
 1. **User:** "the charts on external page are bad."
 2. **You:** [Update `state.md`]
 3. **You:** [Read codebase and planning docs]
-4. **You:** [Create `agent/docs/external-page-chart-revamp/CONTEXT_BUNDLE.md` with relevant code snippets, schemas, IPC endpoints, design tokens]
-5. **You:** [Write prompt referencing the context bundle, demanding a high-fidelity design → save to `agent/docs/external-page-chart-revamp/prompt.md`]
-6. **You:** "I have created a context bundle and prompt. The prompt tasks the AI with designing a complete data-processing and visual overhaul for the charts, with the context bundle as its codebase reference. Send the prompt and context bundle to the AI to get the full design."
+4. **You:** [Check existing folders in `agent/docs/generate-prompt-docs/` to ensure uniqueness]
+5. **You:** [Create `agent/docs/generate-prompt-docs/external-page-chart-revamp-02072026/CONTEXT_BUNDLE.md` with relevant code snippets, schemas, IPC endpoints, design tokens]
+6. **You:** [Write prompt referencing the context bundle, demanding a high-fidelity design → save to `agent/docs/generate-prompt-docs/external-page-chart-revamp-02072026/PROMPT.md`]
+7. **You:** "I have created a context bundle and prompt. The prompt tasks the AI with designing a complete data-processing and visual overhaul for the charts, with the context bundle as its codebase reference. Send the prompt and context bundle to the AI to get the full design."
 
 ---
 
@@ -333,7 +347,7 @@ The RESULT.md from the prompt's target AI must be consumed **exactly as-is**. Do
 - Pre-process it to "fit" the codebase
 - Remove or reorder sections
 
-Save it to `agent/docs/.../RESULT.md` verbatim.
+Save it to `agent/docs/generate-prompt-docs/<name>-DDMMYYYY/RESULT.md` verbatim.
 
 ### Rule 2 — Implement After Analysis (Not During)
 
@@ -449,7 +463,7 @@ Before writing ANY code, plan how the RESULT.md solution maps to your specific c
    - RESULT.md says "add `electron:execute-command` handler" → grep main.ts to see if it already exists
    - RESULT.md says "write to `agent/context/session-summaries.json`" → check the path exists and has correct permissions
 
-3. **Store this plan** as `agent/docs/.../IMPLEMENTATION_PLAN.md`. It should include:
+3. **Store this plan** as `agent/docs/generate-prompt-docs/.../IMPLEMENTATION_PLAN.md`. It should include:
    ```markdown
    ## Implementation Plan
    

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Settings, BookOpen, Newspaper, Bell, History } from 'lucide-react';
+import { Settings, BookOpen, Newspaper, Bell, History, Sparkles, ListTodo } from 'lucide-react';
 import { AiPageDeck } from '../components/ai/deck/AiPageDeck';
 import { useCanvasState } from '../hooks/useCanvasState';
 import { CanvasContainer } from '../components/ai/canvas/CanvasContainer';
@@ -385,6 +385,46 @@ export function AiPage() {
       source: 'user',
     });
   }, [canvasMode, connectorsState]);
+
+  // Auto-spawn schedule, deadline, and planner cards in Canvas mode
+  const scheduleCardIdRef = useRef<string | null>(null);
+  const deadlineCardIdRef = useRef<string | null>(null);
+  const plannerCardIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!canvasMode) return;
+    if (goalsState === 'loading') return;
+
+    // Spawn planner card if goals exist and no planner card
+    if (goals.length > 0 && !plannerCardIdRef.current) {
+      const existing = Object.values(canvas.allCards).find((c: any) => c.type === 'planner');
+      if (!existing) {
+        plannerCardIdRef.current = canvas.addCard('planner', {}, {
+          position: { x: 40, y: 400 },
+          size: { w: 10, h: 8 },
+          pinned: true,
+          source: 'user',
+        });
+      } else {
+        plannerCardIdRef.current = existing.id;
+      }
+    }
+
+    // Spawn schedule card if we have goals (indicates active usage)
+    if (goals.length > 0 && !scheduleCardIdRef.current) {
+      const existing = Object.values(canvas.allCards).find((c: any) => c.type === 'schedule');
+      if (!existing) {
+        scheduleCardIdRef.current = canvas.addCard('schedule', {}, {
+          position: { x: 440, y: 400 },
+          size: { w: 12, h: 8 },
+          pinned: true,
+          source: 'user',
+        });
+      } else {
+        scheduleCardIdRef.current = existing.id;
+      }
+    }
+  }, [canvasMode, goalsState, goals.length]);
 
   const unfinishedCount = goals.filter(g => g.status !== 'done' && g.status !== 'missed').length;
   const mode = determineMode(goals);
@@ -1162,6 +1202,15 @@ export function AiPage() {
               >
                 <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>+ New</span>
               </button>
+              <button
+                onClick={() => setShowFeatures(true)}
+                title="AI Features"
+                className="dk-topbar-btn"
+                style={{ height: 26, padding: "0 10px", borderColor: "rgba(167,139,250,0.3)", color: "#a78bfa" }}
+              >
+                <Sparkles size={11} />
+                <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>Features</span>
+              </button>
             </div>
           </div>
 
@@ -1331,6 +1380,20 @@ export function AiPage() {
               voiceSupported={voice.supported}
               autoApprove={autoApprove}
               onToggleAutoApprove={() => setAutoApprove(v => !v)}
+              onAddGoal={() => {
+                setExpandedCardIds(new Set(['daily-planner']))
+                showToast('Add a goal using the form in Daily Planner', 'info')
+              }}
+              onAddSchedule={() => {
+                setExpandedCardIds(new Set(['schedule']))
+                showToast('Add a schedule entry using the form in Schedule', 'info')
+              }}
+              onAddDeadline={() => {
+                setExpandedCardIds(new Set(['deadlines']))
+                showToast('Add a deadline using the Deadline Tracker', 'info')
+              }}
+              onAddReminder={() => setHistoryOpen(true)}
+              onOpenFeatures={() => setShowFeatures(true)}
               digestSlot={
                 <DailyDigestBoard
                   variant="inset"
@@ -1372,7 +1435,7 @@ export function AiPage() {
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onIntent={handlePaletteIntent} />
 
-      <AIFeaturesModal open={showFeatures} onClose={() => setShowFeatures(false)} />
+      <AIFeaturesModal open={showFeatures} onClose={() => setShowFeatures(false)} onTryIt={(prompt) => { chat.setInput(prompt); setShowFeatures(false); }} />
       <ConnectorSetupModal open={showConnectorSetup} onClose={() => setShowConnectorSetup(false)} onCreated={() => { setShowConnectorSetup(false); loadConnectors(); }} />
 
       <AiProviderSelectModal open={configuringFeature === 'researchDigest'} onClose={() => setConfiguringFeature(null)} featureKey="researchDigest" featureLabel="Research Digest" accentColor="from-cyan-500 to-blue-500" providers={aiProviders} currentRouting={aiRouting.researchDigest} onSave={(e) => handleRoutingSave('researchDigest', e)} />

@@ -62,7 +62,11 @@ function FeatureCard({ feature, expanded, onToggle }: { feature: typeof features
   );
 }
 
-export function FeatureShowcase() {
+interface FeatureShowcaseProps {
+  embedded?: boolean;
+}
+
+export function FeatureShowcase({ embedded = false }: FeatureShowcaseProps) {
   const [activeCategory, setActiveCategory] = useState<Category | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
@@ -94,25 +98,27 @@ export function FeatureShowcase() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f0e0d]">
-      {/* Hero */}
-      <div className="max-w-7xl mx-auto px-6 pt-12 pb-8 text-center">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <Layers className="w-5 h-5 text-clay-400" />
-            <span className="font-mono text-[11px] uppercase tracking-[0.3em] text-clay-300">Lyceum</span>
-          </div>
-          <h1 className="font-serif text-4xl md:text-5xl font-bold text-[#fafaf9] mb-3">Feature Showcase</h1>
-          <p className="text-zinc-400 max-w-xl mx-auto text-sm">
-            Every block type the AI can generate and the system can parse.
-            <br />
-            <span className="text-zinc-500">{features.length} features • Interactive demos • .lmd syntax</span>
-          </p>
-        </motion.div>
-      </div>
+    <div className={embedded ? '' : 'min-h-screen bg-[#0f0e0d]'}>
+      {/* Hero — only when standalone */}
+      {!embedded && (
+        <div className="max-w-7xl mx-auto px-6 pt-12 pb-8 text-center">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <Layers className="w-5 h-5 text-clay-400" />
+              <span className="font-mono text-[11px] uppercase tracking-[0.3em] text-clay-300">Lyceum</span>
+            </div>
+            <h1 className="font-serif text-4xl md:text-5xl font-bold text-[#fafaf9] mb-3">Feature Showcase</h1>
+            <p className="text-zinc-400 max-w-xl mx-auto text-sm">
+              Every block type the AI can generate and the system can parse.
+              <br />
+              <span className="text-zinc-500">{features.length} features • Interactive demos • .lmd syntax</span>
+            </p>
+          </motion.div>
+        </div>
+      )}
 
       {/* Controls */}
-      <div className="sticky top-0 z-40 bg-[#0f0e0d]/80 backdrop-blur-md border-b border-white/5">
+      <div className={`sticky top-0 z-40 border-b border-white/5 ${embedded ? 'bg-[#1c1917]/80 backdrop-blur-md' : 'bg-[#0f0e0d]/80 backdrop-blur-md'}`}>
         <div className="max-w-7xl mx-auto px-6 py-3 flex flex-wrap items-center gap-3">
           {/* Category pills */}
           <div className="flex gap-1 flex-wrap">

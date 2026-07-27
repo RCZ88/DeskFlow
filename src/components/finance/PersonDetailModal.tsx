@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from 'react';
-import { X, Phone, Mail, FileText, Wallet, Calendar, CheckCircle2, Clock, Plus, Minus, ChevronDown, Check, Landmark, Pencil, Trash2 } from 'lucide-react';
+import { X, Phone, Mail, FileText, Wallet, Calendar, CheckCircle2, Clock, Plus, Minus, ChevronDown, Check, Landmark, Pencil, Trash2, ArrowUpRight } from 'lucide-react';
 import type { FinanceFtPerson, FinanceTransaction, FinanceWallet } from './finance-types';
 import { getRepaymentStatus, getFtPerson } from '../../lib/receivables';
 import { TopUpModal } from './modals/TopUpModal';
@@ -14,10 +14,11 @@ interface PersonDetailModalProps {
   displayCurrency: string;
   onRecordPayment: () => void;
   onRefresh: () => void;
+  onNewTransaction?: (personId: number) => void;
 }
 
 export function PersonDetailModal({
-  open, onClose, person, transactions, wallets, displayCurrency, onRecordPayment, onRefresh
+  open, onClose, person, transactions, wallets, displayCurrency, onRecordPayment, onRefresh, onNewTransaction
 }: PersonDetailModalProps) {
   const [filter, setFilter] = useState<'all' | 'pending' | 'repaid'>('all');
   const [showTopUp, setShowTopUp] = useState(false);
@@ -269,6 +270,12 @@ export function PersonDetailModal({
               <Wallet className="w-3.5 h-3.5" /> Record Payment
             </button>
           )}
+          {onNewTransaction && (
+            <button onClick={() => onNewTransaction(person.id)}
+              className="w-full mt-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 font-medium text-xs py-2.5 transition-colors flex items-center justify-center gap-1.5">
+              <ArrowUpRight className="w-3.5 h-3.5" /> New Transaction from {person.name.split(' ')[0]}'s Balance
+            </button>
+          )}
         </div>
 
         {/* Transaction List */}
@@ -294,34 +301,54 @@ export function PersonDetailModal({
                 const isRepaid = status.repaid;
                 const stillOwed = Math.abs(tx.amount) - status.totalRepaid;
                 const isTopUp = tx.description?.toLowerCase().includes('top-up') || tx.description?.toLowerCase().includes('topup');
+                // Determine direction: income with on_behalf_of=0 = top-up (adds to balance)
+                // income with on_behalf_of=1 = repayment (subtracts from balance)
+                // expense with on_behalf_of=1 = deduction/FT expense (subtracts from balance)
+                const isIncome = tx.type === 'income';
+                const isRepayment = isIncome && tx.on_behalf_of === 1;
+                const isDeduction = tx.type === 'expense' && tx.on_behalf_of === 1;
+                const addsToBalance = isIncome && tx.on_behalf_of === 0;
+                const subtractsFromBalance = isRepayment || isDeduction;
                 return (
-                  <div key={tx.id} className={`rounded-lg border p-3 transition-colors ${isRepaid ? 'bg-emerald-500/5 border-emerald-500/10' : isTopUp ? 'bg-violet-500/5 border-violet-500/10' : 'bg-zinc-800/30 border-zinc-800/60'}`}>
+                  <div key={tx.id} className={`rounded-lg border p-3 transition-colors ${isRepaid ? 'bg-emerald-500/5 border-emerald-500/10' : isTopUp || addsToBalance ? 'bg-violet-500/5 border-violet-500/10' : 'bg-zinc-800/30 border-zinc-800/60'}`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        {isTopUp ? (
+                        {addsToBalance ? (
                           <div className="w-5 h-5 rounded-full bg-violet-500/20 flex items-center justify-center">
                             <Plus className="w-3 h-3 text-violet-400" />
                           </div>
                         ) : isRepaid ? (
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : isDeduction ? (
+                          <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center">
+                            <Minus className="w-3 h-3 text-amber-400" />
+                          </div>
                         ) : (
                           <Clock className="w-3.5 h-3.5 text-amber-400" />
                         )}
                         <span className="text-xs font-medium text-zinc-200">{tx.description || 'Untitled expense'}</span>
-                        {isTopUp && (
+                        {addsToBalance && (
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-violet-500/20 text-violet-400">Top-Up</span>
                         )}
+                        {isRepayment && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-500/20 text-emerald-400">Repayment</span>
+                        )}
+                        {isDeduction && !isTopUp && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-500/20 text-amber-400">Deduction</span>
+                        )}
                       </div>
-                      <span className={`text-xs font-bold tabular-nums ${isRepaid ? 'text-emerald-400' : isTopUp ? 'text-violet-400' : 'text-amber-400'}`}>
-                        {displayCurrency}{Math.abs(tx.amount).toFixed(2)}
+                      <span className={`text-xs font-bold tabular-nums ${addsToBalance ? 'text-violet-400' : isRepaid ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {addsToBalance ? '+' : '-'}{displayCurrency}{Math.abs(tx.amount).toFixed(2)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between mt-1.5">
                       <span className="flex items-center gap-1 text-[10px] text-zinc-500">
                         <Calendar className="w-3 h-3" /> {new Date(tx.date).toLocaleDateString()}
                       </span>
-                      {isTopUp && <span className="text-[10px] text-violet-400/80">Added to balance</span>}
-                      {!isTopUp && !isRepaid && stillOwed > 0 && <span className="text-[10px] text-amber-400/80">{displayCurrency}{stillOwed.toFixed(2)} remaining</span>}
+                      {addsToBalance && <span className="text-[10px] text-violet-400/80">Added to balance</span>}
+                      {isRepayment && <span className="text-[10px] text-emerald-400/80">Reduced balance (repayment)</span>}
+                      {isDeduction && !isTopUp && <span className="text-[10px] text-amber-400/80">Reduced balance</span>}
+                      {!addsToBalance && !isRepaid && !isDeduction && !isTopUp && stillOwed > 0 && <span className="text-[10px] text-amber-400/80">{displayCurrency}{stillOwed.toFixed(2)} remaining</span>}
                       {isRepaid && <span className="text-[10px] text-emerald-400/80">Fully repaid</span>}
                     </div>
                   </div>

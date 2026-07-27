@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { BookOpen, Wand2, FileUp, ClipboardPaste, Compass, Copy, Check } from 'lucide-react';
+import { BookOpen, Wand2, FileUp, ClipboardPaste, Compass, Copy, Check, Layers } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { BlurFade } from '../ui/blur-fade';
 import { BorderBeam } from '../ui/border-beam';
@@ -12,6 +12,7 @@ export interface WelcomeEmptyStateProps {
   onImport: () => void;
   onPaste: () => void;
   onBrowse?: () => void;
+  onShowcase?: () => void;
 }
 
 interface QuickAction {
@@ -125,6 +126,15 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
                   className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-500 underline-offset-4 transition-colors hover:text-glow hover:underline"
                 >
                   or browse your library &rarr;
+                </button>
+              )}
+              {props.onShowcase && (
+                <button
+                  onClick={props.onShowcase}
+                  className="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-amber-400/70 underline-offset-4 transition-colors hover:text-amber-300 hover:underline"
+                >
+                  <Layers className="w-3 h-3" />
+                  explore all features
                 </button>
               )}
             </div>

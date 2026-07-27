@@ -4,7 +4,7 @@ import { callProvider } from './callProvider';
 
 export function buildChain(
   state: AiProvidersState,
-  feature: 'researchDigest' | 'goalAssistant',
+  feature: 'researchDigest' | 'goalAssistant' | 'resumeBuilder',
 ): Array<{ provider: ResolvedProvider; model: string }> {
   const enabled = state.providers.filter(p => p.enabled);
   const assigned = state.routing[feature] ?? state.routing.default;

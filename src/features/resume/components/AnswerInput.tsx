@@ -1,7 +1,6 @@
-import { useState } from 'react';
-import { X, Plus } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { X } from 'lucide-react';
 import { Input } from '../../../components/ui/input';
-import { VoiceInput } from './VoiceInput';
 import type { Question } from '../../../types/resume';
 
 interface AnswerInputProps {
@@ -11,73 +10,78 @@ interface AnswerInputProps {
   validation?: Question['validation'];
   placeholder?: string;
   disabled?: boolean;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
 }
 
-export function AnswerInput({ inputType, value, onChange, validation, placeholder, disabled }: AnswerInputProps) {
+const LINE_HEIGHT_PX = 22;
+
+export function AnswerInput({
+  inputType,
+  value,
+  onChange,
+  validation,
+  placeholder,
+  disabled,
+  onKeyDown,
+}: AnswerInputProps) {
   const [tagInput, setTagInput] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    if (inputType !== 'text' && inputType !== 'textarea') return;
+    const maxRows = inputType === 'textarea' ? 12 : 8;
+    const maxHeight = LINE_HEIGHT_PX * maxRows;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, [inputType]);
+
+  useEffect(() => {
+    autoResize();
+  }, [value, autoResize]);
 
   if (inputType === 'tags') {
     const tags: string[] = Array.isArray(value) ? value : [];
     const addTag = () => {
-      if (tagInput.trim() && !tags.includes(tagInput.trim())) {
-        onChange([...tags, tagInput.trim()]);
-        setTagInput('');
-      }
+      const t = tagInput.trim();
+      if (t && !tags.includes(t)) onChange([...tags, t]);
+      setTagInput('');
     };
-    const removeTag = (tag: string) => {
-      onChange(tags.filter((t) => t !== tag));
-    };
-
     return (
       <div className="space-y-2.5">
-        <div className="flex flex-wrap gap-1.5 min-h-[56px] p-3.5 rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 focus-within:ring-[var(--page-accent)]/50 focus-within:ring-2 transition-all duration-150">
-          {tags.map((tag) => (
-            <motion.span
-              key={tag}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--page-accent)]/10 text-[var(--page-accent)] text-xs font-medium ring-1 ring-[var(--page-accent)]/20"
+        <div className="w-full min-h-[56px] p-3 rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 focus-within:ring-2 focus-within:ring-[var(--page-accent)]/50 transition-all duration-150 flex flex-wrap gap-2 items-center">
+          {tags.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg bg-[var(--page-accent)]/15 ring-1 ring-[var(--page-accent)]/25 text-[11px] text-[var(--page-accent)]"
             >
-              {tag}
-              <button onClick={() => removeTag(tag)} className="hover:text-white transition-colors ml-0.5">
-                <X className="w-3 h-3" />
+              {t}
+              <button
+                type="button"
+                onClick={() => onChange(tags.filter((x) => x !== t))}
+                className="w-4 h-4 inline-flex items-center justify-center rounded hover:bg-[var(--page-accent)]/25"
+              >
+                <X className="w-2.5 h-2.5" />
               </button>
-            </motion.span>
+            </span>
           ))}
           <input
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
-            placeholder={tags.length === 0 ? (placeholder || 'Type and press Enter...') : ''}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                addTag();
+              } else if (e.key === 'Backspace' && !tagInput && tags.length) {
+                onChange(tags.slice(0, -1));
+              }
+            }}
+            placeholder={placeholder || 'Type and press Enter…'}
             disabled={disabled}
-            className="flex-1 min-w-[120px] bg-transparent text-sm text-white placeholder-zinc-500 outline-none disabled:opacity-50"
+            className="flex-1 min-w-[120px] bg-transparent text-sm text-white placeholder-zinc-500 outline-none"
           />
         </div>
-        <button onClick={addTag} disabled={!tagInput.trim() || disabled} className="text-xs text-[var(--page-accent)] hover:text-[var(--page-accent)]/80 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors">
-          <Plus className="w-3 h-3" /> Add tag
-        </button>
-      </div>
-    );
-  }
-
-  if (inputType === 'textarea') {
-    return (
-      <div className="relative">
-        <textarea
-          value={value || ''}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder || 'Type your answer here... Be specific about what you did, the outcome, and the technologies used.'}
-          disabled={disabled}
-          rows={16}
-          className="w-full p-5 pr-14 rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 text-[15px] text-white placeholder-zinc-500 outline-none focus:ring-[var(--page-accent)]/50 focus:ring-2 transition-all duration-150 resize-y min-h-[320px] disabled:opacity-50 disabled:cursor-wait leading-relaxed"
-        />
-        <VoiceInput value={value || ''} onChange={onChange} disabled={disabled} />
-        {value && value.length > 0 && (
-          <div className="absolute bottom-3 right-12 text-[10px] text-zinc-600 tabular-nums">
-            {value.length} chars
-          </div>
-        )}
       </div>
     );
   }
@@ -89,11 +93,11 @@ export function AnswerInput({ inputType, value, onChange, validation, placeholde
           type="text"
           value={value || ''}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder || 'e.g., 42%, 3 months, $50k, 10x improvement'}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder || 'e.g., 42%, 3 months, $50k'}
           disabled={disabled}
-          className="h-14 pr-14 text-base rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40"
+          className="h-10 text-sm rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 focus:ring-2 focus:ring-[var(--page-accent)]/50"
         />
-        <VoiceInput value={value || ''} onChange={onChange} disabled={disabled} />
         {validation?.metricTypes && (
           <div className="flex gap-1.5 items-center mt-2.5">
             {validation.metricTypes.map((t) => (
@@ -107,42 +111,28 @@ export function AnswerInput({ inputType, value, onChange, validation, placeholde
     );
   }
 
-  if (inputType === 'slider') {
-    return (
-      <div className="space-y-3">
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={value || 50}
-          onChange={(e) => onChange(Number(e.target.value))}
-          disabled={disabled}
-          className="w-full h-2 rounded-full bg-zinc-700 appearance-none cursor-pointer accent-[var(--page-accent)] disabled:opacity-50"
-        />
-        <div className="flex justify-between text-xs text-zinc-500">
-          <span>Low</span>
-          <span className="text-white font-semibold tabular-nums">{value || 50}%</span>
-          <span>High</span>
-        </div>
-      </div>
-    );
-  }
+  const isTextarea = inputType === 'textarea';
+  const minRows = isTextarea ? 4 : 2;
+  const minHeightClass = isTextarea ? 'min-h-[120px]' : 'min-h-[56px]';
+  const charCount = value ? String(value).length : 0;
 
-  // Default: text input with voice — BIGGER
   return (
     <div className="relative">
-      <Input
-        type="text"
+      <textarea
+        ref={textareaRef}
         value={value || ''}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder || 'Type your answer here...'}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder || 'Type your answer here…'}
         disabled={disabled}
-        className="h-14 pr-14 text-base rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40"
+        rows={minRows}
+        className={`w-full p-5 rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 text-sm text-white placeholder-zinc-500 outline-none focus:ring-2 focus:ring-[var(--page-accent)]/50 transition-all duration-150 resize-none ${minHeightClass} disabled:opacity-50 disabled:cursor-wait leading-relaxed scrollbar-thin`}
       />
-      <VoiceInput value={value || ''} onChange={onChange} disabled={disabled} />
-      {value && value.length > 0 && (
-        <div className="absolute right-12 top-1/2 -translate-y-1/2 text-[10px] text-zinc-600 tabular-nums">
-          {value.length}
+      {charCount > 0 && (
+        <div className="absolute -bottom-5 right-1 text-[10px] text-zinc-600 tabular-nums">
+          {charCount} chars
+          {isTextarea && ' · Ctrl+Enter to submit'}
+          {!isTextarea && ' · Enter to submit'}
         </div>
       )}
     </div>

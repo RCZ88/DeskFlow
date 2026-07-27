@@ -5,7 +5,6 @@ import { HeroBand } from './dashboard/HeroBand';
 import { SummaryStrip } from './dashboard/SummaryStrip';
 import { PinnedActivities } from './dashboard/PinnedActivities';
 import { QuickFocusCard } from '../components/focus/QuickFocusCard';
-import { GoalRing } from '../components/insights/GoalRing';
 import { ScheduleCard } from './dashboard/ScheduleCard';
 import { StatusBand } from './dashboard/StatusBand';
 import { InsightStrip } from './dashboard/InsightStrip';
@@ -13,9 +12,7 @@ import { GoalsCard } from '../components/dashboard/GoalsCard';
 import { DeadlinesCard } from '../components/dashboard/DeadlinesCard';
 import { TierBreakdownStrip } from './dashboard/TierBreakdownStrip';
 import { SleepBarMini } from '../components/dashboard/SleepBarMini';
-import { MasteryRingMini } from '../components/dashboard/MasteryRingMini';
 
-import { FollowThroughCard } from '../components/finance/FollowThroughCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { GlassCard } from '../components/GlassCard';
 import { EmptyState } from '../components/EmptyState';
@@ -26,6 +23,7 @@ import { useHomeSummary } from '../hooks/useHomeSummary';
 import { useDeepFocus } from '../hooks/useDeepFocus';
 import { Bar, Line } from 'react-chartjs-2';
 import { motion, AnimatePresence } from 'framer-motion';
+import { BlurFade } from '../components/ui/blur-fade';
 
 import {
   BookOpen, Dumbbell, Activity, Moon,
@@ -525,7 +523,9 @@ export default function DashboardPage({
         });
         const hours = daySleep.reduce((sum: number, s: any) => {
           const dur = s.duration_s || ((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000);
-          return sum + dur / 3600;
+          const preSleep = s.device_off_to_sleep_seconds || 0;
+          const actualSleep = Math.max(0, dur - preSleep);
+          return sum + actualSleep / 3600;
         }, 0);
         weekData.push({ label: days[d.getDay()], hours: Math.round(hours * 10) / 10 });
         if (hours > 0) { totalHours += hours; count++; }
@@ -2391,65 +2391,29 @@ export default function DashboardPage({
       <div className="relative z-10">
         <div className="mx-auto px-5" style={{ maxWidth: '1400px' }}>
 
-          {/* Row 1: Status Band */}
+          {/* Row 1: Status Band (Hero Timer) */}
           <StatusBand
             displayTimeMs={displayTime.ms}
             isCurrentlyProductive={isCurrentlyProductive}
             isDistracting={isDistracting}
             currentAppName={currentApp?.app || currentApp?.title || ''}
-            productivityScore={productivityScore}
-            streak={streak}
-            bestDay={bestDay}
-            sleepDebt={sleepDebt}
+            totalFocusedMs={(dashboardData?.overview?.productiveSeconds || 0) * 1000}
           />
 
-          {/* Row 2: Schedule Hero */}
-          <div className="mb-4">
-            <ScheduleCard />
-          </div>
-
-          {/* Row 3: Insight Strip */}
-          <InsightStrip insights={insights} />
-
-          {/* Row 4: Triple Column — Goals + Deadlines + Focus */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-            <GoalsCard goals={goals} />
-            <DeadlinesCard deadlines={deadlines} />
-            <QuickFocusCard
-              state={deepFocus.state}
-              onStart={deepFocus.start}
-              onEnd={deepFocus.end}
-            />
-          </div>
-
-          {/* Row 5: Tier Breakdown Strip */}
-          <TierBreakdownStrip
-            productiveHours={dashboardData?.overview?.productiveSeconds ? Math.round(dashboardData.overview.productiveSeconds / 3600 * 10) / 10 : 0}
-            neutralHours={dashboardData?.overview?.neutralSeconds ? Math.round(dashboardData.overview.neutralSeconds / 3600 * 10) / 10 : 0}
-            distractingHours={dashboardData?.overview?.distractingSeconds ? Math.round(dashboardData.overview.distractingSeconds / 3600 * 10) / 10 : 0}
-            totalHours={dashboardData?.overview?.totalSeconds ? Math.round(dashboardData.overview.totalSeconds / 3600 * 10) / 10 : 0}
-            score={productivityScore}
-            trendValue={streak > 0 ? `+${streak}d` : '0d'}
-            trendPositive={streak > 0}
-          />
-
-          {/* Row 6: Follow Through (conditional) */}
-          {ftData && ftData.totalExpense > 0 && (
+          {/* Row 2: Tier Breakdown Strip (Moved up for immediate context) */}
+          <BlurFade delay={0.05} duration={0.4}>
             <div className="mb-4">
-              <FollowThroughCard
-                currency={dashboardCurrency}
-                totalThisMonth={ftData.totalExpense}
-                momChangePct={null}
-                receivable={ftData.totalExpense}
-                breakdown={ftData.breakdown}
-                trend={[]}
-                ftPersons={ftPersons}
+              <TierBreakdownStrip
+                productiveHours={dashboardData?.overview?.productiveSeconds ? Math.round(dashboardData.overview.productiveSeconds / 3600 * 10) / 10 : 0}
+                neutralHours={dashboardData?.overview?.neutralSeconds ? Math.round(dashboardData.overview.neutralSeconds / 3600 * 10) / 10 : 0}
+                distractingHours={dashboardData?.overview?.distractingSeconds ? Math.round(dashboardData.overview.distractingSeconds / 3600 * 10) / 10 : 0}
+                totalHours={dashboardData?.overview?.totalSeconds ? Math.round(dashboardData.overview.totalSeconds / 3600 * 10) / 10 : 0}
               />
             </div>
-          )}
+          </BlurFade>
 
-          {/* Row 7: Pinned Activities */}
-          <div className="mb-4">
+          {/* Row 3: Pinned Activities (UI Clipping Fix) */}
+          <div className="mb-4 overflow-visible">
             <PinnedActivities
               pinnedActivities={pinnedActivities}
               setPinnedActivities={setPinnedActivities}
@@ -2466,19 +2430,49 @@ export default function DashboardPage({
             />
           </div>
 
-          {/* Row 8: Dual Column — Productivity Chart + Health Stack */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-            {/* Productivity Chart */}
-            <motion.div
-              className="relative rounded-xl overflow-hidden
-                bg-[rgba(24,24,27,0.80)] backdrop-blur-xl
-                border border-[rgba(63,63,70,0.50)] p-5
-                hover:border-[rgba(82,82,91,0.80)] transition-all duration-250"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.48, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}>
-              <div className="absolute top-0 left-4 right-4 h-px
-                bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent opacity-60 pointer-events-none" />
+          {/* Row 4: Triple Column — Goals + Deadlines + Focus */}
+          <BlurFade delay={0.14} duration={0.4}>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+              <GoalsCard
+                goals={goals}
+                onToggle={(id) => {
+                  setGoals(prev => prev.map(g => g.id === id ? {...g, completed: !g.completed} : g));
+                }}
+                onAdd={(title) => {
+                  const newGoal = { id: Date.now().toString(), title, completed: false };
+                  setGoals(prev => [...prev, newGoal]);
+                }}
+              />
+              <DeadlinesCard
+                deadlines={deadlines}
+                onAdd={(title, date) => {
+                  const newDeadline = { id: Date.now().toString(), title, due_date: date };
+                  setDeadlines(prev => [...prev, newDeadline]);
+                }}
+              />
+              <QuickFocusCard
+                state={deepFocus.state}
+                onStart={deepFocus.start}
+                onEnd={deepFocus.end}
+              />
+            </div>
+          </BlurFade>
+
+          {/* Row 5: Schedule Hero + Insight Strip */}
+          <BlurFade delay={0.1} duration={0.4}>
+            <div className="mb-4">
+              <ScheduleCard />
+            </div>
+          </BlurFade>
+
+          <BlurFade delay={0.12} duration={0.4}>
+            <InsightStrip insights={insights} />
+          </BlurFade>
+
+          {/* Row 6: Productivity Chart */}
+          <BlurFade delay={0.2} duration={0.4}>
+            <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5 mb-4">
+              <div className="border-t border-emerald-400/30 -mx-5 -mt-5 mb-4" />
               <SectionHeader title="Productivity" icon={<BarChart3 size={14} />} />
               <div className="h-52 mt-2">
                 {chartBarsResult.chartBars.length === 0 ? (
@@ -2487,83 +2481,86 @@ export default function DashboardPage({
                   <Bar data={{
                     labels: chartBarsResult.chartBars.map(b => b.label),
                     datasets: [
-                      { label: 'Productive', data: chartBarsResult.chartBars.map(b => Math.round(b.productiveSeconds / 3600 * 100) / 100), backgroundColor: '#34d399', borderRadius: 4, borderSkipped: false },
-                      { label: 'Other', data: chartBarsResult.chartBars.map(b => Math.round(b.nonProductiveSeconds / 3600 * 100) / 100), backgroundColor: '#fbbf24', borderRadius: 4, borderSkipped: false },
-                      { label: 'External', data: chartBarsResult.chartBars.map(b => Math.round(b.externalSeconds / 3600 * 100) / 100), backgroundColor: '#818cf8', borderRadius: 4, borderSkipped: false },
+                      {
+                        label: 'Productive',
+                        data: chartBarsResult.chartBars.map(b => Math.round(b.productiveSeconds / 3600 * 100) / 100),
+                        backgroundColor: (context: any) => {
+                          const { ctx, chartArea } = context.chart;
+                          if (!chartArea) return '#34d399';
+                          const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                          gradient.addColorStop(0, 'rgba(52, 211, 153, 0.3)');
+                          gradient.addColorStop(1, 'rgba(52, 211, 153, 1)');
+                          return gradient;
+                        },
+                        borderRadius: 6, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.7
+                      },
+                      {
+                        label: 'Other',
+                        data: chartBarsResult.chartBars.map(b => Math.round(b.nonProductiveSeconds / 3600 * 100) / 100),
+                        backgroundColor: (context: any) => {
+                          const { ctx, chartArea } = context.chart;
+                          if (!chartArea) return '#fbbf24';
+                          const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                          gradient.addColorStop(0, 'rgba(251, 191, 36, 0.3)');
+                          gradient.addColorStop(1, 'rgba(251, 191, 36, 1)');
+                          return gradient;
+                        },
+                        borderRadius: 6, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.7
+                      },
+                      {
+                        label: 'External',
+                        data: chartBarsResult.chartBars.map(b => Math.round(b.externalSeconds / 3600 * 100) / 100),
+                        backgroundColor: (context: any) => {
+                          const { ctx, chartArea } = context.chart;
+                          if (!chartArea) return '#818cf8';
+                          const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                          gradient.addColorStop(0, 'rgba(129, 140, 248, 0.3)');
+                          gradient.addColorStop(1, 'rgba(129, 140, 248, 1)');
+                          return gradient;
+                        },
+                        borderRadius: 6, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.7
+                      },
                     ],
                   }} options={{
                     responsive: true, maintainAspectRatio: false,
-                    plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(24,24,27,0.95)', titleColor: '#f4f4f5', bodyColor: '#a1a1aa', borderColor: 'rgba(63,63,70,0.50)', borderWidth: 1, cornerRadius: 8, padding: 10 } },
+                    plugins: { legend: { display: false }, tooltip: { backgroundColor: '#09090b', titleColor: '#fafafa', bodyColor: '#a1a1aa', borderColor: '#27272a', borderWidth: 1, cornerRadius: 8, padding: 10 } },
                     scales: { x: { stacked: true, grid: { display: false }, ticks: { color: '#52525b', font: { size: 11 } } }, y: { stacked: true, grid: { color: 'rgba(63,63,70,0.20)' }, ticks: { color: '#52525b', font: { size: 11 } } } },
                   }} />
                 )}
               </div>
-            </motion.div>
-
-            {/* Health Stack */}
-            <div className="flex flex-col gap-4">
-              <SleepBarMini sleepData={sleepData} avgSleep={avgSleep} sleepDebt={sleepDebt} />
-              <MasteryRingMini mastered={masteryMastered} total={masteryTotal} />
-            </div>
-          </div>
-
-          {/* Row 9: App Ecosystem */}
-          <motion.div
-            className="relative rounded-xl overflow-hidden
-              bg-[rgba(24,24,27,0.80)] backdrop-blur-xl
-              border border-[rgba(63,63,70,0.50)] p-5 mb-4
-              hover:border-[rgba(82,82,91,0.80)] transition-all duration-250"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.56, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}>
-            <div className="absolute top-0 left-4 right-4 h-px
-              bg-gradient-to-r from-transparent via-sky-500/40 to-transparent opacity-60 pointer-events-none" />
-            <SectionHeader title="App Ecosystem" icon={<Sun size={14} />} />
-            <div className="relative h-44 flex items-center justify-center">
-              <div className="absolute w-32 h-32 rounded-full border border-zinc-700/15" />
-              <div className="absolute w-48 h-48 rounded-full border border-zinc-700/10" />
-              <div className="absolute w-64 h-64 rounded-full border border-zinc-700/5" />
-              <div className="absolute w-12 h-12 rounded-full border border-zinc-700/30 flex items-center justify-center bg-zinc-900/80">
-                <Sun className="w-6 h-6 text-zinc-500" />
+              {/* Custom Legend */}
+              <div className="flex items-center gap-4 mt-4 text-[11px] text-zinc-500">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-sm bg-emerald-400"></span> Productive
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-sm bg-amber-400"></span> Other
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-sm bg-indigo-400"></span> External
+                </div>
               </div>
-              {solar.slice(0, 5).map((app, i) => {
-                const size = Math.max(60, 24 + (app.usage_ms / maxUsage) * 40);
-                const angle = (i * 360) / Math.min(solar.length, 5);
-                const radius = 70 + (i % 2) * 35;
-                const rad = (angle * Math.PI) / 180;
-                const x = Math.cos(rad) * radius;
-                const y = Math.sin(rad) * radius;
-                return (
-                  <motion.div key={app.name} initial={{ scale: 0, x: 0, y: 0 }} animate={{ scale: 1, x, y }}
-                    transition={{ delay: 0.56 + i * 0.08 }} className="absolute"
-                    style={{ width: Math.max(size, 50), height: Math.max(size, 50) }}
-                    title={`${app.name}: ${Math.round(app.usage_ms / 1000 / 3600 * 10) / 10}h`}>
-                    <div className="w-full h-full rounded-full border border-zinc-700/60 hover:border-zinc-500/80 transition-all duration-200 flex flex-col items-center justify-center bg-zinc-900/80 cursor-pointer hover:shadow-[0_0_16px_rgba(56,189,248,0.12)]">
-                      <div className="text-[10px] font-semibold text-zinc-300 px-1 text-center truncate max-w-[60px]">{app.name}</div>
-                      <div className="text-[9px] text-zinc-500">{Math.round(app.usage_ms / 1000 / 3600 * 10) / 10}h</div>
-                    </div>
-                  </motion.div>
-                );
-              })}
+              <div className="flex gap-3 mt-4">
+                <button onClick={() => setExpandedModal('heatmap')}
+                  className="flex-1 py-2.5 rounded-lg text-[12px] font-medium text-zinc-400 border border-[#3f3f46] hover:border-pink-500/50 hover:text-pink-400 transition-all duration-200">
+                  View Heatmap
+                </button>
+                <button onClick={() => setExpandedModal('solar')}
+                  className="flex-1 py-2.5 rounded-lg text-[12px] font-medium text-zinc-400 border border-[#3f3f46] hover:border-indigo-500/50 hover:text-indigo-400 transition-all duration-200">
+                  View Solar System
+                </button>
+              </div>
             </div>
-            <button onClick={() => setExpandedModal('solar')}
-              className="w-full py-2 rounded-lg text-[12px] font-medium bg-zinc-900/40 text-zinc-400 border border-zinc-800/50 hover:bg-zinc-800/50 hover:text-zinc-300 hover:border-zinc-700/50 transition-all duration-200">
-              View Solar System
-            </button>
-          </motion.div>
+          </BlurFade>
 
-          {/* Row 10: Activity Feed */}
-          <motion.div
-            className="relative rounded-xl overflow-hidden
-              bg-[rgba(24,24,27,0.80)] backdrop-blur-xl
-              border border-[rgba(63,63,70,0.50)] p-5 mb-4
-              hover:border-[rgba(82,82,91,0.80)] transition-all duration-250"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.64, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}>
-            <div className="absolute top-0 left-4 right-4 h-px
-              bg-gradient-to-r from-transparent via-zinc-500/40 to-transparent opacity-60 pointer-events-none" />
-            <SectionHeader title="Recent Sessions" icon={<Clock size={14} />} />
+          {/* Row 7: Sleep */}
+          <SleepBarMini sleepData={sleepData} avgSleep={avgSleep} sleepDebt={sleepDebt} />
+
+          {/* Row 8: Activity Feed */}
+          <BlurFade delay={0.35} duration={0.4}>
+            <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5 mb-4">
+              <div className="border-t border-zinc-500/30 -mx-5 -mt-5 mb-4" />
+              <SectionHeader title="Recent Sessions" icon={<Clock size={14} />} />
             <div className="space-y-0.5 mt-3">
               {activityFeedWithElapsed.length === 0 ? (
                 <EmptyState icon={<Clock size={20} className="text-zinc-600" />} title="No sessions yet" description="Start an activity to see it here" />
@@ -2592,7 +2589,8 @@ export default function DashboardPage({
                 })
               )}
             </div>
-          </motion.div>
+            </div>
+          </BlurFade>
 
         </div>
       </div>

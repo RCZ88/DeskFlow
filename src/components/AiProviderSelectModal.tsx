@@ -17,7 +17,7 @@ interface RoutingEntry {
 interface AiProviderSelectModalProps {
   open: boolean;
   onClose: () => void;
-  featureKey: 'researchDigest' | 'goalAssistant';
+  featureKey: 'researchDigest' | 'goalAssistant' | 'resumeBuilder';
   featureLabel: string;
   accentColor: string;
   providers: ProviderOption[];

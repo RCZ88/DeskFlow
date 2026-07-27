@@ -91,7 +91,7 @@ export const IconButton: React.FC<{
 );
 
 // ---- EmptyState ------------------------------------------------------------
-export const EmptyState: React.FC<{ icon: React.ReactNode; title: string; hint?: string }> = ({ icon, title, hint }) => (
+export const EmptyState: React.FC<{ icon: React.ReactNode; title: string; hint?: string; action?: React.ReactNode }> = ({ icon, title, hint, action }) => (
   <motion.div
     initial={EMPTY_INIT} animate={EMPTY_SHOW} transition={EMPTY_TRANS}
     className="flex flex-col items-center justify-center py-12 text-center"
@@ -101,6 +101,34 @@ export const EmptyState: React.FC<{ icon: React.ReactNode; title: string; hint?:
     </div>
     <p className="text-[13px] font-medium text-zinc-300">{title}</p>
     {hint && <p className="mt-1 max-w-[260px] text-[11px] text-zinc-500">{hint}</p>}
+    {action && <div className="mt-3">{action}</div>}
   </motion.div>
 );
 const SIZE_52 = { width: 52, height: 52 };
+
+// ---- WorkspaceError ---------------------------------------------------------
+// Unified error state for ALL workspace data views.
+export const WorkspaceError: React.FC<{
+  title?: string; message: string; onRetry?: () => void; className?: string;
+}> = ({ title = 'Something went wrong', message, onRetry, className = '' }) => (
+  <motion.div
+    initial={EMPTY_INIT} animate={EMPTY_SHOW} transition={EMPTY_TRANS}
+    className={`flex flex-col items-center justify-center py-10 text-center ${className}`}
+  >
+    <div className="mb-3 grid h-11 w-11 place-items-center rounded-xl bg-red-500/10 text-red-400">
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+    </div>
+    <p className="text-[13px] font-medium text-zinc-300">{title}</p>
+    <p className="mt-1 max-w-[280px] text-[11px] text-zinc-500">{message}</p>
+    {onRetry && (
+      <button
+        onClick={onRetry}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium text-zinc-300 bg-zinc-800 ring-1 ring-zinc-700/60 hover:bg-zinc-700/60 hover:text-zinc-100 transition-all duration-150 active:scale-[0.97]"
+      >
+        Retry
+      </button>
+    )}
+  </motion.div>
+);

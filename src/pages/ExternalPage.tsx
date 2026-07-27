@@ -225,7 +225,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   const [manualSessionStartHours, setManualSessionStartHours] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getHours(); });
   const [manualSessionStartMinutes, setManualSessionStartMinutes] = useState(() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); return n.getMinutes(); });
 const [sleepDebugData, setSleepDebugData] = useState<any>(null);
-  const [sleepFixResult, setSleepFixResult] = useState<{ fixed: number; message: string; updates?: Array<{ id: number; oldStart: string; newStart: string; oldDuration: number; newDuration: number }> } | null>(null);
+  const [sleepFixResult, setSleepFixResult] = useState<{ fixed: number; problems?: number; message: string; updates?: Array<{ id: number; oldStart: string; newStart: string; oldDuration: number; newDuration: number; reason?: string }>; problems_found?: Array<{ id: number; started_at: string; ended_at: string; duration_seconds: number; pre_sleep: number; issue: string; fixed: boolean }> } | null>(null);
   const [showSleepFixModal, setShowSleepFixModal] = useState(false);
    const dateInputRef = useRef<HTMLInputElement>(null);
 
@@ -2592,10 +2592,12 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
               onClick={(e) => e.stopPropagation()}
             >
               <div className="text-center mb-4">
-                <div className={`text-4xl mb-3 ${sleepFixResult.fixed > 0 ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                  {sleepFixResult.fixed > 0 ? '✓' : '—'}
+                <div className={`text-4xl mb-3 ${sleepFixResult.fixed > 0 ? 'text-emerald-400' : sleepFixResult.problems_found && sleepFixResult.problems_found.length > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
+                  {sleepFixResult.fixed > 0 ? '✓' : sleepFixResult.problems_found && sleepFixResult.problems_found.length > 0 ? '⚠' : '—'}
                 </div>
-                <h3 className="text-lg font-semibold text-zinc-100">Sleep Dates {sleepFixResult.fixed > 0 ? 'Fixed' : 'Checked'}</h3>
+                <h3 className="text-lg font-semibold text-zinc-100">
+                  {sleepFixResult.fixed > 0 ? `Fixed ${sleepFixResult.fixed} Session(s)` : sleepFixResult.problems_found && sleepFixResult.problems_found.length > 0 ? `${sleepFixResult.problems_found.length} Problem(s) Found` : 'All Sessions OK'}
+                </h3>
               </div>
 
               {sleepFixResult.fixed > 0 ? (
@@ -2625,16 +2627,42 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                             <div className="text-zinc-500 mt-0.5">
                               Duration: {oldDurH}h {oldDurM}m → {newDurH}h {newDurM}m
                             </div>
+                            {u.reason && <div className="text-amber-400/80 mt-0.5 text-[10px]">{u.reason}</div>}
                           </div>
                         )
                       })}
                     </div>
                   )}
                 </div>
+              ) : sleepFixResult.problems_found && sleepFixResult.problems_found.length > 0 ? (
+                <div className="space-y-3 mb-4">
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                    <p className="text-sm text-amber-400 text-center font-medium">
+                      Found {sleepFixResult.problems_found.length} problem(s) — none auto-fixable
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                    {sleepFixResult.problems_found.map((p: any) => {
+                      const fmt = (iso: string) => {
+                        const d = new Date(iso)
+                        return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                      }
+                      const durH = (p.duration_seconds / 3600).toFixed(1)
+                      return (
+                        <div key={p.id} className="bg-zinc-800/60 rounded-lg px-3 py-2 text-[11px]">
+                          <div className="text-zinc-400">{fmt(p.started_at)} → {fmt(p.ended_at)}</div>
+                          <div className="text-zinc-500">Duration: {durH}h</div>
+                          <div className="text-red-400/80 mt-0.5">{p.issue}</div>
+                          <div className="text-zinc-600 text-[10px] mt-0.5">ID: {p.id} — edit manually to fix</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
               ) : (
                 <div className="bg-zinc-800/50 rounded-lg p-3 mb-4">
                   <p className="text-sm text-zinc-400 text-center">
-                    All sleep sessions have consistent dates — nothing to fix.
+                    All sleep sessions look good — nothing to fix.
                   </p>
                 </div>
               )}

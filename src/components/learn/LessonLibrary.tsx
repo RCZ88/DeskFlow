@@ -9,6 +9,8 @@ import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { MasteryStrip } from './MasteryStrip';
 import { TutorDashboardSection } from './TutorDashboardSection';
+import { CollapsibleAnalytics } from './CollapsibleAnalytics';
+import { ProgressDashboard } from './ProgressDashboard';
 import type { MasteryStats } from './useMasteryStats';
 import { CURRICULUM_BLUEPRINT } from '../../services/learn/curriculum';
 
@@ -125,6 +127,13 @@ export function LessonLibrary({ lessons, loading, onOpen, onInfo, onCompose, onI
       </BlurFade>
 
       {stats && <MasteryStrip stats={stats} onOpenNode={onOpen} onOpenProfile={onOpenProfile} />}
+
+      {/* Inline analytics — collapsed by default, expands when user has streak */}
+      {lessons.length > 0 && (
+        <CollapsibleAnalytics streakDays={0}>
+          <ProgressDashboard embedded />
+        </CollapsibleAnalytics>
+      )}
 
       {getDashboard && lessons.length > 0 && (
         <div className="mb-8">

@@ -1324,6 +1324,150 @@
   transition: max-height 0.3s ease, opacity 0.2s ease;
 }
 
+/* =========================================================== */
+/*  GLASS CARD SYSTEM — Phase 1 + Phase 6                      */
+/*  All cards use glass aesthetic with spotlight hover effects  */
+/* =========================================================== */
+
+/* --- Glass Card Base --- */
+.deck-glass-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(63, 63, 70, 0.35);
+  background: rgba(24, 24, 27, 0.60);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.deck-glass-card:hover {
+  border-color: rgba(63, 63, 70, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 8px 40px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transform: translateY(-1px);
+}
+
+/* --- Metrics Bar --- */
+.deck-metrics-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: rgba(24, 24, 27, 0.50);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(63, 63, 70, 0.30);
+  font-size: 11px;
+  color: #a1a1aa;
+  flex: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.deck-metrics-bar::-webkit-scrollbar { display: none; }
+
+.deck-metrics-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  cursor: default;
+}
+
+.deck-metrics-item:hover {
+  background: rgba(63, 63, 70, 0.30);
+}
+
+.deck-metrics-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--dk-text-faint);
+}
+
+.deck-metrics-value {
+  font-weight: 600;
+  color: var(--dk-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Chat Container --- */
+.deck-chat-container {
+  position: relative;
+  background: rgba(24, 24, 27, 0.50);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(63, 63, 70, 0.35);
+  border-radius: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+/* --- Card Grid --- */
+.deck-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+@media (max-width: 1024px) {
+  .deck-card-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .deck-card-grid { grid-template-columns: 1fr; }
+}
+
+/* --- Add Button (inside empty states) --- */
+.deck-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--dk-sans);
+  background: var(--btn-bg, rgba(34, 211, 238, 0.08));
+  border: 1px solid var(--btn-accent, rgba(34, 211, 238, 0.25));
+  color: var(--btn-accent, #22d3ee);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.deck-add-btn:hover {
+  background: var(--btn-glow, rgba(34, 211, 238, 0.15));
+  border-color: var(--btn-accent, rgba(34, 211, 238, 0.4));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px var(--btn-glow, rgba(34, 211, 238, 0.1));
+}
+
+.deck-add-btn:active {
+  transform: translateY(0);
+}
+
+/* --- Full-page backdrop --- */
+.deck-fullpage-backdrop {
+  background: rgba(9, 9, 11, 0.92);
+  backdrop-filter: blur(24px);
+}
+
 /* --- Responsive --- */
 @media (max-width: 640px) {
   .dk-barR { gap: 4px; }
@@ -1339,5 +1483,7 @@
   .dk-card.dk-deck { min-height: 300px; }
   .dk-strip-card { flex: 0 0 280px; min-width: 280px; }
   .dk-statusbar { gap: 10px; padding: 6px 10px; }
+  .deck-metrics-bar { gap: 6px; padding: 6px 10px; }
+  .deck-card-grid { gap: 8px; }
 }
 

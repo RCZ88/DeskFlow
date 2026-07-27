@@ -3163,6 +3163,76 @@ function initializeStorage() {
         // Sort order for historical transactions (chronological ordering within same date)
         try { db.exec("ALTER TABLE finance_transactions ADD COLUMN sort_order INTEGER DEFAULT 0"); } catch { /* already exists */ }
 
+        // Foreign key linking transaction to a follow-through person
+        try { db.exec("ALTER TABLE finance_transactions ADD COLUMN ft_person_id INTEGER"); } catch { /* already exists */ }
+
+        // ── Fixed Expenses tables ──
+        try {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS finance_fixed_expenses (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              wallet_id INTEGER NOT NULL,
+              name TEXT NOT NULL,
+              description TEXT DEFAULT '',
+              amount REAL NOT NULL DEFAULT 0,
+              currency TEXT DEFAULT 'USD',
+              category_id INTEGER,
+              billing_day INTEGER DEFAULT 1,
+              is_active INTEGER DEFAULT 1,
+              auto_create_transaction INTEGER DEFAULT 0,
+              metadata TEXT,
+              created_at TEXT DEFAULT (datetime('now','localtime')),
+              updated_at TEXT DEFAULT (datetime('now','localtime'))
+            )
+          `);
+          db.exec('CREATE INDEX IF NOT EXISTS idx_fixed_expenses_wallet ON finance_fixed_expenses(wallet_id)');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_fixed_expenses_category ON finance_fixed_expenses(category_id)');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_fixed_expenses_active ON finance_fixed_expenses(is_active)');
+        } catch (e: any) { console.log('[DB MIGRATION] finance_fixed_expenses skip:', e?.message); }
+
+        try {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS finance_fixed_expense_payments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              fixed_expense_id INTEGER NOT NULL,
+              month TEXT NOT NULL,
+              status TEXT DEFAULT 'pending',
+              amount_paid REAL,
+              transaction_id INTEGER,
+              paid_date TEXT,
+              paid_by TEXT DEFAULT 'manual',
+              note TEXT,
+              created_at TEXT DEFAULT (datetime('now','localtime')),
+              updated_at TEXT DEFAULT (datetime('now','localtime')),
+              UNIQUE(fixed_expense_id, month)
+            )
+          `);
+          db.exec('CREATE INDEX IF NOT EXISTS idx_fixed_expense_payments_month ON finance_fixed_expense_payments(month)');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_fixed_expense_payments_status ON finance_fixed_expense_payments(status)');
+        } catch (e: any) { console.log('[DB MIGRATION] finance_fixed_expense_payments skip:', e?.message); }
+
+        // ── Budgets table ──
+        try {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS finance_budgets (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              type TEXT NOT NULL,
+              category_id INTEGER,
+              amount REAL NOT NULL,
+              currency TEXT DEFAULT 'USD',
+              period TEXT DEFAULT 'monthly',
+              alert_threshold REAL DEFAULT 80,
+              is_active INTEGER DEFAULT 1,
+              metadata TEXT,
+              created_at TEXT DEFAULT (datetime('now','localtime')),
+              updated_at TEXT DEFAULT (datetime('now','localtime'))
+            )
+          `);
+          db.exec('CREATE INDEX IF NOT EXISTS idx_budgets_type ON finance_budgets(type)');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_budgets_active ON finance_budgets(is_active)');
+        } catch (e: any) { console.log('[DB MIGRATION] finance_budgets skip:', e?.message); }
+
         // Seed default categories (only if empty)
         const existingCats = db.prepare('SELECT COUNT(*) as count FROM finance_categories').get() as { count: number };
         if (existingCats.count === 0) {
@@ -18150,23 +18220,21 @@ electron_1.ipcMain.handle('stop-external-session', (event, sessionId, endTime, d
         if (!session) return { success: false, duration: 0 };
         
         const startedAt = new Date(session.started_at);
-        const durationSeconds = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
-        
-        if (deviceOffToSleepSeconds !== undefined || wakeUpToAppSeconds !== undefined) {
-            const offSleep = deviceOffToSleepSeconds !== undefined ? deviceOffToSleepSeconds : (session.device_off_to_sleep_seconds || 0);
-            const wakeApp = wakeUpToAppSeconds !== undefined ? wakeUpToAppSeconds : (session.wake_up_to_app_seconds || 0);
-            db.prepare(`
-                UPDATE external_sessions 
-                SET ended_at = ?, duration_seconds = ?, device_off_to_sleep_seconds = ?, wake_up_to_app_seconds = ?
-                WHERE id = ?
-            `).run(now.toISOString(), durationSeconds, offSleep, wakeApp, sessionId);
-        } else {
-            db.prepare(`
-                UPDATE external_sessions 
-                SET ended_at = ?, duration_seconds = ?
-                WHERE id = ?
-            `).run(now.toISOString(), durationSeconds, sessionId);
+        let durationSeconds = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
+
+        // Sanity cap: total duration cannot exceed 16 hours
+        if (durationSeconds > 16 * 3600) {
+            durationSeconds = 16 * 3600;
         }
+
+        // Cap latencies to 4 hours max
+        const offSleep = deviceOffToSleepSeconds !== undefined ? Math.min(deviceOffToSleepSeconds, 4 * 3600) : (session.device_off_to_sleep_seconds || 0);
+        const wakeApp = wakeUpToAppSeconds !== undefined ? Math.min(wakeUpToAppSeconds, 4 * 3600) : (session.wake_up_to_app_seconds || 0);
+        db.prepare(`
+            UPDATE external_sessions 
+            SET ended_at = ?, duration_seconds = ?, device_off_to_sleep_seconds = ?, wake_up_to_app_seconds = ?
+            WHERE id = ?
+        `).run(now.toISOString(), durationSeconds, offSleep, wakeApp, sessionId);
         
         return { success: true, duration: durationSeconds };
     } catch (err) {
@@ -18210,11 +18278,21 @@ electron_1.ipcMain.handle('add-manual-sleep', (event, sleepData: { started_at: s
     try {
         const startTime = new Date(sleepData.started_at);
         const endTime = new Date(sleepData.ended_at);
-        const durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+        let durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
         
         if (durationSeconds <= 0) {
             return { success: false, error: 'End time must be after start time' };
         }
+
+        // Sanity cap: total duration cannot exceed 16 hours
+        if (durationSeconds > 16 * 3600) {
+            durationSeconds = 16 * 3600;
+        }
+
+        // Cap pre-sleep latency to 4 hours max
+        const preSleep = Math.min(sleepData.device_off_to_sleep_seconds || 0, 4 * 3600);
+        // Cap post-wake latency to 4 hours max
+        const postWake = Math.min(sleepData.wake_up_to_app_seconds || 0, 4 * 3600);
         
         const sleepActivity = db.prepare(`
             SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1
@@ -18232,8 +18310,8 @@ electron_1.ipcMain.handle('add-manual-sleep', (event, sleepData: { started_at: s
             startTime.toISOString(), 
             endTime.toISOString(), 
             durationSeconds,
-            sleepData.device_off_to_sleep_seconds || 0,
-            sleepData.wake_up_to_app_seconds || 0
+            preSleep,
+            postWake
         );
         
         return { success: true, sessionId: result.lastInsertRowid.toString() };
@@ -18276,11 +18354,20 @@ electron_1.ipcMain.handle('update-manual-sleep', (event, sessionId: string, slee
     try {
         const startTime = new Date(sleepData.started_at);
         const endTime = new Date(sleepData.ended_at);
-        const durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+        let durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
 
         if (durationSeconds <= 0) {
             return { success: false, error: 'End time must be after start time' };
         }
+
+        // Sanity cap: total duration cannot exceed 16 hours
+        if (durationSeconds > 16 * 3600) {
+            durationSeconds = 16 * 3600;
+        }
+        // Cap pre-sleep latency to 4 hours max
+        const preSleep = Math.min(sleepData.device_off_to_sleep_seconds || 0, 4 * 3600);
+        // Cap post-wake latency to 4 hours max
+        const postWake = Math.min(sleepData.wake_up_to_app_seconds || 0, 4 * 3600);
 
         db.prepare(`
             UPDATE external_sessions
@@ -18290,8 +18377,8 @@ electron_1.ipcMain.handle('update-manual-sleep', (event, sessionId: string, slee
             startTime.toISOString(),
             endTime.toISOString(),
             durationSeconds,
-            sleepData.device_off_to_sleep_seconds || 0,
-            sleepData.wake_up_to_app_seconds || 0,
+            preSleep,
+            postWake,
             sessionId
         );
 
@@ -18387,9 +18474,18 @@ electron_1.ipcMain.handle('confirm-sleep', (event, sleepData: {
     try {
         const startTime = new Date(sleepData.started_at);
         const endTime = new Date(sleepData.ended_at);
-        const durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+        let durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
         
         if (durationSeconds <= 0) return { success: false, error: 'End must be after start' };
+
+        // Sanity cap: total duration cannot exceed 16 hours
+        if (durationSeconds > 16 * 3600) {
+            durationSeconds = 16 * 3600;
+        }
+        // Cap pre-sleep latency to 4 hours max
+        const preSleep = Math.min(sleepData.device_off_to_sleep_seconds || 0, 4 * 3600);
+        // Cap post-wake latency to 4 hours max
+        const postWake = Math.min(sleepData.wake_up_to_app_seconds || 0, 4 * 3600);
         
         const sleepActivity = db.prepare(`
             SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1
@@ -18416,8 +18512,8 @@ electron_1.ipcMain.handle('confirm-sleep', (event, sleepData: {
                 startTime.toISOString(),
                 endTime.toISOString(),
                 durationSeconds,
-                sleepData.device_off_to_sleep_seconds || 0,
-                sleepData.wake_up_to_app_seconds || 0,
+                preSleep,
+                postWake,
                 existing.id
             );
             sessionId = existing.id.toString();
@@ -18431,8 +18527,8 @@ electron_1.ipcMain.handle('confirm-sleep', (event, sleepData: {
                 startTime.toISOString(),
                 endTime.toISOString(),
                 durationSeconds,
-                sleepData.device_off_to_sleep_seconds || 0,
-                sleepData.wake_up_to_app_seconds || 0
+                preSleep,
+                postWake
             );
             sessionId = result.lastInsertRowid.toString();
         }
@@ -19224,10 +19320,10 @@ electron_1.ipcMain.handle('get-sleep-debug', (event, period = 'week', dateOffset
 });
 
 electron_1.ipcMain.handle('fix-sleep-dates', () => {
-    if (useJson) return { fixed: 0, message: 'JSON mode, no-op' };
+    if (useJson) return { fixed: 0, problems: 0, message: 'JSON mode, no-op', updates: [], problems_found: [] };
     try {
         const sleepActivity = db.prepare(`SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1`).get() as any;
-        if (!sleepActivity) return { fixed: 0, message: 'No sleep activity found' };
+        if (!sleepActivity) return { fixed: 0, problems: 0, message: 'No sleep activity found', updates: [], problems_found: [] };
 
         const sessions = db.prepare(`
             SELECT * FROM external_sessions
@@ -19236,43 +19332,108 @@ electron_1.ipcMain.handle('fix-sleep-dates', () => {
         `).all(sleepActivity.id) as any[];
 
         let fixedCount = 0;
-        const updates: Array<{ id: number; oldStart: string; newStart: string; oldEnd: string; newEnd: string; oldDuration: number; newDuration: number }> = [];
+        const updates: Array<{ id: number; oldStart: string; newStart: string; oldEnd: string; newEnd: string; oldDuration: number; newDuration: number; reason: string }> = [];
+        const problemsFound: Array<{ id: number; started_at: string; ended_at: string; duration_seconds: number; pre_sleep: number; issue: string; fixed: boolean }> = [];
 
         for (const s of sessions) {
             const startD = new Date(s.started_at);
             const endD = new Date(s.ended_at);
             const startH = startD.getHours();
+            const durHours = (s.duration_seconds || 0) / 3600;
+            const preSleepH = (s.device_off_to_sleep_seconds || 0) / 3600;
+            const actualSleepH = Math.max(0, durHours - preSleepH);
 
-            // RULE: If bedtime is before 6 AM, it belongs to the previous day
-            // e.g., started 1 AM on 21st → should be 1 AM on 20th
+            let issue = '';
+            let wasFixed = false;
+
+            // PROBLEM 1: Bedtime before 6 AM — shift to previous day
             if (startH < 6) {
                 const newStart = new Date(startD);
                 newStart.setDate(newStart.getDate() - 1);
                 const newDuration = Math.max(0, Math.floor((endD.getTime() - newStart.getTime()) / 1000));
-
-                // Only fix if the new duration is sane (1-14 hours)
                 if (newDuration > 3600 && newDuration < 14 * 3600) {
                     db.prepare(`UPDATE external_sessions SET started_at = ?, duration_seconds = ? WHERE id = ?`).run(
                         newStart.toISOString(), newDuration, s.id
                     );
                     updates.push({
-                        id: s.id,
-                        oldStart: s.started_at,
-                        newStart: newStart.toISOString(),
-                        oldEnd: s.ended_at,
-                        newEnd: s.ended_at,
-                        oldDuration: s.duration_seconds || 0,
-                        newDuration
+                        id: s.id, oldStart: s.started_at, newStart: newStart.toISOString(),
+                        oldEnd: s.ended_at, newEnd: s.ended_at,
+                        oldDuration: s.duration_seconds || 0, newDuration,
+                        reason: `Bedtime at ${startH}:${String(startD.getMinutes()).padStart(2,'0')} AM shifted to previous day`
                     });
                     fixedCount++;
+                    wasFixed = true;
                 }
+                issue = `Bedtime before 6 AM (${startH}:${String(startD.getMinutes()).padStart(2,'0')})`;
+            }
+
+            // PROBLEM 2: Total duration > 16 hours (unreasonable)
+            if (durHours > 16) {
+                issue += (issue ? ' + ' : '') + `Duration ${durHours.toFixed(1)}h exceeds 16h max`;
+                // Try to fix: cap duration at actual sleep + reasonable latencies
+                const cappedDur = Math.min(s.duration_seconds, 16 * 3600);
+                if (!wasFixed && cappedDur !== s.duration_seconds) {
+                    db.prepare(`UPDATE external_sessions SET duration_seconds = ? WHERE id = ?`).run(cappedDur, s.id);
+                    updates.push({
+                        id: s.id, oldStart: s.started_at, newStart: s.started_at,
+                        oldEnd: s.ended_at, newEnd: s.ended_at,
+                        oldDuration: s.duration_seconds || 0, newDuration: cappedDur,
+                        reason: `Duration capped from ${durHours.toFixed(1)}h to 16h`
+                    });
+                    fixedCount++;
+                    wasFixed = true;
+                }
+            }
+
+            // PROBLEM 3: Pre-sleep latency > 4 hours (data entry error)
+            if (preSleepH > 4) {
+                issue += (issue ? ' + ' : '') + `Pre-sleep ${preSleepH.toFixed(1)}h exceeds 4h max`;
+                // Fix: zero out the unreasonable pre-sleep and recalculate duration as actual sleep
+                if (!wasFixed) {
+                    const newDuration = s.duration_seconds;
+                    db.prepare(`UPDATE external_sessions SET device_off_to_sleep_seconds = 0 WHERE id = ?`).run(s.id);
+                    updates.push({
+                        id: s.id, oldStart: s.started_at, newStart: s.started_at,
+                        oldEnd: s.ended_at, newEnd: s.ended_at,
+                        oldDuration: s.duration_seconds || 0, newDuration: newDuration,
+                        reason: `Pre-sleep ${preSleepH.toFixed(1)}h cleared (was >4h)`
+                    });
+                    fixedCount++;
+                    wasFixed = true;
+                }
+            }
+
+            // PROBLEM 4: Actual sleep > 14 hours (unreasonable)
+            if (actualSleepH > 14 && !wasFixed) {
+                issue += (issue ? ' + ' : '') + `Actual sleep ${actualSleepH.toFixed(1)}h exceeds 14h`;
+            }
+
+            // PROBLEM 5: Post-wake latency > 4 hours (data entry error)
+            const postWakeH = (s.wake_up_to_app_seconds || 0) / 3600;
+            if (postWakeH > 4 && !wasFixed) {
+                issue += (issue ? ' + ' : '') + `Post-wake ${postWakeH.toFixed(1)}h exceeds 4h`;
+            }
+
+            if (issue) {
+                problemsFound.push({
+                    id: s.id, started_at: s.started_at, ended_at: s.ended_at,
+                    duration_seconds: s.duration_seconds || 0,
+                    pre_sleep: s.device_off_to_sleep_seconds || 0,
+                    issue, fixed: wasFixed
+                });
             }
         }
 
-        return { fixed: fixedCount, message: `Fixed ${fixedCount} sleep session(s)`, updates };
+        return {
+            fixed: fixedCount,
+            problems: problemsFound.length,
+            message: `Found ${problemsFound.length} problem(s), fixed ${fixedCount}`,
+            updates,
+            problems_found: problemsFound
+        };
     } catch (err) {
         console.error('[DeskFlow] Failed to fix sleep dates:', err);
-        return { fixed: 0, message: 'Error fixing sleep dates' };
+        return { fixed: 0, problems: 0, message: 'Error fixing sleep dates', updates: [], problems_found: [] };
     }
 });
 
@@ -23195,7 +23356,7 @@ electron_1.ipcMain.handle('compile-sync-summary', async (_event, terminalId: str
       lines.push(`### Terminal: ${tid}${sessionId ? ` (Session: ${sessionId})` : ''}`);
       
       if (binding.active_problem_id) {
-        const problem = db.prepare('SELECT title, description FROM problems WHERE id = ?').get(binding.active_problem_id) as any;
+        const problem = db.prepare('SELECT title, description FROM workspace_problems WHERE id = ?').get(binding.active_problem_id) as any;
         if (problem) lines.push(`  Active Problem: ${problem.title} — ${problem.description || 'no description'}`);
       }
       
@@ -24562,7 +24723,7 @@ electron_1.ipcMain.handle('finance:get-transactions', async (_event, filters?: a
 });
 
 electron_1.ipcMain.handle('finance:create-transaction', async (_event, data: any) => {
-  if (!db) return null;
+  if (!db) return { error: 'Database not initialized' };
   try {
     const fee = Math.abs(Number(data.fee) || 0);
     const merchant = data.merchant || null;
@@ -24570,6 +24731,12 @@ electron_1.ipcMain.handle('finance:create-transaction', async (_event, data: any
 
     // Historical (is_adjustment) transactions always use 1900-01-01 as date
     const txnDate = isAdjustment ? '1900-01-01' : (data.date || todayStr());
+
+    // Parse metadata early (used by category resolution + crypto logic)
+    let parsedMeta: any = null;
+    if (data.metadata) {
+      try { parsedMeta = typeof data.metadata === 'string' ? JSON.parse(data.metadata) : data.metadata; } catch {}
+    }
 
     // === CATEGORY RESOLUTION (fixes hardcoded category_id:1) ===
     let resolvedCategoryId = data.category_id;
@@ -24611,8 +24778,8 @@ electron_1.ipcMain.handle('finance:create-transaction', async (_event, data: any
 
     const sortOrder = isAdjustment && data.wallet_id ? ((db.prepare('SELECT COALESCE(MAX(sort_order), 0) as max FROM finance_transactions WHERE wallet_id = ?').get(data.wallet_id) as any)?.max || 0) + 1 : 0;
     const stmt = db.prepare(`
-      INSERT INTO finance_transactions (account_id, wallet_id, category_id, type, amount, fee, merchant, description, note, "date", "time", is_adjustment, on_behalf_of, on_behalf_of_label, metadata, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO finance_transactions (account_id, wallet_id, category_id, type, amount, fee, merchant, description, note, "date", "time", is_adjustment, on_behalf_of, on_behalf_of_label, ft_person_id, metadata, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     // Encrypt sensitive fields if key available
     const encAmount = financeDataKey ? encryptField(enc(safeAmount), financeDataKey) : String(safeAmount);
@@ -24622,16 +24789,12 @@ electron_1.ipcMain.handle('finance:create-transaction', async (_event, data: any
     const result = stmt.run(
       data.account_id, data.wallet_id || null, resolvedCategoryId,
       data.type, encAmount, fee, merchant, encDesc, encNote,
-      txnDate, data.time || null, isAdjustment, data.on_behalf_of ? 1 : 0, data.on_behalf_of_label || null, encMetadata, sortOrder
+      txnDate, data.time || null, isAdjustment, data.on_behalf_of ? 1 : 0, data.on_behalf_of_label || null, data.ft_person_id || null, encMetadata, sortOrder
     );
 
     const newId = Number(result.lastInsertRowid);
 
     // === CRYPTO BUY: Update wallet metadata + balance atomically ===
-    let parsedMeta: any = null;
-    if (data.metadata) {
-      try { parsedMeta = typeof data.metadata === 'string' ? JSON.parse(data.metadata) : data.metadata; } catch {}
-    }
     if (parsedMeta && (parsedMeta.coinId || parsedMeta.coin_id) && data.wallet_id && data.type === 'expense') {
       const wallet = db.prepare('SELECT * FROM finance_wallets WHERE id = ?').get(data.wallet_id) as any;
       if (wallet) {
@@ -24753,8 +24916,11 @@ electron_1.ipcMain.handle('finance:create-transaction', async (_event, data: any
 
     return { id: newId, ...data };
   } catch (error: any) {
+    const errMsg = error?.message || String(error) || 'Unknown error';
+    const errCode = error?.code || '';
+    const sqlMsg = error?.sqlMessage || '';
     console.error('[finance] create transaction error:', error);
-    return null;
+    return { error: `Transaction failed: ${errMsg}${errCode ? ` [code: ${errCode}]` : ''}${sqlMsg ? ` [SQL: ${sqlMsg}]` : ''}` };
   }
 });
 
@@ -25498,7 +25664,7 @@ electron_1.ipcMain.handle('finance:get-ft-persons', async () => {
     try { db.exec("ALTER TABLE finance_ft_persons ADD COLUMN balance REAL DEFAULT 0"); } catch { /* already exists */ }
     try { db.exec("ALTER TABLE finance_ft_persons ADD COLUMN wallet_id INTEGER REFERENCES finance_wallets(id) ON DELETE SET NULL"); } catch { /* already exists */ }
     const persons = db.prepare('SELECT * FROM finance_ft_persons ORDER BY name').all() as any[];
-    // Enrich with transaction counts
+    // Enrich with transaction counts and repayment totals
     for (const p of persons) {
       const stats = db.prepare(`
         SELECT COUNT(*) as transaction_count, COALESCE(ABS(SUM(amount)),0) as total_owed
@@ -25506,7 +25672,13 @@ electron_1.ipcMain.handle('finance:get-ft-persons', async () => {
       `).get(p.name) as any;
       p.transaction_count = stats?.transaction_count || 0;
       p.total_owed = stats?.total_owed || 0;
-      p.total_paid = 0;
+      // Compute total_paid from repayment transactions (income flagged as on_behalf_of)
+      const paidStats = db.prepare(`
+        SELECT COALESCE(ABS(SUM(amount)), 0) as total_paid
+        FROM finance_transactions
+        WHERE on_behalf_of = 1 AND on_behalf_of_label = ? AND type = 'income'
+      `).get(p.name) as any;
+      p.total_paid = paidStats?.total_paid || 0;
     }
     return persons;
   } catch { return []; }
@@ -25581,8 +25753,19 @@ electron_1.ipcMain.handle('finance:ft-person-deduct', async (_event, data: { per
   try {
     const person = db.prepare('SELECT id, name, balance FROM finance_ft_persons WHERE id = ?').get(data.personId) as any;
     if (!person) return { success: false, error: 'Person not found' };
+    if (!data.amount || data.amount <= 0) return { success: false, error: 'Amount must be positive' };
     const newBalance = (Number(person.balance) || 0) - data.amount;
     db.prepare('UPDATE finance_ft_persons SET balance = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(newBalance, data.personId);
+    // Create a tracking transaction so sync/recalculate picks up this deduction
+    const desc = data.description || `Balance deduction for ${person.name}`;
+    const catId = getSubCategoryId();
+    db.prepare(`
+      INSERT INTO finance_transactions (account_id, wallet_id, category_id, type, amount, fee, merchant, description, note, "date", "time", on_behalf_of, on_behalf_of_label, ft_person_id)
+      VALUES (?, NULL, ?, 'expense', ?, 0, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(
+      null, catId, -data.amount, person.name, desc,
+      `Balance deduction for ${person.name}`, todayStr(), null, person.name, person.id
+    );
     logAuditEvent('ft_person_deduct', 'ft_person', data.personId, `Deducted ${data.amount} from "${person.name}" balance`, { amount: data.amount, new_balance: newBalance });
     return { success: true, balance: newBalance };
   } catch (err: any) {
@@ -25634,8 +25817,11 @@ electron_1.ipcMain.handle('finance:ft-person-delete', async (_event, data: { per
   try {
     const person = db.prepare('SELECT id, name FROM finance_ft_persons WHERE id = ?').get(data.personId) as any;
     if (!person) return { success: false, error: 'Person not found' };
-    // Unlink transactions (clear ft_person_id and on_behalf_of_label)
-    db.prepare('UPDATE finance_transactions SET ft_person_id = NULL, on_behalf_of = 0, on_behalf_of_label = NULL WHERE ft_person_id = ?').run(data.personId);
+    // Unlink transactions by ft_person_id (may fail if column missing on old DB)
+    try {
+      db.prepare('UPDATE finance_transactions SET ft_person_id = NULL, on_behalf_of = 0, on_behalf_of_label = NULL WHERE ft_person_id = ?').run(data.personId);
+    } catch { /* column may not exist on old databases */ }
+    // Unlink transactions by on_behalf_of_label (always works)
     db.prepare('UPDATE finance_transactions SET on_behalf_of = 0, on_behalf_of_label = NULL WHERE on_behalf_of_label = ?').run(person.name);
     // Delete person
     db.prepare('DELETE FROM finance_ft_persons WHERE id = ?').run(data.personId);
@@ -25656,18 +25842,17 @@ electron_1.ipcMain.handle('finance:ft-person-sync-balances', async () => {
     let backfilled = 0;
 
     for (const p of persons) {
-      // Check if person has any transactions
+      // Check if person has any transactions (use ft_person_id first, fallback to label)
       const txnCount = db.prepare(`
         SELECT COUNT(*) as cnt FROM finance_transactions
-        WHERE on_behalf_of_label = ? OR ft_person_id = ?
-      `).get(p.name, p.id) as any;
+        WHERE ft_person_id = ? OR on_behalf_of_label = ?
+      `).get(p.id, p.name) as any;
 
       const hasTransactions = (txnCount?.cnt || 0) > 0;
       const hasBalance = (Number(p.balance) || 0) > 0;
 
       // If person has balance but NO transactions, backfill an initial balance transaction
       if (hasBalance && !hasTransactions) {
-        // Find a wallet to attach to (use the first non-archived wallet)
         const wallet = db.prepare('SELECT id, account_id FROM finance_wallets WHERE is_archived = 0 LIMIT 1').get() as any;
         if (wallet) {
           const desc = `Initial balance for ${p.name}`;
@@ -25683,37 +25868,39 @@ electron_1.ipcMain.handle('finance:ft-person-sync-balances', async () => {
         }
       }
 
-      // Recalculate balance from transactions if person has transactions
+      // Recalculate stored balance from transactions if person has transactions
       if (hasTransactions) {
-        const owed = db.prepare(`
-          SELECT COALESCE(ABS(SUM(amount)), 0) as total
-          FROM finance_transactions
-          WHERE on_behalf_of = 1 AND on_behalf_of_label = ? AND type = 'expense'
-        `).get(p.name) as any;
-        const paid = db.prepare(`
-          SELECT COALESCE(ABS(SUM(amount)), 0) as total
-          FROM finance_transactions
-          WHERE on_behalf_of = 1 AND on_behalf_of_label = ? AND type = 'income'
-        `).get(p.name) as any;
-        // topups increase balance (income type), repayments decrease it (expense type with on_behalf_of=1)
+        // Top-ups: income transactions credited to this person (adds to stored balance)
         const topups = db.prepare(`
           SELECT COALESCE(ABS(SUM(amount)), 0) as total
           FROM finance_transactions
-          WHERE on_behalf_of_label = ? AND type = 'income'
-          AND (description LIKE '%top-up%' OR description LIKE '%topup%' OR description LIKE '%Initial balance%' OR description LIKE '%Lent to%')
-        `).get(p.name) as any;
+          WHERE (ft_person_id = ? OR on_behalf_of_label = ?)
+          AND type = 'income'
+          AND (on_behalf_of = 0 OR description LIKE '%top-up%' OR description LIKE '%topup%' OR description LIKE '%Initial balance%' OR description LIKE '%Lent to%')
+        `).get(p.id, p.name) as any;
+
+        // Repayments: income transactions flagged as follow-through (subtracts from stored balance)
         const repayments = db.prepare(`
           SELECT COALESCE(ABS(SUM(amount)), 0) as total
           FROM finance_transactions
-          WHERE on_behalf_of_label = ? AND type = 'expense' AND on_behalf_of = 1
-        `).get(p.name) as any;
+          WHERE (ft_person_id = ? OR on_behalf_of_label = ?)
+          AND type = 'income' AND on_behalf_of = 1
+        `).get(p.id, p.name) as any;
 
-        // stored balance = topups received - repayments made
-        const computedBalance = (topups?.total || 0) - (repayments?.total || 0);
+        // Deductions: expense transactions flagged as follow-through (subtracts from stored balance)
+        const deductions = db.prepare(`
+          SELECT COALESCE(ABS(SUM(amount)), 0) as total
+          FROM finance_transactions
+          WHERE (ft_person_id = ? OR on_behalf_of_label = ?)
+          AND type = 'expense' AND on_behalf_of = 1
+        `).get(p.id, p.name) as any;
+
+        // stored balance = topups received - repayments made - deductions made
+        const computedBalance = (topups?.total || 0) - (repayments?.total || 0) - (deductions?.total || 0);
         if (Math.abs(computedBalance - (Number(p.balance) || 0)) > 0.01) {
           db.prepare('UPDATE finance_ft_persons SET balance = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?')
             .run(computedBalance, p.id);
-          console.log(`[finance] Corrected balance for "${p.name}": ${p.balance} → ${computedBalance}`);
+          console.log(`[finance] Corrected balance for "${p.name}": ${p.balance} -> ${computedBalance}`);
         }
       }
 
@@ -26644,8 +26831,15 @@ electron_1.ipcMain.handle('subscriptions:record-payment', async (_event, data: {
 
     // Update subscription + next_renewal_date
     const nextRenewal = computeNextRenewal(txnDate, sub.billing_cycle || 'monthly', sub.billing_interval || 1);
-    db.prepare(`UPDATE finance_subscriptions SET next_renewal_date = ?, payment_status = 'paid', last_payment_date = ?, last_payment_txn_id = ?, updated_at = datetime('now','localtime') WHERE id = ?`)
-      .run(nextRenewal, txnDate, txnId, data.subscriptionId);
+
+    // Clear failed_dates from metadata so generate-due-transactions doesn't flip status back to 'failed'
+    let failedDates: string[] = [];
+    try { failedDates = JSON.parse(sub.metadata || '{}').failed_dates || []; } catch { failedDates = []; }
+    const cleanedDates = failedDates.filter(fd => fd !== txnDate);
+    const meta = JSON.stringify({ failed_dates: cleanedDates });
+
+    db.prepare(`UPDATE finance_subscriptions SET next_renewal_date = ?, payment_status = 'paid', last_payment_date = ?, last_payment_txn_id = ?, metadata = ?, updated_at = datetime('now','localtime') WHERE id = ?`)
+      .run(nextRenewal, txnDate, txnId, meta, data.subscriptionId);
 
     logAuditEvent('subscription_payment_recorded', 'subscription', data.subscriptionId,
       `Recorded payment for "${sub.name}": $${amount} on ${txnDate} via wallet #${walletId} (txn #${txnId})`,
@@ -26731,6 +26925,286 @@ electron_1.ipcMain.handle('subscriptions:cancel-payment', async (_event, data) =
     console.error('[finance] cancel subscription payment error:', err);
     return { success: false, error: String(err) };
   }
+});
+
+// ========== Fixed Expenses ==========
+
+function getFixedExpenseCategoryId() {
+  if (!db) return null;
+  let cat = db.prepare("SELECT id FROM finance_categories WHERE name = 'Fixed Expenses' LIMIT 1").get();
+  if (cat) return (cat as any).id;
+  const result = db.prepare("INSERT INTO finance_categories (name, type, icon, color, sort_order) VALUES ('Fixed Expenses', 'expense', 'Receipt', '#f59e0b', 17)").run();
+  return Number(result.lastInsertRowid);
+}
+
+electron_1.ipcMain.handle('fixed-expenses:list', async (_event, month?: string) => {
+  if (!db) return [];
+  try {
+    const targetMonth = month || new Date().toISOString().slice(0, 7);
+    return db.prepare(`
+      SELECT fe.*, c.name as category_name, c.color as category_color, c.icon as category_icon,
+        w.name as wallet_name, w.currency as wallet_currency,
+        fp.status as current_month_status, fp.amount_paid as current_month_amount_paid,
+        fp.transaction_id as current_month_transaction_id, fp.paid_date as current_month_paid_date
+      FROM finance_fixed_expenses fe
+      LEFT JOIN finance_categories c ON fe.category_id = c.id
+      LEFT JOIN finance_wallets w ON fe.wallet_id = w.id
+      LEFT JOIN finance_fixed_expense_payments fp ON fe.id = fp.fixed_expense_id AND fp.month = ?
+      WHERE fe.is_active = 1
+      ORDER BY fe.billing_day ASC, fe.name ASC
+    `).all(targetMonth);
+  } catch (err) { console.error('fixed-expenses:list error:', err); return []; }
+});
+
+electron_1.ipcMain.handle('fixed-expenses:create', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    const result = db.prepare(`
+      INSERT INTO finance_fixed_expenses (wallet_id, name, description, amount, currency, category_id, billing_day, is_active, auto_create_transaction, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(data.wallet_id, data.name, data.description || '', data.amount, data.currency || 'USD',
+      data.category_id || null, data.billing_day || 1, data.is_active !== undefined ? data.is_active : 1,
+      data.auto_create_transaction || 0, data.metadata || null);
+    const id = Number(result.lastInsertRowid);
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    db.prepare("INSERT OR IGNORE INTO finance_fixed_expense_payments (fixed_expense_id, month, status) VALUES (?, ?, 'pending')").run(id, currentMonth);
+    logAuditEvent('fixed_expense_created', 'fixed_expense', id, `Created fixed expense: ${data.name}`);
+    return { id, ...data };
+  } catch (err) { console.error('fixed-expenses:create error:', err); return null; }
+});
+
+electron_1.ipcMain.handle('fixed-expenses:update', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    db.prepare(`
+      UPDATE finance_fixed_expenses SET wallet_id=COALESCE(?,wallet_id), name=COALESCE(?,name),
+        description=COALESCE(?,description), amount=COALESCE(?,amount), currency=COALESCE(?,currency),
+        category_id=COALESCE(?,category_id), billing_day=COALESCE(?,billing_day),
+        is_active=COALESCE(?,is_active), auto_create_transaction=COALESCE(?,auto_create_transaction),
+        metadata=COALESCE(?,metadata), updated_at=datetime('now','localtime') WHERE id=?
+    `).run(data.wallet_id, data.name, data.description, data.amount, data.currency,
+      data.category_id, data.billing_day, data.is_active, data.auto_create_transaction, data.metadata, data.id);
+    logAuditEvent('fixed_expense_updated', 'fixed_expense', data.id, `Updated fixed expense: ${data.name}`);
+    return { success: true };
+  } catch (err) { console.error('fixed-expenses:update error:', err); return null; }
+});
+
+electron_1.ipcMain.handle('fixed-expenses:delete', async (_event, id: number) => {
+  if (!db) return null;
+  try {
+    const expense = db.prepare('SELECT name FROM finance_fixed_expenses WHERE id = ?').get(id) as any;
+    db.prepare('DELETE FROM finance_fixed_expenses WHERE id = ?').run(id);
+    logAuditEvent('fixed_expense_deleted', 'fixed_expense', id, `Deleted fixed expense: ${expense?.name}`);
+    return { success: true };
+  } catch (err) { console.error('fixed-expenses:delete error:', err); return null; }
+});
+
+electron_1.ipcMain.handle('fixed-expenses:mark-paid', async (_event, data: any) => {
+  if (!db) return { success: false };
+  const { fixed_expense_id, month, amount, note, paid_by = 'manual' } = data;
+  try {
+    const expense = db.prepare('SELECT * FROM finance_fixed_expenses WHERE id = ?').get(fixed_expense_id) as any;
+    if (!expense) return { success: false, error: 'Not found' };
+    const wallet = db.prepare('SELECT * FROM finance_wallets WHERE id = ?').get(expense.wallet_id) as any;
+    if (!wallet) return { success: false, error: 'Wallet not found' };
+    const payAmount = amount || expense.amount;
+    const today = new Date().toISOString().slice(0, 10);
+    const txnResult = db.prepare(`
+      INSERT INTO finance_transactions (account_id, wallet_id, category_id, type, amount, fee, merchant, description, note, "date", "time", on_behalf_of, is_adjustment)
+      VALUES (?, ?, ?, 'expense', ?, 0, ?, ?, ?, ?, ?, 0, 0)
+    `).run(wallet.account_id, expense.wallet_id, expense.category_id, -Math.abs(payAmount), expense.name,
+      `Fixed: ${expense.name} (${month})`, note || '', today, new Date().toTimeString().slice(0, 5));
+    const txnId = Number(txnResult.lastInsertRowid);
+    // Deduct from wallet
+    if (financeDataKey) {
+      const wRow = db.prepare('SELECT balance FROM finance_wallets WHERE id = ?').get(expense.wallet_id) as any;
+      const wBal = wRow && isEncrypted(wRow.balance) ? Number(decryptField(String(wRow.balance), financeDataKey)) || 0 : Number(wRow?.balance) || 0;
+      db.prepare('UPDATE finance_wallets SET balance = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(encryptField(enc(wBal - Math.abs(payAmount)), financeDataKey), expense.wallet_id);
+    } else {
+      db.prepare('UPDATE finance_wallets SET balance = balance - ? WHERE id = ?').run(Math.abs(payAmount), expense.wallet_id);
+    }
+    db.prepare('UPDATE finance_accounts SET balance = balance - ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(Math.abs(payAmount), wallet.account_id);
+    db.prepare(`INSERT INTO finance_fixed_expense_payments (fixed_expense_id, month, status, amount_paid, transaction_id, paid_date, paid_by, note)
+      VALUES (?, ?, 'paid', ?, ?, ?, ?, ?)
+      ON CONFLICT(fixed_expense_id, month) DO UPDATE SET status='paid', amount_paid=excluded.amount_paid,
+        transaction_id=excluded.transaction_id, paid_date=excluded.paid_date, paid_by=excluded.paid_by, note=excluded.note, updated_at=datetime('now','localtime')
+    `).run(fixed_expense_id, month, payAmount, txnId, today, paid_by, note || '');
+    logAuditEvent('fixed_expense_paid', 'fixed_expense', fixed_expense_id, `Marked ${expense.name} paid for ${month}: ${payAmount}`);
+    return { success: true, transaction_id: txnId, amount: payAmount };
+  } catch (err) { console.error('fixed-expenses:mark-paid error:', err); return { success: false, error: String(err) }; }
+});
+
+electron_1.ipcMain.handle('fixed-expenses:skip-month', async (_event, data: any) => {
+  if (!db) return { success: false };
+  try {
+    db.prepare(`INSERT INTO finance_fixed_expense_payments (fixed_expense_id, month, status, note) VALUES (?, ?, 'skipped', ?)
+      ON CONFLICT(fixed_expense_id, month) DO UPDATE SET status='skipped', transaction_id=NULL, amount_paid=NULL, paid_date=NULL, note=excluded.note, updated_at=datetime('now','localtime')
+    `).run(data.fixed_expense_id, data.month, data.note || '');
+    return { success: true };
+  } catch (err) { console.error('fixed-expenses:skip-month error:', err); return { success: false }; }
+});
+
+electron_1.ipcMain.handle('fixed-expenses:unmark-paid', async (_event, data: any) => {
+  if (!db) return { success: false };
+  try {
+    const payment = db.prepare('SELECT * FROM finance_fixed_expense_payments WHERE fixed_expense_id = ? AND month = ?').get(data.fixed_expense_id, data.month) as any;
+    if (!payment || payment.status !== 'paid') return { success: false, error: 'Not paid' };
+    if (payment.transaction_id) {
+      const txn = db.prepare('SELECT amount, wallet_id, account_id FROM finance_transactions WHERE id = ?').get(payment.transaction_id) as any;
+      if (txn) {
+        // Reverse wallet balance
+        if (financeDataKey) {
+          const wRow = db.prepare('SELECT balance FROM finance_wallets WHERE id = ?').get(txn.wallet_id) as any;
+          const wBal = wRow && isEncrypted(wRow.balance) ? Number(decryptField(String(wRow.balance), financeDataKey)) || 0 : Number(wRow?.balance) || 0;
+          db.prepare('UPDATE finance_wallets SET balance = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(encryptField(enc(wBal + Math.abs(txn.amount)), financeDataKey), txn.wallet_id);
+        } else {
+          db.prepare('UPDATE finance_wallets SET balance = balance + ? WHERE id = ?').run(Math.abs(txn.amount), txn.wallet_id);
+        }
+        db.prepare('UPDATE finance_accounts SET balance = balance + ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(Math.abs(txn.amount), txn.account_id);
+        db.prepare('DELETE FROM finance_transactions WHERE id = ?').run(payment.transaction_id);
+      }
+    }
+    db.prepare(`UPDATE finance_fixed_expense_payments SET status='pending', amount_paid=NULL, transaction_id=NULL, paid_date=NULL, paid_by='manual', updated_at=datetime('now','localtime')
+      WHERE fixed_expense_id = ? AND month = ?`).run(data.fixed_expense_id, data.month);
+    return { success: true };
+  } catch (err) { console.error('fixed-expenses:unmark-paid error:', err); return { success: false }; }
+});
+
+electron_1.ipcMain.handle('fixed-expenses:payment-history', async (_event, id: number) => {
+  if (!db) return [];
+  try {
+    return db.prepare(`SELECT fp.*, fe.name as expense_name, fe.amount as expected_amount
+      FROM finance_fixed_expense_payments fp JOIN finance_fixed_expenses fe ON fp.fixed_expense_id = fe.id
+      WHERE fp.fixed_expense_id = ? ORDER BY fp.month DESC`).all(id);
+  } catch { return []; }
+});
+
+electron_1.ipcMain.handle('fixed-expenses:summary', async (_event, month?: string) => {
+  if (!db) return null;
+  const targetMonth = month || new Date().toISOString().slice(0, 7);
+  try {
+    const totalFixed = db.prepare('SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM finance_fixed_expenses WHERE is_active = 1').get() as any;
+    const paidSummary = db.prepare(`SELECT COALESCE(SUM(fe.amount), 0) as total_paid, COUNT(*) as paid_count
+      FROM finance_fixed_expenses fe JOIN finance_fixed_expense_payments fp ON fe.id = fp.fixed_expense_id AND fp.month = ? AND fp.status = 'paid'
+      WHERE fe.is_active = 1`).get(targetMonth) as any;
+    const byCategory = db.prepare(`SELECT fe.category_id, c.name as category_name, c.color as category_color,
+      SUM(fe.amount) as total_amount, SUM(CASE WHEN fp.status = 'paid' THEN fe.amount ELSE 0 END) as paid_amount, COUNT(*) as count
+      FROM finance_fixed_expenses fe LEFT JOIN finance_categories c ON fe.category_id = c.id
+      LEFT JOIN finance_fixed_expense_payments fp ON fe.id = fp.fixed_expense_id AND fp.month = ?
+      WHERE fe.is_active = 1 GROUP BY fe.category_id`).all(targetMonth);
+    return {
+      totalMonthlyFixed: totalFixed.total, totalPaid: paidSummary.total_paid,
+      totalRemaining: totalFixed.total - paidSummary.total_paid,
+      percentagePaid: totalFixed.total > 0 ? (paidSummary.total_paid / totalFixed.total) * 100 : 0,
+      byCategory, overdueCount: 0, upcomingCount: totalFixed.count - paidSummary.paid_count
+    };
+  } catch (err) { console.error('fixed-expenses:summary error:', err); return null; }
+});
+
+electron_1.ipcMain.handle('fixed-expenses:detect-recurring', async () => {
+  if (!db) return [];
+  try {
+    const sixMonthsAgo = new Date(); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const cutoff = sixMonthsAgo.toISOString().slice(0, 10);
+    const candidates = db.prepare(`SELECT LOWER(TRIM(description)) as normalized_desc, merchant, category_id,
+      COUNT(*) as frequency, AVG(ABS(amount)) as avg_amount, MAX(date) as last_seen
+      FROM finance_transactions WHERE type = 'expense' AND date >= ? AND is_adjustment = 0
+      GROUP BY normalized_desc HAVING frequency >= 3 ORDER BY frequency DESC LIMIT 20`).all(cutoff) as any[];
+    const suggestions = [];
+    for (const c of candidates) {
+      const existing = db.prepare('SELECT 1 FROM finance_fixed_expenses WHERE LOWER(name) LIKE ? LIMIT 1').get(`%${c.normalized_desc}%`);
+      if (existing) continue;
+      const cat = db.prepare('SELECT name FROM finance_categories WHERE id = ?').get(c.category_id) as any;
+      suggestions.push({ suggestedName: c.merchant || c.normalized_desc, avgAmount: Math.round(c.avg_amount * 100) / 100,
+        frequency: c.frequency, lastSeen: c.last_seen, category: cat?.name || 'Other', categoryId: c.category_id,
+        confidence: Math.min(1, c.frequency / 6) });
+    }
+    return suggestions.sort((a: any, b: any) => b.confidence - a.confidence).slice(0, 10);
+  } catch { return []; }
+});
+
+// ========== Budgets ==========
+
+electron_1.ipcMain.handle('budgets:list', async () => {
+  if (!db) return [];
+  try {
+    return db.prepare(`SELECT b.*, c.name as category_name, c.color as category_color, c.icon as category_icon
+      FROM finance_budgets b LEFT JOIN finance_categories c ON b.category_id = c.id
+      ORDER BY b.type ASC, b.name ASC`).all();
+  } catch { return []; }
+});
+
+electron_1.ipcMain.handle('budgets:create', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    const result = db.prepare(`INSERT INTO finance_budgets (name, type, category_id, amount, currency, period, alert_threshold, is_active, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(data.name, data.type,
+      data.type === 'category' ? data.category_id : null, data.amount, data.currency || 'USD',
+      data.period || 'monthly', data.alert_threshold || 80, data.is_active !== undefined ? data.is_active : 1, data.metadata || null);
+    const id = Number(result.lastInsertRowid);
+    logAuditEvent('budget_created', 'budget', id, `Created budget: ${data.name}`);
+    return { id, ...data };
+  } catch (err) { console.error('budgets:create error:', err); return null; }
+});
+
+electron_1.ipcMain.handle('budgets:update', async (_event, data: any) => {
+  if (!db) return null;
+  try {
+    db.prepare(`UPDATE finance_budgets SET name=COALESCE(?,name), type=COALESCE(?,type),
+      category_id=COALESCE(?,category_id), amount=COALESCE(?,amount), currency=COALESCE(?,currency),
+      period=COALESCE(?,period), alert_threshold=COALESCE(?,alert_threshold),
+      is_active=COALESCE(?,is_active), metadata=COALESCE(?,metadata),
+      updated_at=datetime('now','localtime') WHERE id=?`).run(
+      data.name, data.type, data.type === 'category' ? data.category_id : null,
+      data.amount, data.currency, data.period, data.alert_threshold, data.is_active, data.metadata, data.id);
+    return { success: true };
+  } catch (err) { console.error('budgets:update error:', err); return null; }
+});
+
+electron_1.ipcMain.handle('budgets:delete', async (_event, id: number) => {
+  if (!db) return null;
+  try {
+    const b = db.prepare('SELECT name FROM finance_budgets WHERE id = ?').get(id) as any;
+    db.prepare('DELETE FROM finance_budgets WHERE id = ?').run(id);
+    logAuditEvent('budget_deleted', 'budget', id, `Deleted budget: ${b?.name}`);
+    return { success: true };
+  } catch { return null; }
+});
+
+electron_1.ipcMain.handle('budgets:get-status', async (_event, month?: string) => {
+  if (!db) return null;
+  const targetMonth = month || new Date().toISOString().slice(0, 7);
+  const [year, mon] = targetMonth.split('-').map(Number);
+  const startDate = `${targetMonth}-01`;
+  const endDate = new Date(year, mon, 0).toISOString().slice(0, 10);
+  try {
+    const budgets = db.prepare(`SELECT b.*, c.name as category_name, c.color as category_color, c.icon as category_icon
+      FROM finance_budgets b LEFT JOIN finance_categories c ON b.category_id = c.id WHERE b.is_active = 1`).all() as any[];
+    let totalBudget = 0, totalSpent = 0, overBudgetCount = 0, warningCount = 0;
+    const budgetStatuses = budgets.map((budget: any) => {
+      let spent = 0;
+      if (budget.type === 'total') {
+        const r = db.prepare(`SELECT COALESCE(SUM(ABS(amount)), 0) as spent FROM finance_transactions
+          WHERE type='expense' AND date>=? AND date<=? AND is_adjustment=0 AND (on_behalf_of=0 OR on_behalf_of IS NULL)`).get(startDate, endDate) as any;
+        spent = r.spent;
+      } else {
+        const r = db.prepare(`SELECT COALESCE(SUM(ABS(amount)), 0) as spent FROM finance_transactions
+          WHERE type='expense' AND category_id=? AND date>=? AND date<=? AND is_adjustment=0 AND (on_behalf_of=0 OR on_behalf_of IS NULL)`).get(budget.category_id, startDate, endDate) as any;
+        spent = r.spent;
+      }
+      const percentage = budget.amount > 0 ? (spent / budget.amount) * 100 : 0;
+      const remaining = Math.max(0, budget.amount - spent);
+      let status: 'ok' | 'warning' | 'over' = 'ok';
+      if (percentage >= 100) { status = 'over'; overBudgetCount++; }
+      else if (percentage >= budget.alert_threshold) { status = 'warning'; warningCount++; }
+      totalBudget += budget.amount; totalSpent += spent;
+      return { id: budget.id, name: budget.name, type: budget.type, limit: budget.amount, spent,
+        remaining, percentage: Math.round(percentage * 10) / 10, status,
+        category: budget.category_id ? { id: budget.category_id, name: budget.category_name, color: budget.category_color, icon: budget.category_icon } : undefined };
+    });
+    return { budgets: budgetStatuses, totalBudget, totalSpent, totalRemaining: Math.max(0, totalBudget - totalSpent),
+      overallPercentage: totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0, overBudgetCount, warningCount };
+  } catch (err) { console.error('budgets:get-status error:', err); return null; }
 });
 
 // ========== Person Balance Tracking ==========
@@ -27249,11 +27723,17 @@ electron_1.ipcMain.handle('finance:get-crypto-unified-portfolio', async (_event,
   try {
     const wallet = db.prepare(`
       SELECT id, name, balance, currency, metadata, type
-      FROM finance_wallets WHERE id = ? AND type = 'crypto' AND is_archived = 0
+      FROM finance_wallets WHERE id = ? AND (type = 'crypto' OR type = 'investment') AND is_archived = 0
     `).get(walletId) as { id: number; name: string; balance: number; currency: string; metadata: string | null } | undefined;
     if (!wallet) return { success: false, error: 'Crypto wallet not found' };
     let assets: Array<{ coin_id: string; symbol: string; name: string; amount: number; avg_buy_price: number; current_price?: number }> = [];
-    if (wallet.metadata) { try { assets = JSON.parse(wallet.metadata).assets || []; } catch { assets = []; } }
+    if (wallet.metadata) {
+      try {
+        const raw = isEncrypted(wallet.metadata) ? decryptField(String(wallet.metadata), financeDataKey) : wallet.metadata;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        assets = parsed?.assets || [];
+      } catch { assets = []; }
+    }
     const coinIds = assets.map(a => a.coin_id).filter(Boolean);
     let prices: Record<string, number> = {};
     if (coinIds.length > 0) {
@@ -27909,9 +28389,10 @@ electron_1.ipcMain.handle('resume:nextQuestion', (_e, state) => {
     resumeScore: { current: Math.min(30 + overallPercent, 95), previous: Math.max(30 + overallPercent - 10, 0), breakdown: { experience: 60, metrics: 40, technicalDepth: 55 } },
   };
 });
-electron_1.ipcMain.handle('resume:submitAnswer', (_e, questionId, answer, phase) => {
+electron_1.ipcMain.handle('resume:submitAnswer', async (_e, questionId, answer, phase) => {
   const qs = resumePhases[phase] || resumePhases[1];
   const idx = qs.findIndex((q: any) => q.id === questionId);
+  const currentQ = qs[idx];
   const nextQ = qs[idx + 1] || null;
   let nextPhase = phase;
   let nextQFinal = nextQ;
@@ -27920,12 +28401,67 @@ electron_1.ipcMain.handle('resume:submitAnswer', (_e, questionId, answer, phase)
     nextQFinal = { id: `phase_${nextPhase}_1`, phase: nextPhase, phaseName: ['Foundation','Experience Archaeology','Project Excavation','Skills Inventory','Impact Quantification','Objective Audit','Final Assembly'][nextPhase - 1], questionNumber: '1 of 6', text: `Tell us about your projects (Phase ${nextPhase})`, whyItMatters: 'Progression', inputType: 'text', exampleAnswer: '', showExample: false, validation: {} };
   }
   const overallPercent = Math.round(((phase - 1) / 7) * 100 + ((idx + 1) / qs.length) * (100 / 7));
+
+  let aiFeedback;
+  let usedFallback = false;
+  try {
+    const pState = userPreferences.aiProviders;
+    if (!pState) throw new Error('No AI providers configured');
+    const chain = buildChain(pState, 'resumeBuilder');
+    if (chain.length === 0) throw new Error('No AI provider configured for resumeBuilder');
+
+    const systemPrompt =
+      'You are an expert resume writing coach. The user is answering a structured interview question ' +
+      'to build their resume. Evaluate their answer and return STRICT JSON only — no markdown fences.\n\n' +
+      'JSON schema:\n' +
+      '{ "quality": "strong" | "good" | "needs_work" | "weak", "comment": string, "suggestion": string, "bulletDraft": string }\n' +
+      '- quality: strong = exceptional with metrics & outcomes; good = solid but missing one element; ' +
+      'needs_work = vague or missing metrics; weak = too short or off-topic.\n' +
+      '- comment: one-sentence evaluation (max 140 chars).\n' +
+      '- suggestion: actionable improvement (max 200 chars).\n' +
+      '- bulletDraft: a single resume bullet point in past tense, or empty string if not applicable.';
+
+    const userPrompt =
+      `QUESTION (${currentQ?.phaseName}, Q${currentQ?.questionNumber}): ${currentQ?.text}\n\n` +
+      `WHY IT MATTERS: ${currentQ?.whyItMatters || 'n/a'}\n\n` +
+      `USER'S ANSWER:\n"""\n${typeof answer === 'string' ? answer : JSON.stringify(answer)}\n"""`;
+
+    const { result } = await runWithFallback(chain, {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      maxTokens: 500,
+      temperature: 0.4,
+    });
+
+    const raw = (result.content || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    const parsed = JSON.parse(raw);
+
+    aiFeedback = {
+      quality: ['strong', 'good', 'needs_work', 'weak'].includes(parsed.quality) ? parsed.quality : 'good',
+      comment: String(parsed.comment ?? '').slice(0, 280),
+      suggestion: String(parsed.suggestion ?? '').slice(0, 400),
+      bulletDraft: String(parsed.bulletDraft ?? ''),
+    };
+  } catch (err) {
+    usedFallback = true;
+    const len = typeof answer === 'string' ? answer.length : JSON.stringify(answer).length;
+    aiFeedback = {
+      quality: len > 80 ? 'strong' : len > 30 ? 'good' : len > 10 ? 'needs_work' : 'weak',
+      comment: len > 80 ? 'Solid detail — good foundation to build on.' : len > 30 ? 'Good start. A bit more specificity would help.' : len > 10 ? 'This needs more depth and concrete detail.' : 'Very brief — try to expand significantly.',
+      suggestion: 'Add specific numbers, timeframes, and outcomes. (Configure AI in Settings for real feedback.)',
+      bulletDraft: '',
+    };
+    console.warn('[resume:submitAnswer] AI fallback used:', (err as any)?.message || err);
+  }
+
   return {
     nextQuestion: nextQFinal,
-    aiFeedback: { quality: answer.length > 30 ? 'strong' : answer.length > 15 ? 'good' : 'needs_work', comment: answer.length > 30 ? 'Great detail!' : answer.length > 15 ? 'Good start.' : 'Can you elaborate more?', suggestion: answer.length < 15 ? 'Try to include specific numbers and outcomes.' : '', bulletDraft: '' },
+    aiFeedback,
     progress: { overallPercent: Math.min(overallPercent, 99), currentPhasePercent: Math.round(((idx + 1) / qs.length) * 100), phaseStatus: nextQ ? 'in_progress' : (phase < 7 ? 'complete' : 'complete') },
     checklistUpdates: [],
-    resumeScore: { current: Math.min(30 + overallPercent, 95), previous: Math.max(30 + overallPercent - 10, 0), breakdown: { experience: 60, metrics: 40, technicalDepth: 55 } },
+    resumeScore: { current: Math.min(30 + overallPercent, 95), previous: Math.max(30 + overallPercent - 3, 0), breakdown: {} },
   };
 });
 electron_1.ipcMain.handle('resume:saveProgress', (_e, progress) => { const d = loadResumeData(); d.progress = progress; saveResumeData(d); return true; });
@@ -27964,15 +28500,23 @@ function saveAiSettings(s: any): void {
 
 electron_1.ipcMain.handle('resume:getAiSettings', () => loadAiSettings());
 electron_1.ipcMain.handle('resume:saveAiSettings', (_e, settings) => { saveAiSettings(settings); return { success: true }; });
-electron_1.ipcMain.handle('resume:testAiConnection', async (_e, settings) => {
+electron_1.ipcMain.handle('resume:testAiConnection', async () => {
   try {
-    // Basic validation
-    if (!settings || !settings.provider) return { success: false, error: 'No provider configured' };
-    if (settings.provider !== 'ollama' && !settings.apiKey) return { success: false, error: 'No API key provided' };
-    // For now, return success — real AI connection will be implemented when OpenAI SDK is available
-    return { success: true, message: `Connected to ${settings.provider}` };
-  } catch (e: any) {
-    return { success: false, error: e.message };
+    const pState = userPreferences.aiProviders;
+    if (!pState) return { success: false, error: 'No AI providers configured. Open Settings → AI to add one.' };
+    const chain = buildChain(pState, 'resumeBuilder');
+    if (chain.length === 0) return { success: false, error: 'No AI provider configured for Resume Builder. Open Settings → AI to add one.' };
+    const { result, usedProviderId } = await runWithFallback(chain, {
+      messages: [
+        { role: 'system', content: 'Reply with the single word "ok".' },
+        { role: 'user', content: 'ping' },
+      ],
+      maxTokens: 10,
+      temperature: 0,
+    });
+    return { success: true, providerId: usedProviderId, response: (result.content || '').slice(0, 50) };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) || 'Unknown error' };
   }
 });
 

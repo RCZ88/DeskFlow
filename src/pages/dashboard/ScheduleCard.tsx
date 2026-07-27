@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, Clock, MapPin, ChevronRight } from 'lucide-react';
+import { Calendar, Clock, MapPin, ChevronRight, ExternalLink } from 'lucide-react';
 import { BorderBeam } from '../../components/ui/border-beam';
 import { AnimatedGradientText } from '../../components/ui/animated-gradient-text';
 
@@ -41,6 +42,7 @@ function getMinutesUntil(timeStr: string): number {
 export function ScheduleCard({ className = '' }: ScheduleCardProps) {
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const load = async () => {
@@ -211,6 +213,15 @@ export function ScheduleCard({ className = '' }: ScheduleCardProps) {
               +{upcomingEntries.length - 4} more
             </div>
           )}
+
+          {/* Link to AI page for full schedule management */}
+          <button
+            onClick={() => navigate('/ai')}
+            className="flex items-center justify-center gap-1.5 w-full pt-2 mt-1 text-[11px] text-zinc-500 hover:text-pink-400 transition-colors duration-150"
+          >
+            <ExternalLink size={10} />
+            View full schedule in AI Assistant
+          </button>
         </div>
       )}
     </motion.div>
