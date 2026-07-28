@@ -21,6 +21,7 @@ import { useMotionProps } from "../lib/motion"
 import { cn } from "../lib/cn"
 import { ACCENT, TEXT } from "../tokens"
 import type { DataState, Goal, Mode } from "../types"
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
 export interface FocusBoardProps {
 	state: DataState
@@ -300,13 +301,15 @@ function ReviewPanel({
 					{doneToday}/{total} · {pct}%
 				</span>
 			</div>
-			<textarea
-				value={text}
-				onChange={(e) => setText(e.target.value)}
-				placeholder="How did today go? What will you carry into tomorrow?"
-				rows={3}
-				className="w-full resize-none rounded-lg bg-zinc-950/60 p-3 text-[13px] text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60"
-			/>
+			<VoiceInputWrapper>
+				<textarea
+					value={text}
+					onChange={(e) => setText(e.target.value)}
+					placeholder="How did today go? What will you carry into tomorrow?"
+					rows={3}
+					className="w-full resize-none rounded-lg bg-zinc-950/60 p-3 text-[13px] text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60"
+				/>
+			</VoiceInputWrapper>
 			<div className="mt-2 flex justify-end">
 				<button
 					type="button"

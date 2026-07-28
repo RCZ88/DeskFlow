@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { listContainer, riseItem } from './workspace/_ds/motion';
 import { EmptyState, Skeleton } from './workspace/_ds/primitives';
 import { INPUT_CLS, BTN_PRIMARY, BTN_GHOST, filterChipCls, accentVars, Pill, ModalShell, dotStyle } from './workspace/_ds/controls';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
 interface Request {
   id: string;
@@ -324,7 +325,9 @@ const NewRequestDialog: React.FC<{
         </div>
         <div>
           <label className="block text-[11px] font-medium text-zinc-500 mb-1">Description</label>
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} className={INPUT_CLS} rows={3} placeholder="What was requested?" />
+          <VoiceInputWrapper>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} className={INPUT_CLS} rows={3} placeholder="What was requested?" />
+          </VoiceInputWrapper>
         </div>
         <div>
           <label className="block text-[11px] font-medium text-zinc-500 mb-1">Priority</label>

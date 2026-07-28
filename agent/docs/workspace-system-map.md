@@ -126,3 +126,10 @@ workspace:load restores:
 **Magic UI (available):** animated-beam, border-beam, magic-card, number-ticker, particles, shimmer-button, terminal
 
 **Lucide (installed):** 1500+ icons via lucide-react
+
+## Generated Prompts
+
+| Prompt | Location | Purpose |
+|--------|----------|---------|
+| Workspace Design Preset System | `agent/docs/generate-prompt-docs/workspace-design-preset-system-27072026/PROMPT.md` | Tasks AI with building DesignPresetManager, presetAdapter, presetPromptInjector |
+| Context Bundle | `agent/docs/generate-prompt-docs/workspace-design-preset-system-27072026/CONTEXT_BUNDLE.md` | Full code context for the target AI |

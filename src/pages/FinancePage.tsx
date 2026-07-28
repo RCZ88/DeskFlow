@@ -24,7 +24,7 @@ import { SubscriptionsTab } from '../components/finance/SubscriptionsTab';
 import { SubscriptionsPageView } from './SubscriptionsPage';
 import { AuditLogTab } from '../components/finance/AuditLogTab';
 import { PeopleTab } from '../components/finance/PeopleTab';
-import { BudgetFixedExpensesTab } from '../components/finance/BudgetFixedExpensesTab';
+import BudgetExpensesDashboard from '../components/finance/budget-expenses/BudgetExpensesDashboard';
 import { BudgetTab } from '../components/finance/BudgetTab';
 import { NetWorthLineChart } from '../components/finance/NetWorthLineChart';
 import { IncomeExpenseBarChart } from '../components/finance/IncomeExpenseBarChart';
@@ -1384,11 +1384,7 @@ export function FinancePage() {
                 {activeTab === 'budget' && (
                   <motion.div key="budget" variants={tabPanel} initial="enter" animate="center" exit="exit"
                     transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}>
-                    <BudgetFixedExpensesTab
-                      expenses={fixedExpenses} budgets={budgets}
-                      wallets={wallets} categories={categories}
-                      onRefresh={fetchData}
-                      onNotify={(msg, type) => { setNotifMsg(msg); setTimeout(() => setNotifMsg(null), 3000); }} />
+                    <BudgetExpensesDashboard displayCurrency={displayCurrency} />
                   </motion.div>
                 )}
                 {activeTab === 'charts' && (

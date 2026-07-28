@@ -270,6 +270,7 @@ export default function AIToolsTab({
   const [showCityView, setShowCityView] = useState(false)
   const [viewMode, setViewMode] = useState<'tool' | 'model'>('tool')
   const [topViewMode, setTopViewMode] = useState<'tools' | 'models'>('tools')
+  const [showDataOnly, setShowDataOnly] = useState(false)
 
   // ── Session history tool selection ──
   const [sessionTool, setSessionTool] = useState<string | null>(null)
@@ -656,45 +657,68 @@ export default function AIToolsTab({
     const dayLabels = lastDays.map((d) => format(d, numDays <= 14 ? 'MMM dd' : 'MMM dd'))
     const dayStrs = lastDays.map((d) => format(d, 'yyyy-MM-dd'))
 
+    // In data-only mode, find which days have ANY data across all agents
+    const daysWithData = new Set<number>()
+    if (showDataOnly) {
+      for (const agent of activeAgents) {
+        for (let i = 0; i < dayStrs.length; i++) {
+          const val = getMetricValue(agent, dayStrs[i])
+          if (val > 0) daysWithData.add(i)
+        }
+      }
+    }
+
     return activeAgents.map((agent) => {
       const rawData = lastDays.map((_, i) => getMetricValue(agent, dayStrs[i]))
       let data = excludeOutliers ? filterOutlierValues(rawData) : rawData
+      // Always map zeros to null so line breaks at gaps
       const pointData = data.map((v) => (v === 0 ? null : v)) as (number | null)[]
       if (logScale) {
         data = data.map((v) => (v === 0 ? null : v)) as number[]
       }
+
+      // In data-only mode, filter to only days with data
+      let filteredLabels = dayLabels
+      let filteredData = logScale ? data : pointData
+      if (showDataOnly && daysWithData.size > 0) {
+        const indices = Array.from(daysWithData).sort((a, b) => a - b)
+        filteredLabels = indices.map(i => dayLabels[i])
+        filteredData = indices.map(i => (logScale ? data : pointData)[i]) as (number | null)[]
+      }
+
       return {
         agentId: agent.id,
         agentName: agent.name,
         color: agent.color,
         metricLabel,
         chartData: {
-          labels: dayLabels,
+          labels: filteredLabels,
           datasets: [
             {
               label: `${agent.name} - ${metricLabel}`,
-              data: logScale ? data : pointData,
+              data: filteredData,
               backgroundColor: (ctx: any) => {
                 const chart = ctx.chart
                 const { ctx: canvasCtx, chartArea } = chart
                 if (!chartArea) return agent.color + '25'
                 const g = canvasCtx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
-                g.addColorStop(0, agent.color + '35')
-                g.addColorStop(0.6, agent.color + '12')
+                g.addColorStop(0, agent.color + '40')
+                g.addColorStop(0.5, agent.color + '15')
                 g.addColorStop(1, agent.color + '00')
                 return g
               },
               borderColor: agent.color,
-              borderWidth: 2,
+              borderWidth: 2.5,
               pointRadius: (ctx: any) => {
                 const val = ctx.raw
-                return val !== null && val !== 0 ? 3 : 0
+                return val !== null && val !== 0 ? 4 : 0
               },
               pointBackgroundColor: agent.color,
               pointBorderColor: agent.color,
-              pointHoverRadius: 5,
+              pointBorderWidth: 2,
+              pointHoverRadius: 7,
               fill: true,
-              tension: 0.35,
+              tension: 0,
               spanGaps: false,
             },
           ],
@@ -710,6 +734,7 @@ export default function AIToolsTab({
     logScale,
     excludeOutliers,
     viewMode,
+    showDataOnly,
   ])
 
   const agentDistributionData = useMemo(() => {
@@ -985,6 +1010,18 @@ export default function AIToolsTab({
           )}
         >
           Outliers
+        </button>
+        <div className="w-px h-5 bg-zinc-700/40" />
+        <button
+          onClick={() => setShowDataOnly(!showDataOnly)}
+          className={cn(
+            'px-2.5 py-1 rounded-lg text-[11px] font-medium ring-1 transition-colors duration-150',
+            showDataOnly
+              ? 'bg-emerald-500/15 text-emerald-400 ring-emerald-500/30'
+              : 'text-zinc-500 hover:text-zinc-300 ring-zinc-700/40'
+          )}
+        >
+          {showDataOnly ? 'Data Only' : 'All Days'}
         </button>
       </div>
 
@@ -2309,7 +2346,7 @@ export default function AIToolsTab({
                         {agentChart.metricLabel}
                       </span>
                     </div>
-                    <div className="h-52">
+                    <div className="h-64">
                       <Line
                         data={agentChart.chartData}
                         options={{
@@ -2355,19 +2392,20 @@ export default function AIToolsTab({
                           scales: {
                             x: {
                               grid: { display: false },
-                              border: { color: 'rgba(113,113,122,0.12)' },
+                              border: { display: false },
                               ticks: {
                                 color: '#71717a',
-                                maxTicksLimit: effectiveAiPeriod === 'week' ? 7 : 8,
+                                maxTicksLimit: effectiveAiPeriod === 'week' ? 7 : 10,
                                 font: { size: 10, weight: '500' as const },
+                                maxRotation: 0,
                               },
                             },
                             y: {
                               type: logScale
                                 ? ('logarithmic' as const)
                                 : ('linear' as const),
-                              grid: { color: 'rgba(113,113,122,0.06)' },
-                              border: { color: 'rgba(113,113,122,0.12)' },
+                              grid: { color: 'rgba(39,39,42,0.5)', drawTicks: false },
+                              border: { display: false },
                               ticks: {
                                 color: '#71717a',
                                 font: { size: 10 },
@@ -2532,7 +2570,11 @@ export default function AIToolsTab({
 
                 const metricField =
                   aiChartMode === 'tokens'
-                    ? 'tokens'
+                    ? tokenDisplayMode === 'input'
+                      ? 'tokens_in'
+                      : tokenDisplayMode === 'output'
+                        ? 'tokens_out'
+                        : 'tokens'
                     : aiChartMode === 'messages'
                       ? 'messageCount'
                       : aiChartMode === 'cost'
@@ -2613,7 +2655,7 @@ export default function AIToolsTab({
                         </div>
                       </div>
                     </div>
-                    <div className="h-72">
+                    <div className="h-80">
                       <Bar
                         data={{
                           labels: periodDays.map((d) =>
@@ -2634,8 +2676,8 @@ export default function AIToolsTab({
                               labels: {
                                 color: '#71717a',
                                 font: { size: 10 },
-                                boxWidth: 10,
-                                padding: 10,
+                                boxWidth: 12,
+                                padding: 12,
                                 usePointStyle: true,
                               },
                             },
@@ -2672,12 +2714,12 @@ export default function AIToolsTab({
                               stacked: true,
                               ticks: {
                                 color: '#71717a',
-                                maxTicksLimit:
-                                  numDays <= 7 ? 7 : 8,
+                                maxTicksLimit: numDays <= 7 ? 7 : 12,
                                 font: { size: 10, weight: '500' as const },
+                                maxRotation: 0,
                               },
                               grid: { display: false },
-                              border: { color: 'rgba(113,113,122,0.12)' },
+                              border: { display: false },
                             },
                             y: {
                               stacked: true,
@@ -2693,8 +2735,8 @@ export default function AIToolsTab({
                                   return String(v)
                                 },
                               },
-                              grid: { color: 'rgba(113,113,122,0.06)' },
-                              border: { color: 'rgba(113,113,122,0.12)' },
+                              grid: { color: 'rgba(39,39,42,0.5)', drawTicks: false },
+                              border: { display: false },
                               beginAtZero: true,
                             },
                           },
@@ -2783,7 +2825,7 @@ export default function AIToolsTab({
                       ))}
                   </div>
 
-                  <div className="h-72">
+                  <div className="h-80">
                     {(() => {
                       let numDays =
                         effectiveAiPeriod === 'week'
@@ -2955,19 +2997,20 @@ export default function AIToolsTab({
                             scales: {
                               x: {
                                 grid: { display: false },
-                                border: { color: 'rgba(113,113,122,0.12)' },
+                                border: { display: false },
                                 ticks: {
                                   color: '#71717a',
-                                  maxTicksLimit: 8,
+                                  maxTicksLimit: 12,
                                   font: { size: 10, weight: '500' as const },
+                                  maxRotation: 0,
                                 },
                               },
                               y: {
                                 type: logScale
                                   ? ('logarithmic' as const)
                                   : ('linear' as const),
-                                grid: { color: 'rgba(113,113,122,0.06)' },
-                                border: { color: 'rgba(113,113,122,0.12)' },
+                                grid: { color: 'rgba(39,39,42,0.5)', drawTicks: false },
+                                border: { display: false },
                                 ticks: {
                                   color: '#71717a',
                                   font: { size: 10 },

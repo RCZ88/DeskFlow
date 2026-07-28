@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Plus, Sparkles } from 'lucide-react';
 import SkillDynamicForm from './SkillDynamicForm';
 import DSLGenerationModal from './DSLGenerationModal';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
 type TerminalTabInfo = { name: string; agent: string; modelTier?: string };
 
@@ -544,12 +545,14 @@ export const SkillsTab: React.FC<{
                   <option key={id} value={id}>{tab.name} ({tab.agent})</option>
                 ))}
               </select>
-              <textarea
-                value={skillPrompt}
-                onChange={e => setSkillPrompt(e.target.value)}
-                placeholder={runningSkill.inputs && runningSkill.inputs.length > 0 ? "Additional instructions or context..." : "Enter your prompt or instructions for this skill..."}
-                className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 min-h-[60px] resize-y"
-              />
+              <VoiceInputWrapper>
+                <textarea
+                  value={skillPrompt}
+                  onChange={e => setSkillPrompt(e.target.value)}
+                  placeholder={runningSkill.inputs && runningSkill.inputs.length > 0 ? "Additional instructions or context..." : "Enter your prompt or instructions for this skill..."}
+                  className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 min-h-[60px] resize-y"
+                />
+              </VoiceInputWrapper>
             </div>
             <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end">
               <button onClick={() => setRunningSkill(null)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>
@@ -596,7 +599,9 @@ export const SkillsTab: React.FC<{
               <input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder="Skill name" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
               <input type="text" value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="Category" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
               <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)} placeholder="Description" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
-              <textarea value={editContent} onChange={e => setEditContent(e.target.value)} placeholder="Skill content (markdown)" className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 font-mono min-h-[200px] resize-y" />
+              <VoiceInputWrapper>
+                <textarea value={editContent} onChange={e => setEditContent(e.target.value)} placeholder="Skill content (markdown)" className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 font-mono min-h-[200px] resize-y" />
+              </VoiceInputWrapper>
             </div>
             <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end flex-shrink-0">
               <button onClick={() => setEditingSkill(null)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>
@@ -618,7 +623,9 @@ export const SkillsTab: React.FC<{
               <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Skill name *" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
               <input type="text" value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="Category (e.g., coding, testing, review)" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
               <input type="text" value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Short description" className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200" />
-              <textarea value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="Skill content (markdown) — include instructions, examples, and rules..." className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 font-mono min-h-[200px] resize-y" />
+              <VoiceInputWrapper>
+                <textarea value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="Skill content (markdown) — include instructions, examples, and rules..." className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 font-mono min-h-[200px] resize-y" />
+              </VoiceInputWrapper>
             </div>
             <div className="px-4 py-3 border-t border-zinc-700 flex gap-2 justify-end flex-shrink-0">
               <button onClick={() => setShowNewForm(false)} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs rounded">Cancel</button>

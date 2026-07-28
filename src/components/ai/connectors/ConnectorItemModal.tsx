@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { X, Reply, Trash2, Check, Mail, CalendarDays, Send, Loader2, Circle } from "lucide-react"
 import type { ConnectorItem } from "../../../types/connectors"
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
 interface ConnectorItemModalProps {
   item: ConnectorItem
@@ -158,24 +159,26 @@ export function ConnectorItemModal(props: ConnectorItemModalProps) {
               }}>
                 Reply
               </div>
-              <textarea
-                value={replyDraft}
-                onChange={e => setReplyDraft(e.target.value)}
-                placeholder="Type your reply..."
-                style={{
-                  width: "100%",
-                  minHeight: 100,
-                  background: "var(--surface)",
-                  border: "1px solid var(--line)",
-                  borderRadius: 8,
-                  padding: 10,
-                  color: "var(--tp)",
-                  fontSize: 13,
-                  fontFamily: "var(--sans)",
-                  resize: "vertical",
-                  outline: "none",
-                }}
-              />
+              <VoiceInputWrapper>
+                <textarea
+                  value={replyDraft}
+                  onChange={e => setReplyDraft(e.target.value)}
+                  placeholder="Type your reply..."
+                  style={{
+                    width: "100%",
+                    minHeight: 100,
+                    background: "var(--surface)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 8,
+                    padding: 10,
+                    color: "var(--tp)",
+                    fontSize: 13,
+                    fontFamily: "var(--sans)",
+                    resize: "vertical",
+                    outline: "none",
+                  }}
+                />
+              </VoiceInputWrapper>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
                 <button
                   onClick={() => setReplyMode(false)}

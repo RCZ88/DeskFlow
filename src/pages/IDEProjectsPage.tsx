@@ -71,6 +71,7 @@ import { EmptyState } from '../components/EmptyState';
 import FeatureSpecPanel from '../components/FeatureSpecPanel';
 import { BackupTabPanel } from '../components/workspace/BackupTabPanel';
 import AIToolsTab from '../components/ai/AIToolsTab';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
 ChartJS.register(CategoryScale, LinearScale, LogarithmicScale, PointElement, BarElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -2614,16 +2615,18 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 <div className="flex items-center gap-3">
                   {!showOnboarding && (
                     <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={false}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            localStorage.setItem('ide-projects-onboarding-seen', 'true');
-                          }
-                        }}
-                        className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500"
-                      />
+                      <VoiceInputWrapper>
+                        <input
+                          type="checkbox"
+                          checked={false}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              localStorage.setItem('ide-projects-onboarding-seen', 'true');
+                            }
+                          }}
+                          className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500"
+                        />
+                      </VoiceInputWrapper>
                       Don't show again
                     </label>
                   )}
@@ -3797,13 +3800,15 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm text-zinc-400 mb-2">Project Name *</label>
-                    <input
-                      type="text"
-                      value={newProject.name}
-                      onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                      placeholder="My Project"
-                      className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
-                    />
+                    <VoiceInputWrapper>
+                      <input
+                        type="text"
+                        value={newProject.name}
+                        onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+                        placeholder="My Project"
+                        className="w-full px-4 py-3 bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-indigo-500 focus:outline-none"
+                      />
+                    </VoiceInputWrapper>
                   </div>
                   <div>
                     <label className="block text-sm text-zinc-400 mb-2">Project Path *</label>

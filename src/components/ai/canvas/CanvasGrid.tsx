@@ -16,6 +16,7 @@ interface CanvasGridProps {
   onCardClick?: (id: string) => void
   isPanning: boolean
   setIsPanning: (v: boolean) => void
+  focusedCardId?: string | null
 }
 
 const MIN_ZOOM = 0.15
@@ -24,7 +25,7 @@ const ZOOM_STEP = 0.08
 
 export function CanvasGrid({
   cards, pan, onPanChange, zoom, onZoomChange, onMoveCard, onDismissCard,
-  onPinCard, onResizeCard, onCardClick, isPanning, setIsPanning,
+  onPinCard, onResizeCard, onCardClick, isPanning, setIsPanning, focusedCardId,
 }: CanvasGridProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const gridLayerRef = useRef<HTMLDivElement>(null)
@@ -122,6 +123,7 @@ export function CanvasGrid({
             onDragStart={handleCardDragStart}
             onDragStop={handleCardDragStop}
             zoom={zoom}
+            isFocused={card.id === focusedCardId}
           />
         ))}
       </div>

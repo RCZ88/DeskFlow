@@ -5,6 +5,7 @@ interface DurationPickerProps {
   minutes: number;
   onHoursChange: (h: number) => void;
   onMinutesChange: (m: number) => void;
+  onChange?: (h: number, m: number) => void;
   maxHours?: number;
   hourLabel?: string;
   minuteLabel?: string;
@@ -17,6 +18,7 @@ export function DurationPicker({
   minutes,
   onHoursChange,
   onMinutesChange,
+  onChange,
   maxHours = 23,
   hourLabel = 'Hour',
   minuteLabel = 'Min',
@@ -44,26 +46,36 @@ export function DurationPicker({
   };
   const incMinutes = () => {
     if (minutes + 1 >= 60) {
-      onMinutesChange(0);
-      if (wrap && hours >= maxHours) {
-        onHoursChange(0);
+      const newHours = (wrap && hours >= maxHours) ? 0 : Math.min(hours + 1, maxHours);
+      if (onChange) {
+        onChange(newHours, 0);
       } else {
-        onHoursChange(Math.min(hours + 1, maxHours));
+        onMinutesChange(0);
+        onHoursChange(newHours);
       }
     } else {
-      onMinutesChange(minutes + 1);
+      if (onChange) {
+        onChange(hours, minutes + 1);
+      } else {
+        onMinutesChange(minutes + 1);
+      }
     }
   };
   const decMinutes = () => {
     if (minutes - 1 < 0) {
-      onMinutesChange(59);
-      if (wrap && hours <= 0) {
-        onHoursChange(maxHours);
+      const newHours = (wrap && hours <= 0) ? maxHours : Math.max(hours - 1, 0);
+      if (onChange) {
+        onChange(newHours, 59);
       } else {
-        onHoursChange(Math.max(hours - 1, 0));
+        onMinutesChange(59);
+        onHoursChange(newHours);
       }
     } else {
-      onMinutesChange(minutes - 1);
+      if (onChange) {
+        onChange(hours, minutes - 1);
+      } else {
+        onMinutesChange(minutes - 1);
+      }
     }
   };
 

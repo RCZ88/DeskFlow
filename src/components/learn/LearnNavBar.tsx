@@ -11,6 +11,7 @@ interface LearnNavBarProps {
   onNavigate: (view: BreadcrumbSegment['view']) => void;
   onOpenProfile: () => void;
   onOpenHelp: () => void;
+  onOpenShortcuts?: () => void;
 }
 
 export const LearnNavBar: React.FC<LearnNavBarProps> = ({
@@ -18,6 +19,7 @@ export const LearnNavBar: React.FC<LearnNavBarProps> = ({
   onNavigate,
   onOpenProfile,
   onOpenHelp,
+  onOpenShortcuts,
 }) => {
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-[#1c1917]/80 px-4 backdrop-blur-md md:px-6">
@@ -64,7 +66,7 @@ export const LearnNavBar: React.FC<LearnNavBarProps> = ({
           <HelpCircle className="h-4 w-4" />
         </button>
         <button
-          onClick={onOpenHelp}
+          onClick={onOpenShortcuts || onOpenHelp}
           className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-100"
           title="Keyboard shortcuts"
         >

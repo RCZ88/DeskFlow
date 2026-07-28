@@ -516,6 +516,7 @@ export function LearnPage() {
         onNavigate={navigate}
         onOpenProfile={() => setShowProfilePanel(true)}
         onOpenHelp={() => setShowOnboarding(true)}
+        onOpenShortcuts={() => setShowShortcuts(true)}
       />
 
       <div className="flex flex-1 min-h-0">

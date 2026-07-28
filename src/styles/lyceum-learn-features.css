@@ -3,6 +3,73 @@
    Design tokens: warm editorial (clay/sage/amber)
    ============================================ */
 
+/* --- Book Cover Styling --- */
+.lyceum-book-cloth {
+  background: linear-gradient(150deg, #c2553a 0%, #8f3a25 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.07),
+    inset -16px 0 26px -20px rgba(0,0,0,0.6),
+    0 30px 60px -28px rgba(0,0,0,0.7);
+  position: relative;
+}
+
+.lyceum-book-cloth::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: 
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.lyceum-book-cloth::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  background: linear-gradient(90deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.1) 40%, transparent 100%);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.lyceum-book-shadow {
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0.4) 0%, transparent 70%);
+}
+
+.lyceum-book-pages {
+  background: repeating-linear-gradient(
+    90deg,
+    #efe7d6 0px,
+    #efe7d6 2px,
+    #d9cfba 2px,
+    #d9cfba 4px
+  );
+  border-radius: 0 0 2px 2px;
+}
+
+.lyceum-book-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.2) 100%);
+}
+
+.lyceum-book-gilt {
+  color: #f3d9a4;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
 /* --- TOC --- */
 .lyceum-toc {
   background: var(--bg-secondary, #1c1917);

@@ -5,6 +5,7 @@ import {
   Bug, Lightbulb, ListChecks, RefreshCw, ChevronDown, ChevronRight, Eye, EyeOff
 } from 'lucide-react';
 import CheckFeedbackControls from './CheckFeedbackControls';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import { sortAndGroupChecks, DEFAULT_CHECKLIST_CONFIG, ChecklistConfig } from '../lib/checklistAlgorithm';
 import { resolveSessionForCheck } from '../lib/sessionResolution';
 
@@ -488,14 +489,16 @@ function ProblemDetailModal({
         {/* Notes */}
         <div className="mb-4">
           <div className="text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1.5">Notes</div>
-          <textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            onBlur={handleSaveNotes}
-            rows={2}
-            placeholder="Add notes..."
-            className="w-full bg-zinc-950 border border-zinc-700/50 rounded-lg px-3 py-2 text-[11px] text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-pink-500/50 resize-none"
-          />
+          <VoiceInputWrapper>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              onBlur={handleSaveNotes}
+              rows={2}
+              placeholder="Add notes..."
+              className="w-full bg-zinc-950 border border-zinc-700/50 rounded-lg px-3 py-2 text-[11px] text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-pink-500/50 resize-none"
+            />
+          </VoiceInputWrapper>
         </div>
 
         {/* Meta */}
@@ -564,12 +567,14 @@ function RequestDetailModal({
           <div className="text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1.5">Description</div>
           {editingDesc ? (
             <div className="space-y-2">
-              <textarea
-                value={desc}
-                onChange={e => setDesc(e.target.value)}
-                rows={3}
-                className="w-full bg-zinc-950 border border-zinc-700/50 rounded-lg px-3 py-2 text-[11px] text-zinc-300 focus:outline-none focus:border-pink-500/50 resize-none"
-              />
+              <VoiceInputWrapper>
+                <textarea
+                  value={desc}
+                  onChange={e => setDesc(e.target.value)}
+                  rows={3}
+                  className="w-full bg-zinc-950 border border-zinc-700/50 rounded-lg px-3 py-2 text-[11px] text-zinc-300 focus:outline-none focus:border-pink-500/50 resize-none"
+                />
+              </VoiceInputWrapper>
               <div className="flex gap-2">
                 <button onClick={handleSaveDesc} className="px-3 py-1.5 bg-pink-600 hover:bg-pink-500 text-white text-[10px] rounded-lg">Save</button>
                 <button onClick={() => { setEditingDesc(false); setDesc(request.description || ''); }} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-[10px] rounded-lg">Cancel</button>
@@ -723,11 +728,13 @@ function NewRequestDialog({ onClose, onCreate, projectId }: {
             placeholder="Brief description" autoFocus
             className="w-full bg-zinc-950 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-pink-500/50"
           />
-          <textarea
-            value={description} onChange={e => setDescription(e.target.value)}
-            rows={2} placeholder="What was requested?"
-            className="w-full bg-zinc-950 border border-zinc-700/50 rounded-lg px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-pink-500/50 resize-none"
-          />
+          <VoiceInputWrapper>
+            <textarea
+              value={description} onChange={e => setDescription(e.target.value)}
+              rows={2} placeholder="What was requested?"
+              className="w-full bg-zinc-950 border border-zinc-700/50 rounded-lg px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-pink-500/50 resize-none"
+            />
+          </VoiceInputWrapper>
           <select value={priority} onChange={e => setPriority(e.target.value)}
             className="w-full bg-zinc-950 border border-zinc-700/50 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-pink-500/50">
             <option value="critical">Critical</option>

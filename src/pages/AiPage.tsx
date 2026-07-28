@@ -150,9 +150,13 @@ export function AiPage() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const canvas = useCanvasState();
   const [autoApprove, setAutoApprove] = useState(false);
+  const [autoFocus, setAutoFocus] = useState(true);
+  const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
 
   // ── Bridge: ParsedMessage → CanvasCard helpers ──
   const processedMsgIds = useRef<Set<string>>(new Set());
+  const msgContentLengths = useRef<Map<string, number>>(new Map());
+  const msgCardIds = useRef<Map<string, string>>(new Map());
   const lastCardId = useRef<string | null>(null);
   const recentCardSpawns = useRef<Map<string, number>>(new Map());
   const CARD_DEDUP_MS = 5000;
@@ -249,12 +253,39 @@ export function AiPage() {
     if (!canvasMode) return;
 
     const newMsgs = chat.messages.filter(m => !processedMsgIds.current.has(m.id));
+    
+    // Also detect content updates to existing assistant messages (streaming)
+    const updatedMsgs = chat.messages.filter(m => 
+      processedMsgIds.current.has(m.id) && 
+      m.role === 'assistant' && 
+      m.content && 
+      m.content.length > (msgContentLengths.current.get(m.id) || 0)
+    );
+
+    if (newMsgs.length === 0 && updatedMsgs.length === 0) return;
+
+    // Handle streaming updates to existing assistant messages
+    updatedMsgs.forEach(msg => {
+      const cardId = msgCardIds.current.get(msg.id);
+      if (cardId && canvas.allCards[cardId]) {
+        canvas.updateCard(cardId, {
+          data: {
+            ...canvas.allCards[cardId].data,
+            content: msg.content,
+          },
+        });
+        msgContentLengths.current.set(msg.id, msg.content.length);
+        setFocusedCardId(cardId);
+      }
+    });
+
     if (newMsgs.length === 0) return;
 
     newMsgs.forEach(msg => {
       if (msg.role === 'user') {
         processedMsgIds.current.add(msg.id);
-        lastCardId.current = canvas.addCard('response', {
+        msgContentLengths.current.set(msg.id, msg.content.length);
+        const cardId = canvas.addCard('response', {
           content: msg.content,
           timestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
           isUserInput: true,
@@ -264,6 +295,7 @@ export function AiPage() {
           source: 'user',
           position: getCardPosition('response'),
         });
+        setFocusedCardId(cardId);
         return;
       }
 
@@ -273,6 +305,7 @@ export function AiPage() {
       if (!msg.content && !msg.parsed) return;
 
       processedMsgIds.current.add(msg.id);
+      msgContentLengths.current.set(msg.id, msg.content.length);
 
       const parsed = msg.parsed;
       const isStructured = parsed && parsed.type !== 'text';
@@ -286,7 +319,7 @@ export function AiPage() {
 
         if (prose && prose.trim().length > 10) {
           const prosePos = { x: typedPos.x, y: typedPos.y + (parsed.type === 'connector_status' ? 320 : 240) };
-          lastCardId.current = canvas.addCard('response', {
+          const proseCardId = canvas.addCard('response', {
             content: prose,
             timestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
             isToolOutput: false,
@@ -296,6 +329,8 @@ export function AiPage() {
             source: 'ai',
             position: prosePos,
           });
+          lastCardId.current = proseCardId;
+          msgCardIds.current.set(msg.id, proseCardId);
         }
         return;
       }
@@ -312,11 +347,12 @@ export function AiPage() {
             },
             size: { w: 10, h: 8 },
           });
+          msgCardIds.current.set(msg.id, lastCardId.current);
           return;
         }
       }
 
-      lastCardId.current = canvas.addCard('response', {
+      const standaloneCardId = canvas.addCard('response', {
         content: msg.content,
         timestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
         isToolOutput: msg.content.includes('```tool') || msg.content.includes('```'),
@@ -326,6 +362,9 @@ export function AiPage() {
         source: 'ai',
         position: getCardPosition('response'),
       });
+      lastCardId.current = standaloneCardId;
+      msgCardIds.current.set(msg.id, standaloneCardId);
+      setFocusedCardId(standaloneCardId);
     });
   }, [chat.messages, canvasMode]);
 

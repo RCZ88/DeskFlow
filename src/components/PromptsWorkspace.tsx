@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { listContainer, riseItem } from './workspace/_ds/motion';
 import { EmptyState, Skeleton } from './workspace/_ds/primitives';
 import { INPUT_CLS, BTN_PRIMARY, BTN_GHOST, filterChipCls, accentVars, Pill, ModalShell, dotStyle } from './workspace/_ds/controls';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
 interface AgentPrompt {
   id: string; sessionId: string | null; projectId: string | null; content: string;
@@ -247,7 +248,9 @@ export default function PromptsWorkspace({ projectId, sessions }: PromptsWorkspa
             </div>
             <div>
               <label className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 block">Content *</label>
-              <textarea value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="Enter prompt content…" rows={5} className={`${INPUT_CLS} resize-none font-mono`} autoFocus />
+              <VoiceInputWrapper>
+                <textarea value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="Enter prompt content…" rows={5} className={`${INPUT_CLS} resize-none font-mono`} autoFocus />
+              </VoiceInputWrapper>
             </div>
             <div className="flex gap-3">
               <div className="flex-1">

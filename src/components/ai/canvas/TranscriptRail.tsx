@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { TranscriptMessage } from './TranscriptMessage'
 import type { ChatMsg } from '../../../hooks/useAiChat'
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
 interface TranscriptRailProps {
   isOpen: boolean
@@ -61,24 +62,26 @@ function TranscriptInput({ onSend }: { onSend: (text: string) => void }) {
 
   return (
     <div className="dk-rail-input-row">
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={e => {
-          setText(e.target.value)
-          e.target.style.height = 'auto'
-          e.target.style.height = e.target.scrollHeight + 'px'
-        }}
-        onKeyDown={e => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            handleSubmit()
-          }
-        }}
-        placeholder="Ask a follow-up..."
-        rows={1}
-        className="dk-rail-textarea"
-      />
+      <VoiceInputWrapper>
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={e => {
+            setText(e.target.value)
+            e.target.style.height = 'auto'
+            e.target.style.height = e.target.scrollHeight + 'px'
+          }}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              handleSubmit()
+            }
+          }}
+          placeholder="Ask a follow-up..."
+          rows={1}
+          className="dk-rail-textarea"
+        />
+      </VoiceInputWrapper>
       <button
         className="dk-rail-send"
         onClick={handleSubmit}

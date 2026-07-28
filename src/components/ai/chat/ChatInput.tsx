@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { Mic, Square, Send, Mail, Inbox, Calendar, ClipboardList, RefreshCw, Search, PenLine, Newspaper, Eye, Target, Zap } from "lucide-react"
 import { SlashCommandPalette } from "./SlashCommandPalette"
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import { getAllCommands } from "../../../services/customSlashCommands"
 
 export interface ChatInputProps {
@@ -151,16 +152,18 @@ export function ChatInput(props: ChatInputProps) {
       )}
 
       <div className="dk-input-wrap">
-        <textarea
-          ref={taRef}
-          className="dk-textarea"
-          rows={1}
-          value={props.value}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask anything, type / for commands..."
-          disabled={props.streaming}
-        />
+        <VoiceInputWrapper>
+          <textarea
+            ref={taRef}
+            className="dk-textarea"
+            rows={1}
+            value={props.value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask anything, type / for commands..."
+            disabled={props.streaming}
+          />
+        </VoiceInputWrapper>
         <div className="dk-input-tools">
           {props.onOpenCommands && (
             <button

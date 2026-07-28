@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import {
   Clock, Zap, BarChart3, X, Monitor,
   ChevronRight, ChevronLeft, Award, Activity, TrendingUp as TrendingUpIcon,
@@ -1441,21 +1442,25 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
                             <div className="grid grid-cols-2 gap-2">
                               <div>
                                 <label className="text-[10px] text-zinc-500">Start</label>
-                                <input
-                                  type="datetime-local"
-                                  value={editingAppLogTimes.started_at}
-                                  onChange={(e) => setEditingAppLogTimes(prev => ({ ...prev, started_at: e.target.value }))}
-                                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
-                                />
+                                <VoiceInputWrapper>
+                                  <input
+                                    type="datetime-local"
+                                    value={editingAppLogTimes.started_at}
+                                    onChange={(e) => setEditingAppLogTimes(prev => ({ ...prev, started_at: e.target.value }))}
+                                    className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+                                  />
+                                </VoiceInputWrapper>
                               </div>
                               <div>
                                 <label className="text-[10px] text-zinc-500">End</label>
-                                <input
-                                  type="datetime-local"
-                                  value={editingAppLogTimes.ended_at}
-                                  onChange={(e) => setEditingAppLogTimes(prev => ({ ...prev, ended_at: e.target.value }))}
-                                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
-                                />
+                                <VoiceInputWrapper>
+                                  <input
+                                    type="datetime-local"
+                                    value={editingAppLogTimes.ended_at}
+                                    onChange={(e) => setEditingAppLogTimes(prev => ({ ...prev, ended_at: e.target.value }))}
+                                    className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
+                                  />
+                                </VoiceInputWrapper>
                               </div>
                             </div>
                             <div className="flex gap-1 justify-end">

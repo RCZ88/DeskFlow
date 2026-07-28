@@ -2,6 +2,7 @@ import { type FC, useState, useRef, useCallback, useEffect, useImperativeHandle,
 import { Send, Zap } from 'lucide-react';
 import { sanitizeInput, MAX_INPUT_LENGTH } from '../../services/chatSafety';
 import { VoiceInputButton } from '../VoiceInputButton';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import type { UseVoiceInput } from '../../hooks/useVoiceInput';
 
 type Props = {
@@ -111,19 +112,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled,
               <span className="text-zinc-400/60 animate-pulse">{text ? ' ' : ''}{voice.interim}</span>
             )}
           </div>
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => handleInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            rows={1}
-            disabled={disabled}
-            placeholder={placeholder ?? 'Ask about your day, manage goals, or check your inbox\u2026'}
-            className="relative w-full resize-none bg-transparent text-sm text-transparent caret-zinc-100 placeholder:text-zinc-600 focus:outline-none flex-1 leading-relaxed"
-            style={{ fieldSizing: 'content' }}
-          />
+          <VoiceInputWrapper>
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(e) => handleInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              rows={1}
+              disabled={disabled}
+              placeholder={placeholder ?? 'Ask about your day, manage goals, or check your inbox\u2026'}
+              className="relative w-full resize-none bg-transparent text-sm text-transparent caret-zinc-100 placeholder:text-zinc-600 focus:outline-none flex-1 leading-relaxed"
+              style={{ fieldSizing: 'content' }}
+            />
+          </VoiceInputWrapper>
         </div>
         <VoiceInputButton voice={voice} disabled={disabled} />
         {onOpenCommands && (

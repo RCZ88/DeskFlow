@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import DOMPurify from 'dompurify';
 import { Send, X, FileText, Folder, Copy, Check, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import SkillDynamicForm from './SkillDynamicForm';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import type { PromptLayer } from '../lib/promptAssembly';
 import { renderSystemPrompt, scopeBlockFromSelected } from '../lib/promptAssembly';
 
@@ -522,12 +523,14 @@ export function InstructionPanel({
 
         <div className="flex-1">
           <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Instruction</label>
-          <textarea
-            value={customInstruction}
-            onChange={(e) => setCustomInstruction(e.target.value)}
-            className="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300 min-h-[120px] max-h-[300px] resize-y"
-            placeholder="Additional instructions..."
-          />
+          <VoiceInputWrapper>
+            <textarea
+              value={customInstruction}
+              onChange={(e) => setCustomInstruction(e.target.value)}
+              className="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300 min-h-[120px] max-h-[300px] resize-y"
+              placeholder="Additional instructions..."
+            />
+          </VoiceInputWrapper>
         </div>
       </div>
 

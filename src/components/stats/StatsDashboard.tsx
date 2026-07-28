@@ -14,9 +14,9 @@ import { cn } from '../../lib/utils';
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
 const CHART_COLORS = [
-  'rgba(168, 85, 247, 0.85)', 'rgba(34, 211, 238, 0.85)', 'rgba(52, 211, 153, 0.85)',
-  'rgba(251, 113, 133, 0.85)', 'rgba(245, 158, 11, 0.85)', 'rgba(96, 165, 250, 0.85)',
-  'rgba(129, 140, 248, 0.85)', 'rgba(251, 146, 60, 0.85)',
+  'rgba(168, 85, 247, 0.65)', 'rgba(34, 211, 238, 0.65)', 'rgba(52, 211, 153, 0.65)',
+  'rgba(251, 113, 133, 0.65)', 'rgba(245, 158, 11, 0.65)', 'rgba(96, 165, 250, 0.65)',
+  'rgba(129, 140, 248, 0.65)', 'rgba(251, 146, 60, 0.65)',
 ];
 
 const CHART_BORDERS = [
@@ -28,6 +28,7 @@ const CHART_BORDERS = [
 const barOptions = {
   responsive: true,
   maintainAspectRatio: false,
+  indexAxis: 'y' as const,
   animation: { duration: 600, easing: 'easeOutQuart' as const },
   plugins: {
     legend: { display: false },
@@ -43,27 +44,42 @@ const barOptions = {
       bodyFont: { size: 12 },
       displayColors: true,
       boxPadding: 4,
+      callbacks: {
+        label: (ctx: any) => {
+          const val = ctx.parsed?.x ?? ctx.raw ?? 0;
+          if (val >= 1e9) return ` ${(val / 1e9).toFixed(1)}B`;
+          if (val >= 1e6) return ` ${(val / 1e6).toFixed(1)}M`;
+          if (val >= 1e3) return ` ${(val / 1e3).toFixed(1)}K`;
+          return ` ${val}`;
+        },
+      },
     },
   },
   scales: {
     x: {
-      ticks: {
-        color: '#71717a',
-        font: { size: 11, weight: '500' as const },
-        maxRotation: 0,
-      },
-      grid: { color: 'rgba(113,113,122,0.06)' },
-      border: { color: 'rgba(113,113,122,0.12)' },
-    },
-    y: {
       beginAtZero: true,
       ticks: {
         color: '#71717a',
         font: { size: 10 },
         padding: 8,
+        callback: (v: any) => {
+          if (v >= 1e9) return (v / 1e9).toFixed(0) + 'B';
+          if (v >= 1e6) return (v / 1e6).toFixed(0) + 'M';
+          if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+          return String(v);
+        },
       },
-      grid: { color: 'rgba(113,113,122,0.06)' },
-      border: { color: 'rgba(113,113,122,0.12)' },
+      grid: { color: 'rgba(39,39,42,0.5)', drawTicks: false },
+      border: { display: false },
+    },
+    y: {
+      ticks: {
+        color: '#a1a1aa',
+        font: { size: 11, weight: '500' as const },
+        padding: 8,
+      },
+      grid: { display: false },
+      border: { display: false },
     },
   },
 };
@@ -100,32 +116,60 @@ export function StatsDashboard({ rawData, loading, error, onRetry }: StatsDashbo
 
   const tokenChartData = useMemo(() => {
     if (!stats || !stats.tokensByTool.labels.length) return null;
+    const labels = stats.tokensByTool.labels.map(l => {
+      const map: Record<string, string> = {
+        'claude-code': 'Claude Code',
+        'opencode': 'OpenCode',
+        'cursor': 'Cursor',
+        'gemini': 'Gemini',
+        'codex': 'Codex',
+        'qwen': 'Qwen',
+        'aider': 'Aider',
+        'kilocode': 'KiloCode',
+      };
+      return map[l] || l;
+    });
     return {
-      labels: stats.tokensByTool.labels,
+      labels,
       datasets: [{
         data: stats.tokensByTool.values,
         backgroundColor: stats.tokensByTool.labels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
         borderColor: stats.tokensByTool.labels.map((_, i) => CHART_BORDERS[i % CHART_BORDERS.length]),
         borderWidth: 1.5,
-        borderRadius: { topLeft: 6, topRight: 6 },
-        barPercentage: 0.85,
-        categoryPercentage: 0.75,
+        borderRadius: 4,
+        borderSkipped: false,
+        barPercentage: 0.75,
+        categoryPercentage: 0.8,
       }],
     };
   }, [stats]);
 
   const sessionChartData = useMemo(() => {
     if (!stats || !stats.sessionsByAgent.labels.length) return null;
+    const labels = stats.sessionsByAgent.labels.map(l => {
+      const map: Record<string, string> = {
+        'claude-code': 'Claude Code',
+        'opencode': 'OpenCode',
+        'cursor': 'Cursor',
+        'gemini': 'Gemini',
+        'codex': 'Codex',
+        'qwen': 'Qwen',
+        'aider': 'Aider',
+        'kilocode': 'KiloCode',
+      };
+      return map[l] || l;
+    });
     return {
-      labels: stats.sessionsByAgent.labels,
+      labels,
       datasets: [{
         data: stats.sessionsByAgent.values,
         backgroundColor: stats.sessionsByAgent.labels.map((_, i) => CHART_COLORS[(i + 1) % CHART_COLORS.length]),
         borderColor: stats.sessionsByAgent.labels.map((_, i) => CHART_BORDERS[(i + 1) % CHART_BORDERS.length]),
         borderWidth: 1.5,
-        borderRadius: { topLeft: 6, topRight: 6 },
-        barPercentage: 0.85,
-        categoryPercentage: 0.75,
+        borderRadius: 4,
+        borderSkipped: false,
+        barPercentage: 0.75,
+        categoryPercentage: 0.8,
       }],
     };
   }, [stats]);
@@ -185,18 +229,18 @@ function BarChartCard({
         duration: 0.4,
         ease: [0.16, 1, 0.3, 1],
       }}
-      className="relative overflow-hidden rounded-xl p-5 bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/50 min-h-[280px] flex flex-col hover:border-zinc-700/60 transition-colors duration-200"
+      className="relative overflow-hidden rounded-xl p-5 bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-[rgba(63,63,70,0.50)] min-h-[200px] flex flex-col hover:border-zinc-600/60 transition-colors duration-200"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent pointer-events-none" />
+
+      <div className="flex items-center justify-between mb-4 relative">
         <h3 className="text-[13px] font-semibold text-zinc-200">{title}</h3>
         <div className="w-8 h-8 rounded-lg bg-zinc-800/60 flex items-center justify-center ring-1 ring-zinc-700/40">
           <BarChart3 className="w-4 h-4 text-zinc-500" />
         </div>
       </div>
 
-      {/* Chart area */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 relative">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-2">

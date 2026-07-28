@@ -260,6 +260,19 @@ window.addEventListener('hashchange', (e) => {
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [, forceRender] = useState(0);
+
+  // Fallback: poll hash and force re-render if React Router misses the change
+  const lastHashRef = useRef(window.location.hash);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (window.location.hash !== lastHashRef.current) {
+        lastHashRef.current = window.location.hash;
+        forceRender(n => n + 1);
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const page = location.pathname === '/' ? 'dashboard'
@@ -2624,7 +2637,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
         {/* Main Scroll Area */}
         <div className={`flex-1 min-h-0 ${location.pathname === '/terminal' ? 'flex flex-col overflow-hidden' : 'overflow-auto p-5'}`}>
           <ErrorBoundary>
-            <Routes location={location} key={location.pathname}>
+            <Routes key={location.pathname}>
               {/* Dashboard */}
               <Route path="/" element={
                 <DashboardPage 

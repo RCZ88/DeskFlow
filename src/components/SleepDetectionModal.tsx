@@ -187,8 +187,7 @@ export default function SleepDetectionModal({
                 <DurationPicker
                   hours={customBedtime.hours}
                   minutes={customBedtime.minutes}
-                  onHoursChange={h => onBedtimeChange({ ...customBedtime, hours: h })}
-                  onMinutesChange={m => onBedtimeChange({ ...customBedtime, minutes: m })}
+                  onChange={(h, m) => onBedtimeChange({ hours: h, minutes: m })}
                   maxHours={23}
                   hourLabel="Hr"
                   minuteLabel="Min"
@@ -200,8 +199,7 @@ export default function SleepDetectionModal({
                 <DurationPicker
                   hours={fellAsleepAt.hours}
                   minutes={fellAsleepAt.minutes}
-                  onHoursChange={h => onFellAsleepAtChange({ ...fellAsleepAt, hours: h })}
-                  onMinutesChange={m => onFellAsleepAtChange({ ...fellAsleepAt, minutes: m })}
+                  onChange={(h, m) => onFellAsleepAtChange({ hours: h, minutes: m })}
                   maxHours={23}
                   hourLabel="Hr"
                   minuteLabel="Min"
@@ -213,8 +211,7 @@ export default function SleepDetectionModal({
                 <DurationPicker
                   hours={wakeUpAt.hours}
                   minutes={wakeUpAt.minutes}
-                  onHoursChange={h => onWakeUpAtChange({ ...wakeUpAt, hours: h })}
-                  onMinutesChange={m => onWakeUpAtChange({ ...wakeUpAt, minutes: m })}
+                  onChange={(h, m) => onWakeUpAtChange({ hours: h, minutes: m })}
                   maxHours={23}
                   hourLabel="Hr"
                   minuteLabel="Min"
@@ -226,8 +223,7 @@ export default function SleepDetectionModal({
                 <DurationPicker
                   hours={customWaketime.hours}
                   minutes={customWaketime.minutes}
-                  onHoursChange={h => onWaketimeChange({ ...customWaketime, hours: h })}
-                  onMinutesChange={m => onWaketimeChange({ ...customWaketime, minutes: m })}
+                  onChange={(h, m) => onWaketimeChange({ hours: h, minutes: m })}
                   maxHours={23}
                   hourLabel="Hr"
                   minuteLabel="Min"

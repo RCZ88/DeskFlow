@@ -1118,6 +1118,7 @@ export default function SettingsPage({
   // Tracking settings state
   const [sleepGapMs, setSleepGapMs] = useState(10000);
   const [maxSessionMs, setMaxSessionMs] = useState(300000);
+  const [trackingPollInterval, setTrackingPollInterval] = useState(1000);
   const [filterTransientApps, setFilterTransientApps] = useState(true);
   const [promptHistoryLimit, setPromptHistoryLimit] = useState(5);
   const [browserRecordingMode, setBrowserRecordingMode] = useState<'always' | 'on-view'>('always');
@@ -1145,6 +1146,10 @@ export default function SettingsPage({
         const modes = await window.deskflowAPI.getRecordingModes();
         setBrowserRecordingMode(modes.browser || 'always');
         setAppRecordingMode(modes.app || 'always');
+      }
+      if (window.deskflowAPI?.getPreferences) {
+        const prefs = await window.deskflowAPI.getPreferences();
+        setTrackingPollInterval(prefs.trackingPollInterval || 1000);
       }
     };
     loadTrackingSettings();
@@ -1256,18 +1261,18 @@ export default function SettingsPage({
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
-        <input
-          type="text"
-          value={settingsSearch}
-          onChange={e => {
-            const v = e.target.value;
-            setSettingsSearch(v);
-            const matched = findMatchingTab(v);
-            if (matched) setActiveTab(matched as any);
-          }}
-          placeholder="Search settings..."
-          className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl pl-9 pr-9 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
-        />
+          <input
+            type="text"
+            value={settingsSearch}
+            onChange={e => {
+              const v = e.target.value;
+              setSettingsSearch(v);
+              const matched = findMatchingTab(v);
+              if (matched) setActiveTab(matched as any);
+            }}
+            placeholder="Search settings..."
+            className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl pl-9 pr-9 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
+          />
         {settingsSearch && (
           <button onClick={() => setSettingsSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
             <X className="w-4 h-4" />
@@ -1388,14 +1393,14 @@ export default function SettingsPage({
             )}
 
             <div className="flex gap-2">
-              <input
-                type="text"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAddCategory(); }}
-                placeholder="New category name..."
-                className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
-              />
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddCategory(); }}
+                  placeholder="New category name..."
+                  className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                />
               <button
                 onClick={handleAddCategory}
                 disabled={!newCategoryName.trim()}
@@ -1699,13 +1704,13 @@ export default function SettingsPage({
                 {appStats.length > 0 && (
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                    <input
-                      type="text"
-                      placeholder="Search apps..."
-                      value={appSearchFilter}
-                      onChange={(e) => { setAppSearchFilter(e.target.value); setAppCarouselIndex(0); }}
-                      className="pl-8 pr-3 py-1.5 text-sm bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 w-36"
-                    />
+                      <input
+                        type="text"
+                        placeholder="Search apps..."
+                        value={appSearchFilter}
+                        onChange={(e) => { setAppSearchFilter(e.target.value); setAppCarouselIndex(0); }}
+                        className="pl-8 pr-3 py-1.5 text-sm bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 w-36"
+                      />
                   </div>
                 )}
               </div>
@@ -2053,7 +2058,7 @@ export default function SettingsPage({
               >
                 <div className="flex items-center gap-2 mb-3">
                   <Search className="w-4 h-4 text-zinc-500" />
-                  <input
+                   <input
                     type="text"
                     placeholder="Search categories..."
                     value={domainSearchQuery}
@@ -2771,6 +2776,36 @@ export default function SettingsPage({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div>
+                  <label className="text-sm font-medium text-zinc-300">Update Frequency</label>
+                  <p className="text-xs text-zinc-500">How often to check which app is in focus</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={trackingPollInterval}
+                    onChange={(e) => setTrackingPollInterval(parseInt(e.target.value) || 1000)}
+                    className="w-24 px-2 py-1 text-sm bg-zinc-800 border border-zinc-700 rounded text-white text-right font-mono"
+                  />
+                  <span className="text-xs text-zinc-500">ms</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {[100, 500, 1000, 2000, 5000].map(ms => (
+                  <button
+                    key={ms}
+                    onClick={() => { setTrackingPollInterval(ms); if (window.deskflowAPI?.setPreference) window.deskflowAPI.setPreference('trackingPollInterval', ms); }}
+                    className={`px-3 py-1 rounded text-xs font-medium transition ${trackingPollInterval === ms ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-400 hover:text-white'}`}
+                  >
+                    {ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-600">Lower = more responsive but higher CPU. 100ms feels instant.</p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
                   <label className="text-sm font-medium text-zinc-300">Sleep Gap Detection</label>
                   <p className="text-xs text-zinc-500">Time before app is considered "sleep"</p>
                 </div>
@@ -2979,7 +3014,7 @@ export default function SettingsPage({
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
-              <textarea
+                <textarea
                 value={systemPrompts[projectKey(promptProjectId)] || ''}
                 onChange={(e) => setSystemPrompts((p) => ({ ...p, [projectKey(promptProjectId)]: e.target.value }))}
                 onBlur={() => handleSaveSystemPrompt(projectKey(promptProjectId), systemPrompts[projectKey(promptProjectId)] || '')}
@@ -3383,7 +3418,7 @@ export default function SettingsPage({
                           </div>
                           {prov.templateId === 'cloudflare' && (
                             <div className="flex items-center gap-2">
-                              <input
+                               <input
                                 type="text"
                                 placeholder="Cloudflare Account ID (required)"
                                 value={prov.extraConfig?.cloudflareAccountId || ''}
@@ -3458,16 +3493,16 @@ export default function SettingsPage({
                                 >+</button>
                               </div>
                             </div>
-                            <input
-                              type="text"
-                              placeholder="Base URL (optional)"
-                              value={prov.baseUrl || ''}
-                              onChange={(e) => {
-                                const next = aiProviders.map(p => p.id === prov.id ? { ...p, baseUrl: e.target.value } : p);
-                                setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
-                              }}
-                              className="flex-1 min-w-0 px-2 py-1 text-[11px] bg-zinc-800 border border-zinc-700/50 rounded text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-mono"
-                            />
+                              <input
+                                type="text"
+                                placeholder="Base URL (optional)"
+                                value={prov.baseUrl || ''}
+                                onChange={(e) => {
+                                  const next = aiProviders.map(p => p.id === prov.id ? { ...p, baseUrl: e.target.value } : p);
+                                  setAiProviders(next); setHasChanges(true); onHasChangesChange(true);
+                                }}
+                                className="flex-1 min-w-0 px-2 py-1 text-[11px] bg-zinc-800 border border-zinc-700/50 rounded text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-mono"
+                              />
                           </div>
                         </div>
                       )}

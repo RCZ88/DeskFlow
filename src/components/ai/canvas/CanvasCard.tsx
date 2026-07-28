@@ -51,6 +51,7 @@ interface CanvasCardProps {
   onDragStop?: () => void
   onClick?: (id: string) => void
   zoom?: number
+  isFocused?: boolean
 }
 
 interface ErrorBoundaryState { hasError: boolean; error: Error | null }
@@ -64,7 +65,7 @@ class CardErrorBoundary extends Component<{ cardType: string; onRetry: () => voi
   }
 }
 
-export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDragStart, onDragStop, onClick, zoom = 1 }: CanvasCardProps) {
+export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDragStart, onDragStop, onClick, zoom = 1, isFocused }: CanvasCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
   const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null)
@@ -177,7 +178,7 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
     <CardErrorBoundary cardType={card.type} onRetry={() => {}} onDismiss={() => onDismiss(card.id)}>
       <div
         ref={cardRef}
-        className={`dk-canvas-card ${isTransient ? 'transient' : ''} status-${card.status}`}
+        className={`dk-canvas-card ${isTransient ? 'transient' : ''} ${isFocused ? 'focused' : ''} status-${card.status}`}
         data-tutorial="ai.card-types"
         style={{
           position: 'absolute', left: 0, top: 0,

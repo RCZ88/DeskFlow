@@ -4544,8 +4544,9 @@ function createWindow() {
         console.error('[DeskFlow] Failed to init FocusManager:', err);
     }
     
-    // Start polling (every 5 seconds)
-    trackingInterval = setInterval(pollForeground, 5000);
+    // Start polling (configurable via settings, default 1 second)
+    const pollInterval = userPreferences.trackingPollInterval || 1000;
+    trackingInterval = setInterval(pollForeground, pollInterval);
     // Send tracking heartbeat to renderer every 5 seconds
     const heartbeatInterval = setInterval(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -16245,6 +16246,18 @@ electron_1.ipcMain.handle('delete-deadline', async (_event, id: string) => {
   } catch (err: any) { return { success: false, error: err.message }; }
 });
 
+electron_1.ipcMain.handle('update-deadline', async (_event, id: string, patch: any) => {
+  try {
+    const allowed = ['title', 'course', 'due_date', 'priority', 'description', 'category', 'recurrence', 'status'];
+    const fields = Object.keys(patch).filter(k => allowed.includes(k) && patch[k] !== undefined);
+    if (fields.length === 0) return { success: true };
+    const sets = fields.map(f => `${f} = ?`).join(', ');
+    const vals = fields.map(f => patch[f]);
+    db!.prepare(`UPDATE deadlines SET ${sets} WHERE id = ?`).run(...vals, id);
+    return { success: true };
+  } catch (err: any) { return { success: false, error: err.message }; }
+});
+
 electron_1.ipcMain.handle('snooze-deadline', async (_event, id: string, minutes: number) => {
   try {
     const until = new Date(Date.now() + minutes * 60000).toISOString();
@@ -16811,14 +16824,14 @@ electron_1.ipcMain.handle('suggest-goals', async (_event, date: string, ctx?: Go
     const p = userPreferences || {};
     const pState = p.aiProviders ? JSON.parse(p.aiProviders) : null;
     const chain = pState ? buildChain(pState, 'goalAssistant') : [];
-    let systemPrompt = `You are a daily goal planner. Based on the user's activity data, suggest 3-5 SMART goals for today (${date}). Return ONLY a JSON array of objects with keys: title (string), category ("work"|"personal"|"health"|"learning"), target ({type:"time", targetSeconds?: number} or {type:"completion", done: false}).`;
+    let systemPrompt = `You are a daily goal planner. Based on the user's activity data, suggest 3-5 SMART goals for today (${date}). Return ONLY a JSON array of objects with keys: title (string), category ("work"|"personal"|"health"|"learning"|"finance"|"relationships"), target ({type:"time", targetSeconds?: number} or {type:"completion", done: false}), parentId (string, the ID of the long-term goal this serves). CRITICAL: Every daily goal MUST link to a long-term goal via parentId. If no long-term goals exist, set parentId to null.`;
     const userParts: string[] = ['Suggest daily goals for today.'];
 
     if (ctx?.planningContent) {
       systemPrompt += `\n\nThe user has the following plan:\n${ctx.planningContent}\n\nPrefer goals that align with their plan.`;
     }
     if (ctx?.longtermGoals?.length) {
-      systemPrompt += `\n\nThe user's long-term goals are:\n${ctx.longtermGoals.map((g: any) => `- ${g.title} (${g.category})`).join('\n')}\n\nSuggest daily goals that make progress toward these long-term goals.`;
+      systemPrompt += `\n\nThe user's long-term goals (use these IDs for parentId):\n${ctx.longtermGoals.map((g: any) => `- ID: ${g.id}, Title: ${g.title}, Category: ${g.category}`).join('\n')}\n\nSuggest daily goals that make progress toward these long-term goals. EACH daily goal MUST include parentId matching the long-term goal it serves.`;
     }
     if (ctx?.unfinished?.length) {
       userParts.push(`Unfinished from yesterday: ${ctx.unfinished.map(u => u.title).join(', ')}`);

@@ -15,6 +15,7 @@ import { BorderBeam } from '../components/ui/border-beam';
 import { NumberTicker } from '../components/ui/number-ticker';
 import { DotPattern } from '../components/ui/dot-pattern';
 import { format as dateFormat, format } from 'date-fns';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import { Pie, Bar, Line } from 'react-chartjs-2';
 import { getDateRange, isInRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
@@ -909,16 +910,18 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
           </div>
           <div className="flex items-center gap-3">
             {availableBrowserProfiles.length > 0 && (
-              <select
-                value={selectedBrowserProfile}
-                onChange={e => setSelectedBrowserProfile(e.target.value)}
-                className="bg-zinc-800/80 border border-zinc-700/50 text-zinc-300 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
-              >
-                <option value="all">All browsers</option>
-                {availableBrowserProfiles.map(p => (
-                  <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-                ))}
-              </select>
+              <VoiceInputWrapper>
+                <select
+                  value={selectedBrowserProfile}
+                  onChange={e => setSelectedBrowserProfile(e.target.value)}
+                  className="bg-zinc-800/80 border border-zinc-700/50 text-zinc-300 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                >
+                  <option value="all">All browsers</option>
+                  {availableBrowserProfiles.map(p => (
+                    <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                  ))}
+                </select>
+              </VoiceInputWrapper>
             )}
             <div className="text-xs text-zinc-500">{filteredDomainStats.length} domains</div>
           </div>
@@ -1037,12 +1040,14 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
               <div className="flex gap-2 mb-3">
                 <div className="relative flex-1">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-                  <Input
-                    placeholder="Search domains..."
-                    value={liveSearchQuery}
-                    onChange={e => setLiveSearchQuery(e.target.value)}
-                    className="pl-8 text-xs"
-                  />
+                  <VoiceInputWrapper>
+                    <Input
+                      placeholder="Search domains..."
+                      value={liveSearchQuery}
+                      onChange={e => setLiveSearchQuery(e.target.value)}
+                      className="pl-8 text-xs"
+                    />
+                  </VoiceInputWrapper>
                 </div>
                 <div className="flex gap-1 bg-zinc-900 rounded-lg p-0.5 border border-zinc-800">
                   {(['all', 'info', 'warning', 'error'] as const).map(level => (

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Table2, Download, Database, Loader2 } from 'lucide-react';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
@@ -90,11 +91,13 @@ export default function DatabasePage() {
         <GlassCard className="w-64 flex-shrink-0 p-3 h-full min-h-0 flex flex-col" data-tutorial="db.browser">
           <div className="relative mb-2">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-            <input
-              type="text" placeholder="Filter tables..." value={tableSearch}
-              onChange={e => setTableSearch(e.target.value)}
-              className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
-            />
+            <VoiceInputWrapper>
+              <input
+                type="text" placeholder="Filter tables..." value={tableSearch}
+                onChange={e => setTableSearch(e.target.value)}
+                className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+              />
+            </VoiceInputWrapper>
           </div>
           <div className="space-y-0.5 overflow-y-auto min-h-0 flex-1">
             {filteredTables.map(table => (

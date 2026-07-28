@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Search, Trash2, Lock as LockIcon, Calendar, X, Handshake, CircleCheck, Bell, ArrowUpDown, Clock } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Search, Trash2, Lock as LockIcon, Calendar, X, Handshake, CircleCheck, Bell, ArrowUpDown, Clock, Tag, ChevronDown, Check } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
@@ -530,6 +530,52 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                 </button>
               );
             })}
+          </div>
+          {/* Category Filter Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                const el = document.getElementById('category-filter-dropdown');
+                if (el) el.classList.toggle('hidden');
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all border ${
+                categoryFilter.length > 0
+                  ? 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+                  : 'bg-transparent text-zinc-500 border-zinc-700/30 hover:text-zinc-300 hover:border-zinc-600/50'
+              }`}
+            >
+              <Tag className="w-3 h-3" />
+              {categoryFilter.length > 0 ? `${categoryFilter.length} category${categoryFilter.length > 1 ? 's' : ''}` : 'Category'}
+              <ChevronDown className="w-3 h-3" />
+            </button>
+            <div id="category-filter-dropdown" className="hidden absolute z-20 mt-1 w-56 rounded-xl bg-zinc-800 border border-zinc-700/60 shadow-xl py-1 max-h-60 overflow-y-auto">
+              <button
+                onClick={() => { setCategoryFilter([]); document.getElementById('category-filter-dropdown')?.classList.add('hidden'); }}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-zinc-700/50 transition-colors flex items-center gap-2"
+              >
+                <span className={`w-2 h-2 rounded-full ${categoryFilter.length === 0 ? 'bg-indigo-400' : 'bg-zinc-600'}`} />
+                <span className={categoryFilter.length === 0 ? 'text-indigo-400' : 'text-zinc-400'}>All Categories</span>
+              </button>
+              {categories.map(cat => {
+                const selected = categoryFilter.includes(cat.id);
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => {
+                      setCategoryFilter(prev => {
+                        if (prev.includes(cat.id)) return prev.filter(id => id !== cat.id);
+                        return [...prev, cat.id];
+                      });
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-zinc-700/50 transition-colors flex items-center gap-2"
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color || '#6B7280' }} />
+                    <span className={selected ? 'text-white' : 'text-zinc-400'}>{cat.name}</span>
+                    {selected && <Check className="w-3 h-3 text-indigo-400 ml-auto" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           {selectionActive && (
             <button

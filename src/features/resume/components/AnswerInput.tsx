@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { Input } from '../../../components/ui/input';
+import { VoiceInputWrapper } from '../../../components/VoiceInputWrapper';
 import type { Question } from '../../../types/resume';
 
 interface AnswerInputProps {
@@ -66,21 +67,23 @@ export function AnswerInput({
               </button>
             </span>
           ))}
-          <input
-            value={tagInput}
-            onChange={(e) => setTagInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ',') {
-                e.preventDefault();
-                addTag();
-              } else if (e.key === 'Backspace' && !tagInput && tags.length) {
-                onChange(tags.slice(0, -1));
-              }
-            }}
-            placeholder={placeholder || 'Type and press Enter…'}
-            disabled={disabled}
-            className="flex-1 min-w-[120px] bg-transparent text-sm text-white placeholder-zinc-500 outline-none"
-          />
+          <VoiceInputWrapper>
+            <input
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                  e.preventDefault();
+                  addTag();
+                } else if (e.key === 'Backspace' && !tagInput && tags.length) {
+                  onChange(tags.slice(0, -1));
+                }
+              }}
+              placeholder={placeholder || 'Type and press Enter…'}
+              disabled={disabled}
+              className="flex-1 min-w-[120px] bg-transparent text-sm text-white placeholder-zinc-500 outline-none"
+            />
+          </VoiceInputWrapper>
         </div>
       </div>
     );
@@ -89,15 +92,17 @@ export function AnswerInput({
   if (inputType === 'metric') {
     return (
       <div className="relative">
-        <Input
-          type="text"
-          value={value || ''}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={placeholder || 'e.g., 42%, 3 months, $50k'}
-          disabled={disabled}
-          className="h-10 text-sm rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 focus:ring-2 focus:ring-[var(--page-accent)]/50"
-        />
+        <VoiceInputWrapper>
+          <Input
+            type="text"
+            value={value || ''}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={placeholder || 'e.g., 42%, 3 months, $50k'}
+            disabled={disabled}
+            className="h-10 text-sm rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 focus:ring-2 focus:ring-[var(--page-accent)]/50"
+          />
+        </VoiceInputWrapper>
         {validation?.metricTypes && (
           <div className="flex gap-1.5 items-center mt-2.5">
             {validation.metricTypes.map((t) => (
@@ -118,16 +123,18 @@ export function AnswerInput({
 
   return (
     <div className="relative">
-      <textarea
-        ref={textareaRef}
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder={placeholder || 'Type your answer here…'}
-        disabled={disabled}
-        rows={minRows}
-        className={`w-full p-5 rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 text-sm text-white placeholder-zinc-500 outline-none focus:ring-2 focus:ring-[var(--page-accent)]/50 transition-all duration-150 resize-none ${minHeightClass} disabled:opacity-50 disabled:cursor-wait leading-relaxed scrollbar-thin`}
-      />
+      <VoiceInputWrapper>
+        <textarea
+          ref={textareaRef}
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder || 'Type your answer here…'}
+          disabled={disabled}
+          rows={minRows}
+          className={`w-full p-5 rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 text-sm text-white placeholder-zinc-500 outline-none focus:ring-2 focus:ring-[var(--page-accent)]/50 transition-all duration-150 resize-none ${minHeightClass} disabled:opacity-50 disabled:cursor-wait leading-relaxed scrollbar-thin`}
+        />
+      </VoiceInputWrapper>
       {charCount > 0 && (
         <div className="absolute -bottom-5 right-1 text-[10px] text-zinc-600 tabular-nums">
           {charCount} chars

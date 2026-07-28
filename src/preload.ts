@@ -908,6 +908,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   addDeadline: (dl: any) => ipcRenderer.invoke('add-deadline', dl),
   updateDeadlineStatus: (id: string, status: string) => ipcRenderer.invoke('update-deadline-status', id, status),
   deleteDeadline: (id: string) => ipcRenderer.invoke('delete-deadline', id),
+  updateDeadline: (id: string, patch: any) => ipcRenderer.invoke('update-deadline', id, patch),
   snoozeDeadline: (id: string, minutes: number) => ipcRenderer.invoke('snooze-deadline', id, minutes),
   getScheduleTemplates: () => ipcRenderer.invoke('get-schedule-templates'),
   applyScheduleTemplate: (templateId: string) => ipcRenderer.invoke('apply-schedule-template', templateId),

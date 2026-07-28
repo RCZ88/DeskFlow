@@ -41,3 +41,9 @@ export function saveCanvasLayout(state: CanvasState): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(slim))
   } catch {}
 }
+
+export function clearCanvasLayout(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY)
+  } catch {}
+}

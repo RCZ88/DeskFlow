@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import {
   Clock, Play, Pause, Square, Moon, Sun, BookOpen, Dumbbell, Activity,
   Bus, Book, Utensils, Coffee, Plus, X, AlertTriangle, Trash2, Save,
@@ -2115,8 +2116,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                 <DurationPicker
                   hours={wakeTime.hours}
                   minutes={wakeTime.minutes}
-                  onHoursChange={(h) => setWakeTime({ ...wakeTime, hours: h })}
-                  onMinutesChange={(m) => setWakeTime({ ...wakeTime, minutes: m })}
+                  onChange={(h, m) => setWakeTime({ hours: h, minutes: m })}
                   maxHours={23}
                   hourLabel="Hour"
                   minuteLabel="Min"
@@ -2201,13 +2201,15 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
               {/* Activity Name */}
               <div className="mb-4">
                 <label className="block text-sm text-zinc-400 mb-2">Name</label>
-                <input
-                  type="text"
-                  value={newActivity.name}
-                  onChange={(e) => setNewActivity({ ...newActivity, name: e.target.value })}
-                  placeholder="e.g., Yoga, Meditation"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
-                />
+                <VoiceInputWrapper>
+                  <input
+                    type="text"
+                    value={newActivity.name}
+                    onChange={(e) => setNewActivity({ ...newActivity, name: e.target.value })}
+                    placeholder="e.g., Yoga, Meditation"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
+                  />
+                </VoiceInputWrapper>
               </div>
 
               {/* Activity Type */}
@@ -2334,12 +2336,14 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
 
               <div className="mb-4">
                 <label className="block text-sm text-zinc-400 mb-2">Name</label>
-                <input
-                  type="text"
-                  value={editingActivity.name}
-                  onChange={(e) => setEditingActivity({ ...editingActivity, name: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
-                />
+                <VoiceInputWrapper>
+                  <input
+                    type="text"
+                    value={editingActivity.name}
+                    onChange={(e) => setEditingActivity({ ...editingActivity, name: e.target.value })}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100"
+                  />
+                </VoiceInputWrapper>
               </div>
 
               <div className="mb-4">
@@ -2851,55 +2855,51 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
               <div className="grid grid-cols-2 gap-3 mb-5">
                 <div>
                   <label className="block text-sm text-zinc-400 mb-2 text-center">Device Off</label>
-                  <DurationPicker
-                    hours={pastDeviceOff.hours}
-                    minutes={pastDeviceOff.minutes}
-                    onHoursChange={(h) => setPastDeviceOff({ ...pastDeviceOff, hours: h })}
-                    onMinutesChange={(m) => setPastDeviceOff({ ...pastDeviceOff, minutes: m })}
-                    maxHours={23}
-                    hourLabel="Hr"
-                    minuteLabel="Min"
-                    wrap={true}
-                  />
+                <DurationPicker
+                  hours={pastDeviceOff.hours}
+                  minutes={pastDeviceOff.minutes}
+                  onChange={(h, m) => setPastDeviceOff({ hours: h, minutes: m })}
+                  maxHours={23}
+                  hourLabel="Hr"
+                  minuteLabel="Min"
+                  wrap={true}
+                />
                 </div>
                 <div>
                   <label className="block text-sm text-zinc-400 mb-2 text-center">Fell asleep at</label>
-                  <DurationPicker
-                    hours={pastFellAsleepAt.hours}
-                    minutes={pastFellAsleepAt.minutes}
-                    onHoursChange={(h) => setPastFellAsleepAt({ ...pastFellAsleepAt, hours: h })}
-                    onMinutesChange={(m) => setPastFellAsleepAt({ ...pastFellAsleepAt, minutes: m })}
-                    maxHours={23}
-                    hourLabel="Hr"
-                    minuteLabel="Min"
-                    wrap={true}
-                  />
+                <DurationPicker
+                  hours={pastFellAsleepAt.hours}
+                  minutes={pastFellAsleepAt.minutes}
+                  onChange={(h, m) => setPastFellAsleepAt({ hours: h, minutes: m })}
+                  maxHours={23}
+                  hourLabel="Hr"
+                  minuteLabel="Min"
+                  wrap={true}
+                />
                 </div>
                 <div>
                   <label className="block text-sm text-zinc-400 mb-2 text-center">Wake up</label>
-                  <DurationPicker
-                    hours={pastWakeupTime.hours}
-                    minutes={pastWakeupTime.minutes}
-                    onHoursChange={(h) => setPastWakeupTime({ ...pastWakeupTime, hours: h })}
-                    onMinutesChange={(m) => setPastWakeupTime({ ...pastWakeupTime, minutes: m })}
-                    maxHours={23}
-                    hourLabel="Hr"
-                    minuteLabel="Min"
-                    wrap={true}
-                  />
+                <DurationPicker
+                  hours={pastWakeupTime.hours}
+                  minutes={pastWakeupTime.minutes}
+                  onChange={(h, m) => setPastWakeupTime({ hours: h, minutes: m })}
+                  maxHours={23}
+                  hourLabel="Hr"
+                  minuteLabel="Min"
+                  wrap={true}
+                />
                 </div>
                 <div>
                   <label className="block text-sm text-zinc-400 mb-2 text-center">Device On</label>
-                  <DurationPicker
-                    hours={pastDeviceOn.hours}
-                    minutes={pastDeviceOn.minutes}
-                    onHoursChange={(h) => setPastDeviceOn({ ...pastDeviceOn, hours: h })}
-                    onMinutesChange={(m) => setPastDeviceOn({ ...pastDeviceOn, minutes: m })}
-                    maxHours={23}
-                    hourLabel="Hr"
-                    minuteLabel="Min"
-                    wrap={true}
-                  />
+                <DurationPicker
+                  hours={pastDeviceOn.hours}
+                  minutes={pastDeviceOn.minutes}
+                  onChange={(h, m) => setPastDeviceOn({ hours: h, minutes: m })}
+                  maxHours={23}
+                  hourLabel="Hr"
+                  minuteLabel="Min"
+                  wrap={true}
+                />
                 </div>
               </div>
 

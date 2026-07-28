@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import {
   CalendarClock, Plus, Edit3, Trash2, ExternalLink, Bell, BellOff, Calendar,
   Wallet, CreditCard, RefreshCw, X, Check, AlertTriangle, Search,
@@ -210,12 +211,14 @@ export function SubscriptionsPageView({
       <motion.div variants={riseItem} className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-          <input
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search subscriptions..."
-            className="w-full bg-zinc-800/60 text-sm text-white rounded-lg border border-zinc-700/50 pl-9 pr-3 py-2.5 outline-none placeholder:text-zinc-600 focus:border-zinc-500 transition-colors"
-          />
+          <VoiceInputWrapper>
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search subscriptions..."
+              className="w-full bg-zinc-800/60 text-sm text-white rounded-lg border border-zinc-700/50 pl-9 pr-3 py-2.5 outline-none placeholder:text-zinc-600 focus:border-zinc-500 transition-colors"
+            />
+          </VoiceInputWrapper>
         </div>
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
           {[

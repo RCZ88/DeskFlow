@@ -20,11 +20,13 @@ interface CanvasContainerProps {
   onStop: () => void
   streaming: boolean
   thinking?: boolean
+  focusedCardId?: string | null
+  autoFocus?: boolean
 }
 
 export function CanvasContainer({
   cards, onMoveCard, onDismissCard, onArrangeCards, onPinCard, onResizeCard, onCardClick,
-  saveStatus, onSend, onStop, streaming, thinking,
+  saveStatus, onSend, onStop, streaming, thinking, focusedCardId, autoFocus,
 }: CanvasContainerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -100,6 +102,20 @@ export function CanvasContainer({
     const newZoom = Math.max(0.15, zoom / 1.2)
     setZoom(newZoom)
   }, [zoom])
+
+  // Auto-pan to focused card when it changes
+  useEffect(() => {
+    if (!autoFocus || !focusedCardId || viewportSize.w === 0) return
+    const card = cards.find(c => c.id === focusedCardId)
+    if (!card) return
+
+    const cardCenterX = card.position.x + (card.size.w * 40) / 2
+    const cardCenterY = card.position.y + (card.size.h * 40) / 2
+    setPan({
+      x: viewportSize.w / 2 - cardCenterX * zoom,
+      y: viewportSize.h / 2 - cardCenterY * zoom,
+    })
+  }, [focusedCardId, autoFocus, cards, viewportSize, zoom])
 
   // Check if any card is visible (accounting for zoom)
   const anyCardVisible = useMemo(() => {
@@ -194,6 +210,7 @@ export function CanvasContainer({
         onCardClick={onCardClick}
         isPanning={isPanning}
         setIsPanning={setIsPanning}
+        focusedCardId={focusedCardId}
       />
 
       {!anyCardVisible && clusterCenter && viewportSize.w > 0 && (

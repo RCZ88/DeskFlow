@@ -9,9 +9,10 @@ interface CanvasInputProps {
   streaming?: boolean
   thinking?: boolean
   voice?: UseVoiceInput
+  onOpenPalette?: () => void
 }
 
-export function CanvasInput({ onSend, onStop, streaming, thinking, voice }: CanvasInputProps) {
+export function CanvasInput({ onSend, onStop, streaming, thinking, voice, onOpenPalette }: CanvasInputProps) {
   const [text, setText] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -27,9 +28,17 @@ export function CanvasInput({ onSend, onStop, streaming, thinking, voice }: Canv
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      if (text.startsWith('/') && onOpenPalette) {
+        onOpenPalette()
+        return
+      }
       handleSubmit()
     }
-  }, [handleSubmit])
+    if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      onOpenPalette?.()
+    }
+  }, [handleSubmit, text, onOpenPalette])
 
   return (
     <div className="dk-canvas-input-bar">
@@ -70,7 +79,7 @@ export function CanvasInput({ onSend, onStop, streaming, thinking, voice }: Canv
           )}
         </div>
       </div>
-      <div className="dk-canvas-input-hint">
+      <div className="dk-canvas-input-hints">
         <span>Ctrl+K commands</span>
         <span>Enter send</span>
         <span>Esc close palette</span>

@@ -3,6 +3,7 @@ import { ChevronRight, ChevronLeft, BookOpen, Zap, Network, FolderTree, FileText
 import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
 import { assembleContext } from '../services/ContextService';
 import { WORKSPACE_CONFIG_PREF_KEY } from './ContextSidebar';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import type { WorkspaceConfig } from './ContextSidebar';
 
 const NSD_ACCENT = { ['--page-accent' as any]: '#2dd4bf' } as any;
@@ -702,7 +703,9 @@ export function NewSessionDialog({ open, mode = 'create', onClose, onCreate, pro
               </div>
               <div className="mt-3">
                 <label className="block text-xs text-zinc-500 mb-1.5 font-medium">Session Additions <span className="text-zinc-600 font-normal">(appended to merged prompt)</span></label>
-                <textarea value={customSystemPrompt} onChange={(e) => setCustomSystemPrompt(e.target.value)} className="w-full bg-zinc-900/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-white text-sm h-16 resize-none placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/40 transition-all duration-150" placeholder="Extra instructions for this specific session..." />
+                <VoiceInputWrapper>
+                  <textarea value={customSystemPrompt} onChange={(e) => setCustomSystemPrompt(e.target.value)} className="w-full bg-zinc-900/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-white text-sm h-16 resize-none placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/40 transition-all duration-150" placeholder="Extra instructions for this specific session..." />
+                </VoiceInputWrapper>
               </div>
             </div>
           </div>

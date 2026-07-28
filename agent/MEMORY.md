@@ -31,3 +31,12 @@
 - **Magic UI (available):** animated-beam, border-beam, magic-card, number-ticker, particles, shimmer-button, terminal
 - **Lucide (installed):** 1500+ icons via lucide-react
 - **Source routing:** Standard UI → shadcn, Animated effects → Magic UI, Icons → Lucide, Specific component → 21st.dev
+
+## Design Preset System (2026-07-27)
+
+- **Preset definitions exist:** `src/lib/designPresets.ts` — 8 presets (Cyberpunk, Minimal, Glass, Brutalist, Warm, Terminal, Ocean, Neon) with full color/geometry/typography/motion/glass/MCP mappings
+- **Prompt generated:** `agent/docs/generate-prompt-docs/workspace-design-preset-system-27072026/PROMPT.md` — tasks AI with building DesignPresetManager, presetAdapter, presetPromptInjector
+- **Context bundle:** `agent/docs/generate-prompt-docs/workspace-design-preset-system-27072026/CONTEXT_BUNDLE.md` — full code context for target AI
+- **Design system map:** `agent/docs/workspace-system-map.md` — complete feature→IPC→DB connectivity map
+- **Gap:** Preset gallery UI, adjustment knobs, preset→prompt injection, preset→component adaptation not yet built
+- **Goal:** Users select a preset → tweak knobs → AI follows it consistently in prompts and UI generation

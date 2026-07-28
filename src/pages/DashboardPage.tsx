@@ -467,6 +467,7 @@ export default function DashboardPage({
   // New dashboard data
   const [insights, setInsights] = useState<any[]>([]);
   const [goals, setGoals] = useState<any[]>([]);
+  const [longTermGoals, setLongTermGoals] = useState<any[]>([]);
   const [deadlines, setDeadlines] = useState<any[]>([]);
   const [sleepData, setSleepData] = useState<{ label: string; hours: number }[]>([]);
   const [avgSleep, setAvgSleep] = useState(0);
@@ -496,6 +497,15 @@ export default function DashboardPage({
       try {
         const goalsList = res?.goals || res?.data || (Array.isArray(res) ? res : []);
         setGoals(goalsList.filter((g: any) => !g.completed).slice(0, 5));
+      } catch { /* ignore */ }
+    }).catch(() => {});
+
+    // Long-term goals
+    api.getLongtermGoals?.()?.then((res: any) => {
+      try {
+        if (res?.success && res?.goals) {
+          setLongTermGoals(res.goals);
+        }
       } catch { /* ignore */ }
     }).catch(() => {});
 
@@ -2396,8 +2406,12 @@ export default function DashboardPage({
             displayTimeMs={displayTime.ms}
             isCurrentlyProductive={isCurrentlyProductive}
             isDistracting={isDistracting}
-            currentAppName={currentApp?.app || currentApp?.title || ''}
+            currentAppName={isInBrowser
+              ? (currentWebsite?.title || currentWebsite?.domain || currentApp?.app || 'Browsing')
+              : (currentApp?.app || currentApp?.title || '')}
             totalFocusedMs={(dashboardData?.overview?.productiveSeconds || 0) * 1000}
+            browserName={isInBrowser ? currentWebsite?.browserName : undefined}
+            isInBrowser={isInBrowser}
           />
 
           {/* Row 2: Tier Breakdown Strip (Moved up for immediate context) */}
@@ -2430,33 +2444,90 @@ export default function DashboardPage({
             />
           </div>
 
-          {/* Row 4: Triple Column — Goals + Deadlines + Focus */}
-          <BlurFade delay={0.14} duration={0.4}>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-              <GoalsCard
-                goals={goals}
-                onToggle={(id) => {
-                  setGoals(prev => prev.map(g => g.id === id ? {...g, completed: !g.completed} : g));
-                }}
-                onAdd={(title) => {
-                  const newGoal = { id: Date.now().toString(), title, completed: false };
-                  setGoals(prev => [...prev, newGoal]);
-                }}
-              />
-              <DeadlinesCard
-                deadlines={deadlines}
-                onAdd={(title, date) => {
-                  const newDeadline = { id: Date.now().toString(), title, due_date: date };
-                  setDeadlines(prev => [...prev, newDeadline]);
-                }}
-              />
-              <QuickFocusCard
-                state={deepFocus.state}
-                onStart={deepFocus.start}
-                onEnd={deepFocus.end}
-              />
-            </div>
-          </BlurFade>
+           {/* Row 4: Triple Column — Goals + Deadlines + Focus */}
+           <BlurFade delay={0.14} duration={0.4}>
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+               <GoalsCard
+                 goals={goals}
+                 longTermGoals={longTermGoals}
+                 onToggle={async (id) => {
+                   const goal = goals.find(g => g.id === id);
+                   if (!goal) return;
+                   const newStatus = goal.status === 'done' ? 'active' : 'done';
+                   try {
+                     await (window as any).deskflowAPI?.saveGoal?.(todayStr, { ...goal, status: newStatus });
+                     setGoals(prev => prev.map(g => g.id === id ? { ...g, status: newStatus } : g));
+                   } catch (err) { console.error('[Dashboard] Goal toggle error:', err); }
+                 }}
+                 onAdd={async (title) => {
+                   const newGoal = {
+                     id: Date.now().toString(),
+                     title,
+                     category: 'work',
+                     target: { type: 'completion' },
+                     period: 'daily',
+                     status: 'active',
+                     date: todayStr,
+                     source: 'manual',
+                     links: [],
+                     createdAt: new Date().toISOString(),
+                   };
+                   try {
+                     await (window as any).deskflowAPI?.saveGoal?.(todayStr, newGoal);
+                     setGoals(prev => [...prev, newGoal]);
+                   } catch (err) { console.error('[Dashboard] Goal add error:', err); }
+                 }}
+                 onDelete={async (id) => {
+                   try {
+                     await (window as any).deskflowAPI?.deleteGoal?.(id);
+                     setGoals(prev => prev.filter(g => g.id !== id));
+                   } catch (err) { console.error('[Dashboard] Goal delete error:', err); }
+                 }}
+                 onUpdate={async (goal) => {
+                   try {
+                     await (window as any).deskflowAPI?.saveGoal?.(todayStr, goal);
+                     setGoals(prev => prev.map(g => g.id === goal.id ? goal : g));
+                   } catch (err) { console.error('[Dashboard] Goal update error:', err); }
+                 }}
+               />
+               <DeadlinesCard
+                 deadlines={deadlines}
+                 onAdd={async (title, date) => {
+                   try {
+                     const result = await (window as any).deskflowAPI?.addDeadline?.({
+                       title, due_date: date, priority: 'medium',
+                     });
+                     if (result?.success && result?.id) {
+                       setDeadlines(prev => [...prev, { id: result.id, title, due_date: date, priority: 'medium' }]);
+                     }
+                   } catch (err) { console.error('[Dashboard] Deadline add error:', err); }
+                 }}
+                 onDelete={async (id) => {
+                   try {
+                     await (window as any).deskflowAPI?.deleteDeadline?.(id);
+                     setDeadlines(prev => prev.filter(d => d.id !== id));
+                   } catch (err) { console.error('[Dashboard] Deadline delete error:', err); }
+                 }}
+                 onUpdate={async (deadline) => {
+                   try {
+                     await (window as any).deskflowAPI?.updateDeadline?.(deadline.id, deadline);
+                     setDeadlines(prev => prev.map(d => d.id === deadline.id ? deadline : d));
+                   } catch (err) { console.error('[Dashboard] Deadline update error:', err); }
+                 }}
+                 onComplete={async (id) => {
+                   try {
+                     await (window as any).deskflowAPI?.updateDeadlineStatus?.(id, 'done');
+                     setDeadlines(prev => prev.filter(d => d.id !== id));
+                   } catch (err) { console.error('[Dashboard] Deadline complete error:', err); }
+                 }}
+               />
+               <QuickFocusCard
+                 state={deepFocus.state}
+                 onStart={deepFocus.start}
+                 onEnd={deepFocus.end}
+               />
+             </div>
+           </BlurFade>
 
           {/* Row 5: Schedule Hero + Insight Strip */}
           <BlurFade delay={0.1} duration={0.4}>

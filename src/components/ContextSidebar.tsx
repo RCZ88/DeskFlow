@@ -7,6 +7,7 @@ import {
   Check, X, Bot, Brain,
 } from 'lucide-react';
 import { GlassCard } from './GlassCard';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
 export const WORKSPACE_CONFIG_PREF_KEY = 'workspace-context-config';
 const MODEL_CONFIG_KEY = 'model-improvisation-config';
@@ -740,10 +741,12 @@ export default function ContextSidebar({ projectPath, projectId }: ContextSideba
                   placeholder="--model claude-sonnet-4-20250514 --resume" monospace />
                 <div className="py-1.5">
                   <label className="text-[11px] text-zinc-400 block mb-1">System Prompt Prefix</label>
-                  <textarea value={termComm.systemPromptPrefix}
-                    onChange={(e) => setTermComm((p) => ({ ...p, systemPromptPrefix: e.target.value }))}
-                    placeholder="Prepended to assembled context..." rows={3}
-                    className="w-full bg-zinc-900/60 border border-zinc-700/50 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 transition-colors font-mono resize-none" />
+                  <VoiceInputWrapper>
+                    <textarea value={termComm.systemPromptPrefix}
+                      onChange={(e) => setTermComm((p) => ({ ...p, systemPromptPrefix: e.target.value }))}
+                      placeholder="Prepended to assembled context..." rows={3}
+                      className="w-full bg-zinc-900/60 border border-zinc-700/50 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 transition-colors font-mono resize-none" />
+                  </VoiceInputWrapper>
                 </div>
                 <SelectInput label="Message Line Ending" value={termComm.messageLineEnding}
                   onChange={(v) => setTermComm((p) => ({ ...p, messageLineEnding: v as any }))}

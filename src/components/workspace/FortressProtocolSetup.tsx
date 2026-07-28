@@ -91,22 +91,7 @@ Register-ScheduledTask -TaskName "FortressBackup" -Action $action -Trigger $trig
     icon: ShieldAlert,
     color: 'amber',
     commands: [
-      `$trapCode = @`
-
-function git {
-    $gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source
-    if (-not $gitExe) { $gitExe = "C:\\Program Files\\Git\\cmd\\git.exe" }
-    $cmd = $args -join " "
-    if ($cmd -match 'reset\\s+--hard|checkout\\s+\\.|clean\\s+-fd|checkout\\s+-b\\s+.*--force') {
-        Write-Host "[GIT TRAP] DANGEROUS COMMAND BLOCKED & STASHED: $cmd" -ForegroundColor Red
-        $stashName = "TRAP-EMERGENCY-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        & $gitExe stash push -m $stashName --include-untracked
-        Write-Host "[GIT TRAP] Stash created: $stashName" -ForegroundColor Yellow
-    }
-    & $gitExe @args
-}
-'@
-Add-Content -Path $PROFILE -Value $trapCode -ErrorAction SilentlyContinue`,
+      `$trapCode = @\nfunction git {\n    $gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source\n    if (-not $gitExe) { $gitExe = "C:\\Program Files\\Git\\cmd\\git.exe" }\n    $cmd = $args -join " "\n    if ($cmd -match 'reset\\s+--hard|checkout\\s+\\.|clean\\s+-fd|checkout\\s+-b\\s+.*--force') {\n        Write-Host "[GIT TRAP] DANGEROUS COMMAND BLOCKED & STASHED: $cmd" -ForegroundColor Red\n        $stashName = "TRAP-EMERGENCY-$(Get-Date -Format 'yyyyMMdd-HHmmss')"\n        & $gitExe stash push -m $stashName --include-untracked\n        Write-Host "[GIT TRAP] Stash created: $stashName" -ForegroundColor Yellow\n    }\n    & $gitExe @args\n}\n'@\nAdd-Content -Path $PROFILE -Value $trapCode -ErrorAction SilentlyContinue`,
     ],
     verifyCommand: `if (Test-Path $PROFILE) { Select-String -Path $PROFILE -Pattern "function git" -Quiet } else { "Profile not found" }`,
   },

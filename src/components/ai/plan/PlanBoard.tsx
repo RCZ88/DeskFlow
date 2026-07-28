@@ -13,6 +13,7 @@ import { useMotionProps } from "../lib/motion"
 import { cn } from "../lib/cn"
 import { ACCENT, TEXT } from "../tokens"
 import { CATEGORY_ACCENT, type DataState, type LongTermGoal, type GoalCategory } from "../types"
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
 export interface PlanBoardProps {
   state: DataState
@@ -194,15 +195,17 @@ export function PlanBoard(props: PlanBoardProps) {
           <div className="flex items-center gap-2 text-[12px] text-zinc-500">
             <FileText size={13} /> Markdown · saved to your planning file
           </div>
-          <textarea
-            value={notesDraft}
-            onChange={(e) => handleDraftChange(e.target.value)}
-            rows={12}
-            spellCheck={false}
-            placeholder="# This week\n- …"
-            className="w-full resize-none rounded-lg bg-zinc-950/60 p-3 text-[13px] leading-6 text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60"
-            style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
-          />
+          <VoiceInputWrapper>
+            <textarea
+              value={notesDraft}
+              onChange={(e) => handleDraftChange(e.target.value)}
+              rows={12}
+              spellCheck={false}
+              placeholder="# This week\n- …"
+              className="w-full resize-none rounded-lg bg-zinc-950/60 p-3 text-[13px] leading-6 text-zinc-100 placeholder:text-zinc-600 ring-1 ring-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60"
+              style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
+            />
+          </VoiceInputWrapper>
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-zinc-600">
               {saveState === "saving" ? (
@@ -530,23 +533,27 @@ function GoalEditModal({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5 block">Title</label>
-            <input
-              type="text"
-              value={form.title}
-              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              className="w-full rounded-lg bg-zinc-950/40 border border-zinc-800/60 px-3 py-2 text-[13px] text-zinc-200 outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600/50 transition-all"
-              required
-            />
+            <VoiceInputWrapper>
+              <input
+                type="text"
+                value={form.title}
+                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                className="w-full rounded-lg bg-zinc-950/40 border border-zinc-800/60 px-3 py-2 text-[13px] text-zinc-200 outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600/50 transition-all"
+                required
+              />
+            </VoiceInputWrapper>
           </div>
 
           <div>
             <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5 block">Description</label>
-            <textarea
-              value={form.description || ""}
-              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-              rows={3}
-              className="w-full rounded-lg bg-zinc-950/40 border border-zinc-800/60 px-3 py-2 text-[12px] text-zinc-400 outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600/50 resize-none transition-all"
-            />
+            <VoiceInputWrapper>
+              <textarea
+                value={form.description || ""}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                rows={3}
+                className="w-full rounded-lg bg-zinc-950/40 border border-zinc-800/60 px-3 py-2 text-[12px] text-zinc-400 outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600/50 resize-none transition-all"
+              />
+            </VoiceInputWrapper>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -732,13 +739,15 @@ function AddGoalDialog({
           </button>
         </div>
         <p className="text-[12px] text-zinc-400 mb-3">Paste a brain-dump and the AI will extract structured goals.</p>
-        <textarea
-          value={dumpText}
-          onChange={e => onDumpChange(e.target.value)}
-          rows={5}
-          placeholder="I want to learn Rust, run a marathon, save $10k..."
-          className="w-full rounded-lg bg-zinc-950/40 border border-zinc-800/60 px-3 py-2 text-[12px] text-zinc-300 outline-none focus:border-zinc-600 resize-none mb-3"
-        />
+        <VoiceInputWrapper>
+          <textarea
+            value={dumpText}
+            onChange={e => onDumpChange(e.target.value)}
+            rows={5}
+            placeholder="I want to learn Rust, run a marathon, save $10k..."
+            className="w-full rounded-lg bg-zinc-950/40 border border-zinc-800/60 px-3 py-2 text-[12px] text-zinc-300 outline-none focus:border-zinc-600 resize-none mb-3"
+          />
+        </VoiceInputWrapper>
         <div className="flex justify-end gap-2">
           <button
             type="button"

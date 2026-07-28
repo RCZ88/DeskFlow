@@ -53,4 +53,24 @@ function SelectItem({
   )
 }
 
-export { Select, SelectItem }
+function SelectTrigger({
+  className,
+  children,
+  ...props
+}: SelectPrimitive.Trigger.Props & { className?: string; children?: ReactNode }) {
+  return (
+    <SelectPrimitive.Trigger
+      data-slot="select-trigger"
+      className={cn(
+        "flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-sm text-zinc-200 shadow-none transition-colors hover:border-zinc-600 focus-visible:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-500/20 outline-none disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronDownIcon className="size-4 shrink-0 text-zinc-400" />
+    </SelectPrimitive.Trigger>
+  )
+}
+
+export { Select, SelectItem, SelectTrigger }

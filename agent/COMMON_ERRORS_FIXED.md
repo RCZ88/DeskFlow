@@ -422,6 +422,65 @@ Add to `package.json` scripts:
 
 ---
 
+## Entry 11 — Sidebar navigation broken on AI Assistant page (hash changes but page doesn't re-render)
+
+**Symptom**
+
+Clicking sidebar navigation buttons while on the AI Assistant page (`/ai`) fires `navigate()` and changes `window.location.hash`, but the visible page stays on `/ai`. The URL updates (`#/learn`, `#/activity`, etc.) but React Router never re-renders. Works fine on every other page.
+
+**Root cause**
+
+React Router v6's HashRouter relies on the browser's native `hashchange` event to detect URL changes and trigger re-renders. In Electron (Chromium), when heavy canvas/3D content is active on a page (like the AI page's `CanvasGrid` with GPU compositor layers), the `hashchange` event is suppressed — the hash physically changes but the event never fires. React Router's internal state becomes stale, so `useLocation()` never updates and the component tree never re-renders.
+
+**Confirm it's this bug:**
+
+1. Add a global hashchange listener:
+   ```javascript
+   window.addEventListener('hashchange', (e) => {
+     console.log('[HASHCHANGE]', e.oldURL, '→', e.newURL);
+   });
+   ```
+2. Navigate to `/ai`, click a sidebar button
+3. Check console: `window.location.hash` changes BUT `[HASHCHANGE]` never appears
+4. Also check: `document.documentElement.getAttribute('data-page')` stays `ai` even after hash changes
+
+**Fast fix**
+
+Add a hash polling fallback in `App.tsx` that detects hash changes React Router misses and forces a re-render:
+
+```tsx
+function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [, forceRender] = useState(0);
+
+  // Fallback: poll hash and force re-render if React Router misses the change
+  const lastHashRef = useRef(window.location.hash);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (window.location.hash !== lastHashRef.current) {
+        lastHashRef.current = window.location.hash;
+        forceRender(n => n + 1);
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
+  // ... rest of App
+}
+```
+
+**Why it only happens on `/ai`:**
+
+The AI Assistant page is the only route with a canvas (`CanvasGrid`) that uses `will-change: transform` and GPU compositor layers. These layers interfere with Chromium's event dispatching in the renderer process, suppressing native `hashchange` events. Other pages use standard flexbox/scroll layouts that don't trigger this.
+
+**Prevention:**
+
+- When building Electron apps with heavy canvas/3D content, always include a hash polling fallback as a safety net
+- Never rely solely on `hashchange` events for routing in Electron — test with actual canvas pages
+- If a page uses `will-change: transform` or GPU-intensive rendering, verify sidebar navigation still works after adding it
+
+---
+
 <aside>
 📌
 

@@ -151,11 +151,10 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
               variants={float}
               transition={{ float: floatLoop, hover: floatSpring }}
               className="lyceum-book-cloth relative flex h-[300px] w-[220px] flex-col justify-between rounded-r-lg rounded-l-sm p-6"
-              style={heroCover}
             >
               <BorderBeam colorFrom="#f3d9a4" colorTo="#c2553a" />
-              <span className="pointer-events-none absolute inset-y-0 left-0 w-3 rounded-l-sm bg-black/30" />
-              <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-amber-200/80">
+              <div className="lyceum-book-spine" />
+              <span className="font-mono text-[10px] uppercase tracking-[0.24em] lyceum-book-gilt opacity-80">
                 Volume I
               </span>
               <h2 className="font-serif text-2xl font-semibold leading-tight text-[#fdf3df]">
@@ -163,10 +162,15 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
                 <br />
                 Understanding
               </h2>
-              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-200/60">
-                Lyceum Press
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] uppercase tracking-[0.2em] lyceum-book-gilt opacity-60">
+                  Lyceum Press
+                </span>
+                <span className="text-2xl opacity-20">📖</span>
+              </div>
             </motion.div>
+            {/* page edges */}
+            <div className="lyceum-book-pages mx-[3px] h-2 rounded-b-sm" />
             {/* book stand shadow */}
             <div className="lyceum-book-shadow mx-auto mt-3 h-4 w-[80%] rounded-[50%]" />
           </div>
@@ -216,9 +220,3 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
     </div>
   );
 }
-
-const heroCover = {
-  background: 'linear-gradient(150deg, #c2553a 0%, #8f3a25 100%)',
-  boxShadow:
-    'inset 0 0 0 1px rgba(255,255,255,0.07), inset -16px 0 26px -20px rgba(0,0,0,0.6), 0 30px 60px -28px rgba(0,0,0,0.7)',
-};

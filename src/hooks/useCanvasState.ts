@@ -1,6 +1,6 @@
 import { useReducer, useState, useCallback, useEffect, useRef } from 'react'
 import { canvasReducer, DEFAULT_STATE } from '../types/canvas'
-import { loadCanvasLayout, saveCanvasLayout } from '../services/canvasPersistence'
+import { loadCanvasLayout, saveCanvasLayout, clearCanvasLayout } from '../services/canvasPersistence'
 import { generateUUID } from '../lib/uuid'
 import type { CanvasCard, CanvasState, CardStatus, CardType, CanvasGroup } from '../types/canvas'
 
@@ -156,10 +156,17 @@ export function useCanvasState() {
   const cards = Object.values(state.cards).filter(c => !c.dismissedAt)
   const groups = state.groups
 
+  const clearAll = useCallback(() => {
+    dismissTimers.current.forEach(t => clearTimeout(t))
+    dismissTimers.current.clear()
+    dispatch({ type: 'RESET_LAYOUT' })
+    clearCanvasLayout()
+  }, [])
+
   return {
     cards, allCards: state.cards, groups, nextZIndex: state.nextZIndex, saveStatus,
     addCard, updateCard, removeCard, moveCard, resizeCard, pinCard, dismissCard,
-    setStatus, resetLayout, arrangeCards,
+    setStatus, resetLayout, arrangeCards, clearAll,
     createGroup, deleteGroup, addToGroup, removeFromGroup,
   }
 }

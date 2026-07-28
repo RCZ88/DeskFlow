@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bot, Play, Square, AlertTriangle, User, Info, Pause, RotateCcw, X, FolderOpen, ChevronRight } from 'lucide-react';
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import OrgTreeGraph, { type ConductorNodeVM, type ConductorMessageVM } from '../components/conductor/OrgTreeGraph';
 import ApprovalInbox, { type EscalationItemVM, type EscalationReasonVM } from '../components/conductor/ApprovalInbox';
 import SwarmTrace, { type SwarmTraceMessageVM } from '../components/conductor/SwarmTrace';
@@ -397,13 +398,15 @@ export default function ConductorPage() {
           <div className="p-4 space-y-3">
             <div>
               <label className="text-[11px] text-zinc-400 block mb-1">Objective</label>
-              <input
-                type="text"
-                value={newObjective}
-                onChange={(e) => setNewObjective(e.target.value)}
-                placeholder="What should the swarm accomplish?"
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-cyan-500"
-              />
+              <VoiceInputWrapper>
+                <input
+                  type="text"
+                  value={newObjective}
+                  onChange={(e) => setNewObjective(e.target.value)}
+                  placeholder="What should the swarm accomplish?"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-cyan-500"
+                />
+              </VoiceInputWrapper>
             </div>
             <div className="flex gap-3">
               <div className="flex-1">
