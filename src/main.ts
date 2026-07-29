@@ -1789,6 +1789,19 @@ function loadCategoryConfig() {
             saveCategoryConfig();
             console.log('[DeskFlow] ✅ Created default category config');
         }
+        // Load domain overrides from DB on top of JSON config
+        try {
+            const domainRows = db.prepare('SELECT domain, category FROM domain_category_overrides').all() as any[];
+            for (const row of domainRows) {
+                categoryConfig.domainCategoryMap[row.domain] = row.category;
+            }
+            if (domainRows.length > 0) {
+                console.log(`[DeskFlow] Loaded ${domainRows.length} domain overrides from DB`);
+            }
+        }
+        catch (err) {
+            console.warn('[DeskFlow] Failed to load domain overrides from DB:', err);
+        }
     }
     catch (err) {
         console.warn('[DeskFlow] Failed to load category config:', err);
@@ -1879,6 +1892,10 @@ function initializeStorage() {
         catch { /* column exists */ }
         try {
             db.exec('ALTER TABLE logs ADD COLUMN is_browser_tracking INTEGER DEFAULT 0');
+        }
+        catch { /* column exists */ }
+        try {
+            db.exec('ALTER TABLE logs ADD COLUMN browser_name TEXT DEFAULT NULL');
         }
         catch { /* column exists */ }
         // Add productivity columns to daily_stats if they don't exist
@@ -2724,6 +2741,14 @@ function initializeStorage() {
         db.exec('CREATE INDEX IF NOT EXISTS idx_goals_date ON goals(date)');
         try { db.exec('ALTER TABLE goals ADD COLUMN priority INTEGER DEFAULT 0'); } catch {} // may already exist
         try { db.exec('ALTER TABLE goals ADD COLUMN parent_id TEXT'); } catch {} // goal hierarchy
+        // Habit/Covenant columns — merge localStorage covenant into SQLite
+        try { db.exec('ALTER TABLE goals ADD COLUMN is_habit INTEGER DEFAULT 0'); } catch {}
+        try { db.exec('ALTER TABLE goals ADD COLUMN cadence TEXT'); } catch {} // 'daily' | 'weekly'
+        try { db.exec('ALTER TABLE goals ADD COLUMN weekly_target_days TEXT'); } catch {} // JSON array of 0-6
+        try { db.exec('ALTER TABLE goals ADD COLUMN detection TEXT'); } catch {} // JSON detection config
+        try { db.exec('ALTER TABLE goals ADD COLUMN linked_schedule_id TEXT'); } catch {}
+        try { db.exec('ALTER TABLE goals ADD COLUMN journal_text TEXT'); } catch {}
+        try { db.exec('ALTER TABLE goals ADD COLUMN slipped_count INTEGER DEFAULT 0'); } catch {}
 
         // Reminders table (AI agent reminders — linked to goals or free-standing)
         db.exec(`
@@ -2827,6 +2852,14 @@ function initializeStorage() {
         db.exec(`
           CREATE TABLE IF NOT EXISTS category_overrides (
             app TEXT PRIMARY KEY,
+            category TEXT NOT NULL
+          )
+        `);
+
+        // Domain category overrides table
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS domain_category_overrides (
+            domain TEXT PRIMARY KEY,
             category TEXT NOT NULL
           )
         `);
@@ -3189,6 +3222,9 @@ function initializeStorage() {
           db.exec('CREATE INDEX IF NOT EXISTS idx_fixed_expenses_category ON finance_fixed_expenses(category_id)');
           db.exec('CREATE INDEX IF NOT EXISTS idx_fixed_expenses_active ON finance_fixed_expenses(is_active)');
         } catch (e: any) { console.log('[DB MIGRATION] finance_fixed_expenses skip:', e?.message); }
+        try { db.exec("ALTER TABLE finance_fixed_expenses ADD COLUMN frequency TEXT DEFAULT 'monthly'"); } catch {}
+        try { db.exec("ALTER TABLE finance_fixed_expenses ADD COLUMN type TEXT DEFAULT 'expense'"); } catch {}
+        try { db.exec("ALTER TABLE finance_fixed_expenses ADD COLUMN next_due_date TEXT"); } catch {}
 
         try {
           db.exec(`
@@ -3282,6 +3318,24 @@ function initializeStorage() {
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
+
+        // Browser profiles table
+        try { db.exec(`CREATE TABLE IF NOT EXISTS browser_profiles (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          browser_name TEXT NOT NULL,
+          profile_id TEXT NOT NULL,
+          profile_name TEXT NOT NULL,
+          is_active INTEGER DEFAULT 1,
+          color_tag TEXT DEFAULT '#22c55e',
+          browser_version TEXT DEFAULT '',
+          last_seen_at TEXT,
+          total_duration_ms INTEGER DEFAULT 0,
+          is_connected INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT (datetime('now','localtime')),
+          updated_at DATETIME DEFAULT (datetime('now','localtime')),
+          UNIQUE(browser_name, profile_id)
+        )`); } catch { /* already exists */ }
+        try { db.exec(`ALTER TABLE browser_profiles ADD COLUMN known_app_name TEXT DEFAULT NULL`); } catch { /* column exists */ }
 
         // Indexes for fast queries
         db.exec('CREATE INDEX IF NOT EXISTS idx_stats_hourly_date ON stats_hourly(date)');
@@ -3971,8 +4025,11 @@ function categorizeApp(appName, opts?: { isResolvedGame?: boolean }) {
 // Check if the given app name is the browser that has the DeskFlow extension installed
 // When true, app tracking should skip logging (extension handles website data instead)
 function isBrowserWithExtension(appName: string): boolean {
-    if (!isBrowserTrackingEnabled || !userPreferences?.browserWithExtension) return false;
-    return isAppMatchingBrowser(appName, userPreferences.browserWithExtension);
+    if (!isBrowserTrackingEnabled) return false;
+    const browsersList = userPreferences?.browsersWithExtension || 
+                         (userPreferences?.browserWithExtension ? [userPreferences.browserWithExtension] : []);
+    if (browsersList.length === 0) return false;
+    return browsersList.some((b: string) => isAppMatchingBrowser(appName, b));
 }
 // Calculate productivity score based on daily activity
 // Returns: { score: 0-100, productive_sec: number, neutral_sec: number, distracting_sec: number, total_sec: number }
@@ -4262,7 +4319,7 @@ async function pollForeground() {
         if (appName !== currentApp) {
             const rawDuration = now - sessionStart;
             const isTrackerApp = appLower.includes('electron') || appLower.includes('deskflow') || appLower.includes('rheo');
-            const isBrowserApp = userPreferences.browserWithExtension && isAppMatchingBrowser(currentApp, userPreferences.browserWithExtension);
+            const isBrowserApp = isBrowserWithExtension(currentApp);
             // Skip logging for tracker app (unless track mode) AND skip logging for browser app (handleBrowserData does it)
             const shouldLog = currentApp && rawDuration > 5000 && !(isTrackerApp && trackerAppMode !== 'track') && !isBrowserApp;
             if (shouldLog) {
@@ -4293,7 +4350,7 @@ async function pollForeground() {
         if (currentApp && (now - lastCheckpointTime > CHECKPOINT_INTERVAL_MS)) {
             const checkpointDuration = now - sessionStart;
             const isTrackerCheckpoint = currentApp && (currentApp.toLowerCase().includes('electron') || currentApp.toLowerCase().includes('deskflow') || currentApp.toLowerCase().includes('rheo'));
-            const isBrowserCheckpoint = userPreferences.browserWithExtension && isAppMatchingBrowser(currentApp, userPreferences.browserWithExtension);
+            const isBrowserCheckpoint = isBrowserWithExtension(currentApp);
             const shouldCheckpoint = checkpointDuration > 5000 && !(isTrackerCheckpoint && trackerAppMode !== 'track') && !isBrowserCheckpoint;
             if (shouldCheckpoint) {
                 const duration = Math.min(checkpointDuration, MAX_SESSION_MS);
@@ -4469,6 +4526,8 @@ function createWindow() {
             '.woff': 'font/woff', '.woff2': 'font/woff2', '.map': 'application/json',
         };
         const server = http_1.default.createServer((req, res) => {
+            const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' };
+            if (req.method === 'OPTIONS') { res.writeHead(204, corsHeaders); res.end(); return; }
             let rel = (req.url || '').split('?')[0].split('#')[0];
             if (rel === '/') rel = '/index.html';
             const filePath = path_1.default.join(dist, rel);
@@ -4476,13 +4535,13 @@ function createWindow() {
             fs_1.default.readFile(filePath, (err, data) => {
                 if (err) {
                     fs_1.default.readFile(path_1.default.join(dist, 'index.html'), (err2, data2) => {
-                        if (err2) { res.writeHead(500); res.end('Internal Server Error'); return; }
-                        res.writeHead(200, { 'Content-Type': 'text/html' });
+                        if (err2) { res.writeHead(500, corsHeaders); res.end('Internal Server Error'); return; }
+                        res.writeHead(200, { 'Content-Type': 'text/html', ...corsHeaders });
                         res.end(data2);
                     });
                     return;
                 }
-                res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+                res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream', ...corsHeaders });
                 res.end(data);
             });
         });
@@ -5166,16 +5225,50 @@ electron_1.ipcMain.handle('get-category-config', () => {
 electron_1.ipcMain.handle('set-app-category', (event, appName, category) => {
     categoryConfig.appCategoryMap[appName] = category;
     saveCategoryConfig();
+    try {
+        db.prepare('INSERT OR REPLACE INTO category_overrides (app, category) VALUES (?, ?)').run(appName, category);
+    }
+    catch (err) {
+        console.error('[DeskFlow] Failed to save app category override to DB:', err);
+    }
+    // Re-send foreground-changed if this app is currently in the foreground
+    if (mainWindow && !mainWindow.isDestroyed() && currentApp && currentApp.toLowerCase() === appName.toLowerCase()) {
+        const newCategory = categorizeApp(currentApp);
+        mainWindow.webContents.send('foreground-changed', {
+            app: currentApp,
+            title: '',
+            category: newCategory,
+            timestamp: new Date().toISOString(),
+            isReal: true
+        });
+    }
     return true;
 });
 electron_1.ipcMain.handle('set-domain-category', (event, domain, category) => {
     categoryConfig.domainCategoryMap[domain.toLowerCase()] = category;
     saveCategoryConfig();
+    try {
+        db.prepare('INSERT OR REPLACE INTO domain_category_overrides (domain, category) VALUES (?, ?)').run(domain.toLowerCase(), category);
+    }
+    catch (err) {
+        console.error('[DeskFlow] Failed to save domain category override to DB:', err);
+    }
     return true;
 });
 electron_1.ipcMain.handle('set-app-tier', (event, appName, tier) => {
     categoryConfig.appTierMap[appName] = tier;
     saveCategoryConfig();
+    // Re-send foreground-changed if this app is currently in the foreground
+    if (mainWindow && !mainWindow.isDestroyed() && currentApp && currentApp.toLowerCase() === appName.toLowerCase()) {
+        const newCategory = categorizeApp(currentApp);
+        mainWindow.webContents.send('foreground-changed', {
+            app: currentApp,
+            category: newCategory,
+            title: '',
+            timestamp: new Date().toISOString(),
+            isReal: true
+        });
+    }
     return true;
 });
 electron_1.ipcMain.handle('set-domain-tier', (event, domain, tier) => {
@@ -5246,6 +5339,17 @@ electron_1.ipcMain.handle('set-tier-assignments', (event, assignments) => {
     categoryConfig.tierAssignments = assignments;
     saveCategoryConfig();
     invalidateTierMapCache();
+    // Re-send foreground-changed so renderer re-evaluates tier with new assignments
+    if (mainWindow && !mainWindow.isDestroyed() && currentApp) {
+        const newCategory = categorizeApp(currentApp);
+        mainWindow.webContents.send('foreground-changed', {
+            app: currentApp,
+            title: '',
+            category: newCategory,
+            timestamp: new Date().toISOString(),
+            isReal: true
+        });
+    }
     return true;
 });
 
@@ -5623,9 +5727,17 @@ function computePeriodRange(period: string, dateOffset: number = 0): { start: st
             end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
             break;
         }
+        case '7day':
+            start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+            end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+            break;
         case 'month':
             start = new Date(now.getFullYear(), now.getMonth(), 1);
             end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+            break;
+        case '30day':
+            start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+            end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
             break;
         case 'all':
         default:
@@ -5634,7 +5746,7 @@ function computePeriodRange(period: string, dateOffset: number = 0): { start: st
             break;
     }
     if (dateOffset > 0 && period !== 'all') {
-        const periodDays = period === 'today' ? 1 : period === 'week' ? 7 : 30;
+        const periodDays = period === 'today' ? 1 : period === 'week' ? 7 : period === '7day' ? 7 : period === '30day' ? 30 : 30;
         const shiftMs = dateOffset * periodDays * 86400000;
         start = new Date(start.getTime() - shiftMs);
         end = new Date(end.getTime() - shiftMs);
@@ -6603,6 +6715,98 @@ electron_1.ipcMain.handle('get-tracked-browsers', async () => {
     return browsers;
 });
 
+// --- Browser Profile Management IPC ---
+
+electron_1.ipcMain.handle('get-browser-profiles', () => {
+    if (!db) return [];
+    try {
+        return db.prepare('SELECT * FROM browser_profiles ORDER BY browser_name, profile_name').all();
+    } catch (err) {
+        console.error('[DeskFlow] get-browser-profiles error:', err);
+        return [];
+    }
+});
+
+electron_1.ipcMain.handle('toggle-browser-profile', (event, args: { profileId: number; isActive: boolean }) => {
+    if (!db) return false;
+    try {
+        db.prepare('UPDATE browser_profiles SET is_active = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?')
+            .run(args.isActive ? 1 : 0, args.profileId);
+        return true;
+    } catch (err) {
+        console.error('[DeskFlow] toggle-browser-profile error:', err);
+        return false;
+    }
+});
+
+electron_1.ipcMain.handle('rename-browser-profile', (event, args: { profileId: number; newName: string }) => {
+    if (!db) return false;
+    try {
+        db.prepare('UPDATE browser_profiles SET profile_name = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?')
+            .run(args.newName, args.profileId);
+        return true;
+    } catch (err) {
+        console.error('[DeskFlow] rename-browser-profile error:', err);
+        return false;
+    }
+});
+
+electron_1.ipcMain.handle('delete-browser-profile', (event, args: { profileId: number }) => {
+    if (!db) return false;
+    try {
+        db.prepare('DELETE FROM browser_profiles WHERE id = ?').run(args.profileId);
+        return true;
+    } catch (err) {
+        console.error('[DeskFlow] delete-browser-profile error:', err);
+        return false;
+    }
+});
+
+electron_1.ipcMain.handle('set-browser-profile-color', (event, args: { profileId: number; color: string }) => {
+    if (!db) return false;
+    try {
+        db.prepare('UPDATE browser_profiles SET color_tag = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?')
+            .run(args.color, args.profileId);
+        return true;
+    } catch (err) {
+        console.error('[DeskFlow] set-browser-profile-color error:', err);
+        return false;
+    }
+});
+
+electron_1.ipcMain.handle('upsert-browser-profile', (event, args: { browserName: string; profileId: string; profileName: string; browserVersion?: string }) => {
+    if (!db) return false;
+    try {
+        const existing = db.prepare('SELECT id FROM browser_profiles WHERE browser_name = ? AND profile_id = ?')
+            .get(args.browserName, args.profileId) as any;
+        if (existing) {
+            db.prepare('UPDATE browser_profiles SET profile_name = ?, browser_version = COALESCE(?, browser_version), last_seen_at = datetime(\'now\',\'localtime\'), is_connected = 1, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?')
+                .run(args.profileName, args.browserVersion || null, existing.id);
+        } else {
+            const colors = ['#22c55e','#3b82f6','#a855f7','#ef4444','#f59e0b','#06b6d4','#ec4899','#10b981'];
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            db.prepare('INSERT INTO browser_profiles (browser_name, profile_id, profile_name, browser_version, last_seen_at, is_connected, color_tag) VALUES (?, ?, ?, ?, datetime(\'now\',\'localtime\'), 1, ?)')
+                .run(args.browserName, args.profileId, args.profileName, args.browserVersion || '', color);
+        }
+        return true;
+    } catch (err) {
+        console.error('[DeskFlow] upsert-browser-profile error:', err);
+        return false;
+    }
+});
+
+electron_1.ipcMain.handle('update-browser-profile-app', (event, args: { profileId: number; knownAppName: string }) => {
+    if (!db) return false;
+    try {
+        db.prepare('UPDATE browser_profiles SET known_app_name = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?')
+            .run(args.knownAppName, args.profileId);
+        return true;
+    } catch (err) {
+        console.error('[DeskFlow] update-browser-profile-app error:', err);
+        return false;
+    }
+});
+
 electron_1.ipcMain.handle('get-browser-tracking', () => {
     return isBrowserTrackingEnabled;
 });
@@ -6935,7 +7139,14 @@ electron_1.ipcMain.handle('get-browser-tracking-status', () => {
         enabled: isBrowserTrackingEnabled,
         serverRunning: browserServer !== null,
         port: browserServerPort,
-        excludedDomains: browserExcludedDomains
+        excludedDomains: browserExcludedDomains,
+        browserWithExtension: userPreferences?.browserWithExtension || null,
+        browsersWithExtension: userPreferences?.browsersWithExtension || [],
+        browserProcessNames: userPreferences?.browserProcessNames || [],
+        currentApp: currentApp || null,
+        activeBrowserSessions: activeBrowserSessions.size,
+        lastActiveDomain: lastActiveBrowserDomain || null,
+        forceBrowserTracking: userPreferences?.forceBrowserTracking || false,
     };
 });
 electron_1.ipcMain.handle('set-recording-mode', (event, { type, mode }) => {
@@ -6974,8 +7185,21 @@ electron_1.ipcMain.handle('set-browser-excluded-domains', (event, domains) => {
 });
 electron_1.ipcMain.handle('set-browser-with-extension', (event, browser: string) => {
     userPreferences.browserWithExtension = browser;
+    // Also add to the array if not already there
+    if (!userPreferences.browsersWithExtension) userPreferences.browsersWithExtension = [];
+    if (browser && !userPreferences.browsersWithExtension.includes(browser)) {
+        userPreferences.browsersWithExtension.push(browser);
+    }
     savePreferences();
     console.log(`[DeskFlow] Browser with extension set to: ${browser}`);
+    return true;
+});
+electron_1.ipcMain.handle('set-browsers-with-extension', (event, browsers: string[]) => {
+    userPreferences.browsersWithExtension = browsers;
+    // Keep backward compat: set primary to first in list
+    userPreferences.browserWithExtension = browsers[0] || '';
+    savePreferences();
+    console.log(`[DeskFlow] Browsers with extension set to: ${browsers.join(', ')}`);
     return true;
 });
 // Clean corrupted data - improved detection for multiple error types
@@ -16824,8 +17048,17 @@ electron_1.ipcMain.handle('suggest-goals', async (_event, date: string, ctx?: Go
     const p = userPreferences || {};
     const pState = p.aiProviders ? JSON.parse(p.aiProviders) : null;
     const chain = pState ? buildChain(pState, 'goalAssistant') : [];
-    let systemPrompt = `You are a daily goal planner. Based on the user's activity data, suggest 3-5 SMART goals for today (${date}). Return ONLY a JSON array of objects with keys: title (string), category ("work"|"personal"|"health"|"learning"|"finance"|"relationships"), target ({type:"time", targetSeconds?: number} or {type:"completion", done: false}), parentId (string, the ID of the long-term goal this serves). CRITICAL: Every daily goal MUST link to a long-term goal via parentId. If no long-term goals exist, set parentId to null.`;
+    let systemPrompt = `You are a daily goal planner. Based on the user's activity data, suggest 3-5 SMART goals for today (${date}). Return ONLY a JSON array of objects with keys: title (string), category ("work"|"personal"|"health"|"learning"|"finance"|"relationships"), target ({type:"time", targetSeconds?: number} or {type:"completion", done: false}), parentId (string, the ID of the long-term goal this serves), linkedScheduleId (string, optional, the ID of the schedule block this goal targets). CRITICAL: Every daily goal MUST link to a long-term goal via parentId. If no long-term goals exist, set parentId to null.`;
     const userParts: string[] = ['Suggest daily goals for today.'];
+
+    // Inject today's schedule context
+    try {
+      const dayOfWeek = new Date().getDay();
+      const scheduleBlocks = db!.prepare('SELECT * FROM schedule_entries WHERE day_of_week = ? ORDER BY start_time').all(dayOfWeek) as any[];
+      if (scheduleBlocks.length > 0) {
+        systemPrompt += `\n\nToday's schedule blocks:\n${scheduleBlocks.map((b: any) => `- ID: ${b.id}, Title: ${b.title}, Time: ${b.start_time}-${b.end_time}, Category: ${b.category || 'other'}`).join('\n')}\n\nWhen a schedule block exists (e.g., Study 14:00-16:00), generate a goal that targets that block. Set linkedScheduleId to the block's ID and set target to {type:"time", targetSeconds: <block duration in seconds>}. This connects goals to the user's schedule for tracking.`;
+      }
+    } catch { /* schedule injection is optional */ }
 
     if (ctx?.planningContent) {
       systemPrompt += `\n\nThe user has the following plan:\n${ctx.planningContent}\n\nPrefer goals that align with their plan.`;
@@ -16968,10 +17201,19 @@ electron_1.ipcMain.handle('parse-goal-dump', async (_event, text: string) => {
 // --- Browser Tracking HTTP Server ---
 function startBrowserTrackingServer() {
     if (!isBrowserTrackingEnabled) {
-        console.log('[DeskFlow] 🚫 Browser tracking disabled, server not started');
+        console.log('[DeskFlow] Browser tracking disabled, server not started');
         return;
     }
     const server = http_1.default.createServer((req, res) => {
+        // CORS headers for browser extension access
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') {
+            res.writeHead(204);
+            res.end();
+            return;
+        }
         // Only accept POST /browser-data
         if (req.method === 'POST' && req.url === '/browser-data') {
             let body = '';
@@ -16979,44 +17221,60 @@ function startBrowserTrackingServer() {
             req.on('end', () => {
                 try {
                     const data = JSON.parse(body);
-                    console.log('[DeskFlow] Browser data received:', data.domain, 'is_browser_focused:', data.is_browser_focused);
                     
-                    // Block browser data when the foreground is clearly a non-browser app.
-                    // Trust the extension's is_browser_focused as primary signal (Chrome's
-                    // onFocusChanged is authoritative). Only block when server definitively
-                    // sees a DIFFERENT non-browser app in the foreground.
-                    // Note: currentApp can be null when DeskFlow/Electron is foreground
-                    // (pollForeground resets it), so null = unknown, not "not browser".
-                    const extSaysFocused = data.is_browser_focused === true;
-                    const serverSeesNonBrowser = !!currentApp && !!userPreferences?.browserWithExtension &&
-                        !isAppMatchingBrowser(currentApp, userPreferences.browserWithExtension);
-                    const browserFocused = extSaysFocused && !serverSeesNonBrowser;
-                    if (!browserFocused) {
-                        console.log('[DeskFlow] ⏸️ Browser data skipped -', 
-                            !extSaysFocused ? 'extension says not focused' : `server foreground is '${currentApp}' (non-browser)`, 
-                            ':', data.domain);
-                    } else {
-                        handleBrowserData(data);
-                        // Always stream to renderer - let renderer filter
-                        if (mainWindow && !mainWindow.isDestroyed()) {
-                            const category = categorizeDomain(data.domain, data.title, data.url);
-                            try {
-                                mainWindow.webContents.send('browser-tracking-event', {
-                                    type: 'browser-data',
-                                    domain: data.domain,
-                                    url: data.url,
-                                    title: data.title,
-                                    category: category,
-                                    duration: data.active_duration_ms,
-                                    is_browser_focused: data.is_browser_focused,
-                                    browser_name: data.browser_name || userPreferences.browserWithExtension || undefined,
-                                    timestamp: Date.now()
-                                });
-                            } catch (_err) {
-                                // Render frame disposed before send — window closing, ignore
-                            }
-                        }
+                    // Check against ALL configured browsers (array)
+                    const browsersList = userPreferences?.browsersWithExtension || 
+                                         (userPreferences?.browserWithExtension ? [userPreferences.browserWithExtension] : []);
+                    const hasAnyBrowser = browsersList.length > 0;
+                    const curApp = currentApp || '(null)';
+                    const matchesAnyBrowser = hasAnyBrowser && currentApp ? 
+                        browsersList.some((b: string) => isAppMatchingBrowser(currentApp, b)) : false;
+                    const forceTracking = userPreferences?.forceBrowserTracking === true;
+                    
+                    console.log(`[DeskFlow] /browser-data: domain=${data.domain} ext_focused=${data.is_browser_focused} browsers=${browsersList.join(',')} currentApp=${curApp} matches=${matchesAnyBrowser} force=${forceTracking}`);
+                    
+                    // SIMPLE FOCUS CHECK: Trust the extension's is_browser_focused flag.
+                    // Only block if extension explicitly says NOT focused.
+                    // forceBrowserTracking bypasses all checks.
+                    if (!forceTracking && data.is_browser_focused === false) {
+                        console.log(`[DeskFlow] SKIPPED: extension says not focused`);
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ status: 'skipped', reason: 'not_focused' }));
+                        return;
                     }
+                    
+                    // If browsers are configured, do a light sanity check:
+                    // if currentApp is DEFINITELY a non-browser app, skip.
+                    // But if currentApp is null (unknown) or matches any browser, accept.
+                    // forceBrowserTracking bypasses all checks.
+                    if (!forceTracking && hasAnyBrowser && currentApp && !matchesAnyBrowser) {
+                        // currentApp is set AND it's not any of the configured browsers
+                        console.log(`[DeskFlow] SKIPPED: currentApp='${curApp}' doesn't match any configured browser`);
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ status: 'skipped', reason: 'app_mismatch' }));
+                        return;
+                    }
+                    
+                    // Data accepted — process it
+                    handleBrowserData(data);
+                    // Always stream to renderer
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        const category = categorizeDomain(data.domain, data.title, data.url);
+                        try {
+                            mainWindow.webContents.send('browser-tracking-event', {
+                                type: 'browser-data',
+                                domain: data.domain,
+                                url: data.url,
+                                title: data.title,
+                                category: category,
+                                duration: data.active_duration_ms,
+                                is_browser_focused: data.is_browser_focused,
+                                browser_name: data.browser_name || userPreferences.browserWithExtension || undefined,
+                                timestamp: Date.now()
+                            });
+                        } catch (_err) {}
+                    }
+                    console.log(`[DeskFlow] ACCEPTED: ${data.domain} (${Math.round((data.active_duration_ms || 0) / 1000)}s)`);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ status: 'ok' }));
                 }
@@ -17031,6 +17289,20 @@ function startBrowserTrackingServer() {
             // Health check endpoint
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ status: 'ok', tracking: isBrowserTrackingEnabled }));
+        }
+        else if (req.method === 'GET' && req.url === '/status') {
+            // Full diagnostic status for debugging browser tracking
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                tracking: isBrowserTrackingEnabled,
+                browserWithExtension: userPreferences?.browserWithExtension || null,
+                browserProcessNames: userPreferences?.browserProcessNames || [],
+                currentApp: currentApp || null,
+                serverPort: browserServerPort,
+                serverRunning: true,
+                activeBrowserSessions: activeBrowserSessions.size,
+                lastActiveDomain: lastActiveBrowserDomain || null,
+            }));
         }
         else if (req.method === 'GET' && req.url === '/foreground-app') {
             // Return the current foreground app name so browser extension can check if browser is focused
@@ -17050,10 +17322,25 @@ function startBrowserTrackingServer() {
                     const data = JSON.parse(body);
                     if (data.browser) {
                         userPreferences.browserWithExtension = data.browser;
-                        // Store process names from extension if provided, else derive from mapping
                         userPreferences.browserProcessNames = data.processNames || getBrowserProcessNames(data.browser);
                         savePreferences();
-                        console.log(`[DeskFlow] 🏷️ Browser extension identified as: ${data.browser} (processes: ${userPreferences.browserProcessNames.join(', ')})`);
+                        console.log(`[DeskFlow] Browser extension identified as: ${data.browser} (processes: ${userPreferences.browserProcessNames.join(', ')})`);
+                    }
+                    // Auto-create/update browser profile from extension data
+                    if (data.browser && data.profileId && db) {
+                        try {
+                            const existing = db.prepare('SELECT id FROM browser_profiles WHERE browser_name = ? AND profile_id = ?')
+                                .get(data.browser, data.profileId) as any;
+                            if (existing) {
+                                db.prepare('UPDATE browser_profiles SET profile_name = COALESCE(?, profile_name), browser_version = COALESCE(?, browser_version), last_seen_at = datetime(\'now\',\'localtime\'), is_connected = 1, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?')
+                                    .run(data.profileName || null, data.browserVersion || null, existing.id);
+                            } else {
+                                const colors = ['#22c55e','#3b82f6','#a855f7','#ef4444','#f59e0b','#06b6d4','#ec4899','#10b981'];
+                                const color = colors[Math.floor(Math.random() * colors.length)];
+                                db.prepare('INSERT INTO browser_profiles (browser_name, profile_id, profile_name, browser_version, last_seen_at, is_connected, color_tag) VALUES (?, ?, ?, ?, datetime(\'now\',\'localtime\'), 1, ?)')
+                                    .run(data.browser, data.profileId, data.profileName || data.browser + ' Default', data.browserVersion || '', color);
+                            }
+                        } catch (e) { console.error('[DeskFlow] Profile upsert error:', e); }
                     }
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ status: 'ok', browser: data.browser }));
@@ -17071,16 +17358,14 @@ function startBrowserTrackingServer() {
             req.on('end', () => {
                 try {
                     const log = JSON.parse(logBody);
-                    // Check if browser is focused — prevents stale live-logs
-                    // Same logic as /browser-data: trust extension signal, block only when
-                    // server definitively sees a non-browser app
-                    const extSaysFocused = log.is_browser_focused === true;
-                    const serverSeesNonBrowser = !!currentApp && !!userPreferences?.browserWithExtension &&
-                        !isAppMatchingBrowser(currentApp, userPreferences.browserWithExtension);
-                    const browserFocused = extSaysFocused && !serverSeesNonBrowser;
-                    if (mainWindow && !mainWindow.isDestroyed() && browserFocused) {
+                    // Same simple focus check as /browser-data
+                    if (log.is_browser_focused === false) {
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ status: 'skipped' }));
+                        return;
+                    }
+                    if (mainWindow && !mainWindow.isDestroyed()) {
                         const category = categorizeDomain(log.domain, log.title, log.url);
-                        console.log('[DeskFlow] Sending live-log with category:', category);
                         try {
                             mainWindow.webContents.send('browser-tracking-event', {
                                 type: 'live-log',
@@ -17093,9 +17378,7 @@ function startBrowserTrackingServer() {
                                 is_browser_focused: true,
                                 timestamp: log.timestamp || Date.now()
                             });
-                        } catch (_err) {
-                            // Render frame disposed before send — ignore
-                        }
+                        } catch (_err) {}
                     } else if (mainWindow && !mainWindow.isDestroyed() && !browserFocused) {
                         console.log('[DeskFlow] ⏸️ Live-log skipped - browser not focused');
                     }
@@ -17138,27 +17421,10 @@ function handleBrowserData(data) {
         return;
     // Block all browser data when unfocused (phantom deltas from background tabs)
     if (data.is_browser_focused === false) {
-        console.log('[DeskFlow] ⏸️ Browser data skipped - browser not focused:', data.domain);
         return;
     }
-// Ensure we are on the configured browser before accepting any browser logs.
-// Trust the extension's is_browser_focused flag — it is the authoritative source
-// for whether the browser tab is active. Only fall back to currentApp matching
-// when the extension doesn't provide a focus signal (legacy extension behavior).
-if (!userPreferences?.browserWithExtension) {
-    console.log('[DeskFlow] ⏸️ Browser data skipped - no browser configured:', data.domain);
-    return;
-}
-if (data.is_browser_focused !== true) {
-    // Extension didn't confirm focus — verify via currentApp (legacy path)
-    if (!currentApp || !isAppMatchingBrowser(currentApp, userPreferences.browserWithExtension)) {
-        console.log('[DeskFlow] ⏸️ Browser data skipped - foreground app does not match configured browser:', data.domain, '(current:', currentApp, ')');
-        return;
-    }
-}
     // Check if domain is excluded
     if (categorizeDomain(data.domain, data.title, data.url) === 'Excluded') {
-        console.log('[DeskFlow] 🚫 Excluded domain skipped:', data.domain);
         return;
     }
     // Notify focus manager of web activity
@@ -17207,8 +17473,8 @@ if (data.is_browser_focused !== true) {
             // Update in SQLite with the accumulated total
             if (!useJson) {
                 try {
-                    const updateStmt = db.prepare(`UPDATE logs SET duration_ms = ?, title = ?, url = ?, timestamp = ? WHERE id = ?`);
-                    updateStmt.run(existingSession.duration_ms, data.title || existingSession.title, data.sanitized_url || data.url, existingSession.timestamp, existingSession.id);
+                    const updateStmt = db.prepare(`UPDATE logs SET duration_ms = ?, title = ?, url = ?, timestamp = ?, browser_name = COALESCE(?, browser_name) WHERE id = ?`);
+                    updateStmt.run(existingSession.duration_ms, data.title || existingSession.title, data.sanitized_url || data.url, existingSession.timestamp, data.browser_name || null, existingSession.id);
                 }
                 catch (err) {
                     console.error('[DeskFlow] Browser session update failed:', err);
@@ -17249,13 +17515,14 @@ if (data.is_browser_focused !== true) {
                 db.prepare(`
                     UPDATE logs SET 
                       app = ?, domain = ?, url = ?, title = ?,
-                      category = ?
+                      category = ?, browser_name = COALESCE(?, browser_name)
                     WHERE id = ?
                 `).run(
                     data.domain, data.domain,
                     data.sanitized_url || data.url,
                     data.title || data.domain,
                     categorizeDomain(data.domain, data.title, data.url),
+                    data.browser_name || null,
                     recentBrowserApp.id
                 );
                 console.log(`[DeskFlow] 🔗 Deduplicated browser entry: ${recentBrowserApp.app} → ${data.domain}`);
@@ -17268,7 +17535,8 @@ if (data.is_browser_focused !== true) {
                     duration_ms: 0,
                     title: data.title || data.domain,
                     domain: data.domain,
-                    is_browser_tracking: true
+                    is_browser_tracking: true,
+                    browser_name: data.browser_name || null
                 });
                 return;
             }
@@ -17294,7 +17562,8 @@ if (data.is_browser_focused !== true) {
             url: data.sanitized_url || data.url,
             domain: data.domain,
             tab_id: data.tab_id,
-            is_browser_tracking: true
+            is_browser_tracking: true,
+            browser_name: data.browser_name || null
         };
         if (useJson) {
             jsonLogs.unshift(entry);
@@ -17305,10 +17574,10 @@ if (data.is_browser_focused !== true) {
         else {
             try {
                 const stmt = db.prepare(`
-          INSERT INTO logs (timestamp, app, category, duration_ms, title, project, url, domain, tab_id, is_browser_tracking)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO logs (timestamp, app, category, duration_ms, title, project, url, domain, tab_id, is_browser_tracking, browser_name)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
-                const result = stmt.run(entry.timestamp, entry.app, entry.category, entry.duration_ms, entry.title, entry.project, entry.url, entry.domain, entry.tab_id, 1);
+                const result = stmt.run(entry.timestamp, entry.app, entry.category, entry.duration_ms, entry.title, entry.project, entry.url, entry.domain, entry.tab_id, 1, entry.browser_name);
                 entry.id = result.lastInsertRowid;
             }
             catch (err) {
@@ -17436,8 +17705,9 @@ function getBrowserDomainStats(period, dateOffset = 0) {
         }
         const stats = new Map();
         logs.forEach((log) => {
-            const key = log.domain || 'unknown';
-            const existing = stats.get(key) || { total_ms: 0, sessions: 0, domain: key, category: log.category || 'Other', title: log.title || key };
+            const browser = log.browser_name || '';
+            const key = `${log.domain || 'unknown'}|${browser}`;
+            const existing = stats.get(key) || { total_ms: 0, sessions: 0, domain: log.domain || 'unknown', browser_name: browser || undefined, category: log.category || 'Other', title: log.title || log.domain || 'unknown' };
             existing.total_ms += log.duration_ms;
             existing.sessions += 1;
             stats.set(key, existing);
@@ -17446,7 +17716,7 @@ function getBrowserDomainStats(period, dateOffset = 0) {
     }
     try {
         let query = `
-      SELECT domain, category, SUM(duration_ms) as total_ms, COUNT(*) as sessions, MAX(title) as title
+      SELECT domain, browser_name, category, SUM(duration_ms) as total_ms, COUNT(*) as sessions, MAX(title) as title
       FROM logs 
       WHERE is_browser_tracking = 1 AND domain IS NOT NULL
     `;
@@ -17459,7 +17729,7 @@ function getBrowserDomainStats(period, dateOffset = 0) {
             query += ` AND timestamp <= ?`;
             params.push(endDate);
         }
-        query += ` GROUP BY domain ORDER BY total_ms DESC`;
+        query += ` GROUP BY domain, browser_name ORDER BY total_ms DESC`;
         const stmt = db.prepare(query);
         return stmt.all(...params);
     }
@@ -17769,7 +18039,7 @@ electron_1.ipcMain.handle('conductor:engineer-workflow', async (_event, objectiv
 // PROJECT BACKUP — file-level backup/restore IPC handlers
 // ═══════════════════════════════════════════════════════════════
 try {
-  const { registerProjectBackupIPC } = require('./services/ProjectBackupService');
+  const { registerProjectBackupIPC } = require('./services/ProjectBackupService.cjs');
   if (db) registerProjectBackupIPC(db);
 } catch (e: any) {
   console.warn('[DeskFlow] ProjectBackupService not loaded:', e.message);
@@ -19509,6 +19779,95 @@ electron_1.ipcMain.handle('get-consistency-score', (event, period = 'week') => {
     } catch (err) {
         console.error('[DeskFlow] Failed to get consistency score:', err);
         return { score: 0, weekly_comparison: [], this_week: 0, last_week: 0, trend: 'stable', streak: 0 };
+    }
+});
+
+// ── IPC: get-momentum-score ───────────────────────────────────────
+electron_1.ipcMain.handle('get-momentum-score', async (_, date?: string) => {
+    ensureDb();
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    try {
+        // 1. Get today's goals
+        const goals = db.prepare('SELECT * FROM goals WHERE date = ?').all(targetDate) as any[];
+        const goalsDone = goals.filter(g => g.status === 'done').length;
+        const totalGoals = goals.length;
+
+        // 2. Goal completion rate (40% weight)
+        const completionRate = totalGoals > 0 ? goalsDone / totalGoals : 0;
+        const completionScore = completionRate * 40;
+
+        // 3. Streak from goal streaks (10% weight)
+        const maxStreak = goals.reduce((max, g) => Math.max(max, g.streak || 0), 0);
+        const streakScore = (Math.min(maxStreak, 10) / 10) * 10;
+
+        // 4. Consistency score from external sessions (20% weight)
+        let consistencyScore = 0;
+        let consistencyTrend: 'up' | 'down' | 'stable' = 'stable';
+        let consistencyStreak = 0;
+        try {
+            const weeks = 4;
+            const weeklyTotals: number[] = [];
+            const now = new Date();
+            for (let i = weeks - 1; i >= 0; i--) {
+                const daysAgoEnd = i * 7;
+                const daysAgoStart = (i + 1) * 7;
+                const weekStart = new Date(now.getTime() - daysAgoStart * 86400000);
+                const weekEnd = new Date(now.getTime() - daysAgoEnd * 86400000);
+                const sessions = db.prepare(`
+                    SELECT COALESCE(SUM(duration_seconds), 0) as total
+                    FROM external_sessions
+                    WHERE ended_at IS NOT NULL
+                    AND date(started_at) >= date(?) AND date(started_at) < date(?, '+1 day')
+                `).get(weekStart.toISOString().split('T')[0], weekEnd.toISOString().split('T')[0]) as any;
+                weeklyTotals.push(sessions?.total || 0);
+            }
+            const currentWeek = weeklyTotals[weeklyTotals.length - 1] || 0;
+            const lastWeek = weeklyTotals[weeklyTotals.length - 2] || 0;
+            const targetSeconds = 30 * 3600;
+            const variance = Math.abs(currentWeek - targetSeconds) / targetSeconds;
+            consistencyScore = Math.max(0, Math.round((1 - variance) * 100));
+            if (currentWeek > lastWeek * 1.1) consistencyTrend = 'up';
+            else if (currentWeek < lastWeek * 0.9) consistencyTrend = 'down';
+            for (const w of [...weeklyTotals].reverse()) {
+                if (w >= targetSeconds * 0.8) consistencyStreak++;
+                else break;
+            }
+        } catch { /* consistency is optional */ }
+
+        const consistencyWeighted = (consistencyScore / 100) * 20;
+
+        // 5. Schedule adherence (30% weight) — check linked goals completed during scheduled time
+        let scheduleAdherence = 0;
+        try {
+            const dayOfWeek = new Date().getDay();
+            const scheduleBlocks = db.prepare('SELECT * FROM schedule_entries WHERE day_of_week = ?').all(dayOfWeek) as any[];
+            if (scheduleBlocks.length > 0) {
+                const linkedGoals = goals.filter(g => g.linked_schedule_id);
+                const completedLinked = linkedGoals.filter(g => g.status === 'done');
+                scheduleAdherence = linkedGoals.length > 0
+                    ? (completedLinked.length / linkedGoals.length) * 100
+                    : 50; // neutral if no linked goals
+            } else {
+                scheduleAdherence = 50; // neutral if no schedule
+            }
+        } catch { /* schedule is optional */ }
+
+        const scheduleWeighted = (scheduleAdherence / 100) * 30;
+
+        // 6. Total momentum
+        const totalScore = Math.round(completionScore + streakScore + consistencyWeighted + scheduleWeighted);
+
+        return {
+            score: Math.min(100, totalScore),
+            streak: maxStreak,
+            consistency: consistencyScore,
+            trend: consistencyTrend,
+            completionRate: Math.round(completionRate * 100),
+            scheduleAdherence: Math.round(scheduleAdherence),
+        };
+    } catch (err) {
+        console.error('[DeskFlow] Failed to get momentum score:', err);
+        return { score: 0, streak: 0, consistency: 0, trend: 'stable' as const, completionRate: 0, scheduleAdherence: 0 };
     }
 });
 
@@ -26972,11 +27331,16 @@ electron_1.ipcMain.handle('fixed-expenses:list', async (_event, month?: string) 
 electron_1.ipcMain.handle('fixed-expenses:create', async (_event, data: any) => {
   if (!db) return null;
   try {
+    if (!data.wallet_id) {
+      const defaultWallet = db.prepare('SELECT id FROM finance_wallets ORDER BY id LIMIT 1').get() as any;
+      data.wallet_id = defaultWallet?.id || 0;
+    }
     const result = db.prepare(`
-      INSERT INTO finance_fixed_expenses (wallet_id, name, description, amount, currency, category_id, billing_day, is_active, auto_create_transaction, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO finance_fixed_expenses (wallet_id, name, description, amount, currency, category_id, billing_day, frequency, type, next_due_date, is_active, auto_create_transaction, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(data.wallet_id, data.name, data.description || '', data.amount, data.currency || 'USD',
-      data.category_id || null, data.billing_day || 1, data.is_active !== undefined ? data.is_active : 1,
+      data.category_id || null, data.billing_day || 1, data.frequency || 'monthly', data.type || 'expense',
+      data.next_due_date || null, data.is_active !== undefined ? data.is_active : 1,
       data.auto_create_transaction || 0, data.metadata || null);
     const id = Number(result.lastInsertRowid);
     const currentMonth = new Date().toISOString().slice(0, 7);
@@ -26993,10 +27357,12 @@ electron_1.ipcMain.handle('fixed-expenses:update', async (_event, data: any) => 
       UPDATE finance_fixed_expenses SET wallet_id=COALESCE(?,wallet_id), name=COALESCE(?,name),
         description=COALESCE(?,description), amount=COALESCE(?,amount), currency=COALESCE(?,currency),
         category_id=COALESCE(?,category_id), billing_day=COALESCE(?,billing_day),
+        frequency=COALESCE(?,frequency), type=COALESCE(?,type), next_due_date=COALESCE(?,next_due_date),
         is_active=COALESCE(?,is_active), auto_create_transaction=COALESCE(?,auto_create_transaction),
         metadata=COALESCE(?,metadata), updated_at=datetime('now','localtime') WHERE id=?
     `).run(data.wallet_id, data.name, data.description, data.amount, data.currency,
-      data.category_id, data.billing_day, data.is_active, data.auto_create_transaction, data.metadata, data.id);
+      data.category_id, data.billing_day, data.frequency, data.type, data.next_due_date,
+      data.is_active, data.auto_create_transaction, data.metadata, data.id);
     logAuditEvent('fixed_expense_updated', 'fixed_expense', data.id, `Updated fixed expense: ${data.name}`);
     return { success: true };
   } catch (err) { console.error('fixed-expenses:update error:', err); return null; }

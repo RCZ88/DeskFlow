@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense, useRef } from 'react';
 import { PageShell } from '../components/PageShell';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useNavigate } from 'react-router-dom';
 import { HeroBand } from './dashboard/HeroBand';
 import { SummaryStrip } from './dashboard/SummaryStrip';
@@ -7,9 +8,11 @@ import { PinnedActivities } from './dashboard/PinnedActivities';
 import { QuickFocusCard } from '../components/focus/QuickFocusCard';
 import { ScheduleCard } from './dashboard/ScheduleCard';
 import { StatusBand } from './dashboard/StatusBand';
-import { InsightStrip } from './dashboard/InsightStrip';
 import { GoalsCard } from '../components/dashboard/GoalsCard';
 import { DeadlinesCard } from '../components/dashboard/DeadlinesCard';
+import { useDashboardData } from '../components/dashboard/useDashboardData';
+import { InsightStrip } from './dashboard/InsightStrip';
+import { MomentumHero } from '../components/dashboard/MomentumHero';
 import { TierBreakdownStrip } from './dashboard/TierBreakdownStrip';
 import { SleepBarMini } from '../components/dashboard/SleepBarMini';
 
@@ -24,6 +27,8 @@ import { useDeepFocus } from '../hooks/useDeepFocus';
 import { Bar, Line } from 'react-chartjs-2';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BlurFade } from '../components/ui/blur-fade';
+import { Particles } from '../components/ui/particles';
+import { BorderBeam } from '../components/ui/border-beam';
 
 import {
   BookOpen, Dumbbell, Activity, Moon,
@@ -32,13 +37,13 @@ import {
   Edit3, Check, Plus, Minus, TrendingUp,
   Target, ZapCircle, RefreshCw, Clock3,
   ChevronLeft, ChevronRight, Maximize2, Minimize2,
-  BarChart3
+  BarChart3, Bot, Sparkles, ArrowRight
 } from 'lucide-react';
 import { maxOf, maxBy } from '../utils/safeMath';
 import { getDateRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
 import { awaitApi } from '../lib/awaitApi';
-import { DotPattern } from '../components/ui/dot-pattern';
+import { TimerResetOverlay } from '../components/dashboard/TimerResetOverlay';
 
 interface ActivityFeedItem {
   id: string;
@@ -66,6 +71,7 @@ interface DashboardPageProps {
   dateOffset?: number;
   onDateOffsetChange?: (offset: number) => void;
   trackingBrowser?: string;
+  trackingBrowsers?: string[];
   trackerAppMode?: 'show-other' | 'pause' | 'track';
   tierAssignments?: {
     productive: string[];
@@ -214,6 +220,7 @@ interface DashboardPageProps {
   dateOffset?: number;
   onDateOffsetChange?: (offset: number) => void;
   trackingBrowser?: string;
+  trackingBrowsers?: string[];
   trackerAppMode?: 'show-other' | 'pause' | 'track';
   tierAssignments?: {
     productive: string[];
@@ -250,14 +257,17 @@ const BROWSER_PROCESS_NAMES_DASHBOARD: Record<string, string[]> = {
   'safari': ['safari'],
 };
 
-function isAppMatchingBrowserDashboard(appName: string, browserName: string): boolean {
+function isAppMatchingBrowserDashboard(appName: string, browserName: string | string[]): boolean {
   if (!appName || !browserName) return false;
   const appLower = appName.toLowerCase().replace(/\.exe$/i, '');
-  const browserLower = browserName.toLowerCase();
-  const processNames = BROWSER_PROCESS_NAMES_DASHBOARD[browserLower] || [browserLower];
-  return appLower.includes(browserLower) ||
-    browserLower.includes(appLower) ||
-    processNames.some(p => appLower.includes(p));
+  const browsers = Array.isArray(browserName) ? browserName : [browserName];
+  return browsers.some(b => {
+    const browserLower = b.toLowerCase();
+    const processNames = BROWSER_PROCESS_NAMES_DASHBOARD[browserLower] || [browserLower];
+    return appLower.includes(browserLower) ||
+      browserLower.includes(appLower) ||
+      processNames.some(p => appLower.includes(p));
+  });
 }
 
 export default function DashboardPage({
@@ -273,6 +283,7 @@ export default function DashboardPage({
   dateOffset = 0,
   onDateOffsetChange,
   trackingBrowser = '',
+  trackingBrowsers = [],
   trackerAppMode = 'track',
   tierAssignments = { productive: ['IDE', 'AI Tools', 'Education', 'Productivity', 'Tools'], neutral: ['Browser', 'Communication', 'Design', 'News', 'Uncategorized', 'Other'], distracting: ['Entertainment', 'Social Media', 'Shopping', 'Gaming'] },
   timerState = null,
@@ -464,11 +475,21 @@ export default function DashboardPage({
   const [unfilledMinutes, setUnfilledMinutes] = useState(0);
   const [gapCount, setGapCount] = useState(0);
 
-  // New dashboard data
-  const [insights, setInsights] = useState<any[]>([]);
-  const [goals, setGoals] = useState<any[]>([]);
-  const [longTermGoals, setLongTermGoals] = useState<any[]>([]);
-  const [deadlines, setDeadlines] = useState<any[]>([]);
+  // Dashboard data via unified hook (goals, deadlines, schedule, suggestions, insights)
+  const {
+    goals, deadlines, schedule, longTermGoals, suggestions, insights: dashInsights,
+    momentum,
+    loading: dashLoading, error: dashError, lastUpdated,
+    addGoal, updateGoal, deleteGoal, toggleGoal,
+    addDeadline, updateDeadline, deleteDeadline, completeDeadline,
+    addScheduleEntry, updateScheduleEntry, deleteScheduleEntry,
+    generateSuggestions, acceptSuggestion, dismissSuggestion,
+    refresh: refreshDashboard,
+  } = useDashboardData();
+
+  const [showAIModule, setShowAIModule] = useState(false);
+  const [aiInsights, setAiInsights] = useState<any[]>([]);
+  const todayStr = new Date().toISOString().split('T')[0];
   const [sleepData, setSleepData] = useState<{ label: string; hours: number }[]>([]);
   const [avgSleep, setAvgSleep] = useState(0);
   const [sleepDebt, setSleepDebt] = useState(0);
@@ -478,40 +499,29 @@ export default function DashboardPage({
   const [bestDay, setBestDay] = useState('--');
   const [productivityScore, setProductivityScore] = useState(0);
 
-  // Fetch new dashboard data
+  // Merge hook insights with page-computed streak/productivityScore
+  const dashboardInsights = useMemo(() => ({
+    streak: streak || dashInsights.streak || 0,
+    completionRate: dashInsights.completionRate || 0,
+    momentum: productivityScore || dashInsights.momentum || 0,
+    longestStreak: dashInsights.longestStreak || 0,
+    categoryBalance: dashInsights.categoryBalance || [],
+    urgentDeadlines: dashInsights.urgentDeadlines || 0,
+    focusTimeMinutes: dashInsights.focusTimeMinutes || 0,
+    aiSuggestionCount: dashInsights.aiSuggestionCount || 0,
+  }), [streak, productivityScore, dashInsights]);
+
+  // Fetch non-dashboard data (sleep, etc.)
   useEffect(() => {
     const api = (window as any).deskflowAPI;
     if (!api) return;
 
-    // Insights
+    // AI Insights
     api.getInsightStrip?.({ period: 'today' })?.then((res: any) => {
       try {
-        if (Array.isArray(res?.insights)) setInsights(res.insights.slice(0, 3));
-        else if (Array.isArray(res)) setInsights(res.slice(0, 3));
+        if (Array.isArray(res?.insights)) setAiInsights(res.insights.slice(0, 3));
+        else if (Array.isArray(res)) setAiInsights(res.slice(0, 3));
       } catch { /* ignore */ }
-    }).catch(() => {});
-
-    // Goals
-    const todayStr = new Date().toISOString().split('T')[0];
-    api.getGoals?.(todayStr)?.then((res: any) => {
-      try {
-        const goalsList = res?.goals || res?.data || (Array.isArray(res) ? res : []);
-        setGoals(goalsList.filter((g: any) => !g.completed).slice(0, 5));
-      } catch { /* ignore */ }
-    }).catch(() => {});
-
-    // Long-term goals
-    api.getLongtermGoals?.()?.then((res: any) => {
-      try {
-        if (res?.success && res?.goals) {
-          setLongTermGoals(res.goals);
-        }
-      } catch { /* ignore */ }
-    }).catch(() => {});
-
-    // Deadlines
-    api.getDeadlines?.({ days: 30 })?.then((res: any) => {
-      if (res?.deadlines) setDeadlines(res.deadlines.slice(0, 4));
     }).catch(() => {});
 
     // Sleep (last 7 days)
@@ -745,6 +755,7 @@ export default function DashboardPage({
   }, [timerState, externalSessionRunning]);
 
   const [resetCount, setResetCount] = useState(0);
+  const [resetTrigger, setResetTrigger] = useState(0);
   const [currentApp, setCurrentApp] = useState<ForegroundData | null>(null);
   const [isInBrowser, setIsInBrowser] = useState(false); // Track if currently in tracking browser
   const [lastNonBrowserApp, setLastNonBrowserApp] = useState<ForegroundData | null>(null);
@@ -753,10 +764,18 @@ export default function DashboardPage({
   const [heatmapMode, setHeatmapMode] = useState<'device' | 'external' | 'combined'>('combined');
   const [externalHourlyData, setExternalHourlyData] = useState<Map<string, { externalSeconds: number; breakdown: Record<string, { seconds: number; color: string; icon: string }> }>>(new Map());
   const [externalSessions, setExternalSessions] = useState<any[]>([]);
-  const [expandedModal, setExpandedModal] = useState<'heatmap' | 'solar' | null>(null);
+  const [expandedModal, setExpandedModalRaw] = useState<'heatmap' | 'solar' | null>(null);
+  const setExpandedModal = useCallback((val: 'heatmap' | 'solar' | null) => {
+    setExpandedModalRaw(val);
+    window.dispatchEvent(new CustomEvent('solar-overlay-change', { detail: { active: val === 'solar' } }));
+  }, []);
   const deepFocus = useDeepFocus();
   //const homeSummary = useHomeSummary();
   const [solarFullscreen, setSolarFullscreen] = useState(false);
+  const setSolarFullscreenWithEvent = useCallback((val: boolean) => {
+    setSolarFullscreen(val);
+    window.dispatchEvent(new CustomEvent('solar-fullscreen-change', { detail: { fullscreen: val } }));
+  }, []);
   const [currentWebsite, setCurrentWebsite] = useState<{ title?: string; url?: string; category?: string; domain?: string; browserName?: string; profileName?: string; profileId?: string } | null>(null);
   const hasRealApp = !!currentApp?.app || (isInBrowser && !!currentWebsite?.domain);
   const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
@@ -1030,7 +1049,9 @@ export default function DashboardPage({
 
   // Refs for values the foreground listener needs without stale closures
   const trackingBrowserRef = useRef(trackingBrowser);
+  const trackingBrowsersRef = useRef(trackingBrowsers);
   trackingBrowserRef.current = trackingBrowser;
+  trackingBrowsersRef.current = trackingBrowsers;
   const trackerAppModeRef = useRef(trackerAppMode);
   trackerAppModeRef.current = trackerAppMode;
   const lastNonBrowserAppRef = useRef(lastNonBrowserApp);
@@ -1058,7 +1079,7 @@ export default function DashboardPage({
       console.log('[Focus] Foreground change:', data.app, '| category:', data.category);
 
       // Check if this is the tracking browser
-      const isTrackingBrowser = !!tb && !!data.app && isAppMatchingBrowserDashboard(data.app, tb);
+      const isTrackingBrowser = !!tb && !!data.app && isAppMatchingBrowserDashboard(data.app, trackingBrowsersRef.current.length > 0 ? trackingBrowsersRef.current : tb);
 
       // Check if this is Tracker app (DeskFlow/Electron)
       const isTrackerApp = data.app && (
@@ -1153,7 +1174,7 @@ export default function DashboardPage({
         const tam = trackerAppModeRef.current;
         const lnb = lastNonBrowserAppRef.current;
 
-        const isTrackingBrowser = !!tb && !!(initialData.app) && isAppMatchingBrowserDashboard(initialData.app, tb);
+        const isTrackingBrowser = !!tb && !!(initialData.app) && isAppMatchingBrowserDashboard(initialData.app, trackingBrowsersRef.current.length > 0 ? trackingBrowsersRef.current : tb);
         const isTrackerApp = !!(initialData.app) && (initialData.app.toLowerCase().includes('deskflow') || initialData.app.toLowerCase().includes('electron'));
 
         if (isTrackingBrowser) { setIsInBrowser(true); setCurrentApp(lnb || null); return; }
@@ -1193,7 +1214,7 @@ export default function DashboardPage({
       window.deskflowAPI.getCurrentForeground().then((data: any) => {
         if (!data?.app) return;
         const tb = trackingBrowserRef.current;
-        const isTrackingBrowser = !!tb && isAppMatchingBrowserDashboard(data.app, tb);
+        const isTrackingBrowser = !!tb && isAppMatchingBrowserDashboard(data.app, trackingBrowsersRef.current.length > 0 ? trackingBrowsersRef.current : tb);
         const isTrackerApp = data.app.toLowerCase().includes('deskflow') || data.app.toLowerCase().includes('electron');
 
         if (isTrackerApp) return; // don't overwrite with tracker app
@@ -1324,10 +1345,12 @@ export default function DashboardPage({
         console.log(`[Dashboard] Stopwatch: RESET productive (productive → distracting)`);
         stopwatchAccumulatedRef.current = 0;
         setCurrentProductiveMs(0);
+        setResetTrigger(prev => prev + 1);
       } else if (switchingDistractingToProductive) {
         console.log(`[Dashboard] Stopwatch: RESET distracting (distracting → productive)`);
         distractingAccumulatedRef.current = 0;
         setCurrentDistractingMs(0);
+        setResetTrigger(prev => prev + 1);
       }
       stopwatchLastTickRef.current = Date.now();
     }
@@ -2396,23 +2419,29 @@ export default function DashboardPage({
 
   return (
     <PageShell page="dashboard" variant="dashboard" className="text-white bg-[#0a0a0a]">
-      <DotPattern className="fixed inset-0 text-white pointer-events-none" opacity={0.04} gap={20} />
+      <TimerResetOverlay trigger={resetTrigger} />
 
       <div className="relative z-10">
         <div className="mx-auto px-5" style={{ maxWidth: '1400px' }}>
 
-          {/* Row 1: Status Band (Hero Timer) */}
-          <StatusBand
-            displayTimeMs={displayTime.ms}
-            isCurrentlyProductive={isCurrentlyProductive}
-            isDistracting={isDistracting}
-            currentAppName={isInBrowser
-              ? (currentWebsite?.title || currentWebsite?.domain || currentApp?.app || 'Browsing')
-              : (currentApp?.app || currentApp?.title || '')}
-            totalFocusedMs={(dashboardData?.overview?.productiveSeconds || 0) * 1000}
-            browserName={isInBrowser ? currentWebsite?.browserName : undefined}
-            isInBrowser={isInBrowser}
-          />
+          {/* Row 1: Status Band + Momentum Hero */}
+          <div className="grid grid-cols-1 lg:grid-cols-[5fr_3fr] gap-4 mb-4 items-stretch">
+            <StatusBand
+              displayTimeMs={displayTime.ms}
+              isCurrentlyProductive={isCurrentlyProductive}
+              isDistracting={isDistracting}
+              currentAppName={isInBrowser
+                ? (currentWebsite?.title || currentWebsite?.domain || 'Browsing...')
+                : (currentApp?.app || currentApp?.title || '')}
+              totalFocusedMs={(dashboardData?.overview?.productiveSeconds || 0) * 1000}
+              browserName={isInBrowser ? currentWebsite?.browserName : undefined}
+              isInBrowser={isInBrowser}
+              websiteTitle={currentWebsite?.title}
+              websiteDomain={currentWebsite?.domain}
+              websiteCategory={currentWebsite?.category}
+            />
+            <MomentumHero momentum={momentum} loading={dashLoading} />
+          </div>
 
           {/* Row 2: Tier Breakdown Strip (Moved up for immediate context) */}
           <BlurFade delay={0.05} duration={0.4}>
@@ -2447,102 +2476,127 @@ export default function DashboardPage({
            {/* Row 4: Triple Column — Goals + Deadlines + Focus */}
            <BlurFade delay={0.14} duration={0.4}>
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-               <GoalsCard
-                 goals={goals}
-                 longTermGoals={longTermGoals}
-                 onToggle={async (id) => {
-                   const goal = goals.find(g => g.id === id);
-                   if (!goal) return;
-                   const newStatus = goal.status === 'done' ? 'active' : 'done';
-                   try {
-                     await (window as any).deskflowAPI?.saveGoal?.(todayStr, { ...goal, status: newStatus });
-                     setGoals(prev => prev.map(g => g.id === id ? { ...g, status: newStatus } : g));
-                   } catch (err) { console.error('[Dashboard] Goal toggle error:', err); }
-                 }}
-                 onAdd={async (title) => {
-                   const newGoal = {
-                     id: Date.now().toString(),
-                     title,
-                     category: 'work',
-                     target: { type: 'completion' },
-                     period: 'daily',
-                     status: 'active',
-                     date: todayStr,
-                     source: 'manual',
-                     links: [],
-                     createdAt: new Date().toISOString(),
-                   };
-                   try {
-                     await (window as any).deskflowAPI?.saveGoal?.(todayStr, newGoal);
-                     setGoals(prev => [...prev, newGoal]);
-                   } catch (err) { console.error('[Dashboard] Goal add error:', err); }
-                 }}
-                 onDelete={async (id) => {
-                   try {
-                     await (window as any).deskflowAPI?.deleteGoal?.(id);
-                     setGoals(prev => prev.filter(g => g.id !== id));
-                   } catch (err) { console.error('[Dashboard] Goal delete error:', err); }
-                 }}
-                 onUpdate={async (goal) => {
-                   try {
-                     await (window as any).deskflowAPI?.saveGoal?.(todayStr, goal);
-                     setGoals(prev => prev.map(g => g.id === goal.id ? goal : g));
-                   } catch (err) { console.error('[Dashboard] Goal update error:', err); }
-                 }}
-               />
-               <DeadlinesCard
-                 deadlines={deadlines}
-                 onAdd={async (title, date) => {
-                   try {
-                     const result = await (window as any).deskflowAPI?.addDeadline?.({
-                       title, due_date: date, priority: 'medium',
-                     });
-                     if (result?.success && result?.id) {
-                       setDeadlines(prev => [...prev, { id: result.id, title, due_date: date, priority: 'medium' }]);
-                     }
-                   } catch (err) { console.error('[Dashboard] Deadline add error:', err); }
-                 }}
-                 onDelete={async (id) => {
-                   try {
-                     await (window as any).deskflowAPI?.deleteDeadline?.(id);
-                     setDeadlines(prev => prev.filter(d => d.id !== id));
-                   } catch (err) { console.error('[Dashboard] Deadline delete error:', err); }
-                 }}
-                 onUpdate={async (deadline) => {
-                   try {
-                     await (window as any).deskflowAPI?.updateDeadline?.(deadline.id, deadline);
-                     setDeadlines(prev => prev.map(d => d.id === deadline.id ? deadline : d));
-                   } catch (err) { console.error('[Dashboard] Deadline update error:', err); }
-                 }}
-                 onComplete={async (id) => {
-                   try {
-                     await (window as any).deskflowAPI?.updateDeadlineStatus?.(id, 'done');
-                     setDeadlines(prev => prev.filter(d => d.id !== id));
-                   } catch (err) { console.error('[Dashboard] Deadline complete error:', err); }
-                 }}
-               />
-               <QuickFocusCard
-                 state={deepFocus.state}
-                 onStart={deepFocus.start}
-                 onEnd={deepFocus.end}
-               />
+                <GoalsCard
+                  goals={goals}
+                  longTermGoals={longTermGoals}
+                  suggestions={suggestions}
+                  insights={dashboardInsights}
+                  loading={dashLoading}
+                  error={dashError}
+                  onToggle={toggleGoal}
+                  onAdd={addGoal}
+                  onDelete={deleteGoal}
+                  onUpdate={updateGoal}
+                  onAcceptSuggestion={acceptSuggestion}
+                  onDismissSuggestion={dismissSuggestion}
+                  onGenerateSuggestions={generateSuggestions}
+                />
+                <QuickFocusCard
+                  state={deepFocus.state}
+                  onStart={deepFocus.start}
+                  onEnd={deepFocus.end}
+                />
+                <DeadlinesCard
+                  deadlines={deadlines}
+                  loading={dashLoading}
+                  error={dashError}
+                  onAdd={addDeadline}
+                  onDelete={deleteDeadline}
+                  onUpdate={updateDeadline}
+                  onComplete={completeDeadline}
+                />
              </div>
            </BlurFade>
 
-          {/* Row 5: Schedule Hero + Insight Strip */}
-          <BlurFade delay={0.1} duration={0.4}>
-            <div className="mb-4">
-              <ScheduleCard />
-            </div>
-          </BlurFade>
+           {/* Row 5: Schedule + Insight Strip */}
+           <BlurFade delay={0.1} duration={0.4}>
+             <div className="mb-4">
+               <ScheduleCard
+                 entries={schedule}
+                 loading={dashLoading}
+                 error={dashError}
+                 onAdd={addScheduleEntry}
+                 onUpdate={updateScheduleEntry}
+                 onDelete={deleteScheduleEntry}
+               />
+             </div>
+            </BlurFade>
 
-          <BlurFade delay={0.12} duration={0.4}>
-            <InsightStrip insights={insights} />
-          </BlurFade>
+            {/* AI Insights Strip */}
+           <InsightStrip insights={aiInsights} />
+
+           {/* AI Module Bridge */}
+           <BlurFade delay={0.13} duration={0.4}>
+             <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-violet-500/20 p-5 mb-4 cursor-pointer" onClick={() => setShowAIModule(!showAIModule)}>
+               <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-violet-500/40 via-violet-500/10 to-transparent" />
+               <BorderBeam size={160} duration={12} colorFrom="#8b5cf6" colorTo="#a78bfa" />
+               <div className="relative z-10">
+                 <div className="flex items-center justify-between mb-2">
+                   <div className="flex items-center gap-2">
+                     <Bot size={16} className="text-violet-400" />
+                     <h3 className="text-[14px] font-semibold text-zinc-100">AI Assistant</h3>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <span className="text-[11px] text-zinc-600">{suggestions.length} suggestions</span>
+                     <motion.button
+                       whileHover={{ scale: 1.05 }}
+                       whileTap={{ scale: 0.95 }}
+                       onClick={(e) => { e.stopPropagation(); generateSuggestions(); }}
+                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-colors text-[12px] font-medium"
+                     >
+                       <Sparkles size={12} />
+                       Generate Goals
+                     </motion.button>
+                   </div>
+                 </div>
+                 <p className="text-[12px] text-zinc-500 mb-2">
+                   AI generates daily goals from your long-term plans. Goals sync across Dashboard and AI System page.
+                 </p>
+                 {showAIModule && suggestions.length > 0 && (
+                   <motion.div
+                     initial={{ height: 0, opacity: 0 }}
+                     animate={{ height: 'auto', opacity: 1 }}
+                     className="overflow-hidden"
+                   >
+                     <div className="space-y-1.5 mt-2">
+                       {suggestions.map((s) => (
+                         <div key={s.id} className="flex items-center justify-between p-2 rounded-md bg-zinc-900/60 border border-zinc-800/40">
+                           <span className="text-[12px] text-zinc-300">{s.title}</span>
+                           <div className="flex items-center gap-1">
+                             <motion.button
+                               whileHover={{ scale: 1.1 }}
+                               whileTap={{ scale: 0.9 }}
+                               onClick={(e) => { e.stopPropagation(); acceptSuggestion(s); }}
+                               className="w-6 h-6 rounded bg-emerald-500/10 text-emerald-400 flex items-center justify-center"
+                             >
+                               <Check size={10} />
+                             </motion.button>
+                             <motion.button
+                               whileHover={{ scale: 1.1 }}
+                               whileTap={{ scale: 0.9 }}
+                               onClick={(e) => { e.stopPropagation(); dismissSuggestion(s.id); }}
+                               className="w-6 h-6 rounded bg-zinc-800/50 text-zinc-400 flex items-center justify-center"
+                             >
+                               <X size={10} />
+                             </motion.button>
+                           </div>
+                         </div>
+                       ))}
+                     </div>
+                   </motion.div>
+                 )}
+                 {showAIModule && suggestions.length === 0 && (
+                   <p className="text-[11px] text-zinc-600 mt-2">No suggestions yet. Click "Generate Goals" to get AI-powered goal suggestions.</p>
+                 )}
+               </div>
+             </div>
+           </BlurFade>
 
           {/* Row 6: Productivity Chart */}
           <BlurFade delay={0.2} duration={0.4}>
-            <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5 mb-4">
+            <div className="relative overflow-hidden bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5 mb-4">
+              <Particles className="absolute inset-0 pointer-events-none" quantity={30} color="#34d399" />
+              <div className="relative z-10">
               <div className="border-t border-emerald-400/30 -mx-5 -mt-5 mb-4" />
               <SectionHeader title="Productivity" icon={<BarChart3 size={14} />} />
               <div className="h-52 mt-2">
@@ -2621,6 +2675,7 @@ export default function DashboardPage({
                   View Solar System
                 </button>
               </div>
+              </div>
             </div>
           </BlurFade>
 
@@ -2641,7 +2696,7 @@ export default function DashboardPage({
                   const durationStr = isActive ? getElapsedDuration(item) : item.elapsedStr;
                   return (
                     <div key={item.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/20 border border-transparent hover:bg-zinc-900/40 hover:border-zinc-800/30 transition-all duration-200 group cursor-pointer">
+                      className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/20 hover:bg-zinc-900/50 hover:border-zinc-700/30 transition-all duration-200 group cursor-pointer">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-2 h-2 rounded-full shrink-0 ${item.tier === 'productive' ? 'bg-emerald-400' : item.tier === 'distracting' ? 'bg-rose-400' : 'bg-amber-400'} ${isActive ? 'animate-pulse' : ''}`} />
                         <div className="min-w-0">
@@ -2761,21 +2816,23 @@ export default function DashboardPage({
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setSolarFullscreen(!solarFullscreen)} className="p-2 hover:bg-zinc-800/60 rounded-lg transition-all duration-150 border border-transparent hover:border-zinc-700/50"
+                  <button onClick={() => setSolarFullscreenWithEvent(!solarFullscreen)} className="p-2 hover:bg-zinc-800/60 rounded-lg transition-all duration-150 border border-transparent hover:border-zinc-700/50"
                     title={solarFullscreen ? "Exit fullscreen" : "Fullscreen"}>
                     {solarFullscreen ? <Minimize2 className="w-5 h-5 text-zinc-400" /> : <Maximize2 className="w-5 h-5 text-zinc-400" />}
                   </button>
-                  <button onClick={() => { setExpandedModal(null); setSolarFullscreen(false); }} className="p-2 hover:bg-red-900/50 rounded-lg transition-all duration-150 border border-transparent hover:border-red-500/30" title="Close">
+                  <button onClick={() => { setExpandedModal(null); setSolarFullscreenWithEvent(false); }} className="p-2 hover:bg-red-900/50 rounded-lg transition-all duration-150 border border-transparent hover:border-red-500/30" title="Close">
                     <X className="w-5 h-5 text-zinc-400" />
                   </button>
                 </div>
               </div>
+              <ErrorBoundary>
               <Suspense fallback={<div className="h-[400px] flex items-center justify-center"><LoadingState variant="spinner" /></div>}>
                 <div className={solarFullscreen ? 'w-full h-screen' : 'h-[500px] w-full'}>
                   <OrbitSystem logs={orbitLogs} websiteLogs={orbitWebsiteLogs} appColors={appColors} categoryOverrides={categoryOverrides} selectedPeriod={selectedPeriod}
                     onPeriodChange={(p) => { onSelectedPeriodChange?.(p as any); onDateOffsetChange?.(0); }} />
                 </div>
               </Suspense>
+              </ErrorBoundary>
             </motion.div>
           </motion.div>
         )}

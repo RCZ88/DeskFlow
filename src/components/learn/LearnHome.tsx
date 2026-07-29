@@ -1,9 +1,8 @@
-import { motion } from 'framer-motion';
 import { BookOpen, Wand2, FileUp, ClipboardPaste, Compass, Copy, Check, Layers } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { BlurFade } from '../ui/blur-fade';
-import { BorderBeam } from '../ui/border-beam';
 import { FeatureShowcase } from '../showcase/FeatureShowcase';
+import { BookOpening } from './BookOpening';
 
 const api = (window as any).deskflowAPI;
 
@@ -14,20 +13,6 @@ export interface LearnHomeProps {
   onPaste: () => void;
   onBrowse?: () => void;
 }
-
-const float = {
-  rest: { y: 0, rotateZ: -3 },
-  float: { y: [-3, 3, -3], rotateZ: [-3, -2.5, -3] },
-  hover: { y: -8, rotateZ: -3 },
-};
-const floatSpring = { type: 'spring' as const, stiffness: 260, damping: 22 };
-const floatLoop = { duration: 4, ease: 'easeInOut', repeat: Infinity };
-
-const heroCover = {
-  background: 'linear-gradient(150deg, #c2553a 0%, #8f3a25 100%)',
-  boxShadow:
-    'inset 0 0 0 1px rgba(255,255,255,0.07), inset -16px 0 26px -20px rgba(0,0,0,0.6), 0 30px 60px -28px rgba(0,0,0,0.7)',
-};
 
 export function LearnHome(props: LearnHomeProps) {
   const [copiedPrompt, setCopiedPrompt] = useState(false);
@@ -116,34 +101,10 @@ export function LearnHome(props: LearnHomeProps) {
             </BlurFade>
           </div>
 
-          {/* Right: a single hero book on a stand */}
+          {/* Right: animated book opening */}
           <BlurFade delay={0.2} direction="up" inView>
             <div className="relative mx-auto w-fit">
-              <motion.div
-                initial="rest"
-                animate="float"
-                whileHover="hover"
-                variants={float}
-                transition={{ float: floatLoop, hover: floatSpring }}
-                className="lyceum-book-cloth relative flex h-[300px] w-[220px] flex-col justify-between rounded-r-lg rounded-l-sm p-6"
-                style={heroCover}
-              >
-                <BorderBeam colorFrom="#f3d9a4" colorTo="#c2553a" />
-                <span className="pointer-events-none absolute inset-y-0 left-0 w-3 rounded-l-sm bg-black/30" />
-                <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-amber-200/80">
-                  Volume I
-                </span>
-                <h2 className="font-serif text-2xl font-semibold leading-tight text-[#fdf3df]">
-                  The Art of
-                  <br />
-                  Understanding
-                </h2>
-                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-200/60">
-                  Lyceum Press
-                </span>
-              </motion.div>
-              {/* book stand shadow */}
-              <div className="lyceum-book-shadow mx-auto mt-3 h-4 w-[80%] rounded-[50%]" />
+              <BookOpening />
             </div>
           </BlurFade>
         </div>

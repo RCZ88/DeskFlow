@@ -1,10 +1,11 @@
-import { useState, useRef, useCallback } from 'react';
-import { motion, useMotionValue, useSpring, useMotionTemplate } from 'motion/react';
+import { useMemo, useRef, useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { BlurFade } from '../../components/ui/blur-fade';
 import { NumberTicker } from '../../components/ui/number-ticker';
-import { AnimatedShinyText } from '../../components/ui/animated-shiny-text';
-import { BorderBeam } from '../../components/ui/border-beam';
-import { Zap, Calendar, Play, Pause, Globe, Monitor, Sparkles } from 'lucide-react';
+import { NeonGradientCard } from '../../components/ui/neon-gradient-card';
+import { AnimatedCircularProgressBar } from '../../components/ui/animated-circular-progress-bar';
+import { DotPattern } from '../../components/ui/dot-pattern';
+import { Zap, Play, Globe, Monitor, Clock, ArrowUp, Activity } from 'lucide-react';
 
 function formatTime(ms: number): string {
   if (!ms || !isFinite(ms)) return '00:00:00';
@@ -32,36 +33,24 @@ interface StatusBandProps {
   isInBrowser?: boolean;
   onStartFocus?: () => void;
   isPaused?: boolean;
+  websiteTitle?: string;
+  websiteDomain?: string;
+  websiteCategory?: string;
 }
 
-const STATE_COLORS = {
-  productive: { 
-    text: '#34d399', 
-    dot: '#34d399', 
-    glow: 'rgba(52, 211, 153, 0.08)',
-    gradientFrom: '#34d399',
-    gradientTo: '#10b981',
-    borderFrom: 'rgba(52, 211, 153, 0.12)',
-    borderTo: 'rgba(16, 185, 129, 0.03)',
-  },
-  neutral: { 
-    text: '#22d3ee', 
-    dot: '#22d3ee', 
-    glow: 'rgba(34, 211, 238, 0.08)',
-    gradientFrom: '#22d3ee',
-    gradientTo: '#06b6d4',
-    borderFrom: 'rgba(34, 211, 238, 0.12)',
-    borderTo: 'rgba(6, 182, 212, 0.03)',
-  },
-  distracting: { 
-    text: '#f87171', 
-    dot: '#f87171', 
-    glow: 'rgba(248, 113, 113, 0.08)',
-    gradientFrom: '#f87171',
-    gradientTo: '#ef4444',
-    borderFrom: 'rgba(248, 113, 113, 0.12)',
-    borderTo: 'rgba(239, 68, 68, 0.03)',
-  },
+function getAccentColor(state: 'productive' | 'neutral' | 'distracting') {
+  switch (state) {
+    case 'productive': return { dot: '#34d399', neonFirst: 'rgba(16,185,129,0.2)', neonSecond: 'rgba(59,130,246,0.15)', arc: '#34d399', dotBg: 'bg-emerald-500/15 text-emerald-400' };
+    case 'distracting': return { dot: '#fbbf24', neonFirst: 'rgba(245,158,11,0.15)', neonSecond: 'rgba(239,68,68,0.12)', arc: '#fbbf24', dotBg: 'bg-amber-500/15 text-amber-400' };
+    default: return { dot: '#71717a', neonFirst: 'rgba(99,102,241,0.1)', neonSecond: 'rgba(139,92,246,0.08)', arc: '#71717a', dotBg: 'bg-zinc-500/15 text-zinc-400' };
+  }
+}
+
+type TierTransition = {
+  id: number;
+  from: string | null;
+  to: string;
+  timestamp: number;
 };
 
 export function StatusBand({
@@ -74,178 +63,209 @@ export function StatusBand({
   isInBrowser,
   onStartFocus,
   isPaused,
+  websiteTitle,
+  websiteDomain,
+  websiteCategory,
 }: StatusBandProps) {
   const totalMinutes = Math.floor(totalFocusedMs / 1000 / 60);
   const stateKey = isDistracting ? 'distracting' : isCurrentlyProductive ? 'productive' : 'neutral';
-  const colors = STATE_COLORS[stateKey];
+  const accent = getAccentColor(stateKey);
+  const isActive = !isPaused && (isCurrentlyProductive || isDistracting);
+  const timeStr = useMemo(() => formatTime(displayTimeMs), [displayTimeMs]);
+  const [hours, minutes, seconds] = timeStr.split(':');
 
-  // Mouse spotlight effect using motion values (from Magic UI's MagicCard)
-  const gradientSize = 250;
-  const mouseX = useMotionValue(-gradientSize);
-  const mouseY = useMotionValue(-gradientSize);
+  const dailyFocusTarget = 240;
+  const focusPercent = Math.min(100, Math.round((totalMinutes / dailyFocusTarget) * 100));
 
-  // Smooth spring for the orb effect
-  const orbX = useSpring(mouseX, { stiffness: 250, damping: 30, mass: 0.6 });
-  const orbY = useSpring(mouseY, { stiffness: 250, damping: 30, mass: 0.6 });
-  const orbVisible = useSpring(0, { stiffness: 300, damping: 35 });
+  const currentTier = isDistracting ? 'distracting' : isCurrentlyProductive ? 'productive' : 'neutral';
 
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      mouseX.set(e.clientX - rect.left);
-      mouseY.set(e.clientY - rect.top);
-    },
-    [mouseX, mouseY]
-  );
+  const prevTierRef = useRef<string | null>(null);
+  const [transitions, setTransitions] = useState<TierTransition[]>([]);
+  const transitionIdRef = useRef(0);
+  const [showRecap, setShowRecap] = useState(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [now, setNow] = useState(Date.now());
 
-  const handlePointerEnter = useCallback(() => {
-    orbVisible.set(0.8);
-  }, [orbVisible]);
+  useEffect(() => {
+    const prev = prevTierRef.current;
+    if (prev !== null && prev !== currentTier) {
+      const id = transitionIdRef.current++;
+      const newT: TierTransition = { id, from: prev, to: currentTier, timestamp: Date.now() };
+      setTransitions(prev => [newT, ...prev].slice(0, 5));
+      setShowRecap(true);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = setTimeout(() => setShowRecap(false), 5000);
+    }
+    prevTierRef.current = currentTier;
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, [currentTier]);
 
-  const handlePointerLeave = useCallback(() => {
-    orbVisible.set(0);
-    mouseX.set(-gradientSize);
-    mouseY.set(-gradientSize);
-  }, [mouseX, mouseY, orbVisible]);
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const tierLabel = (t: string | null) => {
+    if (!t) return 'Idle';
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  };
+
+  const recapLines = useMemo(() => {
+    if (transitions.length === 0) return [];
+    return transitions.slice(0, 3).map(t => ({
+      id: t.id,
+      text: `${tierLabel(t.from)} → ${tierLabel(t.to)}`,
+      ago: Math.floor((now - t.timestamp) / 1000),
+    }));
+  }, [transitions, now]);
 
   return (
-    <BlurFade delay={0} duration={0.4}>
-      <motion.div
-        className="relative w-full rounded-xl bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/60 p-5 min-h-[120px] overflow-hidden cursor-pointer"
-        onPointerMove={handlePointerMove}
-        onPointerEnter={handlePointerEnter}
-        onPointerLeave={handlePointerLeave}
-        style={{
-          background: useMotionTemplate`
-            linear-gradient(#18181b 0 0) padding-box,
-            radial-gradient(${gradientSize}px circle at ${orbX}px ${orbY}px,
-              ${colors.gradientFrom},
-              ${colors.gradientTo},
-              #27272a 100%
-            ) border-box
-          `,
-        }}
+    <BlurFade delay={0} duration={0.3}>
+      <NeonGradientCard
+        borderSize={1}
+        borderRadius={16}
+        neonColors={{ firstColor: accent.neonFirst, secondColor: accent.neonSecond }}
+        className="w-full h-full"
       >
-        {/* Mouse-following glow orb */}
-        <motion.div
-          className="pointer-events-none absolute z-30"
-          style={{
-            width: 300,
-            height: 300,
-            x: orbX,
-            y: orbY,
-            translateX: '-50%',
-            translateY: '-50%',
-            borderRadius: 9999,
-            filter: 'blur(60px)',
-            opacity: orbVisible,
-            background: `linear-gradient(135deg, ${colors.gradientFrom}, ${colors.gradientTo})`,
-            mixBlendMode: 'screen',
-            willChange: 'transform, opacity',
-          }}
-        />
+        <div className="relative overflow-hidden rounded-[inherit]">
+          <DotPattern opacity={0.03} radius={1} gap={20} />
+          <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent z-20" />
+          <div className="relative z-10 flex flex-col gap-3 p-4" style={{ minHeight: '140px' }}>
 
-        {/* Background ambient glow */}
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
-          <motion.div
-            className="absolute"
-            style={{
-              width: '600px',
-              height: '300px',
-              borderRadius: '50%',
-              background: `radial-gradient(circle, ${colors.glow} 0%, transparent 70%)`,
-              filter: 'blur(40px)',
-            }}
-            animate={{ opacity: [0.6, 0.85, 0.6], scale: [1, 1.05, 1] }}
-            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-          />
-        </div>
-
-        {/* Border beam for active states */}
-        {(isCurrentlyProductive || isDistracting) && (
-          <BorderBeam 
-            size={200} 
-            duration={12} 
-            colorFrom={colors.gradientFrom} 
-            colorTo={colors.gradientTo} 
-          />
-        )}
-
-        {/* Content Layer */}
-        <div className="relative z-40 flex items-center justify-between gap-4 h-full">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-3">
-              {/* Animated dot */}
-              <motion.div
-                className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: colors.dot }}
-                animate={{ scale: [1, 1.4, 1], opacity: [0.7, 1, 0.7] }}
-                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              />
-              {/* Timer display with animated gradient text */}
-              <div className="font-mono font-bold tabular-nums tracking-tight leading-none" style={{ fontSize: '48px' }}>
-                <AnimatedShinyText 
-                  className="inline-block"
-                  style={{ color: colors.text, textShadow: `0 0 24px ${colors.glow}` }}
-                >
-                  {formatTime(displayTimeMs)}
-                </AnimatedShinyText>
-              </div>
-            </div>
-            
-            {/* Current app/website display */}
-            {currentAppName && (
-              <div className="flex items-center gap-2 ml-[22px]">
-                {isInBrowser ? (
-                  <Globe size={12} className="text-zinc-500 shrink-0" />
-                ) : (
-                  <Monitor size={12} className="text-zinc-500 shrink-0" />
-                )}
-                <span className="text-[13px] text-zinc-400 font-medium truncate max-w-[200px]">
-                  {currentAppName}
+            <div className="flex items-center justify-between bg-black/20 border border-white/[0.03] rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: accent.dot }} />
+                <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-400">
+                  {isPaused ? 'Paused' : isActive ? (isDistracting ? 'Distracting' : 'Locked In') : 'Idle'}
                 </span>
-                {isInBrowser && browserName && (
-                  <span className="text-[10px] text-zinc-600 px-1.5 py-0.5 rounded bg-zinc-800/50 border border-zinc-700/30">
-                    {browserName}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Zap size={11} className="text-amber-500/60" />
+                  <span className="text-[11px] text-zinc-500 font-sans">
+                    <span className="font-mono font-semibold text-zinc-300 tabular-nums">
+                      <NumberTicker value={totalMinutes} suffix="m" delay={300} duration={1200} />
+                    </span>
+                    {' '}focused
                   </span>
+                </div>
+                <span className="text-[10px] text-zinc-600 font-mono tabular-nums">{formatDate()}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center py-1">
+              <AnimatedCircularProgressBar
+                value={focusPercent}
+                size={130}
+                strokeWidth={5}
+                gaugePrimaryColor={accent.arc}
+                gaugeSecondaryColor="rgba(255,255,255,0.06)"
+              >
+                <div className="flex items-baseline gap-0.5">
+                  <span className="text-[32px] font-mono font-bold text-zinc-100 leading-none tracking-tight">
+                    {hours}
+                  </span>
+                  <span className="text-[18px] font-mono font-bold text-zinc-600 mx-0.5">:</span>
+                  <span className="text-[32px] font-mono font-bold text-zinc-100 leading-none tracking-tight">
+                    {minutes}
+                  </span>
+                  <span className="text-[18px] font-mono font-bold text-zinc-600 mx-0.5">:</span>
+                  <span className="text-[32px] font-mono font-bold text-zinc-100 leading-none tracking-tight">
+                    {seconds}
+                  </span>
+                </div>
+              </AnimatedCircularProgressBar>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {currentAppName ? (
+                  <div className="flex items-center gap-2 bg-black/20 border border-white/[0.03] rounded-lg px-3 py-1.5 min-w-0">
+                    {isInBrowser ? <Globe size={12} className="text-zinc-500 shrink-0" /> : <Monitor size={12} className="text-zinc-500 shrink-0" />}
+                    <span className="text-[12px] font-medium text-zinc-300 truncate font-sans">
+                      {isInBrowser ? (websiteTitle || currentAppName) : currentAppName}
+                    </span>
+                    {isInBrowser && websiteCategory && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800/50 text-zinc-500 border border-zinc-700/20 font-sans hidden sm:inline">{websiteCategory}</span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 opacity-40 bg-black/20 border border-white/[0.03] rounded-lg px-3 py-1.5">
+                    <Clock size={11} className="text-zinc-600" />
+                    <span className="text-[11px] text-zinc-600 font-sans">Waiting for activity</span>
+                  </div>
                 )}
               </div>
-            )}
-          </div>
 
-          <div className="flex flex-col items-end gap-2">
-            {/* Focus time with number ticker */}
-            <div className="flex items-center gap-1.5">
-              <Zap size={14} className="text-amber-400" />
-              <span className="text-[13px] text-zinc-400">
-                <span className="font-mono font-semibold text-zinc-100">
-                  <NumberTicker value={totalMinutes} suffix="m" delay={300} duration={1200} />
-                </span>
-                {' '}focused
-              </span>
-            </div>
-            
-            {/* Date display */}
-            <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 font-mono tabular-nums">
-              <Calendar size={10} className="text-zinc-600" />
-              {formatDate()}
+              {onStartFocus && !isPaused && (
+                <motion.button
+                  onClick={onStartFocus}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800/50 text-zinc-400 border border-zinc-700/30 hover:bg-zinc-700/50 hover:text-zinc-200 transition-colors text-[11px] font-medium font-sans"
+                >
+                  <Play size={9} />
+                  Focus
+                </motion.button>
+              )}
             </div>
 
-            {/* Focus session CTA */}
-            {onStartFocus && !isPaused && (
-              <motion.button
-                onClick={onStartFocus}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors text-[11px] font-medium"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <Play size={10} />
-                Start Focus
-              </motion.button>
-            )}
+            <AnimatePresence mode="popLayout">
+              {showRecap && recapLines.length > 0 && (
+                <motion.div
+                  key="recap"
+                  layout
+                  initial={{ opacity: 0, y: -10, scaleY: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scaleY: 1 }}
+                  exit={{ opacity: 0, y: -6, scaleY: 0.98 }}
+                  transition={{
+                    type: 'spring',
+                    stiffness: 260,
+                    damping: 26,
+                    mass: 0.6,
+                    opacity: { duration: 0.2, ease: 'easeOut' },
+                  }}
+                  className="origin-top"
+                >
+                  <div className="bg-black/20 border border-white/[0.03] rounded-lg p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Activity size={10} className="text-zinc-500" />
+                      <span className="text-[9px] font-semibold uppercase tracking-[0.15em] text-zinc-500">Since Last Visit</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        {recapLines.map((line) => (
+                          <motion.div
+                            key={line.id}
+                            layout
+                            initial={{ opacity: 0, scale: 0.85, y: -6 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, y: -3 }}
+                            transition={{
+                              type: 'spring',
+                              stiffness: 300,
+                              damping: 24,
+                              mass: 0.5,
+                            }}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800/40 border border-zinc-700/30 text-[10px]"
+                          >
+                            <ArrowUp size={8} className="text-zinc-500" />
+                            <span className="text-zinc-400 font-mono">{line.text}</span>
+                            <span className="text-zinc-600">{line.ago}s ago</span>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
           </div>
         </div>
-      </motion.div>
+      </NeonGradientCard>
     </BlurFade>
   );
 }

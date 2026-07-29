@@ -4,10 +4,11 @@ import { ChevronDown } from 'lucide-react';
 interface ScrollAreaProps {
   children: ReactNode;
   className?: string;
+  contentClassName?: string;
   onScrollChange?: (pinned: boolean) => void;
 }
 
-export function ScrollArea({ children, className = '', onScrollChange }: ScrollAreaProps) {
+export function ScrollArea({ children, className = '', contentClassName = '', onScrollChange }: ScrollAreaProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
   const [showFade, setShowFade] = useState(false);
@@ -27,7 +28,7 @@ export function ScrollArea({ children, className = '', onScrollChange }: ScrollA
       <div
         ref={ref}
         onScroll={handleScroll}
-        className="absolute inset-0 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent"
+        className={`absolute inset-0 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent ${contentClassName}`}
       >
         {children}
       </div>

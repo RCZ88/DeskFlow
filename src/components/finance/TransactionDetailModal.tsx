@@ -38,6 +38,7 @@ interface TransactionDetailModalProps {
   onNotify?: (msg: string, type?: 'success' | 'error') => void;
   ftPersons?: { id: number; name: string; email?: string | null; phone?: string | null }[];
   onAddFtPerson?: (name: string) => void;
+  onGoToTransactions?: (txId: number) => void;
 }
 
 const ease = [0.16, 1, 0.3, 1];
@@ -101,8 +102,9 @@ export function TransactionDetailModal({
   onRecordFtRepayment,
   onNotify,
   ftPersons = [],
-  onAddFtPerson,
-}: TransactionDetailModalProps) {
+   onAddFtPerson,
+   onGoToTransactions,
+  }: TransactionDetailModalProps) {
   const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [mounted, setMounted] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -850,9 +852,15 @@ export function TransactionDetailModal({
                       )}
                     </AnimatePresence>
                   )}
-                  <button onClick={close} className="ml-auto px-4 py-2 rounded-lg text-xs font-medium bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700/80 transition-colors">
-                    Close
-                  </button>
+                    {onGoToTransactions && transaction && (
+                      <button onClick={() => onGoToTransactions(transaction.id)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-sky-500/15 text-sky-400 hover:bg-sky-500/25 transition-colors">
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                        View in Transactions
+                      </button>
+                    )}
+                    <button onClick={close} className="ml-auto px-4 py-2 rounded-lg text-xs font-medium bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700/80 transition-colors">
+                      Close
+                    </button>
                 </div>
               )}
             </div>

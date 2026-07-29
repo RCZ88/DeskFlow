@@ -15,10 +15,11 @@ interface PersonDetailModalProps {
   onRecordPayment: () => void;
   onRefresh: () => void;
   onNewTransaction?: (personId: number) => void;
+  onTransactionClick?: (tx: FinanceTransaction) => void;
 }
 
 export function PersonDetailModal({
-  open, onClose, person, transactions, wallets, displayCurrency, onRecordPayment, onRefresh, onNewTransaction
+  open, onClose, person, transactions, wallets, displayCurrency, onRecordPayment, onRefresh, onNewTransaction, onTransactionClick
 }: PersonDetailModalProps) {
   const [filter, setFilter] = useState<'all' | 'pending' | 'repaid'>('all');
   const [showTopUp, setShowTopUp] = useState(false);
@@ -48,6 +49,9 @@ export function PersonDetailModal({
     let repaidAmt = 0;
     for (const tx of personTxns) {
       if (tx.type !== 'expense' || tx.on_behalf_of !== 1) continue;
+      // Balance-deduct transactions (wallet_id=null AND account_id=null) are
+      // already subtracted from the person's stored balance — do not double-count as owed.
+      if (tx.wallet_id === null && tx.account_id === null) continue;
       const status = getRepaymentStatus(tx, transactions);
       const stillOwed = Math.abs(tx.amount) - status.totalRepaid;
       if (status.repaid || stillOwed <= 0) { repaid.push(tx); repaidAmt += Math.abs(tx.amount); }
@@ -59,7 +63,7 @@ export function PersonDetailModal({
   const displayedTxs = useMemo(() => {
     if (filter === 'pending') return pendingTxs;
     if (filter === 'repaid') return repaidTxs;
-    return personTxns.filter(tx => tx.type === 'expense' && tx.on_behalf_of === 1);
+    return personTxns;
   }, [filter, pendingTxs, repaidTxs, personTxns]);
 
   const balance = totalOwed;
@@ -109,8 +113,8 @@ export function PersonDetailModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg max-h-[85vh] overflow-hidden rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+      <div className="relative w-full max-w-lg max-h-[85vh] overflow-hidden rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex-shrink-0 p-5 border-b border-zinc-800/60">
           <div className="flex items-start justify-between">
@@ -310,7 +314,7 @@ export function PersonDetailModal({
                 const addsToBalance = isIncome && tx.on_behalf_of === 0;
                 const subtractsFromBalance = isRepayment || isDeduction;
                 return (
-                  <div key={tx.id} className={`rounded-lg border p-3 transition-colors ${isRepaid ? 'bg-emerald-500/5 border-emerald-500/10' : isTopUp || addsToBalance ? 'bg-violet-500/5 border-violet-500/10' : 'bg-zinc-800/30 border-zinc-800/60'}`}>
+                  <div key={tx.id} onClick={() => onTransactionClick?.(tx)} className={`rounded-lg border p-3 transition-colors cursor-pointer hover:border-zinc-600/50 ${isRepaid ? 'bg-emerald-500/5 border-emerald-500/10' : isTopUp || addsToBalance ? 'bg-violet-500/5 border-violet-500/10' : 'bg-zinc-800/30 border-zinc-800/60'}`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         {addsToBalance ? (
@@ -344,6 +348,10 @@ export function PersonDetailModal({
                     <div className="flex items-center justify-between mt-1.5">
                       <span className="flex items-center gap-1 text-[10px] text-zinc-500">
                         <Calendar className="w-3 h-3" /> {new Date(tx.date).toLocaleDateString()}
+                        {tx.wallet_id && (() => {
+                          const wallet = wallets.find(w => w.id === tx.wallet_id);
+                          return wallet ? <><span className="text-zinc-600">·</span><Wallet className="w-3 h-3" />{wallet.name}</> : null;
+                        })()}
                       </span>
                       {addsToBalance && <span className="text-[10px] text-violet-400/80">Added to balance</span>}
                       {isRepayment && <span className="text-[10px] text-emerald-400/80">Reduced balance (repayment)</span>}

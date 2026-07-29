@@ -18,6 +18,7 @@ import {
 import { SpotlightCard } from './SpotlightCard';
 import { AnimatedShinyText } from '../ui/animated-shiny-text';
 import { NumberTicker } from '../ui/number-ticker';
+import { BorderBeam } from '../ui/border-beam';
 import { confetti } from '../ui/confetti';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
@@ -229,6 +230,8 @@ export function GoalsCard({
       <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px] flex flex-col">
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-violet-500/30 via-violet-500/10 to-transparent" />
 
+        {activeGoals.length > 0 && <BorderBeam size={140} duration={10} colorFrom="#10b981" colorTo="#34d399" />}
+
         {/* Header */}
         <div className="flex items-center justify-between mb-4 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -336,7 +339,8 @@ export function GoalsCard({
                 </AnimatePresence>
 
                 {longTermGoals.length > 0 && (
-                  <Select value={newGoal.parentId} onValueChange={v => setNewGoal(p => ({ ...p, parentId: v }))} className="w-full">
+                  <Select value={newGoal.parentId} onValueChange={v => setNewGoal(p => ({ ...p, parentId: v }))} className="w-full"
+                    valueLabel={Object.fromEntries(longTermGoals.map(ltg => [ltg.id, ltg.title]))}>
                     <SelectItem value="" disabled>Link to long-term goal (optional)</SelectItem>
                     {longTermGoals.map(ltg => (
                       <SelectItem key={ltg.id} value={ltg.id}>{ltg.title}</SelectItem>

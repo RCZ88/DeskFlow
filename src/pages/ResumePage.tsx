@@ -40,7 +40,7 @@ export default function ResumePage() {
 
         {/* HERO — Headline + CTA immediately visible */}
         <div className="text-center space-y-5">
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight" style={{ fontFamily: 'var(--font-serif)' }}>
             <AuroraText colors={['#6366f1', '#a78bfa', '#fbbf24', '#f472b6']} speed={0.8}>
               Career Forge
             </AuroraText>

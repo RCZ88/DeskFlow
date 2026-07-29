@@ -17,31 +17,83 @@ interface CanvasGridProps {
   isPanning: boolean
   setIsPanning: (v: boolean) => void
   focusedCardId?: string | null
+  onGroupCards?: (cardIds: string[]) => void
 }
 
 const MIN_ZOOM = 0.15
 const MAX_ZOOM = 3.0
 const ZOOM_STEP = 0.08
+const CELL = 40
 
 export function CanvasGrid({
   cards, pan, onPanChange, zoom, onZoomChange, onMoveCard, onDismissCard,
-  onPinCard, onResizeCard, onCardClick, isPanning, setIsPanning, focusedCardId,
+  onPinCard, onResizeCard, onCardClick, isPanning, setIsPanning, focusedCardId, onGroupCards,
 }: CanvasGridProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const gridLayerRef = useRef<HTMLDivElement>(null)
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
   const panRef = useRef(pan)
   const zoomRef = useRef(zoom)
+  const draggingCardId = useRef<string | null>(null)
+  const dropTargetRef = useRef<string | null>(null)
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null)
   panRef.current = pan
   zoomRef.current = zoom
+
+  // Refs for cards/zoom/pan so global pointermove handler always reads latest
+  const cardsRef = useRef(cards)
+  const zoomR = useRef(zoom)
+  const panR = useRef(pan)
+  cardsRef.current = cards
+  zoomR.current = zoom
+  panR.current = pan
+
+  // Global pointermove for drop-target detection via math (not elementFromPoint
+  // which fails when dragged card's zIndex covers everything)
+  useEffect(() => {
+    const handler = (e: PointerEvent) => {
+      const draggingId = draggingCardId.current
+      if (!draggingId) {
+        if (dropTargetRef.current) {
+          dropTargetRef.current = null
+          setDropTargetId(null)
+        }
+        return
+      }
+
+      const currentCards = cardsRef.current
+      const z = zoomR.current
+      const p = panR.current
+
+      const targetCard = currentCards.find(c => {
+        if (c.id === draggingId) return false
+        const left = c.position.x * z + p.x
+        const top = c.position.y * z + p.y
+        const right = left + c.size.w * CELL * z
+        const bottom = top + c.size.h * CELL * z
+        return e.clientX >= left && e.clientX <= right &&
+               e.clientY >= top && e.clientY <= bottom
+      })
+
+      const targetId = targetCard?.id || null
+      if (targetId !== dropTargetRef.current) {
+        dropTargetRef.current = targetId
+        setDropTargetId(targetId)
+      }
+    }
+
+    window.addEventListener('pointermove', handler)
+    return () => window.removeEventListener('pointermove', handler)
+  }, [])
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('.dk-canvas-card')) return
     if ((e.target as HTMLElement).closest('.dk-minimap')) return
     if ((e.target as HTMLElement).closest('.dk-find-arrow')) return
     setIsPanning(true)
-    panStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y }
-  }, [pan, setIsPanning])
+    const p = panRef.current
+    panStart.current = { x: e.clientX, y: e.clientY, panX: p.x, panY: p.y }
+  }, [setIsPanning])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isPanning) return
@@ -83,12 +135,29 @@ export function CanvasGrid({
     backgroundSize: `${40 * zoom}px ${40 * zoom}px`,
   }
 
-  const handleCardDragStart = useCallback(() => {
+  const handleCardDragStart = useCallback((cardId: string) => {
+    draggingCardId.current = cardId
     gridLayerRef.current?.setAttribute('data-card-dragging', 'true')
   }, [])
 
-  const handleCardDragStop = useCallback(() => {
+  const handleCardDragStop = useCallback((cardId: string) => {
+    const targetId = dropTargetRef.current
+    if (targetId && targetId !== cardId && onGroupCards) {
+      onGroupCards([cardId, targetId])
+    }
+    draggingCardId.current = null
+    dropTargetRef.current = null
+    setDropTargetId(null)
     gridLayerRef.current?.removeAttribute('data-card-dragging')
+  }, [onGroupCards])
+
+  const handleDropTarget = useCallback((targetId: string | null) => {
+    // Ignore self-targeting
+    if (targetId === draggingCardId.current) {
+      setDropTargetId(null)
+      return
+    }
+    setDropTargetId(targetId)
   }, [])
 
   return (
@@ -120,10 +189,12 @@ export function CanvasGrid({
             onPin={onPinCard}
             onResize={onResizeCard}
             onClick={onCardClick}
-            onDragStart={handleCardDragStart}
-            onDragStop={handleCardDragStop}
+            onDragStart={() => handleCardDragStart(card.id)}
+            onDragStop={() => handleCardDragStop(card.id)}
             zoom={zoom}
             isFocused={card.id === focusedCardId}
+            isDropTarget={card.id === dropTargetId}
+            onDropTarget={handleDropTarget}
           />
         ))}
       </div>

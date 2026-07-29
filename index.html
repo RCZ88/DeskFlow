@@ -5,7 +5,7 @@
     <link rel="icon" href="/deskflow-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DeskFlow AI - Elite Productivity Tracker</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- FALLBACK STYLES: only visible when the main JS bundle fails to load -->
     <style>
       html { background: #121212; }
@@ -18,12 +18,15 @@
     <div id="root"></div>
 
     <!-- FALLBACK OVERLAY: visible when JS fails to load or crashes before mount -->
-    <div id="df-fallback" style="display:none;align-items:center;justify-content:center;min-height:100vh;background:#121212;color:#a1a1aa;font-family:Inter,sans-serif;padding:24px;box-sizing:border-box;text-align:center;flex-direction:column;gap:12px;">
+    <div id="df-fallback" style="display:none;align-items:center;justify-content:center;min-height:100vh;background:#121212;color:#a1a1aa;font-family:Inter,sans-serif;padding:24px;box-sizing:border-box;text-align:center;flex-direction:column;gap:12px;position:fixed;inset:0;z-index:99999;">
       <div style="font-size:48px;margin-bottom:8px;">⚠</div>
       <div style="font-size:18px;font-weight:600;color:#e4e4e7;">DeskFlow failed to load</div>
       <div id="df-error-msg" style="font-size:13px;color:#71717a;max-width:400px;line-height:1.5;">The application could not start. This may be a build issue or a missing file.</div>
-      <button onclick="location.reload()" style="margin-top:8px;padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#27272a;color:#e4e4e7;font-size:13px;cursor:pointer;">Reload</button>
-      <div style="font-size:11px;color:#52525b;margin-top:4px;">If this persists, rebuild the app and restart.</div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button onclick="location.reload()" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#27272a;color:#e4e4e7;font-size:13px;cursor:pointer;">Reload</button>
+        <button onclick="location.hash='#/';location.reload()" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#a1a1aa;font-size:13px;cursor:pointer;">Go to Dashboard</button>
+      </div>
+      <div style="font-size:11px;color:#52525b;margin-top:4px;">If this persists, rebuild the app: <code style="background:#27272a;padding:2px 6px;border-radius:4px;">node scripts/build.mjs</code></div>
     </div>
 
     <script>

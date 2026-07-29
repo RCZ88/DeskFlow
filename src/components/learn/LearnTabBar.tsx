@@ -21,8 +21,8 @@ export const LearnTabBar: React.FC<LearnTabBarProps> = ({ view, onChange, active
 
   return (
     <>
-      {/* Desktop Left Rail */}
-      <aside className="hidden w-14 shrink-0 flex-col items-center gap-3 border-r border-white/10 py-4 md:flex">
+      {/* Desktop Right Rail */}
+      <aside className="hidden w-14 shrink-0 flex-col items-center gap-3 border-l border-white/10 py-4 md:flex order-last">
         {tabs.map((tab) => {
           const isActive = tab.id === 'library' ? isLibraryActive : view === tab.id;
 

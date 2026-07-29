@@ -46,7 +46,7 @@ export function ResizablePanel({
     if (!isDragging || !containerRef.current) return;
     const containerWidth = containerRef.current.offsetWidth;
     if (containerWidth <= 0) return;
-    const deltaPct = ((startXRef.current - e.clientX) / containerWidth) * 100;
+    const deltaPct = ((e.clientX - startXRef.current) / containerWidth) * 100;
     const newRatio = Math.max(minRatio, Math.min(maxRatio, startRatioRef.current + deltaPct));
     setRatio(newRatio);
   }, [isDragging, minRatio, maxRatio]);

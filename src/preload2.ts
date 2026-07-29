@@ -112,6 +112,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getRecordingModes: () => ipcRenderer.invoke('get-recording-modes'),
   setPageVisibility: (page: 'browser' | 'dashboard', visible: boolean) => ipcRenderer.invoke('set-page-visibility', { page, visible }),
   setBrowserWithExtension: (browser: string) => ipcRenderer.invoke('set-browser-with-extension', browser),
+  setBrowsersWithExtension: (browsers: string[]) => ipcRenderer.invoke('set-browsers-with-extension', browsers),
 
   // Game detection - rescan Steam library
   rescanGames: () => ipcRenderer.invoke('rescan-games'),
@@ -119,6 +120,14 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Get tracked browsers (apps categorized as Browser)
   getTrackedBrowsers: () => ipcRenderer.invoke('get-tracked-browsers'),
   getAvailableBrowsers: () => ipcRenderer.invoke('get-available-browsers'),
+
+  // Browser profile management
+  getBrowserProfiles: () => ipcRenderer.invoke('get-browser-profiles'),
+  toggleBrowserProfile: (args: { profileId: number; isActive: boolean }) => ipcRenderer.invoke('toggle-browser-profile', args),
+  renameBrowserProfile: (args: { profileId: number; newName: string }) => ipcRenderer.invoke('rename-browser-profile', args),
+  deleteBrowserProfile: (args: { profileId: number }) => ipcRenderer.invoke('delete-browser-profile', args),
+  setBrowserProfileColor: (args: { profileId: number; color: string }) => ipcRenderer.invoke('set-browser-profile-color', args),
+  upsertBrowserProfile: (args: { browserName: string; profileId: string; profileName: string; browserVersion?: string }) => ipcRenderer.invoke('upsert-browser-profile', args),
 
   // Productivity tracking
   getDailyProductivity: (date: string) => ipcRenderer.invoke('get-daily-productivity', date),

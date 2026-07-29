@@ -6,7 +6,7 @@
 
 export type GoalCategory = 'work' | 'personal' | 'health' | 'learning' | 'finance' | 'relationships';
 export type GoalPeriod = 'daily' | 'weekly' | 'monthly';
-export type GoalStatus = 'active' | 'done' | 'archived';
+export type GoalStatus = 'active' | 'done' | 'archived' | 'failed';
 export type GoalSource = 'manual' | 'ai';
 export type TargetType = 'time' | 'completion';
 
@@ -44,6 +44,21 @@ export interface Goal {
   parentId?: string;
   streak?: number;
   createdAt: string;
+  // Habit/Covenant features
+  isHabit?: boolean;
+  cadence?: 'daily' | 'weekly';
+  weeklyTargetDays?: number[];
+  detection?: {
+    enabled: boolean;
+    mode: 'positive' | 'avoidance';
+    keywords: string[];
+    minMinutes: number;
+  };
+  // Schedule integration
+  linkedScheduleId?: string;
+  // Journal
+  journalText?: string;
+  slippedCount?: number;
 }
 
 export interface LongTermGoal {
@@ -98,6 +113,15 @@ export interface DashboardInsights {
   aiSuggestionCount: number;
 }
 
+export interface MomentumScore {
+  score: number; // 0-100
+  streak: number;
+  consistency: number; // 0-100
+  trend: 'up' | 'down' | 'stable';
+  completionRate: number;
+  scheduleAdherence: number;
+}
+
 export interface DashboardState {
   goals: Goal[];
   deadlines: Deadline[];
@@ -127,6 +151,7 @@ declare global {
       addScheduleEntry: (entry: Omit<ScheduleEntry, 'id'>) => Promise<{ success: boolean; id: string }>;
       updateScheduleEntry: (id: string, patch: Partial<ScheduleEntry>) => Promise<{ success: boolean }>;
       deleteScheduleEntry: (id: string) => Promise<{ success: boolean }>;
+      getMomentumScore: (date?: string) => Promise<MomentumScore>;
     };
   }
 }

@@ -1,87 +1,50 @@
 import { useMemo } from 'react';
-import { Bar } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale, LinearScale, BarElement,
-  Tooltip, Legend,
-} from 'chart.js';
 import { motion, useReducedMotion } from 'framer-motion';
 import { BarChart3, Loader2, AlertCircle } from 'lucide-react';
 import { KpiRow, type KpiData } from './KpiRow';
 import { deriveStats, type AnalyticsRawData, type DerivedStats } from './deriveStats';
-import { cn } from '../../lib/utils';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+const NEON = {
+  lime: '#00FF66',
+  cyan: '#00F0FF',
+  magenta: '#FF007A',
+  crimson: '#FF2A4B',
+} as const;
 
-const CHART_COLORS = [
-  'rgba(168, 85, 247, 0.65)', 'rgba(34, 211, 238, 0.65)', 'rgba(52, 211, 153, 0.65)',
-  'rgba(251, 113, 133, 0.65)', 'rgba(245, 158, 11, 0.65)', 'rgba(96, 165, 250, 0.65)',
-  'rgba(129, 140, 248, 0.65)', 'rgba(251, 146, 60, 0.65)',
-];
+const TOOL_COLORS: Record<string, string> = {
+  'claude-code': NEON.lime,
+  'opencode': NEON.cyan,
+  'cursor': '#A78BFA',
+  'gemini': '#34D399',
+  'codex': '#FBBF24',
+  'qwen': '#FB923C',
+  'aider': NEON.magenta,
+  'kilocode': '#2DD4BF',
+};
 
-const CHART_BORDERS = [
-  'rgba(168, 85, 247, 1)', 'rgba(34, 211, 238, 1)', 'rgba(52, 211, 153, 1)',
-  'rgba(251, 113, 133, 1)', 'rgba(245, 158, 11, 1)', 'rgba(96, 165, 250, 1)',
-  'rgba(129, 140, 248, 1)', 'rgba(251, 146, 60, 1)',
-];
+const TOOL_GLOWS: Record<string, string> = {
+  'claude-code': 'rgba(0,255,102,0.4)',
+  'opencode': 'rgba(0,240,255,0.4)',
+  'cursor': 'rgba(167,139,250,0.4)',
+  'gemini': 'rgba(52,211,153,0.4)',
+  'codex': 'rgba(251,191,36,0.4)',
+  'qwen': 'rgba(251,146,60,0.4)',
+  'aider': 'rgba(255,0,122,0.4)',
+  'kilocode': 'rgba(45,212,191,0.4)',
+};
 
-const barOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  indexAxis: 'y' as const,
-  animation: { duration: 600, easing: 'easeOutQuart' as const },
-  plugins: {
-    legend: { display: false },
-    tooltip: {
-      backgroundColor: 'rgba(9, 9, 11, 0.95)',
-      titleColor: '#f4f4f5',
-      bodyColor: '#a1a1aa',
-      borderColor: 'rgba(39, 39, 42, 0.8)',
-      borderWidth: 1,
-      cornerRadius: 8,
-      padding: { top: 10, bottom: 10, left: 14, right: 14 },
-      titleFont: { weight: '600' as const, size: 13 },
-      bodyFont: { size: 12 },
-      displayColors: true,
-      boxPadding: 4,
-      callbacks: {
-        label: (ctx: any) => {
-          const val = ctx.parsed?.x ?? ctx.raw ?? 0;
-          if (val >= 1e9) return ` ${(val / 1e9).toFixed(1)}B`;
-          if (val >= 1e6) return ` ${(val / 1e6).toFixed(1)}M`;
-          if (val >= 1e3) return ` ${(val / 1e3).toFixed(1)}K`;
-          return ` ${val}`;
-        },
-      },
-    },
-  },
-  scales: {
-    x: {
-      beginAtZero: true,
-      ticks: {
-        color: '#71717a',
-        font: { size: 10 },
-        padding: 8,
-        callback: (v: any) => {
-          if (v >= 1e9) return (v / 1e9).toFixed(0) + 'B';
-          if (v >= 1e6) return (v / 1e6).toFixed(0) + 'M';
-          if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
-          return String(v);
-        },
-      },
-      grid: { color: 'rgba(39,39,42,0.5)', drawTicks: false },
-      border: { display: false },
-    },
-    y: {
-      ticks: {
-        color: '#a1a1aa',
-        font: { size: 11, weight: '500' as const },
-        padding: 8,
-      },
-      grid: { display: false },
-      border: { display: false },
-    },
-  },
+const FALLBACK_COLORS = [NEON.lime, NEON.cyan, '#A78BFA', '#34D399', '#FBBF24', '#FB923C', NEON.magenta, '#2DD4BF'];
+const FALLBACK_GLOWS = ['rgba(0,255,102,0.4)', 'rgba(0,240,255,0.4)', 'rgba(167,139,250,0.4)', 'rgba(52,211,153,0.4)', 'rgba(251,191,36,0.4)', 'rgba(251,146,60,0.4)', 'rgba(255,0,122,0.4)', 'rgba(45,212,191,0.4)'];
+
+const TOOL_NAME_MAP: Record<string, string> = {
+  'claude-code': 'Claude Code',
+  'opencode': 'OpenCode',
+  'cursor': 'Cursor',
+  'gemini': 'Gemini',
+  'codex': 'Codex',
+  'qwen': 'Qwen',
+  'aider': 'Aider',
+  'kilocode': 'KiloCode',
 };
 
 interface StatsDashboardProps {
@@ -89,6 +52,14 @@ interface StatsDashboardProps {
   loading?: boolean;
   error?: string;
   onRetry?: () => void;
+}
+
+function formatNum(n: number): string {
+  if (n >= 1e12) return (n / 1e12).toFixed(1) + 'T';
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toLocaleString();
 }
 
 export function StatsDashboard({ rawData, loading, error, onRetry }: StatsDashboardProps) {
@@ -114,86 +85,40 @@ export function StatsDashboard({ rawData, loading, error, onRetry }: StatsDashbo
     onRetry,
   };
 
-  const tokenChartData = useMemo(() => {
-    if (!stats || !stats.tokensByTool.labels.length) return null;
-    const labels = stats.tokensByTool.labels.map(l => {
-      const map: Record<string, string> = {
-        'claude-code': 'Claude Code',
-        'opencode': 'OpenCode',
-        'cursor': 'Cursor',
-        'gemini': 'Gemini',
-        'codex': 'Codex',
-        'qwen': 'Qwen',
-        'aider': 'Aider',
-        'kilocode': 'KiloCode',
-      };
-      return map[l] || l;
-    });
-    return {
-      labels,
-      datasets: [{
-        data: stats.tokensByTool.values,
-        backgroundColor: stats.tokensByTool.labels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
-        borderColor: stats.tokensByTool.labels.map((_, i) => CHART_BORDERS[i % CHART_BORDERS.length]),
-        borderWidth: 1.5,
-        borderRadius: 4,
-        borderSkipped: false,
-        barPercentage: 0.75,
-        categoryPercentage: 0.8,
-      }],
-    };
-  }, [stats]);
-
-  const sessionChartData = useMemo(() => {
-    if (!stats || !stats.sessionsByAgent.labels.length) return null;
-    const labels = stats.sessionsByAgent.labels.map(l => {
-      const map: Record<string, string> = {
-        'claude-code': 'Claude Code',
-        'opencode': 'OpenCode',
-        'cursor': 'Cursor',
-        'gemini': 'Gemini',
-        'codex': 'Codex',
-        'qwen': 'Qwen',
-        'aider': 'Aider',
-        'kilocode': 'KiloCode',
-      };
-      return map[l] || l;
-    });
-    return {
-      labels,
-      datasets: [{
-        data: stats.sessionsByAgent.values,
-        backgroundColor: stats.sessionsByAgent.labels.map((_, i) => CHART_COLORS[(i + 1) % CHART_COLORS.length]),
-        borderColor: stats.sessionsByAgent.labels.map((_, i) => CHART_BORDERS[(i + 1) % CHART_BORDERS.length]),
-        borderWidth: 1.5,
-        borderRadius: 4,
-        borderSkipped: false,
-        barPercentage: 0.75,
-        categoryPercentage: 0.8,
-      }],
-    };
-  }, [stats]);
-
   return (
     <div className="space-y-3">
       <KpiRow data={kpiData} />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <BarChartCard
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <StripedBarCard
           title="Tokens by Tool"
           loading={loading}
           empty={isEmpty}
           error={error}
           onRetry={onRetry}
-          chartData={tokenChartData}
+          items={stats?.tokensByTool.labels.map((label, i) => ({
+            key: label,
+            label: TOOL_NAME_MAP[label] || label,
+            value: stats.tokensByTool.values[i],
+            color: TOOL_COLORS[label] || FALLBACK_COLORS[i % FALLBACK_COLORS.length],
+            glow: TOOL_GLOWS[label] || FALLBACK_GLOWS[i % FALLBACK_GLOWS.length],
+          })) || []}
+          formatValue={(v) => formatNum(v)}
           delay={0.2}
         />
-        <BarChartCard
+        <StripedBarCard
           title="Sessions by Agent"
           loading={loading}
           empty={isEmpty}
           error={error}
           onRetry={onRetry}
-          chartData={sessionChartData}
+          items={stats?.sessionsByAgent.labels.map((label, i) => ({
+            key: label,
+            label: TOOL_NAME_MAP[label] || label,
+            value: stats.sessionsByAgent.values[i],
+            color: TOOL_COLORS[label] || FALLBACK_COLORS[(i + 1) % FALLBACK_COLORS.length],
+            glow: TOOL_GLOWS[label] || FALLBACK_GLOWS[(i + 1) % FALLBACK_GLOWS.length],
+          })) || []}
+          formatValue={(v) => String(v)}
           delay={0.25}
         />
       </div>
@@ -201,13 +126,14 @@ export function StatsDashboard({ rawData, loading, error, onRetry }: StatsDashbo
   );
 }
 
-function BarChartCard({
+function StripedBarCard({
   title,
   loading,
   empty,
   error,
   onRetry,
-  chartData,
+  items,
+  formatValue,
   delay = 0,
 }: {
   title: string;
@@ -215,28 +141,33 @@ function BarChartCard({
   empty?: boolean;
   error?: string;
   onRetry?: () => void;
-  chartData: any;
+  items: { key: string; label: string; value: number; color: string; glow: string }[];
+  formatValue: (v: number) => string;
   delay?: number;
 }) {
   const reduce = useReducedMotion();
+  const sorted = useMemo(() => [...items].sort((a, b) => b.value - a.value), [items]);
+  const maxValue = sorted[0]?.value || 1;
 
   return (
     <motion.div
-      initial={reduce ? undefined : { opacity: 0, y: 12 }}
+      initial={reduce ? undefined : { opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{
-        delay,
-        duration: 0.4,
-        ease: [0.16, 1, 0.3, 1],
+      transition={{ delay, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className="relative overflow-hidden rounded-2xl p-5 min-h-[220px] flex flex-col"
+      style={{
+        background: 'linear-gradient(135deg, rgba(20,22,30,0.9) 0%, rgba(11,12,16,0.95) 100%)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0px 20px 40px -10px rgba(0,0,0,0.5)',
       }}
-      className="relative overflow-hidden rounded-xl p-5 bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-[rgba(63,63,70,0.50)] min-h-[200px] flex flex-col hover:border-zinc-600/60 transition-colors duration-200"
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-br from-white/[0.03] to-transparent pointer-events-none" />
 
-      <div className="flex items-center justify-between mb-4 relative">
-        <h3 className="text-[13px] font-semibold text-zinc-200">{title}</h3>
-        <div className="w-8 h-8 rounded-lg bg-zinc-800/60 flex items-center justify-center ring-1 ring-zinc-700/40">
-          <BarChart3 className="w-4 h-4 text-zinc-500" />
+      <div className="flex items-center justify-between mb-5 relative">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-[#8E95A5]">{title}</h3>
+        <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <BarChart3 className="w-4 h-4 text-[#8E95A5]" />
         </div>
       </div>
 
@@ -244,26 +175,57 @@ function BarChartCard({
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-2">
-              <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
-              <span className="text-[11px] text-zinc-600">Loading...</span>
+              <Loader2 className="w-5 h-5 text-[#8E95A5] animate-spin" />
+              <span className="text-[11px] text-[#8E95A5]">Loading...</span>
             </div>
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center h-full gap-2">
-            <AlertCircle className="w-5 h-5 text-red-400/70" />
-            <button
-              onClick={onRetry}
-              className="text-xs text-red-400/80 hover:text-red-300 transition-colors"
-            >
+            <AlertCircle className="w-5 h-5" style={{ color: NEON.crimson }} />
+            <button onClick={onRetry} className="text-xs transition-colors" style={{ color: NEON.crimson }}>
               {error}
             </button>
           </div>
-        ) : empty || !chartData ? (
+        ) : empty || sorted.length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <span className="text-sm text-zinc-600">No data available</span>
+            <span className="text-sm" style={{ color: '#8E95A5' }}>No data available</span>
           </div>
         ) : (
-          <Bar data={chartData} options={barOptions as any} />
+          <div className="space-y-3">
+            {sorted.map((item, i) => {
+              const pct = maxValue > 0 ? (item.value / maxValue) * 100 : 0;
+              return (
+                <div key={item.key} className="flex items-center gap-3 group">
+                  <span className="text-[11px] w-4 text-right tabular-nums" style={{ color: '#8E95A5' }}>
+                    {i + 1}
+                  </span>
+                  <div className="flex-1 h-7 rounded-lg overflow-hidden relative"
+                    style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    <motion.div
+                      initial={reduce ? undefined : { width: 0 }}
+                      animate={{ width: `${pct}%` }}
+                      transition={{ duration: 0.7, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] }}
+                      className="h-full rounded-lg relative"
+                      style={{
+                        background: `repeating-linear-gradient(45deg, ${item.color}40 0px, ${item.color}40 2px, transparent 2px, transparent 6px)`,
+                        borderTop: `2px solid ${item.color}`,
+                        boxShadow: `0px -2px 8px ${item.glow}`,
+                      }}
+                    />
+                    {/* Glow overlay on hover */}
+                    <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+                      style={{ boxShadow: `inset 0 0 20px ${item.glow}` }} />
+                  </div>
+                  <span className="text-[11px] w-24 truncate text-right font-medium" style={{ color: '#E4E4E7' }}>
+                    {item.label}
+                  </span>
+                  <span className="text-[11px] w-16 text-right tabular-nums" style={{ color: '#8E95A5' }}>
+                    {formatValue(item.value)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </motion.div>

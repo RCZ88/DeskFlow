@@ -1,133 +1,78 @@
 // ============================================================================
-// Design Studio Tab — Visual gallery, live preview, style options
-// Users browse 7 design styles, see live preview, select options, apply.
+// Design Studio Tab — 3-column grid: Gallery | Rich Preview | Theme Constructor
+// Users browse styles, see rich interactive preview, customize with knobs.
 // ============================================================================
-import React, { useState, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Palette, Check, MousePointerClick, Square, Zap,
-  Monitor, Terminal, Send, Settings, Save, ChevronRight
-} from 'lucide-react'
-import { UI_STYLES, DesignStyle, resolveTokens, applyTokensToElement } from '../../lib/designPresets'
-import { WorkspaceCard, WorkspaceSection } from './_ds/containers'
-import { listContainer, riseItem } from './_ds/motion'
+import React, { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
+import { Check } from 'lucide-react'
+import { UI_STYLES, getStyleById } from '../../lib/designPresets'
+import { compileDesignDirective } from '../../lib/aiPromptCompiler'
+import { RichPreviewCanvas } from './design-studio/RichPreviewCanvas'
+import { ThemeConstructor } from './design-studio/ThemeConstructor'
 
-// ---- Live Preview Canvas ---------------------------------------------------
-function LivePreviewCanvas({ tokens }: { tokens: Record<string, string> }) {
-  const bg = tokens['--bg-primary'] || '#000'
-  const surface = tokens['--bg-secondary'] || '#0a0a0a'
-  const text = tokens['--text-primary'] || '#fff'
-  const textSec = tokens['--text-secondary'] || '#999'
-  const accent = tokens['--accent-primary'] || '#22d3ee'
-  const radius = tokens['--radius-base'] || '0px'
-  const shadow = tokens['--shadow-base'] || 'none'
-  const border = tokens['--border-base'] || 'none'
-  const blur = tokens['--glass-blur'] || 'none'
-
-  return (
-    <div
-      className="p-6 rounded-xl transition-all duration-300 space-y-4"
-      style={{ background: surface, borderRadius: radius, border: border === 'none' ? '1px solid rgba(255,255,255,0.05)' : border }}
-    >
-      {/* Typography Preview */}
-      <div>
-        <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: textSec }}>Typography</p>
-        <h3 className="text-lg font-bold" style={{ color: text }}>Preview Heading</h3>
-        <p className="text-xs mt-1" style={{ color: textSec }}>Sample body text for readability check</p>
-      </div>
-
-      {/* Buttons */}
-      <div className="flex items-center gap-2">
-        <button
-          className="px-4 py-2 text-xs font-semibold transition-all"
-          style={{ background: accent, color: bg, borderRadius: radius, border: 'none', boxShadow: shadow }}
-        >
-          Primary
-        </button>
-        <button
-          className="px-4 py-2 text-xs font-medium transition-all"
-          style={{
-            background: 'transparent',
-            color: text,
-            borderRadius: radius,
-            border: border === 'none' ? `1px solid ${textSec}` : border,
-            boxShadow: shadow,
-          }}
-        >
-          Secondary
-        </button>
-      </div>
-
-      {/* Card Preview */}
-      <div
-        className="p-4 flex items-center justify-between"
-        style={{ background: bg, borderRadius: radius, border: border === 'none' ? 'none' : border, boxShadow: shadow, backdropFilter: blur !== 'none' ? blur : undefined }}
-      >
-        <div>
-          <p className="text-xs font-semibold" style={{ color: text }}>Card Component</p>
-          <p className="text-[10px]" style={{ color: textSec }}>With active state</p>
-        </div>
-        <span
-          className="px-2 py-0.5 text-[10px] font-semibold rounded-full"
-          style={{ background: accent, color: bg }}
-        >
-          Active
-        </span>
-      </div>
-
-      {/* Input Preview */}
-      <div
-        className="px-3 py-2 text-xs"
-        style={{
-          background: bg,
-          borderRadius: radius,
-          border: border === 'none' ? `1px solid ${textSec}30` : border,
-          color: textSec,
-        }}
-      >
-        Input field placeholder...
-      </div>
-    </div>
-  )
+const DEFAULT_CUSTOM = {
+  fontFamily: "'Inter', sans-serif",
+  fontSize: 14,
+  accent: '#8b5cf6',
+  bg: '#1e1b4b',
+  radius: 12,
+  padding: 16,
+  duration: 200,
+  easing: 'linear',
+  glass: true,
 }
 
-// ---- Main Component -------------------------------------------------------
 export function DesignStudioTab() {
   const [activeStyleId, setActiveStyleId] = useState('glassmorphism')
-  const [activeOptions, setActiveOptions] = useState<Record<string, string>>({})
+  const [custom, setCustom] = useState(DEFAULT_CUSTOM)
   const [applied, setApplied] = useState(false)
 
-  const activeStyle = UI_STYLES.find(s => s.id === activeStyleId) || UI_STYLES[0]
-  const tokens = resolveTokens(activeStyle, activeOptions)
+  const activeStyle = getStyleById(activeStyleId) || UI_STYLES[0]
 
-  // Apply tokens to workspace root on change
+  // Construct live tokens from base style + custom knobs
+  const liveTokens: Record<string, string> = {
+    ...activeStyle.tokens,
+    '--bg-primary': custom.bg,
+    '--accent-primary': custom.accent,
+    '--radius-base': `${custom.radius}px`,
+    '--blur-base': custom.glass ? '16px' : '0px',
+  }
+
+  // Apply tokens to workspace root
   useEffect(() => {
     const root = document.querySelector('[data-workspace-root]') as HTMLElement
     if (root) {
-      applyTokensToElement(root, tokens)
+      Object.entries(liveTokens).forEach(([key, value]) => {
+        root.style.setProperty(key, value)
+      })
     }
-  }, [tokens])
+  }, [liveTokens])
 
-  const handleStyleSelect = useCallback((styleId: string) => {
+  // Generate design directive
+  const designDirective = compileDesignDirective(activeStyle, custom, liveTokens)
+
+  const handleStyleSelect = (styleId: string) => {
     setActiveStyleId(styleId)
-    setActiveOptions({})
-    setApplied(false)
-  }, [])
+    const style = getStyleById(styleId)
+    if (style) {
+      setCustom(prev => ({
+        ...prev,
+        accent: style.tokens['--accent-primary'] || prev.accent,
+        bg: style.tokens['--bg-primary'] || prev.bg,
+        radius: parseInt(style.tokens['--radius-base']) || prev.radius,
+        glass: style.tokens['--blur-base'] !== '0px',
+      }))
+    }
+  }
 
-  const handleOptionSelect = useCallback((optId: string, valId: string) => {
-    setActiveOptions(prev => ({ ...prev, [optId]: valId }))
-    setApplied(false)
-  }, [])
-
-  const handleApply = useCallback(() => {
-    // Save to localStorage for persistence
+  const handleApply = () => {
     localStorage.setItem('workspace-design-style', JSON.stringify({
       styleId: activeStyleId,
-      options: activeOptions,
+      custom,
     }))
     setApplied(true)
     setTimeout(() => setApplied(false), 2000)
-  }, [activeStyleId, activeOptions])
+  }
 
   // Load saved style on mount
   useEffect(() => {
@@ -135,154 +80,102 @@ export function DesignStudioTab() {
       const saved = JSON.parse(localStorage.getItem('workspace-design-style') || '{}')
       if (saved.styleId) {
         setActiveStyleId(saved.styleId)
-        setActiveOptions(saved.options || {})
+        if (saved.custom) setCustom(saved.custom)
       }
     } catch {}
   }, [])
 
   return (
-    <div className="flex flex-col gap-4 p-3 min-h-0 overflow-y-auto scrollbar-thin">
-      {/* ── Style Selection Grid ── */}
-      <WorkspaceSection title="Select Design Language" icon={Palette} accent="indigo">
-        <motion.div
-          className="grid grid-cols-2 lg:grid-cols-3 gap-2"
-          variants={listContainer} initial="hidden" animate="show"
-        >
+    <div className="h-full w-full grid grid-cols-12 gap-0 bg-zinc-950 text-white overflow-hidden">
+
+      {/* ── Column 1: Style Gallery (3/12) ── */}
+      <div className="col-span-3 border-r border-zinc-800 overflow-y-auto p-4 space-y-3 scrollbar-thin">
+        <h2 className="text-[13px] font-bold text-zinc-200 mb-2">Design Languages</h2>
+        <div className="space-y-2">
           {UI_STYLES.map((style) => {
             const isActive = activeStyleId === style.id
-            const styleTokens = resolveTokens(style, {})
+            const styleTokens = style.tokens
             return (
               <motion.button
                 key={style.id}
-                variants={riseItem}
                 onClick={() => handleStyleSelect(style.id)}
-                className={`relative text-left p-3 rounded-xl transition-all duration-200 border ${
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.98 }}
+                className={`w-full text-left p-3 rounded-xl transition-all relative border ${
                   isActive
-                    ? 'ring-2 ring-offset-1 ring-offset-zinc-950'
-                    : 'hover:border-zinc-600'
+                    ? 'border-purple-500/60 bg-purple-500/10'
+                    : 'border-zinc-800/60 hover:border-zinc-700/60 bg-zinc-900/30'
                 }`}
-                style={{
-                  background: styleTokens['--bg-secondary'],
-                  borderColor: isActive ? styleTokens['--accent-primary'] : undefined,
-                  // @ts-ignore
-                  '--tw-ring-color': isActive ? styleTokens['--accent-primary'] : undefined,
-                }}
               >
                 {isActive && (
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center"
-                    style={{ background: styleTokens['--accent-primary'] }}
+                    className="absolute top-2 right-2 w-5 h-5 rounded-full bg-purple-500 flex items-center justify-center"
                   >
-                    <Check className="w-3 h-3" style={{ color: styleTokens['--bg-primary'] }} />
+                    <Check className="w-3 h-3 text-white" />
                   </motion.div>
                 )}
 
                 {/* Color swatches */}
                 <div className="flex gap-1 mb-2">
-                  <div className="w-4 h-4 rounded-full" style={{ background: styleTokens['--bg-primary'], border: '1px solid rgba(255,255,255,0.1)' }} />
-                  <div className="w-4 h-4 rounded-full" style={{ background: styleTokens['--accent-primary'] }} />
-                  <div className="w-4 h-4 rounded-full" style={{ background: styleTokens['--text-primary'], border: '1px solid rgba(255,255,255,0.1)' }} />
+                  <div className="w-3.5 h-3.5 rounded-full border border-white/10" style={{ background: styleTokens['--bg-primary'] }} />
+                  <div className="w-3.5 h-3.5 rounded-full" style={{ background: styleTokens['--accent-primary'] }} />
+                  <div className="w-3.5 h-3.5 rounded-full border border-white/10" style={{ background: styleTokens['--text-primary'] }} />
                 </div>
 
-                <h4 className="text-[12px] font-semibold mb-0.5" style={{ color: styleTokens['--text-primary'] }}>
-                  {style.name}
-                </h4>
-                <p className="text-[10px] leading-tight" style={{ color: styleTokens['--text-secondary'] }}>
-                  {style.description}
-                </p>
+                <h3 className="text-[12px] font-semibold text-zinc-200 mb-0.5">{style.name}</h3>
+                <p className="text-[10px] text-zinc-500 leading-tight">{style.description}</p>
               </motion.button>
             )
           })}
-        </motion.div>
-      </WorkspaceSection>
-
-      {/* ── Live Preview + Options ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Live Preview */}
-        <WorkspaceSection title="Live Preview" icon={MousePointerClick} accent="indigo">
-          <LivePreviewCanvas tokens={tokens} />
-        </WorkspaceSection>
-
-        {/* Style Options */}
-        <WorkspaceSection title={`${activeStyle.name} Options`} icon={Square} accent="indigo">
-          <div className="space-y-4">
-            {activeStyle.options.map((opt) => (
-              <div key={opt.id}>
-                <label className="text-[10px] uppercase tracking-widest text-zinc-500 block mb-2">
-                  {opt.label}
-                </label>
-                <div className="flex gap-1.5">
-                  {Object.keys(opt.values).map((valId) => (
-                    <button
-                      key={valId}
-                      onClick={() => handleOptionSelect(opt.id, valId)}
-                      className={`flex-1 px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all duration-150 border ${
-                        activeOptions[opt.id] === valId
-                          ? 'text-white'
-                          : 'text-zinc-400 bg-zinc-800/50 border-zinc-700/50 hover:bg-zinc-700/50'
-                      }`}
-                      style={activeOptions[opt.id] === valId ? {
-                        background: tokens['--accent-primary'],
-                        color: tokens['--bg-primary'],
-                        borderColor: tokens['--accent-primary'],
-                      } : undefined}
-                    >
-                      {valId}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            {/* Apply Button */}
-            <button
-              onClick={handleApply}
-              className="w-full py-2 rounded-lg text-[12px] font-semibold transition-all duration-150 flex items-center justify-center gap-1.5"
-              style={{
-                background: tokens['--accent-primary'],
-                color: tokens['--bg-primary'],
-                border: 'none',
-              }}
-            >
-              {applied ? (
-                <><Check className="w-3.5 h-3.5" /> Applied!</>
-              ) : (
-                <><Zap className="w-3.5 h-3.5" /> Apply Design</>
-              )}
-            </button>
-          </div>
-        </WorkspaceSection>
+        </div>
       </div>
 
-      {/* ── Style Info ── */}
-      <WorkspaceSection title="MCP Routing Rules" icon={Terminal} accent="indigo">
-        <WorkspaceCard variant="inset">
-          <div className="space-y-2">
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Allowed Components</p>
-              <div className="flex flex-wrap gap-1">
-                {activeStyle.allowedMCP.map((c) => (
-                  <span key={c} className="px-1.5 py-0.5 text-[9px] font-medium bg-emerald-500/15 text-emerald-400 rounded">
-                    {c}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Forbidden Components</p>
-              <div className="flex flex-wrap gap-1">
-                {activeStyle.forbiddenMCP.map((c) => (
-                  <span key={c} className="px-1.5 py-0.5 text-[9px] font-medium bg-red-500/15 text-red-400 rounded">
-                    {c}
-                  </span>
-                ))}
-              </div>
-            </div>
+      {/* ── Column 2: Rich Preview Canvas (5/12) ── */}
+      <div className="col-span-5 flex flex-col bg-zinc-950 overflow-hidden">
+        <div className="px-4 pt-4 pb-2 shrink-0">
+          <h2 className="text-[13px] font-bold text-zinc-200">Live Preview</h2>
+          <p className="text-[10px] text-zinc-500 mt-0.5">{activeStyle.name} — interactive miniature workspace</p>
+        </div>
+
+        {/* Preview Canvas */}
+        <div className="flex-1 mx-4 mb-3 rounded-xl overflow-hidden border border-zinc-800/60 min-h-0">
+          <RichPreviewCanvas tokens={liveTokens} styleId={activeStyleId} custom={{
+            fontFamily: custom.fontFamily,
+            fontSize: custom.fontSize,
+            cardPadding: `${custom.padding}px`,
+            duration: custom.duration,
+          }} />
+        </div>
+
+        {/* Apply Button */}
+        <div className="px-4 pb-3 shrink-0">
+          <button
+            onClick={handleApply}
+            className="w-full py-2 rounded-xl text-[12px] font-semibold transition-all duration-150"
+            style={{
+              background: applied ? '#34d399' : liveTokens['--accent-primary'],
+              color: liveTokens['--bg-primary'],
+            }}
+          >
+            {applied ? '✓ Applied' : 'Apply Design'}
+          </button>
+        </div>
+
+        {/* Design Directive Preview */}
+        <div className="px-4 pb-4 shrink-0">
+          <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800/40 max-h-28 overflow-y-auto scrollbar-thin">
+            <p className="text-[9px] font-semibold text-purple-400 uppercase tracking-wider mb-1">AI Design Directive</p>
+            <pre className="text-[9px] text-zinc-500 font-mono whitespace-pre-wrap leading-relaxed">{designDirective}</pre>
           </div>
-        </WorkspaceCard>
-      </WorkspaceSection>
+        </div>
+      </div>
+
+      {/* ── Column 3: Theme Constructor (4/12) ── */}
+      <div className="col-span-4 border-l border-zinc-800 overflow-hidden">
+        <ThemeConstructor custom={custom} setCustom={setCustom} />
+      </div>
     </div>
   )
 }

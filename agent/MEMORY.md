@@ -40,3 +40,28 @@
 - **Design system map:** `agent/docs/workspace-system-map.md` — complete feature→IPC→DB connectivity map
 - **Gap:** Preset gallery UI, adjustment knobs, preset→prompt injection, preset→component adaptation not yet built
 - **Goal:** Users select a preset → tweak knobs → AI follows it consistently in prompts and UI generation
+
+## Dashboard MCP Card Improvements (2026-07-30)
+
+- **MagicCard for interactive cards:** Mouse-following gradient gives visual personality without "AI slop". Use on hero/stat cards (MomentumHero, QuickFocusCard) where hover interaction makes sense.
+- **BorderBeam for conditional urgency:** Render BorderBeam only when state is active/urgent (e.g., `activeGoals.length > 0`). Creates visual hierarchy — glowing cards draw attention to what matters.
+- **BorderBeam color mapping:** Goals=emerald (#10b981→#34d399), Deadlines=rose→amber (#f87171→#fbbf24), AI=violet (#8b5cf6→#a78bfa), Focus=violet (#8b5cf6→#6366f1), Momentum=pink (#ec4899→#f472b6).
+- **Particles behind data charts:** Particles as absolute-positioned background behind Chart.js bars adds depth without interfering with data rendering. Use `pointer-events-none` and low quantity (30).
+- **Marquee conflicts with interactivity:** Marquee auto-scroll breaks click targets and edit mode. Skip when card has interactive children (buttons, toggles, edit mode). Only use on purely display elements.
+- **MagicCard adapted for Electron:** The installed magic-card.tsx already removed `next-themes` dependency and hardcoded dark mode colors (#18181b background). No additional adaptation needed.
+- **NeonGradientCard available but heavy:** NeonGradientCard works but uses CSS pseudo-elements with complex calculations. Prefer MagicCard for mouse-following effects, BorderBeam for edge glow.
+
+## StopwatchTimer Glow Fix (2026-07-30)
+
+- **BorderBeam alone is too subtle:** A thin animated line on the border isn't enough for a "glow" effect. Combine with CSS box-shadow for visible radiance.
+- **Box-shadow glow approach:** Use `box-shadow: 0 0 20px 2px rgba(R,G,B,alpha), inset 0 0 30px 1px rgba(R,G,B,alpha)` for always-visible glow. Outer shadow = card radiance, inner shadow = internal glow.
+- **Always-on vs conditional:** The glow should ALWAYS be visible (idle state = subtle, active state = brighter). Conditional rendering makes the glow disappear when idle, which looks broken.
+- **Tier color mapping for glow:** Convert hex to RGB for box-shadow: productive=#10b981→16,185,129; distracting=#ef4444→239,68,68; neutral=#3b82f6→59,130,246; external=#8b5cf6→139,92,246.
+- **BorderBeam thickness:** borderWidth=2 is visible; borderWidth=1.5 is too thin. Duration: 6s when active (faster animation), 12s when idle (slower, calmer).
+
+## MagicCard Component Fix (2026-07-30)
+
+- **Original MagicCard hardcoded colors:** The installed magic-card.tsx had hardcoded pink (#ec4899) and purple (#a855f7) in the gradient template, ignoring any props passed.
+- **Fix:** Add `gradientFrom` and `gradientTo` props to MagicCard interface and use them in the template literal.
+- **Inner overlay:** Changed from `bg-zinc-900/95` to `bg-[rgba(24,24,27,0.80)] backdrop-blur-xl` to match the project's glass pattern.
+- **Dashboard layout swap:** QuickFocusCard moved to center position (between GoalsCard and DeadlinesCard) per user request.

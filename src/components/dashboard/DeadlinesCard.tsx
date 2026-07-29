@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { SpotlightCard } from './SpotlightCard';
 import { NumberTicker } from '../ui/number-ticker';
+import { BorderBeam } from '../ui/border-beam';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -198,6 +199,8 @@ export function DeadlinesCard({
     <SpotlightCard spotlightColor="rgba(244, 63, 94, 0.08)" className="rounded-xl">
       <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px] flex flex-col">
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-rose-500/30 via-rose-500/10 to-transparent" />
+
+        {urgentCount > 0 && <BorderBeam size={140} duration={6} colorFrom="#f87171" colorTo="#fbbf24" />}
 
         {/* Header */}
         <div className="flex items-center justify-between mb-4 shrink-0">

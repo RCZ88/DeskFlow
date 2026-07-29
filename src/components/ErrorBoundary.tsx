@@ -4,6 +4,17 @@ const ERROR_COUNT_KEY = 'deskflow-error-count';
 const ERROR_MSG_KEY = 'deskflow-error-message';
 const MAX_RELOADS = 2;
 
+let globalErrorCallback: ((error: Error) => void) | null = null;
+let pendingGlobalErrors: Error[] = [];
+
+export function triggerGlobalError(error: Error) {
+  if (globalErrorCallback) {
+    globalErrorCallback(error);
+  } else {
+    pendingGlobalErrors.push(error);
+  }
+}
+
 function getPersistedErrorCount(): number {
   try {
     return parseInt(localStorage.getItem(ERROR_COUNT_KEY) || '0', 10);
@@ -62,6 +73,21 @@ export class ErrorBoundary extends Component<Props, State> {
     persistError(error);
     const showAlternative = getPersistedErrorCount() >= MAX_RELOADS;
     return { hasError: true, error, showAlternative };
+  }
+
+  componentDidMount() {
+    globalErrorCallback = (error: Error) => {
+      this.setState({ hasError: true, error, showAlternative: getPersistedErrorCount() >= MAX_RELOADS });
+    };
+    if (pendingGlobalErrors.length > 0) {
+      const err = pendingGlobalErrors[pendingGlobalErrors.length - 1];
+      pendingGlobalErrors = [];
+      this.setState({ hasError: true, error: err, showAlternative: getPersistedErrorCount() >= MAX_RELOADS });
+    }
+  }
+
+  componentWillUnmount() {
+    globalErrorCallback = null;
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {

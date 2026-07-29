@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, Activity, Bot, GitBranch, Shield, Coins, Network } from 'lucide-react';
+import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, Activity, Bot, GitBranch, Shield, Coins, Network, SwatchBook } from 'lucide-react';
 import { AnomalyBadge } from '../components/AnomalyBadge';
 import type { PaneNode } from '../components/TerminalWindow';
 import { TerminalLayout, insertIntoLayout, getLeafIds, getGroupTrees, updateGroupTree } from '../components/TerminalWindow';
@@ -18,7 +18,7 @@ import InitializeProgressModal from '../components/InitializeProgressModal';
 import ContextSidebar from '../components/ContextSidebar';
 import { WorkspaceMindMap } from '../components/WorkspaceMindMap';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
-import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
+import { DEFAULT_SYSTEM_PROMPT, getDefaultAgent } from '../lib/defaults';
 import { stripAnsi } from '../lib/stripAnsi';
 import GeneralistDialog from '../components/GeneralistDialog';
 import { RoutingDisambiguationDialog } from '../components/RoutingDisambiguationDialog';
@@ -32,6 +32,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ProblemsTab, ProblemDetailModal, NewProblemDialog } from '../components/ProblemsTab';
 import { SkillsTab } from '../components/SkillsTab';
 import PromptHistoryTab from '../components/PromptHistoryTab';
+import { DesignStudioTab } from '../components/workspace/DesignStudioTab';
 import { RequestsTab, RequestDetailModal, NewRequestDialog } from '../components/RequestsTab';
 import { FilesTab } from '../components/FilesTab';
 import PerformanceMetricsPanel from '../components/workspace/PerformanceMetricsPanel';
@@ -136,14 +137,18 @@ const SESSION_STATUS_STYLES: Record<string, { dot: string; label: string }> = {
 const SUBPAGE_LABELS: Record<string, string> = {
   'setup/presets': 'Setup / Presets',
   'setup/configs': 'Setup / Configs',
+  'setup/fortress': 'Setup / Fortress',
   'work/sessions': 'Work / Sessions',
   'work/map': 'Work / Map',
   'work/files': 'Work / Files',
+  'work/workspaces': 'Work / Workspaces',
   'insights/analytics': 'Insights / Analytics',
+  'insights/history': 'Insights / Prompts',
   'insights/issues': 'Insights / Issues',
   'insights/performance': 'Insights / Performance',
   'insights/bugs': 'Insights / Bugs',
   'studio/skills': 'Studio / Skills',
+  'studio/styles': 'Studio / Styles',
   'studio/design': 'Studio / Design',
   'context/context': 'Context / Context',
   'context/context-maintenance': 'Context / Maintenance',
@@ -1072,77 +1077,17 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       // The bracketed-paste handshake was non-functional and added up to 10s of
       // blocking latency on every launch. Removed to keep startup responsive.
 
-      // ═══ WRITE SYSTEM PROMPT + INIT CONTENT AS SINGLE SEND ═══
-      const parts: string[] = [];
-      if (systemPrompt) {
-        // Explicit prompt passed (e.g., from resume with saved config)
-        parts.push(systemPrompt);
-      } else {
-        // Build layered prompt: default → general → agent-specific → project-specific
-        const prefs = await window.deskflowAPI?.getPreferences?.();
-        const prompts = prefs?.systemPrompts || {};
-
-        // Layer 1: Default system prompt (from agent/DEFAULT_SYSTEM_PROMPT.md)
-        if (DEFAULT_SYSTEM_PROMPT?.trim()) {
-          parts.push(DEFAULT_SYSTEM_PROMPT);
-        }
-
-        // Layer 2: General additions (all projects)
-        const generalAdditions = prompts.generalAdditions || '';
-        if (generalAdditions.trim()) {
-          parts.push(generalAdditions);
-        }
-
-        // Layer 3: Agent-specific prompt (per agent type: claude, opencode, etc.)
-        const agentPrompt = prompts[agent] || '';
-        if (agentPrompt.trim()) {
-          parts.push(agentPrompt);
-        }
-
-        // Layer 4: Project-specific prompt (per project ID)
-        const projectPrompt = prompts[selectedProject || ''] || '';
-        if (projectPrompt.trim()) {
-          parts.push(projectPrompt);
-        }
-      }
-      if (initContent) {
-        parts.push(initContent);
-      }
-      if (thoughtProcessEnabled) {
-        parts.push(`## Thought Process\n\nBefore providing your final answer, you MUST show your thought process in a <thought_process> block. This should include:\n- How you interpret the request and what you need to do\n- Which files or code areas you're considering\n- Tradeoffs you're weighing between different approaches\n- Why you chose the approach you did\n- Any potential pitfalls or edge cases to watch for\n\nKeep the thought process concise and focused — 3-10 sentences is usually sufficient.`);
-      }
-      // Auto-inject context (problems, requests, sessions) if project is set
-      if (selectedProject && window.deskflowAPI?.assembleContext) {
-        try {
-          const ctxResult = await window.deskflowAPI.assembleContext({ projectId: selectedProject, tokenBudget: 2000 });
-          if (ctxResult?.success && ctxResult.context?.trim()) {
-            parts.push(`## Active Context\n\nThe following is auto-generated context from the workspace. Use it to understand the current state of problems, requests, and sessions.\n\n${ctxResult.context}`);
-          }
-        } catch (e) {
-          console.warn('[TerminalPage] Failed to assemble context:', e);
-        }
-      }
-      // Inject workspace configuration directives
-      const configDirectives: string[] = [];
-      if (crossSessionSyncEnabled) {
-        configDirectives.push('- Cross-session sync is ENABLED. File locks are active. If you detect a file conflict, report it immediately.');
-      }
-      if (modelDebugMode) {
-        configDirectives.push('- Debug mode is ON. Include verbose [SYSTEM] logging in your output.');
-      }
-      if (configDirectives.length > 0) {
-        parts.push(`## Workspace Configuration\n\n${configDirectives.join('\n')}`);
-      }
-      if (parts.length > 0 && window.deskflowAPI?.agentSend) {
+      // ═══ SYSTEM PROMPT — Only send if explicitly provided (resume session) ═══
+      // For fresh terminals, the agent starts clean. System prompt is sent
+      // only when the user explicitly sends a message or resumes a session.
+      if (systemPrompt && parts.length > 0 && window.deskflowAPI?.agentSend) {
         const combined = parts.join('\n\n');
-        // Use agentSend instead of terminalWriteRaw — this goes through the agent state machine
-        // which queues the write if the agent is still launching, then flushes when ready
         const sendResult = await window.deskflowAPI.agentSend(terminalId, combined, agent);
         if (!sendResult?.success) {
-          showError('Failed to send initialization prompt to terminal', 'error');
+          console.warn('[TerminalPage] Failed to send initialization prompt:', sendResult?.error);
         } else {
           const mode = sendResult?.queued ? 'queued (waiting for agent ready)' : 'sent immediately';
-          console.log('[TerminalPage] Sent initialization prompt via agentSend:', combined.length, 'chars,', mode);
+          console.log('[TerminalPage] Sent initialization prompt:', combined.length, 'chars,', mode);
         }
       }
     } catch (e) {
@@ -2898,14 +2843,65 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           </button>
         </div>
 
+        {/* Terminal Toolbar — Compose / Quick / Save */}
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950 border-b border-zinc-800/40">
+          <button
+            onClick={() => { setShowInstructionInput(false); setShowInstructionPanel(true); }}
+            className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-lg text-[10px] font-semibold text-zinc-950 bg-green-500 hover:bg-green-400 transition-all duration-150 active:scale-95"
+          >
+            <Send className="w-3 h-3" />
+            Compose
+          </button>
+          <button
+            onClick={() => { setShowInstructionPanel(false); setShowInstructionInput(true); }}
+            className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-lg text-[10px] font-medium text-zinc-300 bg-zinc-800 ring-1 ring-zinc-700/60 hover:bg-zinc-700/60 hover:text-zinc-100 transition-all duration-150 active:scale-95"
+          >
+            Quick
+          </button>
+          <button
+            onClick={async () => { await handleSaveWorkspace(); }}
+            className="inline-flex items-center gap-1.5 h-6 px-2 rounded-lg text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-all duration-150 active:scale-95 relative"
+          >
+            <Save className="w-3 h-3" />
+            {hasUnsavedChanges && (
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            )}
+          </button>
+          <div className="flex-1" />
+          <span className="text-[10px] text-zinc-600">
+            {Object.keys(terminalTabs).length} terminal{Object.keys(terminalTabs).length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
         <div className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
           {terminalError && (
-            <div className={`px-4 py-2 text-xs border-b ${
+            <div className={`px-4 py-2 text-xs border-b flex items-center justify-between ${
               terminalErrorType === 'error' ? 'bg-red-950/50 border-red-800/60 text-red-200' :
               terminalErrorType === 'warning' ? 'bg-yellow-950/50 border-yellow-800/60 text-yellow-200' :
               'bg-green-950/50 border-green-800/60 text-green-200'
             }`}>
-              {terminalError}
+              <span className="flex-1 min-w-0 truncate">{terminalError}</span>
+              <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                <button
+                  onClick={() => { navigator.clipboard.writeText(terminalError); showError('Copied to clipboard', 'info'); }}
+                  className="px-2 py-0.5 rounded text-[10px] bg-white/10 hover:bg-white/20 transition-colors"
+                >
+                  Copy
+                </button>
+                <button
+                  onClick={() => navigate('/settings')}
+                  className="px-2 py-0.5 rounded text-[10px] bg-white/10 hover:bg-white/20 transition-colors"
+                >
+                  Settings
+                </button>
+                <button
+                  onClick={() => navigate('/')}
+                  className="px-2 py-0.5 rounded text-[10px] bg-white/10 hover:bg-white/20 transition-colors"
+                >
+                  Dashboard
+                </button>
+                <button onClick={() => setTerminalError(null)} className="px-1 py-0.5 rounded text-[10px] hover:bg-white/10 transition-colors">×</button>
+              </div>
             </div>
           )}
           {Object.entries(agentInitErrors).map(([tid, err]) => (
@@ -3031,6 +3027,61 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             </>
           )}
         </div>
+
+        {/* Instruction Panel & Quick Input Overlays */}
+        {showInstructionPanel && (
+          <div className="absolute inset-x-0 top-[88px] bottom-0 z-[100] flex flex-col pointer-events-none">
+            <div className="pointer-events-auto mx-4 mt-2 max-h-[70vh] overflow-y-auto rounded-xl bg-zinc-900/95 ring-1 ring-inset ring-zinc-700/50 shadow-2xl shadow-black/60 backdrop-blur-md">
+              <InstructionPanel
+                problems={allProblems}
+                requests={allRequests}
+                onSend={handleInstructionPanelSend}
+                onClose={() => setShowInstructionPanel(false)}
+                isSending={isSending}
+                projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path}
+                systemPromptLayers={systemPromptLayers}
+                defaultSkills={composeSkills}
+              />
+            </div>
+            <div className="flex-1" onClick={() => setShowInstructionPanel(false)} />
+          </div>
+        )}
+
+        {showInstructionInput && (
+          <div className="absolute inset-x-0 top-[88px] z-[100] flex flex-col pointer-events-none">
+            <div className="pointer-events-auto mx-4 mt-2 rounded-xl bg-zinc-900/95 ring-1 ring-inset ring-zinc-700/50 shadow-2xl shadow-black/60 backdrop-blur-md px-4 py-2">
+              {quotedReferences.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2 px-0.5">
+                  {quotedReferences.map((ref, i) => (
+                    <div key={ref.id ?? i} className="flex items-center gap-1 px-1.5 py-0.5 bg-cyan-900/30 border border-cyan-700/30 rounded text-[10px] text-cyan-300 max-w-[240px]">
+                      <span className="font-semibold uppercase text-[9px] text-cyan-500 shrink-0">{ref.role}</span>
+                      <span className="truncate text-zinc-300">{ref.content.slice(0, 40)}</span>
+                      <button onClick={() => setQuotedReferences(prev => prev.filter(r => r.id !== ref.id))} className="ml-0.5 text-zinc-500 hover:text-zinc-200 shrink-0">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 items-center">
+                <select value={sendTargetSession} onChange={(e) => setSendTargetSession(e.target.value)} className="h-7 w-[120px] rounded-lg bg-zinc-800 border border-zinc-700 px-2 text-[10px] text-zinc-300" title="Select session">
+                  <option value="">Active Terminal</option>
+                  {sessions.filter(s => s.terminal_id && terminalTabs[s.terminal_id]).map(s => (
+                    <option key={s.id} value={s.id}>{s.topic || 'Unnamed'} ({terminalTabs[s.terminal_id!]?.name || '?'})</option>
+                  ))}
+                </select>
+                <div className="flex-1 relative">
+                  <textarea ref={instructionTextareaRef} value={instructionText} onChange={(e) => setInstructionText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendInstruction(); } }} rows={1} autoFocus placeholder="Type instruction... (Enter to send)" className="w-full px-3 py-1.5 bg-zinc-900/80 border border-zinc-700 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 resize-none overflow-hidden" />
+                </div>
+                <button onClick={sendInstruction} disabled={!instructionText.trim() || isSending} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-lg text-[11px] font-semibold text-zinc-950 bg-green-500 hover:bg-green-400 transition-all duration-150 active:scale-95 disabled:opacity-40 disabled:pointer-events-none">
+                  {isSending ? <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" /> : 'Send'}
+                </button>
+                <button onClick={() => { setShowInstructionInput(false); setInstructionText(''); }} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1" onClick={() => setShowInstructionInput(false)} />
+          </div>
+        )}
       </div>
 
       {/* Sidebar */}
@@ -3232,6 +3283,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                           )}
                         </div>
                       </div>
+                    </GroupPanel>
+                  );
+                  case 'fortress': return (
+                    <GroupPanel accent="orange">
+                      <FortressProtocolSetup />
                     </GroupPanel>
                   );
                   default: return null;
@@ -3832,6 +3888,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             {activeGroup === 'studio' && (
               <WorkspaceShell accent="indigo" tabs={[
                 { key: 'skills', icon: Sparkles, label: 'Skills' },
+                { key: 'styles', icon: SwatchBook, label: 'Styles' },
                 { key: 'design', icon: Palette, label: 'Design' },
               ]} storageKey="studio" render={(sub) => {
                 switch (sub) {
@@ -3846,6 +3903,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                           setShowInstructionPanel(true);
                         }}
                       />
+                    </GroupPanel>
+                  );
+                  case 'styles': return (
+                    <GroupPanel accent="indigo">
+                      <DesignStudioTab />
                     </GroupPanel>
                   );
                   case 'design': return (
@@ -3885,6 +3947,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 { key: 'context-maintenance', icon: Database, label: 'Maintenance' },
                 { key: 'context-map', icon: Network, label: 'Context Map' },
                 { key: 'page-context', icon: FileText, label: 'Page Context' },
+                { key: 'feature-logic', icon: GitBranch, label: 'Feature Logic' },
               ]} storageKey="context" render={(sub) => {
                 switch (sub) {
                   case 'context': return (

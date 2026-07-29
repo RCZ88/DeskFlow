@@ -52,6 +52,8 @@ interface CanvasCardProps {
   onClick?: (id: string) => void
   zoom?: number
   isFocused?: boolean
+  isDropTarget?: boolean
+  onDropTarget?: (id: string | null) => void
 }
 
 interface ErrorBoundaryState { hasError: boolean; error: Error | null }
@@ -65,7 +67,7 @@ class CardErrorBoundary extends Component<{ cardType: string; onRetry: () => voi
   }
 }
 
-export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDragStart, onDragStop, onClick, zoom = 1, isFocused }: CanvasCardProps) {
+export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDragStart, onDragStop, onClick, zoom = 1, isFocused, isDropTarget, onDropTarget }: CanvasCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
   const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null)
@@ -123,6 +125,7 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
     if (cardRef.current) {
       cardRef.current.classList.add('dragging')
       cardRef.current.style.zIndex = '1000'
+      cardRef.current.setPointerCapture(e.pointerId)
     }
     onDragStart?.()
   }, [onDragStart])
@@ -159,6 +162,7 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
     if (cardRef.current) {
       cardRef.current.classList.remove('dragging')
       cardRef.current.style.zIndex = String(card.zIndex)
+      cardRef.current.releasePointerCapture(e.pointerId)
     }
     onDragEnd(card.id, finalPos)
     onDragStop?.()
@@ -178,7 +182,8 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
     <CardErrorBoundary cardType={card.type} onRetry={() => {}} onDismiss={() => onDismiss(card.id)}>
       <div
         ref={cardRef}
-        className={`dk-canvas-card ${isTransient ? 'transient' : ''} ${isFocused ? 'focused' : ''} status-${card.status}`}
+        className={`dk-canvas-card ${isTransient ? 'transient' : ''} ${isFocused ? 'focused' : ''} ${isDropTarget ? 'drop-target' : ''} status-${card.status}`}
+        data-card-id={card.id}
         data-tutorial="ai.card-types"
         style={{
           position: 'absolute', left: 0, top: 0,

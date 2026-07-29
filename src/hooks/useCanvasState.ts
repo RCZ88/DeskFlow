@@ -1,6 +1,10 @@
 import { useReducer, useState, useCallback, useEffect, useRef } from 'react'
 import { canvasReducer, DEFAULT_STATE } from '../types/canvas'
-import { loadCanvasLayout, saveCanvasLayout, clearCanvasLayout } from '../services/canvasPersistence'
+import {
+  loadCanvasLayout, saveCanvasLayout, clearCanvasLayout,
+  listCanvases, loadCanvasById, renameCanvas, deleteCanvas,
+  type CanvasSnapshot
+} from '../services/canvasPersistence'
 import { generateUUID } from '../lib/uuid'
 import type { CanvasCard, CanvasState, CardStatus, CardType, CanvasGroup } from '../types/canvas'
 
@@ -13,6 +17,7 @@ export function useCanvasState() {
     return loadCanvasLayout() || DEFAULT_STATE
   })
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [canvasList, setCanvasList] = useState<CanvasSnapshot[]>(listCanvases())
 
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dismissTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -163,10 +168,62 @@ export function useCanvasState() {
     clearCanvasLayout()
   }, [])
 
+  const forceSave = useCallback(() => {
+    setSaveStatus('saving')
+    try {
+      saveCanvasLayout(state)
+      setSaveStatus('saved')
+      setCanvasList(listCanvases())
+      if (saveResetTimer.current) clearTimeout(saveResetTimer.current)
+      saveResetTimer.current = setTimeout(() => setSaveStatus('idle'), 2000)
+    } catch {
+      setSaveStatus('error')
+    }
+  }, [state])
+
+  // Canvas management
+  const saveAs = useCallback((name: string) => {
+    setSaveStatus('saving')
+    try {
+      saveCanvasLayout(state, name)
+      setCanvasList(listCanvases())
+      setSaveStatus('saved')
+      if (saveResetTimer.current) clearTimeout(saveResetTimer.current)
+      saveResetTimer.current = setTimeout(() => setSaveStatus('idle'), 2000)
+    } catch {
+      setSaveStatus('error')
+    }
+  }, [state])
+
+  const loadCanvas = useCallback((id: string) => {
+    const loaded = loadCanvasById(id)
+    if (loaded) {
+      dismissTimers.current.forEach(t => clearTimeout(t))
+      dismissTimers.current.clear()
+      dispatch({ type: 'HYDRATE', state: loaded })
+      setCanvasList(listCanvases())
+    }
+  }, [])
+
+  const rename = useCallback((id: string, newName: string) => {
+    renameCanvas(id, newName)
+    setCanvasList(listCanvases())
+  }, [])
+
+  const removeCanvas = useCallback((id: string) => {
+    deleteCanvas(id)
+    setCanvasList(listCanvases())
+  }, [])
+
+  const refreshList = useCallback(() => {
+    setCanvasList(listCanvases())
+  }, [])
+
   return {
     cards, allCards: state.cards, groups, nextZIndex: state.nextZIndex, saveStatus,
     addCard, updateCard, removeCard, moveCard, resizeCard, pinCard, dismissCard,
-    setStatus, resetLayout, arrangeCards, clearAll,
+    setStatus, resetLayout, arrangeCards, clearAll, forceSave,
     createGroup, deleteGroup, addToGroup, removeFromGroup,
+    canvasList, saveAs, loadCanvas, rename, removeCanvas, refreshList,
   }
 }

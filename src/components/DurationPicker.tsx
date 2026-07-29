@@ -3,8 +3,8 @@ import { useState, useRef } from 'react';
 interface DurationPickerProps {
   hours: number;
   minutes: number;
-  onHoursChange: (h: number) => void;
-  onMinutesChange: (m: number) => void;
+  onHoursChange?: (h: number) => void;
+  onMinutesChange?: (m: number) => void;
   onChange?: (h: number, m: number) => void;
   maxHours?: number;
   hourLabel?: string;
@@ -31,17 +31,19 @@ export function DurationPicker({
   const holdCountRef = useRef(0);
 
   const incHours = () => {
-    if (wrap && hours >= maxHours) {
-      onHoursChange(0);
-    } else {
-      onHoursChange(Math.min(hours + 1, maxHours));
+    const newHours = (wrap && hours >= maxHours) ? 0 : Math.min(hours + 1, maxHours);
+    if (onChange) {
+      onChange(newHours, minutes);
+    } else if (onHoursChange) {
+      onHoursChange(newHours);
     }
   };
   const decHours = () => {
-    if (wrap && hours <= 0) {
-      onHoursChange(maxHours);
-    } else {
-      onHoursChange(Math.max(hours - 1, 0));
+    const newHours = (wrap && hours <= 0) ? maxHours : Math.max(hours - 1, 0);
+    if (onChange) {
+      onChange(newHours, minutes);
+    } else if (onHoursChange) {
+      onHoursChange(newHours);
     }
   };
   const incMinutes = () => {
@@ -50,13 +52,13 @@ export function DurationPicker({
       if (onChange) {
         onChange(newHours, 0);
       } else {
-        onMinutesChange(0);
-        onHoursChange(newHours);
+        if (onMinutesChange) onMinutesChange(0);
+        if (onHoursChange) onHoursChange(newHours);
       }
     } else {
       if (onChange) {
         onChange(hours, minutes + 1);
-      } else {
+      } else if (onMinutesChange) {
         onMinutesChange(minutes + 1);
       }
     }
@@ -67,13 +69,13 @@ export function DurationPicker({
       if (onChange) {
         onChange(newHours, 59);
       } else {
-        onMinutesChange(59);
-        onHoursChange(newHours);
+        if (onMinutesChange) onMinutesChange(59);
+        if (onHoursChange) onHoursChange(newHours);
       }
     } else {
       if (onChange) {
         onChange(hours, minutes - 1);
-      } else {
+      } else if (onMinutesChange) {
         onMinutesChange(minutes - 1);
       }
     }
@@ -115,12 +117,22 @@ export function DurationPicker({
     if (editing === 'hours') {
       const num = parseInt(editValue, 10);
       if (!isNaN(num)) {
-        onHoursChange(Math.min(Math.max(num, 0), maxHours));
+        const clamped = Math.min(Math.max(num, 0), maxHours);
+        if (onChange) {
+          onChange(clamped, minutes);
+        } else if (onHoursChange) {
+          onHoursChange(clamped);
+        }
       }
     } else if (editing === 'minutes') {
       const num = parseInt(editValue, 10);
       if (!isNaN(num)) {
-        onMinutesChange(Math.min(Math.max(num, 0), 59));
+        const clamped = Math.min(Math.max(num, 0), 59);
+        if (onChange) {
+          onChange(hours, clamped);
+        } else if (onMinutesChange) {
+          onMinutesChange(clamped);
+        }
       }
     }
     setEditing(null);

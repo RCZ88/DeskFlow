@@ -45,10 +45,8 @@ export interface VoiceContextValue {
 
 const VoiceContext = createContext<VoiceContextValue | null>(null);
 
-export function useVoiceContext(): VoiceContextValue {
-  const ctx = useContext(VoiceContext);
-  if (!ctx) throw new Error('useVoiceContext must be used within VoiceProvider');
-  return ctx;
+export function useVoiceContext(): VoiceContextValue | null {
+  return useContext(VoiceContext);
 }
 
 // ── Provider ──────────────────────────────────────────────────────────

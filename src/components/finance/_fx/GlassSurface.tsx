@@ -11,10 +11,11 @@ interface GlassSurfaceProps {
   onPointerDown?: (e: React.PointerEvent) => void
   onPointerEnter?: () => void
   style?: React.CSSProperties;
+  'data-tx-id'?: number;
 }
 
 export function GlassSurface({
-  tier = 1, accent, interactive, className = '', children, onClick, onPointerDown, onPointerEnter, style,
+  tier = 1, accent, interactive, className = '', children, onClick, onPointerDown, onPointerEnter, style, 'data-tx-id': dataTxId,
 }: GlassSurfaceProps) {
   const base = tier === 1
     ? 'backdrop-blur-2xl bg-zinc-900/55 border border-white/10'
@@ -37,6 +38,7 @@ export function GlassSurface({
       onPointerEnter={onPointerEnter}
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
+      data-tx-id={dataTxId}
       onKeyDown={interactive && onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
       className={`relative rounded-xl ${base} ${accentStyles} ${interactiveStyles} ${className}`}
       style={style}

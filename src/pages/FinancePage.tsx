@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown, Bell, RefreshCw, History, Users, BarChart3, Receipt, Target } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { TabBar } from '../components/TabBar';
-import { GlassCard } from '../components/GlassCard';
 import { FinanceLockScreen } from '../components/finance/FinanceLockScreen';
 import { FinanceStickyHeader } from '../components/finance/FinanceStickyHeader';
 import { OverviewTab } from '../components/finance/OverviewTab';
@@ -129,6 +128,7 @@ export function FinancePage() {
   const [showRecalculateModal, setShowRecalculateModal] = useState(false);
   const [recalculateData, setRecalculateData] = useState<{ walletId: number; walletName: string; initialBalance: number; currentBalance: number; computedBalance: number; breakdown: RecalculateBreakdown[] } | null>(null);
   const [notifMsg, setNotifMsg] = useState<string | null>(null);
+  const [scrollToTransactionId, setScrollToTransactionId] = useState<number | null>(null);
 
   useEffect(() => { lockedRef.current = isLocked; }, [isLocked]);
 
@@ -478,6 +478,11 @@ export function FinancePage() {
     setPreselectedOnBehalfOf(true);
     setWalletTxModal(firstWallet.type);
   }, [wallets]);
+
+  const handlePeopleGoToTransactions = useCallback((txId: number) => {
+    setActiveTab('transactions');
+    setScrollToTransactionId(txId);
+  }, []);
 
   const handleAddTransaction = async (data: {
     account_id: number; wallet_id: number | null; category_id: number;
@@ -1039,7 +1044,7 @@ export function FinancePage() {
     <PageShell page="finance" variant="sticky-header" style={{ ['--page-accent' as string]: '#10b981' }}>
       <AuroraBackground />
 
-      <div className="relative isolate min-h-full px-6 pb-28 pt-4 mx-auto w-full max-w-full">
+      <div className="relative isolate min-h-full px-6 pt-4 pb-28 mx-auto w-full max-w-full">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
@@ -1174,7 +1179,7 @@ export function FinancePage() {
             );
           }
           return (
-            <div className="mt-5">
+            <>
               {activeTab === 'overview' && (
                 <motion.div
                   key="overview"
@@ -1273,6 +1278,8 @@ export function FinancePage() {
                         });
                       }
                     }}
+                    scrollToTransactionId={scrollToTransactionId}
+                    onScrollToTransactionDone={() => setScrollToTransactionId(null)}
                   />
                 </motion.div>
               )}
@@ -1314,6 +1321,23 @@ export function FinancePage() {
                     displayCurrency={displayCurrency}
                     onRefresh={fetchData}
                     onNewTransaction={handleNewTransactionFromPerson}
+                    accounts={accounts}
+                    categories={categories}
+                    baseCurrency={baseCurrency}
+                    onDeleteTransaction={handleDeleteTransaction}
+                    onUpdateTransaction={handleUpdateTransaction}
+                    onVerifyPassword={handleUnlock}
+                    ftPersons={ftPersons}
+                    onAddFtPerson={async (name: string) => {
+                      const result = await window.deskflowAPI?.financeCreateFtPerson({ name });
+                      if (result) {
+                        setFtPersons(prev => {
+                          if (prev.some(p => p.id === result.id)) return prev;
+                          return [...prev, result].sort((a, b) => a.name.localeCompare(b.name));
+                        });
+                      }
+                    }}
+                    onGoToTransactions={handlePeopleGoToTransactions}
                   />
                 </motion.div>
               )}
@@ -1425,7 +1449,7 @@ export function FinancePage() {
                   />
                 </motion.div>
               )}
-            </div>
+            </>
             );
         })()}
       </div>

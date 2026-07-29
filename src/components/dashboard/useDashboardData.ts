@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   Goal, Deadline, ScheduleEntry, LongTermGoal,
-  DashboardInsights, CategoryBalance, GoalCategory
+  DashboardInsights, CategoryBalance, GoalCategory, MomentumScore
 } from './types';
 
 const CATEGORY_COLORS: Record<GoalCategory, string> = {
@@ -91,6 +91,7 @@ export function useDashboardData() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [momentum, setMomentum] = useState<MomentumScore | null>(null);
   const refreshLock = useRef(false);
 
   const api = (window as any).deskflowAPI;
@@ -103,17 +104,19 @@ export function useDashboardData() {
 
     try {
       const date = todayStr();
-      const [goalsRes, deadlinesRes, scheduleRes, ltgRes] = await Promise.all([
+      const [goalsRes, deadlinesRes, scheduleRes, ltgRes, momentumRes] = await Promise.all([
         api?.getGoals?.(date).catch(() => ({ goals: [] })),
         api?.getDeadlines?.({ days: 30 }).catch(() => ({ deadlines: [] })),
         api?.getSchedule?.().catch(() => ({ entries: [] })),
         api?.getLongtermGoals?.().catch(() => ({ goals: [] })),
+        api?.getMomentumScore?.(date).catch(() => null),
       ]);
 
       setGoals(goalsRes?.goals || []);
       setDeadlines(deadlinesRes?.deadlines || []);
       setSchedule(scheduleRes?.entries || []);
       setLongTermGoals(ltgRes?.goals || []);
+      setMomentum(momentumRes);
       setLastUpdated(new Date());
     } catch (err: any) {
       setError(err?.message || 'Failed to load dashboard data');
@@ -292,6 +295,7 @@ export function useDashboardData() {
     longTermGoals,
     suggestions,
     insights,
+    momentum,
     loading,
     error,
     lastUpdated,

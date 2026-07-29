@@ -135,6 +135,8 @@ interface TransactionsTabProps {
   onRecordFtRepayment?: (data: { originalTxId: number; personId?: number; amount: number; date: string; walletId?: number; description?: string; isOverpayment?: boolean }) => Promise<boolean>;
   ftPersons?: { id: number; name: string; email?: string | null; phone?: string | null }[];
   onAddFtPerson?: (name: string) => void;
+  scrollToTransactionId?: number | null;
+  onScrollToTransactionDone?: () => void;
 }
 
 const formatDateLabel = (dateStr: string) => {
@@ -171,7 +173,7 @@ const WALLET_TYPE_COLOR: Record<string, string> = {
   cash: '#EC4899', physical: '#F97316', ewallet: '#06B6D4', other: '#6B7280',
 };
 
-export function TransactionsTab({ transactions, accounts, categories, wallets, loading, error, onRetry, displayCurrency, baseCurrency, onAddTransaction, onDeleteTransaction, onUpdateTransaction, onVerifyPassword, ftPersons = [], onAddFtPerson }: TransactionsTabProps) {
+export function TransactionsTab({ transactions, accounts, categories, wallets, loading, error, onRetry, displayCurrency, baseCurrency, onAddTransaction, onDeleteTransaction, onUpdateTransaction, onVerifyPassword, ftPersons = [], onAddFtPerson, scrollToTransactionId, onScrollToTransactionDone }: TransactionsTabProps) {
   const historicalRef = useRef<HTMLDivElement>(null);
   const [showJumpBtn, setShowJumpBtn] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -265,6 +267,20 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
     observer.observe(el);
     return () => observer.disconnect();
   }, [historicalTxns.length]);
+
+  // Scroll to a specific transaction when scrollToTransactionId changes
+  useEffect(() => {
+    if (!scrollToTransactionId) return;
+    const el = document.querySelector(`[data-tx-id="${scrollToTransactionId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-emerald-500/60', 'rounded-xl');
+      setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-emerald-500/60', 'rounded-xl');
+      }, 3000);
+    }
+    onScrollToTransactionDone?.();
+  }, [scrollToTransactionId, onScrollToTransactionDone]);
 
   // Build ordered list with year separators
   const orderedGroups = useMemo(() => {
@@ -692,6 +708,7 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
                     return (
                     <GlassSurface
                       key={txn.id}
+                      data-tx-id={txn.id}
                       interactive
                       onPointerDown={onPointerDown}
                       onPointerEnter={onPointerEnter}

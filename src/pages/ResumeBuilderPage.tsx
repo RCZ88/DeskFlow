@@ -273,7 +273,7 @@ export default function ResumeBuilderPage() {
 
   // ────── Builder content (left panel) ──────
   const renderBuilderContent = () => (
-    <div className="pr-5">
+    <div className="px-5">
       {isLoading && !currentQuestion ? (
         <div className="space-y-4">
           <Skeleton className="h-[80px] rounded-xl" />
@@ -569,7 +569,7 @@ export default function ResumeBuilderPage() {
 
   // ────── Preview content (right panel) ──────
   const renderPreviewContent = () => (
-    <div className="pl-5 h-full flex flex-col">
+    <div className="px-5 h-full flex flex-col">
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Live Preview</span>
         <div className="flex items-center gap-2">
@@ -720,7 +720,7 @@ export default function ResumeBuilderPage() {
       </AnimatePresence>
 
       {/* Main Content — true split panel */}
-      <div className="flex-1 min-h-0 p-5">
+      <div className="flex-1 min-h-0">
         <ResizablePanel
           storageKey="resume-split-ratio"
           defaultRatio={55}

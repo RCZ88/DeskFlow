@@ -4,8 +4,13 @@ import { CanvasInput } from './CanvasInput'
 import { SaveIndicator } from './SaveIndicator'
 import { CanvasMinimap } from './CanvasMinimap'
 import { FindCardsArrow } from './FindCardsArrow'
+import { CanvasManagerPanel } from './CanvasManagerPanel'
 import { autoArrange } from '../../../lib/autoArrange'
+import { loadCanvasLayout } from '../../../services/canvasPersistence'
 import type { CanvasCard } from '../../../types/canvas'
+import type { CanvasSnapshot } from '../../../services/canvasPersistence'
+
+const PAN_STORAGE_KEY = 'deskflow-canvas-pan-zoom'
 
 interface CanvasContainerProps {
   cards: CanvasCard[]
@@ -16,23 +21,54 @@ interface CanvasContainerProps {
   onResizeCard?: (id: string, size: { w: number; h: number }) => void
   onCardClick?: (id: string) => void
   saveStatus: 'idle' | 'saving' | 'saved' | 'error'
+  onSaveCanvas?: () => void
   onSend: (text: string) => void
   onStop: () => void
   streaming: boolean
   thinking?: boolean
   focusedCardId?: string | null
   autoFocus?: boolean
+  onToggleAutoFocus?: () => void
+  onOpenPalette?: () => void
+  onGroupCards?: (cardIds: string[]) => void
+  canvasList?: CanvasSnapshot[]
+  activeCanvasId?: string | null
+  onLoadCanvas?: (id: string) => void
+  onRenameCanvas?: (id: string, name: string) => void
+  onDeleteCanvas?: (id: string) => void
+  onSaveAs?: (name: string) => void
 }
 
 export function CanvasContainer({
   cards, onMoveCard, onDismissCard, onArrangeCards, onPinCard, onResizeCard, onCardClick,
-  saveStatus, onSend, onStop, streaming, thinking, focusedCardId, autoFocus,
+  saveStatus, onSaveCanvas, onSend, onStop, streaming, thinking, focusedCardId, autoFocus, onToggleAutoFocus,
+  onOpenPalette, onGroupCards, canvasList, activeCanvasId, onLoadCanvas, onRenameCanvas, onDeleteCanvas, onSaveAs,
 }: CanvasContainerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [zoom, setZoom] = useState(1)
+  const [showManager, setShowManager] = useState(false)
+  const [pan, setPan] = useState<{ x: number; y: number }>(() => {
+    try {
+      const raw = localStorage.getItem(PAN_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed.x === 'number' && typeof parsed.y === 'number') return parsed
+      }
+    } catch { /* ignore */ }
+    return { x: 0, y: 0 }
+  })
+  const [zoom, setZoom] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(PAN_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed.zoom === 'number') return parsed.zoom
+      }
+    } catch { /* ignore */ }
+    return 1
+  })
   const [isPanning, setIsPanning] = useState(false)
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 })
+  const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set())
   const containerRef = useRef<HTMLDivElement>(null)
   const hasAutoCentered = useRef(false)
 
@@ -52,6 +88,17 @@ export function CanvasContainer({
   useEffect(() => {
     if (hasAutoCentered.current) return
     if (viewportSize.w === 0 || viewportSize.h === 0) return
+    // If we loaded saved pan/zoom, skip auto-center
+    const raw = localStorage.getItem(PAN_STORAGE_KEY)
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed.x === 'number') {
+          hasAutoCentered.current = true
+          return
+        }
+      } catch {}
+    }
     if (cards.length === 0) {
       setPan({ x: viewportSize.w / 2 - 2000, y: viewportSize.h / 2 - 2000 })
       hasAutoCentered.current = true
@@ -69,9 +116,26 @@ export function CanvasContainer({
   }, [cards, viewportSize])
 
   const handleArrange = useCallback(() => {
+    if (cards.length === 0) return
     const positions = autoArrange(cards)
     onArrangeCards(positions)
   }, [cards, onArrangeCards])
+
+  const handleFocus = useCallback(() => {
+    if (cards.length === 0) return
+    const bounds = computeCardBounds(cards)
+    const contentW = bounds.maxX - bounds.minX + 200
+    const contentH = bounds.maxY - bounds.minY + 200
+    const fitZoom = Math.min(viewportSize.w / contentW, viewportSize.h / contentH, 1.5)
+    const clampedZoom = Math.max(0.3, Math.min(1.5, fitZoom))
+    const centerX = (bounds.minX + bounds.maxX) / 2
+    const centerY = (bounds.minY + bounds.maxY) / 2
+    setZoom(clampedZoom)
+    setPan({
+      x: viewportSize.w / 2 - centerX * clampedZoom,
+      y: viewportSize.h / 2 - centerY * clampedZoom,
+    })
+  }, [cards, viewportSize])
 
   const handleRecenter = useCallback(() => {
     if (cards.length === 0) return
@@ -117,6 +181,20 @@ export function CanvasContainer({
     })
   }, [focusedCardId, autoFocus, cards, viewportSize, zoom])
 
+  // Persist pan/zoom to localStorage
+  const panZoomTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (panZoomTimer.current) clearTimeout(panZoomTimer.current)
+    panZoomTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(PAN_STORAGE_KEY, JSON.stringify({ x: pan.x, y: pan.y, zoom }))
+      } catch {}
+    }, 300)
+    return () => {
+      if (panZoomTimer.current) clearTimeout(panZoomTimer.current)
+    }
+  }, [pan, zoom])
+
   // Check if any card is visible (accounting for zoom)
   const anyCardVisible = useMemo(() => {
     if (viewportSize.w === 0) return true
@@ -157,18 +235,35 @@ export function CanvasContainer({
     <div ref={containerRef} className={`dk-canvas-container ${isFullscreen ? 'fullscreen' : ''}`}>
       <SaveIndicator status={saveStatus} />
 
+      {showManager && onLoadCanvas && (
+        <CanvasManagerPanel
+          canvases={canvasList || []}
+          activeId={activeCanvasId || null}
+          onLoad={(id) => { onLoadCanvas(id); setShowManager(false) }}
+          onRename={(id, name) => onRenameCanvas?.(id, name)}
+          onDelete={(id) => onDeleteCanvas?.(id)}
+          onSave={(name) => { onSaveAs?.(name); setShowManager(false) }}
+          onClose={() => setShowManager(false)}
+        />
+      )}
+
       <div className="dk-canvas-toolbar" data-tutorial="ai.auto-arrange">
-        <button onClick={handleArrange} title="Auto-arrange cards">
+        <button onClick={() => setShowManager(v => !v)} title="Canvas manager — save/load canvases">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+        <div className="dk-canvas-toolbar-separator" />
+        <button onClick={handleArrange} title="Arrange cards neatly">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
             <rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
           </svg>
         </button>
-        <button onClick={handleRecenter} title="Recenter on cards" disabled={isCentered} className={isCentered ? 'disabled' : ''}>
+        <button onClick={handleFocus} title="Focus — bring camera to cards">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" /><line x1="22" y1="12" x2="18" y2="12" />
-            <line x1="6" y1="12" x2="2" y2="12" /><line x1="12" y1="6" x2="12" y2="2" />
-            <line x1="12" y1="22" x2="12" y2="18" />
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
           </svg>
         </button>
         <div className="dk-canvas-toolbar-separator" />
@@ -181,6 +276,28 @@ export function CanvasContainer({
         <button onClick={handleZoomIn} title="Zoom in">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" />
+          </svg>
+        </button>
+        <div className="dk-canvas-toolbar-separator" />
+        <button
+          onClick={onToggleAutoFocus}
+          title={autoFocus ? "Auto-focus: ON — canvas follows AI activity" : "Auto-focus: OFF — manual navigation"}
+          style={{ color: autoFocus ? 'var(--dk-accent)' : 'var(--dk-text-muted)' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+          </svg>
+        </button>
+        <div className="dk-canvas-toolbar-separator" />
+        <button onClick={onSaveCanvas}
+          title="Save canvas layout"
+          style={{ color: saveStatus === 'saved' ? 'var(--dk-accent)' : 'var(--dk-text-muted)' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+            <polyline points="17,21 17,13 7,13 7,21" />
+            <polyline points="7,3 7,8 15,8" />
           </svg>
         </button>
         <div className="dk-canvas-toolbar-separator" />
@@ -211,6 +328,7 @@ export function CanvasContainer({
         isPanning={isPanning}
         setIsPanning={setIsPanning}
         focusedCardId={focusedCardId}
+        onGroupCards={onGroupCards}
       />
 
       {!anyCardVisible && clusterCenter && viewportSize.w > 0 && (
@@ -235,7 +353,7 @@ export function CanvasContainer({
       )}
 
       <div data-tutorial="ai.input">
-        <CanvasInput onSend={onSend} onStop={onStop} streaming={streaming} thinking={thinking} />
+        <CanvasInput onSend={onSend} onStop={onStop} streaming={streaming} thinking={thinking} onOpenPalette={onOpenPalette} />
       </div>
     </div>
   )

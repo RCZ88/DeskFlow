@@ -10,6 +10,8 @@ interface MagicCardProps {
   gradientSize?: number
   gradientColor?: string
   gradientOpacity?: number
+  gradientFrom?: string
+  gradientTo?: string
 }
 
 export function MagicCard({
@@ -18,6 +20,8 @@ export function MagicCard({
   gradientSize = 200,
   gradientColor = "#262626",
   gradientOpacity = 0.8,
+  gradientFrom = "#ec4899",
+  gradientTo = "#a855f7",
 }: MagicCardProps) {
   const mouseX = useMotionValue(-gradientSize)
   const mouseY = useMotionValue(-gradientSize)
@@ -48,14 +52,14 @@ export function MagicCard({
         background: useMotionTemplate`
           linear-gradient(#18181b 0 0) padding-box,
           radial-gradient(${gradientSize}px circle at ${mouseX}px ${mouseY}px,
-            #ec4899,
-            #a855f7,
+            ${gradientFrom},
+            ${gradientTo},
             #27272a 100%
           ) border-box
         `,
       }}
     >
-      <div className="absolute inset-px z-20 rounded-[inherit] bg-zinc-900/95" />
+      <div className="absolute inset-px z-20 rounded-[inherit] bg-[rgba(24,24,27,0.80)] backdrop-blur-xl" />
       <motion.div
         className="pointer-events-none absolute inset-px z-30 rounded-[inherit] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
         style={{

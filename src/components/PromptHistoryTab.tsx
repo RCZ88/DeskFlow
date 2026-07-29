@@ -136,12 +136,25 @@ const PromptHistoryTab: React.FC<{
         liveStatusRef.current[key] = data.status;
         if (!debounceTimer) {
           debounceTimer = setTimeout(() => {
-            setLiveStatuses({ ...liveStatusRef.current });
+            setLiveStatuses(prev => {
+              const next = { ...liveStatusRef.current };
+              return Object.keys(next).some(k => next[k] !== prev[k]) ? next : prev;
+            });
             debounceTimer = null;
           }, 500);
         }
       } else {
-        setEntries(prev => prev.map(e => (e.session_id === data.terminalId ? { ...e, status: data.status } : e)));
+        setEntries(prev => {
+          let changed = false;
+          const next = prev.map(e => {
+            if (e.session_id === data.terminalId && e.status !== data.status) {
+              changed = true;
+              return { ...e, status: data.status };
+            }
+            return e;
+          });
+          return changed ? next : prev;
+        });
       }
     });
     return () => { if (debounceTimer) clearTimeout(debounceTimer); if (typeof cleanup === 'function') cleanup(); };

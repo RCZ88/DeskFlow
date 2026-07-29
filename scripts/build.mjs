@@ -85,6 +85,17 @@ async function main() {
     }
   }
 
+  // Copy hand-written .cjs service files (not compiled from .ts)
+  const SVC_SRC = resolve(SRC, 'services');
+  const SVC_OUT = resolve(OUT, 'services');
+  mkdirSync(SVC_OUT, { recursive: true });
+  for (const entry of readdirSync(SVC_SRC)) {
+    if (entry.endsWith('.cjs')) {
+      copyFileSync(resolve(SVC_SRC, entry), resolve(SVC_OUT, entry));
+      console.log(`  ${entry} → services/${entry}`);
+    }
+  }
+
   // Create .cjs shims for files required as .cjs by main.ts
   const cjsShimTargets = [
     'services/AIService.js',

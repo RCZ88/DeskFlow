@@ -1,5 +1,22 @@
 import { useRef, useCallback, useState, useMemo } from 'react'
-import type { CanvasCard } from '../../../types/canvas'
+import type { CanvasCard, CardType } from '../../../types/canvas'
+
+const CARD_TYPE_COLORS: Record<CardType, string> = {
+  focus: '#f472b6',
+  plan: '#a78bfa',
+  reflect: '#c084fc',
+  finance: '#34d399',
+  digest: '#22d3ee',
+  approval: '#fbbf24',
+  transient: '#71717a',
+  annotation: '#fb923c',
+  response: '#60a5fa',
+  group: '#818cf8',
+  connectors: '#2dd4bf',
+  schedule: '#f87171',
+  deadlines: '#f97316',
+  planner: '#38bdf8',
+}
 
 const MAP_W = 160
 const MAP_H = 120
@@ -150,8 +167,8 @@ export function CanvasMinimap({ cards, pan, zoom, viewportSize, onPanChange }: C
             y={toMapY(card.position.y)}
             width={Math.max(2, card.size.w * 40 * scale)}
             height={Math.max(2, card.size.h * 40 * scale)}
-            fill="var(--dk-accent)"
-            fillOpacity={0.6}
+            fill={CARD_TYPE_COLORS[card.type] || 'var(--dk-accent)'}
+            fillOpacity={0.7}
             rx={1}
           />
         ))}

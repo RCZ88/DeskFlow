@@ -778,6 +778,18 @@ export default function SettingsPage({
     }
     localStorage.setItem('deskflow-app-category-overrides', JSON.stringify(appCategoryOverrides));
     localStorage.setItem('deskflow-domain-category-overrides', JSON.stringify(domainCategoryOverrides));
+    // Push individual app overrides to main process so tracking uses updated categories immediately
+    if (window.deskflowAPI?.setAppCategory) {
+      for (const [appName, category] of Object.entries(appCategoryOverrides)) {
+        await window.deskflowAPI.setAppCategory(appName, category);
+      }
+    }
+    // Push domain overrides to main process
+    if (window.deskflowAPI?.setDomainCategory) {
+      for (const [domain, category] of Object.entries(domainCategoryOverrides)) {
+        await window.deskflowAPI.setDomainCategory(domain, category);
+      }
+    }
     localStorage.setItem('deskflow-animation-speed', animationSpeed);
     localStorage.setItem('deskflow-agent-colors', JSON.stringify(agentColorOverrides));
 
@@ -1123,6 +1135,10 @@ export default function SettingsPage({
   const [promptHistoryLimit, setPromptHistoryLimit] = useState(5);
   const [browserRecordingMode, setBrowserRecordingMode] = useState<'always' | 'on-view'>('always');
   const [appRecordingMode, setAppRecordingMode] = useState<'always' | 'on-view'>('always');
+  const [availableBrowsers, setAvailableBrowsers] = useState<string[]>([]);
+  const [selectedBrowsers, setSelectedBrowsers] = useState<string[]>([]);
+  const [forceBrowserTracking, setForceBrowserTracking] = useState(false);
+  const [serverStatus, setServerStatus] = useState<any>(null);
 
   // System Prompts state
   const [systemPrompts, setSystemPrompts] = useState<Record<string, string>>({
@@ -1150,6 +1166,27 @@ export default function SettingsPage({
       if (window.deskflowAPI?.getPreferences) {
         const prefs = await window.deskflowAPI.getPreferences();
         setTrackingPollInterval(prefs.trackingPollInterval || 1000);
+        if (prefs?.browsersWithExtension && Array.isArray(prefs.browsersWithExtension)) {
+          setSelectedBrowsers(prefs.browsersWithExtension);
+        } else if (prefs?.browserWithExtension) {
+          setSelectedBrowsers([prefs.browserWithExtension.toLowerCase()]);
+        }
+        if (prefs?.forceBrowserTracking !== undefined) {
+          setForceBrowserTracking(prefs.forceBrowserTracking);
+        }
+      }
+      if (window.deskflowAPI?.getAvailableBrowsers) {
+        try {
+          const browsers = await window.deskflowAPI.getAvailableBrowsers();
+          setAvailableBrowsers(browsers || []);
+        } catch { setAvailableBrowsers([]); }
+      }
+      // Get server status via IPC (CSP blocks direct fetch)
+      if (window.deskflowAPI?.getBrowserTrackingStatus) {
+        try {
+          const status = await window.deskflowAPI.getBrowserTrackingStatus();
+          setServerStatus(status);
+        } catch { setServerStatus({ error: 'Failed to get status' }); }
       }
     };
     loadTrackingSettings();
@@ -2763,6 +2800,106 @@ export default function SettingsPage({
                   <RefreshCw className="w-4 h-4" />
                   Rescan Games
                 </button>
+              </div>
+            </div>
+
+            {/* Browser Extension Tracking */}
+            <div className="pt-4 border-t border-zinc-700/50 space-y-3">
+              <div>
+                <h3 className="text-sm font-medium text-zinc-300">Browser Extension Tracking</h3>
+                <p className="text-xs text-zinc-500">Toggle which browsers have the DeskFlow extension. Website tracking works for all enabled browsers.</p>
+              </div>
+              {availableBrowsers.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {availableBrowsers.map(b => {
+                    const isEnabled = selectedBrowsers.includes(b.toLowerCase());
+                    return (
+                      <button
+                        key={b}
+                        onClick={async () => {
+                          const lower = b.toLowerCase();
+                          const next = isEnabled
+                            ? selectedBrowsers.filter(x => x !== lower)
+                            : [...selectedBrowsers, lower];
+                          setSelectedBrowsers(next);
+                          if (window.deskflowAPI?.setPreference) {
+                            await window.deskflowAPI.setPreference('browsersWithExtension', next);
+                            // Keep backward compat
+                            await window.deskflowAPI.setPreference('browserWithExtension', next[0] || '');
+                          }
+                        }}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition ${
+                          isEnabled
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                            : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:text-zinc-300'
+                        }`}
+                      >
+                        <span className={`w-3 h-3 rounded border-2 flex items-center justify-center ${
+                          isEnabled ? 'border-emerald-400 bg-emerald-400' : 'border-zinc-600'
+                        }`}>
+                          {isEnabled && (
+                            <svg className="w-2 h-2 text-zinc-900" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          )}
+                        </span>
+                        {b.charAt(0).toUpperCase() + b.slice(1)}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-zinc-500">No browsers detected. Install a browser to enable tracking.</p>
+              )}
+              {selectedBrowsers.length > 0 && (
+                <p className="text-[11px] text-emerald-400/80">
+                  Tracking: {selectedBrowsers.map(b => b.charAt(0).toUpperCase() + b.slice(1)).join(', ')}
+                </p>
+              )}
+              {selectedBrowsers.length === 0 && (
+                <p className="text-[11px] text-amber-400/80 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3 h-3" />
+                  No browser enabled — website tracking is off
+                </p>
+              )}
+            </div>
+
+            {/* Server Status + Force Toggle */}
+            <div className="pt-4 border-t border-zinc-700/50 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-medium text-zinc-300">Force Browser Tracking</label>
+                  <p className="text-xs text-zinc-500">Bypass focus checks — accept all extension data regardless of foreground app</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    const newVal = !forceBrowserTracking;
+                    setForceBrowserTracking(newVal);
+                    if (window.deskflowAPI?.setPreference) {
+                      await window.deskflowAPI.setPreference('forceBrowserTracking', newVal);
+                    }
+                  }}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${forceBrowserTracking ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${forceBrowserTracking ? 'translate-x-5' : ''}`} />
+                </button>
+              </div>
+
+              {/* Server Status */}
+              <div className="p-3 rounded-lg bg-zinc-800/50 border border-zinc-700/30">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`w-2 h-2 rounded-full ${serverStatus && !serverStatus.error ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                  <span className="text-xs font-medium text-zinc-300">Extension Server (port {serverStatus?.port || 54321})</span>
+                </div>
+                {serverStatus && !serverStatus.error ? (
+                  <div className="text-[11px] text-zinc-500 space-y-1 font-mono">
+                    <div>Browsers: {(serverStatus.browsersWithExtension || []).join(', ') || serverStatus.browserWithExtension || '(none)'}</div>
+                    <div>Foreground: {serverStatus.currentApp || '(null)'}</div>
+                    <div>Active sessions: {serverStatus.activeBrowserSessions} | Last domain: {serverStatus.lastActiveDomain || '(none)'}</div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-red-400">Could not get server status</p>
+                )}
               </div>
             </div>
 

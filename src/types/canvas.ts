@@ -33,6 +33,8 @@ export interface CanvasState {
   cards: Record<string, CanvasCard>
   groups: Record<string, CanvasGroup>
   nextZIndex: number
+  pan: { x: number; y: number }
+  zoom: number
 }
 
 export type CanvasAction =
@@ -55,6 +57,8 @@ export const DEFAULT_STATE: CanvasState = {
   cards: {},
   groups: {},
   nextZIndex: 1,
+  pan: { x: 0, y: 0 },
+  zoom: 1,
 }
 
 export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {

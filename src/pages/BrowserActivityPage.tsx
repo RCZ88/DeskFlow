@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronLeft, ChevronRight, ChevronDown, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon, Layers, Search, Filter, Monitor, Tags, ListOrdered, AppWindow, Zap, Award, Timer, LayoutGrid } from 'lucide-react';
+import { Globe, BarChart3, Clock, TrendingUp, AlertCircle, RefreshCw, X, ChevronLeft, ChevronRight, ChevronDown, Activity, Terminal, Save, Play, Pause, TrendingUp as TrendingUpIcon, Layers, Search, Filter, Monitor, Tags, ListOrdered, AppWindow, Zap, Award, Timer, LayoutGrid, Pencil, Trash2, Check, X as XIcon, Plus, Link } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { SectionHeader } from '../components/SectionHeader';
@@ -76,6 +76,36 @@ interface BrowserActivityPageProps {
   allLogs?: unknown[];
 }
 
+interface BrowserProfile {
+  id: number;
+  browser_name: string;
+  profile_id: string;
+  profile_name: string;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+  browser_version: string;
+  last_seen_at: string;
+  total_duration_ms: number;
+  is_connected: number;
+  color_tag: string;
+}
+
+const PROFILE_COLORS = [
+  '#22c55e', '#3b82f6', '#a855f7', '#ef4444',
+  '#f59e0b', '#06b6d4', '#ec4899', '#10b981',
+  '#6366f1', '#f97316', '#14b8a6', '#8b5cf6'
+];
+
+function relativeTime(dateStr: string): string {
+  if (!dateStr) return 'never';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return `${Math.floor(diff / 86400000)}d ago`;
+}
+
 export default function BrowserActivityPage({ embedded, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments: tierAssignmentsProp, allLogs }: BrowserActivityPageProps) {
   const [domainStats, setDomainStats] = useState<any[]>([]);
   const [categoryStats, setCategoryStats] = useState<any[]>([]);
@@ -99,6 +129,13 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
   const [selectedBrowserProfile, setSelectedBrowserProfile] = useState<string>('all');
   const [availableBrowserProfiles, setAvailableBrowserProfiles] = useState<string[]>([]);
   const [showLiveDetection, setShowLiveDetection] = useState(false);
+  const [browserProfiles, setBrowserProfiles] = useState<BrowserProfile[]>([]);
+  const [editingProfileId, setEditingProfileId] = useState<number | null>(null);
+  const [editingProfileName, setEditingProfileName] = useState('');
+  const [knownApps, setKnownApps] = useState<Array<{app: string; category: string; last_used: string}>>([]);
+  const [showAddProfile, setShowAddProfile] = useState(false);
+  const [addProfileAppName, setAddProfileAppName] = useState('');
+  const [linkingProfileId, setLinkingProfileId] = useState<number | null>(null);
   const scrollPosRef = useRef(0);
 
   // Save scroll position continuously
@@ -286,8 +323,10 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
   // Filter domain stats by selected browser profile
   const filteredDomainStats = useMemo(() => {
     if (selectedBrowserProfile === 'all') return domainStats;
-    return domainStats.filter((d: any) => d.browser_name === selectedBrowserProfile);
-  }, [domainStats, selectedBrowserProfile]);
+    const profile = profileByBrowser.get(selectedBrowserProfile);
+    const filterBrowserName = profile ? profile.browser_name : selectedBrowserProfile;
+    return domainStats.filter((d: any) => d.browser_name === filterBrowserName);
+  }, [domainStats, selectedBrowserProfile, profileByBrowser]);
 
   // Filter browser logs by selected browser profile
   const filteredBrowserLogs = useMemo(() => {
@@ -332,15 +371,125 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
     }
   }, [selectedPeriod, dateOffset]);
 
+  const loadBrowserProfiles = useCallback(async () => {
+    try {
+      const api = (window as any).deskflowAPI;
+      if (!api?.getBrowserProfiles) return;
+      const data = await api.getBrowserProfiles();
+      if (isMountedRef.current) setBrowserProfiles(data || []);
+    } catch (err) {
+      // silent
+    }
+  }, []);
+
+  const loadKnownApps = useCallback(async () => {
+    try {
+      const api = (window as any).deskflowAPI;
+      if (!api?.getKnownApps) return;
+      const data = await api.getKnownApps();
+      if (isMountedRef.current) setKnownApps(data || []);
+    } catch (err) {
+      // silent
+    }
+  }, []);
+
+  const handleProfileToggle = async (profile: BrowserProfile) => {
+    try {
+      await (window as any).deskflowAPI.toggleBrowserProfile({ profileId: profile.id, isActive: !profile.is_active });
+      loadBrowserProfiles();
+    } catch (err) {
+      console.error('[BrowserActivity] Toggle profile failed:', err);
+    }
+  };
+
+  const handleProfileRename = async (profile: BrowserProfile) => {
+    if (!editingProfileName.trim()) return;
+    try {
+      await (window as any).deskflowAPI.renameBrowserProfile({ profileId: profile.id, newName: editingProfileName.trim() });
+      setEditingProfileId(null);
+      loadBrowserProfiles();
+    } catch (err) {
+      console.error('[BrowserActivity] Rename profile failed:', err);
+    }
+  };
+
+  const handleProfileDelete = async (profile: BrowserProfile) => {
+    try {
+      await (window as any).deskflowAPI.deleteBrowserProfile({ profileId: profile.id });
+      loadBrowserProfiles();
+    } catch (err) {
+      console.error('[BrowserActivity] Delete profile failed:', err);
+    }
+  };
+
+  const handleProfileColorChange = async (profile: BrowserProfile, color: string) => {
+    try {
+      await (window as any).deskflowAPI.setBrowserProfileColor({ profileId: profile.id, color });
+      loadBrowserProfiles();
+    } catch (err) {
+      console.error('[BrowserActivity] Color change failed:', err);
+    }
+  };
+
+  const handleAddProfile = async (appName?: string) => {
+    const name = appName || addProfileAppName;
+    if (!name.trim()) return;
+    try {
+      const api = (window as any).deskflowAPI;
+      const profileId = `manual-${Date.now()}`;
+      await api.upsertBrowserProfile({
+        browserName: name,
+        profileId,
+        profileName: name,
+      });
+      const profiles = await api.getBrowserProfiles();
+      const created = profiles.find((p: any) => p.browser_name === name && p.profile_id === profileId);
+      if (created) {
+        await api.updateBrowserProfileApp({ profileId: created.id, knownAppName: name });
+      }
+      setShowAddProfile(false);
+      setAddProfileAppName('');
+      loadBrowserProfiles();
+    } catch (err) {
+      console.error('[BrowserActivity] Add profile failed:', err);
+    }
+  };
+
+  const handleSetProfileApp = async (profile: any, knownAppName: string) => {
+    try {
+      await (window as any).deskflowAPI.updateBrowserProfileApp({ profileId: profile.id, knownAppName });
+      setLinkingProfileId(null);
+      loadBrowserProfiles();
+    } catch (err) {
+      console.error('[BrowserActivity] Link app failed:', err);
+    }
+  };
+
+  // Build a lookup from browser_name or known_app_name to profile data
+  const profileByBrowser = useMemo(() => {
+    const map = new Map<string, BrowserProfile>();
+    for (const p of browserProfiles) {
+      map.set(p.browser_name, p);
+      if (p.known_app_name) {
+        map.set(p.known_app_name, p);
+      }
+    }
+    return map;
+  }, [browserProfiles]);
+
   // Fetch data on mount and when period or dateOffset changes
   useEffect(() => {
     isMountedRef.current = true;
     fetchData();
+    loadBrowserProfiles();
+    loadKnownApps();
     
     // Auto-refresh every 30 seconds (skip for 'all' to avoid heavy re-fetches)
     const interval = setInterval(() => {
       if (isMountedRef.current && !loading && selectedPeriod !== 'all') {
         fetchData();
+        loadBrowserProfiles();
+        loadKnownApps();
       }
     }, 30000);
     
@@ -516,7 +665,7 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
     const totalDays = Math.round((range.end.getTime() - range.start.getTime()) / 86400000);
     const daysBack = selectedPeriod === 'week' ? 7 : selectedPeriod === 'month' ? totalDays : 90;
     const result: { label: string; ms: number }[] = [];
-    for (let i = daysBack - 1; i >= 0; i--) {
+    for (let i = 0; i < daysBack; i++) {
       const d = new Date(range.start.getTime() + i * 86400000);
       const dayStr = d.toISOString().split('T')[0];
       result.push({
@@ -768,6 +917,163 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
         ))}
       </div>
 
+      {/* Browser Profiles Section (between stats and charts) */}
+      <GlassCard>
+        <SectionHeader title="Browser Profiles" icon={<Monitor className="w-5 h-5 text-emerald-400" />}
+          action={<div className="flex items-center gap-2">
+            <button onClick={() => setShowAddProfile(true)} className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition">
+              <Plus className="w-3 h-3" /> Add Profile
+            </button>
+            {browserProfiles.length > 0 && <span className="text-xs text-zinc-500">{browserProfiles.filter(p => p.is_active).length} active / {browserProfiles.length} total</span>}
+          </div>}
+        />
+        {browserProfiles.length === 0 ? (
+          <SectionState kind="empty" message="No browser profiles detected" hint="Install the DeskFlow Browser Tracker extension to start tracking per-profile activity" />
+        ) : (
+          <motion.div className="space-y-2" initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.04 } } }}>
+            {browserProfiles.map(profile => (
+              <motion.div
+                key={profile.id}
+                variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
+                className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                  profile.is_active
+                    ? 'bg-[rgba(24,24,27,0.60)] border-zinc-700/60 hover:border-zinc-600'
+                    : 'bg-[rgba(24,24,27,0.30)] border-zinc-800/40 opacity-60'
+                }`}
+              >
+                {/* Color indicator */}
+                <div className="relative group">
+                  <div
+                    className="w-3 h-3 rounded-full cursor-pointer ring-2 ring-white/10"
+                    style={{ backgroundColor: profile.color_tag }}
+                  />
+                  <div className="absolute top-full left-0 mt-1 hidden group-hover:flex gap-1 bg-zinc-900 border border-white/10 rounded-lg p-1.5 z-10 shadow-xl">
+                    {PROFILE_COLORS.map(c => (
+                      <button
+                        key={c}
+                        className="w-4 h-4 rounded-full ring-1 ring-white/20 hover:ring-white/40 transition"
+                        style={{ backgroundColor: c }}
+                        onClick={() => handleProfileColorChange(profile, c)}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Browser icon letter */}
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+                  style={{ backgroundColor: profile.color_tag + '22', color: profile.color_tag }}
+                >
+                  {profile.browser_name[0]?.toUpperCase()}
+                </div>
+
+                {/* Profile name + browser */}
+                <div className="flex-1 min-w-0">
+                  {editingProfileId === profile.id ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={editingProfileName}
+                        onChange={e => setEditingProfileName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleProfileRename(profile);
+                          if (e.key === 'Escape') setEditingProfileId(null);
+                        }}
+                        className="flex-1 bg-zinc-800 border border-white/10 rounded-md px-2 py-0.5 text-sm text-white outline-none focus:border-sky-500/50"
+                        autoFocus
+                      />
+                      <button onClick={() => handleProfileRename(profile)} className="text-emerald-400 hover:text-emerald-300"><Check className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => setEditingProfileId(null)} className="text-zinc-500 hover:text-zinc-300"><XIcon className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ) : (
+                    <div
+                      className="text-sm font-medium text-zinc-200 truncate cursor-pointer hover:text-white"
+                      onClick={() => { setEditingProfileId(profile.id); setEditingProfileName(profile.profile_name); }}
+                      title="Click to rename"
+                    >
+                      {profile.profile_name}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs text-zinc-500">{profile.browser_name}</span>
+                    <span className="text-[10px] text-zinc-600">•</span>
+                    <span className="text-xs text-zinc-500">{profile.browser_version || ''}</span>
+                    {profile.known_app_name && (
+                      <>
+                        <span className="text-[10px] text-zinc-600">•</span>
+                        <span className="text-xs text-emerald-500 font-medium">→ {profile.known_app_name}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Connection + duration */}
+                <div className="text-right flex-shrink-0">
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <span className={`w-1.5 h-1.5 rounded-full ${profile.is_connected ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                    <span className="text-xs text-zinc-500">
+                      {profile.is_connected ? 'connected' : `last ${relativeTime(profile.last_seen_at)}`}
+                    </span>
+                  </div>
+                  <div className="text-xs text-zinc-600 mt-0.5">{formatDuration(profile.total_duration_ms)} tracked</div>
+                </div>
+
+                {/* Link to App */}
+                <div className="relative flex-shrink-0">
+                  {linkingProfileId === profile.id ? (
+                    <div className="flex items-center gap-1">
+                      <select
+                        value=""
+                        onChange={e => {
+                          if (e.target.value) handleSetProfileApp(profile, e.target.value);
+                        }}
+                        onBlur={() => setLinkingProfileId(null)}
+                        className="bg-zinc-800 border border-white/10 rounded-md px-1.5 py-1 text-xs text-white outline-none focus:border-sky-500/50 max-w-[120px]"
+                        autoFocus
+                      >
+                        <option value="">Link to app...</option>
+                        {knownApps.map((ka, i) => (
+                          <option key={i} value={ka.app}>{ka.app}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setLinkingProfileId(profile.id)}
+                      className="p-1 rounded-md text-zinc-600 hover:text-sky-400 hover:bg-sky-500/10 transition"
+                      title="Link to tracked app"
+                    >
+                      <Link className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => handleProfileToggle(profile)}
+                    className={`px-2 py-1 rounded-md text-xs font-medium transition ${
+                      profile.is_active
+                        ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                        : 'bg-zinc-700/50 text-zinc-500 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {profile.is_active ? 'Active' : 'Paused'}
+                  </button>
+                  <button
+                    onClick={() => handleProfileDelete(profile)}
+                    className="p-1 rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition"
+                    title="Delete profile"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
+        )}
+      </GlassCard>
+
       {/* Charts Row — Category + Top Domains (prominent, first after stats) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <GlassCard>
@@ -780,6 +1086,35 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
             )}
           </div>
         </GlassCard>
+
+        {/* Add Profile Dialog */}
+        {showAddProfile && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowAddProfile(false)}>
+            <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+              <h3 className="text-sm font-semibold text-zinc-200 mb-3">Add Browser Profile</h3>
+              <p className="text-xs text-zinc-500 mb-3">Select a tracked app to create a profile for it</p>
+              <div className="space-y-2 max-h-48 overflow-y-auto mb-3">
+                {knownApps.length === 0 ? (
+                  <p className="text-xs text-zinc-600 italic">No tracked apps detected yet. Use some apps first.</p>
+                ) : (
+                  knownApps.map((ka, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleAddProfile(ka.app)}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition"
+                    >
+                      {ka.app}
+                      <span className="text-xs text-zinc-600 ml-2">{ka.category}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowAddProfile(false)} className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white transition">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <GlassCard>
           <SectionHeader title="Top Domains" icon={<TrendingUp className="w-5 h-5" />} />
@@ -908,21 +1243,37 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
               <div className="text-sm text-zinc-500">All websites by total time</div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            {availableBrowserProfiles.length > 0 && (
-              <VoiceInputWrapper>
-                <select
-                  value={selectedBrowserProfile}
-                  onChange={e => setSelectedBrowserProfile(e.target.value)}
-                  className="bg-zinc-800/80 border border-zinc-700/50 text-zinc-300 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
-                >
-                  <option value="all">All browsers</option>
-                  {availableBrowserProfiles.map(p => (
-                    <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-                  ))}
-                </select>
-              </VoiceInputWrapper>
-            )}
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1 bg-zinc-900 rounded-lg p-0.5 border border-zinc-800">
+              <button
+                onClick={() => setSelectedBrowserProfile('all')}
+                className={`px-2 py-1 text-[11px] rounded-md font-medium transition ${
+                  selectedBrowserProfile === 'all'
+                    ? 'bg-zinc-700 text-white'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                All
+              </button>
+              {browserProfiles.map(p => {
+                const profileColor = p.color_tag || '#6b7280';
+                const filterKey = p.known_app_name || p.browser_name;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedBrowserProfile(filterKey)}
+                    className={`flex items-center gap-1 px-2 py-1 text-[11px] rounded-md font-medium transition ${
+                      selectedBrowserProfile === filterKey
+                        ? 'bg-zinc-700 text-white'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: profileColor }} />
+                    {p.known_app_name || p.profile_name}
+                  </button>
+                );
+              })}
+            </div>
             <div className="text-xs text-zinc-500">{filteredDomainStats.length} domains</div>
           </div>
         </div>

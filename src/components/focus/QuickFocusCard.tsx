@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { GlassCard } from '../../components/GlassCard';
+import { MagicCard } from '../../components/ui/magic-card';
 import { Badge } from '../../components/ui/badge';
 import { AnimatedCircularProgressBar } from '../../components/ui/animated-circular-progress-bar';
 import { Particles } from '../../components/ui/particles';
@@ -62,13 +62,14 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
   }, [active]);
 
   return (
-    <GlassCard className="relative overflow-hidden h-full bg-[#09090b] border border-zinc-800/60 rounded-xl p-5" accent="violet">
-      {/* Aurora Effect */}
-      <div className="absolute top-[-50%] left-[-10%] right-[-10%] h-[200px]
-                      bg-[radial-gradient(ellipse_at_center,_rgba(139,92,246,0.15)_0%,_transparent_70%)]
-                      blur-2xl pointer-events-none" />
-      {active && <Particles className="opacity-40" quantity={14} color="#8b5cf6" opacity={0.15} />}
-      {active && <BorderBeam size={200} duration={8} colorFrom="#8b5cf6" colorTo="#6366f1" />}
+    <MagicCard className="rounded-xl h-full" gradientFrom="#8b5cf6" gradientTo="#6366f1" gradientColor="rgba(139,92,246,0.06)">
+      <div className="relative overflow-hidden bg-[#09090b] border border-zinc-800/60 rounded-xl p-5">
+        {/* Aurora Effect */}
+        <div className="absolute top-[-50%] left-[-10%] right-[-10%] h-[200px]
+                        bg-[radial-gradient(ellipse_at_center,_rgba(139,92,246,0.15)_0%,_transparent_70%)]
+                        blur-2xl pointer-events-none" />
+        {active && <Particles className="opacity-40" quantity={14} color="#8b5cf6" />}
+        {active && <BorderBeam size={200} duration={8} colorFrom="#8b5cf6" colorTo="#6366f1" />}
       <div className="relative z-10 flex flex-col items-center gap-4">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
@@ -193,6 +194,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
           </p>
         </div>
       </div>
-    </GlassCard>
+      </div>
+    </MagicCard>
   );
 }

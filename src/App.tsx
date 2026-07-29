@@ -2,6 +2,7 @@
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { PageTitle } from './components/PageTitle';
 import confetti from 'canvas-confetti';
 import { SidebarLogo } from './components/SidebarLogo';
 import {
@@ -28,9 +29,11 @@ import { LearnPage } from './components/learn/LearnPage';
 import GuidePage from './pages/GuidePage';
 import TerminalPage from './pages/TerminalPage';
 import ExternalPage from './pages/ExternalPage';
+import FocusPage from './pages/FocusPage';
 import ConductorPage from './pages/ConductorPage';
 
 import { AiPage } from './pages/AiPage';
+import { AppBackground } from './components/AppBackground';
 
 import InsightsPage from './pages/InsightsPage';
 import { FinancePage } from './pages/FinancePage';
@@ -40,9 +43,11 @@ import ResumePreviewPage from './pages/ResumePreviewPage';
 import ResumeImportPage from './pages/ResumeImportPage';
 import ResumeExportPage from './pages/ResumeExportPage';
 import DashboardPage from './pages/DashboardPage';
+import NotFoundPage from './pages/NotFoundPage';
 import FeatureSpecViewer from './components/FeatureSpecViewer';
 import AfkPromptModal from './components/AfkPromptModal';
 import { PairPhoneModal } from './components/PairPhoneModal';
+import { VoiceProvider } from './context/VoiceContext';
 import { getDateRange } from './lib/dateRange';
 import type { Period } from './lib/dateRange';
 // Agent dashboard is disabled - file incomplete
@@ -237,14 +242,17 @@ const BROWSER_PROCESS_NAMES_RENDERER: Record<string, string[]> = {
   'safari': ['safari'],
 };
 
-function isAppMatchingBrowserRenderer(appName: string, browserName: string): boolean {
+function isAppMatchingBrowserRenderer(appName: string, browserName: string | string[]): boolean {
   if (!appName || !browserName) return false;
   const appLower = appName.toLowerCase().replace(/\.exe$/i, '');
-  const browserLower = browserName.toLowerCase();
-  const processNames = BROWSER_PROCESS_NAMES_RENDERER[browserLower] || [browserLower];
-  return appLower.includes(browserLower) ||
-    browserLower.includes(appLower) ||
-    processNames.some(p => appLower.includes(p));
+  const browsers = Array.isArray(browserName) ? browserName : [browserName];
+  return browsers.some(b => {
+    const browserLower = b.toLowerCase();
+    const processNames = BROWSER_PROCESS_NAMES_RENDERER[browserLower] || [browserLower];
+    return appLower.includes(browserLower) ||
+      browserLower.includes(appLower) ||
+      processNames.some(p => appLower.includes(p));
+  });
 }
 
 import { GapBanner } from './components/GapBanner';
@@ -308,12 +316,25 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem('df-sidebar-collapsed') === 'true'; } catch { return false; }
   });
+  const [solarOverlayActive, setSolarOverlayActive] = useState(false);
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(prev => {
       const next = !prev;
       try { localStorage.setItem('df-sidebar-collapsed', String(next)); } catch {}
       return next;
     });
+  }, []);
+
+  // Hide sidebar when solar overlay is active (fullscreen or modal)
+  useEffect(() => {
+    const onSolarOverlay = (e: CustomEvent<{ active: boolean }>) => setSolarOverlayActive(e.detail.active);
+    const onSolarFullscreen = (e: CustomEvent<{ fullscreen: boolean }>) => setSolarOverlayActive(e.detail.fullscreen);
+    window.addEventListener('solar-overlay-change', onSolarOverlay as EventListener);
+    window.addEventListener('solar-fullscreen-change', onSolarFullscreen as EventListener);
+    return () => {
+      window.removeEventListener('solar-overlay-change', onSolarOverlay as EventListener);
+      window.removeEventListener('solar-fullscreen-change', onSolarFullscreen as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -716,6 +737,7 @@ function App() {
   const [categoryOverrides, setCategoryOverrides] = useState<Record<string, string>>({});
   const [domainKeywordRules, setDomainKeywordRules] = useState<Record<string, string[]>>({});
   const [trackingBrowser, setTrackingBrowser] = useState<string>('');
+  const [trackingBrowsers, setTrackingBrowsers] = useState<string[]>([]);
 
   // Update ref when trackingBrowser state changes
   useEffect(() => {
@@ -727,8 +749,13 @@ function App() {
       try {
         if (window.deskflowAPI?.getPreferences) {
           const prefs = await window.deskflowAPI.getPreferences();
-          if (prefs?.browserWithExtension) {
+          // Load array of browsers with extension
+          if (prefs?.browsersWithExtension && Array.isArray(prefs.browsersWithExtension) && prefs.browsersWithExtension.length > 0) {
+            setTrackingBrowsers(prefs.browsersWithExtension);
+            setTrackingBrowser(prefs.browsersWithExtension[0] || '');
+          } else if (prefs?.browserWithExtension) {
             setTrackingBrowser(prefs.browserWithExtension.toLowerCase());
+            setTrackingBrowsers([prefs.browserWithExtension.toLowerCase()]);
           }
           if (prefs?.timerBehavior) {
             setTimerBehavior(prefs.timerBehavior);
@@ -1179,13 +1206,55 @@ function App() {
   // Load tier assignments on mount
   const [tierAssignments, setTierAssignments] = useState<{ productive: string[]; neutral: string[]; distracting: string[] } | null>(null);
 
-  useEffect(() => {
-    if (window.deskflowAPI?.getTierAssignments) {
-      window.deskflowAPI.getTierAssignments().then(assignments => {
-        setTierAssignments(assignments);
-        console.log('[DeskFlow] Loaded tier assignments:', assignments);
-      }).catch(err => console.warn('[DeskFlow] Failed to load tier assignments:', err));
+  const loadTierAssignments = useCallback(async () => {
+    if (!window.deskflowAPI?.getTierAssignments) return;
+    try {
+      const assignments = await window.deskflowAPI.getTierAssignments();
+      setTierAssignments(prev => {
+        const prevStr = JSON.stringify(prev);
+        const newStr = JSON.stringify(assignments);
+        if (prevStr !== newStr) {
+          console.log('[DeskFlow] Refreshed tier assignments:', assignments);
+          return assignments;
+        }
+        return prev;
+      });
+    } catch (err) {
+      console.warn('[DeskFlow] Failed to load tier assignments:', err);
     }
+  }, []);
+
+  useEffect(() => {
+    loadTierAssignments();
+  }, [loadTierAssignments]);
+
+  // Poll for tier assignment changes (settings page writes to main process + localStorage)
+  useEffect(() => {
+    const reloadTiers = () => {
+      try {
+        const saved = localStorage.getItem('deskflow-tier-assignments');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setTierAssignments((prev: typeof parsed) => {
+            const prevStr = JSON.stringify(prev);
+            if (prevStr !== saved) {
+              console.log('[DeskFlow] Reloaded tier assignments from localStorage');
+              return parsed;
+            }
+            return prev;
+          });
+        }
+      } catch { /* ignore */ }
+    };
+
+    const handleStorage = () => reloadTiers();
+    window.addEventListener('storage', handleStorage);
+    const interval = setInterval(reloadTiers, 1000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      clearInterval(interval);
+    };
   }, []);
 
   const [showSummary, setShowSummary] = useState(false);
@@ -2344,12 +2413,14 @@ Trend: +14% vs. yesterday. Keep it up!`;
   ];
 
   return (
+    <VoiceProvider>
     <TutorialProvider>
     <div className="flex h-screen overflow-hidden bg-[#121212] text-white">
-      {/* Sidebar — hidden on workspace (/terminal) since TerminalPage has its own sidebar */}
-      {location.pathname !== '/terminal' && (
+      <AppBackground />
+      {/* Sidebar — hidden on workspace (/terminal) and during solar overlay */}
+      {location.pathname !== '/terminal' && !solarOverlayActive && (
       <motion.div
-        className="border-r border-zinc-800 flex flex-col h-full glass overflow-hidden z-[100]"
+        className="border-r border-zinc-800 flex flex-col h-full glass overflow-hidden shrink-0"
         animate={{ width: sidebarCollapsed ? 60 : 256 }}
         transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
       >
@@ -2459,13 +2530,18 @@ Trend: +14% vs. yesterday. Keep it up!`;
             />
           )}
         </AnimatePresence>
-        {/* Top Bar — workspace (/terminal) renders its own header via TerminalPage */}
-        {location.pathname !== '/terminal' && (
+        {/* Top Bar — workspace (/terminal) and solar overlay render their own headers */}
+        {location.pathname !== '/terminal' && !solarOverlayActive && (
         <div className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 glass">
           <div className="flex items-center gap-4">
-            <div className="text-lg font-semibold tracking-tight">
-              {sidebarItems.find(i => i.path === location.pathname)?.label || 'Dashboard'}
-            </div>
+            {(() => {
+              const match = sidebarItems.find(i => i.path === location.pathname);
+              return match ? (
+                <PageTitle icon={match.icon} label={match.label} path={match.path} />
+              ) : (
+                <div className="text-lg font-semibold tracking-tight">Dashboard</div>
+              );
+            })()}
             <div className="text-xs px-2.5 py-1 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
               LIVE
@@ -2636,7 +2712,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
         {/* Main Scroll Area */}
         <div className={`flex-1 min-h-0 ${location.pathname === '/terminal' ? 'flex flex-col overflow-hidden' : 'overflow-auto p-5'}`}>
-          <ErrorBoundary>
+          <ErrorBoundary key={location.pathname}>
             <Routes key={location.pathname}>
               {/* Dashboard */}
               <Route path="/" element={
@@ -2648,7 +2724,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   onSelectedPeriodChange={setSelectedPeriod}
                   dateOffset={dateOffset}
                   onDateOffsetChange={setDateOffset}
-                  trackingBrowser={trackingBrowser} 
+                  trackingBrowser={trackingBrowser}
+                  trackingBrowsers={trackingBrowsers}
                   trackerAppMode={trackerAppMode} 
                   tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} 
                   timerState={timerState} 
@@ -2685,7 +2762,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
               <Route path="/guide" element={<GuidePage />} />
 
-              <Route path="/life" element={<Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Life...</div>}><LifePage /></Suspense>} />
+              <Route path="/life" element={<ErrorBoundary><Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Life...</div>}><LifePage /></Suspense></ErrorBoundary>} />
 
               <Route path="/learn" element={<LearnPage />} />
               <Route path="/conductor" element={<div className="flex items-center justify-center h-full text-zinc-500 text-sm">Conductor is now in the workspace sidebar</div>} />
@@ -2709,6 +2786,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <Route path="/pricing" element={<div className="glass rounded-3xl p-8 flex items-center justify-center h-96"><div className="text-center text-zinc-400"><div className="text-4xl mb-4">!</div><div className="text-lg font-medium">Not Yet Added Feature</div><div className="text-sm text-zinc-500 mt-1">Pricing plans are coming soon</div></div></div>} />
               {/* Settings Page */}
 <Route path="/settings" element={<SettingsPage logs={logs} appStats={allTimeAppStats} websiteStats={allTimeWebsiteStats} onRegisterSave={handleRegisterSave} onReloadData={loadData} onCategoryOverridesChange={setCategoryOverrides} onHasChangesChange={setSettingsHasChanges} timerBehavior={timerBehavior} setTimerBehavior={setTimerBehavior} trackerAppMode={trackerAppMode} setTrackerAppMode={setTrackerAppMode} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} onExternalActivityTiersChange={setExternalActivityTiers} showGapBannerSetting={showGapBannerSetting} setShowGapBannerSetting={setShowGapBannerSetting} />} />
+              {/* 404 catch-all */}
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </ErrorBoundary>
 
@@ -3084,6 +3163,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
       <TutorialOverlay />
     </div>
     </TutorialProvider>
+    </VoiceProvider>
   );
 }
 

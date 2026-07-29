@@ -112,6 +112,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getRecordingModes: () => ipcRenderer.invoke('get-recording-modes'),
   setPageVisibility: (page: 'browser' | 'dashboard', visible: boolean) => ipcRenderer.invoke('set-page-visibility', { page, visible }),
   setBrowserWithExtension: (browser: string) => ipcRenderer.invoke('set-browser-with-extension', browser),
+  setBrowsersWithExtension: (browsers: string[]) => ipcRenderer.invoke('set-browsers-with-extension', browsers),
 
   // Game detection - rescan Steam library
   rescanGames: () => ipcRenderer.invoke('rescan-games'),
@@ -119,6 +120,15 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Get tracked browsers (apps categorized as Browser)
   getTrackedBrowsers: () => ipcRenderer.invoke('get-tracked-browsers'),
   getAvailableBrowsers: () => ipcRenderer.invoke('get-available-browsers'),
+
+  // Browser profile management
+  getBrowserProfiles: () => ipcRenderer.invoke('get-browser-profiles'),
+  toggleBrowserProfile: (args: { profileId: number; isActive: boolean }) => ipcRenderer.invoke('toggle-browser-profile', args),
+  renameBrowserProfile: (args: { profileId: number; newName: string }) => ipcRenderer.invoke('rename-browser-profile', args),
+  deleteBrowserProfile: (args: { profileId: number }) => ipcRenderer.invoke('delete-browser-profile', args),
+  setBrowserProfileColor: (args: { profileId: number; color: string }) => ipcRenderer.invoke('set-browser-profile-color', args),
+  upsertBrowserProfile: (args: { browserName: string; profileId: string; profileName: string; browserVersion?: string }) => ipcRenderer.invoke('upsert-browser-profile', args),
+  updateBrowserProfileApp: (args: { profileId: number; knownAppName: string }) => ipcRenderer.invoke('update-browser-profile-app', args),
 
   // Productivity tracking
   getDailyProductivity: (date: string) => ipcRenderer.invoke('get-daily-productivity', date),
@@ -576,6 +586,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
    updateActivityChartPreference: (activityId: string, chartType: string) => ipcRenderer.invoke('update-activity-chart-preference', activityId, chartType),
    getSleepTrends: (period: string, dateOffset = 0) => ipcRenderer.invoke('get-sleep-trends', period, dateOffset),
   getConsistencyScore: (period: 'week' | 'month') => ipcRenderer.invoke('get-consistency-score', period),
+  getMomentumScore: (date?: string) => ipcRenderer.invoke('get-momentum-score', date),
   getExternalSettings: (key: string) => ipcRenderer.invoke('get-external-settings', key),
   setExternalSettings: (key: string, value: string) => ipcRenderer.invoke('set-external-settings', key, value),
   getTrackingSettings: () => ipcRenderer.invoke('get-tracking-settings'),
@@ -1212,6 +1223,32 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   learnGetLessonSource: (args: { lessonId: string }) => ipcRenderer.invoke('learn:getLessonSource', args),
   learnUpdateLessonMeta: (args: { lessonId: string; title?: string; part?: number; summary?: string; chapter?: string }) => ipcRenderer.invoke('learn:updateLessonMeta', args),
   learnDeleteLesson: (args: { lessonId: string }) => ipcRenderer.invoke('learn:deleteLesson', args),
+
+  // ========== Timer System ==========
+  learnTimerStart: (args: { lessonId?: number }) => ipcRenderer.invoke('learn:timerStart', args),
+  learnTimerPause: (args: { sessionId: number }) => ipcRenderer.invoke('learn:timerPause', args),
+  learnTimerResume: (args: { sessionId: number }) => ipcRenderer.invoke('learn:timerResume', args),
+  learnTimerStop: (args: { sessionId: number; duration: number; nodesSeen?: number[]; quizzesTaken?: number; cardsReviewed?: number; masteryGained?: number }) => ipcRenderer.invoke('learn:timerStop', args),
+  learnTimerGetState: () => ipcRenderer.invoke('learn:timerGetState'),
+
+  // ========== Goals System ==========
+  learnGetGoals: (args?: { type?: string; date?: string }) => ipcRenderer.invoke('learn:getGoals', args || {}),
+  learnSetGoal: (args: { type: string; metric: string; target: number; periodStart: string; periodEnd?: string; deadline?: string }) => ipcRenderer.invoke('learn:setGoal', args),
+  learnUpdateGoalProgress: (args: { goalId: number; delta: number }) => ipcRenderer.invoke('learn:updateGoalProgress', args),
+  learnGetGoalSuggestions: () => ipcRenderer.invoke('learn:getGoalSuggestions'),
+
+  // ========== Streak System ==========
+  learnGetStreak: () => ipcRenderer.invoke('learn:getStreak'),
+
+  // ========== Achievements System ==========
+  learnGetAchievements: (args?: { viewed?: boolean }) => ipcRenderer.invoke('learn:getAchievements', args || {}),
+  learnCheckAchievements: (args: { trigger: string; metadata?: any }) => ipcRenderer.invoke('learn:checkAchievements', args),
+  learnMarkAchievementViewed: (args: { badgeKey: string }) => ipcRenderer.invoke('learn:markAchievementViewed', args),
+
+  // ========== Analytics ==========
+  learnGetSessionHistory: (args?: { limit?: number; lessonId?: number }) => ipcRenderer.invoke('learn:getSessionHistory', args || {}),
+  learnGetLessonStats: (args: { lessonId: number }) => ipcRenderer.invoke('learn:getLessonStats', args),
+  learnGetVelocity: () => ipcRenderer.invoke('learn:getVelocity'),
 
   // ========== Smart Gap Fill ==========
   getKnownApps: () => ipcRenderer.invoke('get-known-apps'),

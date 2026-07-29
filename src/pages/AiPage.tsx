@@ -335,9 +335,10 @@ export function AiPage() {
         return;
       }
 
-      // ── PLAIN TEXT → existing pairing logic ──
+      // ── PLAIN TEXT → merge into existing card or create new ──
       if (lastCardId.current && canvas.allCards[lastCardId.current]) {
         const existing = canvas.allCards[lastCardId.current];
+        // If previous card is a user input, pair the AI response with it
         if (existing.type === 'response' && existing.data?.isUserInput) {
           canvas.updateCard(lastCardId.current, {
             data: {
@@ -348,6 +349,21 @@ export function AiPage() {
             size: { w: 10, h: 8 },
           });
           msgCardIds.current.set(msg.id, lastCardId.current);
+          return;
+        }
+        // If previous card is an AI response, append to it (merge conversation)
+        if (existing.type === 'response' && !existing.data?.isUserInput) {
+          const prevContent = existing.data?.content || '';
+          const newContent = prevContent ? prevContent + '\n\n' + msg.content : msg.content;
+          canvas.updateCard(lastCardId.current, {
+            data: {
+              ...existing.data,
+              content: newContent,
+              timestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : existing.data?.timestamp,
+            },
+          });
+          msgCardIds.current.set(msg.id, lastCardId.current);
+          setFocusedCardId(lastCardId.current);
           return;
         }
       }
@@ -1216,7 +1232,7 @@ export function AiPage() {
                 style={{ height: 26, padding: "0 10px" }}
               >
                 <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>
-                  {canvasMode ? 'DECK' : 'CANVAS'}
+                  {canvasMode ? 'CANVAS' : 'DECK'}
                 </span>
               </button>
               <button
@@ -1460,10 +1476,37 @@ export function AiPage() {
               onResizeCard={canvas.resizeCard}
               onCardClick={(id) => setSelectedCardId(id)}
               saveStatus={canvas.saveStatus}
+              onSaveCanvas={canvas.forceSave}
               onSend={handleSend}
               onStop={chat.stop}
               streaming={chat.streaming}
               thinking={chat.thinking}
+              focusedCardId={focusedCardId}
+              autoFocus={autoFocus}
+              onToggleAutoFocus={() => setAutoFocus(v => !v)}
+              onOpenPalette={() => setPaletteOpen(true)}
+              onGroupCards={(cardIds) => {
+                if (cardIds.length < 2) return
+                const cardPositions = cardIds.map(id => canvas.allCards[id]?.position).filter(Boolean)
+                const avgX = cardPositions.reduce((sum, p) => sum + p.x, 0) / cardPositions.length
+                const avgY = cardPositions.reduce((sum, p) => sum + p.y, 0) / cardPositions.length
+                canvas.createGroup('Group', cardIds)
+                cardIds.forEach((id, i) => {
+                  const card = canvas.allCards[id]
+                  if (card) {
+                    canvas.moveCard(id, {
+                      x: avgX + (i % 3) * (card.size.w * 40 + 20),
+                      y: avgY + Math.floor(i / 3) * (card.size.h * 40 + 20),
+                    })
+                  }
+                })
+              }}
+              canvasList={canvas.canvasList}
+              activeCanvasId={null}
+              onLoadCanvas={canvas.loadCanvas}
+              onRenameCanvas={canvas.rename}
+              onDeleteCanvas={canvas.removeCanvas}
+              onSaveAs={canvas.saveAs}
             />
           </div>
           )}

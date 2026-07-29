@@ -54,6 +54,24 @@ destructive SQL on the database without:
 
 Any agent that violates this rule has failed at its most basic responsibility.
 
+### PROCESS MANAGEMENT RULES (NEVER VIOLATE)
+- **ONLY kill processes you started yourself.** Never blindly kill all instances of a process
+  (e.g. `Get-Process -Name "electron" | Stop-Process`). You don't know what other sessions or
+  apps depend on those processes.
+- To check if a process exists before starting something new, use `Get-Process -Name "X" -ErrorAction SilentlyContinue` to read its status — but do NOT stop or kill it.
+- If you need a port or resource, ASK the user to free it, or find another way that doesn't
+  involve terminating processes you didn't create.
+
+### TESTING RULE — use Probe MCP, never manually launch
+- **NEVER spawn `npx electron .` or any app binary for testing.** Starting the app gives you
+  no visibility into what's happening (no console, no interaction). You cannot test the UI
+  from a shell.
+- **Always use Probe MCP** (`probe_open`, `probe_goto`, `probe_snapshot`, `probe_click`, etc.)
+  for any runtime testing. Probe attaches to the debug port and lets you see the UI, click
+  buttons, read console output, and assert results.
+- If Probe cannot work (no debug port, CI without display), note "NOT LAUNCHED" in the cycle
+  report — do not attempt to launch and verify manually.
+
 ## 1. STARTUP RITUAL (do this before responding to ANYTHING)
 1. Read `MEMORY.md` (durable lessons — see Section 4).
 2. Read `agent/state.md` (current cycle number + role + what's in flight).
@@ -194,9 +212,10 @@ There is no triage step where you decide what matters. The Architect wrote it, y
   The screen going completely black (no content, no error UI) is the #1 regression.
   Never close a cycle without verifying the app shows real content.
 
-## 8. BLACK SCREEN PREVENTION CHECKLIST (MANDATORY every cycle — NEVER SKIP)
-Before closing ANY cycle where source files changed, the agent MUST verify in this order.
-A failure at any step requires the agent to STOP, FIX, and re-run from Step 1.
+## 8. BLACK SCREEN PREVENTION CHECKLIST (build verification mandatory; runtime verification optional)
+Before closing ANY cycle where source files changed, the agent MUST run Steps 1-5.
+Step 6 (Probe MCP) is performed when possible but NOT a hard gate — if Probe can't
+attach or the user hasn't launched the app, note "NOT LAUNCHED" and proceed.
 
 ### Step 1 — Build must succeed cleanly
 - Run `npx vite build` — must exit 0 with NO errors.
@@ -224,9 +243,11 @@ A failure at any step requires the agent to STOP, FIX, and re-run from Step 1.
 - Check `dist/assets/index.js` exists and is > 10 KB. A file under 1 KB likely means
   the build produced an empty stub (e.g. from an uncaught import error).
 
-### Step 6 — Launch the app and verify visible content
-- Run the app with `npx electron .` (production mode, not VITE_DEV_SERVER_URL).
+### Step 6 — Verify with Probe MCP (never launch manually)
+- Attach to the already-running app via `probe_open({type:'electron', attach:true, port:<debug-port>, inspectPort:<inspect-port>})`.
+- Or launch with Probe: `probe_open({type:'electron', binary:'node_modules/.bin/electron.cmd', appArgs:['.'], inspectMain:true})`.
 - Wait at least 10 seconds for the window to appear.
+- Use `probe_snapshot()` to verify visible content. Use `probe_read_console()` to check for errors.
 - If the window shows a completely black/blank screen (no error overlay, no UI):
   - STOP immediately. This is a BLOCKER.
   - Check the main process console for `[DeskFlow] Failed to load` errors.
@@ -235,6 +256,9 @@ A failure at any step requires the agent to STOP, FIX, and re-run from Step 1.
 - If the window shows the ⚠ "DeskFlow failed to load" fallback overlay, the JS loaded
   but crashed at runtime. Check the renderer console for errors and fix them.
 - If the window shows real app content (dashboard, sidebar, etc.), VERDICT = PASS.
+- **If Probe cannot be used** (no already-running app, no debug port, CI without
+  display): skip Step 6, note "NOT LAUNCHED" in the cycle report, and do NOT claim
+  VERDICT PASS for visual features. Do NOT attempt to launch the app manually.
 
 ### Root causes of black screen (never let these happen again)
 1. **Stale dist/ files**: Build doesn't clean `dist/` before writing. Old files from
@@ -280,8 +304,8 @@ A failure at any step requires the agent to STOP, FIX, and re-run from Step 1.
   `loadFile` on `file://` protocol breaks `crossorigin` module scripts.
 - NEVER set `VITE_DEV_SERVER_URL` in `.env` for production. If it exists from a dev
   setup, clear it in `start-dev.ps1` with `Remove-Item Env:VITE_DEV_SERVER_URL`.
-- NEVER skip Step 6 (launch the app) before closing a cycle. If you can't launch the
-  app (no display, CI, etc.), note "NOT LAUNCHED" in the cycle report and explain why,
-  but do NOT claim VERDICT PASS without visual verification.
+- NEVER skip Step 6 (Probe MCP verification) before closing a cycle. If you can't
+  use Probe (no debug port, no display), note "NOT LAUNCHED" in the cycle report and
+  explain why, but do NOT claim VERDICT PASS without visual verification.
 - NEVER leave `console.log` calls unprotected in HTTP server handlers (port 54321).
   Wrap them, or ensure stdout error handler is registered (process.stdout.on('error')).

@@ -1,9 +1,10 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Users, Plus, Search, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react';
-import type { FinanceFtPerson, FinanceTransaction, FinanceWallet } from './finance-types';
+import type { FinanceFtPerson, FinanceTransaction, FinanceWallet, FinanceAccount, FinanceCategory } from './finance-types';
 import { PersonCard } from './PersonCard';
 import { PersonDetailModal } from './PersonDetailModal';
 import { PaymentAllocationModal } from './PaymentAllocationModal';
+import { TransactionDetailModal } from './TransactionDetailModal';
 
 interface PeopleTabProps {
   persons: FinanceFtPerson[];
@@ -12,14 +13,24 @@ interface PeopleTabProps {
   displayCurrency: string;
   onRefresh: () => void;
   onNewTransaction?: (personId: number) => void;
+  accounts?: FinanceAccount[];
+  categories?: FinanceCategory[];
+  baseCurrency?: string;
+  onDeleteTransaction?: (id: number) => Promise<boolean>;
+  onUpdateTransaction?: (id: number, data: Record<string, any>) => Promise<boolean>;
+  onVerifyPassword?: (password: string) => Promise<boolean>;
+  ftPersons?: { id: number; name: string; email?: string | null; phone?: string | null }[];
+  onAddFtPerson?: (name: string) => void;
+  onGoToTransactions?: (txId: number) => void;
 }
 
-export function PeopleTab({ persons, transactions, wallets, displayCurrency, onRefresh, onNewTransaction }: PeopleTabProps) {
+export function PeopleTab({ persons, transactions, wallets, displayCurrency, onRefresh, onNewTransaction, accounts = [], categories = [], baseCurrency = 'USD', onDeleteTransaction, onUpdateTransaction, onVerifyPassword, ftPersons = [], onAddFtPerson, onGoToTransactions }: PeopleTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<FinanceFtPerson | null>(null);
   const [paymentPerson, setPaymentPerson] = useState<FinanceFtPerson | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [detailTransaction, setDetailTransaction] = useState<FinanceTransaction | null>(null);
 
   const filteredPersons = useMemo(() => {
     if (!searchQuery.trim()) return persons;
@@ -37,6 +48,10 @@ export function PeopleTab({ persons, transactions, wallets, displayCurrency, onR
     const settledCount = persons.filter(p => (p.total_owed - p.total_paid) <= 0 && p.transaction_count > 0).length;
     return { totalOwed, activeCount, settledCount };
   }, [persons]);
+
+  const handleTransactionClick = useCallback((tx: FinanceTransaction) => {
+    setDetailTransaction(tx);
+  }, []);
 
   const handleRecordPayment = useCallback((person: FinanceFtPerson) => {
     setSelectedPerson(null);
@@ -144,7 +159,7 @@ export function PeopleTab({ persons, transactions, wallets, displayCurrency, onR
         <PersonDetailModal open={true} onClose={() => setSelectedPerson(null)} person={selectedPerson}
           transactions={transactions} wallets={wallets} displayCurrency={displayCurrency}
           onRecordPayment={() => handleRecordPayment(selectedPerson)} onRefresh={onRefresh}
-          onNewTransaction={onNewTransaction} />
+          onNewTransaction={onNewTransaction} onTransactionClick={handleTransactionClick} />
       )}
 
       {/* Payment Allocation Modal */}
@@ -156,6 +171,29 @@ export function PeopleTab({ persons, transactions, wallets, displayCurrency, onR
       {/* Add Person Modal */}
       {showAddModal && (
         <AddPersonModal onClose={() => setShowAddModal(false)} onCreated={onRefresh} />
+      )}
+
+      {/* Transaction Detail Modal */}
+      {detailTransaction && (
+        <TransactionDetailModal
+          transaction={detailTransaction}
+          accounts={accounts}
+          categories={categories}
+          wallets={wallets}
+          allTransactions={transactions}
+          displayCurrency={displayCurrency}
+          baseCurrency={baseCurrency}
+          ftPersons={ftPersons}
+          onAddFtPerson={onAddFtPerson}
+          onDelete={onDeleteTransaction}
+          onUpdate={onUpdateTransaction}
+          onVerifyPassword={onVerifyPassword}
+          onClose={() => setDetailTransaction(null)}
+          onGoToTransactions={(txId) => {
+            setDetailTransaction(null);
+            onGoToTransactions?.(txId);
+          }}
+        />
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { build as viteBuild } from 'vite';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -43,6 +43,20 @@ async function main() {
     console.log(`  main.cjs: ${((await import('fs')).statSync(resolve(OUT, 'main.cjs')).size / 1024).toFixed(0)} KB`);
   }
   if (existsSync(mainTemp)) rmSync(mainTemp, { recursive: true, force: true });
+
+  // Copy .cjs service files from src/services/ to dist-electron/services/
+  // These are hand-written CJS files (not compiled from .ts) that main.ts requires directly.
+  const SVC_SRC = resolve(SRC, 'services');
+  const SVC_OUT = resolve(OUT, 'services');
+  const cjsFiles = readdirSync(SVC_SRC).filter(f => f.endsWith('.cjs'));
+  if (cjsFiles.length > 0) {
+    mkdirSync(SVC_OUT, { recursive: true });
+    for (const f of cjsFiles) {
+      const srcPath = resolve(SVC_SRC, f);
+      copyFileSync(srcPath, resolve(SVC_OUT, f));
+      console.log(`  services/${f} copied`);
+    }
+  }
 
   const content = readFileSync(resolve(OUT, 'main.cjs'), 'utf-8');
   if (content.includes('./services/') || content.includes('./gameDetection')) {

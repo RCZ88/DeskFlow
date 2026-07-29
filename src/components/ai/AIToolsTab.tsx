@@ -35,7 +35,7 @@ import {
   Filler,
 } from 'chart.js'
 import { Line, Doughnut, Bar } from 'react-chartjs-2'
-import { format, subDays, eachDayOfInterval, formatDistanceToNow } from 'date-fns'
+import { format, subDays, eachDayOfInterval, formatDistanceToNow, startOfWeek, endOfWeek, addDays } from 'date-fns'
 import { GlassCard } from '../GlassCard'
 import { SectionHeader } from '../SectionHeader'
 import { StatsDashboard } from '../stats/StatsDashboard'
@@ -109,6 +109,8 @@ interface AIToolsTabProps {
   onRetryAnalytics: () => void
   selectedPeriod: string
   onDataRefresh: () => Promise<void>
+  timeLock: boolean
+  onToggleTimeLock: () => void
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────
@@ -152,6 +154,14 @@ function getAgentColor(agentId: string): string {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+function hexToRgb(hex: string): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.substring(0, 2), 16)
+  const g = parseInt(h.substring(2, 4), 16)
+  const b = parseInt(h.substring(4, 6), 16)
+  return `${r}, ${g}, ${b}`
+}
 
 function formatTokens(tokens: number): string {
   if (tokens >= 1e15) return `${(tokens / 1e15).toFixed(1)}Qi`
@@ -228,6 +238,8 @@ export default function AIToolsTab({
   onRetryAnalytics,
   selectedPeriod,
   onDataRefresh,
+  timeLock,
+  onToggleTimeLock,
 }: AIToolsTabProps) {
   // ── Sync state ──
   const [syncingAI, setSyncingAI] = useState(false)
@@ -253,13 +265,6 @@ export default function AIToolsTab({
   const [tokenDisplayMode, setTokenDisplayMode] = useState<
     'combined' | 'input' | 'output'
   >('combined')
-  const [timeLock, setTimeLock] = useState(() => {
-    try {
-      return localStorage.getItem('ide-projects-ai-lock') === 'true'
-    } catch {
-      return false
-    }
-  })
   const [compareAgents, setCompareAgents] = useState<string[]>([])
   const [logScale, setLogScale] = useState(
     () => localStorage.getItem('ide-projects-log-scale') === 'true'
@@ -271,6 +276,7 @@ export default function AIToolsTab({
   const [viewMode, setViewMode] = useState<'tool' | 'model'>('tool')
   const [topViewMode, setTopViewMode] = useState<'tools' | 'models'>('tools')
   const [showDataOnly, setShowDataOnly] = useState(false)
+  const [heatmapToolFilter, setToolFilter] = useState<string>('all')
 
   // ── Session history tool selection ──
   const [sessionTool, setSessionTool] = useState<string | null>(null)
@@ -702,8 +708,9 @@ export default function AIToolsTab({
                 const { ctx: canvasCtx, chartArea } = chart
                 if (!chartArea) return agent.color + '25'
                 const g = canvasCtx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
-                g.addColorStop(0, agent.color + '40')
-                g.addColorStop(0.5, agent.color + '15')
+                g.addColorStop(0, agent.color + '45')
+                g.addColorStop(0.4, agent.color + '18')
+                g.addColorStop(0.8, agent.color + '05')
                 g.addColorStop(1, agent.color + '00')
                 return g
               },
@@ -711,14 +718,18 @@ export default function AIToolsTab({
               borderWidth: 2.5,
               pointRadius: (ctx: any) => {
                 const val = ctx.raw
-                return val !== null && val !== 0 ? 4 : 0
+                return val !== null && val !== 0 ? 5 : 0
               },
-              pointBackgroundColor: agent.color,
+              pointBackgroundColor: '#FFFFFF',
               pointBorderColor: agent.color,
-              pointBorderWidth: 2,
-              pointHoverRadius: 7,
+              pointBorderWidth: 2.5,
+              pointHoverRadius: 8,
+              pointHoverBackgroundColor: '#FFFFFF',
+              pointHoverBorderColor: agent.color,
+              pointHoverBorderWidth: 3,
+              pointStyle: 'circle' as const,
               fill: true,
-              tension: 0,
+              tension: 0.4,
               spanGaps: false,
             },
           ],
@@ -898,7 +909,7 @@ export default function AIToolsTab({
             </button>
             <div className="w-px h-5 bg-zinc-700/60" />
             <button
-              onClick={() => setTimeLock(!timeLock)}
+              onClick={onToggleTimeLock}
               className={cn(
                 'flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg transition-colors duration-150 ring-1',
                 timeLock
@@ -1913,7 +1924,7 @@ export default function AIToolsTab({
                           options={{
                             responsive: true,
                             maintainAspectRatio: false,
-                            plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(9,9,11,0.95)', titleColor: '#fff', bodyColor: '#a1a1aa', borderColor: '#27272a', borderWidth: 1, cornerRadius: 8 } },
+                            plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(20, 22, 30, 0.85)', titleColor: '#FFFFFF', bodyColor: '#8E95A5', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, cornerRadius: 10, padding: { top: 12, bottom: 12, left: 16, right: 16 }, usePointStyle: true } },
                             scales: {
                               x: { grid: { display: false }, border: { color: 'rgba(113,113,122,0.12)' }, ticks: { color: '#71717a', maxTicksLimit: 8, font: { size: 9 } } },
                               y: { type: logScale ? ('logarithmic' as const) : ('linear' as const), grid: { color: 'rgba(113,113,122,0.06)' }, border: { color: 'rgba(113,113,122,0.12)' }, ticks: { color: '#71717a', font: { size: 9 }, padding: 6 }, ...(logScale ? {} : { beginAtZero: true }) },
@@ -1928,6 +1939,247 @@ export default function AIToolsTab({
             )
           })()}
       </AnimatePresence>
+
+      {/* ── AI Usage Heatmap — Calendar Grid ── */}
+      {(() => {
+        const activeAgents = aiAgents.filter(a => a.status !== 'inactive' && a.tokens > 0)
+        if (activeAgents.length === 0) return null
+
+        const byTool = overview?.aiUsage?.byTool || {}
+        const selectedHeatmapTool = heatmapToolFilter
+        const filteredAgents = selectedHeatmapTool === 'all'
+          ? activeAgents
+          : activeAgents.filter(a => a.id === selectedHeatmapTool)
+        if (filteredAgents.length === 0) return null
+
+        const dateMap: Record<string, Record<string, { tokens: number; cost: number; messages: number; sessions: number }>> = {}
+        const allDateStrs = new Set<string>()
+        let maxVal = 0
+
+        for (const agent of filteredAgents) {
+          const daily = byTool[agent.id]?.daily || {}
+          for (const [dateStr, dayData] of Object.entries(daily) as [string, any][]) {
+            const dt = new Date(dateStr)
+            if (isNaN(dt.getTime())) continue
+            allDateStrs.add(dateStr)
+            if (!dateMap[dateStr]) dateMap[dateStr] = {}
+            dateMap[dateStr][agent.id] = {
+              tokens: dayData.tokens || 0,
+              cost: dayData.cost || 0,
+              messages: dayData.messageCount || 0,
+              sessions: dayData.sessions || 0,
+            }
+          }
+        }
+
+        if (allDateStrs.size === 0) return null
+
+        const sortedDates = Array.from(allDateStrs).sort()
+        const todayStr = format(new Date(), 'yyyy-MM-dd')
+        const days: {
+          date: Date; dateStr: string
+          raw: number
+          details: { agent: string; tokens: number; cost: number; messages: number; sessions: number }[]
+          isToday: boolean
+        }[] = []
+
+        for (const ds of sortedDates) {
+          const dayData = dateMap[ds]
+          let tokens = 0, cost = 0, messages = 0, sessions = 0
+          const details: typeof days[0]['details'] = []
+          for (const [agentId, data] of Object.entries(dayData)) {
+            tokens += data.tokens; cost += data.cost; messages += data.messages; sessions += data.sessions
+            const agent = filteredAgents.find(a => a.id === agentId)
+            details.push({ agent: agent?.name || agentId, tokens: data.tokens, cost: data.cost, messages: data.messages, sessions: data.sessions })
+          }
+          const raw = aiChartMode === 'tokens' ? tokens : aiChartMode === 'cost' ? cost : aiChartMode === 'messages' ? messages : sessions
+          if (raw > maxVal) maxVal = raw
+          days.push({
+            date: new Date(ds), dateStr: ds, raw,
+            details: details.filter(d => {
+              const v = aiChartMode === 'tokens' ? d.tokens : aiChartMode === 'cost' ? d.cost : aiChartMode === 'messages' ? d.messages : d.sessions
+              return v > 0
+            }),
+            isToday: ds === todayStr,
+          })
+        }
+
+        if (days.length === 0) return null
+
+        const cellColor = (b: number) => {
+          if (b === 0) return 'rgba(255,255,255,0.04)'
+          if (b < 0.2) return 'rgba(16, 185, 129, 0.15)'
+          if (b < 0.4) return 'rgba(16, 185, 129, 0.3)'
+          if (b < 0.6) return 'rgba(16, 185, 129, 0.5)'
+          if (b < 0.8) return 'rgba(16, 185, 129, 0.7)'
+          return 'rgba(16, 185, 129, 0.9)'
+        }
+
+        const dayLookup = new Map<string, typeof days[0]>()
+        for (const day of days) dayLookup.set(day.dateStr, day)
+
+        const firstDate = days[0].date
+        const lastDate = days[days.length - 1].date
+        const gridStart = startOfWeek(firstDate, { weekStartsOn: 1 })
+        const gridEnd = endOfWeek(lastDate, { weekStartsOn: 1 })
+
+        const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        const CELL = 14, GAP = 3, STEP = CELL + GAP
+
+        const weeks: { days: Date[]; monthLabel?: string }[] = []
+        let cur = gridStart
+        let lastMonth = -1
+        while (cur <= gridEnd) {
+          const wd: Date[] = []
+          for (let d = 0; d < 7; d++) wd.push(addDays(cur, d))
+          const m = cur.getMonth()
+          weeks.push({ days: wd, monthLabel: m !== lastMonth ? format(cur, 'MMM') : undefined })
+          lastMonth = m
+          cur = addDays(cur, 7)
+        }
+
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-3"
+          >
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ background: 'rgba(16,185,129,0.1)' }}>
+                  <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
+                    <rect x="1" y="1" width="3" height="3" rx="0.5" fill="#10b981" fillOpacity="0.8" />
+                    <rect x="5" y="1" width="3" height="3" rx="0.5" fill="#10b981" fillOpacity="0.4" />
+                    <rect x="9" y="1" width="3" height="3" rx="0.5" fill="#10b981" fillOpacity="0.15" />
+                    <rect x="13" y="1" width="2" height="3" rx="0.5" fill="#10b981" fillOpacity="0.05" />
+                    <rect x="1" y="5" width="3" height="3" rx="0.5" fill="#10b981" fillOpacity="0.6" />
+                    <rect x="5" y="5" width="3" height="3" rx="0.5" fill="#10b981" fillOpacity="0.9" />
+                    <rect x="9" y="5" width="3" height="3" rx="0.5" fill="#10b981" fillOpacity="0.3" />
+                    <rect x="1" y="9" width="3" height="3" rx="0.5" fill="#10b981" fillOpacity="0.2" />
+                    <rect x="5" y="9" width="3" height="3" rx="0.5" fill="#10b981" fillOpacity="0.5" />
+                    <rect x="9" y="9" width="3" height="3" rx="0.5" fill="#10b981" fillOpacity="0.7" />
+                    <rect x="1" y="13" width="3" height="2" rx="0.5" fill="#10b981" fillOpacity="0.1" />
+                    <rect x="5" y="13" width="3" height="2" rx="0.5" fill="#10b981" fillOpacity="0.35" />
+                    <rect x="9" y="13" width="3" height="2" rx="0.5" fill="#10b981" fillOpacity="0.55" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-[13px] font-semibold text-zinc-100">Usage Pattern</h3>
+                  <p className="text-[11px] text-zinc-600">
+                    {selectedHeatmapTool === 'all' ? 'All tools' : activeAgents.find(a => a.id === selectedHeatmapTool)?.name || selectedHeatmapTool} · {days.length} days · {aiChartMode}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-0.5 bg-zinc-900/60 rounded-lg p-0.5 ring-1 ring-zinc-800/50">
+                  <button onClick={() => setToolFilter('all')} className={cn('px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors duration-150', selectedHeatmapTool === 'all' ? 'bg-zinc-700/60 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300')}>All</button>
+                  {activeAgents.slice(0, 8).map(a => (
+                    <button key={a.id} onClick={() => setToolFilter(a.id)} className={cn('px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors duration-150', selectedHeatmapTool === a.id ? 'bg-zinc-700/60 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300')}>{a.name.split(' ')[0]}</button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-0.5 bg-zinc-900/60 rounded-lg p-0.5 ring-1 ring-zinc-800/50">
+                  {(['tokens', 'messages', 'cost', 'sessions'] as const).map((mode) => (
+                    <button key={mode} onClick={() => setAiChartMode(mode)} className={cn('px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors duration-150', aiChartMode === mode ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-500 hover:text-zinc-300')}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="rounded-2xl p-4 overflow-visible relative"
+              style={{
+                background: 'linear-gradient(135deg, rgba(20,22,30,0.9) 0%, rgba(11,12,16,0.95) 100%)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0px 20px 40px -10px rgba(0,0,0,0.5)',
+              }}
+            >
+              <div className="overflow-x-auto max-w-full pb-1">
+                <div className="inline-block min-w-full">
+                  <div className="flex" style={{ marginLeft: 30, marginBottom: 2 }}>
+                    {weeks.map((w, i) => (
+                      <div key={i} style={{ width: STEP, textAlign: 'center' }}>
+                        {w.monthLabel && <span className="text-[9px] text-zinc-500">{w.monthLabel}</span>}
+                      </div>
+                    ))}
+                  </div>
+
+                  {dayLabels.map((label, di) => (
+                    <div key={label} className="flex items-center" style={{ height: STEP }}>
+                      <span className="text-[9px] text-zinc-500 w-[26px] text-right mr-1 flex-shrink-0">{label}</span>
+                      <div className="flex">
+                        {weeks.map((w, wi) => {
+                          const date = w.days[di]
+                          const dateStr = format(date, 'yyyy-MM-dd')
+                          const dayData = dayLookup.get(dateStr)
+                          const b = dayData ? (maxVal === 0 ? 0 : dayData.raw / maxVal) : 0
+                          const isToday = dateStr === todayStr
+                          return (
+                            <div key={wi} className="relative group" style={{ width: STEP, height: STEP }}>
+                              <div
+                                className="w-[14px] h-[14px] rounded-[3px] transition-all duration-100 group-hover:scale-[1.4] cursor-default"
+                                style={{
+                                  backgroundColor: cellColor(dayData ? b : 0),
+                                  outline: isToday ? '1px solid rgba(255,255,255,0.3)' : 'none',
+                                  outlineOffset: '1px',
+                                }}
+                              />
+                              {dayData && dayData.details.length > 0 && (
+                                <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded-lg invisible group-hover:visible pointer-events-none"
+                                  style={{
+                                    background: 'rgba(15, 17, 24, 0.96)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+                                    minWidth: 110,
+                                  }}
+                                >
+                                  <div className="text-[9px] font-medium text-white whitespace-nowrap">
+                                    {format(dayData.date, 'MMM d')} · <span className="text-emerald-400">
+                                      {aiChartMode === 'tokens' ? formatTokens(dayData.raw)
+                                        : aiChartMode === 'cost' ? formatCurrency(dayData.raw)
+                                        : aiChartMode === 'messages' ? dayData.raw
+                                        : dayData.raw}
+                                    </span>
+                                  </div>
+                                  {selectedHeatmapTool === 'all' && dayData.details.length > 1 && (
+                                    <div className="border-t border-zinc-700/40 mt-0.5 pt-0.5 space-y-0.5">
+                                      {dayData.details.slice(0, 5).map((det) => (
+                                        <div key={det.agent} className="flex items-center justify-between gap-2">
+                                          <span className="text-[8px] text-zinc-500 truncate max-w-[60px]">{det.agent}</span>
+                                          <span className="text-[8px] text-zinc-400 tabular-nums">
+                                            {aiChartMode === 'tokens' ? formatTokens(det.tokens)
+                                              : aiChartMode === 'cost' ? formatCurrency(det.cost)
+                                              : aiChartMode === 'messages' ? det.messages
+                                              : det.sessions}
+                                          </span>
+                                        </div>
+                                      ))}
+                                      {dayData.details.length > 5 && <div className="text-[7px] text-zinc-600 text-center">+{dayData.details.length - 5} more</div>}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Legend */}
+                  <div className="flex items-center gap-1.5 mt-3" style={{ paddingLeft: 30 }}>
+                    <span className="text-[8px] text-zinc-600">Less</span>
+                    {[0, 0.2, 0.4, 0.6, 0.8].map(intensity => (
+                      <div key={intensity} className="w-[12px] h-[12px] rounded-[3px]" style={{ backgroundColor: cellColor(intensity) }} />
+                    ))}
+                    <span className="text-[8px] text-zinc-600">More</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )
+      })()}
 
       {/* ── Session History ── */}
       {activeToolIds.length > 0 && (
@@ -2359,15 +2611,18 @@ export default function AIToolsTab({
                           plugins: {
                             legend: { display: false },
                             tooltip: {
-                              backgroundColor: 'rgba(9, 9, 11, 0.95)',
-                              titleColor: '#fff',
-                              bodyColor: '#a1a1aa',
-                              borderColor: '#27272a',
+                              backgroundColor: 'rgba(20, 22, 30, 0.85)',
+                              titleColor: '#FFFFFF',
+                              bodyColor: '#8E95A5',
+                              borderColor: 'rgba(255,255,255,0.12)',
                               borderWidth: 1,
-                              cornerRadius: 8,
-                              padding: { top: 10, bottom: 10, left: 14, right: 14 },
-                              titleFont: { weight: '600' as const, size: 13 },
+                              cornerRadius: 10,
+                              padding: { top: 12, bottom: 12, left: 16, right: 16 },
+                              titleFont: { weight: '700' as const, size: 13 },
                               bodyFont: { size: 12 },
+                              displayColors: true,
+                              boxPadding: 4,
+                              usePointStyle: true,
                               callbacks: {
                                 label: (ctx) => {
                                   const val = ctx.parsed?.y ?? 0
@@ -2608,6 +2863,7 @@ export default function AIToolsTab({
 
                 const datasets = allModels.slice(0, 10).map((entry, idx) => {
                   const byTool = overview?.aiUsage?.byTool || {}
+                  const modelColor = modelColors[idx % modelColors.length]
                   return {
                     label:
                       entry.model.length > 25
@@ -2629,11 +2885,11 @@ export default function AIToolsTab({
                       }
                       return total
                     }),
-                    backgroundColor:
-                      modelColors[idx % modelColors.length] + '70',
-                    borderColor: modelColors[idx % modelColors.length],
-                    borderWidth: 1,
-                    borderRadius: 2,
+                    backgroundColor: modelColor + '60',
+                    borderColor: modelColor,
+                    borderWidth: 1.5,
+                    borderRadius: 4,
+                    borderSkipped: false,
                   }
                 })
 
@@ -2682,12 +2938,14 @@ export default function AIToolsTab({
                               },
                             },
                             tooltip: {
-                              backgroundColor: 'rgba(9, 9, 11, 0.95)',
-                              titleColor: '#fff',
-                              bodyColor: '#a1a1aa',
-                              borderColor: '#27272a',
+                              backgroundColor: 'rgba(20, 22, 30, 0.85)',
+                              titleColor: '#FFFFFF',
+                              bodyColor: '#8E95A5',
+                              borderColor: 'rgba(255,255,255,0.12)',
                               borderWidth: 1,
-                              cornerRadius: 8,
+                              cornerRadius: 10,
+                              padding: { top: 12, bottom: 12, left: 16, right: 16 },
+                              usePointStyle: true,
                               callbacks: {
                                 label: (ctx) => {
                                   const val = ctx.parsed.y || 0
@@ -2964,12 +3222,14 @@ export default function AIToolsTab({
                               },
                               tooltip: {
                                 backgroundColor:
-                                  'rgba(9, 9, 11, 0.95)',
-                                titleColor: '#fff',
-                                bodyColor: '#a1a1aa',
-                                borderColor: '#27272a',
+                                  'rgba(20, 22, 30, 0.85)',
+                                titleColor: '#FFFFFF',
+                                bodyColor: '#8E95A5',
+                                borderColor: 'rgba(255,255,255,0.12)',
                                 borderWidth: 1,
-                                cornerRadius: 8,
+                                cornerRadius: 10,
+                                padding: { top: 12, bottom: 12, left: 16, right: 16 },
+                                usePointStyle: true,
                                 callbacks: {
                                   label: (ctx) => {
                                     const val =

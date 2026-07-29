@@ -510,7 +510,7 @@ export function LearnPage() {
   };
 
   return (
-    <div data-page="learn" className="h-full flex flex-col bg-[#0f0e0d] text-zinc-100">
+    <div data-page="learn" className="h-full flex flex-col bg-[#0f0e0d] text-zinc-100 relative">
       <LearnNavBar
         breadcrumb={breadcrumb}
         onNavigate={navigate}
@@ -520,8 +520,6 @@ export function LearnPage() {
       />
 
       <div className="flex flex-1 min-h-0">
-        <LearnTabBar view={view} onChange={navigate} activeLessonId={selectedLesson} />
-
         <main className="flex-1 min-h-0 overflow-hidden relative">
           {/* Reader-specific toolbar */}
           {view === 'reader' && lessonData && (
@@ -565,6 +563,8 @@ export function LearnPage() {
             </motion.div>
           </AnimatePresence>
         </main>
+
+        <LearnTabBar view={view} onChange={navigate} activeLessonId={selectedLesson} />
       </div>
 
       {/* Inline answer card (reader) */}

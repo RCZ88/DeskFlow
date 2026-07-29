@@ -2050,8 +2050,14 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           analyticsLoading={analyticsLoading}
           analyticsError={analyticsError}
           onRetryAnalytics={() => { analyticsCacheRef.current = null; fetchAnalytics(); }}
-          selectedPeriod={selectedPeriod}
+          selectedPeriod={effectiveAiPeriod}
           onDataRefresh={loadOverview}
+          timeLock={timeLock}
+          onToggleTimeLock={() => {
+            const next = !timeLock
+            setTimeLock(next)
+            try { localStorage.setItem('ide-projects-ai-lock', String(next)) } catch {}
+          }}
         />
       )}
 

@@ -6,8 +6,9 @@ import type { ReactNode } from "react"
 function Select({
   className,
   children,
+  valueLabel,
   ...props
-}: SelectPrimitive.Root.Props & { className?: string; children?: ReactNode }) {
+}: SelectPrimitive.Root.Props & { className?: string; children?: ReactNode; valueLabel?: Record<string, string> }) {
   return (
     <SelectPrimitive.Root {...props}>
       <SelectPrimitive.Trigger
@@ -17,7 +18,9 @@ function Select({
           className
         )}
       >
-        <SelectPrimitive.Value placeholder="Select..." />
+        <SelectPrimitive.Value placeholder="Select...">
+          {valueLabel ? (val: any) => valueLabel[val] || val || 'Select...' : undefined}
+        </SelectPrimitive.Value>
         <ChevronDownIcon className="size-4 shrink-0 text-zinc-400" />
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>

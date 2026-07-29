@@ -1,4 +1,4 @@
-// Lyceum Learn module — IPC handler registration
+﻿// Lyceum Learn module — IPC handler registration
 // Call registerLearnHandlers(db, callAi) from main.ts during startup
 
 import { ipcMain, dialog, app, BrowserWindow } from 'electron';
@@ -805,6 +805,254 @@ export function registerLearnHandlers(
         },
         error: imageResult.error,
       };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Timer System ──
+  ipcMain.handle('learn:timerStart', async (_event, args: { lessonId?: number }) => {
+    try {
+      const now = new Date().toISOString();
+      const result = db.prepare("INSERT INTO learn_sessions (date, duration, nodes_seen, quizzes_taken, cards_reviewed, mastery_gained, lesson_id) VALUES (?, 0, '[]', 0, 0, 0, ?)").run(now.split('T')[0], args.lessonId || null);
+      db.prepare("INSERT INTO learn_timer_queue (event_type, lesson_id, timestamp) VALUES (?, ?, ?)").run('start', args.lessonId || null, now);
+      return { ok: true, data: { sessionId: result.lastInsertRowid, startedAt: now } };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:timerPause', async (_event, args: { sessionId: number }) => {
+    try {
+      const now = new Date().toISOString();
+      db.prepare('INSERT INTO learn_timer_queue (event_type, timestamp, duration_delta) VALUES (?, ?, 0)').run('pause', now);
+      return { ok: true, data: { pausedAt: now } };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:timerResume', async (_event, args: { sessionId: number }) => {
+    try {
+      const now = new Date().toISOString();
+      db.prepare('INSERT INTO learn_timer_queue (event_type, timestamp, duration_delta) VALUES (?, ?, 0)').run('resume', now);
+      return { ok: true, data: { resumedAt: now } };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:timerStop', async (_event, args: { sessionId: number; duration: number; nodesSeen?: number[]; quizzesTaken?: number; cardsReviewed?: number; masteryGained?: number }) => {
+    try {
+      const now = new Date().toISOString();
+      db.prepare('UPDATE learn_sessions SET duration = ?, nodes_seen = ?, quizzes_taken = ?, cards_reviewed = ?, mastery_gained = ? WHERE id = ?')
+        .run(args.duration, JSON.stringify(args.nodesSeen || []), args.quizzesTaken || 0, args.cardsReviewed || 0, args.masteryGained || 0, args.sessionId);
+      db.prepare('INSERT INTO learn_timer_queue (event_type, timestamp, duration_delta) VALUES (?, ?, ?)').run('stop', now, args.duration);
+      
+      // Update streak
+      const today = now.split('T')[0];
+      const streak = db.prepare('SELECT * FROM learn_streaks WHERE user_id = 1').get() as any;
+      if (streak) {
+        const lastDate = streak.last_study_date;
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+        let newStreak = streak.current_streak;
+        if (lastDate === today) {
+          // Already studied today, no change
+        } else if (lastDate === yesterday) {
+          newStreak = streak.current_streak + 1;
+        } else {
+          newStreak = 1; // Streak broken
+        }
+        db.prepare('UPDATE learn_streaks SET current_streak = ?, longest_streak = MAX(longest_streak, ?), last_study_date = ?, updated_at = ? WHERE user_id = 1')
+          .run(newStreak, newStreak, today, now);
+      } else {
+        db.prepare('INSERT INTO learn_streaks (user_id, current_streak, longest_streak, last_study_date) VALUES (1, 1, 1, ?)').run(today);
+      }
+
+      // Update lesson stats
+      if (args.sessionId) {
+        const session = db.prepare('SELECT lesson_id FROM learn_sessions WHERE id = ?').get(args.sessionId) as any;
+        if (session?.lesson_id) {
+          const existing = db.prepare('SELECT * FROM learn_lesson_stats WHERE lesson_id = ?').get(session.lesson_id) as any;
+          if (existing) {
+            db.prepare('UPDATE learn_lesson_stats SET total_study_seconds = total_study_seconds + ?, sessions_count = sessions_count + 1, quizzes_taken = quizzes_taken + ?, cards_reviewed = cards_reviewed + ?, mastery_gained = mastery_gained + ?, last_studied_at = ? WHERE lesson_id = ?')
+              .run(args.duration, args.quizzesTaken || 0, args.cardsReviewed || 0, args.masteryGained || 0, now, session.lesson_id);
+          } else {
+            db.prepare('INSERT INTO learn_lesson_stats (lesson_id, total_study_seconds, sessions_count, quizzes_taken, cards_reviewed, mastery_gained, first_studied_at, last_studied_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?)')
+              .run(session.lesson_id, args.duration, args.quizzesTaken || 0, args.cardsReviewed || 0, args.masteryGained || 0, now, now);
+          }
+        }
+      }
+
+      return { ok: true, data: { duration: args.duration, sessionLogged: true } };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:timerGetState', async () => {
+    try {
+      const lastEvent = db.prepare('SELECT * FROM learn_timer_queue ORDER BY id DESC LIMIT 1').get() as any;
+      const activeSession = lastEvent?.event_type === 'start' || lastEvent?.event_type === 'resume'
+        ? { startedAt: lastEvent.timestamp, lessonId: lastEvent.lesson_id }
+        : null;
+      return { ok: true, data: { activeSession } };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Goals System ──
+  ipcMain.handle('learn:getGoals', async (_event, args: { type?: string; date?: string }) => {
+    try {
+      let query = 'SELECT * FROM learn_goals WHERE user_id = 1';
+      const params: any[] = [];
+      if (args.type) { query += ' AND type = ?'; params.push(args.type); }
+      if (args.date) { query += ' AND period_start <= ? AND (period_end IS NULL OR period_end >= ?)'; params.push(args.date, args.date); }
+      query += ' ORDER BY created_at DESC';
+      const goals = db.prepare(query).all(...params);
+      return { ok: true, data: goals };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:setGoal', async (_event, args: { type: string; metric: string; target: number; periodStart: string; periodEnd?: string; deadline?: string }) => {
+    try {
+      const result = db.prepare('INSERT INTO learn_goals (user_id, type, metric, target, period_start, period_end, deadline) VALUES (1, ?, ?, ?, ?, ?, ?)')
+        .run(args.type, args.metric, args.target, args.periodStart, args.periodEnd || null, args.deadline || null);
+      const goal = db.prepare('SELECT * FROM learn_goals WHERE id = ?').get(result.lastInsertRowid);
+      return { ok: true, data: goal };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:updateGoalProgress', async (_event, args: { goalId: number; delta: number }) => {
+    try {
+      db.prepare('UPDATE learn_goals SET current = current + ? WHERE id = ?').run(args.delta, args.goalId);
+      const goal = db.prepare('SELECT * FROM learn_goals WHERE id = ?').get(args.goalId) as any;
+      if (goal && goal.current >= goal.target && !goal.completed_at) {
+        db.prepare('UPDATE learn_goals SET completed_at = ? WHERE id = ?').run(new Date().toISOString(), args.goalId);
+      }
+      const updated = db.prepare('SELECT * FROM learn_goals WHERE id = ?').get(args.goalId);
+      return { ok: true, data: updated };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:getGoalSuggestions', async () => {
+    try {
+      const avgSession = db.prepare('SELECT AVG(duration) as avg FROM learn_sessions WHERE duration > 0').get() as any;
+      const avgCards = db.prepare('SELECT AVG(cards_reviewed) as avg FROM learn_sessions WHERE cards_reviewed > 0').get() as any;
+      const suggestions = [];
+      if (avgSession?.avg) {
+        suggestions.push({ metric: 'study_minutes', target: Math.ceil(avgSession.avg / 60 * 1.2), reason: 'Based on your average session' });
+      }
+      if (avgCards?.avg) {
+        suggestions.push({ metric: 'cards_reviewed', target: Math.ceil(avgCards.avg * 1.2), reason: 'Based on your review pace' });
+      }
+      return { ok: true, data: suggestions };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Streak System ──
+  ipcMain.handle('learn:getStreak', async () => {
+    try {
+      const streak = db.prepare('SELECT * FROM learn_streaks WHERE user_id = 1').get();
+      return { ok: true, data: streak || { current_streak: 0, longest_streak: 0, last_study_date: null, streak_freezes: 0 } };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Achievements System ──
+  ipcMain.handle('learn:getAchievements', async (_event, args: { viewed?: boolean }) => {
+    try {
+      let query = 'SELECT * FROM learn_achievements WHERE user_id = 1';
+      if (args.viewed !== undefined) {
+        query += args.viewed ? ' WHERE viewed_at IS NOT NULL' : ' WHERE viewed_at IS NULL';
+      }
+      query += ' ORDER BY earned_at DESC';
+      const achievements = db.prepare(query).all();
+      return { ok: true, data: achievements };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:checkAchievements', async (_event, args: { trigger: string; metadata?: any }) => {
+    try {
+      const newAchievements = [];
+      const badges: Record<string, { key: string; condition: () => boolean }> = {
+        first_card: { key: 'first_card', condition: () => (db.prepare('SELECT COUNT(*) as c FROM learn_card_reviews').get() as any).c >= 1 },
+        first_quiz: { key: 'first_quiz', condition: () => (db.prepare('SELECT COUNT(*) as c FROM learn_evidence').get() as any).c >= 1 },
+        streak_7: { key: 'streak_7', condition: () => ((db.prepare('SELECT current_streak FROM learn_streaks WHERE user_id = 1').get() as any)?.current_streak || 0) >= 7 },
+        cards_100: { key: 'cards_100', condition: () => (db.prepare('SELECT COUNT(*) as c FROM learn_card_reviews').get() as any).c >= 100 },
+      };
+      
+      for (const [name, badge] of Object.entries(badges)) {
+        const exists = db.prepare('SELECT id FROM learn_achievements WHERE badge_key = ?').get(badge.key);
+        if (!exists && badge.condition()) {
+          db.prepare('INSERT INTO learn_achievements (user_id, badge_key) VALUES (1, ?)').run(badge.key);
+          newAchievements.push(badge.key);
+        }
+      }
+      return { ok: true, data: newAchievements };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:markAchievementViewed', async (_event, args: { badgeKey: string }) => {
+    try {
+      db.prepare('UPDATE learn_achievements SET viewed_at = ? WHERE badge_key = ? AND user_id = 1').run(new Date().toISOString(), args.badgeKey);
+      return { ok: true, data: true };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Analytics ──
+  ipcMain.handle('learn:getSessionHistory', async (_event, args: { limit?: number; lessonId?: number }) => {
+    try {
+      let query = 'SELECT * FROM learn_sessions WHERE duration > 0';
+      const params: any[] = [];
+      if (args.lessonId) { query += ' AND lesson_id = ?'; params.push(args.lessonId); }
+      query += ' ORDER BY date DESC LIMIT ?';
+      params.push(args.limit || 20);
+      const sessions = db.prepare(query).all(...params);
+      return { ok: true, data: sessions };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:getLessonStats', async (_event, args: { lessonId: number }) => {
+    try {
+      const stats = db.prepare('SELECT * FROM learn_lesson_stats WHERE lesson_id = ?').get(args.lessonId);
+      return { ok: true, data: stats || null };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:getVelocity', async () => {
+    try {
+      const last7 = db.prepare("SELECT SUM(duration) as total_time, COUNT(*) as sessions FROM learn_sessions WHERE date >= date('now', '-7 days') AND duration > 0").get() as any;
+      const cards7 = db.prepare("SELECT SUM(cards_reviewed) as total FROM learn_sessions WHERE date >= date('now', '-7 days')").get() as any;
+      const nodes7 = db.prepare("SELECT SUM(JSON_ARRAY_LENGTH(nodes_seen)) as total FROM learn_sessions WHERE date >= date('now', '-7 days')").get() as any;
+      const studyDays = db.prepare("SELECT COUNT(DISTINCT date) as days FROM learn_sessions WHERE date >= date('now', '-7 days') AND duration > 0").get() as any;
+      
+      return { ok: true, data: {
+        cards_per_day: (cards7?.total || 0) / 7,
+        nodes_per_week: nodes7?.total || 0,
+        avg_session_minutes: last7?.sessions > 0 ? (last7.total_time / 60) / last7.sessions : 0,
+        study_days_per_week: studyDays?.days || 0,
+      }};
     } catch (e: any) {
       return { ok: false, error: e.message };
     }

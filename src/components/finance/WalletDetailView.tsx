@@ -1101,7 +1101,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
 
         {/* Add Asset Form — must be inside early return so it actually renders */}
         {showAddAsset && (
-          <GlassSurface tier={2} className="p-4">
+      <GlassSurface tier={2} className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-6 h-6 rounded-md bg-[#8B5CF6]/20 flex items-center justify-center">
                 <Plus className="w-3.5 h-3.5 text-[#8B5CF6]" />
@@ -1741,6 +1741,10 @@ function PhysicalDetail({ metadata, onChange, onDenominationsChange, transaction
     return getDenominations(displayCurrency).map(d => ({ value: d.value, label: d.label, count: 0 }));
   }, [metadata.denominations, displayCurrency]);
 
+  const cards: Array<{ name: string; type: string; last4?: string }> = useMemo(() => {
+    return Array.isArray(metadata.cards) ? metadata.cards : [];
+  }, [metadata.cards]);
+
   const total = useMemo(() => denoms.reduce((s, d) => s + d.value * d.count, 0), [denoms]);
   const isEmpty = denoms.every(d => d.count === 0);
 
@@ -1750,6 +1754,22 @@ function PhysicalDetail({ metadata, onChange, onDenominationsChange, transaction
     const next = [...denoms];
     next[idx] = { ...next[idx], count: Math.max(0, count) };
     onDenominationsChange(next);
+  };
+
+  const addCard = () => {
+    const next = [...cards, { name: '', type: 'debit', last4: '' }];
+    onChange('cards', JSON.stringify(next));
+  };
+
+  const updateCard = (idx: number, field: string, value: string) => {
+    const next = [...cards];
+    next[idx] = { ...next[idx], [field]: value };
+    onChange('cards', JSON.stringify(next));
+  };
+
+  const removeCard = (idx: number) => {
+    const next = cards.filter((_, i) => i !== idx);
+    onChange('cards', JSON.stringify(next));
   };
 
   const walletTxns = useMemo(() =>
@@ -1833,6 +1853,37 @@ function PhysicalDetail({ metadata, onChange, onDenominationsChange, transaction
           <div className="text-center py-4 text-xs text-zinc-500">No transactions yet. Tap + to add one.</div>
         ) : (
           <TransactionList transactions={walletTxns} displayCurrency={displayCurrency} walletId={walletId} onTxnClick={onTxnClick} />
+        )}
+      </GlassSurface>
+
+      {/* Cards & Items */}
+      <GlassSurface tier={2} className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Cards & Items</div>
+          <button onClick={addCard} className="text-[10px] px-2 py-1 rounded-lg bg-[#F97316]/10 text-[#F97316] hover:bg-[#F97316]/20 transition-colors">+ Add Card</button>
+        </div>
+        {cards.length === 0 ? (
+          <p className="text-[11px] text-zinc-600 text-center py-3">No cards stored. Click "Add Card" to track cards in this wallet.</p>
+        ) : (
+          <div className="space-y-2">
+            {cards.map((card, i) => (
+              <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-zinc-800/30">
+                <select value={card.type} onChange={e => updateCard(i, 'type', e.target.value)}
+                  className="bg-zinc-800 text-[10px] text-zinc-300 rounded border border-zinc-700/50 px-1.5 py-1 outline-none">
+                  <option value="debit">Debit</option>
+                  <option value="credit">Credit</option>
+                  <option value="id">ID</option>
+                  <option value="transit">Transit</option>
+                  <option value="other">Other</option>
+                </select>
+                <input value={card.name} onChange={e => updateCard(i, 'name', e.target.value)} placeholder="Card name"
+                  className="flex-1 bg-zinc-800/50 text-[11px] text-zinc-200 rounded border border-zinc-700/50 px-2 py-1 outline-none" />
+                <input value={card.last4 || ''} onChange={e => updateCard(i, 'last4', e.target.value)} placeholder="Last 4"
+                  className="w-12 bg-zinc-800/50 text-[11px] text-zinc-200 rounded border border-zinc-700/50 px-2 py-1 outline-none text-center" />
+                <button onClick={() => removeCard(i)} className="text-zinc-600 hover:text-red-400 text-xs px-1">×</button>
+              </div>
+            ))}
+          </div>
         )}
       </GlassSurface>
     </div>

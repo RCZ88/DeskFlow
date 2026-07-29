@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { BookOpen, Wand2, FileUp, ClipboardPaste, Compass, Copy, Check, Layers } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { BlurFade } from '../ui/blur-fade';
-import { BorderBeam } from '../ui/border-beam';
+import { BookOpening } from './BookOpening';
 
 const api = (window as any).deskflowAPI;
 
@@ -46,14 +46,6 @@ const ACTIONS: QuickAction[] = [
     run: (p) => p.onPaste(),
   },
 ];
-
-const float = {
-  rest: { y: 0, rotateZ: -3 },
-  float: { y: [-3, 3, -3], rotateZ: [-3, -2.5, -3] },
-  hover: { y: -8, rotateZ: -3 },
-};
-const floatSpring = { type: 'spring' as const, stiffness: 260, damping: 22 };
-const floatLoop = { duration: 4, ease: 'easeInOut', repeat: Infinity };
 
 export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
   const [copiedPrompt, setCopiedPrompt] = useState(false);
@@ -141,38 +133,10 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
           </BlurFade>
         </div>
 
-        {/* Right: a single hero book on a stand */}
+        {/* Right: animated book opening */}
         <BlurFade delay={0.2} direction="up" inView>
           <div className="relative mx-auto w-fit">
-            <motion.div
-              initial="rest"
-              animate="float"
-              whileHover="hover"
-              variants={float}
-              transition={{ float: floatLoop, hover: floatSpring }}
-              className="lyceum-book-cloth relative flex h-[300px] w-[220px] flex-col justify-between rounded-r-lg rounded-l-sm p-6"
-            >
-              <BorderBeam colorFrom="#f3d9a4" colorTo="#c2553a" />
-              <div className="lyceum-book-spine" />
-              <span className="font-mono text-[10px] uppercase tracking-[0.24em] lyceum-book-gilt opacity-80">
-                Volume I
-              </span>
-              <h2 className="font-serif text-2xl font-semibold leading-tight text-[#fdf3df]">
-                The Art of
-                <br />
-                Understanding
-              </h2>
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[10px] uppercase tracking-[0.2em] lyceum-book-gilt opacity-60">
-                  Lyceum Press
-                </span>
-                <span className="text-2xl opacity-20">📖</span>
-              </div>
-            </motion.div>
-            {/* page edges */}
-            <div className="lyceum-book-pages mx-[3px] h-2 rounded-b-sm" />
-            {/* book stand shadow */}
-            <div className="lyceum-book-shadow mx-auto mt-3 h-4 w-[80%] rounded-[50%]" />
+            <BookOpening />
           </div>
         </BlurFade>
       </div>
