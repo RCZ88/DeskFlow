@@ -11,9 +11,12 @@ import { getDateRange } from '../lib/dateRange';
 import type { Period } from '../lib/dateRange';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
+import { MagicCard } from '../components/ui/magic-card';
+import { BorderBeam } from '../components/ui/border-beam';
 import { SectionHeader } from '../components/SectionHeader';
 import { NumberTicker } from '../components/ui/number-ticker';
 import { DotPattern } from '../components/ui/dot-pattern';
+import { AnimatedGradientText } from '../components/ui/animated-gradient-text';
 import { Badge } from '../components/ui/badge';
 import { glassBackdrop, centerText, makeGradient, sharedTooltipStyle, sharedScales, barAnimation, pieAnimation } from '../lib/chart-plugins';
 import {
@@ -894,7 +897,7 @@ export default function ProductivityPage({
   };
 
   const pageContent = (
-    <>
+    <div className={embedded ? 'space-y-6' : ''}>
       {!embedded && (
         <div className="sticky top-0 z-30 -mx-5 px-5 bg-zinc-900/20 backdrop-blur-md border-b border-zinc-800/50 py-3">
           <div className="flex items-center justify-between">
@@ -911,6 +914,7 @@ export default function ProductivityPage({
 
       {/* Main Score Card */}
       <GlassCard data-tutorial="prod.score" className="group relative overflow-hidden border-zinc-800/50 hover:border-zinc-700/80 transition-colors duration-300">
+        <BorderBeam size={200} duration={8} colorFrom="#10b981" colorTo="#34d399" />
         <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(16,185,129,0.12),transparent_60%)]" />
         <div className="relative">
           <div className="flex items-center justify-between mb-6">
@@ -921,7 +925,9 @@ export default function ProductivityPage({
                 </span>
               </div>
               <div>
-                <div className="text-2xl font-semibold">Productivity Score</div>
+                <div className="text-2xl font-semibold">
+                  <AnimatedGradientText colorFrom="#10b981" colorTo="#06b6d4">Productivity Score</AnimatedGradientText>
+                </div>
                 <div className="text-sm text-zinc-500 font-mono">
                   Based on {formatDuration(productivityData.totalSeconds)} of tracked activity
                 </div>
@@ -965,7 +971,7 @@ export default function ProductivityPage({
 
           return (
             <div data-tutorial="prod.breakdown" className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="group relative overflow-hidden bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 hover:border-emerald-500/30 transition-colors duration-300">
+              <GlassCard className="group relative overflow-hidden hover:border-emerald-500/30">
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(16,185,129,0.12),transparent_60%)]" />
                 <div className="relative">
                   <div className="flex items-center gap-2 mb-2">
@@ -979,9 +985,9 @@ export default function ProductivityPage({
                       : 0}% of time
                   </div>
                 </div>
-              </div>
+              </GlassCard>
 
-              <div className="group relative overflow-hidden bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 hover:border-blue-500/30 transition-colors duration-300">
+              <GlassCard className="group relative overflow-hidden hover:border-blue-500/30">
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(59,130,246,0.12),transparent_60%)]" />
                 <div className="relative">
                   <div className="flex items-center gap-2 mb-2">
@@ -995,9 +1001,9 @@ export default function ProductivityPage({
                       : 0}% of time
                   </div>
                 </div>
-              </div>
+              </GlassCard>
 
-              <div className="group relative overflow-hidden bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 hover:border-red-500/30 transition-colors duration-300">
+              <GlassCard className="group relative overflow-hidden hover:border-red-500/30">
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(239,68,68,0.12),transparent_60%)]" />
                 <div className="relative">
                   <div className="flex items-center gap-2 mb-2">
@@ -1011,9 +1017,9 @@ export default function ProductivityPage({
                       : 0}% of time
                   </div>
                 </div>
-              </div>
+              </GlassCard>
 
-              <div className="group relative overflow-hidden bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 hover:border-purple-500/30 transition-colors duration-300">
+              <GlassCard className="group relative overflow-hidden hover:border-purple-500/30">
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(168,85,247,0.12),transparent_60%)]" />
                 <div className="relative">
                   <div className="flex items-center gap-2 mb-2">
@@ -1025,7 +1031,7 @@ export default function ProductivityPage({
                     {filteredAppCount} apps + {filteredWebCount} sites
                   </div>
                 </div>
-              </div>
+              </GlassCard>
             </div>
           );
         })()}
@@ -1614,7 +1620,7 @@ export default function ProductivityPage({
           </ul>
         </div>
       </details>
-    </>
+    </div>
   );
 
   return wrapPage(pageContent);

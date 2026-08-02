@@ -28,7 +28,6 @@ import { Bar, Line } from 'react-chartjs-2';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BlurFade } from '../components/ui/blur-fade';
 import { Particles } from '../components/ui/particles';
-import { BorderBeam } from '../components/ui/border-beam';
 
 import {
   BookOpen, Dumbbell, Activity, Moon,
@@ -487,7 +486,6 @@ export default function DashboardPage({
     refresh: refreshDashboard,
   } = useDashboardData();
 
-  const [showAIModule, setShowAIModule] = useState(false);
   const [aiInsights, setAiInsights] = useState<any[]>([]);
   const todayStr = new Date().toISOString().split('T')[0];
   const [sleepData, setSleepData] = useState<{ label: string; hours: number }[]>([]);
@@ -2524,73 +2522,6 @@ export default function DashboardPage({
 
             {/* AI Insights Strip */}
            <InsightStrip insights={aiInsights} />
-
-           {/* AI Module Bridge */}
-           <BlurFade delay={0.13} duration={0.4}>
-             <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-violet-500/20 p-5 mb-4 cursor-pointer" onClick={() => setShowAIModule(!showAIModule)}>
-               <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-violet-500/40 via-violet-500/10 to-transparent" />
-               <BorderBeam size={160} duration={12} colorFrom="#8b5cf6" colorTo="#a78bfa" />
-               <div className="relative z-10">
-                 <div className="flex items-center justify-between mb-2">
-                   <div className="flex items-center gap-2">
-                     <Bot size={16} className="text-violet-400" />
-                     <h3 className="text-[14px] font-semibold text-zinc-100">AI Assistant</h3>
-                   </div>
-                   <div className="flex items-center gap-2">
-                     <span className="text-[11px] text-zinc-600">{suggestions.length} suggestions</span>
-                     <motion.button
-                       whileHover={{ scale: 1.05 }}
-                       whileTap={{ scale: 0.95 }}
-                       onClick={(e) => { e.stopPropagation(); generateSuggestions(); }}
-                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-colors text-[12px] font-medium"
-                     >
-                       <Sparkles size={12} />
-                       Generate Goals
-                     </motion.button>
-                   </div>
-                 </div>
-                 <p className="text-[12px] text-zinc-500 mb-2">
-                   AI generates daily goals from your long-term plans. Goals sync across Dashboard and AI System page.
-                 </p>
-                 {showAIModule && suggestions.length > 0 && (
-                   <motion.div
-                     initial={{ height: 0, opacity: 0 }}
-                     animate={{ height: 'auto', opacity: 1 }}
-                     className="overflow-hidden"
-                   >
-                     <div className="space-y-1.5 mt-2">
-                       {suggestions.map((s) => (
-                         <div key={s.id} className="flex items-center justify-between p-2 rounded-md bg-zinc-900/60 border border-zinc-800/40">
-                           <span className="text-[12px] text-zinc-300">{s.title}</span>
-                           <div className="flex items-center gap-1">
-                             <motion.button
-                               whileHover={{ scale: 1.1 }}
-                               whileTap={{ scale: 0.9 }}
-                               onClick={(e) => { e.stopPropagation(); acceptSuggestion(s); }}
-                               className="w-6 h-6 rounded bg-emerald-500/10 text-emerald-400 flex items-center justify-center"
-                             >
-                               <Check size={10} />
-                             </motion.button>
-                             <motion.button
-                               whileHover={{ scale: 1.1 }}
-                               whileTap={{ scale: 0.9 }}
-                               onClick={(e) => { e.stopPropagation(); dismissSuggestion(s.id); }}
-                               className="w-6 h-6 rounded bg-zinc-800/50 text-zinc-400 flex items-center justify-center"
-                             >
-                               <X size={10} />
-                             </motion.button>
-                           </div>
-                         </div>
-                       ))}
-                     </div>
-                   </motion.div>
-                 )}
-                 {showAIModule && suggestions.length === 0 && (
-                   <p className="text-[11px] text-zinc-600 mt-2">No suggestions yet. Click "Generate Goals" to get AI-powered goal suggestions.</p>
-                 )}
-               </div>
-             </div>
-           </BlurFade>
 
           {/* Row 6: Productivity Chart */}
           <BlurFade delay={0.2} duration={0.4}>

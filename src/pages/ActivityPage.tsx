@@ -71,7 +71,7 @@ export default function ActivityPage(props: ActivityPageProps) {
           <div className="h-9 w-9 rounded-xl grid place-items-center mr-2" style={activeIconWrapStyle}>
             <Activity className="w-5 h-5" style={activeIconStyle} />
           </div>
-          <span className="text-lg font-semibold mr-4">Activity</span>
+          
           <div className="flex gap-1 bg-zinc-800/50 p-0.5 rounded-lg" data-tutorial="activity.tabs">
             {TABS.map(tab => {
               const pillStyle = { background: `${tab.accent}22`, border: `1px solid ${tab.accent}40` };
@@ -100,88 +100,94 @@ export default function ActivityPage(props: ActivityPageProps) {
         </div>
       </div>
 
-      {/* Tab Content */}
-      <div className="flex-1 min-h-0 overflow-auto">
-        <Suspense fallback={<LoadingState variant="spinner" className="py-24" />}>
-          <AnimatePresence mode="wait">
-            {activeTab === 'apps' && (
-              <motion.div
-                key="apps"
-                initial={crossfadeInitial}
-                animate={crossfadeAnimate}
-                exit={crossfadeExit}
-                transition={crossfadeTransition}
-              >
-                <StatsPage
-                  embedded
-                  appStats={props.appStats}
-                  logs={props.logs}
-                  allLogs={props.allLogs}
-                  selectedPeriod={props.selectedPeriod}
-                  dateOffset={props.dateOffset}
-                  onDateOffsetChange={props.onDateOffsetChange}
-                  timeMode={props.timeMode}
-                  tierAssignments={props.tierAssignments}
-                  liveActivityLogs={props.liveActivityLogs}
-                />
-              </motion.div>
-            )}
-            {activeTab === 'websites' && (
-              <motion.div
-                key="websites"
-                initial={crossfadeInitial}
-                animate={crossfadeAnimate}
-                exit={crossfadeExit}
-                transition={crossfadeTransition}
-              >
-                <BrowserActivityPage
-                  embedded
-                  selectedPeriod={props.selectedPeriod}
-                  dateOffset={props.dateOffset}
-                  onDateOffsetChange={props.onDateOffsetChange}
-                  timeMode={props.timeMode}
-                  tierAssignments={props.tierAssignments}
-                  allLogs={props.allLogs}
-                />
-              </motion.div>
-            )}
-            {activeTab === 'productivity' && (
-              <motion.div
-                key="productivity"
-                initial={crossfadeInitial}
-                animate={crossfadeAnimate}
-                exit={crossfadeExit}
-                transition={crossfadeTransition}
-              >
-                <ProductivityPage
-                  logs={props.allLogs}
-                  browserLogs={props.browserLogs}
-                  appStats={props.appStats}
-                  selectedPeriod={props.selectedPeriod}
-                  dateOffset={props.dateOffset}
-                  onDateOffsetChange={props.onDateOffsetChange}
-                  tierAssignments={props.tierAssignments}
-                  domainKeywordRules={props.domainKeywordRules}
-                  timeMode={props.timeMode}
-                  externalActivities={props.externalActivities}
-                  externalActivityTiers={props.externalActivityTiers}
-                />
-              </motion.div>
-            )}
-            {activeTab === 'focus' && (
-              <motion.div
-                key="focus"
-                initial={crossfadeInitial}
-                animate={crossfadeAnimate}
-                exit={crossfadeExit}
-                transition={crossfadeTransition}
-                className="p-5"
-              >
-                <FocusTab />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </Suspense>
+      {/* Tab Content — dimmed backdrop so the animated AppBackground doesn't bleed through card gaps */}
+      <div className="flex-1 min-h-0 overflow-auto relative">
+        <div className="absolute inset-0 pointer-events-none bg-[#121212]/70" aria-hidden />
+        <div className="relative z-10">
+          <Suspense fallback={<LoadingState variant="spinner" className="py-24" />}>
+            <AnimatePresence mode="wait">
+              {activeTab === 'apps' && (
+                <motion.div
+                  key="apps"
+                  initial={crossfadeInitial}
+                  animate={crossfadeAnimate}
+                  exit={crossfadeExit}
+                  transition={crossfadeTransition}
+                  className="p-5"
+                >
+                  <StatsPage
+                    embedded
+                    appStats={props.appStats}
+                    logs={props.logs}
+                    allLogs={props.allLogs}
+                    selectedPeriod={props.selectedPeriod}
+                    dateOffset={props.dateOffset}
+                    onDateOffsetChange={props.onDateOffsetChange}
+                    timeMode={props.timeMode}
+                    tierAssignments={props.tierAssignments}
+                    liveActivityLogs={props.liveActivityLogs}
+                  />
+                </motion.div>
+              )}
+              {activeTab === 'websites' && (
+                <motion.div
+                  key="websites"
+                  initial={crossfadeInitial}
+                  animate={crossfadeAnimate}
+                  exit={crossfadeExit}
+                  transition={crossfadeTransition}
+                  className="p-5"
+                >
+                  <BrowserActivityPage
+                    embedded
+                    selectedPeriod={props.selectedPeriod}
+                    dateOffset={props.dateOffset}
+                    onDateOffsetChange={props.onDateOffsetChange}
+                    timeMode={props.timeMode}
+                    tierAssignments={props.tierAssignments}
+                    allLogs={props.allLogs}
+                  />
+                </motion.div>
+              )}
+              {activeTab === 'productivity' && (
+                <motion.div
+                  key="productivity"
+                  initial={crossfadeInitial}
+                  animate={crossfadeAnimate}
+                  exit={crossfadeExit}
+                  transition={crossfadeTransition}
+                  className="p-5"
+                >
+                  <ProductivityPage
+                    logs={props.allLogs}
+                    browserLogs={props.browserLogs}
+                    appStats={props.appStats}
+                    selectedPeriod={props.selectedPeriod}
+                    dateOffset={props.dateOffset}
+                    onDateOffsetChange={props.onDateOffsetChange}
+                    tierAssignments={props.tierAssignments}
+                    domainKeywordRules={props.domainKeywordRules}
+                    timeMode={props.timeMode}
+                    externalActivities={props.externalActivities}
+                    externalActivityTiers={props.externalActivityTiers}
+                  />
+                </motion.div>
+              )}
+              {activeTab === 'focus' && (
+                <motion.div
+                  key="focus"
+                  initial={crossfadeInitial}
+                  animate={crossfadeAnimate}
+                  exit={crossfadeExit}
+                  transition={crossfadeTransition}
+                  className="p-5"
+                >
+                  <FocusTab />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </Suspense>
+        </div>
       </div>
     </div>
   );

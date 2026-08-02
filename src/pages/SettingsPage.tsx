@@ -5,7 +5,7 @@ import {
   Settings, Database, Clock, Download, Trash2, RefreshCw, Terminal,
   ChevronRight, X, Plus, GripVertical, Palette, Check, ChevronDown, Globe,
   ChevronLeft, Search, AlertTriangle, Sparkles, ChevronUp,
-  Eye, EyeOff, DollarSign, Shield, Key, Save
+  Eye, EyeOff, DollarSign, Shield, Key, Save, Lock, LockOpen, History, Undo2
 } from 'lucide-react';
 import {
   DndContext,
@@ -36,6 +36,9 @@ import { GlassCard } from '../components/GlassCard';
 import { PageShell } from '../components/PageShell';
 import { DevicesPanel } from '../components/DevicesPanel';
 import BrowserProfileSettings from '../components/BrowserProfileSettings';
+import { BorderBeam } from '../components/ui/border-beam';
+import { Badge } from '../components/ui/badge';
+import { Skeleton } from '../components/ui/skeleton';
 
 interface SettingsPageProps {
   logs: any[];
@@ -79,7 +82,7 @@ type AnimationSpeed = 'slow' | 'normal' | 'instant';
 const DEFAULT_CATEGORIES = [
   'IDE', 'AI Tools', 'Browser', 'Entertainment', 'Communication',
   'Design', 'Productivity', 'Tools', 'Education', 'Developer Tools',
-  'Search Engine', 'News', 'Shopping', 'Social Media', 'Uncategorized', 'Other'
+  'Search Engine', 'News', 'Shopping', 'Social Media', 'Gaming', 'Uncategorized', 'Other'
 ];
 
 const DEFAULT_TIER_ASSIGNMENTS = {
@@ -437,6 +440,7 @@ export default function SettingsPage({
 
   // Drag-and-drop state for dnd-kit
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeContainer, setActiveContainer] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
 
   const sensors = useSensors(
@@ -460,13 +464,45 @@ export default function SettingsPage({
 
   // Handle drag start
   const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(event.active.id as string);
+    const id = event.active.id as string;
+    setActiveId(id);
+    setActiveContainer(findTier(id));
+  };
+
+  // Handle drag over (cross-container movement)
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = active.id as string;
+    const overId = over.id as string;
+
+    let overContainer: string | null = null;
+    if (overId === 'productive' || overId === 'neutral' || overId === 'distracting') {
+      overContainer = overId;
+    } else {
+      overContainer = findTier(overId);
+    }
+
+    if (!overContainer || overContainer === activeContainer) return;
+
+    setTierAssignments(prev => {
+      const src = activeContainer as 'productive' | 'neutral' | 'distracting';
+      const dst = overContainer as 'productive' | 'neutral' | 'distracting';
+      if (!prev[src].includes(activeId)) return prev;
+      const newTiers = { ...prev };
+      newTiers[src] = newTiers[src].filter(c => c !== activeId);
+      newTiers[dst] = [...newTiers[dst], activeId];
+      return newTiers;
+    });
+    setActiveContainer(overContainer);
   };
 
   // Handle drag end
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveId(null);
+    setActiveContainer(null);
 
     if (!over) return;
 
@@ -490,9 +526,7 @@ export default function SettingsPage({
     // Move category from source to destination
     setTierAssignments(prev => {
       const newTiers = { ...prev };
-      // Remove from source
       newTiers[sourceTier] = newTiers[sourceTier].filter(c => c !== activeId);
-      // Add to destination
       newTiers[destTier] = [...newTiers[destTier], activeId];
       return newTiers;
     });
@@ -839,6 +873,11 @@ export default function SettingsPage({
       }
     }
 
+    // Save locked items
+    if (window.deskflowAPI?.setLockedItems) {
+      await window.deskflowAPI.setLockedItems({ lockedApps, lockedDomains });
+    }
+
     setHasChanges(false);
     onHasChangesChange(false);
     setSavedNotice(true);
@@ -872,6 +911,7 @@ export default function SettingsPage({
   };
 
   const changeAppCategory = (app: string, newCategory: string) => {
+    if (lockedApps[app]) return; // Don't change locked apps
     const updated = { ...appCategoryOverrides, [app]: newCategory };
     setAppCategoryOverrides(updated);
     if (setAppColors) {
@@ -887,6 +927,142 @@ export default function SettingsPage({
 
   const getAppDisplayCategory = (app: any): string => {
     return appCategoryOverrides[app.app] || app.category || 'Other';
+  };
+
+  // === LOCK HELPERS ===
+  const toggleAppLock = async (appName: string) => {
+    const newLocked = { ...lockedApps, [appName]: !lockedApps[appName] };
+    if (!newLocked[appName]) delete newLocked[appName]; // Clean up false entries
+    setLockedApps(newLocked);
+    if (window.deskflowAPI?.setLockedItems) {
+      await window.deskflowAPI.setLockedItems({ lockedApps: newLocked });
+    }
+  };
+
+  const toggleDomainLock = async (domain: string) => {
+    const newLocked = { ...lockedDomains, [domain]: !lockedDomains[domain] };
+    if (!newLocked[domain]) delete newLocked[domain];
+    setLockedDomains(newLocked);
+    if (window.deskflowAPI?.setLockedItems) {
+      await window.deskflowAPI.setLockedItems({ lockedDomains: newLocked });
+    }
+  };
+
+  const toggleLockAllApps = async () => {
+    const allLocked = filteredAppStats.every((a: any) => lockedApps[a.app]);
+    const newLocked: Record<string, boolean> = {};
+    if (!allLocked) {
+      filteredAppStats.forEach((a: any) => { newLocked[a.app] = true; });
+    }
+    setLockedApps(newLocked);
+    if (window.deskflowAPI?.setLockedItems) {
+      await window.deskflowAPI.setLockedItems({ lockedApps: newLocked });
+    }
+  };
+
+  const toggleLockAllDomains = async () => {
+    const allLocked = filteredDomainStats.every((d: any) => lockedDomains[d.domain]);
+    const newLocked: Record<string, boolean> = {};
+    if (!allLocked) {
+      filteredDomainStats.forEach((d: any) => { newLocked[d.domain] = true; });
+    }
+    setLockedDomains(newLocked);
+    if (window.deskflowAPI?.setLockedItems) {
+      await window.deskflowAPI.setLockedItems({ lockedDomains: newLocked });
+    }
+  };
+
+  // === APPROVAL QUEUE HELPERS ===
+  const approveChange = async (changeId: string) => {
+    const change = pendingChanges.find(c => c.id === changeId);
+    if (!change) return;
+    // Apply the change
+    if (change.type === 'app') {
+      changeAppCategory(change.name, change.newCategory);
+    } else {
+      const newOverrides = { ...domainCategoryOverrides, [change.name]: change.newCategory };
+      setDomainCategoryOverrides(newOverrides);
+    }
+    // Record in history
+    if (window.deskflowAPI?.addAiChangeHistory) {
+      await window.deskflowAPI.addAiChangeHistory({
+        name: change.name,
+        type: change.type,
+        previousCategory: change.previousCategory,
+        newCategory: change.newCategory,
+        source: 'ai'
+      });
+    }
+    // Remove from pending
+    setPendingChanges(prev => prev.filter(c => c.id !== changeId));
+    // Refresh history
+    if (window.deskflowAPI?.getAiChangeHistory) {
+      const history = await window.deskflowAPI.getAiChangeHistory();
+      setChangeHistory(history || []);
+    }
+    setHasChanges(true);
+    onHasChangesChange(true);
+  };
+
+  const discardChange = (changeId: string) => {
+    setPendingChanges(prev => prev.filter(c => c.id !== changeId));
+  };
+
+  const approveAllChanges = async () => {
+    for (const change of pendingChanges) {
+      if (change.type === 'app') {
+        changeAppCategory(change.name, change.newCategory);
+      } else {
+        const newOverrides = { ...domainCategoryOverrides, [change.name]: change.newCategory };
+        setDomainCategoryOverrides(newOverrides);
+      }
+      if (window.deskflowAPI?.addAiChangeHistory) {
+        await window.deskflowAPI.addAiChangeHistory({
+          name: change.name,
+          type: change.type,
+          previousCategory: change.previousCategory,
+          newCategory: change.newCategory,
+          source: 'ai'
+        });
+      }
+    }
+    setPendingChanges([]);
+    if (window.deskflowAPI?.getAiChangeHistory) {
+      const history = await window.deskflowAPI.getAiChangeHistory();
+      setChangeHistory(history || []);
+    }
+    setHasChanges(true);
+    onHasChangesChange(true);
+  };
+
+  const discardAllChanges = () => {
+    setPendingChanges([]);
+  };
+
+  const editPendingChange = (changeId: string, newCategory: string) => {
+    setPendingChanges(prev => prev.map(c =>
+      c.id === changeId ? { ...c, newCategory } : c
+    ));
+  };
+
+  // === UNDO/REDO HELPERS ===
+  const undoChange = async (changeId: string) => {
+    if (window.deskflowAPI?.undoAiChange) {
+      await window.deskflowAPI.undoAiChange(changeId);
+      // Refresh state
+      if (window.deskflowAPI?.getAiChangeHistory) {
+        const history = await window.deskflowAPI.getAiChangeHistory();
+        setChangeHistory(history || []);
+      }
+      // Refresh category overrides
+      if (window.deskflowAPI?.getCategoryConfig) {
+        const config = await window.deskflowAPI.getCategoryConfig();
+        setAppCategoryOverrides(config.appCategoryMap || {});
+        setDomainCategoryOverrides(config.domainCategoryMap || {});
+      }
+      setHasChanges(true);
+      onHasChangesChange(true);
+    }
   };
 
   useEffect(() => {
@@ -1089,6 +1265,29 @@ export default function SettingsPage({
   const [generatingCategories, setGeneratingCategories] = useState(false);
   const [pendingCategories, setPendingCategories] = useState<Record<string, string>>({});
   const [preAiCategories, setPreAiCategories] = useState<Record<string, string>>({});
+  // Locked items state
+  const [lockedApps, setLockedApps] = useState<Record<string, boolean>>({});
+  const [lockedDomains, setLockedDomains] = useState<Record<string, boolean>>({});
+  // Pending AI changes (approval queue)
+  const [pendingChanges, setPendingChanges] = useState<Array<{
+    id: string;
+    name: string;
+    type: 'app' | 'domain';
+    previousCategory: string;
+    newCategory: string;
+  }>>([]);
+  // AI change history (undo/redo)
+  const [changeHistory, setChangeHistory] = useState<Array<{
+    id: string;
+    timestamp: string;
+    name: string;
+    type: 'app' | 'domain';
+    previousCategory: string;
+    newCategory: string;
+    source: 'ai' | 'manual';
+  }>>([]);
+  const [showChangeHistory, setShowChangeHistory] = useState(false);
+  const [lockedSkipped, setLockedSkipped] = useState<string[]>([]);
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
   const [apiKeyTestStatus, setApiKeyTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [apiKeyTestMessage, setApiKeyTestMessage] = useState('');
@@ -1192,6 +1391,22 @@ export default function SettingsPage({
     loadTrackingSettings();
   }, []);
 
+  // Load locked items and change history
+  useEffect(() => {
+    const loadLockedAndHistory = async () => {
+      if (window.deskflowAPI?.getLockedItems) {
+        const items = await window.deskflowAPI.getLockedItems();
+        setLockedApps(items.lockedApps || {});
+        setLockedDomains(items.lockedDomains || {});
+      }
+      if (window.deskflowAPI?.getAiChangeHistory) {
+        const history = await window.deskflowAPI.getAiChangeHistory();
+        setChangeHistory(history || []);
+      }
+    };
+    loadLockedAndHistory();
+  }, []);
+
   // Load system prompts on mount with migration
   useEffect(() => {
     const loadPrompts = async () => {
@@ -1272,6 +1487,19 @@ export default function SettingsPage({
     if (window.deskflowAPI?.setTrackingSetting) {
       await window.deskflowAPI.setTrackingSetting(key, value.toString());
     }
+  };
+
+  const formatTimeAgo = (timestamp: string): string => {
+    const now = Date.now();
+    const then = new Date(timestamp).getTime();
+    const diffMs = now - then;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay}d ago`;
   };
 
   const ITEMS_PER_PAGE = 5;
@@ -1462,6 +1690,7 @@ export default function SettingsPage({
               sensors={sensors}
               collisionDetection={closestCenter}
               onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
             >
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -1693,6 +1922,238 @@ export default function SettingsPage({
           )}
           </SearchableSection>
 
+          {/* Pending AI Changes Approval Card */}
+          {(pendingChanges.length > 0 || lockedSkipped.length > 0) && (
+            <SearchableSection terms={['pending', 'ai', 'changes', 'approval', 'queue']} search={settingsSearch}>
+            <GlassCard>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold">Pending AI Changes</h2>
+                    <p className="text-xs text-zinc-500">
+                      {pendingChanges.length} change{pendingChanges.length !== 1 ? 's' : ''} awaiting approval
+                      {lockedSkipped.length > 0 && ` · ${lockedSkipped.length} locked item${lockedSkipped.length !== 1 ? 's' : ''} skipped`}
+                    </p>
+                  </div>
+                </div>
+                {pendingChanges.length > 1 && (
+              <div className="flex items-center gap-2">
+                {appStats.length > 0 && (
+                  <button
+                    onClick={toggleLockAllApps}
+                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-zinc-500 text-zinc-400 hover:text-white rounded-lg text-sm font-medium transition-colors duration-150 flex items-center gap-1.5"
+                    title={filteredAppStats.every((a: any) => lockedApps[a.app]) ? "Unlock all apps" : "Lock all apps"}
+                  >
+                    {filteredAppStats.every((a: any) => lockedApps[a.app]) ? (
+                      <LockOpen className="w-3.5 h-3.5" />
+                    ) : (
+                      <Lock className="w-3.5 h-3.5" />
+                    )}
+                    {filteredAppStats.every((a: any) => lockedApps[a.app]) ? 'Unlock All' : 'Lock All'}
+                  </button>
+                )}
+                <button
+                      onClick={approveAllChanges}
+                      className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-sm font-medium transition-colors duration-150"
+                    >
+                      Approve All
+                    </button>
+                    <button
+                      onClick={discardAllChanges}
+                      className="px-3 py-1.5 bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 rounded-lg text-sm font-medium transition-colors duration-150"
+                    >
+                      Discard All
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Locked skipped notification */}
+              {lockedSkipped.length > 0 && (
+                <div className="mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                  <p className="text-xs text-amber-400">
+                    <span className="font-medium">Locked items skipped:</span> {lockedSkipped.join(', ')}
+                  </p>
+                </div>
+              )}
+
+              {/* Changes list */}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {pendingChanges.map((change) => {
+                  const catColor = getCategoryColor(change.newCategory);
+                  const prevColor = getCategoryColor(change.previousCategory);
+                  return (
+                    <motion.div
+                      key={change.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 10 }}
+                      className="flex items-center gap-3 p-3 bg-zinc-800/40 rounded-xl border border-zinc-700/30"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-zinc-200 truncate">{change.name}</span>
+                          <span className="text-xs text-zinc-500 px-1.5 py-0.5 rounded bg-zinc-700/50">{change.type}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${prevColor}20`, color: prevColor }}>
+                            {change.previousCategory}
+                          </span>
+                          <svg className="w-3 h-3 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M5 12h14M12 5l7 7-7 7"/>
+                          </svg>
+                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${catColor}20`, color: catColor }}>
+                            {change.newCategory}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Edit button */}
+                      <div className="relative">
+                        <button
+                          onClick={() => {
+                            // Cycle through categories
+                            const cats = allCategories;
+                            const currentIdx = cats.indexOf(change.newCategory);
+                            const nextCat = cats[(currentIdx + 1) % cats.length];
+                            editPendingChange(change.id, nextCat);
+                          }}
+                          className="p-1.5 rounded bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors duration-150"
+                          title="Change suggested category"
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                          </svg>
+                        </button>
+                      </div>
+
+                      {/* Approve button */}
+                      <button
+                        onClick={() => approveChange(change.id)}
+                        className="p-1.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 transition-colors duration-150"
+                        title="Approve change"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Discard (X) button */}
+                      <button
+                        onClick={() => discardChange(change.id)}
+                        className="p-1.5 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors duration-150"
+                        title="Discard change"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </GlassCard>
+            </SearchableSection>
+          )}
+
+          {/* Change History (Undo/Redo) */}
+          {changeHistory.length > 0 && (
+            <SearchableSection terms={['history', 'undo', 'redo', 'changes', 'log']} search={settingsSearch}>
+            <GlassCard>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-zinc-700/50 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                      <path d="M3 3v5h5"/>
+                      <path d="M12 7v5l4 2"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold">Change History</h2>
+                    <p className="text-xs text-zinc-500">{changeHistory.length} recorded change{changeHistory.length !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowChangeHistory(!showChangeHistory)}
+                    className="px-3 py-1.5 bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 rounded-lg text-sm font-medium transition-colors duration-150 flex items-center gap-1.5"
+                  >
+                    {showChangeHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    {showChangeHistory ? 'Hide' : 'Show'}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (window.deskflowAPI?.clearAiChangeHistory) {
+                        await window.deskflowAPI.clearAiChangeHistory();
+                        setChangeHistory([]);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-sm font-medium transition-colors duration-150"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <AnimatePresence>
+                {showChangeHistory && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {changeHistory.slice().reverse().map((change) => {
+                        const catColor = getCategoryColor(change.newCategory);
+                        const prevColor = getCategoryColor(change.previousCategory);
+                        const timeAgo = formatTimeAgo(change.timestamp);
+                        return (
+                          <div
+                            key={change.id}
+                            className="flex items-center gap-3 p-3 bg-zinc-800/40 rounded-xl border border-zinc-700/30"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-zinc-200 truncate">{change.name}</span>
+                                <span className="text-xs text-zinc-500">{timeAgo}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${prevColor}20`, color: prevColor }}>
+                                  {change.previousCategory}
+                                </span>
+                                <svg className="w-3 h-3 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                                </svg>
+                                <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${catColor}20`, color: catColor }}>
+                                  {change.newCategory}
+                                </span>
+                                <span className="text-xs text-zinc-600">({change.source})</span>
+                              </div>
+                            </div>
+
+                            {/* Undo button */}
+                            <button
+                              onClick={() => undoChange(change.id)}
+                              className="p-1.5 rounded bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors duration-150"
+                              title="Undo this change"
+                            >
+                              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                                <path d="M3 3v5h5"/>
+                              </svg>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </GlassCard>
+            </SearchableSection>
+          )}
+
           {/* Applications Section - Carousel with Expandable Grid */}
           <SearchableSection terms={['applications', 'apps', 'application']} search={settingsSearch}>
           <GlassCard>
@@ -1700,7 +2161,7 @@ export default function SettingsPage({
               <div className="flex items-center gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">Applications</h2>
-                  <p className="text-xs text-zinc-500">Click app to change category</p>
+                  <p className="text-xs text-zinc-500">Click app to change category · Lock to block AI changes</p>
                 </div>
                 {appStats.length > 0 && (
                   <span className="text-xs text-zinc-500 bg-zinc-800/50 px-2 py-1 rounded-md">{filteredAppStats.length} apps</span>
@@ -1711,6 +2172,7 @@ export default function SettingsPage({
                   onClick={async () => {
                     setPreAiCategories({ ...appCategoryOverrides });
                     setGeneratingCategories(true);
+                    setLockedSkipped([]);
                     try {
                       const itemsToCategorize = appStats.map((a: any) => ({
                         name: a.app,
@@ -1718,13 +2180,15 @@ export default function SettingsPage({
                       }));
                       if (window.deskflowAPI?.generateAICategorization) {
                         const result = await window.deskflowAPI.generateAICategorization(itemsToCategorize);
-                        const newOverrides = { ...appCategoryOverrides };
-                        result.forEach((item: any) => {
-                          newOverrides[item.name] = item.category;
-                        });
-                        setAppCategoryOverrides(newOverrides);
-                        setHasChanges(true);
-                        onHasChangesChange(true);
+                        const changes = (result.changes || []).map((c: any) => ({
+                          id: `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                          name: c.name,
+                          type: c.type || 'app',
+                          previousCategory: c.previousCategory,
+                          newCategory: c.newCategory
+                        }));
+                        setPendingChanges(prev => [...prev, ...changes]);
+                        setLockedSkipped(result.lockedSkipped || []);
                         setGeneratingCategories(false);
                       }
                     } catch (err) {
@@ -1786,27 +2250,56 @@ export default function SettingsPage({
                             <button
                               onClick={async (e) => {
                                 e.stopPropagation();
+                                if (lockedApps[app.app]) return; // Don't AI-categorize locked apps
                                 try {
                                   if (window.deskflowAPI?.generateAICategorization) {
                                     const result = await window.deskflowAPI.generateAICategorization([{
                                       name: app.app,
                                       category: displayCategory
                                     }]);
-                                    if (result.length > 0) {
-                                      changeAppCategory(app.app, result[0].category);
+                                    if (result.changes && result.changes.length > 0) {
+                                      const change = result.changes[0];
+                                      setPendingChanges(prev => [...prev, {
+                                        id: `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                                        name: change.name,
+                                        type: 'app',
+                                        previousCategory: change.previousCategory,
+                                        newCategory: change.newCategory
+                                      }]);
                                     }
                                   }
                                 } catch (err) {
                                   console.error('Individual AI categorize failed:', err);
                                 }
                               }}
-                              className="absolute top-1.5 right-1.5 p-1 rounded bg-white/10 hover:bg-white/20 text-white/40 hover:text-white transition-colors duration-150 opacity-60 hover:opacity-100 z-10"
-                              title="AI Categorize"
+                              disabled={lockedApps[app.app]}
+                              className="absolute top-1.5 right-1.5 p-1 rounded bg-white/10 hover:bg-white/20 text-white/40 hover:text-white transition-colors duration-150 opacity-60 hover:opacity-100 z-10 disabled:opacity-20 disabled:cursor-not-allowed"
+                              title={lockedApps[app.app] ? "Unlock to use AI" : "AI Categorize"}
                             >
                               <Sparkles className="w-3 h-3" />
                             </button>
 
-                            <div className="flex items-center justify-center gap-1.5 w-full pr-5">
+                            {/* Lock Toggle Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleAppLock(app.app);
+                              }}
+                              className={`absolute top-1.5 left-1.5 p-1 rounded transition-colors duration-150 z-10 ${
+                                lockedApps[app.app]
+                                  ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
+                                  : 'bg-white/10 text-white/30 hover:bg-white/20 hover:text-white/60 opacity-0 group-hover:opacity-100'
+                              }`}
+                              title={lockedApps[app.app] ? "Unlock app" : "Lock app (blocks AI & manual changes)"}
+                            >
+                              {lockedApps[app.app] ? (
+                                <Lock className="w-3 h-3" />
+                              ) : (
+                                <LockOpen className="w-3 h-3" />
+                              )}
+                            </button>
+
+                            <div className="flex items-center justify-center gap-1.5 w-full pr-5 pl-5">
                               <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categoryColor }} />
                               <span className="text-xs text-zinc-200 group-hover:text-white truncate max-w-[calc(100%-16px)]">{app.app}</span>
                             </div>
@@ -1869,24 +2362,40 @@ export default function SettingsPage({
                 animate={{ opacity: 1, y: 0 }}
                 className="mt-4 p-4 bg-zinc-900/80 rounded-xl border border-zinc-700/50"
               >
-                <div className="flex items-center gap-2 mb-3">
-                  <Search className="w-4 h-4 text-zinc-500" />
-                  <input
-                    type="text"
-                    placeholder="Search categories..."
-                    value={appSearchQuery}
-                    onChange={(e) => setAppSearchQuery(e.target.value)}
-                    className="flex-1 bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none"
-                  />
-                </div>
-                <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-                  {allCategories.filter(cat => cat.toLowerCase().includes(appSearchQuery.toLowerCase())).map((cat) => {
-                    const catColor = getCategoryColor(cat);
-                    const appData = appStats.find((a: any) => a.app === editingAppCategory);
-                    const displayCategory = getAppDisplayCategory(appData);
-                    const isSelected = displayCategory === cat;
-                    return (
-                      <button
+                {lockedApps[editingAppCategory] ? (
+                  <div className="flex flex-col items-center gap-2 py-4">
+                    <div className="flex items-center gap-2 text-amber-400">
+                      <Lock className="w-5 h-5" />
+                      <span className="text-sm font-medium">App is locked</span>
+                    </div>
+                    <p className="text-xs text-zinc-500 text-center">Unlock this app first to change its category</p>
+                    <button
+                      onClick={() => { toggleAppLock(editingAppCategory); setEditingAppCategory(null); }}
+                      className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 rounded-lg text-sm transition-colors duration-150"
+                    >
+                      Unlock
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Search className="w-4 h-4 text-zinc-500" />
+                      <input
+                        type="text"
+                        placeholder="Search categories..."
+                        value={appSearchQuery}
+                        onChange={(e) => setAppSearchQuery(e.target.value)}
+                        className="flex-1 bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
+                      {allCategories.filter(cat => cat.toLowerCase().includes(appSearchQuery.toLowerCase())).map((cat) => {
+                        const catColor = getCategoryColor(cat);
+                        const appData = appStats.find((a: any) => a.app === editingAppCategory);
+                        const displayCategory = getAppDisplayCategory(appData);
+                        const isSelected = displayCategory === cat;
+                        return (
+                        <button
                         key={cat}
                         onClick={() => changeAppCategory(editingAppCategory, cat)}
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${isSelected ? 'ring-2 ring-white/30' : 'hover:bg-zinc-800'
@@ -1906,6 +2415,8 @@ export default function SettingsPage({
                 >
                   Done
                 </button>
+                  </>
+                )}
               </motion.div>
             )}
           </GlassCard>
@@ -1918,17 +2429,32 @@ export default function SettingsPage({
               <div className="flex items-center gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">Websites</h2>
-                  <p className="text-xs text-zinc-500">Click site to change category</p>
+                  <p className="text-xs text-zinc-500">Click site to change category · Lock to block AI changes</p>
                 </div>
                 {domainStats.length > 0 && (
                   <span className="text-xs text-zinc-500 bg-zinc-800/50 px-2 py-1 rounded-md">{filteredDomainStats.length} sites</span>
                 )}
               </div>
               <div className="flex items-center gap-2">
+                {domainStats.length > 0 && (
+                  <button
+                    onClick={toggleLockAllDomains}
+                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-zinc-500 text-zinc-400 hover:text-white rounded-lg text-sm font-medium transition-colors duration-150 flex items-center gap-1.5"
+                    title={filteredDomainStats.every((d: any) => lockedDomains[d.domain]) ? "Unlock all domains" : "Lock all domains"}
+                  >
+                    {filteredDomainStats.every((d: any) => lockedDomains[d.domain]) ? (
+                      <LockOpen className="w-3.5 h-3.5" />
+                    ) : (
+                      <Lock className="w-3.5 h-3.5" />
+                    )}
+                    {filteredDomainStats.every((d: any) => lockedDomains[d.domain]) ? 'Unlock All' : 'Lock All'}
+                  </button>
+                )}
                 <button
                   onClick={async () => {
                     setPreAiCategories({ ...domainCategoryOverrides });
                     setGeneratingCategories(true);
+                    setLockedSkipped([]);
                     try {
                       const itemsToCategorize = domainStats.map((d: any) => ({
                         name: d.domain,
@@ -1936,13 +2462,15 @@ export default function SettingsPage({
                       }));
                       if (window.deskflowAPI?.generateAICategorization) {
                         const result = await window.deskflowAPI.generateAICategorization(itemsToCategorize);
-                        const newOverrides = { ...domainCategoryOverrides };
-                        result.forEach((item: any) => {
-                          newOverrides[item.name] = item.category;
-                        });
-                        setDomainCategoryOverrides(newOverrides);
-                        setHasChanges(true);
-                        onHasChangesChange(true);
+                        const changes = (result.changes || []).map((c: any) => ({
+                          id: `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                          name: c.name,
+                          type: 'domain',
+                          previousCategory: c.previousCategory,
+                          newCategory: c.newCategory
+                        }));
+                        setPendingChanges(prev => [...prev, ...changes]);
+                        setLockedSkipped(result.lockedSkipped || []);
                         setGeneratingCategories(false);
                       }
                     } catch (err) {
@@ -2004,33 +2532,52 @@ export default function SettingsPage({
                             <button
                               onClick={async (e) => {
                                 e.stopPropagation();
+                                if (lockedDomains[site.domain]) return;
                                 try {
                                   if (window.deskflowAPI?.generateAICategorization) {
                                     const result = await window.deskflowAPI.generateAICategorization([{
                                       name: site.domain,
                                       category: displayCategory
                                     }]);
-                                    if (result.length > 0) {
-                                      const updated = { ...domainCategoryOverrides, [site.domain]: result[0].category };
-                                      setDomainCategoryOverrides(updated);
-                                      if (window.deskflowAPI?.setDomainCategory) {
-                                        await window.deskflowAPI.setDomainCategory(site.domain, result[0].category);
-                                      }
-                                      setHasChanges(true);
-                                      onHasChangesChange(true);
+                                    if (result.changes && result.changes.length > 0) {
+                                      const change = result.changes[0];
+                                      setPendingChanges(prev => [...prev, {
+                                        id: `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                                        name: change.name,
+                                        type: 'domain',
+                                        previousCategory: change.previousCategory,
+                                        newCategory: change.newCategory
+                                      }]);
                                     }
                                   }
                                 } catch (err) {
                                   console.error('Individual AI categorize failed:', err);
                                 }
                               }}
-                              className="absolute top-1.5 right-1.5 p-1 rounded bg-white/10 hover:bg-white/20 text-white/40 hover:text-white transition-colors duration-150 opacity-60 hover:opacity-100 z-10"
-                              title="AI Categorize"
+                              disabled={lockedDomains[site.domain]}
+                              className="absolute top-1.5 right-1.5 p-1 rounded bg-white/10 hover:bg-white/20 text-white/40 hover:text-white transition-colors duration-150 opacity-60 hover:opacity-100 z-10 disabled:opacity-20 disabled:cursor-not-allowed"
+                              title={lockedDomains[site.domain] ? "Unlock to use AI" : "AI Categorize"}
                             >
                               <Sparkles className="w-3 h-3" />
                             </button>
 
-                            <div className="flex items-center justify-center gap-1.5 w-full pr-5">
+                            {/* Lock Toggle Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleDomainLock(site.domain);
+                              }}
+                              className={`absolute top-1.5 left-1.5 p-1 rounded transition-colors duration-150 z-10 ${
+                                lockedDomains[site.domain]
+                                  ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
+                                  : 'bg-white/10 text-white/30 hover:bg-white/20 hover:text-white/60 opacity-0 group-hover:opacity-100'
+                              }`}
+                              title={lockedDomains[site.domain] ? "Unlock domain" : "Lock domain (blocks AI & manual changes)"}
+                            >
+                            <LockOpen className="w-3 h-3" />
+                            </button>
+
+                            <div className="flex items-center justify-center gap-1.5 w-full pr-5 pl-5">
                               <Globe className="w-3 h-3 text-zinc-500 flex-shrink-0" />
                               <span className="text-xs text-zinc-200 group-hover:text-white truncate max-w-[calc(100%-20px)]">{site.domain}</span>
                             </div>
@@ -2093,24 +2640,43 @@ export default function SettingsPage({
                 animate={{ opacity: 1, y: 0 }}
                 className="mt-4 p-4 bg-zinc-900/80 rounded-xl border border-zinc-700/50"
               >
-                <div className="flex items-center gap-2 mb-3">
-                  <Search className="w-4 h-4 text-zinc-500" />
-                   <input
-                    type="text"
-                    placeholder="Search categories..."
-                    value={domainSearchQuery}
-                    onChange={(e) => setDomainSearchQuery(e.target.value)}
-                    className="flex-1 bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none"
-                  />
-                </div>
-                <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-                  {allCategories.filter(cat => cat.toLowerCase().includes(domainSearchQuery.toLowerCase())).map((cat) => {
-                    const catColor = getCategoryColor(cat);
-                    const siteData = domainStats.find((s: any) => s.domain === editingDomainCategory);
-                    const displayCategory = domainCategoryOverrides[editingDomainCategory] || siteData?.category || 'Other';
-                    const isSelected = displayCategory === cat;
-                    return (
-                      <button
+                {lockedDomains[editingDomainCategory] ? (
+                  <div className="flex flex-col items-center gap-2 py-4">
+                    <div className="flex items-center gap-2 text-amber-400">
+                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                      </svg>
+                      <span className="text-sm font-medium">Domain is locked</span>
+                    </div>
+                    <p className="text-xs text-zinc-500 text-center">Unlock this domain first to change its category</p>
+                    <button
+                      onClick={() => { toggleDomainLock(editingDomainCategory); setEditingDomainCategory(null); }}
+                      className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 rounded-lg text-sm transition-colors duration-150"
+                    >
+                      Unlock
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Search className="w-4 h-4 text-zinc-500" />
+                       <input
+                        type="text"
+                        placeholder="Search categories..."
+                        value={domainSearchQuery}
+                        onChange={(e) => setDomainSearchQuery(e.target.value)}
+                        className="flex-1 bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
+                      {allCategories.filter(cat => cat.toLowerCase().includes(domainSearchQuery.toLowerCase())).map((cat) => {
+                        const catColor = getCategoryColor(cat);
+                        const siteData = domainStats.find((s: any) => s.domain === editingDomainCategory);
+                        const displayCategory = domainCategoryOverrides[editingDomainCategory] || siteData?.category || 'Other';
+                        const isSelected = displayCategory === cat;
+                        return (
+                        <button
                         key={cat}
                         onClick={async () => {
                           const updated = { ...domainCategoryOverrides, [editingDomainCategory]: cat };
@@ -2139,6 +2705,8 @@ export default function SettingsPage({
                 >
                   Done
                 </button>
+                  </>
+                )}
               </motion.div>
             )}
           </GlassCard>
@@ -3215,7 +3783,7 @@ export default function SettingsPage({
             />
             <p className="text-xs text-zinc-500 mb-4">Solar system colors</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-              {DEFAULT_CATEGORIES.map((category) => (
+              {allCategories.map((category) => (
                 <div key={category} className="flex items-center gap-2 p-2.5 bg-zinc-800/40 hover:bg-zinc-800/70 rounded-lg border border-zinc-700/30 hover:border-zinc-600 transition-colors duration-150 group">
                   <ColorPicker
                     value={getCategoryColor(category)}

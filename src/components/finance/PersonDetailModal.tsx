@@ -4,6 +4,8 @@ import type { FinanceFtPerson, FinanceTransaction, FinanceWallet } from './finan
 import { getRepaymentStatus, getFtPerson } from '../../lib/receivables';
 import { TopUpModal } from './modals/TopUpModal';
 import { DeductModal } from './modals/DeductModal';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 
 interface PersonDetailModalProps {
   open: boolean;
@@ -21,6 +23,8 @@ interface PersonDetailModalProps {
 export function PersonDetailModal({
   open, onClose, person, transactions, wallets, displayCurrency, onRecordPayment, onRefresh, onNewTransaction, onTransactionClick
 }: PersonDetailModalProps) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number) => showNumbers ? v.toFixed(2) : maskNumber(v.toFixed(2), maskMode, maskFixedValue);
   const [filter, setFilter] = useState<'all' | 'pending' | 'repaid'>('all');
   const [showTopUp, setShowTopUp] = useState(false);
   const [showDeduct, setShowDeduct] = useState(false);
@@ -190,11 +194,11 @@ export function PersonDetailModal({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[11px] text-amber-400/80 uppercase tracking-wider">Amount Owed</p>
-                  <p className="text-2xl font-bold text-amber-400 mt-0.5">{displayCurrency}{balance.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-amber-400 mt-0.5">{displayCurrency}{fmtMoney(balance)}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[11px] text-zinc-500">Total Repaid</p>
-                  <p className="text-sm font-semibold text-emerald-400 mt-0.5">{displayCurrency}{totalRepaid.toFixed(2)}</p>
+                  <p className="text-sm font-semibold text-emerald-400 mt-0.5">{displayCurrency}{fmtMoney(totalRepaid)}</p>
                 </div>
               </div>
               <div className="flex items-center gap-4 mt-3 pt-3 border-t border-amber-500/10">
@@ -209,7 +213,7 @@ export function PersonDetailModal({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[11px] text-violet-400/80 uppercase tracking-wider">Balance</p>
-                  <p className="text-xl font-bold text-violet-400 mt-0.5">{displayCurrency}{storedBalance.toFixed(2)}</p>
+                  <p className="text-xl font-bold text-violet-400 mt-0.5">{displayCurrency}{fmtMoney(storedBalance)}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {/* Wallet Picker */}
@@ -263,7 +267,7 @@ export function PersonDetailModal({
                 </div>
               </div>
               {linkedWallet && (
-                <p className="text-[10px] text-zinc-600 mt-2">Linked to {linkedWallet.name} ({displayCurrency}{(linkedWallet.balance ?? 0).toFixed(2)} available)</p>
+                <p className="text-[10px] text-zinc-600 mt-2">Linked to {linkedWallet.name} ({displayCurrency}{fmtMoney(linkedWallet.balance ?? 0)} available)</p>
               )}
             </div>
           </div>
@@ -342,7 +346,7 @@ export function PersonDetailModal({
                         )}
                       </div>
                       <span className={`text-xs font-bold tabular-nums ${addsToBalance ? 'text-violet-400' : isRepaid ? 'text-emerald-400' : 'text-amber-400'}`}>
-                        {addsToBalance ? '+' : '-'}{displayCurrency}{Math.abs(tx.amount).toFixed(2)}
+                        {addsToBalance ? '+' : '-'}{displayCurrency}{fmtMoney(Math.abs(tx.amount))}
                       </span>
                     </div>
                     <div className="flex items-center justify-between mt-1.5">
@@ -356,7 +360,7 @@ export function PersonDetailModal({
                       {addsToBalance && <span className="text-[10px] text-violet-400/80">Added to balance</span>}
                       {isRepayment && <span className="text-[10px] text-emerald-400/80">Reduced balance (repayment)</span>}
                       {isDeduction && !isTopUp && <span className="text-[10px] text-amber-400/80">Reduced balance</span>}
-                      {!addsToBalance && !isRepaid && !isDeduction && !isTopUp && stillOwed > 0 && <span className="text-[10px] text-amber-400/80">{displayCurrency}{stillOwed.toFixed(2)} remaining</span>}
+                      {!addsToBalance && !isRepaid && !isDeduction && !isTopUp && stillOwed > 0 && <span className="text-[10px] text-amber-400/80">{displayCurrency}{fmtMoney(stillOwed)} remaining</span>}
                       {isRepaid && <span className="text-[10px] text-emerald-400/80">Fully repaid</span>}
                     </div>
                   </div>

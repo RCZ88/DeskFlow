@@ -5,6 +5,8 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import { Line, Doughnut } from 'react-chartjs-2';
 import { GlassSurface } from './_fx/GlassSurface';
 import { getCurrencyInfo, formatCurrency as fmtCurrency, formatAmount as fmtAmount, formatPercent as fmtPct } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 import { TransactionDetailModal } from './TransactionDetailModal';
 import { CryptoAssetDetailModal } from './CryptoAssetDetailModal';
 import { CurrencyInput } from './CurrencyInput';
@@ -212,6 +214,8 @@ function TransactionList({ transactions, displayCurrency, emptyText, walletId, o
   transactions: FinanceTransaction[]; displayCurrency: string; emptyText?: string; walletId?: number; onTxnClick?: (txn: FinanceTransaction) => void; onRefresh?: () => void;
 }) {
   const sym = getCurrencyInfo(displayCurrency).symbol;
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtAmt = (v: number) => showNumbers ? `${sym}${Math.abs(v).toFixed(2)}` : maskNumber(`${sym}${Math.abs(v).toFixed(2)}`, maskMode, maskFixedValue);
   const [showHistorical, setShowHistorical] = useState(false);
   const [showReorder, setShowReorder] = useState(false);
 
@@ -280,7 +284,7 @@ function TransactionList({ transactions, displayCurrency, emptyText, walletId, o
           )}
         </div>
         <div className={`text-xs font-medium tabular-nums ml-2 ${isHistorical ? 'text-violet-400' : txn.type === 'expense' ? 'text-red-400' : txn.type === 'income' ? 'text-emerald-400' : txn.amount < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-          {isHistorical ? '' : txn.type === 'expense' || (txn.type === 'transfer' && txn.amount < 0) ? '-' : txn.type === 'income' || (txn.type === 'transfer' && txn.amount > 0) ? '+' : ''}{sym}{Math.abs(txn.amount).toFixed(2)}
+          {isHistorical ? '' : txn.type === 'expense' || (txn.type === 'transfer' && txn.amount < 0) ? '-' : txn.type === 'income' || (txn.type === 'transfer' && txn.amount > 0) ? '+' : ''}{fmtAmt(txn.amount)}
         </div>
       </div>
     );
@@ -408,6 +412,9 @@ function CreditCardDetail({ metadata, onChange, wallet, transactions, displayCur
   const statementDate = metadata.statementDate || metadata.statement_date || '';
   const paymentDueDate = metadata.paymentDueDate || metadata.payment_due_date || '';
   const sym = getCurrencyInfo(displayCurrency).symbol;
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number) => showNumbers ? fmtCurrency(v, displayCurrency) : maskNumber(fmtCurrency(v, displayCurrency), maskMode, maskFixedValue);
+  const fmtSym = (v: number) => showNumbers ? `${sym}${v.toFixed(2)}` : maskNumber(`${sym}${v.toFixed(2)}`, maskMode, maskFixedValue);
 
   const isDueSoon = paymentDueDate && (() => {
     const due = new Date(paymentDueDate);
@@ -436,8 +443,8 @@ function CreditCardDetail({ metadata, onChange, wallet, transactions, displayCur
               style={{ width: `${Math.min(utilization, 100)}%` }} />
           </div>
           <div className="flex justify-between text-[11px] text-zinc-500 mt-1.5">
-            <span>Used: {sym}{currentBalance.toFixed(2)}</span>
-            <span>Available: {sym}{Math.max(available, 0).toFixed(2)}</span>
+            <span>Used: {fmtSym(currentBalance)}</span>
+            <span>Available: {fmtSym(Math.max(available, 0))}</span>
           </div>
         </GlassSurface>
       )}
@@ -449,7 +456,7 @@ function CreditCardDetail({ metadata, onChange, wallet, transactions, displayCur
           <FieldRow label="Issuer" value={metadata.issuer} onChange={v => onChange('issuer', v)} />
           <FieldRow label="Credit Limit" value={(metadata.creditLimit || metadata.credit_limit) ?? ''} onChange={v => onChange('creditLimit', v)} type="number" />
           <FieldRow label="APR (%)" value={metadata.apr ?? ''} onChange={v => onChange('apr', v)} type="number" />
-          {statementBalance > 0 && <FieldRow label="Statement Balance" value={`${sym}${statementBalance.toFixed(2)}`} />}
+          {statementBalance > 0 && <FieldRow label="Statement Balance" value={fmtSym(statementBalance)} />}
           {statementDate && <FieldRow label="Statement Date" value={statementDate} />}
           <FieldRow label="Payment Due Date" value={paymentDueDate} onChange={v => onChange('paymentDueDate', v)} type="date"
             warning={isDueSoon ? 'Payment due within 7 days' : undefined} />
@@ -509,6 +516,8 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
   metadata: Record<string, any>; onChange: (key: string, v: string) => void; wallet: FinanceWallet; displayCurrency: string; onTotalValueChange?: (val: number) => void; transactions?: FinanceTransaction[]; walletTransactions?: FinanceTransaction[]; onTxnClick?: (t: FinanceTransaction) => void;
 }) {
   const sym = getCurrencyInfo(displayCurrency).symbol;
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number) => showNumbers ? fmtCurrency(v, displayCurrency) : maskNumber(fmtCurrency(v, displayCurrency), maskMode, maskFixedValue);
   const isInvestment = wallet.type === 'investment';
   const [prices, setPrices] = useState<CryptoPrice[]>([]);
   const [history, setHistory] = useState<CryptoHistoryPoint[]>([]);
@@ -829,7 +838,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
       tooltip: {
         backgroundColor: 'rgba(24, 24, 27, 0.95)', titleColor: '#e4e4e7', bodyColor: '#a1a1aa',
         borderColor: 'rgba(63, 63, 70, 0.5)', borderWidth: 1, cornerRadius: 8,
-        callbacks: { label: (ctx: any) => ` ${ctx.label}: ${fmtCurrency(ctx.parsed, displayCurrency)} (${((ctx.parsed / totalValue) * 100).toFixed(1)}%)` }
+        callbacks: { label: (ctx: any) => ` ${ctx.label}: ${fmtMoney(ctx.parsed)} (${((ctx.parsed / totalValue) * 100).toFixed(1)}%)` }
       }
     }
   };
@@ -842,12 +851,12 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
       tooltip: {
         backgroundColor: 'rgba(24, 24, 27, 0.95)', titleColor: '#e4e4e7', bodyColor: '#a1a1aa',
         borderColor: 'rgba(63, 63, 70, 0.5)', borderWidth: 1, cornerRadius: 8,
-        callbacks: { label: (ctx: any) => `${fmtCurrency(ctx.parsed.y, displayCurrency)}` }
+        callbacks: { label: (ctx: any) => `${fmtMoney(ctx.parsed.y)}` }
       }
     },
     scales: {
       x: { ticks: { color: '#71717a', font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false }, border: { color: 'rgba(113,113,122,0.15)' } },
-      y: { ticks: { color: '#71717a', font: { size: 10 }, maxTicksLimit: 5, callback: (v: any) => `${sym}${v}` }, grid: { color: 'rgba(113,113,122,0.08)' }, border: { display: false } },
+      y: { ticks: { color: '#71717a', font: { size: 10 }, maxTicksLimit: 5, callback: (v: any) => showNumbers ? `${sym}${v}` : maskNumber(`${sym}${v}`, maskMode, maskFixedValue) }, grid: { color: 'rgba(113,113,122,0.08)' }, border: { display: false } },
     },
   };
 
@@ -1084,7 +1093,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
           {fiatBalance > 0 && (
             <div className="mt-3 px-4 py-2.5 rounded-xl bg-emerald-500/8 border border-emerald-500/15">
               <span className="text-[10px] text-emerald-400/70">Available to invest</span>
-              <p className="text-lg font-bold text-emerald-400 tabular-nums">{fmtCurrency(fiatBalance, displayCurrency)}</p>
+              <p className="text-lg font-bold text-emerald-400 tabular-nums">{fmtMoney(fiatBalance)}</p>
             </div>
           )}
           <p className="text-[11px] text-zinc-500 mt-2.5 max-w-[240px] leading-relaxed">
@@ -1252,13 +1261,13 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
         <div className="flex items-start justify-between">
           <div>
             <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Portfolio Value</div>
-            <div className="text-xl font-bold text-white tabular-nums mt-1">{prices.length > 0 ? fmtCurrency(totalValue, displayCurrency) : fmtCurrency(availableFiat, displayCurrency)}</div>
+            <div className="text-xl font-bold text-white tabular-nums mt-1">{prices.length > 0 ? fmtMoney(totalValue) : fmtMoney(availableFiat)}</div>
             <div className="flex items-center gap-1.5 mt-1">
-              <span className="text-[10px] text-zinc-500">{fmtCurrency(cryptoPortfolioValue, displayCurrency)} crypto</span>
+              <span className="text-[10px] text-zinc-500">{fmtMoney(cryptoPortfolioValue)} crypto</span>
               {totalCost > 0 && (
                 <>
                   <span className="text-[10px] text-zinc-600">+</span>
-                  <span className="text-[10px] text-zinc-400">{fmtCurrency(availableFiat, displayCurrency)} available</span>
+                  <span className="text-[10px] text-zinc-400">{fmtMoney(availableFiat)} available</span>
                 </>
               )}
             </div>
@@ -1275,18 +1284,18 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
           {totalSpent > 0 && (
             <>
               <span className="text-zinc-500">Spent</span>
-              <span className="text-zinc-400 tabular-nums">{fmtCurrency(totalSpent, displayCurrency)}</span>
+              <span className="text-zinc-400 tabular-nums">{fmtMoney(totalSpent)}</span>
               <span className="text-zinc-600">·</span>
             </>
           )}
           <span className="text-zinc-500">Available</span>
-          <span className={`font-medium tabular-nums ${availableFiat > 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(availableFiat, displayCurrency)}</span>
+          <span className={`font-medium tabular-nums ${availableFiat > 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(availableFiat)}</span>
         </div>
         {totalCost > 0 && (
           <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/5 text-[11px]">
             <span className="text-zinc-500">P&amp;L</span>
             <span className={`font-medium tabular-nums ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {fmtCurrency(totalPnl, displayCurrency)}
+              {fmtMoney(totalPnl)}
             </span>
             <span className={`tabular-nums ${totalPnl >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
               ({fmtPct(totalPnlPct, 1)}%)
@@ -1393,13 +1402,13 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
                          {!isFiat && a.avg_buy_price > 0 && (
                            <>
                              <span className="text-zinc-700">@</span>
-                             <span>{fmtCurrency(a.avg_buy_price, displayCurrency)}</span>
+                             <span>{fmtMoney(a.avg_buy_price)}</span>
                            </>
                          )}
                          {!isFiat && price > 0 && (
                            <>
                              <span className="text-zinc-700">now</span>
-                             <span className={change !== null && change >= 0 ? 'text-emerald-400/60' : change !== null ? 'text-red-400/60' : 'text-zinc-500'}>{fmtCurrency(price, displayCurrency)}</span>
+                             <span className={change !== null && change >= 0 ? 'text-emerald-400/60' : change !== null ? 'text-red-400/60' : 'text-zinc-500'}>{fmtMoney(price)}</span>
                            </>
                          )}
                        </div>
@@ -1407,7 +1416,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
                    </div>
                  </div>
                  <div className="text-right shrink-0 ml-2">
-                   <div className="text-xs text-zinc-200 tabular-nums">{fmtCurrency(value, displayCurrency)}</div>
+                   <div className="text-xs text-zinc-200 tabular-nums">{fmtMoney(value)}</div>
                    <div className="flex items-center gap-1.5 justify-end">
                      {!isFiat && change !== null && (
                        <span className={`text-[10px] tabular-nums ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -1595,7 +1604,7 @@ function CryptoDetail({ metadata, onChange, wallet, displayCurrency, onTotalValu
             <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Total P&amp;L</span>
             <div className="flex items-center gap-3">
               <span className={`text-sm font-semibold tabular-nums ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {fmtCurrency(totalPnl, displayCurrency)}
+                {fmtMoney(totalPnl)}
               </span>
               <span className={`text-[10px] tabular-nums ${totalPnl >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
                 ({fmtPct(totalPnlPct, 1)}%)
@@ -1656,6 +1665,8 @@ function CashDetail({ metadata, onChange, onDenominationsChange, displayCurrency
   onTotalValueChange?: (v: number) => void; onTxnClick?: (txn: FinanceTransaction) => void;
 }) {
   const sym = getCurrencyInfo(displayCurrency).symbol;
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtSym = (v: number) => showNumbers ? `${sym}${v.toFixed(2)}` : maskNumber(`${sym}${v.toFixed(2)}`, maskMode, maskFixedValue);
   const denoms: CashDenomination[] = useMemo(() => {
     if (Array.isArray(metadata.denominations) && metadata.denominations.length > 0) return metadata.denominations;
     return getDenominations(displayCurrency).map(d => ({ value: d.value, label: d.label, count: 0 }));
@@ -1682,7 +1693,7 @@ function CashDetail({ metadata, onChange, onDenominationsChange, displayCurrency
       <GlassSurface tier={2} className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Denominations</div>
-          <div className="text-sm font-semibold text-white tabular-nums">{sym}{total.toFixed(2)}</div>
+          <div className="text-sm font-semibold text-white tabular-nums">{fmtSym(total)}</div>
         </div>
 
         {isEmpty && (
@@ -1700,14 +1711,14 @@ function CashDetail({ metadata, onChange, onDenominationsChange, displayCurrency
                 <span className="text-xs tabular-nums text-zinc-200 w-8 text-center">{d.count}</span>
                 <button onClick={() => updateCount(i, d.count + 1)} className="w-6 h-6 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700/50 text-sm">+</button>
               </div>
-              <span className="text-xs tabular-nums text-zinc-400 w-20 text-right">{sym}{(d.value * d.count).toFixed(2)}</span>
+              <span className="text-xs tabular-nums text-zinc-400 w-20 text-right">{fmtSym(d.value * d.count)}</span>
             </div>
           ))}
         </div>
 
         <div className="flex justify-between items-center pt-3 mt-2 border-t border-white/5">
           <span className="text-xs font-medium text-zinc-300">Total</span>
-          <span className="text-sm font-bold text-white tabular-nums">{sym}{total.toFixed(2)}</span>
+          <span className="text-sm font-bold text-white tabular-nums">{fmtSym(total)}</span>
         </div>
       </GlassSurface>
 
@@ -1736,6 +1747,8 @@ function PhysicalDetail({ metadata, onChange, onDenominationsChange, transaction
   onTotalValueChange?: (v: number) => void; walletId?: number; onTxnClick?: (txn: FinanceTransaction) => void;
 }) {
   const sym = getCurrencyInfo(displayCurrency).symbol;
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtSym = (v: number) => showNumbers ? `${sym}${v.toFixed(2)}` : maskNumber(`${sym}${v.toFixed(2)}`, maskMode, maskFixedValue);
   const denoms: CashDenomination[] = useMemo(() => {
     if (Array.isArray(metadata.denominations) && metadata.denominations.length > 0) return metadata.denominations;
     return getDenominations(displayCurrency).map(d => ({ value: d.value, label: d.label, count: 0 }));
@@ -1782,7 +1795,7 @@ function PhysicalDetail({ metadata, onChange, onDenominationsChange, transaction
       <GlassSurface tier={2} className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Wallet Contents</div>
-          <div className="text-sm font-semibold text-white tabular-nums">{sym}{total.toFixed(2)}</div>
+          <div className="text-sm font-semibold text-white tabular-nums">{fmtSym(total)}</div>
         </div>
 
         {isEmpty && (
@@ -1802,14 +1815,14 @@ function PhysicalDetail({ metadata, onChange, onDenominationsChange, transaction
                 <button onClick={() => updateCount(i, d.count + 1)}
                   className="h-11 w-11 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700/50 active:scale-95 text-sm transition-all">+</button>
               </div>
-              <span className="text-sm tabular-nums text-zinc-400 w-24 text-right">{sym}{(d.value * d.count).toFixed(2)}</span>
+              <span className="text-sm tabular-nums text-zinc-400 w-24 text-right">{fmtSym(d.value * d.count)}</span>
             </div>
           ))}
         </div>
 
         <div className="flex justify-between items-center pt-3 mt-2 border-t border-zinc-700/50">
           <span className="text-xs font-medium text-zinc-300">Total</span>
-          <span className="text-xl font-bold text-white tabular-nums">{sym}{total.toFixed(2)}</span>
+          <span className="text-xl font-bold text-white tabular-nums">{fmtSym(total)}</span>
         </div>
       </GlassSurface>
 
@@ -2015,6 +2028,8 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
   const [initialBalanceCooldown, setInitialBalanceCooldown] = useState<string | null>(null);
   const [detailTxn, setDetailTxn] = useState<FinanceTransaction | null>(null);
   const symbol = getCurrencyInfo(displayCurrency).symbol;
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number) => showNumbers ? fmtCurrency(v, displayCurrency) : maskNumber(fmtCurrency(v, displayCurrency), maskMode, maskFixedValue);
   // For crypto/investment wallets: fiat balance = sum of transfers IN (not wallet.balance which may be total cash)
   // For other wallets: fiat balance = wallet.balance (the actual balance in this wallet)
   const fiatBalance = wallet.balance || 0;
@@ -2220,7 +2235,7 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
               )}
               <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: `${meta.color}18`, color: meta.color }}>{meta.label}</span>
               {isOutOfSync && (
-                <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400" title={`Denominations total ${fmtCurrency(denominationTotal!, displayCurrency)} doesn't match balance ${fmtCurrency(wallet.balance, displayCurrency)}`}>
+                <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400" title={`Denominations total ${fmtMoney(denominationTotal!)} doesn't match balance ${fmtMoney(wallet.balance)}`}>
                   <AlertTriangle className="w-3 h-3" /> Out of sync
                 </span>
               )}
@@ -2236,17 +2251,17 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
                   <>
                     <div className="text-sm font-semibold text-white tabular-nums">
                        {(wallet.type === 'crypto' || wallet.type === 'investment')
-                         ? fmtCurrency(parentAvailableFiat + cryptoOnlyValue, displayCurrency)
-                         : fmtCurrency(cashLiveTotal > 0 ? cashLiveTotal : wallet.balance, displayCurrency)}
+                         ? fmtMoney(parentAvailableFiat + cryptoOnlyValue)
+                         : fmtMoney(cashLiveTotal > 0 ? cashLiveTotal : wallet.balance)}
                     </div>
                     <div className="text-[10px] text-zinc-500">{displayCurrency}</div>
                     {(wallet.type === 'crypto' || wallet.type === 'investment') && (
                       <div className="flex items-center gap-1 mt-0.5">
-                        <span className="text-[9px] text-zinc-400">{fmtCurrency(cryptoOnlyValue, displayCurrency)} crypto</span>
+                        <span className="text-[9px] text-zinc-400">{fmtMoney(cryptoOnlyValue)} crypto</span>
                         {fiatBalance > 0 && (
                           <>
                             <span className="text-[9px] text-zinc-700">+</span>
-                            <span className="text-[9px] text-emerald-400/70">{fmtCurrency(parentAvailableFiat, displayCurrency)} available</span>
+                            <span className="text-[9px] text-emerald-400/70">{fmtMoney(parentAvailableFiat)} available</span>
                           </>
                         )}
                       </div>
@@ -2254,7 +2269,7 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
                   </>
                 ) : (
                   <>
-                    <div className="text-sm font-semibold text-white tabular-nums">{fmtCurrency(wallet.balance, displayCurrency)}</div>
+                    <div className="text-sm font-semibold text-white tabular-nums">{fmtMoney(wallet.balance)}</div>
                     <div className="text-[10px] text-zinc-500">{displayCurrency}</div>
                   </>
                 )}
@@ -2287,11 +2302,10 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
                       setEditingInitialBalance(true); 
                       setInitialBalanceBuf(String(displayInitial)); 
                     }}>
-                    Initial: {fmtCurrency(
+                    Initial: {fmtMoney(
                       (wallet.type === 'crypto' || wallet.type === 'investment')
                         ? Math.max(Number((wallet as any).initial_balance || 0), wallet.balance || 0)
-                        : Number((wallet as any).initial_balance || 0), 
-                      displayCurrency
+                        : Number((wallet as any).initial_balance || 0)
                     )}
                     <span className="text-zinc-600 ml-1">(edit)</span>
                   </span>
@@ -2323,7 +2337,7 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
               {localFeeType !== 'none' && localFeeValue > 0
                 ? (localFeeType === 'percentage'
                   ? `${localFeeValue}% fee`
-                  : `${fmtCurrency(Number(localFeeValue), displayCurrency)} fee`)
+                  : `${fmtMoney(Number(localFeeValue))} fee`)
                 : 'None \u2716'}
             </button>
           </div>
@@ -2384,10 +2398,10 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
                     <div key={name} className="flex items-center justify-between text-xs">
                       <span className="text-zinc-300">{name}</span>
                       <div className="flex items-center gap-3">
-                        <span className="text-zinc-500 tabular-nums">+{fmtCurrency(data.paid, displayCurrency)}</span>
-                        <span className="text-zinc-500 tabular-nums">-{fmtCurrency(data.spent, displayCurrency)}</span>
+                        <span className="text-zinc-500 tabular-nums">+{fmtMoney(data.paid)}</span>
+                        <span className="text-zinc-500 tabular-nums">-{fmtMoney(data.spent)}</span>
                         <span className={`font-medium tabular-nums ${net >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {net >= 0 ? '+' : ''}{fmtCurrency(net, displayCurrency)}
+                          {net >= 0 ? '+' : ''}{fmtMoney(net)}
                         </span>
                       </div>
                     </div>
@@ -2415,7 +2429,7 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
                       <span className="text-xs text-zinc-300 truncate">{sub.name}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs text-zinc-400 tabular-nums">{sym}{Number(sub.price).toFixed(2)}<span className="text-[9px] text-zinc-600">/{sub.billing_cycle?.replace('ly','')}</span></span>
+                      <span className="text-xs text-zinc-400 tabular-nums">{showNumbers ? `${sym}${Number(sub.price).toFixed(2)}` : maskNumber(`${sym}${Number(sub.price).toFixed(2)}`, maskMode, maskFixedValue)}<span className="text-[9px] text-zinc-600">/{sub.billing_cycle?.replace('ly','')}</span></span>
                     </div>
                   </div>
                 );

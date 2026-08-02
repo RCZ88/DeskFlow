@@ -7,6 +7,8 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { ArrowRight, Zap, AlertCircle, Route } from 'lucide-react';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 
 interface MatrixCell {
   fromWalletId: number;
@@ -37,11 +39,15 @@ interface MatrixData {
 }
 
 export default function TransferCostMatrix() {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [data, setData] = useState<MatrixData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFrom, setSelectedFrom] = useState<number | null>(null);
   const [selectedTo, setSelectedTo] = useState<number | null>(null);
+
+  const fmtMoney = (v: number) =>
+    showNumbers ? formatCurrency(v) : maskNumber(formatCurrency(v), maskMode, maskFixedValue);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -231,11 +237,11 @@ export default function TransferCostMatrix() {
                       setSelectedFrom(fromW.id);
                       setSelectedTo(toW.id);
                     }}
-                    title={`${fromW.name} → ${toW.name}: ${formatCurrency(cell.estimatedFee)} fee (${cell.efficiencyScore.toFixed(0)}% efficient)`}
+                    title={`${fromW.name} → ${toW.name}: ${fmtMoney(cell.estimatedFee)} fee (${cell.efficiencyScore.toFixed(0)}% efficient)`}
                   >
                     <div className="text-center">
                       <div className="text-[10px] font-bold text-zinc-200">
-                        {cell.estimatedFee > 0 ? formatCurrency(cell.estimatedFee) : 'Free'}
+                        {cell.estimatedFee > 0 ? fmtMoney(cell.estimatedFee) : 'Free'}
                       </div>
                       {cell.transferCount > 0 && (
                         <div className="text-[8px] text-zinc-500">{cell.transferCount} txs</div>
@@ -268,7 +274,7 @@ export default function TransferCostMatrix() {
           </div>
           <div className="flex items-center gap-4 mt-2 text-xs">
             <span className="text-zinc-500">
-              Fee: <span className="text-zinc-300 font-mono">{formatCurrency(selectedRoute.totalFee)}</span>
+              Fee: <span className="text-zinc-300 font-mono">{fmtMoney(selectedRoute.totalFee)}</span>
             </span>
             <span className="text-zinc-500">
               Efficiency: <span className="text-emerald-400 font-mono">{selectedRoute.efficiencyScore.toFixed(0)}%</span>
@@ -287,7 +293,7 @@ export default function TransferCostMatrix() {
                 {route.from} <ArrowRight size={10} className="inline text-zinc-600 mx-1" /> {route.to}
               </span>
               <div className="flex items-center gap-3">
-                <span className="text-zinc-500">{formatCurrency(route.totalFee)}</span>
+                <span className="text-zinc-500">{fmtMoney(route.totalFee)}</span>
                 <span className={`font-mono ${route.efficiencyScore >= 70 ? 'text-emerald-400' : route.efficiencyScore >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
                   {route.efficiencyScore.toFixed(0)}%
                 </span>

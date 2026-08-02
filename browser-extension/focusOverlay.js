@@ -3,6 +3,9 @@
 // This is a reminder, not enforcement — user can always choose to break focus.
 
 (() => {
+  if (window.__deskflowFocusInjected) return;
+  window.__deskflowFocusInjected = true;
+
   let shown = false;
   function domain() { return location.hostname.replace(/^www\./, ''); }
 

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PageTitle Design Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Space+Grotesk:wght@300..700&family=Plus+Jakarta+Sans:wght@300..800&family=Inter:wght@300..900&family=JetBrains+Mono:wght@300..800&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #09090b;
+  color: #e4e4e7;
+  font-family: 'Inter', sans-serif;
+  padding: 48px;
+  min-height: 100vh;
+}
+h1 {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #71717a;
+  margin-bottom: 8px;
+}
+.subtitle {
+  font-size: 13px;
+  color: #52525b;
+  margin-bottom: 32px;
+}
+.grid { display: flex; flex-direction: column; gap: 28px; max-width: 960px; }
+.card {
+  background: rgba(24,24,27,0.85);
+  border: 1px solid rgba(63,63,70,0.4);
+  border-radius: 14px;
+  padding: 24px 28px;
+}
+.card-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #52525b;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: rgba(63,63,70,0.4);
+  font-size: 11px;
+  font-weight: 700;
+  color: #a1a1aa;
+}
+.row { display: flex; align-items: center; gap: 14px; }
+.iconBox {
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.textWrap { position: relative; display: inline-block; }
+.glowUnderline {
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  height: 2.5px;
+  border-radius: 999px;
+  width: 100%;
+}
+.opt-label {
+  font-size: 10px;
+  color: #3f3f46;
+  margin-top: 12px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tag {
+  display: inline-block;
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(63,63,70,0.3);
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tag.glow { background: rgba(236,72,153,0.15); color: #f9a8d4; }
+.tag.serif { background: rgba(167,139,250,0.15); color: #c4b5fd; }
+.tag.pulse { background: rgba(52,211,153,0.15); color: #6ee7b7; }
+.tag.tech { background: rgba(103,232,249,0.15); color: #67e8f9; }
+.tag.warm { background: rgba(251,191,36,0.15); color: #fcd34d; }
+
+/* ─── A: Grow-in underline + shimmer text ─── */
+@keyframes aShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes aUnderline {
+  from { transform: scaleX(0); opacity: 0; }
+  to { transform: scaleX(1); opacity: 1; }
+}
+.a-uline { animation: aUnderline 0.6s 0.1s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: left; }
+.a-text {
+  background: linear-gradient(90deg, #f9a8d4 0%, #c4b5fd 30%, #f9a8d4 60%, #c4b5fd 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: aShimmer 3s 0.3s linear infinite;
+}
+
+/* ─── B: Underline expands from center + text fades up ─── */
+@keyframes bText {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes bUnderline {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.b-text { animation: bText 0.5s 0.05s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.b-uline { animation: bUnderline 0.5s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: center; }
+
+/* ─── C: Pulse glow on underline ─── */
+@keyframes cPulse {
+  0%, 100% { opacity: 0.6; box-shadow: 0 0 4px rgba(52,211,153,0.2); }
+  50% { opacity: 1; box-shadow: 0 0 16px rgba(52,211,153,0.6); }
+}
+@keyframes cSlide {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.c-uline { animation: cSlide 0.4s 0.1s cubic-bezier(0.2, 0, 0, 1) both, cPulse 2.5s 0.6s ease-in-out infinite; transform-origin: left; }
+
+/* ─── D: Text slides in from left, underline draws from right ─── */
+@keyframes dText {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes dUnderline {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.d-text { animation: dText 0.45s 0.05s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.d-uline { animation: dUnderline 0.5s 0.25s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: right; }
+
+/* ─── E: Gradient sweep on text + underline pulse ─── */
+@keyframes eGradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes eUnderline {
+  from { width: 0; opacity: 0; }
+  to { width: 100%; opacity: 1; }
+}
+.e-text {
+  background: linear-gradient(135deg, #67e8f9, #a78bfa, #67e8f9, #c084fc);
+  background-size: 300% 300%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: eGradient 4s 0.2s ease infinite;
+}
+.e-uline { animation: eUnderline 0.6s 0.15s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* ─── F: Reveal text letter by letter feel + blink then solid ─── */
+@keyframes fReveal {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+@keyframes fBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+.f-text {
+  animation: fReveal 0.7s 0.05s cubic-bezier(0.16, 1, 0.3, 1) both;
+  white-space: nowrap;
+}
+.f-uline {
+  animation: aUnderline 0.5s 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: left;
+}
+.f-uline-blink {
+  animation: aUnderline 0.5s 0.3s cubic-bezier(0.16, 1, 0.3, 1) both, fBlink 0.8s 0.35s ease-in-out 3;
+  transform-origin: left;
+}
+
+/* ─── G: Entire row fades in + subtle bob ─── */
+@keyframes gFade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes gBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+.g-row {
+  animation: gFade 0.5s 0.05s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.g-row:hover { animation: gBob 2s 0s ease-in-out infinite; }
+.g-uline { animation: aUnderline 0.5s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: left; }
+
+/* ─── H: Scale in + underline sweeps ─── */
+@keyframes hScale {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes hSweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+@keyframes hUnderline {
+  from { width: 0; }
+  to { width: 100%; }
+}
+.h-row { animation: hScale 0.4s 0.05s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.h-uline {
+  animation: hUnderline 0.55s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  background-size: 200% 100%;
+  animation: hUnderline 0.55s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both, hSweep 2s 0.8s linear infinite;
+}
+</style>
+</head>
+<body>
+
+<h1>PageTitle &mdash; Design Options</h1>
+<p class="subtitle">Each option has a unique animation personality. Open this file in your browser to see them live.</p>
+<div class="grid">
+
+  <!-- ──────────────────────────────────────────────── -->
+  <!-- A: Instrument Serif + shimmer + grow underline   -->
+  <!-- ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label"><span class="letter">A</span> Instrument Serif &middot; Shimmer text &middot; Grow-in underline</div>
+    <div class="row">
+      <div class="iconBox" style="background: rgba(236,72,153,0.16); box-shadow: 0 0 8px rgba(236,72,153,0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f9a8d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      </div>
+      <div class="textWrap">
+        <span class="a-text" style="font-family: 'Instrument Serif', serif; font-size: 18px; font-weight: 500; letter-spacing: -0.01em;">Dashboard</span>
+        <div class="glowUnderline a-uline" style="background: linear-gradient(90deg, #ec4899, #a78bfa); box-shadow: 0 0 10px rgba(236,72,153,0.5);"></div>
+      </div>
+    </div>
+    <div class="opt-label">
+      <span class="tag serif">instrument serif</span>
+      <span class="tag glow">shimmer gradient text</span>
+      <span class="tag glow">glow underline grows in</span>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────────────────────── -->
+  <!-- B: Playfair Display + fade up + center-expand   -->
+  <!-- ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label"><span class="letter">B</span> Playfair Display &middot; Fade-up text &middot; Center-expand underline</div>
+    <div class="row">
+      <div class="iconBox" style="background: rgba(167,139,250,0.16); box-shadow: 0 0 8px rgba(167,139,250,0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c4b5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      </div>
+      <div class="textWrap">
+        <span class="b-text" style="font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 600; color: #c4b5fd; letter-spacing: -0.01em;">AI Workspace</span>
+        <div class="glowUnderline b-uline" style="background: linear-gradient(90deg, #a78bfa, #e879f9);"></div>
+      </div>
+    </div>
+    <div class="opt-label">
+      <span class="tag serif">playfair display</span>
+      <span class="tag">text fades up</span>
+      <span class="tag">underline from center</span>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────────────────────── -->
+  <!-- C: Inter + thick pulse-glow underline           -->
+  <!-- ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label"><span class="letter">C</span> Inter &middot; Pulse-glow underline (thick)</div>
+    <div class="row">
+      <div class="iconBox" style="background: rgba(52,211,153,0.16); box-shadow: 0 0 8px rgba(52,211,153,0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6ee7b7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <div class="textWrap">
+        <span class="b-text" style="font-family: 'Inter', sans-serif; font-size: 18px; font-weight: 600; color: #6ee7b7; letter-spacing: -0.02em;">Activity</span>
+        <div class="glowUnderline c-uline" style="background: #34d399; height: 3px;"></div>
+      </div>
+    </div>
+    <div class="opt-label">
+      <span class="tag">inter (app default)</span>
+      <span class="tag pulse">thick 3px glow bar</span>
+      <span class="tag pulse">pulsing brightness</span>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────────────────────── -->
+  <!-- D: Playfair Display + slide left + right-origin  -->
+  <!-- ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label"><span class="letter">D</span> Playfair Display &middot; Slide-in text &middot; Draw from right</div>
+    <div class="row">
+      <div class="iconBox" style="background: rgba(251,191,36,0.16); box-shadow: 0 0 8px rgba(251,191,36,0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fcd34d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+      </div>
+      <div class="textWrap">
+        <span class="d-text" style="font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 600; color: #fcd34d; letter-spacing: -0.01em;">Learn</span>
+        <div class="glowUnderline d-uline" style="background: linear-gradient(90deg, #f59e0b, #f97316); height: 1.5px;"></div>
+      </div>
+    </div>
+    <div class="opt-label">
+      <span class="tag serif">playfair display</span>
+      <span class="tag warm">text slides from left</span>
+      <span class="tag warm">underline draws from right</span>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────────────────────── -->
+  <!-- E: Space Grotesk + gradient text sweep           -->
+  <!-- ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label"><span class="letter">E</span> Space Grotesk &middot; Gradient text sweep &middot; Matching underline</div>
+    <div class="row">
+      <div class="iconBox" style="background: rgba(103,232,249,0.16); box-shadow: 0 0 8px rgba(103,232,249,0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#67e8f9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      </div>
+      <div class="textWrap">
+        <span class="e-text" style="font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 600; letter-spacing: -0.02em;">IDE Projects</span>
+        <div class="glowUnderline e-uline" style="background: linear-gradient(90deg, #67e8f9, #818cf8); box-shadow: 0 0 8px rgba(103,232,249,0.3);"></div>
+      </div>
+    </div>
+    <div class="opt-label">
+      <span class="tag tech">space grotesk</span>
+      <span class="tag tech">animated gradient text</span>
+      <span class="tag">matching gradient bar</span>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────────────────────── -->
+  <!-- F: JetBrains Mono + reveal + blink cursor        -->
+  <!-- ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label"><span class="letter">F</span> JetBrains Mono &middot; Clip reveal &middot; Blink-start underline</div>
+    <div class="row">
+      <div class="iconBox" style="background: rgba(251,146,60,0.16); box-shadow: 0 0 8px rgba(251,146,60,0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fdba74" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      </div>
+      <div class="textWrap">
+        <span class="f-text" style="font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 500; color: #fdba74;">External / Sleep</span>
+        <div class="glowUnderline f-uline-blink" style="background: linear-gradient(90deg, #fb923c, #f87171);"></div>
+      </div>
+    </div>
+    <div class="opt-label">
+      <span class="tag tech">jetbrains mono</span>
+      <span class="tag">clip-path reveal</span>
+      <span class="tag">underline blinks 3× then solid</span>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────────────────────── -->
+  <!-- G: Instrument Serif + fade + hover bob           -->
+  <!-- ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label"><span class="letter">G</span> Instrument Serif &middot; Fade in &middot; Hover bob</div>
+    <div class="g-row row">
+      <div class="iconBox" style="background: rgba(244,114,182,0.12);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f9a8d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+      </div>
+      <div class="textWrap">
+        <span style="font-family: 'Instrument Serif', serif; font-size: 18px; font-weight: 500; color: #e4e4e7; letter-spacing: -0.01em;">Reports</span>
+        <div class="glowUnderline g-uline" style="background: #52525b; height: 1px;"></div>
+      </div>
+    </div>
+    <div class="opt-label">
+      <span class="tag serif">instrument serif</span>
+      <span class="tag">fade in + micro bounce</span>
+      <span class="tag">hover bob (mouse over)</span>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────────────────────── -->
+  <!-- H: Instrument Serif + scale in + sweep           -->
+  <!-- ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label"><span class="letter">H</span> Instrument Serif (20px) &middot; Scale in &middot; Sweep-gradient underline</div>
+    <div class="h-row row">
+      <div style="width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: linear-gradient(135deg, rgba(45,212,191,0.2), rgba(56,189,248,0.2));">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5eead4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+      <div class="textWrap">
+        <span style="font-family: 'Instrument Serif', serif; font-size: 20px; font-weight: 500; color: #5eead4; letter-spacing: -0.02em;">Settings</span>
+        <div class="glowUnderline h-uline" style="height: 2px; background: linear-gradient(90deg, #2dd4bf, #38bdf8, #2dd4bf); background-size: 200% 100%; box-shadow: 0 0 12px rgba(45,212,191,0.3);"></div>
+      </div>
+    </div>
+    <div class="opt-label">
+      <span class="tag serif">instrument serif</span>
+      <span class="tag">scale-in animation</span>
+      <span class="tag">sweeping gradient underline</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

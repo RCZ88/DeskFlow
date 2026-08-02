@@ -16,6 +16,8 @@ import {
   Activity, Receipt, CreditCard, Wallet, Coins, Smartphone,
   Landmark, Banknote, Package
 } from 'lucide-react';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
 
@@ -93,9 +95,13 @@ function formatCurrency(amount: number): string {
 }
 
 export default function WalletHealthScorecards() {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [data, setData] = useState<WalletHealthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const fmtMoney = (v: number) =>
+    showNumbers ? formatCurrency(v) : maskNumber(formatCurrency(v), maskMode, maskFixedValue);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -242,7 +248,7 @@ export default function WalletHealthScorecards() {
               {/* Balance + Sparkline */}
               <div className="flex items-end justify-between mb-3">
                 <div>
-                  <div className="text-lg font-bold text-zinc-100">{formatCurrency(wallet.balance)}</div>
+                  <div className="text-lg font-bold text-zinc-100">{fmtMoney(wallet.balance)}</div>
                   <div className={`text-[10px] flex items-center gap-0.5 ${wallet.balanceDrift >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {wallet.balanceDrift >= 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
                     {wallet.balanceDrift >= 0 ? '+' : ''}{wallet.balanceDrift.toFixed(1)}% drift
@@ -267,14 +273,14 @@ export default function WalletHealthScorecards() {
                     <Receipt size={10} className="text-zinc-500" />
                     <span className="text-[9px] text-zinc-500">Fees</span>
                   </div>
-                  <div className="text-xs font-medium text-zinc-300">{formatCurrency(wallet.feeBurden)}</div>
+                  <div className="text-xs font-medium text-zinc-300">{fmtMoney(wallet.feeBurden)}</div>
                 </div>
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1 mb-1">
                     <Wallet size={10} className="text-zinc-500" />
                     <span className="text-[9px] text-zinc-500">Daily</span>
                   </div>
-                  <div className="text-xs font-medium text-zinc-300">{formatCurrency(wallet.avgDailySpend)}</div>
+                  <div className="text-xs font-medium text-zinc-300">{fmtMoney(wallet.avgDailySpend)}</div>
                 </div>
               </div>
 

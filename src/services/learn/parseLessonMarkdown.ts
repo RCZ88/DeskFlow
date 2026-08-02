@@ -344,7 +344,7 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
         // :::layer_reveal {"title": "..."} or :::layer_reveal Title here
         let title = args;
         let meta: Record<string, unknown> = {};
-        try { meta = JSON.parse(args); title = meta.title || args; } catch { /* use raw args as title */ }
+        try { meta = JSON.parse(args); title = (meta.title as string) || args; } catch { /* use raw args as title */ }
         const steps: Array<{ id: string; label: string; content: string; hint?: string; mastery_unlock?: string }> = [];
         let currentStep: { id: string; label: string; content: string; hint?: string; mastery_unlock?: string } | null = null;
         for (const line of inner) {
@@ -368,8 +368,8 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
           type: 'layer_reveal',
           meta: {
             title: title || 'Steps',
-            steps: steps.map(s => ({ ...s, content: s.content.trim() })),
-            reveal_mode: (meta.reveal_mode as string) || 'sequential',
+            steps: steps.map(s => ({ ...s, content: s.content.trim(), mastery_unlock: (s.mastery_unlock || 'L0') as any })),
+            reveal_mode: ((meta.reveal_mode as string) || 'sequential') as 'sequential' | 'free' | 'mastery_gated',
             default_unlocked: (meta.default_unlocked as number) || 1,
             allow_backtrack: (meta.allow_backtrack as boolean) !== false,
           },
@@ -378,7 +378,7 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
         // :::viz_concept_map {"title": "..."} or :::viz_concept_map Title
         let title = args;
         let meta: Record<string, unknown> = {};
-        try { meta = JSON.parse(args); title = meta.title || args; } catch { /* use raw args */ }
+        try { meta = JSON.parse(args); title = (meta.title as string) || args; } catch { /* use raw args */ }
         // Parse indented tree from inner content
         const root = parseConceptMapTree(inner);
         blocks.push({
@@ -478,7 +478,7 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
             date_range: (meta.date_range as string) || 'last_30_days',
             show_events: (meta.show_events as boolean) !== false,
             show_target_line: (meta.show_target_line as boolean) !== false,
-            target_level: (meta.target_level as string) || 'L3',
+            target_level: ((meta.target_level as string) || 'L3') as any,
             height: (meta.height as number) || 200,
             events,
             series,

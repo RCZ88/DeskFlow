@@ -505,7 +505,7 @@ export default function TutorialPage({ noShell }: { noShell?: boolean }) {
             <BookOpen className="w-5 h-5 text-emerald-400" />
           </div>
           <div className="flex-1">
-            <h1 className="text-lg font-semibold text-white">Feature Guide</h1>
+            
             <p className="text-xs text-zinc-500">
               {isAllComplete
                 ? 'You\'ve explored every feature!'

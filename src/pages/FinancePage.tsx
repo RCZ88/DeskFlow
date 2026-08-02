@@ -1050,7 +1050,7 @@ export function FinancePage() {
             <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
               <Wallet className="w-4 h-4 text-emerald-400" />
             </div>
-            <h1 className="text-[15px] font-semibold text-white">Finance <span className="text-[10px] text-emerald-400 font-mono ml-2 bg-emerald-500/10 px-1.5 py-0.5 rounded">BUILD MARKER v4</span></h1>
+            
           </div>
           <div className="flex items-center gap-1.5">
             <button

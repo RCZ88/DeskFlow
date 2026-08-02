@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { HeartHandshake, Images } from 'lucide-react';
+import { HeartHandshake, Images, Target, Calendar, ListChecks, Flame } from 'lucide-react';
 import CovenantPage from '../covenant/CovenantPage';
 import MemoriesPage from '../memories/MemoriesPage';
+import GoldPage from './gold/GoldPage';
 
 const TABS = [
   { key: 'covenant', label: 'Covenant', icon: HeartHandshake, accent: '#e8866b' },
   { key: 'memories', label: 'Memories', icon: Images, accent: '#6fb38f' },
+  { key: 'gold', label: 'Gold', icon: Target, accent: '#fbbf24' },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -25,7 +27,7 @@ export default function LifePage() {
     try {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get('tab');
-      if (tab === 'memories') return tab;
+      if (tab === 'memories' || tab === 'covenant' || tab === 'gold') return tab as TabKey;
     } catch { /* ignore */ }
     return 'covenant';
   });
@@ -49,7 +51,7 @@ export default function LifePage() {
           <div className="h-9 w-9 rounded-xl grid place-items-center mr-2" style={iconWrapStyle}>
             <activeConfig.icon className="w-5 h-5" style={iconStyle} />
           </div>
-          <span className="text-lg font-semibold mr-4 text-[var(--text-primary)]">Life</span>
+          
           <div className="flex gap-1 bg-zinc-800/50 p-0.5 rounded-lg">
             {TABS.map(tab => {
               const pillStyle = { background: `${tab.accent}22`, border: `1px solid ${tab.accent}40` };
@@ -102,6 +104,18 @@ export default function LifePage() {
               className="max-w-4xl mx-auto"
             >
               <MemoriesPage embedded />
+            </motion.div>
+          )}
+          {activeTab === 'gold' && (
+            <motion.div
+              key="gold"
+              initial={crossfade.initial}
+              animate={crossfade.animate}
+              exit={crossfade.exit}
+              transition={crossfade.transition}
+              className="max-w-5xl mx-auto"
+            >
+              <GoldPage embedded />
             </motion.div>
           )}
         </AnimatePresence>

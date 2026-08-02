@@ -21,37 +21,74 @@
     <div id="df-fallback" style="display:none;align-items:center;justify-content:center;min-height:100vh;background:#121212;color:#a1a1aa;font-family:Inter,sans-serif;padding:24px;box-sizing:border-box;text-align:center;flex-direction:column;gap:12px;position:fixed;inset:0;z-index:99999;">
       <div style="font-size:48px;margin-bottom:8px;">⚠</div>
       <div style="font-size:18px;font-weight:600;color:#e4e4e7;">DeskFlow failed to load</div>
-      <div id="df-error-msg" style="font-size:13px;color:#71717a;max-width:400px;line-height:1.5;">The application could not start. This may be a build issue or a missing file.</div>
-      <div style="display:flex;gap:8px;margin-top:12px;">
+      <div id="df-error-msg" style="font-size:13px;color:#ef4444;max-width:500px;line-height:1.5;font-family:monospace;word-break:break-all;">The application could not start. This may be a build issue or a missing file.</div>
+      <pre id="df-error-stack" style="display:none;font-size:11px;color:#71717a;max-width:500px;line-height:1.4;text-align:left;background:#1a1a1a;padding:12px;border-radius:8px;overflow:auto;max-height:200px;font-family:monospace;white-space:pre-wrap;word-break:break-all;"></pre>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:8px;">
+        <button onclick="copyError()" id="df-copy-btn" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#27272a;color:#e4e4e7;font-size:13px;cursor:pointer;">Copy Error</button>
         <button onclick="location.reload()" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#27272a;color:#e4e4e7;font-size:13px;cursor:pointer;">Reload</button>
-        <button onclick="location.hash='#/';location.reload()" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#a1a1aa;font-size:13px;cursor:pointer;">Go to Dashboard</button>
+        <button onclick="navigateTo('/')" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#a1a1aa;font-size:13px;cursor:pointer;">Dashboard</button>
+        <button onclick="navigateTo('/activity')" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#a1a1aa;font-size:13px;cursor:pointer;">Activity</button>
+        <button onclick="navigateTo('/terminal')" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#a1a1aa;font-size:13px;cursor:pointer;">Terminal</button>
+        <button onclick="navigateTo('/ide')" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#a1a1aa;font-size:13px;cursor:pointer;">IDE</button>
+        <button onclick="navigateTo('/settings')" style="padding:10px 24px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#a1a1aa;font-size:13px;cursor:pointer;">Settings</button>
       </div>
       <div style="font-size:11px;color:#52525b;margin-top:4px;">If this persists, rebuild the app: <code style="background:#27272a;padding:2px 6px;border-radius:4px;">node scripts/build.mjs</code></div>
     </div>
 
     <script>
       // SAFETY NET: catches JS load failures and early crashes that prevent React from mounting.
-      // Show fallback if main.tsx doesn't set __DESKFLOW_LOADED within 5 seconds.
       window.__DESKFLOW_LOADED = false;
-      window.onerror = function(msg, src, line, col, err) {
+      window.__DESKFLOW_LAST_ERROR = null;
+
+      function showFallback(msg, err) {
         var fb = document.getElementById('df-fallback');
         var em = document.getElementById('df-error-msg');
+        var es = document.getElementById('df-error-stack');
+        var cb = document.getElementById('df-copy-btn');
         if (fb) fb.style.display = 'flex';
-        if (em && msg) em.textContent = String(msg);
+        if (em) {
+          if (msg && String(msg).length > 0) em.textContent = String(msg);
+          else em.textContent = 'Unknown error';
+        }
+        window.__DESKFLOW_LAST_ERROR = err || msg || 'Unknown error';
+        if (es && err && err.stack) {
+          es.textContent = err.stack;
+          es.style.display = 'block';
+        }
+        if (cb) cb.textContent = 'Copy Error';
+      }
+
+      window.copyError = function() {
+        var text = '';
+        if (window.__DESKFLOW_LAST_ERROR) {
+          text = typeof window.__DESKFLOW_LAST_ERROR === 'string'
+            ? window.__DESKFLOW_LAST_ERROR
+            : (window.__DESKFLOW_LAST_ERROR.message || '') + '\n\n' + (window.__DESKFLOW_LAST_ERROR.stack || '');
+        }
+        if (!text) text = document.getElementById('df-error-msg')?.textContent || 'Unknown error';
+        navigator.clipboard.writeText(text).then(function() {
+          var cb = document.getElementById('df-copy-btn');
+          if (cb) cb.textContent = 'Copied!';
+        });
+      };
+
+      window.navigateTo = function(path) {
+        location.hash = '#' + path;
+        location.reload();
+      };
+
+      window.onerror = function(msg, src, line, col, err) {
+        showFallback(msg, err || new Error(String(msg)));
         return true;
       };
       window.addEventListener('unhandledrejection', function(e) {
-        var fb = document.getElementById('df-fallback');
-        var em = document.getElementById('df-error-msg');
-        if (fb) fb.style.display = 'flex';
-        if (em && e.reason) em.textContent = String(e.reason);
+        showFallback(e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled rejection', e.reason);
       });
       setTimeout(function() {
         if (!window.__DESKFLOW_LOADED) {
-          var fb = document.getElementById('df-fallback');
-          if (fb) fb.style.display = 'flex';
+          showFallback('The application timed out while loading. Check the console for errors.');
         }
-      }, 5000);
+      }, 10000);
     </script>
 
     <script type="module" src="/src/main.tsx" onerror="var fb=document.getElementById('df-fallback');if(fb)fb.style.display='flex';"></script>

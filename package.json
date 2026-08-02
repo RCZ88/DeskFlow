@@ -2,7 +2,7 @@
   "name": "rheo",
   "productName": "RHEO",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "author": "DeskFlow Team",
@@ -14,11 +14,12 @@
     "start": "electron .",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check:prompt": "node scripts/check-default-prompt.mjs"
+    "check:prompt": "node scripts/check-default-prompt.mjs",
+    "dist": "npm run build && electron-builder --win"
   },
   "build": {
     "appId": "com.deskflow.app",
-    "productName": "DeskFlow",
+    "productName": "RHEO",
     "directories": {
       "output": "release"
     },
@@ -40,15 +41,16 @@
     "nodeGypRebuild": false,
     "win": {
       "target": "nsis",
-      "icon": "DeskFlow_AppIcon.png"
+      "icon": "RHEO_AppIcon.png",
+      "signAndEditExecutable": false
     },
     "mac": {
       "target": "dmg",
-      "icon": "DeskFlow_AppIcon.png"
+      "icon": "RHEO_AppIcon.png"
     },
     "linux": {
       "target": "AppImage",
-      "icon": "DeskFlow_AppIcon.png"
+      "icon": "RHEO_AppIcon.png"
     }
   },
   "dependencies": {

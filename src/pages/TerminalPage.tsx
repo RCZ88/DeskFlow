@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, Activity, Bot, GitBranch, Shield, Coins, Network, SwatchBook } from 'lucide-react';
+import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, Activity, Bot, GitBranch, Shield, Coins, Network, SwatchBook, BarChart3 } from 'lucide-react';
 import { AnomalyBadge } from '../components/AnomalyBadge';
 import type { PaneNode } from '../components/TerminalWindow';
 import { TerminalLayout, insertIntoLayout, getLeafIds, getGroupTrees, updateGroupTree } from '../components/TerminalWindow';
@@ -36,6 +36,7 @@ import { DesignStudioTab } from '../components/workspace/DesignStudioTab';
 import { RequestsTab, RequestDetailModal, NewRequestDialog } from '../components/RequestsTab';
 import { FilesTab } from '../components/FilesTab';
 import PerformanceMetricsPanel from '../components/workspace/PerformanceMetricsPanel';
+import CodeStatsTab from '../components/workspace/CodeStatsTab';
 import { ConductorWorkspaceTab } from '../components/workspace/ConductorWorkspaceTab';
 import { WorkspaceDetailModal } from '../components/workspace/WorkspaceDetailModal';
 import { WorkspaceShell } from '../components/workspace/WorkspaceShell';
@@ -143,6 +144,7 @@ const SUBPAGE_LABELS: Record<string, string> = {
   'work/files': 'Work / Files',
   'work/workspaces': 'Work / Workspaces',
   'insights/analytics': 'Insights / Analytics',
+  'insights/code-stats': 'Insights / Code Stats',
   'insights/history': 'Insights / Prompts',
   'insights/issues': 'Insights / Issues',
   'insights/performance': 'Insights / Performance',
@@ -607,6 +609,8 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   }, []);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const sessionsRef = useRef<Session[]>([]);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
   const [showAddPreset, setShowAddPreset] = useState(false);
   const [newPreset, setNewPreset] = useState({ name: '', command: '', category: '' });
   const [showEditPreset, setShowEditPreset] = useState(false);
@@ -763,6 +767,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     hint?: string;
   }
   const [agentInitErrors, setAgentInitErrors] = useState<Record<string, AgentInitErrorInfo>>({});
+
+  // Real-time agent status + captured session IDs per terminal
+  const [terminalAgentStatus, setTerminalAgentStatus] = useState<Record<string, { phase: string; sessionId?: string | null; error?: string | null }>>({});
+  const [terminalCapturedSessionIds, setTerminalCapturedSessionIds] = useState<Record<string, string>>({});
 
   // Terminal tab bar state
   type TerminalTabInfo = { name: string; agent: string; modelTier?: string };
@@ -1057,6 +1065,67 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         setTimeout(() => { if (!done) { done = true; remover?.(); resolve(); } }, readyTimeout);
       });
 
+      // ═══ CAPTURE REAL SESSION ID (up to 5s; strategy depends on agent) ═══
+      // Primary: agent:session-id-captured event from the main-process output parser
+      // (Ink TUIs: claude/gemini/codex print the id in their ANSI header).
+      // Fallback: opencode never prints its session id — the PID-correlated DB lookup
+      // is its PRIMARY path, run here after a short grace for the session row to appear.
+      if (!resumeId) {
+        try {
+          const capturedSessionId = await new Promise<string | null>((resolve) => {
+            let done = false;
+            let captured: string | null = null;
+            const removerSession = window.deskflowAPI?.onAgentSessionIdCaptured?.((data: { terminalId: string; sessionId: string }) => {
+              if (data.terminalId === terminalId && !done) {
+                done = true;
+                captured = data.sessionId;
+                removerSession?.();
+                resolve(captured);
+              }
+            });
+            setTimeout(async () => {
+              if (!done) {
+                done = true;
+                removerSession?.();
+
+                const agentConfig = await window.deskflowAPI?.getAgentConfig?.(agent);
+                if (agentConfig?.sessionIdSource === 'db-pid') {
+                  // OPENCODE PATH: PID-correlated DB lookup is the primary method.
+                  const status = await window.deskflowAPI?.agentGetStatus?.(terminalId);
+                  const fallback = await window.deskflowAPI?.captureOpencodeSessionId?.(
+                    projectPath || '',
+                    Date.now() - 10000,
+                    status?.spawnedPid ?? undefined
+                  );
+                  if (fallback?.success && fallback.sessionId) {
+                    captured = fallback.sessionId;
+                    const dbSession = sessionsRef.current.find((s: any) => s.terminal_id === terminalId);
+                    if (dbSession) {
+                      await (window.deskflowAPI as any)?.updateSessionResumeId?.(dbSession.id, captured);
+                      console.log('[TerminalPage] db-pid fallback captured opencode session:', captured, 'for terminal', terminalId);
+                      loadSessions();
+                    }
+                  } else {
+                    console.warn('[TerminalPage] opencode db lookup found no session yet:', fallback?.reason);
+                  }
+                } else {
+                  // INK TUI PATH: output parsing already covered by the main process;
+                  // if the event never fired within 5s the TUI simply didn't print it.
+                  console.warn(`[TerminalPage] ${agent} did not output session ID within 5s.`);
+                }
+                resolve(captured);
+              }
+            }, 5000);
+          });
+          if (capturedSessionId) {
+            const updateBanner = `\r\n[resume] captured real session ${capturedSessionId}\r\n`;
+            (window.deskflowAPI as any)?.terminalWriteDisplay?.(terminalId, updateBanner);
+          }
+        } catch (e) {
+          console.warn('[TerminalPage] Session ID capture failed:', e);
+        }
+      }
+
       // ═══ DUMMY ENTER FALLBACK ═══
       // If agent still hasn't reached ready, send a dummy Enter to wake the TUI
       // This helps when the TUI is waiting for input before showing its prompt
@@ -1080,8 +1149,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       // ═══ SYSTEM PROMPT — Only send if explicitly provided (resume session) ═══
       // For fresh terminals, the agent starts clean. System prompt is sent
       // only when the user explicitly sends a message or resumes a session.
-      if (systemPrompt && parts.length > 0 && window.deskflowAPI?.agentSend) {
-        const combined = parts.join('\n\n');
+      const promptParts = systemPrompt ? [systemPrompt] : [];
+      if (systemPrompt && promptParts.length > 0 && window.deskflowAPI?.agentSend) {
+        const combined = promptParts.join('\n\n');
         const sendResult = await window.deskflowAPI.agentSend(terminalId, combined, agent);
         if (!sendResult?.success) {
           console.warn('[TerminalPage] Failed to send initialization prompt:', sendResult?.error);
@@ -1162,6 +1232,28 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         delete next[data.terminalId];
         return next;
       });
+    });
+    return () => cleanup?.();
+  }, []);
+
+  // [SESSION-ID] Real-time agent status sync (phase + sessionId + error)
+  useEffect(() => {
+    if (!window.deskflowAPI?.onAgentStatus) return;
+    const cleanup = window.deskflowAPI.onAgentStatus((data: { terminalId: string; phase: string; sessionId?: string | null; error?: string | null }) => {
+      setTerminalAgentStatus(prev => ({ ...prev, [data.terminalId]: { phase: data.phase, sessionId: data.sessionId, error: data.error } }));
+      if (data.sessionId) {
+        setTerminalCapturedSessionIds(prev => ({ ...prev, [data.terminalId]: data.sessionId! }));
+      }
+    });
+    return () => cleanup?.();
+  }, []);
+
+  // [SESSION-ID] Session ID captured via output parser (persists to session row)
+  useEffect(() => {
+    if (!window.deskflowAPI?.onAgentSessionIdCaptured) return;
+    const cleanup = window.deskflowAPI.onAgentSessionIdCaptured((data: { terminalId: string; sessionId: string }) => {
+      setTerminalCapturedSessionIds(prev => ({ ...prev, [data.terminalId]: data.sessionId }));
+      loadSessions();
     });
     return () => cleanup?.();
   }, []);
@@ -3504,7 +3596,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                   </div>
                                   <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                                     <Pill key="all-sub" active={sessionSubpageFilter === 'all'} onClick={() => setSessionSubpageFilter('all')}>All Pages</Pill>
-                                    {['setup/presets', 'setup/configs', 'work/sessions', 'work/map', 'work/files', 'insights/analytics', 'insights/issues', 'insights/bugs', 'studio/skills', 'studio/design', 'context/context', 'context/context-maintenance', 'context/page-context'].map(sp => {
+                                    {['setup/presets', 'setup/configs', 'work/sessions', 'work/map', 'work/files', 'insights/analytics', 'insights/code-stats', 'insights/issues', 'insights/bugs', 'studio/skills', 'studio/design', 'context/context', 'context/context-maintenance', 'context/page-context'].map(sp => {
                                       const count = sessions.filter(s => (s.subpage || 'work/sessions') === sp).length;
                                       if (count === 0) return null;
                                       return (
@@ -3824,6 +3916,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             {activeGroup === 'insights' && (
               <WorkspaceShell accent="purple" tabs={[
                 { key: 'analytics', icon: PieChart, label: 'Analytics' },
+                { key: 'code-stats', icon: BarChart3, label: 'Code Stats' },
                 { key: 'history', icon: MessageSquare, label: 'Prompts' },
                 { key: 'issues', icon: ListChecks, label: 'Issues' },
                 { key: 'performance', icon: Activity, label: 'Performance' },
@@ -3850,6 +3943,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         period={analyticsPeriod}
                         variant="full"
                       />
+                    </GroupPanel>
+                  );
+                  case 'code-stats': return (
+                    <GroupPanel accent="purple">
+                      <CodeStatsTab projectId={selectedProject} projectPath={propProjectPath} />
                     </GroupPanel>
                   );
                   case 'performance': return (
@@ -4055,12 +4153,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     console.error('[NewSession] Terminal API not available');
                     return;
                   }
+                  // Mark spawned BEFORE await so TerminalWindow's handleTerminalReady
+                  // sees the ref and doesn't double-spawn (race condition fix)
+                  window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: targetTerminalId } }));
                   const spawnRes = await window.deskflowAPI.spawnTerminal(targetTerminalId, cwd, agent);
                   if (!spawnRes?.success) {
                     console.error('[NewSession] Failed to spawn:', spawnRes?.error);
+                    window.dispatchEvent(new CustomEvent('terminal-cleanup', { detail: { terminalId: targetTerminalId } }));
                     return;
                   }
-                  window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId: targetTerminalId } }));
 
                   // Register and initialize
                   await registerTerminal(targetTerminalId, agent);
@@ -4102,7 +4203,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 // ═══ CAPTURE REAL OPENCODE SESSION ID ═══
                 if (cwd && !config.resumeId) {
                   try {
-                    const capResult = await (window.deskflowAPI as any)?.captureOpencodeSessionId?.(targetTerminalId, cwd);
+                    const capResult = await (window.deskflowAPI as any)?.captureOpencodeSessionId?.(cwd);
                     if (capResult?.success && capResult.sessionId) {
                       console.log('[NewSession] Captured opencode session:', capResult.sessionId);
                       const updateBanner = `\r\n[captured] opencode session ${capResult.sessionId}\r\n`;

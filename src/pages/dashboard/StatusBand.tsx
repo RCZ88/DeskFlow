@@ -40,9 +40,9 @@ interface StatusBandProps {
 
 function getAccentColor(state: 'productive' | 'neutral' | 'distracting') {
   switch (state) {
-    case 'productive': return { dot: '#34d399', neonFirst: 'rgba(16,185,129,0.2)', neonSecond: 'rgba(59,130,246,0.15)', arc: '#34d399', dotBg: 'bg-emerald-500/15 text-emerald-400' };
-    case 'distracting': return { dot: '#fbbf24', neonFirst: 'rgba(245,158,11,0.15)', neonSecond: 'rgba(239,68,68,0.12)', arc: '#fbbf24', dotBg: 'bg-amber-500/15 text-amber-400' };
-    default: return { dot: '#71717a', neonFirst: 'rgba(99,102,241,0.1)', neonSecond: 'rgba(139,92,246,0.08)', arc: '#71717a', dotBg: 'bg-zinc-500/15 text-zinc-400' };
+    case 'productive': return { dot: '#34d399', neonFirst: 'rgba(16,185,129,0.6)', neonSecond: 'rgba(52,211,153,0.4)', arc: '#34d399', dotBg: 'bg-emerald-500/15 text-emerald-400' };
+    case 'distracting': return { dot: '#fbbf24', neonFirst: 'rgba(245,158,11,0.5)', neonSecond: 'rgba(239,68,68,0.4)', arc: '#fbbf24', dotBg: 'bg-amber-500/15 text-amber-400' };
+    default: return { dot: '#71717a', neonFirst: 'rgba(99,102,241,0.4)', neonSecond: 'rgba(139,92,246,0.3)', arc: '#71717a', dotBg: 'bg-zinc-500/15 text-zinc-400' };
   }
 }
 
@@ -121,11 +121,20 @@ export function StatusBand({
     }));
   }, [transitions, now]);
 
+  const rgbStr = isActive ? (stateKey === 'productive' ? '16,185,129' : stateKey === 'distracting' ? '245,158,11' : '99,102,241') : '99,102,241';
+  const glowAlpha = isActive ? 0.6 : 0.3;
+
   return (
     <BlurFade delay={0} duration={0.3}>
+      <div
+        className="w-full h-full"
+        style={{
+          boxShadow: `0 0 20px 5px rgba(${rgbStr},${glowAlpha}), 0 0 50px 15px rgba(${rgbStr},${glowAlpha * 0.5})`,
+        }}
+      >
       <NeonGradientCard
-        borderSize={1}
-        borderRadius={16}
+        borderSize={2}
+        borderRadius={0}
         neonColors={{ firstColor: accent.neonFirst, secondColor: accent.neonSecond }}
         className="w-full h-full"
       >
@@ -266,6 +275,7 @@ export function StatusBand({
           </div>
         </div>
       </NeonGradientCard>
+      </div>
     </BlurFade>
   );
 }

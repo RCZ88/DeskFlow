@@ -21,6 +21,8 @@ import {
   ChartOptions,
 } from 'chart.js';
 import { Fuel, Flame, TrendingDown, AlertTriangle, Gauge } from 'lucide-react';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -52,6 +54,7 @@ interface RunwayData {
 }
 
 export default function CashFlowRunway() {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [data, setData] = useState<RunwayData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,12 +79,13 @@ export default function CashFlowRunway() {
   }, []);
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
+    const s = new Intl.NumberFormat('id-ID', {
       style: 'currency',
       currency: 'IDR',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
+    return showNumbers ? s : maskNumber(s, maskMode, maskFixedValue);
   };
 
   const getRunwayColor = (months: number) => {

@@ -60,7 +60,7 @@ export function FocusSection() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <SectionHeader title="Deep Focus" icon={<FocusIcon className="w-4 h-4" />} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-1">

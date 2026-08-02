@@ -11,8 +11,8 @@ import {
   Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard, Target,
   ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
   X,   FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen, Wallet, GraduationCap, Activity, Smartphone, Brain,
-  HeartHandshake,
-  PanelLeftClose, PanelRightClose, GitBranch
+  HeartHandshake, Target,
+  PanelLeftClose, PanelRightClose, GitBranch, FileCode
 } from 'lucide-react';
 import SleepDetectionModal from './components/SleepDetectionModal';
 import { format as dateFormat } from 'date-fns';
@@ -24,6 +24,7 @@ import ActivityPage from './pages/ActivityPage';
 import DatabasePage from './pages/DatabasePage';
 import IDEProjectsPage from './pages/IDEProjectsPage';
 import IDEHelpPage from './pages/IDEHelpPage';
+import CompositionPage from './pages/CompositionPage';
 import TutorialPage from './pages/TutorialPage';
 import { LearnPage } from './components/learn/LearnPage';
 import GuidePage from './pages/GuidePage';
@@ -36,6 +37,7 @@ import { AiPage } from './pages/AiPage';
 import { AppBackground } from './components/AppBackground';
 
 import InsightsPage from './pages/InsightsPage';
+import GoalsPage from './pages/GoalsPage';
 import { FinancePage } from './pages/FinancePage';
 import ResumePage from './pages/ResumePage';
 import ResumeBuilderPage from './pages/ResumeBuilderPage';
@@ -2407,9 +2409,11 @@ Trend: +14% vs. yesterday. Keep it up!`;
     { icon: Wallet, label: 'Finance', path: '/finance' },
     { icon: BarChart3, label: 'Insights', path: '/reports' },
     { icon: Database, label: 'Database', path: '/database' },
+    { icon: Target, label: 'Goals', path: '/goals' },
     { icon: HeartHandshake, label: 'Life', path: '/life' },
     { icon: Settings, label: 'Settings', path: '/settings' },
     { icon: BookOpen, label: 'Guide', path: '/guide' },
+    { icon: FileCode, label: 'Compositions', path: '/compositions' },
   ];
 
   return (
@@ -2537,9 +2541,9 @@ Trend: +14% vs. yesterday. Keep it up!`;
             {(() => {
               const match = sidebarItems.find(i => i.path === location.pathname);
               return match ? (
-                <PageTitle icon={match.icon} label={match.label} path={match.path} />
+                <PageTitle key={location.key} icon={match.icon} label={match.label} path={match.path} />
               ) : (
-                <div className="text-lg font-semibold tracking-tight">Dashboard</div>
+                <div className="text-lg font-semibold tracking-tight">{location.pathname}</div>
               );
             })()}
             <div className="text-xs px-2.5 py-1 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center gap-1.5">
@@ -2761,7 +2765,9 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <Route path="/old-dashboard" element={<Navigate to="/external" replace />} />
 
               <Route path="/guide" element={<GuidePage />} />
+              <Route path="/compositions" element={<CompositionPage />} />
 
+              <Route path="/goals" element={<GoalsPage />} />
               <Route path="/life" element={<ErrorBoundary><Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Life...</div>}><LifePage /></Suspense></ErrorBoundary>} />
 
               <Route path="/learn" element={<LearnPage />} />

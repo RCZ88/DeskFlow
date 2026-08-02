@@ -10,6 +10,8 @@ import {
   Legend,
 } from "chart.js";
 import { Zap, TrendingUp, Calendar, Wallet } from "lucide-react";
+import { useNumberMask } from "../../context/NumberMaskContext";
+import { maskNumber } from "../../utils/maskNumber";
 
 ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -37,9 +39,15 @@ function toMonthly(amount: number, freq: string): number {
 }
 
 export default function SubscriptionBurdenRadar() {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [monthlyIncome, setMonthlyIncome] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  const rp = (n: number) => {
+    const s = `Rp${n.toLocaleString("id-ID")}`;
+    return showNumbers ? s : maskNumber(s, maskMode, maskFixedValue);
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -161,7 +169,7 @@ export default function SubscriptionBurdenRadar() {
                       const val = safeSubs
                         .filter((s) => (s.category || "Other") === ctx.label)
                         .reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
-                      return `Rp${val.toLocaleString("id-ID")}`;
+                      return rp(val);
                     },
                   },
                 },
@@ -177,7 +185,7 @@ export default function SubscriptionBurdenRadar() {
             <Wallet className="w-3 h-3 text-zinc-500" />
             <span className="text-xs text-zinc-500">Monthly</span>
           </div>
-          <p className="text-sm font-semibold text-white">Rp{totalMonthly.toLocaleString("id-ID")}</p>
+          <p className="text-sm font-semibold text-white">{rp(totalMonthly)}</p>
         </div>
         <div className="text-center">
           <div className="flex items-center justify-center gap-1 mb-1">

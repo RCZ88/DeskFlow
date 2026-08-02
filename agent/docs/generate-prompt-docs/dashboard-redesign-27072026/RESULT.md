@@ -759,3 +759,4 @@ const [totalFocusedMs, setTotalFocusedMs] = useState(0);
 | Follow Through irrelevant on dashboard | Removed `FollowThroughCard` from render |
 | MasteryRingMini irrelevant | Removed from health stack (and removed the 2-column grid, making Productivity Chart full-width) |
 | TierBreakdownStrip had 6 confusing columns | Slimmed to 4 columns (Productive, Neutral, Distracting, Total). Removed Score & Trend |
+

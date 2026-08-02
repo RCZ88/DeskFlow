@@ -27,7 +27,7 @@ export const LearnNavBar: React.FC<LearnNavBarProps> = ({
         <div className="flex items-center gap-2 rounded-md bg-clay-500/10 p-1.5 text-clay-400">
           <BookOpen className="h-4 w-4" />
         </div>
-        <span className="font-serif text-lg text-zinc-100">Learn</span>
+        
       </div>
 
       <nav className="hidden flex-1 items-center justify-center gap-2 md:flex">

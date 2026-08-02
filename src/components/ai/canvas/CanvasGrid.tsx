@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, useEffect } from 'react'
 import { CanvasCard } from './CanvasCard'
-import type { CanvasCard as CanvasCardType } from '../../../types/canvas'
+import type { CanvasCard as CanvasCardType, CanvasGroup } from '../../../types/canvas'
 import './canvas.css'
 
 interface CanvasGridProps {
@@ -14,6 +14,11 @@ interface CanvasGridProps {
   onPinCard?: (id: string) => void
   onResizeCard?: (id: string, size: { w: number; h: number }) => void
   onCardClick?: (id: string) => void
+  onUpdateCard?: (id: string, patch: Record<string, any>) => void
+  groups?: Record<string, CanvasGroup>
+  onUpdateGroup?: (groupId: string, patch: Partial<Pick<CanvasGroup, 'label' | 'colorId' | 'orientation' | 'ratio'>>) => void
+  onUngroup?: (groupId: string, mode: 'restore' | 'scatter') => void
+  onRemoveFromGroup?: (cardId: string, newPosition?: { x: number; y: number }) => void
   isPanning: boolean
   setIsPanning: (v: boolean) => void
   focusedCardId?: string | null
@@ -27,7 +32,8 @@ const CELL = 40
 
 export function CanvasGrid({
   cards, pan, onPanChange, zoom, onZoomChange, onMoveCard, onDismissCard,
-  onPinCard, onResizeCard, onCardClick, isPanning, setIsPanning, focusedCardId, onGroupCards,
+  onPinCard, onResizeCard, onCardClick, onUpdateCard, groups, onUpdateGroup, onUngroup, onRemoveFromGroup,
+  isPanning, setIsPanning, focusedCardId, onGroupCards,
 }: CanvasGridProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const gridLayerRef = useRef<HTMLDivElement>(null)
@@ -50,6 +56,8 @@ export function CanvasGrid({
 
   // Global pointermove for drop-target detection via math (not elementFromPoint
   // which fails when dragged card's zIndex covers everything)
+  // Uses the DRAGGED card's center point, not the cursor — so the target only
+  // highlights when the card itself overlaps, not just the cursor.
   useEffect(() => {
     const handler = (e: PointerEvent) => {
       const draggingId = draggingCardId.current
@@ -65,14 +73,36 @@ export function CanvasGrid({
       const z = zoomR.current
       const p = panR.current
 
+      // Read the dragged card's visual position from the DOM
+      const draggedEl = document.querySelector(`[data-card-id="${draggingId}"]`) as HTMLElement | null
+      let dragCX: number, dragCY: number
+      if (draggedEl) {
+        const computed = getComputedStyle(draggedEl).transform
+        let visX = 0, visY = 0
+        if (computed && computed !== 'none') {
+          const m = new DOMMatrix(computed)
+          visX = m.m41
+          visY = m.m42
+        }
+        const draggedCard = currentCards.find(c => c.id === draggingId)
+        const cardW = (draggedCard?.size.w || 4) * CELL
+        const cardH = (draggedCard?.size.h || 3) * CELL
+        dragCX = visX + cardW / 2
+        dragCY = visY + cardH / 2
+      } else {
+        // Fallback: use cursor if DOM element unavailable
+        dragCX = e.clientX
+        dragCY = e.clientY
+      }
+
       const targetCard = currentCards.find(c => {
         if (c.id === draggingId) return false
         const left = c.position.x * z + p.x
         const top = c.position.y * z + p.y
         const right = left + c.size.w * CELL * z
         const bottom = top + c.size.h * CELL * z
-        return e.clientX >= left && e.clientX <= right &&
-               e.clientY >= top && e.clientY <= bottom
+        return dragCX >= left && dragCX <= right &&
+               dragCY >= top && dragCY <= bottom
       })
 
       const targetId = targetCard?.id || null
@@ -180,7 +210,10 @@ export function CanvasGrid({
             <span>Cards will appear here as you interact with the AI</span>
           </div>
         )}
-        {cards.sort((a, b) => a.zIndex - b.zIndex).map(card => (
+        {cards
+          .filter(card => !card.groupId)
+          .sort((a, b) => a.zIndex - b.zIndex)
+          .map(card => (
           <CanvasCard
             key={card.id}
             card={card}
@@ -189,6 +222,11 @@ export function CanvasGrid({
             onPin={onPinCard}
             onResize={onResizeCard}
             onClick={onCardClick}
+            onUpdateCard={onUpdateCard}
+            groups={groups}
+            onUpdateGroup={onUpdateGroup}
+            onUngroup={onUngroup}
+            onRemoveFromGroup={onRemoveFromGroup}
             onDragStart={() => handleCardDragStart(card.id)}
             onDragStop={() => handleCardDragStop(card.id)}
             zoom={zoom}

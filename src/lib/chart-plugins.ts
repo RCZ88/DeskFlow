@@ -90,6 +90,14 @@ export const sharedTooltipStyle = {
   bodyFont: { family: '"JetBrains Mono", monospace', size: 13 },
 };
 
+// Format a duration (in seconds) as a compact axis tick label — minutes/hours, never raw seconds
+export function formatAxisTick(seconds: number): string {
+  const s = Math.max(0, seconds);
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  return `${Math.round(s / 3600)}h`;
+}
+
 export const sharedScales = {
   x: {
     grid: { color: 'rgba(255,255,255,0.04)' },

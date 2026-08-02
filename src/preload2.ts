@@ -179,6 +179,15 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   setDomainDefaultCategory: (domain: string, category: string) => ipcRenderer.invoke('set-domain-default-category', domain, category),
   getDomainDefaultCategory: (domain: string) => ipcRenderer.invoke('get-domain-default-category', domain),
   
+  // Locked items & AI change history
+  getLockedItems: () => ipcRenderer.invoke('get-locked-items'),
+  setLockedItems: (items: { lockedApps?: Record<string, boolean>; lockedDomains?: Record<string, boolean> }) => ipcRenderer.invoke('set-locked-items', items),
+  getAiChangeHistory: () => ipcRenderer.invoke('get-ai-change-history'),
+  addAiChangeHistory: (entry: { name: string; type: 'app' | 'domain'; previousCategory: string; newCategory: string; source: 'ai' | 'manual' }) => ipcRenderer.invoke('add-ai-change-history', entry),
+  undoAiChange: (changeId: string) => ipcRenderer.invoke('undo-ai-change', changeId),
+  redoAiChange: (change: { name: string; type: 'app' | 'domain'; previousCategory: string; newCategory: string; source: 'ai' | 'manual' }) => ipcRenderer.invoke('redo-ai-change', change),
+  clearAiChangeHistory: () => ipcRenderer.invoke('clear-ai-change-history'),
+  
   // NEW: Keyword-based productivity categorization
   getDomainKeywordRules: (domain: string) => ipcRenderer.invoke('get-domain-keyword-rules', domain),
   setDomainKeywordRules: (domain: string, keywordSets: { category: string; keywords: string[] }[]) => ipcRenderer.invoke('set-domain-keyword-rules', domain, keywordSets),

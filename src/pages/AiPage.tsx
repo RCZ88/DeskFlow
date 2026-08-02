@@ -89,7 +89,7 @@ export function AiPage() {
   const digestPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [aiProviders, setAiProviders] = useState<Array<{ id: string; label: string; models: string[]; enabled: boolean }>>([]);
-  const [aiRouting, setAiRouting] = useState<Record<string, { providerId: string; model: string } | null>>({});
+  const [aiRouting, setAiRouting] = useState<Record<string, { providerId: string; model: string; smallProviderId?: string; smallModel?: string } | null>>({});
   const [configuringFeature, setConfiguringFeature] = useState<'default' | 'researchDigest' | 'goalAssistant' | null>(null);
   const [showConnectorSetup, setShowConnectorSetup] = useState(false);
   const [connectorsState, setConnectorsState] = useState<'loading' | 'error' | 'empty' | 'ready'>('loading');
@@ -879,6 +879,28 @@ export function AiPage() {
     },
   });
 
+  // Listen for new-email notifications from main process
+  useEffect(() => {
+    const api = window.deskflowAPI as any
+    if (!api?.connectors?.onNewEmails) return
+    const cleanup = api.connectors.onNewEmails((data: { connectorId: string; connectorName: string; unreadCount: number; newItems: any[] }) => {
+      // Surface as a system message in the current chat
+      const itemList = (data.newItems || []).map((item: any) => {
+        const meta = JSON.parse(item.metadata || '{}')
+        const from = meta.from || 'Unknown'
+        return `- **${item.subject}** from ${from} (${new Date(item.date).toLocaleString()})`
+      }).join('\n')
+      chat.addMessage({
+        role: 'assistant',
+        content: `📬 **New emails** from ${data.connectorName} (${data.unreadCount} unread):\n${itemList}\n\n_I can help you reply, schedule, or create deadlines from these. Just ask._`,
+        timestamp: new Date().toISOString(),
+      })
+      // Update connector status counts
+      updateConnectorStatus()
+    })
+    return () => cleanup?.()
+  }, [chat, updateConnectorStatus])
+
   // Intercept send for slash commands
   const handleSend = useCallback(async (text: string) => {
     const result = await slash.parseAndExecute(text, { connectors, currentThreadDate: chat.currentThreadDate });
@@ -908,7 +930,7 @@ export function AiPage() {
       }
       const r = await window.deskflowAPI!.suggestGoals(today, ctx);
       if (r.success && r.suggestions?.length > 0) {
-        setSuggestions(r.suggestions.map((s: any) => ({ id: crypto.randomUUID(), title: s.title, category: s.category, status: 'active' as const, period: 'daily', date: today, source: 'ai', links: [], createdAt: new Date().toISOString(), target: { type: 'completion' as const } })));
+        setSuggestions(r.suggestions.map((s: any) => ({ id: crypto.randomUUID(), title: s.title, category: s.category, status: 'active' as const, period: s.period || 'daily', date: today, source: 'ai', links: [], createdAt: new Date().toISOString(), target: s.target || { type: 'completion' as const }, description: s.description, parentId: s.parentId })));
         showToast(`${r.suggestions.length} goal suggestion${r.suggestions.length > 1 ? 's' : ''} ready`, 'success');
       } else if (r.success) {
         showToast('No suggestions available — try adding more context', 'info');
@@ -922,7 +944,7 @@ export function AiPage() {
     setSuggesting(false);
   }, [today, showToast]);
 
-  const handleRoutingSave = useCallback(async (feature: 'default' | 'researchDigest' | 'goalAssistant', entry: { providerId: string; model: string } | null) => {
+  const handleRoutingSave = useCallback(async (feature: 'default' | 'researchDigest' | 'goalAssistant', entry: { providerId: string; model: string; smallProviderId?: string; smallModel?: string } | null) => {
     try {
       const state = await window.deskflowAPI!.getAiProviders();
       const providers = state?.providers || [];
@@ -961,9 +983,9 @@ export function AiPage() {
   const handleAcceptSuggestion = useCallback(async (goal: Goal) => {
     const suggestionSnapshot = [...suggestions];
     const goalsSnapshot = [...goals];
-    const newGoal: Goal = { id: crypto.randomUUID(), title: goal.title, category: goal.category, target: { type: 'completion' }, status: 'active', period: 'daily', date: today, source: 'ai', links: [], createdAt: new Date().toISOString() };
+    const newGoal: Goal = { id: crypto.randomUUID(), title: goal.title, category: goal.category, target: goal.target || { type: 'completion' }, status: 'active', period: goal.period || 'daily', date: today, source: 'ai', links: goal.links || [], createdAt: new Date().toISOString(), description: goal.description };
     try {
-      await window.deskflowAPI!.saveGoal(today, { id: newGoal.id, title: newGoal.title, category: newGoal.category, target: { type: 'completion' }, status: 'active', period: 'daily', date: today, source: 'ai', links: [], createdAt: new Date().toISOString() });
+      await window.deskflowAPI!.saveGoal(today, { id: newGoal.id, title: newGoal.title, category: newGoal.category, target: goal.target || { type: 'completion' }, status: 'active', period: goal.period || 'daily', date: today, source: 'ai', links: goal.links || [], createdAt: new Date().toISOString(), description: goal.description });
       setSuggestions(prev => prev.filter(x => x.title !== goal.title));
       setGoals(prev => [...prev, newGoal]);
       setAcceptErrors(prev => { const n = { ...prev }; delete n[goal.title]; return n; });
@@ -983,7 +1005,7 @@ export function AiPage() {
     switch (action.kind) {
       case 'accept-goal': {
         try {
-          await api.saveGoal(today, { id: crypto.randomUUID(), title: action.goal.title, category: (action.goal.category as any) || 'work', target: { type: 'completion' }, status: 'active', period: 'daily', date: today, source: 'ai', links: [], createdAt: new Date().toISOString() });
+          await api.saveGoal(today, { id: crypto.randomUUID(), title: action.goal.title, category: (action.goal.category as any) || 'work', target: action.goal.target || { type: 'completion' }, status: 'active', period: action.goal.period || 'daily', date: today, source: 'ai', links: action.goal.links || [], createdAt: new Date().toISOString(), description: action.goal.description });
           await loadGoals();
         } catch (e) { console.error('[AiPage] onCardAction accept-goal:', e); }
         break;
@@ -1209,7 +1231,7 @@ export function AiPage() {
           <div className="dk-topbar">
             <div className="dk-brand">
               <div className="dk-logo">D</div>
-              <h1>DeskFlow AI <span className="dk-sub">// command deck</span></h1>
+              
             </div>
             <div className="dk-barR">
               <span className="dk-chip dk-mode"><span className="dk-dot" />{modeLabelMap[mode]}</span>
@@ -1335,6 +1357,32 @@ export function AiPage() {
                       if (r?.success) { showToast('Connector deleted', 'success'); await loadConnectors(); }
                       else showToast(r?.error || 'Delete failed', 'error');
                     } catch (e: any) { showToast(e.message || 'Delete failed', 'error'); }
+                  }}
+                  onAddToSchedule={async (connectorId: string, data: { title: string; day_of_week: number; start_time: string; end_time: string }) => {
+                    try {
+                      const r = await (window.deskflowAPI as any)?.addScheduleEntry?.({
+                        title: data.title,
+                        day_of_week: data.day_of_week,
+                        start_time: data.start_time,
+                        end_time: data.end_time,
+                        category: 'email',
+                        color: '#8b5cf6',
+                      });
+                      if (r?.success) showToast('Added to schedule', 'success');
+                      else showToast(r?.error || 'Failed to add', 'error');
+                    } catch (e: any) { showToast(e.message || 'Failed to add', 'error'); }
+                  }}
+                  onCreateDeadline={async (connectorId: string, data: { title: string; due_date: string; priority: string }) => {
+                    try {
+                      const r = await (window.deskflowAPI as any)?.addDeadline?.({
+                        title: data.title,
+                        due_date: data.due_date,
+                        priority: data.priority,
+                        category: 'email',
+                      });
+                      if (r?.success) showToast('Deadline created', 'success');
+                      else showToast(r?.error || 'Failed to create', 'error');
+                    } catch (e: any) { showToast(e.message || 'Failed to create', 'error'); }
                   }}
                   onToast={showToast}
                   onRefresh={loadConnectors}
@@ -1475,6 +1523,11 @@ export function AiPage() {
               onPinCard={canvas.pinCard}
               onResizeCard={canvas.resizeCard}
               onCardClick={(id) => setSelectedCardId(id)}
+              onUpdateCard={canvas.updateCard}
+              groups={canvas.groups}
+              onUpdateGroup={canvas.updateGroup}
+              onUngroup={canvas.ungroup}
+              onRemoveFromGroup={canvas.removeFromGroup}
               saveStatus={canvas.saveStatus}
               onSaveCanvas={canvas.forceSave}
               onSend={handleSend}
@@ -1487,19 +1540,15 @@ export function AiPage() {
               onOpenPalette={() => setPaletteOpen(true)}
               onGroupCards={(cardIds) => {
                 if (cardIds.length < 2) return
-                const cardPositions = cardIds.map(id => canvas.allCards[id]?.position).filter(Boolean)
-                const avgX = cardPositions.reduce((sum, p) => sum + p.x, 0) / cardPositions.length
-                const avgY = cardPositions.reduce((sum, p) => sum + p.y, 0) / cardPositions.length
-                canvas.createGroup('Group', cardIds)
-                cardIds.forEach((id, i) => {
-                  const card = canvas.allCards[id]
-                  if (card) {
-                    canvas.moveCard(id, {
-                      x: avgX + (i % 3) * (card.size.w * 40 + 20),
-                      y: avgY + Math.floor(i / 3) * (card.size.h * 40 + 20),
-                    })
-                  }
-                })
+                const groupedCards = cardIds.map(id => canvas.allCards[id]).filter(Boolean)
+                if (groupedCards.length < 2) return
+
+                // Compute center position
+                const avgX = groupedCards.reduce((sum, c) => sum + c.position.x, 0) / groupedCards.length
+                const avgY = groupedCards.reduce((sum, c) => sum + c.position.y, 0) / groupedCards.length
+
+                // Use the hook's createGroup which handles everything
+                canvas.createGroup(`Group (${groupedCards.length})`, cardIds, 'violet')
               }}
               canvasList={canvas.canvasList}
               activeCanvasId={null}
@@ -1507,6 +1556,7 @@ export function AiPage() {
               onRenameCanvas={canvas.rename}
               onDeleteCanvas={canvas.removeCanvas}
               onSaveAs={canvas.saveAs}
+              onSetPanZoom={canvas.setPanZoom}
             />
           </div>
           )}

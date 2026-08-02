@@ -3,6 +3,8 @@ import { motion } from 'framer-motion';
 import { Receipt, X, Save, Wallet, Tag, Calendar } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { formatCurrency } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 import { CurrencyInput } from './CurrencyInput';
 import type { FinanceFixedExpense, FinanceWallet, FinanceCategory } from './finance-types';
 
@@ -21,6 +23,8 @@ const INITIAL = {
 };
 
 export function FixedExpenseModal({ expense, wallets, categories, onClose, onSave }: Props) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtBalance = (w: FinanceWallet) => showNumbers ? formatCurrency(w.balance, w.currency) : maskNumber(formatCurrency(w.balance, w.currency), maskMode, maskFixedValue);
   const [form, setForm] = useState(INITIAL);
   const [saving, setSaving] = useState(false);
 
@@ -98,7 +102,7 @@ export function FixedExpenseModal({ expense, wallets, categories, onClose, onSav
                   className="w-full px-3 py-2 text-sm bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-amber-500/50">
                   <option value={0}>Select wallet...</option>
                   {wallets.filter(w => !w.is_archived).map(w => (
-                    <option key={w.id} value={w.id}>{w.name} ({formatCurrency(w.balance, w.currency)})</option>
+                    <option key={w.id} value={w.id}>{w.name} ({fmtBalance(w)})</option>
                   ))}
                 </select>
               </div>

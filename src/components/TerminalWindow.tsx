@@ -68,6 +68,8 @@ interface TerminalLayoutProps {
 
 const inputBuffers = new Map<string, string[]>();
 const terminalReadyStates = new Map<string, boolean>();
+const terminalInstances = new Map<string, Terminal>();
+const fitAddonInstances = new Map<string, FitAddon>();
 
 export function replaceLeafTerminalId(node: PaneNode, targetId: string, newId: string): PaneNode {
   if (node.type === 'leaf') {
@@ -152,6 +154,8 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    terminalInstances.set(terminalId, terminal);
+    fitAddonInstances.set(terminalId, fitAddon);
 
     terminal.onResize(({ cols, rows }) => {
       window.deskflowAPI?.terminalResize?.(terminalId, cols, rows);
@@ -186,6 +190,8 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
       ro.disconnect();
       terminal.dispose();
       terminalRef.current = null;
+      terminalInstances.delete(terminalId);
+      fitAddonInstances.delete(terminalId);
       inputBuffers.delete(terminalId);
       terminalReadyStates.delete(terminalId);
     };
@@ -726,16 +732,16 @@ export function TerminalLayout({
     }
     spawnedTerminalsRef.current.add(terminalId);
 
-    // [GLM-APPROACH] Wait for xterm.js to have real dimensions directly
-    // This is more reliable than DOM math — xterm.js is the single source of truth
-    const terminal = terminalRef.current;
-    if (terminal) {
+    // Wait for xterm.js to have real dimensions directly
+    const termInst = terminalInstances.get(terminalId);
+    const fitInst = fitAddonInstances.get(terminalId);
+    if (termInst) {
       await new Promise<void>((resolve) => {
         const check = () => {
-          if (terminal.cols > 0 && terminal.rows > 0) {
+          if (termInst.cols > 0 && termInst.rows > 0) {
             resolve();
           } else {
-            try { fitAddonRef.current?.fit(); } catch {}
+            try { fitInst?.fit(); } catch {}
             setTimeout(check, 50);
           }
         };
@@ -743,9 +749,8 @@ export function TerminalLayout({
       });
     }
 
-    // Use xterm.js direct dimensions (GLM approach) instead of DOM bounding rect
-    const finalCols = terminal?.cols || 80;
-    const finalRows = terminal?.rows || 24;
+    const finalCols = termInst?.cols || 80;
+    const finalRows = termInst?.rows || 24;
 
     const agentType = getDefaultAgent();
     console.log(`[FIT] Spawning terminal ${terminalId} at ${finalCols}x${finalRows}`);
@@ -754,7 +759,7 @@ export function TerminalLayout({
 
     // CRITICAL: Refit after PTY spawn — verify dimensions match
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    try { fitAddonRef.current?.fit(); } catch {}
+    try { fitAddonInstances.get(terminalId)?.fit(); } catch {}
     // terminal.onResize callback handles IPC resize to PTY
     window.dispatchEvent(new CustomEvent('terminal:refit-' + terminalId));
     window.dispatchEvent(new CustomEvent('terminal:ready-custom', { detail: { id: terminalId } }));

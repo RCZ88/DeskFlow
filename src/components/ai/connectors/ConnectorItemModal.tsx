@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { X, Reply, Trash2, Check, Mail, CalendarDays, Send, Loader2, Circle } from "lucide-react"
+import { X, Reply, Trash2, Check, Mail, CalendarDays, Send, Loader2, Circle, Clock, CalendarPlus } from "lucide-react"
 import type { ConnectorItem } from "../../../types/connectors"
 import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 
@@ -10,6 +10,8 @@ interface ConnectorItemModalProps {
   onReply?: (itemId: string, draft: string) => Promise<void>
   onMarkRead?: (itemId: string, read: boolean) => Promise<void>
   onDelete?: (itemId: string) => Promise<void>
+  onAddToSchedule?: (data: { title: string; day_of_week: number; start_time: string; end_time: string }) => Promise<void>
+  onCreateDeadline?: (data: { title: string; due_date: string; priority: string }) => Promise<void>
 }
 
 export function ConnectorItemModal(props: ConnectorItemModalProps) {
@@ -18,6 +20,13 @@ export function ConnectorItemModal(props: ConnectorItemModalProps) {
   const [replyDraft, setReplyDraft] = useState("")
   const [sending, setSending] = useState(false)
   const [marking, setMarking] = useState(false)
+  const [scheduleMode, setScheduleMode] = useState(false)
+  const [deadlineMode, setDeadlineMode] = useState(false)
+  const [schedDay, setSchedDay] = useState(new Date().getDay())
+  const [schedStart, setSchedStart] = useState("09:00")
+  const [schedEnd, setSchedEnd] = useState("10:00")
+  const [deadlineDate, setDeadlineDate] = useState("")
+  const [deadlinePriority, setDeadlinePriority] = useState("medium")
 
   const isEmail = connectorType === "email"
   const isUnread = item.read === false
@@ -46,6 +55,27 @@ export function ConnectorItemModal(props: ConnectorItemModalProps) {
     } finally {
       setMarking(false)
     }
+  }
+
+  const handleAddToSchedule = async () => {
+    if (!props.onAddToSchedule) return
+    await props.onAddToSchedule({
+      title: item.subject || 'Email event',
+      day_of_week: schedDay,
+      start_time: schedStart,
+      end_time: schedEnd,
+    })
+    setScheduleMode(false)
+  }
+
+  const handleCreateDeadline = async () => {
+    if (!props.onCreateDeadline || !deadlineDate) return
+    await props.onCreateDeadline({
+      title: item.subject || 'Email deadline',
+      due_date: deadlineDate,
+      priority: deadlinePriority,
+    })
+    setDeadlineMode(false)
   }
 
   return (
@@ -210,7 +240,39 @@ export function ConnectorItemModal(props: ConnectorItemModalProps) {
         </div>
 
         {/* Footer Actions */}
-        <div className="dk-modal-foot">
+        <div className="dk-modal-foot" style={{ flexDirection: 'column', gap: 8 }}>
+          {/* Inline schedule form */}
+          {scheduleMode && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid var(--dk-border-subtle)' }}>
+              <select value={schedDay} onChange={e => setSchedDay(+e.target.value)} style={{ background: 'var(--dk-bg-secondary)', border: '1px solid var(--dk-border-default)', borderRadius: 6, padding: '4px 8px', color: 'var(--dk-text)', fontSize: 12 }}>
+                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d, i) => <option key={i} value={i}>{d}</option>)}
+              </select>
+              <input type="time" value={schedStart} onChange={e => setSchedStart(e.target.value)} style={{ background: 'var(--dk-bg-secondary)', border: '1px solid var(--dk-border-default)', borderRadius: 6, padding: '4px 8px', color: 'var(--dk-text)', fontSize: 12 }} />
+              <span style={{ color: 'var(--dk-text-faint)', fontSize: 11 }}>→</span>
+              <input type="time" value={schedEnd} onChange={e => setSchedEnd(e.target.value)} style={{ background: 'var(--dk-bg-secondary)', border: '1px solid var(--dk-border-default)', borderRadius: 6, padding: '4px 8px', color: 'var(--dk-text)', fontSize: 12 }} />
+              <button onClick={handleAddToSchedule} className="dk-topbar-btn" style={{ height: 28, fontSize: 11, background: 'rgba(139,92,246,0.15)', borderColor: 'rgba(139,92,246,0.3)', color: '#a78bfa' }}>
+                <CalendarPlus size={11} /> Add
+              </button>
+              <button onClick={() => setScheduleMode(false)} className="dk-topbar-btn" style={{ height: 28, fontSize: 11 }}>Cancel</button>
+            </div>
+          )}
+          {/* Inline deadline form */}
+          {deadlineMode && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid var(--dk-border-subtle)' }}>
+              <input type="datetime-local" value={deadlineDate} onChange={e => setDeadlineDate(e.target.value)} style={{ background: 'var(--dk-bg-secondary)', border: '1px solid var(--dk-border-default)', borderRadius: 6, padding: '4px 8px', color: 'var(--dk-text)', fontSize: 12 }} />
+              <select value={deadlinePriority} onChange={e => setDeadlinePriority(e.target.value)} style={{ background: 'var(--dk-bg-secondary)', border: '1px solid var(--dk-border-default)', borderRadius: 6, padding: '4px 8px', color: 'var(--dk-text)', fontSize: 12 }}>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+              <button onClick={handleCreateDeadline} className="dk-topbar-btn" style={{ height: 28, fontSize: 11, background: 'rgba(239,68,68,0.15)', borderColor: 'rgba(239,68,68,0.3)', color: '#f87171' }}>
+                <Clock size={11} /> Add
+              </button>
+              <button onClick={() => setDeadlineMode(false)} className="dk-topbar-btn" style={{ height: 28, fontSize: 11 }}>Cancel</button>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {isEmail && (
             <>
               <button onClick={() => setReplyMode(!replyMode)} className="dk-topbar-btn" style={{ height: 32 }}>
@@ -221,6 +283,18 @@ export function ConnectorItemModal(props: ConnectorItemModalProps) {
                 {marking ? <Loader2 size={12} className="spin" /> : <Check size={12} />}
                 {isUnread ? "Mark Read" : "Mark Unread"}
               </button>
+              {props.onAddToSchedule && (
+                <button onClick={() => { setScheduleMode(!scheduleMode); setDeadlineMode(false) }} className="dk-topbar-btn" style={{ height: 32 }}>
+                  <CalendarPlus size={12} />
+                  Schedule
+                </button>
+              )}
+              {props.onCreateDeadline && (
+                <button onClick={() => { setDeadlineMode(!deadlineMode); setScheduleMode(false) }} className="dk-topbar-btn" style={{ height: 32 }}>
+                  <Clock size={12} />
+                  Deadline
+                </button>
+              )}
             </>
           )}
           {props.onDelete && (
@@ -233,6 +307,7 @@ export function ConnectorItemModal(props: ConnectorItemModalProps) {
               Delete
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>

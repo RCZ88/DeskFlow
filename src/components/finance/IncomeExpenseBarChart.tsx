@@ -4,6 +4,8 @@ import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend,
 } from "chart.js";
 import { BarChart3, Calendar, CalendarDays } from "lucide-react";
+import { useNumberMask } from "../../context/NumberMaskContext";
+import { maskNumber } from "../../utils/maskNumber";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -27,7 +29,13 @@ function formatCompact(val: number): string {
 }
 
 export default function IncomeExpenseBarChart({ data, currency }: Props) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [viewMode, setViewMode] = useState<ViewMode>("monthly");
+
+  const rp = (n: number) => {
+    const s = `Rp${n.toLocaleString("id-ID")}`;
+    return showNumbers ? s : maskNumber(s, maskMode, maskFixedValue);
+  };
 
   const { labels, incomeData, expenseData } = useMemo(() => {
     if (!data || data.length === 0) return { labels: [], incomeData: [], expenseData: [] };
@@ -160,7 +168,7 @@ export default function IncomeExpenseBarChart({ data, currency }: Props) {
                 callbacks: {
                   label: (ctx) => {
                     const val = ctx.parsed.y as number;
-                    return `${ctx.dataset.label}: Rp${val.toLocaleString("id-ID")}`;
+                    return `${ctx.dataset.label}: ${rp(val)}`;
                   },
                 },
               },

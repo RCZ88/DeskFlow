@@ -12,6 +12,8 @@ import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
 import { convertAmount, formatCurrency as fmtCurrency } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 import type { FinanceCategory } from './finance-types';
 
 const defaultColors = ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
@@ -44,6 +46,7 @@ interface CategoriesTabProps {
 }
 
 export function CategoriesTab({ categories, loading, error, onRetry, displayCurrency, baseCurrency, onCreateCategory, onUpdateCategory }: CategoriesTabProps) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [showCreate, setShowCreate] = useState(false);
   const [colorPicker, setColorPicker] = useState<{ show: boolean; categoryId: number | null }>({ show: false, categoryId: null });
   const [editing, setEditing] = useState<{ id: number; name: string; icon: string; color: string } | null>(null);
@@ -52,7 +55,7 @@ export function CategoriesTab({ categories, loading, error, onRetry, displayCurr
   const expenseCats = categories.filter(c => c.type === 'expense' && !c.is_archived);
   const transferCats = categories.filter(c => c.type === 'transfer' && !c.is_archived);
 
-  const fc = (amount: number) => fmtCurrency(convertAmount(amount, baseCurrency, displayCurrency), displayCurrency);
+  const fc = (amount: number) => showNumbers ? fmtCurrency(convertAmount(amount, baseCurrency, displayCurrency), displayCurrency) : maskNumber(fmtCurrency(convertAmount(amount, baseCurrency, displayCurrency), displayCurrency), maskMode, maskFixedValue);
 
   const openColorPicker = (categoryId: number) => {
     setColorPicker({ show: true, categoryId });

@@ -1,64 +1,31 @@
 /**
- * VoiceInputWrapper — Self-contained voice input with smart positioning
- * Click mic → starts. Click again → stops. Panel positions itself
- * based on viewport space so it's never cropped or obstructed.
+ * VoiceInputWrapper — Self-contained voice input with portal-based panel
+ * Panel renders via React Portal at document body level — never clipped
+ * by parent overflow, scroll containers, or z-index stacking contexts.
  */
 
 import { useRef, useCallback, useEffect, useState, type ReactElement, cloneElement } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Square, Delete, AlertCircle } from 'lucide-react';
-
-// ── Types ─────────────────────────────────────────────────────────────
 
 interface VoiceInputWrapperProps {
   children: ReactElement;
   silenceMs?: number;
 }
 
-interface PanelPosition {
-  vertical: 'below' | 'above';
-  horizontal: 'left' | 'center' | 'right';
-  maxHeight: number;
+interface InputMetrics {
+  height: number;
+  width: number;
+  fontSize: number;
+  borderRadius: number;
+  rect: DOMRect;
 }
-
-// ── Smart Positioning ─────────────────────────────────────────────────
-
-function computePosition(rect: DOMRect): PanelPosition {
-  const PANEL_HEIGHT = 80;
-  const PANEL_WIDTH = 340;
-  const MARGIN = 8;
-  const viewportW = window.innerWidth;
-  const viewportH = window.innerHeight;
-
-  // Space below and above
-  const spaceBelow = viewportH - rect.bottom - MARGIN;
-  const spaceAbove = rect.top - MARGIN;
-
-  // Vertical: prefer below, flip above if not enough space
-  const vertical = spaceBelow >= PANEL_HEIGHT ? 'below' : 'above';
-
-  // Horizontal: center on input, but shift if near edges
-  const centerX = rect.left + rect.width / 2;
-  const halfPanel = PANEL_WIDTH / 2;
-
-  let horizontal: 'left' | 'center' | 'right' = 'center';
-  if (centerX - halfPanel < MARGIN) horizontal = 'left';
-  else if (centerX + halfPanel > viewportW - MARGIN) horizontal = 'right';
-
-  // Max height for panel content
-  const maxHeight = vertical === 'below' ? spaceBelow : spaceAbove;
-
-  return { vertical, horizontal, maxHeight };
-}
-
-// ── Component ─────────────────────────────────────────────────────────
 
 export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrapperProps) {
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,30 +36,64 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
   const [volume, setVolume] = useState(0);
   const [sentences, setSentences] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [position, setPosition] = useState<PanelPosition>({
-    vertical: 'below',
-    horizontal: 'center',
-    maxHeight: 300,
-  });
 
-  // ── Recalculate position when listening starts or on scroll/resize ───
-  const updatePosition = useCallback(() => {
-    const el = inputRef.current || containerRef.current;
+  // Measure input and compute absolute portal position
+  const [portalPos, setPortalPos] = useState<{
+    top: number; left: number; width: number; height: number;
+    panelWidth: number; panelAbove: boolean; fontSize: number; borderRadius: number;
+  } | null>(null);
+
+  const measure = useCallback(() => {
+    const el = inputRef.current;
     if (!el) return;
+    const cs = window.getComputedStyle(el);
     const rect = el.getBoundingClientRect();
-    setPosition(computePosition(rect));
+    const height = el.offsetHeight || 32;
+    const width = el.offsetWidth || 200;
+    const fontSize = parseFloat(cs.fontSize) || 14;
+    const borderRadius = parseFloat(cs.borderRadius) || 8;
+
+    const panelWidth = Math.max(280, Math.min(width, 500));
+    const panelHeight = 72;
+    const MARGIN = 6;
+
+    // Determine above or below
+    const spaceBelow = window.innerHeight - rect.bottom - MARGIN;
+    const panelAbove = spaceBelow < panelHeight && rect.top > spaceBelow;
+
+    // Horizontal: left edge of input, clamped to viewport
+    let left = rect.left;
+    if (left + panelWidth > window.innerWidth - MARGIN) {
+      left = window.innerWidth - panelWidth - MARGIN;
+    }
+    if (left < MARGIN) left = MARGIN;
+
+    // Vertical
+    const top = panelAbove
+      ? rect.top - panelHeight - MARGIN
+      : rect.bottom + MARGIN;
+
+    setPortalPos({
+      top, left, width, height, panelWidth, panelAbove, fontSize, borderRadius,
+    });
   }, []);
 
   useEffect(() => {
-    if (!listening) return;
-    updatePosition();
-    window.addEventListener('scroll', updatePosition, true);
-    window.addEventListener('resize', updatePosition);
+    if (!listening) { setPortalPos(null); return; }
+    measure();
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
     return () => {
-      window.removeEventListener('scroll', updatePosition, true);
-      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', measure, true);
+      window.removeEventListener('resize', measure);
     };
-  }, [listening, updatePosition]);
+  }, [listening, measure]);
+
+  // Mic button size
+  const micSize = Math.max(28, Math.min((portalPos?.height || 32) - 4, 40));
+  const micIconSize = Math.max(12, Math.min(micSize - 12, 18));
+  const btnRadius = Math.max(4, (portalPos?.borderRadius || 8) - 2);
+  const fontSize = portalPos?.fontSize || 14;
 
   // ── Audio Visualizer ────────────────────────────────────────────────
   const startAudio = useCallback(async () => {
@@ -105,7 +106,6 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
       source.connect(analyser);
-      analyserRef.current = analyser;
 
       const data = new Uint8Array(analyser.frequencyBinCount);
       const tick = () => {
@@ -132,7 +132,6 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} audioCtxRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    analyserRef.current = null;
     setBars(new Array(24).fill(0));
     setVolume(0);
   }, []);
@@ -148,13 +147,9 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
     const spacer = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n') ? ' ' : '';
     const newValue = before + spacer + text + after;
     const pos = start + spacer.length + text.length;
-
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype, 'value'
-    )?.set || Object.getOwnPropertyDescriptor(
-      window.HTMLTextAreaElement.prototype, 'value'
-    )?.set;
-    if (nativeSetter) nativeSetter.call(el, newValue);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+      || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+    if (setter) setter.call(el, newValue);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.setSelectionRange(pos, pos);
   }, []);
@@ -162,16 +157,12 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
   const removeLastSentence = useCallback(() => {
     const el = inputRef.current;
     if (!el) return;
-    const text = el.value;
-    const parts = text.split(/[.!?\n]+/).map(s => s.trim()).filter(Boolean);
+    const parts = el.value.split(/[.!?\n]+/).map(s => s.trim()).filter(Boolean);
     if (parts.length === 0) return;
     const newText = parts.slice(0, -1).join('. ') + (parts.length > 1 ? '.' : '');
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype, 'value'
-    )?.set || Object.getOwnPropertyDescriptor(
-      window.HTMLTextAreaElement.prototype, 'value'
-    )?.set;
-    if (nativeSetter) nativeSetter.call(el, newText);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+      || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+    if (setter) setter.call(el, newText);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     setSentences(prev => prev.slice(0, -1));
   }, []);
@@ -193,11 +184,7 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
 
   const startListening = useCallback(() => {
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    if (!SR) {
-      setError('Speech recognition not supported');
-      setTimeout(() => setError(null), 2000);
-      return;
-    }
+    if (!SR) { setError('Speech recognition not supported'); setTimeout(() => setError(null), 2000); return; }
 
     const recognition = new SR();
     recognition.continuous = true;
@@ -208,17 +195,10 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
       let interimStr = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const r = event.results[i];
-        if (!r.isFinal) {
-          interimStr += r[0].transcript;
-        } else {
-          const text = r[0].transcript;
-          setInterim('');
-          setSentences(prev => [...prev, text]);
-          insertText(text);
-        }
+        if (!r.isFinal) { interimStr += r[0].transcript; }
+        else { setInterim(''); setSentences(p => [...p, r[0].transcript]); insertText(r[0].transcript); }
       }
       if (interimStr) setInterim(interimStr);
-
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => stopListening(), silenceMs);
     };
@@ -231,40 +211,24 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
     };
 
     recognition.onend = () => {
-      if (recognitionRef.current) {
-        try { recognition.start(); } catch { stopListening(); }
-      }
+      if (recognitionRef.current) { try { recognition.start(); } catch { stopListening(); } }
     };
 
     recognitionRef.current = recognition;
     setListening(true);
     setSentences([]);
     setInterim('');
-
-    try {
-      recognition.start();
-    } catch {
-      stopListening();
-      return;
-    }
-
+    try { recognition.start(); } catch { stopListening(); return; }
     startAudio();
-
     silenceTimerRef.current = setTimeout(() => stopListening(), silenceMs);
   }, [silenceMs, insertText, startAudio, stopListening]);
 
-  const toggle = useCallback(() => {
-    if (listening) stopListening();
-    else startListening();
-  }, [listening, startListening, stopListening]);
+  const toggle = useCallback(() => { listening ? stopListening() : startListening(); }, [listening, startListening, stopListening]);
 
-  // Escape key
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && listening) stopListening();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && listening) stopListening(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
   }, [listening, stopListening]);
 
   useEffect(() => () => stopListening(), [stopListening]);
@@ -272,162 +236,147 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
   const supported = typeof window !== 'undefined' && !!((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition);
   if (!supported) return <>{children}</>;
 
-  const isMultiline = children.type === 'textarea' ||
-    (typeof children.type === 'function' && (children.type as any).name?.toLowerCase().includes('textarea'));
-
   const childWithRef = cloneElement(children, {
     ref: (node: any) => {
       inputRef.current = node;
-      const childRef = (children.props as any).ref;
-      if (typeof childRef === 'function') childRef(node);
-      else if (childRef && 'current' in childRef) childRef.current = node;
+      const r = (children.props as any).ref;
+      if (typeof r === 'function') r(node);
+      else if (r && 'current' in r) r.current = node;
     },
     className: `${(children.props as any).className || ''} pr-10`,
   });
 
-  // ── Panel position styles ───────────────────────────────────────────
-  const panelStyle: React.CSSProperties = {
-    position: 'absolute',
-    zIndex: 50,
-    width: 340,
-    maxWidth: '95vw',
-    maxHeight: Math.min(position.maxHeight, 120),
-    overflow: 'hidden',
-  };
+  // ── Portal Panel ────────────────────────────────────────────────────
+  const panel = portalPos && (listening || error) ? createPortal(
+    <AnimatePresence>
+      <motion.div
+        key="voice-panel"
+        initial={{ opacity: 0, y: portalPos.panelAbove ? 6 : -6, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: portalPos.panelAbove ? 6 : -6, scale: 0.97 }}
+        transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
+        style={{
+          position: 'fixed',
+          top: portalPos.top,
+          left: portalPos.left,
+          width: portalPos.panelWidth,
+          zIndex: 99999,
+        }}
+      >
+        <div
+          className="rounded-xl bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 shadow-xl shadow-black/20 overflow-hidden"
+          style={{ padding: Math.max(8, fontSize * 0.75) }}
+        >
+          <div className="flex items-center gap-2">
+            {/* Sound Wave */}
+            <div className="flex-shrink-0 flex items-end gap-[2px]" style={{ height: micSize * 0.8 }} aria-hidden="true">
+              {bars.map((value, i) => {
+                const h = Math.max(3, Math.round(value * micSize * 0.7));
+                const opacity = 0.4 + value * 0.6;
+                const isCenter = i >= 8 && i <= 15;
+                return (
+                  <div
+                    key={i}
+                    className="rounded-full transition-all duration-75"
+                    style={{
+                      width: 3, height: listening ? h : 3,
+                      backgroundColor: isCenter ? `rgba(232,134,107,${opacity})` : `rgba(217,104,70,${opacity * 0.8})`,
+                    }}
+                  />
+                );
+              })}
+            </div>
 
-  if (position.vertical === 'below') {
-    panelStyle.top = '100%';
-    panelStyle.marginTop = 8;
-  } else {
-    panelStyle.bottom = '100%';
-    panelStyle.marginBottom = 8;
-  }
+            <div className="w-px bg-zinc-700/50 flex-shrink-0" style={{ height: micSize * 0.6 }} />
 
-  if (position.horizontal === 'left') {
-    panelStyle.left = 0;
-  } else if (position.horizontal === 'right') {
-    panelStyle.right = 0;
-  } else {
-    panelStyle.left = '50%';
-    panelStyle.transform = 'translateX(-50%)';
-  }
+            {/* Interim text */}
+            <div className="flex-1 min-w-0">
+              {error ? (
+                <div className="flex items-center gap-1 text-red-400" style={{ fontSize: fontSize * 0.85 }}>
+                  <AlertCircle className="flex-shrink-0" style={{ width: micIconSize, height: micIconSize }} />
+                  <span className="truncate">{error}</span>
+                </div>
+              ) : interim ? (
+                <p className="text-zinc-300 italic truncate" style={{ fontSize: fontSize * 0.85 }}>{interim}</p>
+              ) : (
+                <p className="text-zinc-500 italic" style={{ fontSize: fontSize * 0.85 }}>Listening...</p>
+              )}
+            </div>
+
+            {/* Controls */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                type="button"
+                onClick={removeLastSentence}
+                disabled={sentences.length === 0}
+                className={`grid place-items-center rounded transition-colors ${
+                  sentences.length === 0 ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/60 hover:bg-zinc-700/60'
+                }`}
+                style={{ width: micSize * 0.85, height: micSize * 0.85 }}
+                aria-label="Remove last sentence"
+              >
+                <Delete style={{ width: micIconSize * 0.85, height: micIconSize * 0.85 }} />
+              </button>
+              <button
+                type="button"
+                onClick={stopListening}
+                className="grid place-items-center rounded-full bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors"
+                style={{ width: micSize * 0.85, height: micSize * 0.85 }}
+                aria-label="Stop voice input"
+              >
+                <Square className="fill-current" style={{ width: micIconSize * 0.7, height: micIconSize * 0.7 }} />
+              </button>
+            </div>
+          </div>
+
+          {/* Volume bar */}
+          <div className="mt-1.5 rounded-full bg-zinc-800 overflow-hidden" style={{ height: 3 }}>
+            <div className="h-full rounded-full bg-[#e8866b]/60 transition-all duration-100" style={{ width: `${volume * 100}%` }} />
+          </div>
+        </div>
+      </motion.div>
+    </AnimatePresence>,
+    document.body
+  ) : null;
 
   return (
-    <div ref={containerRef} className="relative inline-block w-full">
-      {childWithRef}
+    <>
+      <div className="relative inline-block w-full">
+        {childWithRef}
 
-      {/* Mic Button */}
-      <div className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10">
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label={listening ? 'Stop voice input' : 'Start voice input'}
-          aria-pressed={listening}
-          className={`
-            relative grid place-items-center rounded-lg w-8 h-8 min-w-[44px] min-h-[44px] p-0
-            transition-all duration-150
-            focus-visible:ring-2 focus-visible:ring-[#e8866b]/60 focus-visible:outline-none
-            ${listening
-              ? 'bg-[#d96846]/15 text-[#e8866b] ring-1 ring-[#d96846]/30'
-              : error
-                ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/40'
-                : 'text-zinc-400 bg-zinc-900/60 ring-1 ring-zinc-800/60 hover:text-[#e8866b] hover:ring-[#d96846]/30'
-            }
-          `}
-        >
-          {listening && (
-            <span className="absolute inset-0 rounded-lg animate-[pulse-ring_1.5s_cubic-bezier(0.4,0,0.6,1)_infinite] pointer-events-none" />
-          )}
-          {listening ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-        </button>
+        {/* Mic Button — sized to match input height */}
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10">
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={listening ? 'Stop voice input' : 'Start voice input'}
+            aria-pressed={listening}
+            style={{
+              width: micSize, height: micSize, minWidth: micSize, minHeight: micSize,
+              borderRadius: btnRadius,
+            }}
+            className={`
+              relative grid place-items-center p-0
+              transition-all duration-150
+              focus-visible:ring-2 focus-visible:ring-[#e8866b]/60 focus-visible:outline-none
+              ${listening
+                ? 'bg-[#d96846]/15 text-[#e8866b] ring-1 ring-[#d96846]/30'
+                : error
+                  ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/40'
+                  : 'text-zinc-400 bg-zinc-900/60 ring-1 ring-zinc-800/60 hover:text-[#e8866b] hover:ring-[#d96846]/30'
+              }
+            `}
+          >
+            {listening && (
+              <span className="absolute inset-0 rounded-[inherit] animate-[pulse-ring_1.5s_cubic-bezier(0.4,0,0.6,1)_infinite] pointer-events-none" />
+            )}
+            {listening ? <Mic style={{ width: micIconSize, height: micIconSize }} /> : <MicOff style={{ width: micIconSize, height: micIconSize }} />}
+          </button>
+        </div>
       </div>
 
-      {/* Floating Panel — positioned via computed style */}
-      <AnimatePresence>
-        {(listening || error) && (
-          <motion.div
-            initial={{ opacity: 0, y: position.vertical === 'below' ? 8 : -8, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: position.vertical === 'below' ? 8 : -8, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
-            style={panelStyle}
-          >
-            <div className="rounded-xl p-3 bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 shadow-xl shadow-black/20">
-              <div className="flex items-center gap-3">
-                {/* Sound Wave */}
-                <div className="flex-shrink-0 flex items-end gap-[2px] h-8" aria-hidden="true">
-                  {bars.map((value, i) => {
-                    const height = Math.max(4, Math.round(value * 32));
-                    const opacity = 0.4 + value * 0.6;
-                    const isCenter = i >= 8 && i <= 15;
-                    return (
-                      <div
-                        key={i}
-                        className="w-[3px] rounded-full transition-all duration-75"
-                        style={{
-                          height: listening ? height : 4,
-                          backgroundColor: isCenter
-                            ? `rgba(232, 134, 107, ${opacity})`
-                            : `rgba(217, 104, 70, ${opacity * 0.8})`,
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-
-                <div className="w-px h-6 bg-zinc-700/50 flex-shrink-0" />
-
-                {/* Interim text */}
-                <div className="flex-1 min-w-0">
-                  {error ? (
-                    <div className="flex items-center gap-1.5 text-red-400 text-sm">
-                      <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                      <span className="truncate">{error}</span>
-                    </div>
-                  ) : interim ? (
-                    <p className="text-sm text-zinc-300 italic truncate">{interim}</p>
-                  ) : (
-                    <p className="text-sm text-zinc-500 italic">Listening...</p>
-                  )}
-                </div>
-
-                {/* Controls */}
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={removeLastSentence}
-                    disabled={sentences.length === 0}
-                    className={`grid place-items-center rounded-md w-7 h-7 transition-colors ${
-                      sentences.length === 0
-                        ? 'text-zinc-600 cursor-not-allowed'
-                        : 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/60 hover:bg-zinc-700/60'
-                    }`}
-                    aria-label="Remove last sentence"
-                  >
-                    <Delete className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={stopListening}
-                    className="grid place-items-center rounded-full w-7 h-7 bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors"
-                    aria-label="Stop voice input"
-                  >
-                    <Square className="h-3 w-3 fill-current" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Volume bar */}
-              <div className="mt-2 h-1 rounded-full bg-zinc-800 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-[#e8866b]/60 transition-all duration-100"
-                  style={{ width: `${volume * 100}%` }}
-                />
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+      {/* Portal panel — rendered at document.body, never clipped */}
+      {panel}
+    </>
   );
 }

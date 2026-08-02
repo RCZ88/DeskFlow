@@ -17,6 +17,8 @@ import {
   ChartOptions,
 } from 'chart.js';
 import { Coins, Wallet, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
@@ -91,6 +93,12 @@ export default function CryptoUnifiedPortfolio({ walletId, displayCurrency = 'ID
     }).format(amount);
   };
 
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number, cur?: string) => {
+    const s = formatCurrency(v);
+    return showNumbers ? s : maskNumber(s, maskMode, maskFixedValue);
+  };
+
   // Allocation doughnut chart data
   const allocationChartData: ChartData<'doughnut'> = useMemo(() => {
     if (!data) return { labels: [], datasets: [] };
@@ -124,7 +132,7 @@ export default function CryptoUnifiedPortfolio({ walletId, displayCurrency = 'ID
             const val = ctx.raw as number;
             const total = data?.totalValue || 1;
             const pct = ((val / total) * 100).toFixed(1);
-            return `${ctx.label}: ${formatCurrency(val)} (${pct}%)`;
+            return `${ctx.label}: ${fmtMoney(val)} (${pct}%)`;
           },
         },
       },
@@ -170,11 +178,11 @@ export default function CryptoUnifiedPortfolio({ walletId, displayCurrency = 'ID
       <div className="text-center mb-6">
         <div className="text-xs text-zinc-500 mb-1">Total Portfolio Value</div>
         <div className="text-3xl font-bold text-zinc-50 tracking-tight">
-          {formatCurrency(data.totalValue)}
+          {fmtMoney(data.totalValue)}
         </div>
         <div className={`flex items-center justify-center gap-1 mt-1 text-sm font-medium ${isProfit ? 'text-emerald-400' : 'text-red-400'}`}>
           {isProfit ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-          <span>{isProfit ? '+' : ''}{data.unrealizedPnL.toLocaleString()} ({data.pnlPercentage > 0 ? '+' : ''}{data.pnlPercentage.toFixed(2)}%)</span>
+          <span>{isProfit ? '+' : ''}{showNumbers ? data.unrealizedPnL.toLocaleString() : maskNumber(data.unrealizedPnL, maskMode, maskFixedValue)} ({data.pnlPercentage > 0 ? '+' : ''}{data.pnlPercentage.toFixed(2)}%)</span>
         </div>
       </div>
 
@@ -185,7 +193,7 @@ export default function CryptoUnifiedPortfolio({ walletId, displayCurrency = 'ID
             <Wallet size={14} className="text-blue-400" />
             <span className="text-xs text-zinc-400">Fiat Balance</span>
           </div>
-          <div className="text-lg font-semibold text-zinc-100">{formatCurrency(data.fiatBalance)}</div>
+          <div className="text-lg font-semibold text-zinc-100">{fmtMoney(data.fiatBalance)}</div>
           <div className="text-xs text-zinc-500 mt-0.5">{data.fiatAllocation.toFixed(1)}% of portfolio</div>
         </div>
         <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
@@ -193,7 +201,7 @@ export default function CryptoUnifiedPortfolio({ walletId, displayCurrency = 'ID
             <Coins size={14} className="text-violet-400" />
             <span className="text-xs text-zinc-400">Crypto Value</span>
           </div>
-          <div className="text-lg font-semibold text-zinc-100">{formatCurrency(data.cryptoPortfolioValue)}</div>
+          <div className="text-lg font-semibold text-zinc-100">{fmtMoney(data.cryptoPortfolioValue)}</div>
           <div className="text-xs text-zinc-500 mt-0.5">{data.cryptoAllocation.toFixed(1)}% of portfolio</div>
         </div>
       </div>
@@ -228,7 +236,7 @@ export default function CryptoUnifiedPortfolio({ walletId, displayCurrency = 'ID
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs font-medium text-zinc-200">{formatCurrency(asset.value)}</div>
+                  <div className="text-xs font-medium text-zinc-200">{fmtMoney(asset.value)}</div>
                   <div className={`text-[10px] ${asset.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {asset.pnl >= 0 ? '+' : ''}{asset.pnl_percentage.toFixed(1)}%
                   </div>

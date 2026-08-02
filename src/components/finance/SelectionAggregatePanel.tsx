@@ -5,6 +5,8 @@ import { GlassSurface } from './_fx/GlassSurface'
 import { Sparkline } from './_fx/Sparkline'
 import { AnimatedAmount } from './_fx/AnimatedAmount'
 import { formatCurrency } from './currency-data'
+import { useNumberMask } from '../../context/NumberMaskContext'
+import { maskNumber } from '../../utils/maskNumber'
 import { DUR } from './_fx/financeMotion'
 import type {
   AggregateData,
@@ -37,7 +39,9 @@ interface Props {
 
 export function SelectionAggregatePanel(props: Props) {
   const { open, data, currency, busy, onClear, onDelete, onRecategorize, onExport, onSetFollowThrough, onMarkRepaid, hasUnrepaidFT } = props
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask()
   const netPositive = data.net >= 0
+  const masked = (v: number) => maskNumber(formatCurrency(v, currency), maskMode, maskFixedValue)
 
   return (
     <AnimatePresence>
@@ -75,23 +79,25 @@ export function SelectionAggregatePanel(props: Props) {
                 <AnimatedAmount value={data.count} formatter={(v) => String(v)} />
               </StatCard>
               <StatCard label="Inflow" tone="positive">
-                <AnimatedAmount value={data.inflow} currency={currency} formatter={formatCurrency} />
+                {showNumbers ? <AnimatedAmount value={data.inflow} currency={currency} formatter={formatCurrency} /> : <span>{masked(data.inflow)}</span>}
               </StatCard>
               <StatCard label="Outflow" tone="negative">
-                <AnimatedAmount value={data.outflow} currency={currency} formatter={formatCurrency} />
+                {showNumbers ? <AnimatedAmount value={data.outflow} currency={currency} formatter={formatCurrency} /> : <span>{masked(data.outflow)}</span>}
               </StatCard>
               <StatCard label="Net (P/L)" tone={netPositive ? 'positive' : 'negative'}>
-                <AnimatedAmount value={data.net} currency={currency} formatter={(v, c) => {
-                  const sign = v >= 0 ? '+' : ''
-                  return sign + formatCurrency(v, c)
-                }} />
+                {showNumbers
+                  ? <AnimatedAmount value={data.net} currency={currency} formatter={(v, c) => {
+                    const sign = v >= 0 ? '+' : ''
+                    return sign + formatCurrency(v, c)
+                  }} />
+                  : <span>{masked(data.net)}</span>}
               </StatCard>
             </div>
 
             {/* row 2 — breakdowns + daily sparkline */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
-              <BreakdownList title="By category" slices={data.byCategory} currency={currency} kind="category" />
-              <BreakdownList title="By wallet" slices={data.byWallet} currency={currency} kind="wallet" />
+              <BreakdownList title="By category" slices={data.byCategory} currency={currency} kind="category" showNumbers={showNumbers} maskMode={maskMode} maskFixedValue={maskFixedValue} />
+              <BreakdownList title="By wallet" slices={data.byWallet} currency={currency} kind="wallet" showNumbers={showNumbers} maskMode={maskMode} maskFixedValue={maskFixedValue} />
               <div className="rounded-xl border border-white/5 bg-zinc-950/40 p-3">
                 <p className="text-[11px] uppercase tracking-[0.08em] text-zinc-500 mb-2">Daily net</p>
                 {data.daily.length > 0 ? (
@@ -150,11 +156,17 @@ function BreakdownList({
   slices,
   currency,
   kind,
+  showNumbers,
+  maskMode,
+  maskFixedValue,
 }: {
   title: string
   slices: Array<CategorySlice | WalletSlice>
   currency: string
   kind: 'category' | 'wallet'
+  showNumbers: boolean
+  maskMode: 'digits' | 'fixed'
+  maskFixedValue: number | null
 }) {
   const top = slices.slice(0, 5)
   return (
@@ -181,7 +193,7 @@ function BreakdownList({
                     />
                     <span className="truncate text-zinc-300">{name}</span>
                   </span>
-                  <span className="tabular-nums text-zinc-400">{formatCurrency(s.total, currency)}</span>
+                  <span className="tabular-nums text-zinc-400">{showNumbers ? formatCurrency(s.total, currency) : maskNumber(formatCurrency(s.total, currency), maskMode, maskFixedValue)}</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
                   <div

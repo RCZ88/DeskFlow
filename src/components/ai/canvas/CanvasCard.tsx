@@ -13,12 +13,21 @@ import { ConnectorsCard } from './ConnectorsCard'
 import { WeeklyScheduleCard } from './cards/WeeklyScheduleCard'
 import { DeadlineTrackerCard } from './cards/DeadlineTrackerCard'
 import { DailyPlannerCard } from './cards/DailyPlannerCard'
-import type { CanvasCard as CanvasCardType } from '../../../types/canvas'
+import type { CanvasCard as CanvasCardType, CanvasGroup } from '../../../types/canvas'
 import './cards/cards.css'
 
 const CELL = 40
 
-function renderCardContent(card: CanvasCardType) {
+interface CardContentCtx {
+  onUpdateCard?: (id: string, patch: Record<string, any>) => void
+  onDismiss?: (id: string) => void
+  groups?: Record<string, CanvasGroup>
+  onUpdateGroup?: (groupId: string, patch: Partial<Pick<CanvasGroup, 'label' | 'colorId' | 'orientation' | 'ratio'>>) => void
+  onUngroup?: (groupId: string, mode: 'restore' | 'scatter') => void
+  onRemoveFromGroup?: (cardId: string, newPosition?: { x: number; y: number }) => void
+}
+
+function renderCardContent(card: CanvasCardType, ctx: CardContentCtx) {
   switch (card.type) {
     case 'focus': return <FocusCard card={card} goals={card.data?.goals} loading={card.status === 'loading'} />
     case 'plan': return <PlanCard card={card} goals={card.data?.goals} notes={card.data?.notes} loading={card.status === 'loading'} />
@@ -28,7 +37,36 @@ function renderCardContent(card: CanvasCardType) {
     case 'transient': return <div style={{ fontSize: 12, color: '#71717a' }}>{card.data?.text || card.data?.message || 'Transient card'}</div>
     case 'annotation': return <AnnotationCard card={card} />
     case 'response': return <ResponseCardContent content={card.data?.content || ''} isToolOutput={card.data?.isToolOutput} timestamp={card.data?.timestamp} isUserInput={card.data?.isUserInput} aiResponse={card.data?.aiResponse} aiTimestamp={card.data?.aiTimestamp} />
-    case 'group': return <GroupCard items={card.data?.items || []} />
+    case 'group': {
+      // Canonical group record lives in state.groups (label/colorId/cardIds);
+      // card.data.groupId links the visual card to it. Fall back to data when
+      // a group record is missing (e.g. hydrated from an old snapshot).
+      const groupId = card.data?.groupId || card.id
+      const canonical = ctx.groups?.[groupId]
+      const groupObj: CanvasGroup = {
+        id: groupId,
+        label: canonical?.label || card.data?.label || 'Group',
+        colorId: canonical?.colorId || card.data?.colorId || 'violet',
+        cardIds: canonical?.cardIds || (card.data?.childCards || []).map((c: any) => c.id),
+        position: canonical?.position || card.position,
+        size: canonical?.size || card.size,
+        createdAt: canonical?.createdAt || card.createdAt,
+      }
+      return (
+        <GroupCard
+          group={groupObj}
+          cards={(card.data?.childCards || []).map((c: any) => ({
+            ...c,
+            position: c.position || { x: 0, y: 0 },
+            zIndex: 0,
+            groupId,
+          }))}
+          onUpdateGroup={(patch) => ctx.onUpdateGroup?.(groupId, patch)}
+          onUngroup={(mode) => ctx.onUngroup?.(groupId, mode)}
+          onRemoveFromGroup={(cid, newPosition) => ctx.onRemoveFromGroup?.(cid, newPosition)}
+        />
+      )
+    }
     case 'connectors': return <ConnectorsCard state={card.data?.state || 'loading'} connectors={card.data?.connectors || []} errorMessage={card.data?.errorMessage} onRetry={card.data?.onRetry} onAdd={card.data?.onAdd} onSync={card.data?.onSync} onRefresh={card.data?.onRefresh} syncing={card.data?.syncing} />
     case 'reflect': {
       const days = card.data?.days || []
@@ -50,6 +88,11 @@ interface CanvasCardProps {
   onDragStart?: () => void
   onDragStop?: () => void
   onClick?: (id: string) => void
+  onUpdateCard?: (id: string, patch: Record<string, any>) => void
+  groups?: Record<string, CanvasGroup>
+  onUpdateGroup?: (groupId: string, patch: Partial<Pick<CanvasGroup, 'label' | 'colorId' | 'orientation' | 'ratio'>>) => void
+  onUngroup?: (groupId: string, mode: 'restore' | 'scatter') => void
+  onRemoveFromGroup?: (cardId: string, newPosition?: { x: number; y: number }) => void
   zoom?: number
   isFocused?: boolean
   isDropTarget?: boolean
@@ -67,7 +110,7 @@ class CardErrorBoundary extends Component<{ cardType: string; onRetry: () => voi
   }
 }
 
-export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDragStart, onDragStop, onClick, zoom = 1, isFocused, isDropTarget, onDropTarget }: CanvasCardProps) {
+export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDragStart, onDragStop, onClick, onUpdateCard, groups, onUpdateGroup, onUngroup, onRemoveFromGroup, zoom = 1, isFocused, isDropTarget, onDropTarget }: CanvasCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
   const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null)
@@ -106,7 +149,7 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
 
   // ── Drag handlers ──
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest('button, input, textarea, select, a')) return
+    if ((e.target as HTMLElement).closest('button, input, textarea, select, a, [role="button"], [onClick]')) return
     if ((e.target as HTMLElement).closest('.dk-canvas-resize-handle')) return
 
     let startX = card.position.x
@@ -171,12 +214,15 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
   const handleCardClick = useCallback((e: React.PointerEvent) => {
     // Only fire if not dragging or resizing
     if (dragRef.current || resizeRef.current) return
-    // Don't fire on header buttons or resize handle
+    // Don't fire on any interactive element (buttons, inputs, links, etc.)
+    if ((e.target as HTMLElement).closest('button, input, textarea, select, a, [role="button"], [onClick]')) return
+    // Don't fire on header actions or resize handle
     if ((e.target as HTMLElement).closest('.dk-canvas-card-actions, .dk-canvas-resize-handle')) return
     onClick?.(card.id)
   }, [card.id, onClick])
 
   const isTransient = !card.pinned && card.source === 'ai'
+  const isGroupCard = card.type === 'group'
 
   return (
     <CardErrorBoundary cardType={card.type} onRetry={() => {}} onDismiss={() => onDismiss(card.id)}>
@@ -191,12 +237,15 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
           transform: `translate(${card.position.x}px, ${card.position.y}px)`,
           zIndex: card.zIndex,
         }}
-        onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onClick={handleCardClick}
       >
-        <div className="dk-canvas-card-header">
+        <div
+          className="dk-canvas-card-header"
+          onPointerDown={handlePointerDown}
+          style={{ cursor: 'grab' }}
+        >
           <span className="dk-canvas-card-type">{card.type}</span>
           <div className="dk-canvas-card-actions">
             <button
@@ -206,11 +255,13 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
             >
               {card.pinned ? <PinOff size={13} /> : <Pin size={13} />}
             </button>
-            <button className="dk-canvas-dismiss" onClick={(e) => { e.stopPropagation(); onDismiss(card.id) }} title="Dismiss">✕</button>
+            {!isGroupCard && (
+              <button className="dk-canvas-dismiss" onClick={(e) => { e.stopPropagation(); onDismiss(card.id) }} title="Dismiss">✕</button>
+            )}
           </div>
         </div>
         <div className="dk-canvas-card-body">
-          {renderCardContent(card)}
+          {renderCardContent(card, { onUpdateCard, onDismiss, groups, onUpdateGroup, onUngroup, onRemoveFromGroup })}
         </div>
         <div
           className="dk-canvas-resize-handle"

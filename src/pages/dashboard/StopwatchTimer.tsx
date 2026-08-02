@@ -68,35 +68,46 @@ export function StopwatchTimer({
     : timerColor === '#8b5cf6' ? '#a78bfa'
     : '#60a5fa';
 
-  // Visible glow intensity — always on, brighter when active
-  const glowAlpha = isActive ? 0.25 : 0.10;
-  const shadowAlpha = isActive ? 0.35 : 0.12;
+  const rgb = timerColor === '#10b981' ? '16,185,129'
+    : timerColor === '#ef4444' ? '239,68,68'
+    : timerColor === '#8b5cf6' ? '139,92,246'
+    : '59,130,246';
+
+  // Neon-level glow — always very visible
+  const glowA = isActive ? 0.9 : 0.5;
+  const glowB = isActive ? 0.6 : 0.3;
 
   return (
     <div className="flex-1 min-w-0">
       <div
         className="relative rounded-xl h-full"
         style={{
-          boxShadow: `0 0 20px 2px rgba(${timerColor === '#10b981' ? '16,185,129' : timerColor === '#ef4444' ? '239,68,68' : timerColor === '#8b5cf6' ? '139,92,246' : '59,130,246'},${shadowAlpha}), inset 0 0 30px 1px rgba(${timerColor === '#10b981' ? '16,185,129' : timerColor === '#ef4444' ? '239,68,68' : timerColor === '#8b5cf6' ? '139,92,246' : '59,130,246'},${glowAlpha})`,
+          boxShadow: [
+            `0 0 15px 4px rgba(${rgb},${glowA})`,
+            `0 0 40px 10px rgba(${rgb},${glowB})`,
+            `0 0 80px 25px rgba(${rgb},${glowB * 0.5})`,
+            `inset 0 0 20px 2px rgba(${rgb},${glowA * 0.3})`,
+          ].join(', '),
         }}
       >
         <BorderBeam
-          size={280}
-          duration={isActive ? 6 : 12}
+          size={400}
+          duration={isActive ? 4 : 8}
           anchor={90}
-          borderWidth={2}
+          borderWidth={4}
           colorFrom={timerColor}
           colorTo={timerColorTo}
         />
 
         <div
-          className="rounded-xl p-5 sm:p-12 h-full relative overflow-hidden bg-[rgba(24,24,27,0.80)] backdrop-blur-xl border border-[rgba(63,63,70,0.50)]"
+          className="rounded-xl p-5 sm:p-12 h-full relative overflow-hidden bg-[rgba(24,24,27,0.80)] backdrop-blur-xl border-2"
+          style={{ borderColor: `rgba(${rgb},${glowA * 0.4})` }}
         >
-          {/* Always-on radial glow */}
+          {/* Full-card radial glow */}
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
-              background: `radial-gradient(ellipse at 50% 30%, rgba(${timerColor === '#10b981' ? '16,185,129' : timerColor === '#ef4444' ? '239,68,68' : timerColor === '#8b5cf6' ? '139,92,246' : '59,130,246'},${glowAlpha}), transparent 70%)`,
+              background: `radial-gradient(ellipse at 50% 40%, rgba(${rgb},${glowA * 0.5}), transparent 60%)`,
             }}
           />
 

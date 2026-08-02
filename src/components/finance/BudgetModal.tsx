@@ -3,6 +3,8 @@ import { motion } from 'framer-motion';
 import { Target, X, Save, Tag } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { formatCurrency } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 import { CurrencyInput } from './CurrencyInput';
 import type { FinanceBudget, FinanceCategory } from './finance-types';
 
@@ -19,6 +21,7 @@ const INITIAL = {
 };
 
 export function BudgetModal({ budget, categories, onClose, onSave }: Props) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [form, setForm] = useState(INITIAL);
   const [saving, setSaving] = useState(false);
 
@@ -101,7 +104,7 @@ export function BudgetModal({ budget, categories, onClose, onSave }: Props) {
 
             <div>
               <label className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 block">
-                Alert at {form.alert_threshold}% — {form.amount ? `warn when spending exceeds ${formatCurrency(thresholdAmount)}` : 'set amount first'}
+                Alert at {form.alert_threshold}% — {form.amount ? `warn when spending exceeds ${showNumbers ? formatCurrency(thresholdAmount) : maskNumber(formatCurrency(thresholdAmount), maskMode, maskFixedValue)}` : 'set amount first'}
               </label>
               <input type="range" min={50} max={100} step={5} value={form.alert_threshold}
                 onChange={e => setForm(f => ({ ...f, alert_threshold: Number(e.target.value) }))}

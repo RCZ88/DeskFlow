@@ -4,6 +4,74 @@
 
 ### Commit Message
 ```
+feat: real TUI agent interaction, canvas grouping, gold goals tab, AI change-history/undo, compositions DSL engine, sleep-detection gap fix (141 files)
+```
+
+**Hash:** `(pending)`
+**Date:** 2026-08-02
+
+### Detailed Changes
+
+#### Agent TUI Interaction (`src/main/agentOutput.ts`, `src/main.ts`, `src/preload.ts`, `scripts/verify-parser.mjs`)
+- **`src/main/agentOutput.ts`** (new) — Incremental parser for agent CLI/TUI output in the Electron main process. `parseSessionIdFromOutput` extracts the agent's REAL session id from PTY output (primary source, replacing path-matching a separate SQLite DB). `parseAgentOutput` incrementally parses each chunk: session id, errors, action-required prompts, and structured file-change events. Pure module (no electron/better-sqlite3 imports) so it's unit-testable via `node scripts/verify-parser.mjs` without launching the app.
+- **`capture-opencode-session-id`** IPC + `agent:config` + `agent:get-status` handlers; `onAgentStatus` event with `{ terminalId, phase, sessionId?, error? }`.
+- **`scripts/verify-parser.mjs`** (new) — unit test harness for `agentOutput.ts` parser.
+
+#### Canvas Grouping System (`src/components/ai/canvas/`, `src/hooks/useCanvasState.ts`, `src/services/canvasPersistence.ts`, `src/types/canvas.ts`)
+- **`GroupCard.tsx`** (new) — group card with `data.childCards` snapshots; `CanvasGrid`/`CanvasContainer`/`CanvasCard` group wiring (CREATE_GROUP tags child cards with `groupId`, UNGROUP restores from `data.childCards`, DELETE_GROUP). Canonical `state.groups[id]` + per-card `data.childCards` kept in sync by reducers.
+- **`CanvasManagerPanel`, `SaveIndicator`, `canvas.css`** — manager panel, save indicator, canvas styles updated for groups.
+
+#### Gold/Goals Feature (`src/features/warmth/gold/GoldPage.tsx`, `src/pages/GoalsPage.tsx`, `src/components/goals/`, `src/hooks/useFocusGoals.ts`)
+- **`GoldPage.tsx`** (new) — consistent daily goals + daily-custom goals + reminders/notes + calendar view + fulfillment check; integrated as a tab inside Life page (`/life` → LifePage `?tab=` state, `{ key: 'gold', label: 'Gold', icon: Target, accent: '#fbbf24' }`).
+- **`GoalCard.tsx`, `CriteriaBuilder.tsx`, `CalendarStrip.tsx`** (new) — goal cards with skeleton/empty/error states, criteria builder, calendar strip.
+- **`GoalsPage.tsx`** (new) — standalone goals page (422 lines).
+- **`useFocusGoals.ts`** hook + goals/reminders IPC already in main.ts (~line 2746 DDL, IPC ~16134+; reminders IPC ~16489+; preload methods ~890–908).
+
+#### AI Change History & Locked Items (main.ts, preload.ts, SettingsPage.tsx)
+- **New IPC:** `get-locked-items`, `set-locked-items`, `get-ai-change-history`, `add-ai-change-history`, `undo-ai-change`, `redo-ai-change`, `clear-ai-change-history` + preload bindings.
+- **SettingsPage.tsx** (+716) — app/domain lock toggles (per-app, per-domain, lock-all), AI change history with undo/redo via `Undo2`/`History` icons, masked currency helpers.
+
+#### Sleep Detection Gap Fix (main.ts)
+- Three independent triggers: window focus/blur, tracking-poll gaps (null `active-win`), and system-idle + `powerMonitor` resume/unlock-screen. `checkSleepGap(gapStart, gapEnd, { skipActiveGuard })`; `powerMonitor.getSystemIdleTime()` ≥ `SLEEP_DETECTION_MIN_GAP_MS` (45min) tracked in `pollForeground()`; `powerMonitor.on('resume'/'unlock-screen')`. `check-sleep-detection` must NOT mark `checked`.
+
+#### Compositions DSL Engine (`src/domains/compositions/`, `src/pages/CompositionPage.tsx`)
+- **`compositionLexer`, `compositionParser`, `compositionSchema`, `compositionScopeChecker`, `compositionEngine`, `compositionEventBus`, `CompositionEngineManager`, `CompositionEngineService`** (new) — DSL engine for the self-expanding agentic system.
+- **`dataSourceRegistry` + data adapters** — `dataAdapterFinance`, `dataAdapterFocus`, `dataAdapterGoals`, `dataAdapterIde`, `dataAdapterLearning`, `dataAdapterSystem` (new).
+- **`CompositionPage.tsx`** (new, 418 lines) — compositions UI tab.
+
+#### Stats/Activity/External/Finance Reorganizations
+- **StatsPage.tsx** (~398 changed) — stats rework.
+- **ActivityPage.tsx** (~172 changed) — 4th Focus tab + reorganized sections.
+- **ExternalPage.tsx**, **FinancePage.tsx**, **DashboardPage.tsx** — layout/ordering updates (Finance Overview de-dup: removed duplicate Net Flow card + awaiting-repayment from SpendingSplitCard; Repaid button per person).
+- **`src/components/workspace/CodeStatsTab.tsx`** (new, 429 lines) — code stats workspace tab.
+- **Finance number-mask wiring** — `useNumberMask`/`maskNumber` into 7 remaining display components (WalletDetailView, SubscriptionsTab, BudgetExpensesDashboard, SelectionAggregatePanel, CategoriesTab, FixedExpenseModal, BudgetModal); masked display strings only, numeric state untouched.
+
+#### RHEO Rebrand & Build System
+- **package.json** — version 1.0.0 → 1.1.0; productName DeskFlow → RHEO; win/mac/linux icon `DeskFlow_AppIcon.png` → `RHEO_AppIcon.png`; added `dist` script (`npm run build && electron-builder --win`); `signAndEditExecutable: false`.
+- **`DeskFlow_AppIcon.png` deleted** → `RHEO_AppIcon.png` referenced instead.
+- **`scripts/build.mjs`** — pre-compile `src/domains/**` alongside services/main (Composition DSL engine needs runtime-compiled JS).
+- **index.html** — enhanced black-screen fallback: Copy Error button, `#df-error-stack` stack trace block, nav buttons (Dashboard/Activity/Terminal/IDE/Settings), `navigateTo()` + `copyError()` helpers, `window.__DESKFLOW_LAST_ERROR` tracking.
+
+#### Docs & Skills
+- **`agent/docs/generate-prompt-docs/canvas-grouping-system-30072026/`** — CONTEXT_BUNDLE.md, PROMPT.md, RESULT.md (canvas grouping spec).
+- **`agent/docs/generate-prompt-docs/life-gold-tab-integration/`** — CONTEXT_BUNDLE.md, PROMPT.md, RESULT.md (gold tab spec).
+- **`agent/docs/generate-prompt-docs/tui-agent-interaction/`** — CONTEXT_BUNDLE.md, CONTEXT_GAPS.md, CONVERSATION_PROTOCOL.md, PROMPT.md (real TUI interaction spec).
+- **`agent/docs/backandfourth-docs/dsl-engine-decision/`** — CONTEXT_BUNDLE.md, CONTEXT_GAPS.md, CONVERSATION_PROTOCOL.md, INITIAL_PROMPT.md, conversation/round-01.md, conversation/output_round1.md.
+- **`agent/docs/goals-covenant-handoff/`** — HANDOFF.md, PROMPT.md; **`agent/docs/ai-assistant-discussion.md`** (new); **`agent/skills/context-handoff/SKILL.md`** (new); **`agent/page-title-preview.html`** (new).
+
+#### Misc
+- **`src/lib/chart-plugins.ts`, `src/index.css`** — chart plugin + CSS updates.
+- **`vite.config.ts`** — build output hashed filename tweaks.
+- **`src/components/PageTitle.tsx`, `SectionHeader.tsx`, `VoiceInputWrapper.tsx`, `AiProviderSelectModal.tsx`, `TerminalWindow.tsx`, `TerminalPage.tsx`** — UI polish and TUI/agent wiring.
+- **`MEMORY.md`, `agent/MEMORY.md`, `agent/state.md`, `agent/state-archive.md`** — memory/state updates.
+- **`browser-extension/focusOverlay.js`** — overlay updates.
+
+---
+
+## Previous Commit
+
+### Commit Message
+```
 feat: massive release — AI system, finance overhaul, learn module, startup fix, workspace redesign (2257 files)
 ```
 

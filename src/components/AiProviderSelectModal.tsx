@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronDown, Check, Cpu } from 'lucide-react';
+import { X, ChevronDown, Check, Cpu, Zap } from 'lucide-react';
 
 interface ProviderOption {
   id: string;
@@ -12,6 +12,8 @@ interface ProviderOption {
 interface RoutingEntry {
   providerId: string;
   model: string;
+  smallModel?: string;
+  smallProviderId?: string;
 }
 
 interface AiProviderSelectModalProps {
@@ -53,6 +55,8 @@ export function AiProviderSelectModal({
   const [viewMode, setViewMode] = useState<'provider' | 'model'>('provider');
   const [selectedId, setSelectedId] = useState<string | null>(currentRouting?.providerId || null);
   const [selectedModel, setSelectedModel] = useState(currentRouting?.model || '');
+  const [smallSelectedId, setSmallSelectedId] = useState<string | null>(currentRouting?.smallProviderId || null);
+  const [smallSelectedModel, setSmallSelectedModel] = useState(currentRouting?.smallModel || '');
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -61,6 +65,8 @@ export function AiProviderSelectModal({
     if (open) {
       setSelectedId(currentRouting?.providerId || null);
       setSelectedModel(currentRouting?.model || '');
+      setSmallSelectedId(currentRouting?.smallProviderId || null);
+      setSmallSelectedModel(currentRouting?.smallModel || '');
       setLoadError(null);
       setSaveError(null);
     }
@@ -105,7 +111,12 @@ export function AiProviderSelectModal({
       if (!selectedId || !selectedModel) {
         onSave(null);
       } else {
-        onSave({ providerId: selectedId, model: selectedModel });
+        onSave({
+          providerId: selectedId,
+          model: selectedModel,
+          smallProviderId: smallSelectedId || undefined,
+          smallModel: smallSelectedModel || undefined,
+        });
       }
       onClose();
     } catch (err: any) {
@@ -296,6 +307,61 @@ export function AiProviderSelectModal({
                     <span className="text-[11px] text-zinc-500">Reset to default fallback chain</span>
                   </div>
                 </motion.button>
+              )}
+
+              {/* ── Small Model Section ── */}
+              {selectedId && selectedModel && (
+                <div className="mt-3 pt-3 border-t border-zinc-800/40">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="w-3 h-3 text-amber-400" />
+                    <span className="text-[11px] font-medium text-zinc-300">Small Model</span>
+                    <span className="text-[10px] text-zinc-500">for quick tasks (email checks, classifications)</span>
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[10px] text-zinc-500 block mb-1">Provider</label>
+                      <div className="relative">
+                        <select
+                          value={smallSelectedId || ''}
+                          onChange={(e) => {
+                            const v = e.target.value || null;
+                            setSmallSelectedId(v);
+                            if (v) {
+                              const p = enabledProviders.find(x => x.id === v);
+                              setSmallSelectedModel(p?.models[0] || '');
+                            } else {
+                              setSmallSelectedModel('');
+                            }
+                          }}
+                          className="w-full appearance-none bg-zinc-800 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-[11px] text-zinc-200 focus:outline-none focus:border-amber-500/40 cursor-pointer"
+                        >
+                          <option value="">Same as main (default)</option>
+                          {enabledProviders.map((p) => (
+                            <option key={p.id} value={p.id}>{p.label}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-500 pointer-events-none" />
+                      </div>
+                    </div>
+                    {smallSelectedId && (
+                      <div>
+                        <label className="text-[10px] text-zinc-500 block mb-1">Model</label>
+                        <div className="relative">
+                          <select
+                            value={smallSelectedModel}
+                            onChange={(e) => setSmallSelectedModel(e.target.value)}
+                            className="w-full appearance-none bg-zinc-800 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-[11px] text-zinc-200 focus:outline-none focus:border-amber-500/40 cursor-pointer"
+                          >
+                            {enabledProviders.find(p => p.id === smallSelectedId)?.models.map((m) => (
+                              <option key={m} value={m}>{m}</option>
+                            )) || <option value="">No models</option>}
+                          </select>
+                          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-500 pointer-events-none" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
 

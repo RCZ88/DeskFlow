@@ -7,10 +7,10 @@ import { FindCardsArrow } from './FindCardsArrow'
 import { CanvasManagerPanel } from './CanvasManagerPanel'
 import { autoArrange } from '../../../lib/autoArrange'
 import { loadCanvasLayout } from '../../../services/canvasPersistence'
-import type { CanvasCard } from '../../../types/canvas'
+import type { CanvasCard, CanvasGroup } from '../../../types/canvas'
 import type { CanvasSnapshot } from '../../../services/canvasPersistence'
 
-const PAN_STORAGE_KEY = 'deskflow-canvas-pan-zoom'
+const PAN_STORAGE_KEY = 'rheo-canvas-pan-zoom'
 
 interface CanvasContainerProps {
   cards: CanvasCard[]
@@ -20,6 +20,11 @@ interface CanvasContainerProps {
   onPinCard?: (id: string) => void
   onResizeCard?: (id: string, size: { w: number; h: number }) => void
   onCardClick?: (id: string) => void
+  onUpdateCard?: (id: string, patch: Record<string, any>) => void
+  groups?: Record<string, CanvasGroup>
+  onUpdateGroup?: (groupId: string, patch: Partial<Pick<CanvasGroup, 'label' | 'colorId' | 'orientation' | 'ratio'>>) => void
+  onUngroup?: (groupId: string, mode: 'restore' | 'scatter') => void
+  onRemoveFromGroup?: (cardId: string, newPosition?: { x: number; y: number }) => void
   saveStatus: 'idle' | 'saving' | 'saved' | 'error'
   onSaveCanvas?: () => void
   onSend: (text: string) => void
@@ -37,12 +42,15 @@ interface CanvasContainerProps {
   onRenameCanvas?: (id: string, name: string) => void
   onDeleteCanvas?: (id: string) => void
   onSaveAs?: (name: string) => void
+  onSetPanZoom?: (pan: { x: number; y: number }, zoom: number) => void
 }
 
 export function CanvasContainer({
-  cards, onMoveCard, onDismissCard, onArrangeCards, onPinCard, onResizeCard, onCardClick,
+  cards, onMoveCard, onDismissCard, onArrangeCards, onPinCard, onResizeCard, onCardClick, onUpdateCard,
+  groups, onUpdateGroup, onUngroup, onRemoveFromGroup,
   saveStatus, onSaveCanvas, onSend, onStop, streaming, thinking, focusedCardId, autoFocus, onToggleAutoFocus,
   onOpenPalette, onGroupCards, canvasList, activeCanvasId, onLoadCanvas, onRenameCanvas, onDeleteCanvas, onSaveAs,
+  onSetPanZoom,
 }: CanvasContainerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showManager, setShowManager] = useState(false)
@@ -71,6 +79,14 @@ export function CanvasContainer({
   const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set())
   const containerRef = useRef<HTMLDivElement>(null)
   const hasAutoCentered = useRef(false)
+
+  // Save pan/zoom to localStorage and sync to canvas state on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(PAN_STORAGE_KEY, JSON.stringify({ x: pan.x, y: pan.y, zoom }))
+    } catch { /* ignore */ }
+    onSetPanZoom?.(pan, zoom)
+  }, [pan.x, pan.y, zoom])
 
   // Measure viewport
   useEffect(() => {
@@ -325,6 +341,11 @@ export function CanvasContainer({
         onPinCard={onPinCard}
         onResizeCard={onResizeCard}
         onCardClick={onCardClick}
+        onUpdateCard={onUpdateCard}
+        groups={groups}
+        onUpdateGroup={onUpdateGroup}
+        onUngroup={onUngroup}
+        onRemoveFromGroup={onRemoveFromGroup}
         isPanning={isPanning}
         setIsPanning={setIsPanning}
         focusedCardId={focusedCardId}

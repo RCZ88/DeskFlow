@@ -4,6 +4,8 @@ import type { FinanceFtPerson, FinanceTransaction, FinanceWallet } from './finan
 import { CurrencyInput } from './CurrencyInput';
 import { computeAllocation, buildRepaymentDescription } from '../../lib/paymentAllocation';
 import { getRepaymentStatus } from '../../lib/receivables';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 
 interface PaymentAllocationModalProps {
   open: boolean;
@@ -18,6 +20,8 @@ interface PaymentAllocationModalProps {
 export function PaymentAllocationModal({
   open, onClose, person, transactions, wallets, displayCurrency, onRefresh
 }: PaymentAllocationModalProps) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number) => showNumbers ? v.toFixed(2) : maskNumber(v.toFixed(2), maskMode, maskFixedValue);
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [selectedWallet, setSelectedWallet] = useState<number | null>(wallets[0]?.id ?? null);
@@ -120,7 +124,7 @@ export function PaymentAllocationModal({
             <select value={selectedWallet ?? ''} onChange={e => setSelectedWallet(Number(e.target.value) || null)}
               className="w-full rounded-xl bg-zinc-800/60 border border-zinc-700/60 px-3 py-2.5 text-xs text-zinc-200 outline-none focus:border-amber-500/50 transition-colors">
               {wallets.map(w => (
-                <option key={w.id} value={w.id}>{w.name} ({displayCurrency}{w.balance.toFixed(2)})</option>
+                <option key={w.id} value={w.id}>{w.name} ({displayCurrency}{fmtMoney(w.balance)})</option>
               ))}
             </select>
           </div>
@@ -143,7 +147,7 @@ export function PaymentAllocationModal({
               <p className="text-[11px] text-zinc-400">
                 Covers {allocation.coveredTxIds.length} transaction(s) fully
                 {allocation.partialTxIds.length > 0 && `, ${allocation.partialTxIds.length} partially`}
-                {allocation.overpaymentAmount > 0 && ` · ${displayCurrency}${allocation.overpaymentAmount.toFixed(2)} overpayment credit`}
+                {allocation.overpaymentAmount > 0 && ` · ${displayCurrency}${fmtMoney(allocation.overpaymentAmount)} overpayment credit`}
               </p>
             </div>
           )}
@@ -177,15 +181,15 @@ export function PaymentAllocationModal({
                           </div>
                           <span className="text-xs font-medium text-zinc-200">{tx.description || 'Expense'}</span>
                         </div>
-                        <span className="text-xs font-bold text-zinc-300">{displayCurrency}{Math.abs(tx.amount).toFixed(2)}</span>
+                        <span className="text-xs font-bold text-zinc-300">{displayCurrency}{fmtMoney(Math.abs(tx.amount))}</span>
                       </div>
                       <div className="flex items-center justify-between mt-1 ml-6">
                         <span className="text-[10px] text-zinc-500">
-                          {new Date(tx.date).toLocaleDateString()} · {displayCurrency}{remaining.toFixed(2)} remaining
+                          {new Date(tx.date).toLocaleDateString()} · {displayCurrency}{fmtMoney(remaining)} remaining
                         </span>
                         {willBeCovered && allocItem && (
                           <span className={`text-[10px] font-medium ${allocItem.status === 'full' ? 'text-emerald-400' : 'text-amber-400'}`}>
-                            {allocItem.status === 'full' ? 'Fully covered' : `Partial: ${displayCurrency}${allocItem.allocatedAmount.toFixed(2)}`}
+                            {allocItem.status === 'full' ? 'Fully covered' : `Partial: ${displayCurrency}${fmtMoney(allocItem.allocatedAmount)}`}
                           </span>
                         )}
                       </div>

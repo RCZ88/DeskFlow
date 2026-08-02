@@ -180,6 +180,15 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   setDomainDefaultCategory: (domain: string, category: string) => ipcRenderer.invoke('set-domain-default-category', domain, category),
   getDomainDefaultCategory: (domain: string) => ipcRenderer.invoke('get-domain-default-category', domain),
   
+  // Locked items & AI change history
+  getLockedItems: () => ipcRenderer.invoke('get-locked-items'),
+  setLockedItems: (items: { lockedApps?: Record<string, boolean>; lockedDomains?: Record<string, boolean> }) => ipcRenderer.invoke('set-locked-items', items),
+  getAiChangeHistory: () => ipcRenderer.invoke('get-ai-change-history'),
+  addAiChangeHistory: (entry: { name: string; type: 'app' | 'domain'; previousCategory: string; newCategory: string; source: 'ai' | 'manual' }) => ipcRenderer.invoke('add-ai-change-history', entry),
+  undoAiChange: (changeId: string) => ipcRenderer.invoke('undo-ai-change', changeId),
+  redoAiChange: (change: { name: string; type: 'app' | 'domain'; previousCategory: string; newCategory: string; source: 'ai' | 'manual' }) => ipcRenderer.invoke('redo-ai-change', change),
+  clearAiChangeHistory: () => ipcRenderer.invoke('clear-ai-change-history'),
+  
   // NEW: Keyword-based productivity categorization
   getDomainKeywordRules: (domain: string) => ipcRenderer.invoke('get-domain-keyword-rules', domain),
   setDomainKeywordRules: (domain: string, keywordSets: { category: string; keywords: string[] }[]) => ipcRenderer.invoke('set-domain-keyword-rules', domain, keywordSets),
@@ -418,6 +427,18 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   armHandshake: (terminalId: string) => ipcRenderer.invoke('agent:arm-handshake', terminalId),
   agentSend: (terminalId: string, data: string, agentType?: string) => ipcRenderer.invoke('agent:send', terminalId, data, agentType),
   agentGetPhase: (terminalId: string) => ipcRenderer.invoke('agent:get-phase', terminalId),
+  agentGetStatus: (terminalId: string) => ipcRenderer.invoke('agent:get-status', terminalId),
+  getAgentConfig: (agentType?: string) => ipcRenderer.invoke('agent:config', agentType),
+  onAgentSessionIdCaptured: (callback: (data: { terminalId: string; sessionId: string }) => void) => {
+    const handler = (_event: any, data: { terminalId: string; sessionId: string }) => callback(data);
+    ipcRenderer.on('agent:session-id-captured', handler);
+    return () => ipcRenderer.removeListener('agent:session-id-captured', handler);
+  },
+  onAgentStatus: (callback: (data: { terminalId: string; phase: string; sessionId?: string | null; error?: string | null }) => void) => {
+    const handler = (_event: any, data: { terminalId: string; phase: string; sessionId?: string | null; error?: string | null }) => callback(data);
+    ipcRenderer.on('agent:status', handler);
+    return () => ipcRenderer.removeListener('agent:status', handler);
+  },
   onTerminalAnomaly: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('terminal:anomaly', handler);
@@ -490,7 +511,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getTerminalSessionResumeId: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-resume-id', sessionId),
   getTerminalSessionById: (sessionId: string) => ipcRenderer.invoke('get-terminal-session-by-id', sessionId),
   checkSessionExists: (sessionId: string) => ipcRenderer.invoke('check-session-exists', sessionId),
-  captureOpencodeSessionId: (workspaceDir: string, sinceTimestamp?: number) => ipcRenderer.invoke('capture-opencode-session-id', workspaceDir, sinceTimestamp),
+  captureOpencodeSessionId: (workspaceDir: string, sinceTimestamp?: number, pid?: number) => ipcRenderer.invoke('capture-opencode-session-id', workspaceDir, sinceTimestamp, pid),
   listOpencodeSessions: (workspaceDir: string) => ipcRenderer.invoke('list-opencode-sessions', workspaceDir),
   terminalWriteDisplay: (terminalId: string, data: string) => ipcRenderer.invoke('terminal:write-display', terminalId, data),
   terminalLog: (...args: any[]) => ipcRenderer.invoke('terminal:log', ...args),
@@ -950,6 +971,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     updateEvent: (data: { connectorId: string; eventId: string; changes: any }) => ipcRenderer.invoke('connectors:update-event', data),
     deleteEvent: (data: { connectorId: string; eventId: string }) => ipcRenderer.invoke('connectors:delete-event', data),
     markRead: (data: { connectorId: string; emailId: string; read: boolean }) => ipcRenderer.invoke('connectors:mark-read', data),
+    onNewEmails: (callback: (data: { connectorId: string; connectorName: string; unreadCount: number; newItems: any[] }) => void) => {
+      ipcRenderer.on('connectors:new-emails', (_event, data) => callback(data));
+    },
   },
 
   // Feature Specs
@@ -1369,4 +1393,18 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   memoryDelete: (id: string) => ipcRenderer.invoke('memory:delete', id),
   memoryStats: () => ipcRenderer.invoke('memory:stats'),
   memoryCompact: () => ipcRenderer.invoke('memory:compact'),
+
+  // ========== Compositions System ==========
+  compositionsList: () => ipcRenderer.invoke('compositions:list'),
+  compositionsGet: (id: string) => ipcRenderer.invoke('compositions:get', id),
+  compositionsCreate: (data: any) => ipcRenderer.invoke('compositions:create', data),
+  compositionsUpdate: (id: string, data: any) => ipcRenderer.invoke('compositions:update', id, data),
+  compositionsDelete: (id: string) => ipcRenderer.invoke('compositions:delete', id),
+  compositionsCompile: (dslSource: string) => ipcRenderer.invoke('compositions:compile', dslSource),
+  compositionsValidate: (dslSource: string, manifestId: string) => ipcRenderer.invoke('compositions:validate', dslSource, manifestId),
+  compositionsEvaluate: (ruleId: string, context?: any) => ipcRenderer.invoke('compositions:evaluate', ruleId, context),
+  compositionsHistory: (ruleId?: string, limit?: number) => ipcRenderer.invoke('compositions:history', ruleId, limit),
+  compositionsStatus: (ruleId?: string) => ipcRenderer.invoke('compositions:status', ruleId),
+  compositionsSettingsGet: (key: string) => ipcRenderer.invoke('compositions:settings:get', key),
+  compositionsSettingsSet: (key: string, value: string) => ipcRenderer.invoke('compositions:settings:set', key, value),
 });

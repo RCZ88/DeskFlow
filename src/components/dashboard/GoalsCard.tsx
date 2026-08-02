@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Target, Check, Plus, X, Edit3, Trash2, Calendar, Clock,
@@ -107,6 +108,7 @@ export function GoalsCard({
   onDismissSuggestion,
   onGenerateSuggestions,
 }: GoalsCardProps) {
+  const navigate = useNavigate();
   const [isAdding, setIsAdding] = useState(false);
   const [newGoal, setNewGoal] = useState<{
     title: string;
@@ -235,14 +237,20 @@ export function GoalsCard({
         {/* Header */}
         <div className="flex items-center justify-between mb-4 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
+            <button
+              onClick={() => navigate('/goals')}
+              className="w-8 h-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center hover:bg-violet-500/20 transition-colors"
+              title="View all goals"
+            >
               <Target size={15} className="text-violet-400" />
-            </div>
+            </button>
             <div>
-              <h2 className="text-[15px] font-semibold text-zinc-100">Today&apos;s Goals</h2>
-              <p className="text-[11px] text-zinc-500">
-                {activeGoals.length} active · {completedGoals.length} done
-              </p>
+              <button onClick={() => navigate('/goals')} className="hover:opacity-80 transition-opacity text-left">
+                <h2 className="text-[15px] font-semibold text-zinc-100">Today&apos;s Goals</h2>
+                <p className="text-[11px] text-zinc-500">
+                  {activeGoals.length} active · {completedGoals.length} done
+                </p>
+              </button>
             </div>
           </div>
 

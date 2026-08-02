@@ -5,6 +5,8 @@ import { PersonCard } from './PersonCard';
 import { PersonDetailModal } from './PersonDetailModal';
 import { PaymentAllocationModal } from './PaymentAllocationModal';
 import { TransactionDetailModal } from './TransactionDetailModal';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 
 interface PeopleTabProps {
   persons: FinanceFtPerson[];
@@ -25,6 +27,8 @@ interface PeopleTabProps {
 }
 
 export function PeopleTab({ persons, transactions, wallets, displayCurrency, onRefresh, onNewTransaction, accounts = [], categories = [], baseCurrency = 'USD', onDeleteTransaction, onUpdateTransaction, onVerifyPassword, ftPersons = [], onAddFtPerson, onGoToTransactions }: PeopleTabProps) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number) => showNumbers ? v.toFixed(2) : maskNumber(v.toFixed(2), maskMode, maskFixedValue);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<FinanceFtPerson | null>(null);
   const [paymentPerson, setPaymentPerson] = useState<FinanceFtPerson | null>(null);
@@ -109,7 +113,7 @@ export function PeopleTab({ persons, transactions, wallets, displayCurrency, onR
             <ArrowUpRight className="w-3.5 h-3.5" />
             <span className="text-[11px] uppercase tracking-wider">Total Owed</span>
           </div>
-          <div className="text-xl font-bold text-amber-400">{displayCurrency}{stats.totalOwed.toFixed(2)}</div>
+          <div className="text-xl font-bold text-amber-400">{displayCurrency}{fmtMoney(stats.totalOwed)}</div>
         </div>
         <div className="rounded-xl bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 p-4">
           <div className="flex items-center gap-2 text-zinc-500 mb-1">

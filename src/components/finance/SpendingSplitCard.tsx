@@ -1,43 +1,21 @@
 import { motion } from 'framer-motion';
-import { Handshake, ArrowLeftRight, RotateCcw, Check } from 'lucide-react';
-import type { FinanceTransaction } from './finance-types';
-
-interface PersonSplit {
-  name: string;
-  total: number;
-  count: number;
-  unpaidTxIds: number[];
-}
+import { Handshake } from 'lucide-react';
 
 interface SpendingSplitCardProps {
   currency: string;
   personalExpense: number;
   ftExpense: number;
-  unpaidByPerson: PersonSplit[];
-  onRecordRepayment?: (personName: string, txIds: number[], totalAmount: number) => void;
 }
-
-const stagger = {
-  animate: { transition: { staggerChildren: 0.04 } },
-};
-
-const staggerItem = {
-  initial: { opacity: 0, y: 4 },
-  animate: { opacity: 1, y: 0 },
-};
 
 export function SpendingSplitCard({
   currency,
   personalExpense,
   ftExpense,
-  unpaidByPerson,
-  onRecordRepayment,
 }: SpendingSplitCardProps) {
   const fmt = (n: number) =>
     new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(n);
   const grandTotal = personalExpense + ftExpense;
   const ftPct = grandTotal > 0 ? (ftExpense / grandTotal) * 100 : 0;
-  const allCaughtUp = unpaidByPerson.length === 0 && ftExpense > 0;
 
   return (
     <motion.div
@@ -107,56 +85,6 @@ export function SpendingSplitCard({
               <span className="text-sm font-semibold tabular-nums text-amber-400">{fmt(ftExpense)}</span>
             </div>
           </div>
-
-          {/* Per-person unpaid breakdown */}
-          {unpaidByPerson.length > 0 && (
-            <div className="border-t border-zinc-800/50 pt-3 mt-auto">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 mb-2">
-                Awaiting repayment
-              </p>
-              <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-1.5">
-                {unpaidByPerson.map((p) => (
-                  <motion.div
-                    key={p.name}
-                    variants={staggerItem}
-                    className="flex items-center justify-between py-2 px-3 rounded-lg bg-amber-500/5 border border-amber-500/10 hover:border-amber-500/20 transition-colors duration-150"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-zinc-200 truncate">{p.name}</p>
-                      <p className="text-[10px] text-zinc-500">
-                        {p.count} transaction{p.count !== 1 ? 's' : ''}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold tabular-nums text-amber-400">{fmt(p.total)}</span>
-                      {onRecordRepayment && (
-                        <motion.button
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.97 }}
-                          onClick={() => onRecordRepayment(p.name, p.unpaidTxIds, p.total)}
-                          className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20 transition-colors duration-150"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                          Repaid
-                        </motion.button>
-                      )}
-                    </div>
-                  </motion.div>
-                ))}
-              </motion.div>
-            </div>
-          )}
-
-          {allCaughtUp && (
-            <div className="border-t border-zinc-800/50 pt-3 mt-auto">
-              <div className="flex items-center gap-2 text-sm text-emerald-400">
-                <div className="w-5 h-5 rounded-full bg-emerald-500/15 flex items-center justify-center">
-                  <Check className="w-3 h-3" />
-                </div>
-                All follow-through expenses repaid
-              </div>
-            </div>
-          )}
         </>
       )}
     </motion.div>

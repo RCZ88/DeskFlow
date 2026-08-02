@@ -5,6 +5,8 @@ import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip } from 'chart.js';
 import { GlassSurface } from './_fx/GlassSurface';
 import { formatCurrency, formatAmount } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 import type { FinanceTransaction } from './finance-types';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip);
@@ -34,6 +36,11 @@ export function CryptoAssetDetailModal({
   const fc = (v: number) => formatCurrency(v, displayCurrency);
   const fa = (v: number) => formatAmount(v);
   const sym = symbol.toUpperCase();
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number, cur?: string) => {
+    const s = fc(v);
+    return showNumbers ? s : maskNumber(s, maskMode, maskFixedValue);
+  };
   const [showAllWallets, setShowAllWallets] = useState(false);
   const [assetHistory, setAssetHistory] = useState<AssetHistoryPoint[]>([]);
   const [activeChart, setActiveChart] = useState<'quantity' | 'fiat'>('quantity');
@@ -147,7 +154,7 @@ export function CryptoAssetDetailModal({
         bodyFont: { family: 'JetBrains Mono', size: 11 },
         padding: 8,
         callbacks: {
-          label: (ctx: any) => isFiat ? `${fc(ctx.raw)}` : `${formatAmount(ctx.raw)} ${sym}`,
+          label: (ctx: any) => isFiat ? `${fmtMoney(ctx.raw)}` : `${formatAmount(ctx.raw)} ${sym}`,
         },
       },
     },
@@ -163,7 +170,7 @@ export function CryptoAssetDetailModal({
         ticks: {
           color: '#71717a',
           font: { family: 'JetBrains Mono', size: 9 },
-          callback: (v: any) => isFiat ? fc(v) : formatAmount(v),
+          callback: (v: any) => isFiat ? fmtMoney(v) : formatAmount(v),
         },
       },
     },
@@ -240,7 +247,7 @@ export function CryptoAssetDetailModal({
               <GlassSurface tier={2} className="p-3">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Current Price</div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-white tabular-nums">{fc(currentPrice)}</span>
+                  <span className="text-sm font-semibold text-white tabular-nums">{fmtMoney(currentPrice)}</span>
                   {priceChange24h !== null && (
                     <span className={`text-[10px] tabular-nums ${priceChange24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       {priceChange24h >= 0 ? '+' : ''}{priceChange24h.toFixed(1)}%
@@ -250,14 +257,14 @@ export function CryptoAssetDetailModal({
               </GlassSurface>
               <GlassSurface tier={2} className="p-3">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Cost Basis</div>
-                <div className="text-sm font-semibold text-white tabular-nums">{fc(totalCostBasis)}</div>
-                <div className="text-[10px] text-zinc-500 tabular-nums mt-0.5">avg {fc(avgBuyPrice)}/{sym}</div>
+                <div className="text-sm font-semibold text-white tabular-nums">{fmtMoney(totalCostBasis)}</div>
+                <div className="text-[10px] text-zinc-500 tabular-nums mt-0.5">avg {fmtMoney(avgBuyPrice)}/{sym}</div>
               </GlassSurface>
               <GlassSurface tier={2} className="p-3">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Market Value</div>
-                <div className="text-sm font-semibold text-white tabular-nums">{fc(currentValue)}</div>
+                <div className="text-sm font-semibold text-white tabular-nums">{fmtMoney(currentValue)}</div>
                 <div className={`text-[10px] tabular-nums mt-0.5 ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {totalPnl >= 0 ? '+' : ''}{fc(totalPnl)} ({totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(1)}%)
+                  {totalPnl >= 0 ? '+' : ''}{fmtMoney(totalPnl)} ({totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(1)}%)
                 </div>
               </GlassSurface>
             </div>
@@ -343,7 +350,7 @@ export function CryptoAssetDetailModal({
                             {isExpense ? '-' : isIncome ? '+' : ''}{coinQty > 0 ? fa(coinQty) : fa(Math.abs(txn.amount))} {sym}
                           </div>
                           {coinPrice > 0 && (
-                            <div className="text-[10px] text-zinc-500 tabular-nums">@ {fc(coinPrice)}</div>
+                            <div className="text-[10px] text-zinc-500 tabular-nums">@ {fmtMoney(coinPrice)}</div>
                           )}
                         </div>
                       </div>

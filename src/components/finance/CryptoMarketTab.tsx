@@ -4,6 +4,8 @@ import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
 import { formatCurrency as fmtCurrency, formatAmount as fmtAmount, formatPercent as fmtPct } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 import type { FinanceWallet, CryptoPrice } from './finance-types';
 
 interface CryptoMarketTabProps {
@@ -22,6 +24,11 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedCoin, setExpandedCoin] = useState<string | null>(null);
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number, cur?: string) => {
+    const s = fmtCurrency(v, cur ?? displayCurrency);
+    return showNumbers ? s : maskNumber(s, maskMode, maskFixedValue);
+  };
 
   function parseMeta(raw: any): Record<string, any> {
     if (raw && typeof raw === 'object') return raw;
@@ -162,16 +169,16 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
             <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Total Portfolio Value</div>
             <div className="flex items-baseline gap-2 mt-1">
               <div className="text-2xl font-bold text-white tabular-nums">
-                {prices.length > 0 ? fmtCurrency(totalValue, displayCurrency) : '\u2014'}
+                {prices.length > 0 ? fmtMoney(totalValue, displayCurrency) : '\u2014'}
               </div>
               {prices.length > 0 && totalCost > 0 && (
                 <span className={`text-xs font-medium tabular-nums ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {fmtCurrency(totalPnl, displayCurrency)} ({fmtPct(totalPnlPct, 1)}%)
+                  {fmtMoney(totalPnl, displayCurrency)} ({fmtPct(totalPnlPct, 1)}%)
                 </span>
               )}
             </div>
             <div className="text-[10px] text-zinc-600 mt-1.5">
-              Cost basis: {fmtCurrency(totalCost, displayCurrency)}
+              Cost basis: {fmtMoney(totalCost, displayCurrency)}
             </div>
           </GlassSurface>
 
@@ -212,7 +219,7 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
                     </div>
                     <div className="text-right shrink-0 ml-3">
                       <div className="text-xs font-semibold text-white tabular-nums">
-                        {fmtCurrency(value, displayCurrency)}
+                        {fmtMoney(value, displayCurrency)}
                       </div>
                       {pc24h !== null && (
                         <div className={`flex items-center gap-0.5 justify-end text-[10px] tabular-nums mt-0.5 ${pc24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -236,7 +243,7 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
                     </span>
                     {a.avgCost > 0 && (
                       <span className={`text-[10px] tabular-nums font-medium ${coinPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {fmtCurrency(coinPnl, displayCurrency)} ({fmtPct(coinPnlPct, 1)}%)
+                        {fmtMoney(coinPnl, displayCurrency)} ({fmtPct(coinPnlPct, 1)}%)
                       </span>
                     )}
                   </div>
@@ -246,7 +253,7 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
                     <div className="mt-3 pt-3 border-t border-white/5 space-y-1.5">
                       <div className="flex justify-between text-[11px]">
                         <span className="text-zinc-500">Current Price</span>
-                        <span className="text-zinc-200 tabular-nums">{fmtCurrency(currentPrice, displayCurrency)}</span>
+                        <span className="text-zinc-200 tabular-nums">{fmtMoney(currentPrice, displayCurrency)}</span>
                       </div>
                       <div className="flex justify-between text-[11px]">
                         <span className="text-zinc-500">Amount Held</span>
@@ -254,16 +261,16 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
                       </div>
                       <div className="flex justify-between text-[11px]">
                         <span className="text-zinc-500">Avg Buy Price</span>
-                        <span className="text-zinc-200 tabular-nums">{a.avgCost > 0 ? fmtCurrency(a.avgCost / a.amount, displayCurrency) : '\u2014'}</span>
+                        <span className="text-zinc-200 tabular-nums">{a.avgCost > 0 ? fmtMoney(a.avgCost / a.amount, displayCurrency) : '\u2014'}</span>
                       </div>
                       <div className="flex justify-between text-[11px]">
                         <span className="text-zinc-500">Cost Basis</span>
-                        <span className="text-zinc-200 tabular-nums">{fmtCurrency(a.avgCost, displayCurrency)}</span>
+                        <span className="text-zinc-200 tabular-nums">{fmtMoney(a.avgCost, displayCurrency)}</span>
                       </div>
                       <div className="flex justify-between text-[11px]">
                         <span className="text-zinc-500">P&amp;L</span>
                         <span className={`tabular-nums font-medium ${coinPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {coinPnl >= 0 ? '+' : ''}{fmtCurrency(coinPnl, displayCurrency)}
+                          {coinPnl >= 0 ? '+' : ''}{fmtMoney(coinPnl, displayCurrency)}
                         </span>
                       </div>
                       <div className="flex justify-between text-[11px]">
@@ -315,7 +322,7 @@ export function CryptoMarketTab({ wallets, displayCurrency, loading, onWalletCli
                 <div className="text-xs text-zinc-400 truncate">{w.name}</div>
                 <div className="text-[10px] text-zinc-600">Tap to add coins</div>
               </div>
-              <div className="text-[10px] text-zinc-600 tabular-nums">{fmtCurrency(w.balance, displayCurrency)}</div>
+              <div className="text-[10px] text-zinc-600 tabular-nums">{fmtMoney(w.balance, displayCurrency)}</div>
             </GlassSurface>
           ))}
         </div>

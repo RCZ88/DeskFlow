@@ -9,13 +9,14 @@ import {
 } from 'lucide-react';
 import { computeCashFlow, computeBudgetStatuses, getUpcomingPayments, type FixedItem, type Budget, type BudgetStatus, type CashFlowSummary, type UpcomingPayment, type LiquidityBreakdown } from './budgetExpensesProcessor';
 import { formatCurrency } from '../currency-data';
+import { useNumberMask } from '../../../context/NumberMaskContext';
+import { maskNumber } from '../../../utils/maskNumber';
 import { MagicCard } from '../../ui/magic-card';
 import { Progress } from '../../ui/progress';
 import { Skeleton } from '../../ui/skeleton';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import { NumberTicker } from '../../ui/number-ticker';
-import { BorderBeam } from '../../ui/border-beam';
 
 interface Props { displayCurrency: string; }
 
@@ -55,7 +56,8 @@ export default function BudgetExpensesDashboard({ displayCurrency }: Props) {
   const [editingBudget, setEditingBudget] = useState<any>(null);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const api = (window as any).deskflowAPI;
-  const fmt = (v: number) => formatCurrency(v, displayCurrency);
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmt = (v: number) => showNumbers ? formatCurrency(v, displayCurrency) : maskNumber(formatCurrency(v, displayCurrency), maskMode, maskFixedValue);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -140,7 +142,6 @@ export default function BudgetExpensesDashboard({ displayCurrency }: Props) {
             return (
               <motion.div key={kpi.key} variants={itemVariants}>
                 <MagicCard className="rounded-xl p-5">
-                  <BorderBeam duration={8} size={100} />
                   <div className="relative z-40">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[10px] text-zinc-500 uppercase tracking-wider">{kpi.label}</span>
@@ -149,7 +150,9 @@ export default function BudgetExpensesDashboard({ displayCurrency }: Props) {
                       </div>
                     </div>
                     <p className="text-2xl font-bold tracking-tight" style={{ color: accent.text }}>
-                      <NumberTicker value={Math.abs(kpi.value)} decimals={2} />{displayCurrency}
+                      {showNumbers
+                        ? <><NumberTicker value={Math.abs(kpi.value)} decimals={2} />{displayCurrency}</>
+                        : <span>{maskNumber(formatCurrency(Math.abs(kpi.value), displayCurrency), maskMode, maskFixedValue)}</span>}
                     </p>
                     <p className="text-[10px] text-zinc-600 mt-1">{kpi.sub}</p>
                   </div>
@@ -161,7 +164,6 @@ export default function BudgetExpensesDashboard({ displayCurrency }: Props) {
 
         <motion.div variants={itemVariants}>
           <MagicCard className="rounded-xl p-5">
-            <BorderBeam duration={8} size={60} />
             <div className="relative z-40">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
@@ -228,7 +230,6 @@ export default function BudgetExpensesDashboard({ displayCurrency }: Props) {
 
         <motion.div variants={itemVariants}>
           <MagicCard className="rounded-xl p-5">
-            <BorderBeam duration={8} size={60} />
             <div className="relative z-40">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
@@ -299,7 +300,6 @@ export default function BudgetExpensesDashboard({ displayCurrency }: Props) {
 
         <motion.div variants={itemVariants}>
           <MagicCard className="rounded-xl p-5">
-            <BorderBeam duration={8} size={60} />
             <div className="relative z-40">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
@@ -373,8 +373,7 @@ export default function BudgetExpensesDashboard({ displayCurrency }: Props) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <motion.div variants={itemVariants}>
             <MagicCard className="rounded-xl p-5">
-              <BorderBeam duration={8} size={60} />
-              <div className="relative z-40">
+                <div className="relative z-40">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-8 h-8 rounded-lg bg-zinc-500/15 flex items-center justify-center">
                     <Calendar className="w-4 h-4 text-zinc-400" />
@@ -431,8 +430,7 @@ export default function BudgetExpensesDashboard({ displayCurrency }: Props) {
 
           <motion.div variants={itemVariants}>
             <MagicCard className="rounded-xl p-5">
-              <BorderBeam duration={8} size={60} />
-              <div className="relative z-40">
+                <div className="relative z-40">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
@@ -475,7 +473,7 @@ export default function BudgetExpensesDashboard({ displayCurrency }: Props) {
                       scales: {
                         x: {
                           grid: { color: 'rgba(113,113,122,0.08)' },
-                          ticks: { color: '#52525b', font: { size: 10 }, callback: (v) => formatCurrency(Number(v), displayCurrency, { compact: true }) }
+                          ticks: { color: '#52525b', font: { size: 10 }, callback: (v) => showNumbers ? formatCurrency(Number(v), displayCurrency, { compact: true }) : maskNumber(formatCurrency(Number(v), displayCurrency, { compact: true }), maskMode, maskFixedValue) }
                         },
                         y: { grid: { display: false }, ticks: { color: '#a1a1aa', font: { size: 11, weight: 'bold' as const } } }
                       }

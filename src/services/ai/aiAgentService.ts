@@ -218,7 +218,12 @@ Security: ${JSON.stringify(securityGuard.getStats())}`
 
         try {
           console.log(`[AiAgent] Tool ${toolName}: executing, args=${JSON.stringify(args)}`)
-          const result = await toolRegistry.execute(toolName, args)
+          let result = await toolRegistry.execute(toolName, args)
+          if (result && result._action) {
+            console.log(`[AiAgent] Tool ${toolName}: action detected (${result.kind}), executing...`)
+            result = await this.executeAction(result)
+            console.log(`[AiAgent] Tool ${toolName}: action result, _executed=${result._executed}`)
+          }
           console.log(`[AiAgent] Tool ${toolName}: completed, result type=${typeof result}`)
           results.push({ toolCallId: tc.id, toolName, result })
           this.progressCallback?.({ round, totalRounds: this.config.maxRounds, toolName, toolArgs: args, status: 'completed', message: `Tool completed: ${toolName}` })
@@ -344,6 +349,87 @@ Security: ${JSON.stringify(securityGuard.getStats())}`
     return new Promise(resolve => {
       this.confirmQueue.push({ toolName, args, resolve })
     })
+  }
+
+  private async executeAction(result: any): Promise<any> {
+    if (!result || !result._action) return result
+    const api = (window as any).deskflowAPI
+    if (!api) return { ...result, _executed: false, error: 'deskflowAPI not available' }
+
+    try {
+      switch (result.kind) {
+        case 'reply-email': {
+          const r = await api.connectors.sendEmail({
+            connectorId: result.connectorId,
+            to: result.to || '',
+            subject: result.subject || '',
+            body: result.draft || '',
+            inReplyTo: result.emailId,
+          })
+          return { ...result, _executed: true, sendResult: r }
+        }
+        case 'create-event': {
+          const r = await api.connectors.createEvent({
+            connectorId: result.connectorId,
+            title: result.title,
+            startTime: result.startTime,
+            endTime: result.endTime,
+            description: result.description || '',
+          })
+          return { ...result, _executed: true, createResult: r }
+        }
+        case 'update-event': {
+          const r = await api.connectors.updateEvent({
+            connectorId: result.connectorId,
+            eventId: result.eventId,
+            changes: result.changes || {},
+          })
+          return { ...result, _executed: true, updateResult: r }
+        }
+        case 'delete-event': {
+          const r = await api.connectors.deleteEvent({
+            connectorId: result.connectorId,
+            eventId: result.eventId,
+          })
+          return { ...result, _executed: true, deleteResult: r }
+        }
+        case 'mark-read': {
+          const r = await api.connectors.markRead({
+            connectorId: result.connectorId,
+            emailId: result.emailId,
+            read: result.read ?? true,
+          })
+          return { ...result, _executed: true, markResult: r }
+        }
+        case 'create-schedule-from-email': {
+          const r = await api.addScheduleEntry({
+            title: result.title,
+            location: result.location || null,
+            day_of_week: result.day_of_week,
+            start_time: result.start_time,
+            end_time: result.end_time,
+            category: result.category || 'email',
+            color: result.color || '#8b5cf6',
+          })
+          return { ...result, _executed: true, scheduleResult: r }
+        }
+        case 'create-deadline-from-email': {
+          const r = await api.addDeadline({
+            title: result.title,
+            course: result.course || null,
+            due_date: result.due_date,
+            priority: result.priority || 'medium',
+            description: result.description || null,
+            category: result.category || 'email',
+          })
+          return { ...result, _executed: true, deadlineResult: r }
+        }
+        default:
+          return { ...result, _executed: false, error: `Unknown action kind: ${result.kind}` }
+      }
+    } catch (err: any) {
+      return { ...result, _executed: false, error: err.message }
+    }
   }
 
   getPendingConfirm(): { toolName: string; args: Record<string, any> } | null {

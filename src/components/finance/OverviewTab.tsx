@@ -1,23 +1,14 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wallet, TrendingUp, TrendingDown, Handshake, Bell, ArrowUpRight, ArrowDownLeft, Repeat, HelpCircle, AlertTriangle } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Handshake, Bell, ArrowUpRight, ArrowDownLeft, Repeat, HelpCircle, AlertTriangle, RotateCcw } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { pageContainer, riseItem } from './_fx/financeMotion';
 import { EmptyState } from './EmptyState';
-import { IncomeExpenseCard } from './IncomeExpenseCard';
 import { Sparkline } from './_fx/Sparkline';
 import { FinanceInsightsCard } from './FinanceInsightsCard';
 import { RecentTxnsCard } from './RecentTxnsCard';
-import { FollowThroughCard } from './FollowThroughCard';
 import { SpendingSplitCard } from './SpendingSplitCard';
 import { RepaymentModal } from './RepaymentModal';
-import LiquidityWaterfall from './LiquidityWaterfall';
-import SubscriptionBurdenRadar from './SubscriptionBurdenRadar';
-import CashFlowRunway from './CashFlowRunway';
-import WalletHealthScorecards from './WalletHealthScorecards';
-import TransferCostMatrix from './TransferCostMatrix';
-import CryptoUnifiedPortfolio from './CryptoUnifiedPortfolio';
-import { followThroughReceivable, getUnpaidByPerson } from '../../lib/netWorth';
 import { groupByPerson } from '../../lib/receivables';
 import { formatCurrency as fc, convertAmount, getCurrencyInfo, COMMON_CURRENCIES } from './currency-data';
 import { useNumberMask } from '../../context/NumberMaskContext';
@@ -80,23 +71,6 @@ export function OverviewTab({
 
   const income = convertAmount(summary?.totalIncome ?? 0, baseCurrency, displayCurrency);
   const expense = convertAmount(summary?.totalExpense ?? 0, baseCurrency, displayCurrency);
-
-  // Follow Through receivable (C6 model: money others owe us from FT expenses)
-  const ftReceivable = useMemo(
-    () => followThroughReceivable(allTransactions),
-    [allTransactions],
-  );
-
-  // Unpaid FT expenses grouped by person (for SpendingSplitCard)
-  const unpaidByPerson = useMemo(() => {
-    const map = getUnpaidByPerson(allTransactions);
-    return [...map.entries()].map(([name, data]) => ({
-      name,
-      total: data.total,
-      count: data.count,
-      unpaidTxIds: data.txIds,
-    })).sort((a, b) => b.total - a.total);
-  }, [allTransactions]);
 
   // Personal spending = total expense (excl FT already filtered in summary) minus FT
   const personalExpense = expense - (onBehalfOfSummary?.totalExpense ?? 0);
@@ -196,7 +170,7 @@ export function OverviewTab({
         variants={pageContainer}
         initial="hidden"
         animate="show"
-        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+        className="grid grid-cols-2 lg:grid-cols-3 gap-3"
       >
         {/* Income */}
         <motion.div variants={riseItem}>
@@ -224,31 +198,12 @@ export function OverviewTab({
           </div>
         </motion.div>
 
-        {/* Net Flow */}
-        <motion.div variants={riseItem}>
-          <div className={`rounded-xl border p-4 h-full flex flex-col transition-colors ${latestNet >= 0 ? 'border-emerald-500/10 bg-emerald-500/[0.03] hover:border-emerald-500/20' : 'border-red-500/10 bg-red-500/[0.03] hover:border-red-500/20'}`}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${latestNet >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
-                <TrendingUp className={`w-3.5 h-3.5 ${latestNet >= 0 ? 'text-emerald-400' : 'text-red-400'}`} />
-              </span>
-              <span className={`text-[10px] font-semibold tracking-[0.08em] uppercase ${latestNet >= 0 ? 'text-emerald-500/70' : 'text-red-500/70'}`}>Net Flow</span>
-            </div>
-            <p className={`text-lg font-bold mt-auto ${latestNet >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{latestNet >= 0 ? '+' : ''}{fmtMoney(latestNet)}</p>
-            {momDelta !== null && (
-              <p className="text-[10px] text-zinc-500 mt-1">{momDelta >= 0 ? '↑' : '↓'} {fmtMoney(Math.abs(momDelta))} vs last month</p>
-            )}
-          </div>
-        </motion.div>
-
         {/* Spending Split */}
         <motion.div variants={riseItem}>
           <SpendingSplitCard
             personalExpense={personalExpense}
             ftExpense={onBehalfOfSummary?.totalExpense ?? 0}
             currency={displayCurrency}
-            unpaidByPerson={unpaidByPerson}
-            onRecordRepayment={(name, txIds, total) => setRepaymentModal({ personName: name, txIds, totalAmount: total })}
-            allCaughtUp={unpaidByPerson.length === 0}
           />
         </motion.div>
       </motion.div>
@@ -289,7 +244,16 @@ export function OverviewTab({
                         </div>
                         <span className="text-xs font-medium text-zinc-200 truncate">{p.name}</span>
                       </div>
-                      <span className="text-xs font-semibold tabular-nums text-amber-400">{fmtMoney(p.totalOwed)}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs font-semibold tabular-nums text-amber-400">{fmtMoney(p.totalOwed)}</span>
+                        <button
+                          onClick={() => setRepaymentModal({ personName: p.name, txIds: p.txIds, totalAmount: p.totalOwed })}
+                          className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20 transition-colors duration-150"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          Repaid
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

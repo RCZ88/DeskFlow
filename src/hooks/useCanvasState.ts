@@ -6,7 +6,7 @@ import {
   type CanvasSnapshot
 } from '../services/canvasPersistence'
 import { generateUUID } from '../lib/uuid'
-import type { CanvasCard, CanvasState, CardStatus, CardType, CanvasGroup } from '../types/canvas'
+import type { CanvasCard, CanvasState, CardStatus, CardType, CanvasGroup, GroupColorId } from '../types/canvas'
 
 const DISMISS_TIMEOUT_MS = 30_000
 
@@ -19,29 +19,43 @@ export function useCanvasState() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [canvasList, setCanvasList] = useState<CanvasSnapshot[]>(listCanvases())
 
-  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dismissTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const saveResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stateRef = useRef(state)
+  stateRef.current = state
 
-  // Debounced persist with visual feedback
+  // Save on every state change — synchronous, no debounce, no timer to cancel
   useEffect(() => {
-    if (persistTimer.current) clearTimeout(persistTimer.current)
-    persistTimer.current = setTimeout(() => {
-      setSaveStatus('saving')
-      try {
-        saveCanvasLayout(state)
-        setSaveStatus('saved')
-        if (saveResetTimer.current) clearTimeout(saveResetTimer.current)
-        saveResetTimer.current = setTimeout(() => setSaveStatus('idle'), 2000)
-      } catch {
-        setSaveStatus('error')
-      }
-    }, 500)
-    return () => {
-      if (persistTimer.current) clearTimeout(persistTimer.current)
+    setSaveStatus('saving')
+    try {
+      saveCanvasLayout(state)
+      setSaveStatus('saved')
       if (saveResetTimer.current) clearTimeout(saveResetTimer.current)
+      saveResetTimer.current = setTimeout(() => setSaveStatus('idle'), 3000)
+    } catch {
+      setSaveStatus('error')
     }
-  }, [state.cards, state.groups])
+  }, [state.cards, state.groups, state.pan, state.zoom])
+
+  // Force-save on unmount (React navigation away) — saves synchronously
+  useEffect(() => {
+    return () => {
+      try {
+        saveCanvasLayout(stateRef.current)
+      } catch { /* ignore */ }
+    }
+  }, [])
+
+  // Force-save on app close (beforeunload)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        saveCanvasLayout(stateRef.current)
+      } catch { /* ignore */ }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -121,10 +135,16 @@ export function useCanvasState() {
     }
   }, [])
 
+  const setPanZoom = useCallback((pan: { x: number; y: number }, zoom: number) => {
+    dispatch({ type: 'SET_PAN_ZOOM', pan, zoom })
+  }, [])
+
   // Group operations
-  const createGroup = useCallback((label: string, cardIds: string[]) => {
+  const createGroup = useCallback((label: string, cardIds: string[], colorId: GroupColorId = 'violet') => {
     const cards = cardIds.map(id => state.cards[id]).filter(Boolean)
     if (cards.length === 0) return null
+
+    // Compute bounding box
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
     for (const c of cards) {
       minX = Math.min(minX, c.position.x)
@@ -132,19 +152,52 @@ export function useCanvasState() {
       maxX = Math.max(maxX, c.position.x + c.size.w * 40)
       maxY = Math.max(maxY, c.position.y + c.size.h * 40)
     }
+
+    const groupId = generateUUID()
+    const groupCardId = generateUUID()
+
     const group: CanvasGroup = {
-      id: generateUUID(),
+      id: groupId,
       label,
+      colorId,
       cardIds,
-      position: { x: minX - 20, y: minY - 40 },
-      size: { w: maxX - minX + 40, h: maxY - minY + 60 },
+      position: { x: minX - 10, y: minY - 30 },
+      size: { w: Math.max(10, Math.ceil((maxX - minX + 20) / 40)), h: Math.max(6, Math.ceil((maxY - minY + 60) / 40)) },
+      createdAt: Date.now(),
     }
-    dispatch({ type: 'CREATE_GROUP', group })
-    for (const cardId of cardIds) {
-      dispatch({ type: 'ADD_TO_GROUP', cardId, groupId: group.id })
+
+    const groupCard: CanvasCard = {
+      id: groupCardId,
+      type: 'group',
+      position: { x: minX - 10, y: minY - 30 },
+      size: group.size,
+      zIndex: 0,
+      pinned: true,
+      data: {
+        groupId,
+        arrange: 'grid',
+        childCards: cards.map(c => ({
+          id: c.id, type: c.type, data: c.data, source: c.source,
+          position: c.position,
+          size: c.size, pinned: c.pinned, status: c.status, createdAt: c.createdAt,
+        })),
+      },
+      source: 'user',
+      status: 'live',
+      createdAt: Date.now(),
     }
-    return group.id
+
+    dispatch({ type: 'CREATE_GROUP', group, cardIds, groupCard })
+    return groupId
   }, [state.cards])
+
+  const updateGroup = useCallback((id: string, patch: Partial<Pick<CanvasGroup, 'label' | 'colorId'>>) => {
+    dispatch({ type: 'UPDATE_GROUP', id, patch })
+  }, [])
+
+  const ungroup = useCallback((id: string, mode: 'restore' | 'scatter' = 'restore') => {
+    dispatch({ type: 'UNGROUP', id, mode })
+  }, [])
 
   const deleteGroup = useCallback((id: string) => {
     dispatch({ type: 'DELETE_GROUP', id })
@@ -154,9 +207,65 @@ export function useCanvasState() {
     dispatch({ type: 'ADD_TO_GROUP', cardId, groupId })
   }, [])
 
-  const removeFromGroup = useCallback((cardId: string) => {
-    dispatch({ type: 'REMOVE_FROM_GROUP', cardId })
+  const removeFromGroup = useCallback((cardId: string, newPosition?: { x: number; y: number }) => {
+    dispatch({ type: 'REMOVE_FROM_GROUP', cardId, newPosition })
   }, [])
+
+  const arrangeGroup = useCallback((groupId: string, mode: 'grid' | 'stack' | 'mosaic' | 'custom', customPositions?: Record<string, { x: number; y: number }>) => {
+    const group = state.groups[groupId]
+    if (!group) return
+
+    const groupCards = group.cardIds.map(id => state.cards[id]).filter(Boolean)
+    const positions: Record<string, { x: number; y: number }> = {}
+    const CELL = 40
+    const GAP = 1
+
+    if (mode === 'custom' && customPositions) {
+      Object.assign(positions, customPositions)
+    } else if (mode === 'stack') {
+      groupCards.forEach((card, i) => {
+        positions[card.id] = {
+          x: group.position.x + 2 * CELL,
+          y: group.position.y + (i + 1) * (3 * CELL + GAP),
+        }
+      })
+    } else if (mode === 'mosaic') {
+      groupCards.forEach((card, i) => {
+        const col = i % 2
+        const row = Math.floor(i / 2)
+        positions[card.id] = {
+          x: group.position.x + ((col * 5) + 1) * CELL,
+          y: group.position.y + ((row * 4) + 1) * CELL,
+        }
+      })
+    } else {
+      // grid (default)
+      const count = groupCards.length
+      const cols = Math.ceil(Math.sqrt(count))
+      groupCards.forEach((card, i) => {
+        const col = i % cols
+        const row = Math.floor(i / cols)
+        positions[card.id] = {
+          x: group.position.x + (col + 1) * (4 * CELL + GAP),
+          y: group.position.y + (row + 1) * (3 * CELL + GAP),
+        }
+      })
+    }
+
+    // Compute new group size based on arrangement
+    const posArray = Object.values(positions)
+    let newMaxX = 0, newMaxY = 0
+    for (const p of posArray) {
+      newMaxX = Math.max(newMaxX, p.x - group.position.x + 4 * CELL)
+      newMaxY = Math.max(newMaxY, p.y - group.position.y + 3 * CELL)
+    }
+    const newSize = {
+      w: Math.max(group.size.w, Math.ceil(newMaxX / CELL) + 2),
+      h: Math.max(group.size.h, Math.ceil(newMaxY / CELL) + 2),
+    }
+
+    dispatch({ type: 'ARRANGE_GROUP', id: groupId, positions, size: newSize })
+  }, [state.groups, state.cards])
 
   const cards = Object.values(state.cards).filter(c => !c.dismissedAt)
   const groups = state.groups
@@ -175,7 +284,7 @@ export function useCanvasState() {
       setSaveStatus('saved')
       setCanvasList(listCanvases())
       if (saveResetTimer.current) clearTimeout(saveResetTimer.current)
-      saveResetTimer.current = setTimeout(() => setSaveStatus('idle'), 2000)
+      saveResetTimer.current = setTimeout(() => setSaveStatus('idle'), 3000)
     } catch {
       setSaveStatus('error')
     }
@@ -189,7 +298,7 @@ export function useCanvasState() {
       setCanvasList(listCanvases())
       setSaveStatus('saved')
       if (saveResetTimer.current) clearTimeout(saveResetTimer.current)
-      saveResetTimer.current = setTimeout(() => setSaveStatus('idle'), 2000)
+      saveResetTimer.current = setTimeout(() => setSaveStatus('idle'), 3000)
     } catch {
       setSaveStatus('error')
     }
@@ -222,8 +331,8 @@ export function useCanvasState() {
   return {
     cards, allCards: state.cards, groups, nextZIndex: state.nextZIndex, saveStatus,
     addCard, updateCard, removeCard, moveCard, resizeCard, pinCard, dismissCard,
-    setStatus, resetLayout, arrangeCards, clearAll, forceSave,
-    createGroup, deleteGroup, addToGroup, removeFromGroup,
+    setStatus, resetLayout, arrangeCards, clearAll, forceSave, setPanZoom,
+    createGroup, updateGroup, ungroup, deleteGroup, addToGroup, removeFromGroup, arrangeGroup,
     canvasList, saveAs, loadCanvas, rename, removeCanvas, refreshList,
   }
 }

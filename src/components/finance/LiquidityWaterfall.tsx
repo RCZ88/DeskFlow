@@ -1,7 +1,9 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { Bar } from "react-chartjs-2";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from "chart.js";
 import { Droplets } from "lucide-react";
+import { useNumberMask } from "../../context/NumberMaskContext";
+import { maskNumber } from "../../utils/maskNumber";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 
@@ -23,8 +25,14 @@ interface LiquidityData {
 }
 
 export default function LiquidityWaterfall() {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const [data, setData] = useState<LiquidityData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const rp = useCallback((n: number) => {
+    const s = `Rp${n.toLocaleString("id-ID")}`;
+    return showNumbers ? s : maskNumber(s, maskMode, maskFixedValue);
+  }, [showNumbers, maskMode, maskFixedValue]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -95,15 +103,15 @@ export default function LiquidityWaterfall() {
             const item = items[ctx.dataIndex];
             const val = Math.abs(ctx.parsed.x as number);
             return [
-              `Rp${val.toLocaleString("id-ID")}`,
+              rp(val),
               `${item.pct}% of total`,
-              ...item.wallets.map(w => `  ${w.name}: Rp${w.balance.toLocaleString("id-ID")}`),
+              ...item.wallets.map(w => `  ${w.name}: ${rp(w.balance)}`),
             ];
           },
         },
       },
     },
-  }), [items]);
+  }), [items, rp]);
 
   if (loading) return <div className="rounded-xl border border-zinc-700/30 p-5 animate-pulse"><div className="h-4 w-40 bg-zinc-800 rounded mb-4" /><div className="h-[200px] bg-zinc-800/50 rounded" /></div>;
 
@@ -128,8 +136,8 @@ export default function LiquidityWaterfall() {
       </div>
 
       <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-zinc-700/30">
-        <div className="text-center"><p className="text-[10px] text-zinc-500">Liquid</p><p className="text-sm font-semibold text-emerald-400">Rp{data.liquidAmount.toLocaleString("id-ID")}</p></div>
-        <div className="text-center"><p className="text-[10px] text-zinc-500">Locked</p><p className="text-sm font-semibold text-violet-400">Rp{data.lockedAmount.toLocaleString("id-ID")}</p></div>
+        <div className="text-center"><p className="text-[10px] text-zinc-500">Liquid</p><p className="text-sm font-semibold text-emerald-400">{rp(data.liquidAmount)}</p></div>
+        <div className="text-center"><p className="text-[10px] text-zinc-500">Locked</p><p className="text-sm font-semibold text-violet-400">{rp(data.lockedAmount)}</p></div>
       </div>
     </div>
   );

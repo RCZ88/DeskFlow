@@ -103,6 +103,11 @@ export function FinanceStickyHeader({
   const valueStr = showNumbers
     ? `${symbol}${heroDisplay}`
     : maskNumber(fmtCurrency(netWorth, displayCurrency), maskMode, maskFixedValue);
+  const trendStr = trend
+    ? showNumbers
+      ? fmtCurrency(trend.value, displayCurrency)
+      : maskNumber(fmtCurrency(trend.value, displayCurrency), maskMode, maskFixedValue)
+    : '';
 
   return (
     <>
@@ -144,7 +149,7 @@ export function FinanceStickyHeader({
                       <TrendingDown className="w-3.5 h-3.5 text-red-400" />
                     )}
                     <span className={`text-xs font-semibold tabular-nums ${trend.value >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {trend.value >= 0 ? '+' : ''}{fmtCurrency(trend.value, displayCurrency)}
+                      {trend.value >= 0 ? '+' : ''}{trendStr}
                     </span>
                     <span className={`text-[11px] ${trend.value >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
                       ({trend.percent >= 0 ? '+' : ''}{isFinite(trend.percent) ? trend.percent.toFixed(1) : '—'}%)
@@ -171,9 +176,10 @@ export function FinanceStickyHeader({
                 <button
                   onClick={() => setShowNumbers(!showNumbers)}
                   className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full bg-zinc-800/60 border border-white/5 text-zinc-500 hover:text-zinc-300 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-                  aria-label={showNumbers ? 'Hide numbers' : 'Show numbers'}
+                  aria-label={showNumbers ? 'Numbers are visible — click to hide' : 'Numbers are hidden — click to show'}
+                  title={showNumbers ? 'Numbers visible' : 'Numbers hidden'}
                 >
-                  {showNumbers ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  {showNumbers ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                 </button>
                 {!isLocked && hasPassword && (
                   <button
@@ -222,9 +228,10 @@ export function FinanceStickyHeader({
                 <button
                   onClick={() => setShowNumbers(!showNumbers)}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-800/60 border border-white/5 text-zinc-500 hover:text-zinc-300 transition-colors focus-visible:ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-zinc-950"
-                  aria-label={showNumbers ? 'Hide numbers' : 'Show numbers'}
+                  aria-label={showNumbers ? 'Numbers are visible — click to hide' : 'Numbers are hidden — click to show'}
+                  title={showNumbers ? 'Numbers visible' : 'Numbers hidden'}
                 >
-                  {showNumbers ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  {showNumbers ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                 </button>
                 {!isLocked && hasPassword && (
                   <button

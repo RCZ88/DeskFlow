@@ -526,6 +526,51 @@ function registerAll() {
       read: params.read,
     };
   })
+
+  r('createScheduleFromEmail', 'Create a schedule entry from an email. Use when an email mentions a meeting, class, event, or recurring commitment that should be added to the weekly schedule.', {
+    title: p('string', 'Title for the schedule entry (e.g. "Team Standup", "CS101 Lecture")', { required: true }),
+    day_of_week: p('number', 'Day of week (0=Sunday, 1=Monday, ..., 6=Saturday)', { required: true }),
+    start_time: p('string', 'Start time in HH:MM format (24h)', { required: true }),
+    end_time: p('string', 'End time in HH:MM format (24h)', { required: true }),
+    location: p('string', 'Location if mentioned (e.g. "Room 302", "Zoom link")'),
+    category: p('string', 'Category: class, work, meeting, personal, email'),
+    color: p('string', 'Hex color for the entry'),
+  }, 'confirm', 'schedule', async (params) => {
+    const gate = await checkAccess('schedule');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return {
+      _action: true,
+      kind: 'create-schedule-from-email',
+      title: params.title,
+      day_of_week: params.day_of_week,
+      start_time: params.start_time,
+      end_time: params.end_time,
+      location: params.location,
+      category: params.category || 'email',
+      color: params.color || '#8b5cf6',
+    };
+  })
+
+  r('createDeadlineFromEmail', 'Create a deadline from an email. Use when an email mentions a due date, submission deadline, exam, or time-sensitive task.', {
+    title: p('string', 'Deadline title (e.g. "Essay Submission", "Project Report")', { required: true }),
+    due_date: p('string', 'Due date in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)', { required: true }),
+    course: p('string', 'Course or category if mentioned'),
+    priority: p('string', 'Priority: low, medium, high, urgent'),
+    description: p('string', 'Additional details from the email'),
+  }, 'confirm', 'deadlines', async (params) => {
+    const gate = await checkAccess('deadlines');
+    if (!gate.allowed) return { _privacy: true, message: gate.message };
+    return {
+      _action: true,
+      kind: 'create-deadline-from-email',
+      title: params.title,
+      due_date: params.due_date,
+      course: params.course,
+      priority: params.priority || 'medium',
+      description: params.description,
+      category: 'email',
+    };
+  })
 }
 
 registerAll()

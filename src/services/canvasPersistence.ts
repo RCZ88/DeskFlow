@@ -15,14 +15,31 @@ export function loadCanvasLayout(): CanvasState | null {
   try {
     const activeId = localStorage.getItem(ACTIVE_KEY)
     if (!activeId) {
-      // Legacy: try the old single-canvas key
-      const raw = localStorage.getItem('deskflow-canvas-layout')
-      if (raw) return parseState(raw)
+      // Check for any saved canvases — if none exist, return null for empty state
+      const hasAny = listCanvases()
+      if (hasAny.length > 0) {
+        // Has canvases but no active ID — activate the most recent
+        localStorage.setItem(ACTIVE_KEY, hasAny[0].id)
+        return hasAny[0].state
+      }
       return null
     }
     const raw = localStorage.getItem(STORAGE_PREFIX + activeId)
-    if (!raw) return null
-    return parseState(raw)
+    if (!raw) {
+      // Active ID points to nothing — try most recent canvas
+      const hasAny = listCanvases()
+      if (hasAny.length > 0) {
+        localStorage.setItem(ACTIVE_KEY, hasAny[0].id)
+        return hasAny[0].state
+      }
+      return null
+    }
+    const parsed = JSON.parse(raw)
+    // CanvasSnapshot has { state: CanvasState, ... }
+    if (parsed && parsed.state && parsed.state.cards) {
+      return parsed.state as CanvasState
+    }
+    return null
   } catch {
     return null
   }

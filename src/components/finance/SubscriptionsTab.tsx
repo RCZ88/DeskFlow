@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Edit3, Trash2, ExternalLink, Bell, BellOff, Calendar, Wallet, CreditCard, RefreshCw, X, Check, AlertTriangle, DollarSign, ArrowUpRight, History, Zap, RotateCcw, CircleCheck, XCircle, Clock } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { formatCurrency } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 import { SubscriptionModal } from './SubscriptionModal';
 import type { FinanceSubscription, FinanceWallet, FinanceTransaction, FinanceCategory } from './finance-types';
 
@@ -83,6 +85,8 @@ function computeMonthlyCost(sub: FinanceSubscription): number {
 }
 
 export function SubscriptionsTab({ subscriptions, wallets, categories = [], transactions = [], displayCurrency, loading, error, onRetry, onCreate, onUpdate, onDelete, onRecordPayment, onNavigateToPage, onGenerateTransactions, onRefresh, onMoveTransaction, onRetryPayment, onToggleAutodebet, onRecordPaymentManual, onGetPaymentHistory, onCancelPayment, onNotify }: Props) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number) => showNumbers ? formatCurrency(v, displayCurrency) : maskNumber(formatCurrency(v, displayCurrency), maskMode, maskFixedValue);
   const [showModal, setShowModal] = useState(false);
   const [editingSub, setEditingSub] = useState<FinanceSubscription | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -165,7 +169,7 @@ export function SubscriptionsTab({ subscriptions, wallets, categories = [], tran
     if (isNaN(amt) || amt <= 0) { setRecordPayError('Enter a valid amount'); return; }
     const wallet = walletMap.get(recordPayWallet);
     if (wallet && (wallet.balance || 0) < amt) {
-      setRecordPayError(`Insufficient balance — need ${formatCurrency(amt, displayCurrency)}, have ${formatCurrency(wallet.balance || 0, displayCurrency)}`);
+      setRecordPayError(showNumbers ? `Insufficient balance — need ${formatCurrency(amt, displayCurrency)}, have ${formatCurrency(wallet.balance || 0, displayCurrency)}` : `Insufficient balance — need ${maskNumber(formatCurrency(amt, displayCurrency), maskMode, maskFixedValue)}, have ${maskNumber(formatCurrency(wallet.balance || 0, displayCurrency), maskMode, maskFixedValue)}`);
       return;
     }
     try {
@@ -244,11 +248,11 @@ export function SubscriptionsTab({ subscriptions, wallets, categories = [], tran
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Monthly spend</p>
-            <p className="text-lg font-semibold text-white tabular-nums mt-0.5">{formatCurrency(totalMonthly, displayCurrency)}<span className="text-xs text-zinc-500 font-normal">/mo</span></p>
+            <p className="text-lg font-semibold text-white tabular-nums mt-0.5">{fmtMoney(totalMonthly)}<span className="text-xs text-zinc-500 font-normal">/mo</span></p>
           </div>
           <div className="text-right">
             <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Yearly</p>
-            <p className="text-sm font-medium text-zinc-300 tabular-nums mt-0.5">{formatCurrency(totalMonthly * 12, displayCurrency)}<span className="text-xs text-zinc-500 font-normal">/yr</span></p>
+            <p className="text-sm font-medium text-zinc-300 tabular-nums mt-0.5">{fmtMoney(totalMonthly * 12)}<span className="text-xs text-zinc-500 font-normal">/yr</span></p>
           </div>
         </div>
       </GlassSurface>
@@ -399,7 +403,7 @@ export function SubscriptionsTab({ subscriptions, wallets, categories = [], tran
                                   {subTxns.slice(-4).reverse().map(t => (
                                     <div key={t.id} className="flex items-center justify-between text-[10px]">
                                       <span className="text-zinc-500">{t.date}</span>
-                                      <span className="text-zinc-400 tabular-nums">{formatCurrency(Math.abs(t.amount), displayCurrency)}</span>
+                                      <span className="text-zinc-400 tabular-nums">{fmtMoney(Math.abs(t.amount))}</span>
                                     </div>
                                   ))}
                                   {subTxns.length > 4 && <div className="text-[9px] text-zinc-600">+{subTxns.length - 4} more</div>}
@@ -410,7 +414,7 @@ export function SubscriptionsTab({ subscriptions, wallets, categories = [], tran
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-sm font-semibold text-white tabular-nums">
-                            {formatCurrency(sub.price, displayCurrency)}
+                            {fmtMoney(sub.price)}
                             <span className="text-[10px] text-zinc-500 font-normal">
                               /{sub.billing_cycle === 'monthly' ? 'mo' : sub.billing_cycle === 'yearly' ? 'yr' : sub.billing_cycle === 'weekly' ? 'wk' : sub.billing_cycle === 'quarterly' ? 'qtr' : `${sub.billing_interval}x`}
                             </span>
@@ -525,7 +529,7 @@ export function SubscriptionsTab({ subscriptions, wallets, categories = [], tran
               <div className="flex items-center justify-between p-4 border-b border-zinc-800">
                 <div>
                   <h3 className="text-sm font-semibold text-white">{historySub.name}</h3>
-                  <p className="text-[11px] text-zinc-500">{formatCurrency(historySub.price, displayCurrency)} / {historySub.billing_cycle}</p>
+                  <p className="text-[11px] text-zinc-500">{fmtMoney(historySub.price)} / {historySub.billing_cycle}</p>
                 </div>
                 <button onClick={() => setHistorySub(null)} className="text-zinc-500 hover:text-zinc-300"><X size={16} /></button>
               </div>
@@ -551,7 +555,7 @@ export function SubscriptionsTab({ subscriptions, wallets, categories = [], tran
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs font-medium text-zinc-200">{formatCurrency(record.amount, displayCurrency)}</div>
+                      <div className="text-xs font-medium text-zinc-200">{fmtMoney(record.amount)}</div>
                       {record.status === 'unpaid' && onRetryPayment && (
                         <button onClick={async () => {
                           const r = await onRetryPayment(historySub.id, undefined, record.date);
@@ -625,7 +629,7 @@ export function SubscriptionsTab({ subscriptions, wallets, categories = [], tran
                     className="w-full bg-zinc-800/60 text-sm text-white rounded-lg border border-zinc-700/50 px-3 py-2.5 outline-none focus:border-zinc-500">
                     <option value={0}>Select wallet</option>
                     {wallets.filter(w => !w.is_archived).map(w => (
-                      <option key={w.id} value={w.id}>{w.name} — {formatCurrency(w.balance || 0, displayCurrency)}</option>
+                      <option key={w.id} value={w.id}>{w.name} — {fmtMoney(w.balance || 0)}</option>
                     ))}
                   </select>
                   {recordPayWallet > 0 && (() => {
@@ -635,7 +639,7 @@ export function SubscriptionsTab({ subscriptions, wallets, categories = [], tran
                     return (
                       <div className={`text-[10px] mt-1 flex items-center gap-1 ${ok ? 'text-emerald-400' : 'text-red-400'}`}>
                         {ok ? <Check size={10} /> : <AlertTriangle size={10} />}
-                        {ok ? 'Sufficient balance' : `Need ${formatCurrency(amt, displayCurrency)}, have ${formatCurrency(w?.balance || 0, displayCurrency)}`}
+                        {ok ? 'Sufficient balance' : showNumbers ? `Need ${formatCurrency(amt, displayCurrency)}, have ${formatCurrency(w?.balance || 0, displayCurrency)}` : `Need ${maskNumber(formatCurrency(amt, displayCurrency), maskMode, maskFixedValue)}, have ${maskNumber(formatCurrency(w?.balance || 0, displayCurrency), maskMode, maskFixedValue)}`}
                       </div>
                     );
                   })()}

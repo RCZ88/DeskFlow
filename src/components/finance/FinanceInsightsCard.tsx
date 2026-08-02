@@ -1,6 +1,8 @@
 import { PiggyBank, TrendingUp, ArrowUpRight } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { formatCurrency } from './currency-data';
+import { useNumberMask } from '../../context/NumberMaskContext';
+import { maskNumber } from '../../utils/maskNumber';
 import type { FinanceSummary, FinanceSpendingByCategory, FinanceMonthlyTrend } from './finance-types';
 
 interface FinanceInsightsCardProps {
@@ -15,6 +17,9 @@ interface FinanceInsightsCardProps {
 export function FinanceInsightsCard({
   summary, spendingByCategory, monthlyTrends, displayCurrency, baseCurrency, convertAmount,
 }: FinanceInsightsCardProps) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number) =>
+    showNumbers ? formatCurrency(v, displayCurrency) : maskNumber(formatCurrency(v, displayCurrency), maskMode, maskFixedValue);
   const income = summary?.totalIncome ?? 0;
   const expense = summary?.totalExpense ?? 0;
   const savingsRate = income > 0 ? ((income - expense) / income) * 100 : 0;
@@ -76,7 +81,7 @@ export function FinanceInsightsCard({
           {avgDaily !== null ? (
             <>
               <p className="text-base font-bold tabular-nums text-blue-400">
-                {formatCurrency(convertAmount(avgDaily, displayCurrency, displayCurrency), displayCurrency)}
+                {fmtMoney(convertAmount(avgDaily, displayCurrency, displayCurrency))}
               </p>
               <p className="text-[10px] text-zinc-600 mt-0.5">
                 spent per day

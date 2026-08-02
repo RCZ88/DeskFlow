@@ -21,9 +21,9 @@ export default defineConfig(async () => {
       rollupOptions: {
         external: ['better-sqlite3'],
         output: {
-          entryFileNames: 'assets/[name].js',
-          chunkFileNames: 'assets/[name].js',
-          assetFileNames: 'assets/[name].[ext]',
+          entryFileNames: 'assets/[name].[hash].js',
+          chunkFileNames: 'assets/[name].[hash].js',
+          assetFileNames: 'assets/[name].[hash].[ext]',
         },
         onwarn(warning, warn) {
           if (warning.code === 'CIRCULAR_DEPENDENCY') {

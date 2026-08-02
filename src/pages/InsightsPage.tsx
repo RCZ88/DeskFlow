@@ -533,7 +533,7 @@ export default function InsightsPage({
             <BarChart3 className="w-5 h-5 text-emerald-400" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-zinc-100">Insights</h1>
+            
             <p className="text-xs text-zinc-500">Deep dive into your productivity patterns</p>
           </div>
         </div>

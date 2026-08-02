@@ -1,3 +1,4 @@
+import { useId } from "react"
 import { cn } from "@/lib/utils"
 
 interface DotPatternProps {
@@ -13,6 +14,7 @@ export function DotPattern({
   radius = 1,
   gap = 24,
 }: DotPatternProps) {
+  const patternId = useId()
   return (
     <svg
       className={cn("pointer-events-none absolute inset-0 size-full", className)}
@@ -20,7 +22,7 @@ export function DotPattern({
     >
       <defs>
         <pattern
-          id="dot-pattern"
+          id={patternId}
           x={0}
           y={0}
           width={gap}
@@ -30,7 +32,7 @@ export function DotPattern({
           <circle cx={gap / 2} cy={gap / 2} r={radius} fill="currentColor" />
         </pattern>
       </defs>
-      <rect width="100%" height="100%" fill="url(#dot-pattern)" />
+      <rect width="100%" height="100%" fill={`url(#${patternId})`} />
     </svg>
   )
 }

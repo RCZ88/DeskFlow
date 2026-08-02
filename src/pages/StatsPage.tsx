@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import {
   Clock, Zap, BarChart3, X, Monitor,
-  ChevronRight, ChevronLeft, Award, Activity, TrendingUp as TrendingUpIcon,
+  ChevronRight, ChevronLeft, ChevronDown, Award, Activity, TrendingUp as TrendingUpIcon,
   Pencil, Trash2, Save, Terminal, Lock, Unlock,
   MonitorSmartphone, Radio, ScrollText,
   Search, Filter, Trophy, AppWindow, Tags, FolderTree, Timer, LayoutGrid,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
+import { MagicCard } from '../components/ui/magic-card';
 import { SectionHeader } from '../components/SectionHeader';
 import { LoadingState } from '../components/LoadingState';
 import { SectionState } from '../components/SectionState';
@@ -22,6 +23,7 @@ import { Toggle } from '../components/ui/toggle';
 import { BorderBeam } from '../components/ui/border-beam';
 import { NumberTicker } from '../components/ui/number-ticker';
 import { DotPattern } from '../components/ui/dot-pattern';
+import { AnimatedGradientText } from '../components/ui/animated-gradient-text';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -37,7 +39,7 @@ import {
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import { format, subDays, eachDayOfInterval, startOfWeek, addWeeks } from 'date-fns';
 import { getDateRange } from '../lib/dateRange';
-import { glassBackdrop, centerText, makeGradient, sharedTooltipStyle, sharedScales, barAnimation, pieAnimation } from '../lib/chart-plugins';
+import { glassBackdrop, centerText, makeGradient, sharedTooltipStyle, sharedScales, formatAxisTick, barAnimation, pieAnimation } from '../lib/chart-plugins';
 import type { Period } from '../lib/dateRange';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler, glassBackdrop, centerText);
@@ -99,6 +101,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
   const [detailDateOffset, setDetailDateOffset] = useState(0);
   const [timeLock, setTimeLock] = useState(() => localStorage.getItem('stats-time-lock') === 'true');
   const [hourlyChartMode, setHourlyChartMode] = useState<'bar' | 'line'>('bar');
+  const [showLiveDetection, setShowLiveDetection] = useState(false);
   const [editingAppLogId, setEditingAppLogId] = useState<number | null>(null);
   const [editingAppLogTimes, setEditingAppLogTimes] = useState({ started_at: '', ended_at: '' });
   const [localAppLogs, setLocalAppLogs] = useState<any[]>([]);
@@ -245,7 +248,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     if (selectedPeriod === 'week') {
       const now = new Date();
       const currentWeekStart = new Date(now);
-      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      currentWeekStart.setDate(currentWeekStart.getDate() - ((currentWeekStart.getDay() + 6) % 7));
       currentWeekStart.setHours(0, 0, 0, 0);
       const targetWeekStart = new Date(currentWeekStart);
       targetWeekStart.setDate(targetWeekStart.getDate() - (dateOffset * 7));
@@ -590,7 +593,10 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
       legend: { display: false },
       tooltip: { ...sharedTooltipStyle, callbacks: { label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}` } }
     },
-    scales: sharedScales,
+    scales: {
+      ...sharedScales,
+      y: { ...sharedScales.y, ticks: { ...sharedScales.y.ticks, callback: (v: any) => formatAxisTick(v) } },
+    },
     animation: barAnimation,
   }), []);
 
@@ -623,7 +629,10 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
       legend: { display: false },
       tooltip: { ...sharedTooltipStyle, callbacks: { label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}` } }
     },
-    scales: sharedScales,
+    scales: {
+      ...sharedScales,
+      y: { ...sharedScales.y, ticks: { ...sharedScales.y.ticks, callback: (v: any) => formatAxisTick(v) } },
+    },
     animation: barAnimation,
   }), []);
 
@@ -652,7 +661,10 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
       legend: { display: false },
       tooltip: { ...sharedTooltipStyle, callbacks: { label: (ctx: any) => ` ${formatDuration(ctx.parsed.y)}` } }
     },
-    scales: sharedScales,
+    scales: {
+      ...sharedScales,
+      y: { ...sharedScales.y, ticks: { ...sharedScales.y.ticks, callback: (v: any) => formatAxisTick(v) } },
+    },
     animation: barAnimation,
   }), []);
 
@@ -701,17 +713,21 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     return filtered;
   }, [reversedLiveLogs, liveLevelFilter, liveSearchQuery]);
 
+  // Average of the visible bar-chart bars (dailyUsage holds seconds per bar, misnamed 'minutes')
+  const avgBarSeconds = dailyUsage.length > 0 ? dailyUsage.reduce((s, d) => s + (d.minutes || 0), 0) / dailyUsage.length : 0;
+  const avgBarLabel = selectedPeriod === 'today' ? 'Avg Hour' : selectedPeriod === 'all' ? 'Avg Month' : 'Avg Daily';
+
   const summaryCards = useMemo(() => [
-    { label: 'Total Time', value: totals.totalTime, display: `${Math.floor(totals.totalTime / 3600000)}h ${Math.floor((totals.totalTime % 3600000) / 60000)}m`, numeric: false, icon: Clock, accentColor: 'indigo', chipBg: 'rgba(99,102,241,0.14)', iconColor: '#6366f1' },
-    { label: 'Total Sessions', value: totals.totalSessions, display: String(totals.totalSessions), numeric: true, icon: Activity, accentColor: 'blue', chipBg: 'rgba(59,130,246,0.14)', iconColor: '#3b82f6' },
-    { label: 'Avg Session', value: `${Math.floor(totals.avgSession / 60000)}m`, display: `${Math.floor(totals.avgSession / 60000)}m`, numeric: false, icon: Timer, accentColor: 'violet', chipBg: 'rgba(139,92,246,0.14)', iconColor: '#8b5cf6' },
-    { label: 'Active Apps', value: totals.uniqueApps, display: String(totals.uniqueApps), numeric: true, icon: LayoutGrid, accentColor: 'emerald', chipBg: 'rgba(16,185,129,0.14)', iconColor: '#10b981' },
-  ], [totals.totalTime, totals.totalSessions, totals.avgSession, totals.uniqueApps]);
+    { label: 'Total Time', value: totals.totalTime, display: `${Math.floor(totals.totalTime / 3600000)}h ${Math.floor((totals.totalTime % 3600000) / 60000)}m`, numeric: false, icon: Clock, accentColor: 'indigo', chipBg: 'rgba(99,102,241,0.14)', iconColor: '#6366f1', gradientFrom: '#6366f1', gradientTo: '#a855f7' },
+    { label: 'Total Sessions', value: totals.totalSessions, display: String(totals.totalSessions), numeric: true, icon: Activity, accentColor: 'blue', chipBg: 'rgba(59,130,246,0.14)', iconColor: '#3b82f6', gradientFrom: '#3b82f6', gradientTo: '#6366f1' },
+    { label: avgBarLabel, value: formatDuration(avgBarSeconds), display: formatDuration(avgBarSeconds), numeric: false, icon: Timer, accentColor: 'violet', chipBg: 'rgba(139,92,246,0.14)', iconColor: '#8b5cf6', gradientFrom: '#8b5cf6', gradientTo: '#a78bfa' },
+    { label: 'Active Apps', value: totals.uniqueApps, display: String(totals.uniqueApps), numeric: true, icon: LayoutGrid, accentColor: 'emerald', chipBg: 'rgba(16,185,129,0.14)', iconColor: '#10b981', gradientFrom: '#10b981', gradientTo: '#34d399' },
+  ], [totals.totalTime, totals.totalSessions, totals.uniqueApps, avgBarSeconds, avgBarLabel]);
 
   const effectivePeriod = timeLock ? 'all' : selectedPeriod;
 
   const pageContent = (
-    <>
+    <div className={embedded ? 'space-y-6' : ''}>
       {!embedded && (
       <div className="sticky top-0 z-30 -mx-5 px-5 bg-zinc-900/20 backdrop-blur-md border-b border-zinc-800/50 py-3">
         <div className="flex items-center justify-between">
@@ -794,78 +810,104 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
         )}
       </AnimatePresence>
 
-      {/* Live Detection Panel — terminal surface */}
-      <GlassCard>
-        <SectionHeader
-          title="Live Detection"
-          icon={<Terminal className="w-5 h-5 text-emerald-400" />}
-          action={
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-zinc-500">{liveLogs.length} events</span>
-            </div>
-          }
-        />
-        <div className="mb-3 flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-            <Input
-              value={liveSearchQuery}
-              onChange={e => setLiveSearchQuery(e.target.value)}
-              placeholder="Search logs..."
-              className="pl-8 text-xs"
-            />
-          </div>
-          <Select
-            value={liveLevelFilter}
-            onValueChange={(v: string) => setLiveLevelFilter(v)}
-          >
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="info">Info</SelectItem>
-            <SelectItem value="app">App</SelectItem>
-            <SelectItem value="browser">Browser</SelectItem>
-            <SelectItem value="ide">IDE</SelectItem>
-          </Select>
-        </div>
-        <div className="bg-zinc-950/60 rounded-xl border border-zinc-800/50 h-48 overflow-y-auto font-mono text-xs">
-          {displayedLogs.length === 0 ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="text-zinc-500">{liveLogs.length === 0 ? 'Waiting for activity...' : 'No matching logs'}</div>
-                {liveLogs.length === 0 && (
-                  <div className="mt-2 text-zinc-600 animate-pulse">_</div>
-                )}
+      {/* Daily Usage Trend — hero chart on top for uniform layout */}
+      <GlassCard data-tutorial="stats.charts">
+        <DotPattern className="absolute inset-0 text-[var(--page-accent)]" opacity={0.05} radius={1} gap={26} />
+        <div className="flex items-center justify-between mb-4 relative">
+          <div className="flex items-center gap-3">
+            {hourlyChartMode === 'bar' ? (
+              <BarChart3 className="w-5 h-5 text-emerald-400" />
+            ) : (
+              <TrendingUpIcon className="w-5 h-5 text-indigo-400" />
+            )}
+            <div>
+              <div className="text-xl font-semibold">
+                <AnimatedGradientText colorFrom="#22d3ee" colorTo="#6366f1">
+                  {selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
+                </AnimatedGradientText>
+              </div>
+              <div className="text-sm text-zinc-500">
+                {selectedPeriod === 'today' ? 'Activity by hour of day' : 'Activity over time'}
               </div>
             </div>
+          </div>
+          <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
+            <Toggle
+              pressed={hourlyChartMode === 'bar'}
+              onPressedChange={() => setHourlyChartMode('bar')}
+              className={`${hourlyChartMode === 'bar' ? 'bg-emerald-500/20 text-emerald-400' : ''}`}
+              aria-label="Bar Chart"
+            >
+              <BarChart3 className="w-4 h-4" />
+            </Toggle>
+            <Toggle
+              pressed={hourlyChartMode === 'line'}
+              onPressedChange={() => setHourlyChartMode('line')}
+              className={`${hourlyChartMode === 'line' ? 'bg-indigo-500/20 text-indigo-400' : ''}`}
+              aria-label="Line Chart"
+            >
+              <TrendingUpIcon className="w-4 h-4" />
+            </Toggle>
+          </div>
+        </div>
+        <div className="relative h-56">
+          {hourlyChartMode === 'bar' ? (
+            selectedPeriod === 'today' ? (
+              hourlyChartData?.labels?.length ? (
+                <Bar data={hourlyChartData} options={hourlyChartOptions} />
+              ) : (
+                <SectionState kind="empty" chart="bar" message="No hourly data yet" />
+              )
+            ) : (
+              dailyChartData?.labels?.length ? (
+                <Bar data={dailyChartData} options={dailyChartOptions} />
+              ) : (
+                <SectionState kind="empty" chart="bar" message="No daily data yet" />
+              )
+            )
           ) : (
-            <div className="space-y-0.5">
-              {displayedLogs.map((log) => {
-                const levelColor = log.appLevel === 'app' ? '#6366f1' : log.appLevel === 'browser' ? '#3b82f6' : log.appLevel === 'ide' ? '#8b5cf6' : '#3b82f6';
-                return (
-                  <motion.div
-                    key={log.id}
-                    initial={{ opacity: 0, translateY: -6 }}
-                    animate={{ opacity: 1, translateY: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="grid grid-cols-[auto_auto_1fr_auto] gap-3 items-start py-1.5 px-3 hover:bg-white/[0.02]"
-                  >
-                    <span className="text-zinc-600">
-                      {new Date(log.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </span>
-                    <span
-                      className="shrink-0 px-1.5 py-0.5 rounded font-sans text-[10px] font-medium"
-                      style={{ backgroundColor: levelColor + '20', color: levelColor }}
-                    >
-                      {log.level}
-                    </span>
-                    <span className="text-blue-400 truncate">{log.app}</span>
-                    <span className="text-zinc-600 truncate">{log.category}</span>
-                  </motion.div>
-                );
-              })}
-            </div>
+            selectedPeriod === 'today' ? (
+              hourlyLineChartData?.labels?.length ? (
+                <Line data={hourlyLineChartData} options={hourlyLineChartOptions} />
+              ) : (
+                <SectionState kind="empty" chart="line" message="No hourly data yet" />
+              )
+            ) : (
+              dailyChartData?.labels?.length ? (
+                <Line data={dailyChartData} options={dailyChartOptions} />
+              ) : (
+                <SectionState kind="empty" chart="line" message="No daily data yet" />
+              )
+            )
           )}
         </div>
       </GlassCard>
+
+      {/* Summary Cards — total time / total sessions / avg session / active apps */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {summaryCards.map((stat, idx) => (
+          <motion.div
+            key={idx}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.05 }}
+          >
+            <MagicCard gradientFrom={stat.gradientFrom || '#6366f1'} gradientTo={stat.gradientTo || '#8b5cf6'} gradientSize={300} className="rounded-xl">
+              <div className="p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-9 w-9 rounded-lg grid place-items-center" style={{ background: stat.chipBg }}>
+                    <stat.icon className="w-4.5 h-4.5" style={{ color: stat.iconColor }} />
+                  </div>
+                </div>
+                <div className="text-3xl font-semibold tabular-nums tracking-tight text-white">
+                  {stat.numeric ? <NumberTicker value={stat.value as number} /> : stat.display}
+                </div>
+                <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mt-1">{stat.label}</div>
+              </div>
+            </MagicCard>
+          </motion.div>
+        ))}
+      </div>
 
       {/* App Time Distribution & Top Applications */}
       <div className="flex gap-5">
@@ -951,104 +993,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {summaryCards.map((stat, idx) => (
-          <motion.div
-            key={idx}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.05 }}
-          >
-            <GlassCard className="group relative overflow-hidden border-zinc-800/50 hover:border-zinc-700/80 transition-colors duration-300">
-              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(99,102,241,0.12),transparent_60%)]" />
-              <div className="relative">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="h-9 w-9 rounded-lg grid place-items-center" style={{ background: stat.chipBg }}>
-                    <stat.icon className="w-4.5 h-4.5" style={{ color: stat.iconColor }} />
-                  </div>
-                </div>
-                <div className="text-3xl font-semibold tabular-nums tracking-tight text-white">
-                  {stat.numeric ? <NumberTicker value={stat.value as number} /> : stat.display}
-                </div>
-                <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mt-1">{stat.label}</div>
-              </div>
-            </GlassCard>
-          </motion.div>
-        ))}
-      </div>
-
-{/* Hourly Distribution */}
-      <GlassCard data-tutorial="stats.charts">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            {hourlyChartMode === 'bar' ? (
-              <BarChart3 className="w-5 h-5 text-emerald-400" />
-            ) : (
-              <TrendingUpIcon className="w-5 h-5 text-indigo-400" />
-            )}
-            <div>
-              <div className="text-xl font-semibold">
-                {selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
-              </div>
-              <div className="text-sm text-zinc-500">
-                {selectedPeriod === 'today' ? 'Activity by hour of day' : 'Activity over time'}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
-            <Toggle
-              pressed={hourlyChartMode === 'bar'}
-              onPressedChange={() => setHourlyChartMode('bar')}
-              className={`${hourlyChartMode === 'bar' ? 'bg-emerald-500/20 text-emerald-400' : ''}`}
-              aria-label="Bar Chart"
-            >
-              <BarChart3 className="w-4 h-4" />
-            </Toggle>
-            <Toggle
-              pressed={hourlyChartMode === 'line'}
-              onPressedChange={() => setHourlyChartMode('line')}
-              className={`${hourlyChartMode === 'line' ? 'bg-indigo-500/20 text-indigo-400' : ''}`}
-              aria-label="Line Chart"
-            >
-              <TrendingUpIcon className="w-4 h-4" />
-            </Toggle>
-          </div>
-        </div>
-        <div className="relative h-56">
-          {hourlyChartMode === 'bar' ? (
-            selectedPeriod === 'today' ? (
-              hourlyChartData?.labels?.length ? (
-                <Bar data={hourlyChartData} options={hourlyChartOptions} />
-              ) : (
-                <SectionState kind="empty" chart="bar" message="No hourly data yet" />
-              )
-            ) : (
-              dailyChartData?.labels?.length ? (
-                <Bar data={dailyChartData} options={dailyChartOptions} />
-              ) : (
-                <SectionState kind="empty" chart="bar" message="No daily data yet" />
-              )
-            )
-          ) : (
-            selectedPeriod === 'today' ? (
-              hourlyLineChartData?.labels?.length ? (
-                <Line data={hourlyLineChartData} options={hourlyLineChartOptions} />
-              ) : (
-                <SectionState kind="empty" chart="line" message="No hourly data yet" />
-              )
-            ) : (
-              dailyChartData?.labels?.length ? (
-                <Line data={dailyChartData} options={dailyChartOptions} />
-              ) : (
-                <SectionState kind="empty" chart="line" message="No daily data yet" />
-              )
-            )
-          )}
-        </div>
-      </GlassCard>
-
-      {/* Category Breakdown */}
+            {/* Category Breakdown */}
       <GlassCard>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -1071,9 +1016,9 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
                   key={category}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="group relative overflow-hidden bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 hover:border-zinc-700 transition-all"
                 >
-                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(99,102,241,0.06),transparent_60%)]" />
+                  <GlassCard className="group relative overflow-hidden">
+                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(99,102,241,0.06),transparent_60%)]" />
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: catColor }} />
                     <span className="text-sm font-medium capitalize">{category}</span>
@@ -1088,6 +1033,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
                       style={{ transform: `scaleX(${pct / 100})`, transformOrigin: 'left', backgroundColor: catColor }}
                     />
                   </div>
+                  </GlassCard>
                 </motion.div>
               );
             })}
@@ -1126,14 +1072,14 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
                 <motion.div
                   key={stat.app}
                   variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } } }}
-                  className={`group relative overflow-hidden rounded-xl p-5 border cursor-pointer transition-all duration-200 ${
+                >
+                  <GlassCard className={`group relative overflow-hidden cursor-pointer transition-all duration-200 ${
                     isSelected
                       ? 'bg-zinc-800/80 border-indigo-500/50'
-                      : 'bg-zinc-900/30 border-zinc-800/50 hover:border-zinc-700 hover:bg-zinc-900/50'
+                      : ''
                   }`}
                   onClick={() => setSelectedApp(isSelected ? null : stat.app)}
-                  whileHover={{ y: -2 }}
-                >
+                  >
                   <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(99,102,241,0.06),transparent_60%)]" />
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3 min-w-0">
@@ -1167,6 +1113,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
                       <span className="font-mono text-zinc-300 tabular-nums">{Math.floor(stat.avg_session_ms / 60000)}m</span>
                     </div>
                   </div>
+                  </GlassCard>
                 </motion.div>
               );
             })}
@@ -1174,6 +1121,93 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
         ) : (
           <SectionState kind="empty" message="No application data yet" hint="Start using your computer to collect data" />
         )}
+      </GlassCard>
+
+      {/* Live Detection — collapsed by default, developer/debug tool */}
+      <GlassCard>
+        <button
+          onClick={() => setShowLiveDetection(!showLiveDetection)}
+          className="w-full flex items-center justify-between py-1 text-left group"
+        >
+          <div className="flex items-center gap-2">
+            <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${showLiveDetection ? 'rotate-0' : '-rotate-90'}`} />
+            <SectionHeader title="Live Detection" icon={<Terminal className="w-5 h-5 text-emerald-400" />}
+              action={<div className="flex items-center gap-2"><span className="text-xs text-zinc-500">{liveLogs.length} events</span></div>}
+            />
+          </div>
+        </button>
+        <AnimatePresence>
+          {showLiveDetection && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                  <Input
+                    value={liveSearchQuery}
+                    onChange={e => setLiveSearchQuery(e.target.value)}
+                    placeholder="Search logs..."
+                    className="pl-8 text-xs"
+                  />
+                </div>
+                <Select
+                  value={liveLevelFilter}
+                  onValueChange={(v: string) => setLiveLevelFilter(v)}
+                >
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="info">Info</SelectItem>
+                  <SelectItem value="app">App</SelectItem>
+                  <SelectItem value="browser">Browser</SelectItem>
+                  <SelectItem value="ide">IDE</SelectItem>
+                </Select>
+              </div>
+              <div className="bg-zinc-950/60 rounded-xl border border-zinc-800/50 h-48 overflow-y-auto font-mono text-xs">
+                {displayedLogs.length === 0 ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <div className="text-zinc-500">{liveLogs.length === 0 ? 'Waiting for activity...' : 'No matching logs'}</div>
+                      {liveLogs.length === 0 && (
+                        <div className="mt-2 text-zinc-600 animate-pulse">_</div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    {displayedLogs.map((log) => {
+                      const levelColor = log.appLevel === 'app' ? '#6366f1' : log.appLevel === 'browser' ? '#3b82f6' : log.appLevel === 'ide' ? '#8b5cf6' : '#3b82f6';
+                      return (
+                        <motion.div
+                          key={log.id}
+                          initial={{ opacity: 0, translateY: -6 }}
+                          animate={{ opacity: 1, translateY: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="grid grid-cols-[auto_auto_1fr_auto] gap-3 items-start py-1.5 px-3 hover:bg-white/[0.02]"
+                        >
+                          <span className="text-zinc-600">
+                            {new Date(log.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                          <span
+                            className="shrink-0 px-1.5 py-0.5 rounded font-sans text-[10px] font-medium"
+                            style={{ backgroundColor: levelColor + '20', color: levelColor }}
+                          >
+                            {log.level}
+                          </span>
+                          <span className="text-blue-400 truncate">{log.app}</span>
+                          <span className="text-zinc-600 truncate">{log.category}</span>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </GlassCard>
 
       {/* Selected App Detail Modal */}
@@ -1553,7 +1587,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
           </div>
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 
   if (embedded) return pageContent;

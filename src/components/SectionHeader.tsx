@@ -1,5 +1,5 @@
 interface SectionHeaderProps {
-  title: string;
+  title: React.ReactNode;
   icon?: React.ReactNode;
   action?: React.ReactNode;
   className?: string;

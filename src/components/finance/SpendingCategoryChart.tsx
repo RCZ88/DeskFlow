@@ -3,6 +3,8 @@ import { Doughnut } from "react-chartjs-2";
 import { Chart as ChartJS, ArcElement, Tooltip } from "chart.js";
 import { PieChart } from "lucide-react";
 import { formatCurrency as fmtCurrency, convertAmount } from "./currency-data";
+import { useNumberMask } from "../../context/NumberMaskContext";
+import { maskNumber } from "../../utils/maskNumber";
 
 ChartJS.register(ArcElement, Tooltip);
 
@@ -14,6 +16,9 @@ const PALETTE = ['#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e
 const FT_SHADES = ['#f59e0b', '#d97706', '#b45309'];
 
 export default function SpendingCategoryChart({ data, baseCurrency, displayCurrency, convertAmount: convert, allTransactions = [] }: Props) {
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtMoney = (v: number) =>
+    showNumbers ? fmtCurrency(v, displayCurrency) : maskNumber(fmtCurrency(v, displayCurrency), maskMode, maskFixedValue);
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return { labels: [], data: [], bgColors: [], isFtFlags: [] };
     const labels: string[] = []; const values: number[] = []; const bgColors: string[] = []; const isFtFlags: boolean[] = [];
@@ -37,7 +42,7 @@ export default function SpendingCategoryChart({ data, baseCurrency, displayCurre
     <div className="rounded-xl border border-zinc-700/30 p-5 overflow-hidden">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2"><PieChart className="w-4 h-4 text-zinc-500" /><h3 className="text-sm font-semibold text-white">Spending by Category</h3></div>
-        <span className="text-xs text-zinc-500">Total: {fmtCurrency(totalSpent, displayCurrency)}</span>
+        <span className="text-xs text-zinc-500">Total: {fmtMoney(totalSpent)}</span>
       </div>
       <div className="flex gap-4 items-start">
         <div className="relative w-[160px] h-[160px] shrink-0">
@@ -69,7 +74,7 @@ export default function SpendingCategoryChart({ data, baseCurrency, displayCurre
                     label: (ctx) => {
                       const value = ctx.parsed as number;
                       const pct = totalSpent > 0 ? ((value / totalSpent) * 100).toFixed(1) : "0.0";
-                      return `${ctx.label}: ${fmtCurrency(value, displayCurrency)} (${pct}%)`;
+                      return `${ctx.label}: ${fmtMoney(value)} (${pct}%)`;
                     },
                   },
                 },
@@ -77,7 +82,7 @@ export default function SpendingCategoryChart({ data, baseCurrency, displayCurre
             }}
           />
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-sm font-bold text-white">{fmtCurrency(totalSpent, displayCurrency)}</span>
+            <span className="text-sm font-bold text-white">{fmtMoney(totalSpent)}</span>
             <span className="text-[8px] text-zinc-500 uppercase">Total</span>
           </div>
         </div>
@@ -93,7 +98,7 @@ export default function SpendingCategoryChart({ data, baseCurrency, displayCurre
                   <span className={`text-[11px] truncate ${isFt ? "text-amber-400 font-medium" : "text-zinc-300"}`}>{label}</span>
                 </div>
                 <div className="text-right shrink-0">
-                  <span className="text-[11px] font-medium text-zinc-200 tabular-nums">{fmtCurrency(value, displayCurrency)}</span>
+                  <span className="text-[11px] font-medium text-zinc-200 tabular-nums">{fmtMoney(value)}</span>
                   <span className="text-[9px] text-zinc-500 ml-1">{pct}%</span>
                 </div>
               </div>

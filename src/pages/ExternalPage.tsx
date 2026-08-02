@@ -32,6 +32,9 @@ import type { Period } from '../lib/dateRange';
 import { maxOf, maxBy } from '../utils/safeMath';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
+import { MagicCard } from '../components/ui/magic-card';
+import { BorderBeam } from '../components/ui/border-beam';
+import { NumberTicker } from '../components/ui/number-ticker';
 import { SectionHeader } from '../components/SectionHeader';
 import { LoadingState } from '../components/LoadingState';
 import TransferSessionModal from '../components/TransferSessionModal';
@@ -804,7 +807,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-zinc-100">External Tracker</h1>
+          
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => window.dispatchEvent(new Event('open-gap-panel'))} className="px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 transition">Gaps</button>
@@ -834,14 +837,14 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                       <div className="text-xl text-zinc-300">Since {formatBedtime(activeSession.startTime)}</div>
                       
                       <div className="mt-6 grid grid-cols-2 gap-4">
-                        <div className="bg-zinc-800/50 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-3 text-center">
+                        <MagicCard gradientFrom="#f59e0b" gradientTo="#d97706" gradientSize={200} className="rounded-xl p-3 text-center">
                           <div className="text-xs text-zinc-400">Bedtime</div>
                           <div className="text-lg font-bold text-amber-400">{formatBedtime(activeSession.startTime)}</div>
-                        </div>
-                        <div className="bg-zinc-800/50 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-3 text-center">
+                        </MagicCard>
+                        <MagicCard gradientFrom="#3b82f6" gradientTo="#6366f1" gradientSize={200} className="rounded-xl p-3 text-center">
                           <div className="text-xs text-zinc-400">Elapsed</div>
                           <div className="text-lg font-bold text-zinc-100">{formatDuration(elapsedSeconds)}</div>
-                        </div>
+                        </MagicCard>
                       </div>
                       
                       <div className="mt-4 text-sm text-zinc-500">
@@ -992,18 +995,24 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
               return (
                 <>
             <div className="grid grid-cols-3 gap-3 mb-6">
-              <div className="bg-zinc-800/30 rounded-lg p-3 text-center">
-                <div className="text-xs text-zinc-400">Avg Session</div>
-                <div className="text-lg font-bold text-zinc-100">{filtered.length > 0 ? (() => { const total = filtered.reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0); return formatHours(total / filtered.length); })() : '--'}</div>
-              </div>
-              <div className="bg-zinc-800/30 rounded-lg p-3 text-center">
-                <div className="text-xs text-zinc-400">Sessions</div>
-                <div className="text-lg font-bold text-zinc-100">{filtered.length}</div>
-              </div>
-              <div className="bg-zinc-800/30 rounded-lg p-3 text-center">
-                <div className="text-xs text-zinc-400">Active Days</div>
-                <div className="text-lg font-bold text-zinc-100">{new Set(filtered.map((s: any) => s.started_at?.split('T')[0])).size}</div>
-              </div>
+              <MagicCard gradientFrom="#a855f7" gradientTo="#6366f1" gradientSize={200} className="rounded-xl text-center">
+                <div className="p-3">
+                  <div className="text-xs text-zinc-400">Avg Session</div>
+                  <div className="text-lg font-bold text-zinc-100">{filtered.length > 0 ? (() => { const total = filtered.reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0); return formatHours(total / filtered.length); })() : '--'}</div>
+                </div>
+              </MagicCard>
+              <MagicCard gradientFrom="#10b981" gradientTo="#34d399" gradientSize={200} className="rounded-xl text-center">
+                <div className="p-3">
+                  <div className="text-xs text-zinc-400">Sessions</div>
+                  <div className="text-lg font-bold text-zinc-100"><NumberTicker value={filtered.length} /></div>
+                </div>
+              </MagicCard>
+              <MagicCard gradientFrom="#f59e0b" gradientTo="#fbbf24" gradientSize={200} className="rounded-xl text-center">
+                <div className="p-3">
+                  <div className="text-xs text-zinc-400">Active Days</div>
+                  <div className="text-lg font-bold text-zinc-100"><NumberTicker value={new Set(filtered.map((s: any) => s.started_at?.split('T')[0])).size} /></div>
+                </div>
+              </MagicCard>
             </div>
             {filtered.length > 0 && (
               <div className="mb-4">
@@ -1390,7 +1399,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
         {/* Activity Grid with inline mini charts */}
         
           <div data-tutorial="external.grid" className="relative mb-8">
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {orderedActivities.map((activity, idx) => {
                 const Icon = getIcon(activity.icon);
                 const actStats = stats.byActivity[activity.name];

@@ -30,6 +30,8 @@ interface ConnectorsPanelProps {
   onReply?: (connectorId: string, itemId: string, draft: string) => Promise<void>
   onMarkRead?: (connectorId: string, itemId: string, read: boolean) => Promise<void>
   onDelete?: (connectorId: string) => Promise<void>
+  onAddToSchedule?: (connectorId: string, data: { title: string; day_of_week: number; start_time: string; end_time: string }) => Promise<void>
+  onCreateDeadline?: (connectorId: string, data: { title: string; due_date: string; priority: string }) => Promise<void>
   onTest?: (id: string) => Promise<{ success: boolean; message: string }>
   onSyncAll?: () => Promise<void>
 }
@@ -228,6 +230,8 @@ export function ConnectorsPanel(props: ConnectorsPanelProps) {
           onReply={props.onReply ? (itemId, draft) => props.onReply!(modalItem.connectorId, itemId, draft) : undefined}
           onMarkRead={props.onMarkRead ? (itemId, read) => props.onMarkRead!(modalItem.connectorId, itemId, read) : undefined}
           onDelete={props.onDelete ? () => props.onDelete!(modalItem.connectorId) : undefined}
+          onAddToSchedule={props.onAddToSchedule ? (data) => props.onAddToSchedule!(modalItem.connectorId, data) : undefined}
+          onCreateDeadline={props.onCreateDeadline ? (data) => props.onCreateDeadline!(modalItem.connectorId, data) : undefined}
         />
       )}
     </>
