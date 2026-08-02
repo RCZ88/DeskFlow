@@ -7,7 +7,7 @@
 feat: real TUI agent interaction, canvas grouping, gold goals tab, AI change-history/undo, compositions DSL engine, sleep-detection gap fix (141 files)
 ```
 
-**Hash:** `(pending)`
+**Hash:** `a6ae60c`
 **Date:** 2026-08-02
 
 ### Detailed Changes
