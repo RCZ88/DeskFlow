@@ -9,7 +9,7 @@ import { useState, useCallback, useRef, useEffect } from "react"
 import {
   Newspaper, Plug, Target, Calendar, RefreshCw, ChevronDown,
   Inbox, Maximize2, Minimize2, X, Clock, AlertTriangle,
-  Plus, Sparkles, ListTodo, BookOpen
+  Plus, Sparkles, ListTodo, BookOpen, Zap
 } from "lucide-react"
 import type { AccentKey } from "../tokens"
 import { motion, AnimatePresence } from "framer-motion"
@@ -49,6 +49,7 @@ export interface DeckProps {
   dailyPlannerSlot?: ReactNode
   scheduleSlot?: ReactNode
   deadlineSlot?: ReactNode
+  automationsSlot?: ReactNode
   memoryChips?: { id: string; text: string }[]
   onNewThread?: () => void
   connectorStatus?: { unreadCount: number; todayEventCount: number; lastSyncTime?: string; syncing?: boolean }
@@ -436,6 +437,18 @@ export function AiPageDeck(props: DeckProps) {
       empty: !props.deadlineSlot,
       onAdd: props.onAddDeadline,
       addLabel: "Track upcoming deadlines",
+    },
+    {
+      id: "automations",
+      icon: <Zap size={16} />,
+      title: "Automations",
+      summary: undefined,
+      accent: "violet" as AccentKey,
+      slot: props.automationsSlot,
+      loading: false,
+      empty: false,
+      onAdd: undefined,
+      addLabel: "Create automations",
     },
   ]
 

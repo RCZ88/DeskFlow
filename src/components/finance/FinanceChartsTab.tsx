@@ -22,6 +22,7 @@ import CashFlowRunway from './CashFlowRunway';
 import SubscriptionBurdenRadar from './SubscriptionBurdenRadar';
 import WalletHealthScorecards from './WalletHealthScorecards';
 import TransferCostMatrix from './TransferCostMatrix';
+import WalletBreakdownChart from './WalletBreakdownChart';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -202,6 +203,22 @@ export function FinanceChartsTab({
               )}
             </div>
           </div>
+        </motion.div>
+
+        {/* Per-Wallet Monthly Breakdown */}
+        <motion.div variants={riseItem} className="lg:col-span-2">
+          <WalletBreakdownChart
+            transactions={allTransactions}
+            wallets={wallets.map(w => {
+              const typeLabels: Record<string, string> = {
+                bank: 'Bank', debit_card: 'Debit Card', credit_card: 'Credit Card',
+                crypto: 'Crypto', cash: 'Cash', physical: 'Physical', ewallet: 'E-Wallet', other: 'Other',
+              };
+              return { id: w.id, name: `${typeLabels[w.type] || w.type} #${w.id}`, type: w.type };
+            })}
+            displayCurrency={displayCurrency}
+            baseCurrency={baseCurrency}
+          />
         </motion.div>
 
         {/* Advanced Analytics */}

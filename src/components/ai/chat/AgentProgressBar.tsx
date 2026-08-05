@@ -13,8 +13,8 @@ export interface AgentStep {
 export interface AgentProgressBarProps {
 	visible: boolean
 	steps?: AgentStep[]
-	/** Free-form status when discrete steps are unknown (indeterminate bar). */
 	statusText?: string
+	actionId?: string
 	className?: string
 }
 

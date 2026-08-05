@@ -4,7 +4,7 @@ import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import {
   CalendarClock, Plus, Edit3, Trash2, ExternalLink, Bell, BellOff, Calendar,
   Wallet, CreditCard, RefreshCw, X, Check, AlertTriangle, Search,
-  ArrowUpRight, DollarSign, Clock, Pause, Play, ArrowLeft
+  ArrowUpRight, DollarSign, Clock, Pause, Play, ArrowLeft, Nfc
 } from 'lucide-react';
 import { GlassSurface } from '../components/finance/_fx/GlassSurface';
 import { pageContainer, riseItem } from '../components/finance/_fx/financeMotion';
@@ -42,6 +42,7 @@ function getWalletIcon(walletType: string): React.ReactNode {
     debit_card: <CreditCard className="w-3.5 h-3.5" />,
     credit_card: <CreditCard className="w-3.5 h-3.5" />,
     ewallet: <CreditCard className="w-3.5 h-3.5" />,
+    prepaid_card: <Nfc className="w-3.5 h-3.5" />,
   };
   return icons[walletType] || <Wallet className="w-3.5 h-3.5" />;
 }

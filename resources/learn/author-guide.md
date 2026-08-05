@@ -29,7 +29,7 @@ authored_by: ai
 ---
 # <Concept title>        # each "#" heading starts a new node
 @mastery L0-L5           # required, exactly one per node — a second @mastery line silently overwrites the first
-@prereq <id> <id>        # optional, ONE line, space-separated — a second @prereq line silently overwrites the first, it does not merge
+@prereq <node-id> <node-id>  # optional, ONE line, space-separated NODE IDs — a second @prereq line silently overwrites the first, it does not merge
 <blocks>
 :::: grounding
 includes: <one-sentence scope of what this node covers>     # REQUIRED, exactly one
@@ -103,6 +103,44 @@ caption: Optional caption line
 ```
 Variant defaults to `sankey` if omitted.
 
+**`illustration`** — AI-generated hand-drawn illustration in the Ian Xiaohei (小黑) style ([github.com/helloianneo/ian-xiaohei-illustrations](https://github.com/helloianneo/ian-xiaohei-illustrations)). Use for visual metaphors, chapter openers, or any concept that benefits from a whimsical hand-drawn explanation rather than a technical diagram. The illustration is generated on-demand when the learner clicks "Generate" — it is NOT auto-created during lesson creation.
+
+Inner content is a JSON object with two fields:
+- `prompt` (REQUIRED) — English description of the scene, following the prompt template below.
+- `concept` (optional) — one-line summary of what the illustration explains. Shown as a subtitle in the UI.
+
+```
+:::illustration {"prompt":"Generate one standalone 16:9 horizontal Chinese article illustration. Visual DNA: Pure white background. Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture. Recurring IP character: 小黑, a small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression. 小黑 must perform the core conceptual action, not decorate the scene. Theme: How memory allocation works. Structure type: Workflow. Core idea: The OS sorts memory requests into labeled boxes like a careful librarian. Composition: 小黑 standing at a sorting desk, pulling address tags from a tangled wire bundle on the left and placing them into neat labeled boxes on the right. Orange arrows show the flow from tangled to sorted. Suggested elements: tangled wire bundle / sorting desk / labeled boxes / address tags. Chinese handwritten labels: 地址 / 虚拟内存 / 物理页 / 分配. Color use: Black for main line art. Orange for flow arrows. Red for warnings.","concept":"Virtual memory maps chaotic physical addresses to orderly virtual ones"}
+:::
+```
+
+**Style rules (from the Ian Xiaohei repo):**
+- Pure white background — no beige, no paper texture, no gradients, no shadows
+- Black hand-drawn line art — thin lines, slightly wobbly, not mechanical, not vector-heavy
+- Generous white space — subject occupies 40-60% of canvas, at least 35% blank
+- Sparse Chinese handwritten annotations — max 5-8 labels, each 2-8 characters
+- Color use: black for main art, orange for flow/arrows, red for warnings/key points, blue for secondary notes
+- One image = one core concept only
+- 小黑 (the black creature) MUST perform the core action, not just stand in the corner
+
+**Structure types** — pick ONE per illustration:
+- Workflow: input → processing → output flow
+- System partial: 3-5 core modules, 小黑 in one key action
+- Before/after contrast: left chaotic, right ordered, orange arrow between
+- Role state: 2-4 states showing pain points or transitions
+- Concept metaphor: one large weird object/machine, minimal inputs, one output
+- Method layers: stacked layers (not a formal pyramid), 小黑 building/climbing
+- Map route: winding path with nodes, 小黑 walking or pulling strings
+- Mini comic panels: 2-4 small scenes, each one action
+
+**How to write good prompts:**
+1. Pick the single most confusing idea in the node
+2. Invent a low-tech physical metaphor (funnel, box, lever, scale, pipe, door, well, ladder, machine)
+3. Put 小黑 IN the action — pulling, carrying, sorting, pushing, feeding, holding
+4. Name 2-3 concrete objects that represent the abstract concepts
+5. Keep it minimal — max 3-4 objects, one focal action
+6. DO NOT: vague ("an illustration about X"), passive ("小黑 standing next to a diagram"), or cute ("happy characters learning together")
+
 ### Do not use
 `video` and `widget` directive kinds are **not implemented** in the current parser even though their data types exist in the schema. Writing `::: video ...` or `::: widget ...` will not error — it will silently fall through and dump the inner content as untyped prose, with no video/widget rendering at all. Same silent-fallback behavior applies to any misspelled or unrecognized directive kind: a typo is *not* a compile error, it's silently lost structure. Double-check directive keywords carefully for exactly this reason — you won't get an error message to catch the mistake.
 
@@ -110,7 +148,7 @@ Variant defaults to `sankey` if omitted.
 A lesson that is 100% Mermaid, or that skips visuals entirely, is under-designed.
 **Every node targeting L2+ needs at least one visual block**, or the compiler
 rejects it outright. The visual types that count are: `mermaid`, `image`, `math`,
-`chart`, `finchart`, `flow`, `layer`, and `svg` (i.e. a `figure` whose content
+`chart`, `finchart`, `flow`, `layer`, `illustration`, and `svg` (i.e. a `figure` whose content
 contains `<svg`) — a `figure` that falls through to the generic HTML/widget path
 also counts (it's stored as the same `widget` type as `html`). `quiz`, `callout`,
 plain `code`, and prose/table blocks do **not** count toward this requirement.
@@ -152,12 +190,10 @@ choosing what to teach and at what depth.
   one `know:` fact ending in `[source_id]`, and at least one `source:` line whose
   id matches every `source_id` used above it. Add `misconception:`/`excludes:`
   where relevant.
-- Every node needs exactly one `@mastery` line and, if used, exactly one `@prereq`
-  line listing every prerequisite node id space-separated — never split prereqs
-  across multiple `@prereq` lines.
+- Every node needs exactly one `@mastery` line and, if used, exactly one `@prereq` line listing every prerequisite node id space-separated — never split prereqs across multiple `@prereq` lines.
+- **`@prereq` accepts ONLY node IDs, NOT lesson IDs, topic names, or concept slugs.** A node ID is the kebab-case version of another node's `#` heading title (e.g., `# Measure First: Profiling Before You Guess` → `measure-first-profiling-before-you-guess`). For prerequisites within THIS lesson, use the node IDs from the `#` headings above. For prerequisites from OTHER lessons, use the EXACT node IDs from the "EXISTING NODE IDs" list injected into your prompt — do NOT guess, invent, or use lesson IDs like `the-systems-lens` or `performance-and-efficiency-the-optimization-craft`.
 - MCQ quizzes need ≥2 `- [ ]` options and exactly one `- [x]`. Numeric quizzes
   need a plain `answer: <number>` line. Open quizzes should always include an
   explicit `rubric:` line.
 - Never use `must_know:`, `question:`/`Q:` prefixes, `explanation:` (use `explain:`),
   or `::: video` / `::: widget` — none of these are recognized by the compiler.
-- Node ids are the kebab-case slug of the title; reference exact slugs in `@prereq`.

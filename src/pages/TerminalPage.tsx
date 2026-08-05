@@ -686,6 +686,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   const [analyticsRequests, setAnalyticsRequests] = useState<any[]>([]);
   const [analyticsPromptHistory, setAnalyticsPromptHistory] = useState<any[]>([]);
   const [analyticsDailyStats, setAnalyticsDailyStats] = useState<any[]>([]);
+  const [analyticsCodeStats, setAnalyticsCodeStats] = useState<any | undefined>(undefined);
 
   
   // Terminal binding state
@@ -1810,14 +1811,16 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         : analyticsPeriod === '30d' ? new Date(now.getTime() - 30 * 864e5).toISOString()
         : null;
       const inPeriod = (dateStr: string | null | undefined) => !cutoffDate || (!!dateStr && dateStr >= cutoffDate);
-      const [aiResult, problemsResult, requestsResult, historyResult, dailyResult] = await Promise.all([
+      const [aiResult, problemsResult, requestsResult, historyResult, dailyResult, codeStatsResult] = await Promise.all([
         window.deskflowAPI.getAIUsageSummary(p, 0, selectedProject || undefined),
         window.deskflowAPI.getProblems(selectedProject, propProjectPath).catch(() => null),
         window.deskflowAPI.getRequests(selectedProject).catch(() => null),
         window.deskflowAPI.getPromptHistory({ projectId: selectedProject, limit: 500 }).catch(() => null),
         window.deskflowAPI.getDailyAggregates().catch(() => null),
+        window.deskflowAPI.getCodeChangeStats?.(p, 0, selectedProject || undefined).catch(() => null),
       ]);
       if (aiResult) setAiSummary(aiResult);
+      if (codeStatsResult) setAnalyticsCodeStats(codeStatsResult);
       if (problemsResult) {
         const items = Array.isArray(problemsResult) ? problemsResult : problemsResult?.data || [];
         setAnalyticsProblems(items.filter((r: any) => inPeriod(r.created_at)));
@@ -3103,6 +3106,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                       onCloseTerminal={closeTerminal}
                       projectPath={propProjectPath}
                       agentStatuses={agentStatuses}
+                      capturedSessionIds={terminalCapturedSessionIds}
                       onRetryInit={(tid) => {
                         const err = agentInitErrors[tid];
                         if (err) {
@@ -3939,6 +3943,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         requests={analyticsRequests}
                         promptHistory={analyticsPromptHistory}
                         dailyStats={analyticsDailyStats}
+                        codeStats={analyticsCodeStats}
                         loading={analyticsLoading}
                         period={analyticsPeriod}
                         variant="full"

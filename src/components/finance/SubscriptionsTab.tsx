@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Edit3, Trash2, ExternalLink, Bell, BellOff, Calendar, Wallet, CreditCard, RefreshCw, X, Check, AlertTriangle, DollarSign, ArrowUpRight, History, Zap, RotateCcw, CircleCheck, XCircle, Clock } from 'lucide-react';
+import { Plus, Edit3, Trash2, ExternalLink, Bell, BellOff, Calendar, Wallet, CreditCard, RefreshCw, X, Check, AlertTriangle, DollarSign, ArrowUpRight, History, Zap, RotateCcw, CircleCheck, XCircle, Clock, Nfc } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { formatCurrency } from './currency-data';
 import { useNumberMask } from '../../context/NumberMaskContext';
@@ -61,6 +61,7 @@ function getWalletIcon(walletType: string): React.ReactNode {
     debit_card: <CreditCard className="w-3.5 h-3.5" />,
     credit_card: <CreditCard className="w-3.5 h-3.5" />,
     ewallet: <CreditCard className="w-3.5 h-3.5" />,
+    prepaid_card: <Nfc className="w-3.5 h-3.5" />,
   };
   return icons[walletType] || <Wallet className="w-3.5 h-3.5" />;
 }

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { repairMojibakeDeep } from '../lib/mojibake';
 
 export interface CheckFeedback {
   type: 'approved' | 'rejected' | 'text';
@@ -130,6 +131,25 @@ export class RequestsService {
     fs.writeFileSync(this.mdFile, md, 'utf-8');
   }
 
+  private repairJsonInPlace(requests: Request[]): Request[] {
+    try {
+      const repaired = repairMojibakeDeep(requests) as Request[];
+      const before = JSON.stringify(requests);
+      const after = JSON.stringify(repaired);
+      if (before !== after && fs.existsSync(this.jsonFile)) {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const bak = `${this.jsonFile}.bak-${stamp}`;
+        fs.copyFileSync(this.jsonFile, bak);
+        fs.writeFileSync(this.jsonFile, after, 'utf-8');
+        console.log(`[RequestsService] Repaired mojibake in requests.json (backup: ${bak})`);
+      }
+      return repaired;
+    } catch (e) {
+      console.error('[RequestsService] mojibake repair failed:', e);
+      return requests;
+    }
+  }
+
   getRequests(): Request[] {
     this.ensureAgentDir();
 
@@ -138,7 +158,7 @@ export class RequestsService {
         const content = fs.readFileSync(this.jsonFile, 'utf-8');
         const requests = JSON.parse(content);
         if (Array.isArray(requests) && requests.length > 0) {
-          return requests.map(r => ({
+          return this.repairJsonInPlace(requests).map(r => ({
             ...r,
             session_id: r.session_id || null,
             session_name: r.session_name || null,

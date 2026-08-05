@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader2, ImageIcon, RefreshCw, AlertCircle } from 'lucide-react';
+import { Loader2, ImageIcon, RefreshCw, AlertCircle, Copy, Check, Upload, ExternalLink } from 'lucide-react';
 
 const api = (window as any).deskflowAPI;
 
@@ -20,6 +20,8 @@ export function IllustrationBlock({ meta, nodeId, onGenerated }: Props) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(meta.error || null);
   const [imagePath, setImagePath] = useState<string | null>(meta.image_path || null);
+  const [copied, setCopied] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -41,6 +43,46 @@ export function IllustrationBlock({ meta, nodeId, onGenerated }: Props) {
     setGenerating(false);
   };
 
+  const handleCopyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(meta.prompt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback: select text from a temporary textarea
+      const ta = document.createElement('textarea');
+      ta.value = meta.prompt;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleUpload = async () => {
+    setUploading(true);
+    setError(null);
+    try {
+      const result = await api.learnUploadIllustration({
+        lessonId: nodeId?.split('-')[0] || 'general',
+        filename: `illustration-${Date.now()}.png`,
+      });
+      if (result.ok && result.data?.imagePath) {
+        setImagePath(result.data.imagePath);
+        onGenerated?.(result.data.imagePath);
+      } else if (result.error !== 'Cancelled') {
+        setError(result.error || 'Upload failed');
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to upload image');
+    }
+    setUploading(false);
+  };
+
+  const hasImage = !!imagePath;
+
   return (
     <div className="rounded-xl border border-white/10 bg-[#1c1917]/40 overflow-hidden">
       {/* Header */}
@@ -52,24 +94,17 @@ export function IllustrationBlock({ meta, nodeId, onGenerated }: Props) {
             <span className="text-[10px] text-zinc-500 ml-1">— {meta.concept}</span>
           )}
         </div>
-        {!meta.generated && !generating && (
-          <button
-            onClick={handleGenerate}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/20 hover:bg-amber-500/25 transition-all"
-          >
-            <ImageIcon className="w-3 h-3" />
-            Generate
-          </button>
-        )}
-        {meta.generated && !generating && (
-          <button
-            onClick={handleGenerate}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-500 hover:text-zinc-300 transition-all"
-          >
-            <RefreshCw className="w-3 h-3" />
-            Regenerate
-          </button>
-        )}
+        <div className="flex items-center gap-1.5">
+          {hasImage && !generating && (
+            <button
+              onClick={handleGenerate}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-500 hover:text-zinc-300 transition-all"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Regenerate
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Content */}
@@ -84,14 +119,17 @@ export function IllustrationBlock({ meta, nodeId, onGenerated }: Props) {
           <div className="flex flex-col items-center justify-center py-12 gap-3">
             <AlertCircle className="w-6 h-6 text-red-400" />
             <p className="text-xs text-red-400">{error}</p>
-            <button
-              onClick={handleGenerate}
-              className="text-[11px] text-zinc-500 hover:text-zinc-300 transition"
-            >
-              Try again
-            </button>
+            <div className="flex gap-2 mt-1">
+              <button onClick={handleGenerate} className="text-[11px] text-zinc-500 hover:text-zinc-300 transition">
+                Try again
+              </button>
+              <span className="text-zinc-700">|</span>
+              <button onClick={handleUpload} className="text-[11px] text-zinc-500 hover:text-zinc-300 transition">
+                Upload instead
+              </button>
+            </div>
           </div>
-        ) : imagePath ? (
+        ) : hasImage ? (
           <div className="relative">
             <img
               src={`file://${imagePath}`}
@@ -110,10 +148,68 @@ export function IllustrationBlock({ meta, nodeId, onGenerated }: Props) {
             )}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-12 gap-3">
-            <ImageIcon className="w-8 h-8 text-zinc-700" />
-            <p className="text-xs text-zinc-600">Click "Generate" to create this illustration</p>
-            <p className="text-[10px] text-zinc-700 max-w-sm text-center italic">{meta.prompt}</p>
+          /* No image — show external workflow UI */
+          <div className="space-y-4">
+            {/* Concept callout */}
+            {meta.concept && (
+              <div className="px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/15">
+                <p className="text-[10px] uppercase tracking-wider text-amber-500/70 mb-0.5">This illustration explains</p>
+                <p className="text-xs text-zinc-300">{meta.concept}</p>
+              </div>
+            )}
+
+            {/* Prompt box */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500">Illustration prompt</span>
+                <button
+                  onClick={handleCopyPrompt}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all border ${
+                    copied
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25'
+                      : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 hover:bg-zinc-700/60 hover:text-zinc-200'
+                  }`}
+                >
+                  {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copied ? 'Copied!' : 'Copy prompt'}
+                </button>
+              </div>
+              <pre className="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/50 text-[11px] leading-relaxed text-zinc-400 whitespace-pre-wrap max-h-40 overflow-y-auto font-mono">
+                {meta.prompt}
+              </pre>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleGenerate}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/20 hover:bg-amber-500/25 transition-all"
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                Generate with AI
+              </button>
+              <span className="text-zinc-600 text-xs">or</span>
+              <button
+                onClick={handleUpload}
+                disabled={uploading}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-medium bg-zinc-800/60 text-zinc-300 border border-zinc-700/50 hover:bg-zinc-700/60 transition-all disabled:opacity-50"
+              >
+                {uploading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Upload className="w-3.5 h-3.5" />
+                )}
+                Upload image
+              </button>
+            </div>
+
+            {/* External tool hint */}
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-zinc-800/30 border border-zinc-800/40">
+              <ExternalLink className="w-3.5 h-3.5 text-zinc-500 mt-0.5 shrink-0" />
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                Copy the prompt above, paste it into any image generator (ChatGPT, Midjourney, DALL-E, etc.), then upload the result here.
+              </p>
+            </div>
           </div>
         )}
       </div>

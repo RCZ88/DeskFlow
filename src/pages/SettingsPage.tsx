@@ -4,8 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Settings, Database, Clock, Download, Trash2, RefreshCw, Terminal,
   ChevronRight, X, Plus, GripVertical, Palette, Check, ChevronDown, Globe,
-  ChevronLeft, Search, AlertTriangle, Sparkles, ChevronUp,
-  Eye, EyeOff, DollarSign, Shield, Key, Save, Lock, LockOpen, History, Undo2
+  ChevronLeft, Search, AlertTriangle, Sparkles, ChevronUp, Loader2,
+  Eye, EyeOff, DollarSign, Shield, Key, Save, Lock, LockOpen, History, Undo2, Pencil
 } from 'lucide-react';
 import {
   DndContext,
@@ -976,12 +976,22 @@ export default function SettingsPage({
   const approveChange = async (changeId: string) => {
     const change = pendingChanges.find(c => c.id === changeId);
     if (!change) return;
-    // Apply the change
+    // Apply the change to local state
     if (change.type === 'app') {
       changeAppCategory(change.name, change.newCategory);
     } else {
       const newOverrides = { ...domainCategoryOverrides, [change.name]: change.newCategory };
       setDomainCategoryOverrides(newOverrides);
+    }
+    // Persist to DB
+    if (change.type === 'app') {
+      if (window.deskflowAPI?.setAppCategory) {
+        await window.deskflowAPI.setAppCategory(change.name, change.newCategory);
+      }
+    } else {
+      if (window.deskflowAPI?.setDomainCategory) {
+        await window.deskflowAPI.setDomainCategory(change.name, change.newCategory);
+      }
     }
     // Record in history
     if (window.deskflowAPI?.addAiChangeHistory) {
@@ -1010,12 +1020,24 @@ export default function SettingsPage({
 
   const approveAllChanges = async () => {
     for (const change of pendingChanges) {
+      // Apply the change to local state
       if (change.type === 'app') {
         changeAppCategory(change.name, change.newCategory);
       } else {
         const newOverrides = { ...domainCategoryOverrides, [change.name]: change.newCategory };
         setDomainCategoryOverrides(newOverrides);
       }
+      // Persist to DB
+      if (change.type === 'app') {
+        if (window.deskflowAPI?.setAppCategory) {
+          await window.deskflowAPI.setAppCategory(change.name, change.newCategory);
+        }
+      } else {
+        if (window.deskflowAPI?.setDomainCategory) {
+          await window.deskflowAPI.setDomainCategory(change.name, change.newCategory);
+        }
+      }
+      // Record in history
       if (window.deskflowAPI?.addAiChangeHistory) {
         await window.deskflowAPI.addAiChangeHistory({
           name: change.name,
@@ -1276,6 +1298,7 @@ export default function SettingsPage({
     previousCategory: string;
     newCategory: string;
   }>>([]);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
   // AI change history (undo/redo)
   const [changeHistory, setChangeHistory] = useState<Array<{
     id: string;
@@ -1288,6 +1311,27 @@ export default function SettingsPage({
   }>>([]);
   const [showChangeHistory, setShowChangeHistory] = useState(false);
   const [lockedSkipped, setLockedSkipped] = useState<string[]>([]);
+  // Live Magic Category / Magic Color run status (streamed from main via provider-chunk)
+  const [aiRun, setAiRun] = useState<{ purpose: 'category' | 'colors'; phase: string; provider?: string; error?: string; done?: boolean; prompt?: string; rawOutput?: string } | null>(null);
+  const [showRunLogs, setShowRunLogs] = useState(false);
+  useEffect(() => {
+    const off = window.deskflowAPI?.onProviderChunk?.((d: any) => {
+      if (!d || (d.purpose !== 'category' && d.purpose !== 'colors')) return;
+      setAiRun(prev => {
+        const keep = prev?.purpose === d.purpose
+          ? { ...prev }
+          : { purpose: d.purpose, phase: 'Starting...' };
+        const next = { ...keep };
+        if (d.prompt) next.prompt = d.prompt;
+        if (d.full) next.rawOutput = d.full;
+        if (d.error) return { ...next, phase: '', error: d.error, done: false };
+        if (d.done) return { ...next, phase: 'Done', done: true, error: '' };
+        if (d.delta) return { ...next, phase: d.delta, provider: d.providerId || keep.provider, error: '' };
+        return next;
+      });
+    });
+    return off;
+  }, []);
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
   const [apiKeyTestStatus, setApiKeyTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [apiKeyTestMessage, setApiKeyTestMessage] = useState('');
@@ -1563,6 +1607,55 @@ export default function SettingsPage({
       {/* Content based on active tab */}
       {activeTab === 'category' && (
         <div data-section="settings.category" className="space-y-4">
+          <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors duration-150 ${aiRun?.purpose === 'category' && aiRun.error ? 'bg-red-500/10 border-red-500/30' : aiRun?.purpose === 'category' && aiRun.done ? 'bg-emerald-500/10 border-emerald-500/30' : aiRun?.purpose === 'category' ? 'bg-amber-500/10 border-amber-500/30' : 'bg-zinc-800/40 border-zinc-700/40'}`}>
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${aiRun?.purpose === 'category' && aiRun.error ? 'bg-red-500/20' : aiRun?.purpose === 'category' && aiRun.done ? 'bg-emerald-500/20' : aiRun?.purpose === 'category' ? 'bg-amber-500/20' : 'bg-zinc-700/50'}`}>
+              {aiRun?.purpose === 'category' && aiRun.error ? <AlertTriangle className="w-4 h-4 text-red-400" /> : aiRun?.purpose === 'category' && aiRun.done ? <Check className="w-4 h-4 text-emerald-400" /> : aiRun?.purpose === 'category' ? <Loader2 className="w-4 h-4 text-amber-400 animate-spin" /> : <Sparkles className="w-4 h-4 text-zinc-400" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-zinc-200">AI Category Assignment</span>
+                <Badge variant="secondary">{aiRun?.purpose === 'category' && aiRun.error ? 'Error' : aiRun?.purpose === 'category' && aiRun.done ? 'Completed' : aiRun?.purpose === 'category' ? 'Running' : pendingChanges.length > 0 ? `${pendingChanges.length} pending` : 'Ready'}</Badge>
+              </div>
+              <p className={`text-xs mt-0.5 ${aiRun?.purpose === 'category' && aiRun.error ? 'text-red-300' : aiRun?.purpose === 'category' && aiRun.done ? 'text-emerald-300' : aiRun?.purpose === 'category' ? 'text-amber-200' : 'text-zinc-500'}`}>
+                {aiRun?.purpose === 'category' ? (aiRun.error || aiRun.phase) : pendingChanges.length > 0 ? `${pendingChanges.length} change${pendingChanges.length !== 1 ? 's' : ''} awaiting your approval.` : 'Run Magic Category to auto-assign categories to your apps.'}
+              </p>
+            </div>
+            {aiRun?.purpose === 'category' && aiRun.provider && !aiRun.error && <span className="text-xs text-zinc-400 font-mono flex-shrink-0">via {aiRun.provider}</span>}
+            {pendingChanges.length > 0 && (
+              <button
+                onClick={() => setShowApprovalModal(true)}
+                className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 rounded-lg text-xs font-medium transition-colors duration-150 flex-shrink-0"
+              >
+                Review ({pendingChanges.length})
+              </button>
+            )}
+            {(aiRun?.prompt || aiRun?.rawOutput) && (
+              <button
+                onClick={() => setShowRunLogs(!showRunLogs)}
+                className="p-1.5 rounded bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors duration-150 flex-shrink-0"
+                title={showRunLogs ? 'Hide provider logs' : 'Show provider logs (prompt & raw output)'}
+              >
+                {showRunLogs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            )}
+            {aiRun?.purpose === 'category' && aiRun.done && !aiRun.error && <button onClick={() => setAiRun(null)} className="p-1 rounded bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors duration-150 flex-shrink-0" title="Dismiss"><X className="w-3.5 h-3.5" /></button>}
+          </div>
+          {showRunLogs && (aiRun?.prompt || aiRun?.rawOutput) && (
+            <div className="space-y-2">
+              {aiRun.prompt && (
+                <div className="rounded-xl border border-zinc-700/40 bg-zinc-900/70 overflow-hidden">
+                  <div className="px-3 py-1.5 bg-zinc-800/60 text-[11px] font-mono text-zinc-400 border-b border-zinc-700/40">INPUT PROMPT → provider</div>
+                  <pre className="px-3 py-2 text-[11px] font-mono text-zinc-300 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">{aiRun.prompt}</pre>
+                </div>
+              )}
+              {aiRun.rawOutput && (
+                <div className="rounded-xl border border-zinc-700/40 bg-zinc-900/70 overflow-hidden">
+                  <div className="px-3 py-1.5 bg-zinc-800/60 text-[11px] font-mono text-zinc-400 border-b border-zinc-700/40">RAW OUTPUT ← provider</div>
+                  <pre className="px-3 py-2 text-[11px] font-mono text-zinc-300 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">{aiRun.rawOutput}</pre>
+                </div>
+              )}
+            </div>
+          )}
           {/* Data Sync Mode */}
           <SearchableSection terms={['sync', 'forward', 'refactor', 'data sync mode']} search={settingsSearch}>
           <GlassCard>
@@ -1922,137 +2015,145 @@ export default function SettingsPage({
           )}
           </SearchableSection>
 
-          {/* Pending AI Changes Approval Card */}
-          {(pendingChanges.length > 0 || lockedSkipped.length > 0) && (
-            <SearchableSection terms={['pending', 'ai', 'changes', 'approval', 'queue']} search={settingsSearch}>
-            <GlassCard>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold">Pending AI Changes</h2>
-                    <p className="text-xs text-zinc-500">
-                      {pendingChanges.length} change{pendingChanges.length !== 1 ? 's' : ''} awaiting approval
-                      {lockedSkipped.length > 0 && ` · ${lockedSkipped.length} locked item${lockedSkipped.length !== 1 ? 's' : ''} skipped`}
-                    </p>
-                  </div>
-                </div>
-                {pendingChanges.length > 1 && (
-              <div className="flex items-center gap-2">
-                {appStats.length > 0 && (
-                  <button
-                    onClick={toggleLockAllApps}
-                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-zinc-500 text-zinc-400 hover:text-white rounded-lg text-sm font-medium transition-colors duration-150 flex items-center gap-1.5"
-                    title={filteredAppStats.every((a: any) => lockedApps[a.app]) ? "Unlock all apps" : "Lock all apps"}
+          {/* AI Changes Confirmation Modal (popup asks for confirmation before applying) */}
+          {createPortal(
+            <AnimatePresence>
+              {showApprovalModal && (
+                <motion.div
+                  className="fixed inset-0 z-[300] flex items-center justify-center p-6"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowApprovalModal(false)} />
+                  <motion.div
+                    initial={{ scale: 0.95, y: 12, opacity: 0 }}
+                    animate={{ scale: 1, y: 0, opacity: 1 }}
+                    exit={{ scale: 0.95, y: 12, opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                    className="relative w-full max-w-lg flex flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-[#18181b]/95 shadow-2xl"
                   >
-                    {filteredAppStats.every((a: any) => lockedApps[a.app]) ? (
-                      <LockOpen className="w-3.5 h-3.5" />
-                    ) : (
-                      <Lock className="w-3.5 h-3.5" />
-                    )}
-                    {filteredAppStats.every((a: any) => lockedApps[a.app]) ? 'Unlock All' : 'Lock All'}
-                  </button>
-                )}
-                <button
-                      onClick={approveAllChanges}
-                      className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-sm font-medium transition-colors duration-150"
-                    >
-                      Approve All
-                    </button>
-                    <button
-                      onClick={discardAllChanges}
-                      className="px-3 py-1.5 bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 rounded-lg text-sm font-medium transition-colors duration-150"
-                    >
-                      Discard All
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Locked skipped notification */}
-              {lockedSkipped.length > 0 && (
-                <div className="mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                  <p className="text-xs text-amber-400">
-                    <span className="font-medium">Locked items skipped:</span> {lockedSkipped.join(', ')}
-                  </p>
-                </div>
-              )}
-
-              {/* Changes list */}
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {pendingChanges.map((change) => {
-                  const catColor = getCategoryColor(change.newCategory);
-                  const prevColor = getCategoryColor(change.previousCategory);
-                  return (
-                    <motion.div
-                      key={change.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 10 }}
-                      className="flex items-center gap-3 p-3 bg-zinc-800/40 rounded-xl border border-zinc-700/30"
-                    >
+                    <div className="flex items-start gap-3 px-5 pt-5 pb-3 border-b border-zinc-800">
+                      <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-zinc-200 truncate">{change.name}</span>
-                          <span className="text-xs text-zinc-500 px-1.5 py-0.5 rounded bg-zinc-700/50">{change.type}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${prevColor}20`, color: prevColor }}>
-                            {change.previousCategory}
-                          </span>
-                          <svg className="w-3 h-3 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M5 12h14M12 5l7 7-7 7"/>
-                          </svg>
-                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${catColor}20`, color: catColor }}>
-                            {change.newCategory}
-                          </span>
-                        </div>
+                        <h2 className="text-base font-semibold text-zinc-100">Confirm AI Category Changes</h2>
+                        <p className="text-xs text-zinc-500 mt-0.5">
+                          {pendingChanges.length} change{pendingChanges.length !== 1 ? 's' : ''} suggested — nothing is applied until you approve
+                          {lockedSkipped.length > 0 && ` · ${lockedSkipped.length} locked skipped`}
+                        </p>
                       </div>
+                      <button
+                        onClick={() => setShowApprovalModal(false)}
+                        className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors duration-150 flex-shrink-0"
+                        title="Close (changes stay pending)"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
 
-                      {/* Edit button */}
-                      <div className="relative">
+                    {lockedSkipped.length > 0 && (
+                      <div className="mx-5 mt-3 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                        <p className="text-xs text-amber-400"><span className="font-medium">Locked items skipped:</span> {lockedSkipped.join(', ')}</p>
+                      </div>
+                    )}
+
+                    <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2 max-h-[45vh]">
+                      {pendingChanges.length === 0 ? (
+                        <div className="flex flex-col items-center gap-2 py-10 text-center">
+                          <Check className="w-6 h-6 text-emerald-400" />
+                          <p className="text-sm font-medium text-zinc-300">All changes resolved</p>
+                          <p className="text-xs text-zinc-500">No pending AI category changes.</p>
+                        </div>
+                      ) : pendingChanges.map((change) => {
+                        const catColor = getCategoryColor(change.newCategory);
+                        const prevColor = getCategoryColor(change.previousCategory);
+                        return (
+                          <motion.div
+                            key={change.id}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 10 }}
+                            className="flex items-center gap-3 p-3 bg-zinc-800/40 rounded-xl border border-zinc-700/30"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-zinc-200 truncate">{change.name}</span>
+                                <Badge variant="secondary">{change.type}</Badge>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${prevColor}20`, color: prevColor }}>
+                                  {change.previousCategory}
+                                </span>
+                                <svg className="w-3 h-3 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                                </svg>
+                                <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${catColor}20`, color: catColor }}>
+                                  {change.newCategory}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const cats = allCategories;
+                                const currentIdx = cats.indexOf(change.newCategory);
+                                editPendingChange(change.id, cats[(currentIdx + 1) % cats.length]);
+                              }}
+                              className="p-1.5 rounded bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors duration-150"
+                              title="Change suggested category"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => approveChange(change.id)}
+                              className="p-1.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 transition-colors duration-150"
+                              title="Approve change"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => discardChange(change.id)}
+                              className="p-1.5 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors duration-150"
+                              title="Discard change"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 px-5 py-4 border-t border-zinc-800 bg-zinc-900/50">
+                      {pendingChanges.length > 0 ? (
+                        <>
+                          <button
+                            onClick={() => { discardAllChanges(); }}
+                            className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg text-sm font-medium transition-colors duration-150"
+                          >
+                            Discard All
+                          </button>
+                          <button
+                            onClick={approveAllChanges}
+                            className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-sm font-medium transition-colors duration-150"
+                          >
+                            Approve All ({pendingChanges.length})
+                          </button>
+                        </>
+                      ) : (
                         <button
-                          onClick={() => {
-                            // Cycle through categories
-                            const cats = allCategories;
-                            const currentIdx = cats.indexOf(change.newCategory);
-                            const nextCat = cats[(currentIdx + 1) % cats.length];
-                            editPendingChange(change.id, nextCat);
-                          }}
-                          className="p-1.5 rounded bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors duration-150"
-                          title="Change suggested category"
+                          onClick={() => setShowApprovalModal(false)}
+                          className="ml-auto px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg text-sm font-medium transition-colors duration-150"
                         >
-                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
-                          </svg>
+                          Done
                         </button>
-                      </div>
-
-                      {/* Approve button */}
-                      <button
-                        onClick={() => approveChange(change.id)}
-                        className="p-1.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 transition-colors duration-150"
-                        title="Approve change"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-
-                      {/* Discard (X) button */}
-                      <button
-                        onClick={() => discardChange(change.id)}
-                        className="p-1.5 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors duration-150"
-                        title="Discard change"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </GlassCard>
-            </SearchableSection>
+                      )}
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>,
+            document.body
           )}
 
           {/* Change History (Undo/Redo) */}
@@ -2062,11 +2163,7 @@ export default function SettingsPage({
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-zinc-700/50 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                      <path d="M3 3v5h5"/>
-                      <path d="M12 7v5l4 2"/>
-                    </svg>
+                    <History className="w-4 h-4 text-zinc-400" />
                   </div>
                   <div>
                     <h2 className="text-lg font-semibold">Change History</h2>
@@ -2111,14 +2208,14 @@ export default function SettingsPage({
                         return (
                           <div
                             key={change.id}
-                            className="flex items-center gap-3 p-3 bg-zinc-800/40 rounded-xl border border-zinc-700/30"
+                            className="flex items-center gap-3 p-5 bg-zinc-800/40 rounded-xl border border-zinc-700/30 hover:border-zinc-600/50 transition-colors duration-150"
                           >
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-medium text-zinc-200 truncate">{change.name}</span>
-                                <span className="text-xs text-zinc-500">{timeAgo}</span>
+                                <Badge variant="outline">{timeAgo}</Badge>
                               </div>
-                              <div className="flex items-center gap-2 mt-1">
+                              <div className="flex items-center gap-2 mt-1.5">
                                 <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${prevColor}20`, color: prevColor }}>
                                   {change.previousCategory}
                                 </span>
@@ -2128,7 +2225,7 @@ export default function SettingsPage({
                                 <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${catColor}20`, color: catColor }}>
                                   {change.newCategory}
                                 </span>
-                                <span className="text-xs text-zinc-600">({change.source})</span>
+                                <Badge variant="outline">{change.source}</Badge>
                               </div>
                             </div>
 
@@ -2138,10 +2235,7 @@ export default function SettingsPage({
                               className="p-1.5 rounded bg-zinc-700/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors duration-150"
                               title="Undo this change"
                             >
-                              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                                <path d="M3 3v5h5"/>
-                              </svg>
+                              <Undo2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         );
@@ -2173,6 +2267,7 @@ export default function SettingsPage({
                     setPreAiCategories({ ...appCategoryOverrides });
                     setGeneratingCategories(true);
                     setLockedSkipped([]);
+                    setAiRun({ purpose: 'category', phase: 'Starting...' });
                     try {
                       const itemsToCategorize = appStats.map((a: any) => ({
                         name: a.app,
@@ -2188,11 +2283,20 @@ export default function SettingsPage({
                           newCategory: c.newCategory
                         }));
                         setPendingChanges(prev => [...prev, ...changes]);
+                        if (changes.length > 0) setShowApprovalModal(true);
                         setLockedSkipped(result.lockedSkipped || []);
+                        setAiRun(prev => prev?.error ? prev : ({
+                          purpose: 'category',
+                          phase: `${changes.length} change${changes.length === 1 ? '' : 's'} ready to review`,
+                          done: true,
+                          provider: prev?.provider,
+                          error: ''
+                        }));
                         setGeneratingCategories(false);
                       }
                     } catch (err) {
                       console.error('Magic Category failed:', err);
+                      setAiRun({ purpose: 'category', phase: '', error: err instanceof Error ? err.message : String(err), done: false });
                       setGeneratingCategories(false);
                     }
                   }}
@@ -2266,6 +2370,7 @@ export default function SettingsPage({
                                         previousCategory: change.previousCategory,
                                         newCategory: change.newCategory
                                       }]);
+                                      setShowApprovalModal(true);
                                     }
                                   }
                                 } catch (err) {
@@ -2455,6 +2560,7 @@ export default function SettingsPage({
                     setPreAiCategories({ ...domainCategoryOverrides });
                     setGeneratingCategories(true);
                     setLockedSkipped([]);
+                    setAiRun({ purpose: 'category', phase: 'Starting...' });
                     try {
                       const itemsToCategorize = domainStats.map((d: any) => ({
                         name: d.domain,
@@ -2470,11 +2576,20 @@ export default function SettingsPage({
                           newCategory: c.newCategory
                         }));
                         setPendingChanges(prev => [...prev, ...changes]);
+                        if (changes.length > 0) setShowApprovalModal(true);
                         setLockedSkipped(result.lockedSkipped || []);
+                        setAiRun(prev => prev?.error ? prev : ({
+                          purpose: 'category',
+                          phase: `${changes.length} change${changes.length === 1 ? '' : 's'} ready to review`,
+                          done: true,
+                          provider: prev?.provider,
+                          error: ''
+                        }));
                         setGeneratingCategories(false);
                       }
                     } catch (err) {
                       console.error('Magic Category failed:', err);
+                      setAiRun({ purpose: 'category', phase: '', error: err instanceof Error ? err.message : String(err), done: false });
                       setGeneratingCategories(false);
                     }
                   }}
@@ -2643,10 +2758,7 @@ export default function SettingsPage({
                 {lockedDomains[editingDomainCategory] ? (
                   <div className="flex flex-col items-center gap-2 py-4">
                     <div className="flex items-center gap-2 text-amber-400">
-                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                      </svg>
+                      <Lock className="w-5 h-5" />
                       <span className="text-sm font-medium">Domain is locked</span>
                     </div>
                     <p className="text-xs text-zinc-500 text-center">Unlock this domain first to change its category</p>
@@ -3774,6 +3886,13 @@ export default function SettingsPage({
 
       {activeTab === 'colors' && (
         <div data-section="settings.colors" className="space-y-4">
+          {aiRun?.purpose === 'colors' && (
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${aiRun.error ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'}`}>
+              {aiRun.error ? <AlertTriangle className="w-4 h-4 flex-shrink-0" /> : aiRun.done ? <Check className="w-4 h-4 flex-shrink-0" /> : <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />}
+              <span className="flex-1">{aiRun.error || aiRun.phase}</span>
+              {aiRun.provider && !aiRun.error && <span className="text-xs text-zinc-400 font-mono">via {aiRun.provider}</span>}
+            </div>
+          )}
           {/* Category Colors Section */}
           <SearchableSection terms={['category', 'colors', 'category color', 'palette']} search={settingsSearch}>
           <GlassCard>
@@ -3812,6 +3931,7 @@ export default function SettingsPage({
                     onClick={async () => {
                       setPreAiColors({ ...localAppColors });
                       setGeneratingColors(true);
+                      setAiRun({ purpose: 'colors', phase: 'Starting...' });
                       try {
                         const appsToColor = colorTab === 'apps'
                           ? appStats.map((a: any) => a.app)
@@ -3828,10 +3948,18 @@ export default function SettingsPage({
                           setLocalAppColors(prev => ({ ...prev, ...validColors }));
                           setHasChanges(true);
                           onHasChangesChange(true);
+                          setAiRun(prev => prev?.error ? prev : ({
+                            purpose: 'colors',
+                            phase: `${Object.keys(validColors).length} color${Object.keys(validColors).length === 1 ? '' : 's'} generated`,
+                            done: true,
+                            provider: prev?.provider,
+                            error: ''
+                          }));
                           setGeneratingColors(false);
                         }
                       } catch (err) {
                         console.error('Magic Color failed:', err);
+                        setAiRun({ purpose: 'colors', phase: '', error: err instanceof Error ? err.message : String(err), done: false });
                         setGeneratingColors(false);
                       }
                     }}

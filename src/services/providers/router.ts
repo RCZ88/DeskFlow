@@ -4,7 +4,7 @@ import { callProvider } from './callProvider';
 
 export function buildChain(
   state: AiProvidersState,
-  feature: 'researchDigest' | 'goalAssistant' | 'resumeBuilder',
+  feature: 'researchDigest' | 'goalAssistant' | 'resumeBuilder' | 'category' | 'colors',
 ): Array<{ provider: ResolvedProvider; model: string }> {
   const enabled = state.providers.filter(p => p.enabled);
   const assigned = state.routing[feature] ?? state.routing.default;
@@ -93,6 +93,15 @@ export async function runWithFallback(
   for (const [i, link] of chain.entries()) {
     console.log(`[PROV] chain[${i}]: ${link.provider.config.id} model=${link.model}`);
   }
+  console.log(`[PROMPT] ============ SYSTEM PROMPT ============`);
+  console.log(`[PROMPT] ${req.systemPrompt}`);
+  if (req.messages?.length) {
+    console.log(`[PROMPT] ============ MESSAGES (${req.messages.length}) ============`);
+    req.messages.forEach((m, i) => {
+      console.log(`[PROMPT] [${i}] <${m.role}> ${m.content}`);
+    });
+  }
+  console.log(`[PROMPT] ============ END PROMPT ============`);
   let lastErr: any;
   const errors: { name: string; error: string; kind: 'timeout' | 'failure' }[] = [];
   for (const [i, link] of chain.entries()) {
@@ -100,6 +109,9 @@ export async function runWithFallback(
       console.log(`[PROV] runWithFallback: trying chain[${i}] ${link.provider.config.id} model=${link.model}`);
       const result = await callWithTokenTiers(link.provider, { ...req, model: link.model }, externalSignal);
       console.log(`[PROV] runWithFallback: chain[${i}] ${link.provider.config.id} SUCCEEDED`);
+      console.log(`[RESULT] ============ AI RESULT (provider=${link.provider.config.id}) ============`);
+      console.log(`[RESULT] ${String(result.content)}`);
+      console.log(`[RESULT] ============ END AI RESULT ============`);
       return { result, usedProviderId: link.provider.config.id };
     } catch (err: any) {
       console.log(`[PROV] runWithFallback: chain[${i}] ${link.provider.config.id} FAILED: ${err.message?.slice(0, 150)}`);

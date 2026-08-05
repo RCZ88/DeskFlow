@@ -17,7 +17,7 @@ export interface FinanceWallet {
   id: number;
   account_id: number;
   name: string;
-  type: 'bank' | 'debit_card' | 'credit_card' | 'crypto' | 'cash' | 'ewallet' | 'physical' | 'other';
+  type: 'bank' | 'debit_card' | 'credit_card' | 'crypto' | 'cash' | 'ewallet' | 'physical' | 'prepaid_card' | 'other';
   provider: string | null;
   last_four: string | null;
   balance: number;
@@ -42,6 +42,7 @@ export type WalletMetadata =
   | { type: 'cash'; denominations?: CashDenomination[]; notes?: string }
   | { type: 'physical'; denominations?: CashDenomination[]; description?: string; notes?: string }
   | { type: 'ewallet'; platform?: string; phone_or_email?: string; daily_limit?: number; notes?: string }
+  | { type: 'prepaid_card'; provider?: string; card_number?: string; auto_topup?: boolean; top_up_limit?: number; notes?: string }
   | { type: 'other'; notes?: string };
 
 export interface CryptoPrice {

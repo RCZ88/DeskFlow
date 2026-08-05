@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { GlassCard } from './GlassCard';
 import { listContainer, riseItem, DUR, EASE_OUT } from './workspace/_ds/motion';
 import { EmptyState, Skeleton, IconButton } from './workspace/_ds/primitives';
+import { sanitizeMojibake } from '../lib/sanitize';
 
 interface Problem {
   id: string;
@@ -243,7 +244,7 @@ const ProblemsTab: React.FC<{
                       <span className="text-[11px] font-mono text-zinc-500">{problem.id}</span>
                       <span className="text-[10px] text-zinc-500 capitalize">{problem.priority}</span>
                     </div>
-                    <div className="text-sm text-zinc-100 mt-1 line-clamp-2 leading-snug">{problem.title}</div>
+                    <div className="text-sm text-zinc-100 mt-1 line-clamp-2 leading-snug">{sanitizeMojibake(problem.title)}</div>
                     {problem.terminal_id && (
                       <div className="inline-flex items-center gap-1 text-[10px] text-[color:var(--page-accent)] mt-1.5">
                         <TerminalIcon className="w-3 h-3" /> {problem.terminal_id}
@@ -329,7 +330,7 @@ const ProblemDetailModal: React.FC<{
         </div>
       }
     >
-      <p className="text-[15px] text-zinc-100 mb-4 leading-snug">{problem.title}</p>
+      <p className="text-[15px] text-zinc-100 mb-4 leading-snug">{sanitizeMojibake(problem.title)}</p>
 
       {/* Status selector */}
       <div className="mb-4">

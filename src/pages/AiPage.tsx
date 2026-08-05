@@ -1,37 +1,61 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Settings, BookOpen, Newspaper, Bell, History, Sparkles, ListTodo } from 'lucide-react';
-import { AiPageDeck } from '../components/ai/deck/AiPageDeck';
 import { useCanvasState } from '../hooks/useCanvasState';
-import { CanvasContainer } from '../components/ai/canvas/CanvasContainer';
-import { CanvasGrid } from '../components/ai/canvas/CanvasGrid';
-import { CanvasInput } from '../components/ai/canvas/CanvasInput';
-import { CommandPalette } from '../components/ai/canvas/CommandPalette';
-import { DailyPlannerCard } from '../components/ai/canvas/cards/DailyPlannerCard';
-import { WeeklyScheduleCard } from '../components/ai/canvas/cards/WeeklyScheduleCard';
-import { DeadlineTrackerCard } from '../components/ai/canvas/cards/DeadlineTrackerCard';
 import type { CardType } from '../types/canvas';
 import type { Intent } from '../services/intentParser';
-import { FocusBoard } from '../components/ai/focus/FocusBoard';
-import { PlanBoard } from '../components/ai/plan/PlanBoard';
-import { ReflectFeed } from '../components/ai/reflect/ReflectFeed';
-import { SummaryGrid } from '../components/ai/summary/SummaryGrid';
 import { parseChecklist } from '../services/planningParser';
-import { DailyDigestBoard } from '../components/ai/digest/DailyDigestBoard';
-import { ConnectorsPanel } from '../components/ai/connectors/ConnectorsPanel';
-import { AIFeaturesModal } from '../components/AIFeaturesModal';
-import { AiProviderSelectModal, getProviderBadge } from '../components/AiProviderSelectModal';
-import { ConnectorSetupModal } from '../components/ConnectorSetupModal';
+import { getProviderBadge } from '../components/AiProviderSelectModal';
 import type { DataState, Goal, GoalDay, Mode, LongTermGoal } from '../components/ai/types';
 import { useAiChat } from '../hooks/useAiChat';
+import { useAutomationActions } from '../components/ai/automations/lib/useAutomationActions';
+import { parseNlAutomation, stripAutomationBlock } from '../components/ai/automations/lib/nlParser';
 import { useSlashCommands } from '../hooks/useSlashCommands';
 import { useAutoSync } from '../hooks/useAutoSync';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import type { CardAction } from '../components/ai/chat/parsed';
-import { GoalsRemindersDrawer } from '../components/ai/reminders/GoalsRemindersDrawer';
-import { ChatHistory } from '../components/ai/chat/ChatHistory';
-import { SlashCommandManager } from '../components/ai/chat/SlashCommandManager';
 import type { ChatSuggestion } from '../components/ai/chat/ChatEmptyState';
+import { useAiActions } from '../hooks/useAiActions';
+import { useDynamicUI } from '../hooks/useDynamicUI';
+import { actionBus } from '../components/ai/lib/actionBus';
+import type { ActionType } from '../components/ai/tokens';
+
+// Eagerly load the page-shell + deck styles. The dk-* classes (dk-root,
+// dk-topbar, dk-chip, ...) are used by AiPage in every mode, but deck.css is
+// also imported by the lazy AiPageDeck — without this import the shell renders
+// unstyled on first load until DECK mode happens to inject the CSS.
+import '../components/ai/deck/deck.css';
+
+// Lazy-loaded mode-specific components (only loaded when needed)
+const AiPageDeck = lazy(() => import('../components/ai/deck/AiPageDeck').then(m => ({ default: m.AiPageDeck })));
+const CanvasContainer = lazy(() => import('../components/ai/canvas/CanvasContainer').then(m => ({ default: m.CanvasContainer })));
+const CompositionPanel = lazy(() => import('../components/ai/compositions/CompositionPanel').then(m => ({ default: m.CompositionPanel })));
+const FocusBoard = lazy(() => import('../components/ai/focus/FocusBoard').then(m => ({ default: m.FocusBoard })));
+const PlanBoard = lazy(() => import('../components/ai/plan/PlanBoard').then(m => ({ default: m.PlanBoard })));
+const ReflectFeed = lazy(() => import('../components/ai/reflect/ReflectFeed').then(m => ({ default: m.ReflectFeed })));
+const SummaryGrid = lazy(() => import('../components/ai/summary/SummaryGrid').then(m => ({ default: m.SummaryGrid })));
+const DailyDigestBoard = lazy(() => import('../components/ai/digest/DailyDigestBoard').then(m => ({ default: m.DailyDigestBoard })));
+const ConnectorsPanel = lazy(() => import('../components/ai/connectors/ConnectorsPanel').then(m => ({ default: m.ConnectorsPanel })));
+const AutomationList = lazy(() => import('../components/ai/automations/AutomationList').then(m => ({ default: m.AutomationList })));
+const AIFeaturesModal = lazy(() => import('../components/AIFeaturesModal').then(m => ({ default: m.AIFeaturesModal })));
+const AiProviderSelectModal = lazy(() => import('../components/AiProviderSelectModal').then(m => ({ default: m.AiProviderSelectModal })));
+const ConnectorSetupModal = lazy(() => import('../components/ConnectorSetupModal').then(m => ({ default: m.ConnectorSetupModal })));
+const GoalsRemindersDrawer = lazy(() => import('../components/ai/reminders/GoalsRemindersDrawer').then(m => ({ default: m.GoalsRemindersDrawer })));
+const ChatHistory = lazy(() => import('../components/ai/chat/ChatHistory').then(m => ({ default: m.ChatHistory })));
+const ActionOverlay = lazy(() => import('../components/ai/primitives/ActionOverlay').then(m => ({ default: m.ActionOverlay })));
+const AiBuildingIndicator = lazy(() => import('../components/ai/primitives/AiBuildingIndicator').then(m => ({ default: m.AiBuildingIndicator })));
+const CanvasGrid = lazy(() => import('../components/ai/canvas/CanvasGrid').then(m => ({ default: m.CanvasGrid })));
+const CanvasInput = lazy(() => import('../components/ai/canvas/CanvasInput').then(m => ({ default: m.CanvasInput })));
+const CommandPalette = lazy(() => import('../components/ai/canvas/CommandPalette').then(m => ({ default: m.CommandPalette })));
+const DailyPlannerCard = lazy(() => import('../components/ai/canvas/cards/DailyPlannerCard').then(m => ({ default: m.DailyPlannerCard })));
+const WeeklyScheduleCard = lazy(() => import('../components/ai/canvas/cards/WeeklyScheduleCard').then(m => ({ default: m.WeeklyScheduleCard })));
+const DeadlineTrackerCard = lazy(() => import('../components/ai/canvas/cards/DeadlineTrackerCard').then(m => ({ default: m.DeadlineTrackerCard })));
+const SlashCommandManager = lazy(() => import('../components/ai/chat/SlashCommandManager').then(m => ({ default: m.SlashCommandManager })));
+
+function LazyFallback() {
+  return <div className="flex items-center justify-center h-32 text-zinc-500 text-xs">Loading...</div>
+}
 
 // Toast system for transient feedback
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' }
@@ -145,19 +169,23 @@ export function AiPage() {
   const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set());
-  const [canvasMode, setCanvasMode] = useState(true);
+  const [canvasMode, setCanvasMode] = useState<'deck' | 'canvas' | 'compositions'>('canvas');
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const canvas = useCanvasState();
+  const automationActions = useAutomationActions();
   const [autoApprove, setAutoApprove] = useState(false);
   const [autoFocus, setAutoFocus] = useState(true);
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
+  const aiActions = useAiActions();
+  const dynamicUI = useDynamicUI();
 
   // ── Bridge: ParsedMessage → CanvasCard helpers ──
   const processedMsgIds = useRef<Set<string>>(new Set());
   const msgContentLengths = useRef<Map<string, number>>(new Map());
   const msgCardIds = useRef<Map<string, string>>(new Map());
   const lastCardId = useRef<string | null>(null);
+  const automationMsgIds = useRef<Set<string>>(new Set());
   const recentCardSpawns = useRef<Map<string, number>>(new Map());
   const CARD_DEDUP_MS = 5000;
 
@@ -201,85 +229,144 @@ export function AiPage() {
     return { x: base.x + offset, y: base.y + offset }
   }
 
-  function spawnTypedCard(parsed: any, pos: { x: number; y: number }): string | null {
+  // Canvas-mode automation cards (spec §12) — derived from the live automation list
+  const { toggleAutomation, deleteAutomation, testRun } = automationActions;
+  const automationCanvasCards = useMemo(() => {
+    const existing = Object.values(canvas.allCards).filter((c: any) => c.type === 'automation')
+    const usedPositions = new Set(existing.map((c: any) => `${Math.round(c.position.x / 40)},${Math.round(c.position.y / 40)}`))
+    let col = 0, row = 0
+    return automationActions.automations.map((auto, i) => {
+      while (usedPositions.has(`${col},${row}`)) {
+        col += 6
+        if (col > 18) { col = 0; row += 6 }
+      }
+      usedPositions.add(`${col},${row}`)
+      const pos = { x: 40 + col * 40, y: 40 + row * 40 }
+      return {
+        id: `auto-${auto.ruleId}`,
+        type: 'automation' as CardType,
+        position: pos,
+        size: { w: 8, h: 5 },
+        zIndex: 20 + i,
+        pinned: true,
+        data: {
+          automation: auto,
+          onToggle: () => toggleAutomation(auto.ruleId, auto.enabled),
+          onDelete: () => deleteAutomation(auto.ruleId, auto.name),
+          onTestRun: () => testRun(auto.ruleId, auto.name),
+        },
+        source: 'ai' as const,
+        status: 'live' as const,
+        createdAt: Date.now(),
+      }
+    })
+  }, [automationActions.automations, canvas.allCards, toggleAutomation, deleteAutomation, testRun])
+
+  function spawnTypedCard(parsed: any, pos: { x: number; y: number }, msgId: string): string | null {
     const dataHash = JSON.stringify(parsed).slice(0, 100)
     if (isDuplicate(parsed.type, dataHash)) return null
 
     switch (parsed.type) {
       case 'goal_suggestion':
-        return canvas.addCard('focus', { goals: parsed.goals, source: parsed.source },
+        return canvas.addCard('focus', { goals: parsed.goals, source: parsed.source, msgId },
           { size: { w: 8, h: 6 }, pinned: false, source: 'ai', position: pos })
       case 'plan_update':
-        return canvas.addCard('plan', { goals: parsed.changes?.map((c: any) => c.goal) || [], notes: parsed.note },
+        return canvas.addCard('plan', { goals: parsed.changes?.map((c: any) => c.goal) || [], notes: parsed.note, msgId },
           { size: { w: 8, h: 6 }, pinned: false, source: 'ai', position: pos })
       case 'stats_summary': {
         const metrics = parsed.metrics || []
         const balance = metrics.find((m: any) => m.label?.toLowerCase().includes('balance'))?.value || 0
         const income = metrics.find((m: any) => m.label?.toLowerCase().includes('income'))?.value || 0
         const expense = metrics.find((m: any) => m.label?.toLowerCase().includes('expense'))?.value || 0
-        return canvas.addCard('finance', { summary: { totalBalance: balance, monthlySpent: expense, monthlyBudget: income, subscriptions: [] }, metrics: parsed.metrics },
+        return canvas.addCard('finance', { summary: { totalBalance: balance, monthlySpent: expense, monthlyBudget: income, subscriptions: [] }, metrics: parsed.metrics, msgId },
           { size: { w: 6, h: 4 }, pinned: false, source: 'ai', position: pos })
       }
       case 'digest_item':
-        return canvas.addCard('digest', { topics: [{ topic: parsed.topic, summary: parsed.summary, sources: parsed.sources }] },
+        return canvas.addCard('digest', { topics: [{ topic: parsed.topic, summary: parsed.summary, sources: parsed.sources }], msgId },
           { size: { w: 6, h: 4 }, pinned: false, source: 'ai', position: pos })
       case 'action_list':
-        return canvas.addCard('approval', { title: parsed.actions?.[0]?.label || 'Action Required', description: parsed.note || parsed.actions?.map((a: any) => a.label).join(', '), actions: parsed.actions },
+        return canvas.addCard('approval', { title: parsed.actions?.[0]?.label || 'Action Required', description: parsed.note || parsed.actions?.map((a: any) => a.label).join(', '), actions: parsed.actions, msgId },
           { size: { w: 6, h: 4 }, pinned: true, source: 'ai', position: pos })
       case 'connector_status':
-        return canvas.addCard('connectors', { connectors: parsed.connectors },
+        return canvas.addCard('connectors', { connectors: parsed.connectors, msgId },
           { size: { w: 10, h: 8 }, pinned: false, source: 'ai', position: pos })
       case 'form_fill':
-        return canvas.addCard('response', { content: `**Form:** ${parsed.title || 'Untitled'}\n\n` + (parsed.fields || []).map((f: any) => `- ${f.label}: ${f.value || '(empty)'}`).join('\n'), isToolOutput: false },
+        return canvas.addCard('response', { content: `**Form:** ${parsed.title || 'Untitled'}\n\n` + (parsed.fields || []).map((f: any) => `- ${f.label}: ${f.value || '(empty)'}`).join('\n'), isToolOutput: false, msgId },
           { size: { w: 8, h: 5 }, pinned: false, source: 'ai', position: pos })
       case 'chart_data':
-        return canvas.addCard('response', { content: `**Chart:** ${parsed.title || 'Data Visualization'}\n\nType: ${parsed.chartType}\nLabels: ${parsed.labels?.join(', ') || 'N/A'}`, isToolOutput: false },
+        return canvas.addCard('response', { content: `**Chart:** ${parsed.title || 'Data Visualization'}\n\nType: ${parsed.chartType}\nLabels: ${parsed.labels?.join(', ') || 'N/A'}`, isToolOutput: false, msgId },
           { size: { w: 8, h: 5 }, pinned: false, source: 'ai', position: pos })
       case 'reminder_create':
-        return canvas.addCard('annotation', { text: `Reminder: ${parsed.text}${parsed.dueDate ? ` (due ${parsed.dueDate})` : ''}`, parentType: 'reminder' },
+        return canvas.addCard('annotation', { text: `Reminder: ${parsed.text}${parsed.dueDate ? ` (due ${parsed.dueDate})` : ''}`, parentType: 'reminder', msgId },
           { size: { w: 6, h: 3 }, pinned: false, source: 'ai', position: pos })
       case 'goal_event_link':
-        return canvas.addCard('annotation', { text: `Linked event: ${parsed.eventTitle}`, parentType: 'goal link' },
+        return canvas.addCard('annotation', { text: `Linked event: ${parsed.eventTitle}`, parentType: 'goal link', msgId },
           { size: { w: 6, h: 3 }, pinned: false, source: 'ai', position: pos })
       case 'error':
-        return canvas.addCard('response', { content: `**Error:** ${parsed.message}\n\n${parsed.recovery ? `Recovery: ${parsed.recovery}` : ''}`, isToolOutput: false },
+        return canvas.addCard('response', { content: `**Error:** ${parsed.message}\n\n${parsed.recovery ? `Recovery: ${parsed.recovery}` : ''}`, isToolOutput: false, msgId },
           { size: { w: 8, h: 4 }, pinned: false, source: 'ai', position: pos })
       default: return null
     }
   }
 
   // ── Main bridge useEffect ──
+  // Remount-safe: cards are keyed by message id (data.msgId), so navigating
+  // away and back can NEVER re-spawn duplicates at default positions. On
+  // remount, historical messages are matched to their persisted cards and
+  // only genuinely new messages get cards.
   useEffect(() => {
-    if (!canvasMode) return;
+    if (canvasMode !== 'canvas') return;
 
-    const newMsgs = chat.messages.filter(m => !processedMsgIds.current.has(m.id));
-    
-    // Also detect content updates to existing assistant messages (streaming)
-    const updatedMsgs = chat.messages.filter(m => 
-      processedMsgIds.current.has(m.id) && 
-      m.role === 'assistant' && 
-      m.content && 
-      m.content.length > (msgContentLengths.current.get(m.id) || 0)
-    );
-
-    if (newMsgs.length === 0 && updatedMsgs.length === 0) return;
-
-    // Handle streaming updates to existing assistant messages
-    updatedMsgs.forEach(msg => {
-      const cardId = msgCardIds.current.get(msg.id);
-      if (cardId && canvas.allCards[cardId]) {
-        canvas.updateCard(cardId, {
-          data: {
-            ...canvas.allCards[cardId].data,
-            content: msg.content,
-          },
-        });
-        msgContentLengths.current.set(msg.id, msg.content.length);
-        setFocusedCardId(cardId);
+    // Map message id → existing card ids (survives remounts via the saved layout)
+    const cardsByMsgId = new Map<string, string[]>();
+    Object.values(canvas.allCards).forEach((c: any) => {
+      if (c.data?.msgId) {
+        const arr = cardsByMsgId.get(c.data.msgId) || [];
+        arr.push(c.id);
+        cardsByMsgId.set(c.data.msgId, arr);
       }
     });
 
-    if (newMsgs.length === 0) return;
+    // Restore per-message refs from persisted cards so merge/append logic
+    // keeps working after a remount (lastCardId = last message's card).
+    let lastMatched: string | null = null;
+    chat.messages.forEach(msg => {
+      const ids = cardsByMsgId.get(msg.id);
+      if (!ids || ids.length === 0) return;
+      processedMsgIds.current.add(msg.id);
+      if (msg.content) msgContentLengths.current.set(msg.id, msg.content.length);
+      const cardId = ids[ids.length - 1];
+      if (cardId && canvas.allCards[cardId]) {
+        msgCardIds.current.set(msg.id, cardId);
+        lastMatched = cardId;
+      }
+    });
+    if (lastMatched) lastCardId.current = lastMatched;
+
+    // Streaming content updates to existing assistant cards (works after remount)
+    let changed = false;
+    chat.messages.forEach(msg => {
+      const ids = cardsByMsgId.get(msg.id) || [];
+      for (const cardId of ids) {
+        const card = canvas.allCards[cardId];
+        if (!card || card.data?.isUserInput) continue;
+        const prevLen = msgContentLengths.current.get(msg.id) || 0;
+        if (msg.content && msg.content.length > prevLen) {
+          canvas.updateCard(cardId, {
+            data: {
+              ...card.data,
+              content: stripAutomationBlock(msg.content),
+            },
+          });
+          msgContentLengths.current.set(msg.id, msg.content.length);
+          setFocusedCardId(cardId);
+          changed = true;
+        }
+      }
+    });
+
+    const newMsgs = chat.messages.filter(m => !processedMsgIds.current.has(m.id));
+    if (newMsgs.length === 0 && !changed) return;
 
     newMsgs.forEach(msg => {
       if (msg.role === 'user') {
@@ -289,6 +376,7 @@ export function AiPage() {
           content: msg.content,
           timestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
           isUserInput: true,
+          msgId: msg.id,
         }, {
           size: { w: 10, h: 4 },
           pinned: true,
@@ -312,9 +400,9 @@ export function AiPage() {
 
       // ── STRUCTURED → typed card + optional prose card ──
       if (isStructured && parsed) {
-        const prose = msg.content;
+        const prose = stripAutomationBlock(msg.content);
         const typedPos = getCardPosition(mapParsedToCardType(parsed.type));
-        const typedCardId = spawnTypedCard(parsed, typedPos);
+        const typedCardId = spawnTypedCard(parsed, typedPos, msg.id);
         if (typedCardId) lastCardId.current = typedCardId;
 
         if (prose && prose.trim().length > 10) {
@@ -323,6 +411,7 @@ export function AiPage() {
             content: prose,
             timestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
             isToolOutput: false,
+            msgId: msg.id,
           }, {
             size: { w: 10, h: 5 },
             pinned: false,
@@ -343,7 +432,7 @@ export function AiPage() {
           canvas.updateCard(lastCardId.current, {
             data: {
               ...existing.data,
-              aiResponse: msg.content,
+              aiResponse: stripAutomationBlock(msg.content),
               aiTimestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
             },
             size: { w: 10, h: 8 },
@@ -354,7 +443,8 @@ export function AiPage() {
         // If previous card is an AI response, append to it (merge conversation)
         if (existing.type === 'response' && !existing.data?.isUserInput) {
           const prevContent = existing.data?.content || '';
-          const newContent = prevContent ? prevContent + '\n\n' + msg.content : msg.content;
+          const cleanContent = stripAutomationBlock(msg.content);
+          const newContent = prevContent ? prevContent + '\n\n' + cleanContent : cleanContent;
           canvas.updateCard(lastCardId.current, {
             data: {
               ...existing.data,
@@ -368,10 +458,12 @@ export function AiPage() {
         }
       }
 
+      const cleanContent = stripAutomationBlock(msg.content);
       const standaloneCardId = canvas.addCard('response', {
-        content: msg.content,
+        content: cleanContent,
         timestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
-        isToolOutput: msg.content.includes('```tool') || msg.content.includes('```'),
+        isToolOutput: cleanContent.includes('```tool') || cleanContent.includes('```'),
+        msgId: msg.id,
       }, {
         size: { w: 10, h: 6 },
         pinned: false,
@@ -384,11 +476,29 @@ export function AiPage() {
     });
   }, [chat.messages, canvasMode]);
 
+  // ── AI automation creation (spec §11): fenced ```automation blocks ──
+  // Mode-independent: parses assistant messages for automation blocks and
+  // persists the rule via the backend, so the card appears on Deck/Canvas
+  // through the live automations list. Idempotent per message id + rule name.
+  useEffect(() => {
+    const existingNames = new Set(automationActions.automations.map(a => a.name));
+    chat.messages.forEach(msg => {
+      if (msg.role !== 'assistant' || !msg.content || !msg.content.includes('```automation')) return;
+      if (automationMsgIds.current.has(msg.id)) return;
+      automationMsgIds.current.add(msg.id);
+
+      const parsed = parseNlAutomation(msg.content);
+      if (!parsed || existingNames.has(parsed.config.name)) return;
+      existingNames.add(parsed.config.name);
+      automationActions.createAutomation(parsed.config);
+    });
+  }, [chat.messages, automationActions]);
+
   // Auto-spawn connectors card in Canvas mode
   // Check canvas for existing connectors card instead of relying on ref (ref resets on mode switch)
   const connectorsCardIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!canvasMode) return;
+    if (canvasMode !== 'canvas') return;
     // Wait until connectors are loaded
     if (connectorsState === 'loading') return;
     // Check if a connectors card already exists in the canvas
@@ -447,7 +557,7 @@ export function AiPage() {
   const plannerCardIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!canvasMode) return;
+    if (canvasMode !== 'canvas') return;
     if (goalsState === 'loading') return;
 
     // Spawn planner card if goals exist and no planner card
@@ -717,7 +827,7 @@ export function AiPage() {
 
   // Ensure core cards exist on canvas (seed missing ones, don't touch existing)
   useEffect(() => {
-    if (!canvasMode) return
+    if (canvasMode !== 'canvas') return
     const existing = canvas.cards
     const existingTypes = new Set(Object.values(existing).map((c: any) => c.type))
 
@@ -958,12 +1068,17 @@ export function AiPage() {
   const handleToggleGoal = useCallback(async (goal: Goal) => {
     const snapshot = [...goals];
     const newStatus = goal.status === 'done' ? 'active' : 'done';
+    const actionId = `goal-toggle-${goal.id}-${Date.now()}`
+    actionBus.start(actionId, 'goal-toggle', `${newStatus === 'done' ? 'Completing' : 'Activating'} goal`, { targetSlot: 'focus' })
     try {
       setGoals(prev => prev.map(g => g.id === goal.id ? { ...g, status: newStatus, completedAt: newStatus === 'done' ? new Date().toISOString() : undefined } : g));
       await window.deskflowAPI!.saveGoal(today, { ...goal, status: newStatus, completedAt: newStatus === 'done' ? new Date().toISOString() : undefined });
       setToggleErrors(prev => { const n = { ...prev }; delete n[goal.id]; return n; });
+      actionBus.complete(actionId)
+      showToast(`Goal ${newStatus === 'done' ? 'completed' : 'activated'}`, 'success');
     } catch (e: any) {
       setGoals(snapshot);
+      actionBus.fail(actionId, e?.message)
       setToggleErrors(prev => ({ ...prev, [goal.id]: e.message || 'Update failed' }));
       showToast(e.message || 'Failed to update goal', 'error');
     }
@@ -1246,17 +1361,21 @@ export function AiPage() {
                 <History size={12} />
                 <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>History</span>
               </button>
-              <button
-                onClick={() => setCanvasMode(v => !v)}
-                title={canvasMode ? "Switch to Deck view" : "Switch to Canvas view"}
-                className="dk-topbar-btn"
-                data-tutorial="ai.mode-toggle"
-                style={{ height: 26, padding: "0 10px" }}
-              >
-                <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>
-                  {canvasMode ? 'CANVAS' : 'DECK'}
-                </span>
-              </button>
+              <div className="flex items-center bg-zinc-900/60 rounded-lg p-0.5 border border-zinc-800/50">
+                {(['canvas', 'deck', 'compositions'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setCanvasMode(mode)}
+                    className={`relative px-2.5 py-1 text-[10px] font-medium rounded-md transition-colors ${canvasMode === mode ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    style={{ fontFamily: "var(--mono)" }}
+                  >
+                    {canvasMode === mode && (
+                      <motion.div layoutId="mode-pill" className="absolute inset-0 bg-zinc-700/60 rounded-md" transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }} />
+                    )}
+                    <span className="relative z-10">{mode === 'canvas' ? 'CANVAS' : mode === 'deck' ? 'DECK' : 'COMPS'}</span>
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={() => setHistoryOpen(v => !v)}
                 title="Goals & Reminders"
@@ -1291,12 +1410,17 @@ export function AiPage() {
             </div>
           </div>
 
-          {!canvasMode ? (
+          <Suspense fallback={<LazyFallback />}>
+          {canvasMode === 'compositions' ? (
+            <div style={{ flex: 1, minHeight: 0, padding: 20 }}>
+              <CompositionPanel />
+            </div>
+          ) : canvasMode === 'deck' ? (
           <AiPageDeck
               messages={chat.messages.map((m): import('../components/ai/chat/ChatPanel').ChatMessage => ({
                 id: m.id,
                 role: m.role,
-                content: m.content,
+                content: stripAutomationBlock(m.content),
                 parsed: m.parsed,
                 timestamp: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
               }))}
@@ -1317,6 +1441,11 @@ export function AiPage() {
               modeLabel={modeLabelMap[mode]}
               glanceMetrics={glanceMetrics}
               connectorsSlot={
+                <ActionOverlay
+                  status={aiActions.isSlotActive('connectors') ? 'executing' : aiActions.lastCompleted?.targetSlot === 'connectors' ? 'complete' : null}
+                  actionType="email-send"
+                  label={aiActions.getActionForSlot('connectors')?.label}
+                >
                 <ConnectorsPanel
                   state={connectorsState}
                   connectors={connectors}
@@ -1339,11 +1468,13 @@ export function AiPage() {
                     setConnectorSyncing(prev => { const n = { ...prev }; delete n[id]; return n; });
                   }}
                   onReply={async (connectorId: string, itemId: string, draft: string) => {
+                    const actionId = `email-send-${Date.now()}`
+                    actionBus.start(actionId, 'email-send', 'Sending email', { targetSlot: 'connectors' })
                     try {
                       const r = await (window.deskflowAPI!.connectors as any)?.sendEmail?.(connectorId, { to: '', subject: '', body: draft, inReplyTo: itemId });
-                      if (r?.success) showToast('Reply sent', 'success');
-                      else showToast(r?.error || 'Send failed', 'error');
-                    } catch (e: any) { showToast(e.message || 'Send failed', 'error'); }
+                      if (r?.success) { actionBus.complete(actionId); showToast('Reply sent', 'success'); }
+                      else { actionBus.fail(actionId, r?.error); showToast(r?.error || 'Send failed', 'error'); }
+                    } catch (e: any) { actionBus.fail(actionId, e?.message); showToast(e.message || 'Send failed', 'error'); }
                   }}
                   onMarkRead={async (connectorId: string, itemId: string, read: boolean) => {
                     try {
@@ -1359,30 +1490,27 @@ export function AiPage() {
                     } catch (e: any) { showToast(e.message || 'Delete failed', 'error'); }
                   }}
                   onAddToSchedule={async (connectorId: string, data: { title: string; day_of_week: number; start_time: string; end_time: string }) => {
+                    const actionId = `schedule-add-${Date.now()}`
+                    actionBus.start(actionId, 'schedule-add', 'Adding to schedule', { targetSlot: 'schedule' })
                     try {
                       const r = await (window.deskflowAPI as any)?.addScheduleEntry?.({
-                        title: data.title,
-                        day_of_week: data.day_of_week,
-                        start_time: data.start_time,
-                        end_time: data.end_time,
-                        category: 'email',
-                        color: '#8b5cf6',
+                        title: data.title, day_of_week: data.day_of_week, start_time: data.start_time, end_time: data.end_time, category: 'email', color: '#8b5cf6',
                       });
-                      if (r?.success) showToast('Added to schedule', 'success');
-                      else showToast(r?.error || 'Failed to add', 'error');
-                    } catch (e: any) { showToast(e.message || 'Failed to add', 'error'); }
+                      if (r?.success) { actionBus.complete(actionId); showToast('Added to schedule', 'success'); }
+                      else { actionBus.fail(actionId, r?.error); showToast(r?.error || 'Failed to add', 'error'); }
+                    } catch (e: any) { actionBus.fail(actionId, e?.message); showToast(e.message || 'Failed to add', 'error'); }
                   }}
                   onCreateDeadline={async (connectorId: string, data: { title: string; due_date: string; priority: string }) => {
+                    const actionId = `deadline-add-${Date.now()}`
+                    actionBus.start(actionId, 'deadline-add', 'Creating deadline', { targetSlot: 'deadline' })
                     try {
                       const r = await (window.deskflowAPI as any)?.addDeadline?.({
-                        title: data.title,
-                        due_date: data.due_date,
-                        priority: data.priority,
+                        title: data.title, due_date: data.due_date, priority: data.priority,
                         category: 'email',
                       });
-                      if (r?.success) showToast('Deadline created', 'success');
-                      else showToast(r?.error || 'Failed to create', 'error');
-                    } catch (e: any) { showToast(e.message || 'Failed to create', 'error'); }
+                      if (r?.success) { actionBus.complete(actionId); showToast('Deadline created', 'success'); }
+                      else { actionBus.fail(actionId, r?.error); showToast(r?.error || 'Failed to create', 'error'); }
+                    } catch (e: any) { actionBus.fail(actionId, e?.message); showToast(e.message || 'Failed to create', 'error'); }
                   }}
                   onToast={showToast}
                   onRefresh={loadConnectors}
@@ -1399,9 +1527,15 @@ export function AiPage() {
                     }
                   }}
                 />
+                </ActionOverlay>
               }
               focusSlot={
-                <FocusBoard
+                <ActionOverlay
+                  status={aiActions.isSlotActive('focus') ? 'executing' : aiActions.lastCompleted?.targetSlot === 'focus' ? 'complete' : null}
+                  actionType="goal-toggle"
+                  label={aiActions.getActionForSlot('focus')?.label}
+                >
+                  <FocusBoard
                   state={goalsDataState}
                   mode={mode}
                   goals={goals}
@@ -1423,6 +1557,7 @@ export function AiPage() {
                   onRetryReview={() => { setReviewError(null); handleSaveReview(review || ''); }}
                   onDismissReviewError={() => setReviewError(null)}
                 />
+                </ActionOverlay>
               }
               planSlot={
                 <PlanBoard
@@ -1464,6 +1599,15 @@ export function AiPage() {
                 <div style={{ padding: 16 }}>
                   <DeadlineTrackerCard />
                 </div>
+              }
+               automationsSlot={
+                <ActionOverlay
+                  status={aiActions.isSlotActive('automations') ? 'executing' : aiActions.lastCompleted?.targetSlot === 'automations' ? 'complete' : null}
+                  actionType="composition-create"
+                  label={aiActions.getActionForSlot('automations')?.label}
+                >
+                  <AutomationList />
+                </ActionOverlay>
               }
                historySlot={undefined}
               memoryChips={chat.memories.slice(0, 6)}
@@ -1516,7 +1660,7 @@ export function AiPage() {
           ) : (
           <div data-tutorial="ai.canvas" style={{ flex: 1, minHeight: 0 }}>
             <CanvasContainer
-              cards={canvas.cards}
+              cards={[...canvas.cards, ...automationCanvasCards]}
               onMoveCard={canvas.moveCard}
               onDismissCard={canvas.dismissCard}
               onArrangeCards={canvas.arrangeCards}
@@ -1560,6 +1704,7 @@ export function AiPage() {
             />
           </div>
           )}
+          </Suspense>
 
         </div>
       </div>

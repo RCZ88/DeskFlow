@@ -52,6 +52,7 @@ interface TerminalPaneProps {
   onFocus: (id: string) => void;
   agentStatus?: 'spawning' | 'waiting' | 'ready' | 'timeout';
   onRetryInit?: (terminalId: string) => void;
+  capturedSessionId?: string | null;
 }
 
 interface TerminalLayoutProps {
@@ -64,6 +65,7 @@ interface TerminalLayoutProps {
   projectPath?: string;
   agentStatuses?: Record<string, 'spawning' | 'waiting' | 'ready' | 'timeout'>;
   onRetryInit?: (terminalId: string) => void;
+  capturedSessionIds?: Record<string, string>;
 }
 
 const inputBuffers = new Map<string, string[]>();
@@ -102,7 +104,7 @@ function findFirstLeaf(node: PaneNode): PaneNode | null {
   return null;
 }
 
-function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose, onFocus, agentStatus, onRetryInit }: TerminalPaneProps) {
+function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose, onFocus, agentStatus, onRetryInit, capturedSessionId }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -448,6 +450,13 @@ function TerminalPane({ terminalId, isActive, onTerminalReady, onSplit, onClose,
           <span className="text-[10px] text-cyan-400 font-medium">Initializing agent...</span>
         </div>
       )}
+      {capturedSessionId && (
+        <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-zinc-900/90 backdrop-blur-sm rounded-full px-2.5 py-1 z-10 pointer-events-none"
+             title={`Agent session ${capturedSessionId}`}>
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className="text-[10px] text-emerald-400 font-mono">Connected — session {capturedSessionId}</span>
+        </div>
+      )}
       {agentStatus === 'timeout' && (
         <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-zinc-900/90 backdrop-blur-sm rounded-full px-2.5 py-1 z-10 cursor-pointer"
              onClick={() => onRetryInit?.(terminalId)}>
@@ -534,6 +543,7 @@ function PaneRenderer({
   path: number[];
   agentStatuses?: Record<string, 'spawning' | 'waiting' | 'ready' | 'timeout'>;
   onRetryInit?: (terminalId: string) => void;
+  capturedSessionIds?: Record<string, string>;
 }) {
   if (node.type === 'leaf') {
     return (
@@ -547,6 +557,7 @@ function PaneRenderer({
           onFocus={onFocus}
           agentStatus={agentStatuses?.[node.terminalId!]}
           onRetryInit={onRetryInit}
+          capturedSessionId={capturedSessionIds?.[node.terminalId!]}
         />
       </div>
     );
@@ -573,6 +584,7 @@ function PaneRenderer({
               path={[...path, i]}
               agentStatuses={agentStatuses}
               onRetryInit={onRetryInit}
+              capturedSessionIds={capturedSessionIds}
             />
           </div>
         </React.Fragment>
@@ -681,6 +693,7 @@ export function TerminalLayout({
   projectPath,
   agentStatuses,
   onRetryInit,
+  capturedSessionIds,
 }: TerminalLayoutProps) {
   const spawnedTerminalsRef = useRef(new Set<string>());
 
@@ -804,6 +817,7 @@ export function TerminalLayout({
         path={[]}
         agentStatuses={agentStatuses}
         onRetryInit={onRetryInit}
+        capturedSessionIds={capturedSessionIds}
       />
     </div>
   );

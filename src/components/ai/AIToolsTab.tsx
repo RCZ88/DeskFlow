@@ -20,6 +20,7 @@ import {
   Coins,
   Loader2,
   Monitor,
+  CalendarDays,
 } from 'lucide-react'
 import {
   Chart as ChartJS,
@@ -1942,22 +1943,41 @@ export default function AIToolsTab({
 
       {/* ── AI Usage Heatmap — Calendar Grid ── */}
       {(() => {
-        const activeAgents = aiAgents.filter(a => a.status !== 'inactive' && a.tokens > 0)
-        if (activeAgents.length === 0) return null
+        const ovByTool = overview?.aiUsage?.byTool || {}
+        const heatmapAgents = aiAgents.filter(a => {
+          if (a.status === 'inactive' || a.tokens <= 0) return false
+          const daily = ovByTool[a.id]?.daily
+          return daily && typeof daily === 'object' && Object.keys(daily).length > 0
+        })
 
-        const byTool = overview?.aiUsage?.byTool || {}
+        if (heatmapAgents.length === 0 || !overview) {
+          return (
+            <div className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5 flex flex-col items-center justify-center min-h-[200px] text-center">
+              <CalendarDays className="w-8 h-8 text-zinc-500 mb-2" />
+              <p className="text-sm text-zinc-400 font-medium">No daily usage data available</p>
+              <p className="text-[10px] text-zinc-500 mt-1">Try selecting a specific tool or refreshing the data.</p>
+            </div>
+          )
+        }
+
         const selectedHeatmapTool = heatmapToolFilter
         const filteredAgents = selectedHeatmapTool === 'all'
-          ? activeAgents
-          : activeAgents.filter(a => a.id === selectedHeatmapTool)
-        if (filteredAgents.length === 0) return null
+          ? heatmapAgents
+          : heatmapAgents.filter(a => a.id === selectedHeatmapTool)
+        if (filteredAgents.length === 0) {
+          return (
+            <div className="bg-zinc-900/60 border border-zinc-800/50 rounded-xl !p-5 text-center text-sm text-zinc-500">
+              No data for the selected tool filter.
+            </div>
+          )
+        }
 
         const dateMap: Record<string, Record<string, { tokens: number; cost: number; messages: number; sessions: number }>> = {}
         const allDateStrs = new Set<string>()
         let maxVal = 0
 
         for (const agent of filteredAgents) {
-          const daily = byTool[agent.id]?.daily || {}
+          const daily = ovByTool[agent.id]?.daily || {}
           for (const [dateStr, dayData] of Object.entries(daily) as [string, any][]) {
             const dt = new Date(dateStr)
             if (isNaN(dt.getTime())) continue
@@ -1972,7 +1992,15 @@ export default function AIToolsTab({
           }
         }
 
-        if (allDateStrs.size === 0) return null
+        if (allDateStrs.size === 0) {
+          return (
+            <div className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5 flex flex-col items-center justify-center min-h-[200px] text-center">
+              <CalendarDays className="w-8 h-8 text-zinc-500 mb-2" />
+              <p className="text-sm text-zinc-400 font-medium">No daily usage data available</p>
+              <p className="text-[10px] text-zinc-500 mt-1">Try selecting a specific tool or refreshing the data.</p>
+            </div>
+          )
+        }
 
         const sortedDates = Array.from(allDateStrs).sort()
         const todayStr = format(new Date(), 'yyyy-MM-dd')
@@ -2004,7 +2032,7 @@ export default function AIToolsTab({
           })
         }
 
-        if (days.length === 0) return null
+        if (days.length === 0) return heatmapEmpty
 
         const cellColor = (b: number) => {
           if (b === 0) return 'rgba(255,255,255,0.04)'
@@ -2067,14 +2095,14 @@ export default function AIToolsTab({
                 <div>
                   <h3 className="text-[13px] font-semibold text-zinc-100">Usage Pattern</h3>
                   <p className="text-[11px] text-zinc-600">
-                    {selectedHeatmapTool === 'all' ? 'All tools' : activeAgents.find(a => a.id === selectedHeatmapTool)?.name || selectedHeatmapTool} · {days.length} days · {aiChartMode}
+                    {selectedHeatmapTool === 'all' ? 'All tools' : heatmapAgents.find(a => a.id === selectedHeatmapTool)?.name || selectedHeatmapTool} · {days.length} days · {aiChartMode}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="flex items-center gap-0.5 bg-zinc-900/60 rounded-lg p-0.5 ring-1 ring-zinc-800/50">
                   <button onClick={() => setToolFilter('all')} className={cn('px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors duration-150', selectedHeatmapTool === 'all' ? 'bg-zinc-700/60 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300')}>All</button>
-                  {activeAgents.slice(0, 8).map(a => (
+                  {heatmapAgents.slice(0, 8).map(a => (
                     <button key={a.id} onClick={() => setToolFilter(a.id)} className={cn('px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors duration-150', selectedHeatmapTool === a.id ? 'bg-zinc-700/60 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300')}>{a.name.split(' ')[0]}</button>
                   ))}
                 </div>

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Wallet, Banknote, CreditCard, Landmark, PiggyBank, X, Edit3, Archive, Trash2, ArchiveRestore, ChevronDown, ChevronRight, WalletCards, TrendingUp } from 'lucide-react';
+import { Plus, Wallet, Banknote, CreditCard, Landmark, PiggyBank, X, Edit3, Archive, Trash2, ArchiveRestore, ChevronDown, ChevronRight, WalletCards, TrendingUp, Nfc } from 'lucide-react';
 import { GlassSurface } from './_fx/GlassSurface';
 import { TabHeader } from './_fx/TabHeader';
 import { EmptyState } from './EmptyState';
@@ -58,6 +58,7 @@ const walletMeta: Record<string, { icon: any; label: string; color: string }> = 
   cash: { icon: PiggyBank, label: 'Cash', color: '#EC4899' },
   physical: { icon: WalletCards, label: 'Physical', color: '#F97316' },
   ewallet: { icon: Banknote, label: 'E-Wallet', color: '#06B6D4' },
+  prepaid_card: { icon: Nfc, label: 'Prepaid Card', color: '#22D3EE' },
   other: { icon: Wallet, label: 'Other', color: '#6B7280' },
 };
 

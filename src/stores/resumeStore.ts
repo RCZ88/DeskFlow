@@ -62,6 +62,8 @@ interface ResumeState {
   saveVersion: (v: Partial<ResumeVersion>) => Promise<void>;
   exportResume: (versionId: string, format: string) => Promise<{ success: boolean; filePath?: string }>;
   fetchReports: () => Promise<void>;
+  saveProgress: () => Promise<boolean>;
+  loadProgress: () => Promise<any>;
 }
 
 const defaultProgress: BuilderProgress = {
@@ -80,6 +82,15 @@ const defaultContent: ResumeContent = {
   projects: [],
   skills: [],
   education: [],
+};
+
+const normalizePhaseStatus = (
+  ps: any
+): Record<number, 'locked' | 'in_progress' | 'complete'> => {
+  if (!ps) return defaultProgress.phaseStatus;
+  return Object.fromEntries(
+    Object.entries(ps).map(([k, v]) => [Number(k), v])
+  ) as Record<number, 'locked' | 'in_progress' | 'complete'>;
 };
 
 export const useResumeStore = create<ResumeState>()(
@@ -241,10 +252,34 @@ export const useResumeStore = create<ResumeState>()(
           console.error('[ResumeStore] fetchReports:', e);
         }
       },
+      saveProgress: async () => {
+        set({ isSaving: true });
+        try {
+          const ok = await (window as any).deskflowAPI?.resume?.saveProgress(get().builderProgress);
+          set({ isSaving: false });
+          return ok !== false;
+        } catch (e) {
+          console.error('[ResumeStore] saveProgress:', e);
+          set({ isSaving: false });
+          return false;
+        }
+      },
+      loadProgress: async () => {
+        try {
+          return await (window as any).deskflowAPI?.resume?.loadProgress() || null;
+        } catch (e) {
+          console.error('[ResumeStore] loadProgress:', e);
+          return null;
+        }
+      },
     }),
     {
       name: 'resume-builder-storage',
       partialize: (s) => ({
+        profile: s.profile,
+        builderProgress: s.builderProgress,
+        resumeContent: s.resumeContent,
+        aiFeedback: s.aiFeedback,
         previewMode: s.previewMode,
         previewZoom: s.previewZoom,
       }),
@@ -254,9 +289,23 @@ export const useResumeStore = create<ResumeState>()(
         builderProgress: {
           ...current.builderProgress,
           ...persisted?.builderProgress,
+          phaseStatus: normalizePhaseStatus(persisted?.builderProgress?.phaseStatus),
           questionHistory: persisted?.builderProgress?.questionHistory ?? [],
         },
       }),
     }
   )
 );
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+useResumeStore.subscribe((state, prev) => {
+  if (state.builderProgress === prev.builderProgress) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      (window as any).deskflowAPI?.resume?.saveProgress?.(state.builderProgress);
+    } catch (e) {
+      console.error('[ResumeStore] auto-save error:', e);
+    }
+  }, 400);
+});

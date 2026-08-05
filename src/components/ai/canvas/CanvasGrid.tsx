@@ -46,13 +46,9 @@ export function CanvasGrid({
   panRef.current = pan
   zoomRef.current = zoom
 
-  // Refs for cards/zoom/pan so global pointermove handler always reads latest
+  // Refs for cards so the global pointermove handler always reads latest
   const cardsRef = useRef(cards)
-  const zoomR = useRef(zoom)
-  const panR = useRef(pan)
   cardsRef.current = cards
-  zoomR.current = zoom
-  panR.current = pan
 
   // Global pointermove for drop-target detection via math (not elementFromPoint
   // which fails when dragged card's zIndex covers everything)
@@ -70,8 +66,6 @@ export function CanvasGrid({
       }
 
       const currentCards = cardsRef.current
-      const z = zoomR.current
-      const p = panR.current
 
       // Read the dragged card's visual position from the DOM
       const draggedEl = document.querySelector(`[data-card-id="${draggingId}"]`) as HTMLElement | null
@@ -90,17 +84,24 @@ export function CanvasGrid({
         dragCX = visX + cardW / 2
         dragCY = visY + cardH / 2
       } else {
-        // Fallback: use cursor if DOM element unavailable
-        dragCX = e.clientX
-        dragCY = e.clientY
+        // Dragged card left the DOM (dismissed/unmounted mid-drag) — clear the
+        // stuck drag state so the canvas doesn't stay in "dragging" mode.
+        draggingCardId.current = null
+        dropTargetRef.current = null
+        setDropTargetId(null)
+        gridLayerRef.current?.removeAttribute('data-card-dragging')
+        return
       }
 
+      // Target rects are in GRID coordinates — the dragged card's transform is
+      // inside the scaled layer (no zoom/pan applied to the element itself), so
+      // multiplying by zoom/pan here made drop targets wrong when zoomed/panned.
       const targetCard = currentCards.find(c => {
         if (c.id === draggingId) return false
-        const left = c.position.x * z + p.x
-        const top = c.position.y * z + p.y
-        const right = left + c.size.w * CELL * z
-        const bottom = top + c.size.h * CELL * z
+        const left = c.position.x
+        const top = c.position.y
+        const right = left + c.size.w * CELL
+        const bottom = top + c.size.h * CELL
         return dragCX >= left && dragCX <= right &&
                dragCY >= top && dragCY <= bottom
       })
@@ -123,6 +124,7 @@ export function CanvasGrid({
     setIsPanning(true)
     const p = panRef.current
     panStart.current = { x: e.clientX, y: e.clientY, panX: p.x, panY: p.y }
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch { /* ignore */ }
   }, [setIsPanning])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
@@ -133,8 +135,9 @@ export function CanvasGrid({
     onPanChange(newPan)
   }, [isPanning, onPanChange])
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
     setIsPanning(false)
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* ignore */ }
   }, [setIsPanning])
 
   // Native wheel listener with { passive: false } to allow preventDefault

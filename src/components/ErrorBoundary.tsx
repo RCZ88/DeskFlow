@@ -15,6 +15,23 @@ export function triggerGlobalError(error: Error) {
   }
 }
 
+const DYNAMIC_IMPORT_PATTERN = /Failed to fetch dynamically imported module|Importing a module script failed|failed to fetch.*dynamically.*module/i;
+
+export function isDynamicImportFailure(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error ?? '');
+  return DYNAMIC_IMPORT_PATTERN.test(msg);
+}
+
+let lastAutoReloadAt = 0;
+export function autoHealDynamicImport(): void {
+  const now = Date.now();
+  if (now - lastAutoReloadAt < 8000) return;
+  lastAutoReloadAt = now;
+  clearPersistedError();
+  console.warn('[SelfHeal] Dynamic import failed (stale bundle after rebuild) — reloading to pick up fresh chunks.');
+  window.location.reload();
+}
+
 function getPersistedErrorCount(): number {
   try {
     return parseInt(localStorage.getItem(ERROR_COUNT_KEY) || '0', 10);
@@ -92,6 +109,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('[ErrorBoundary] Caught error:', error, errorInfo);
+    if (isDynamicImportFailure(error)) {
+      autoHealDynamicImport();
+    }
   }
 
   handleCopyError = () => {

@@ -68,6 +68,10 @@ export interface LongTermGoal {
   description?: string;
   deadline?: string;
   progress?: number;
+  priority?: number;
+  status?: string;
+  source?: string;
+  links?: GoalLink[];
 }
 
 export interface Deadline {

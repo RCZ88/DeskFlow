@@ -3,6 +3,8 @@ import { GoalTimeline } from './GoalTimeline'
 import { GoalItem } from './GoalItem'
 import { useGoalProgress } from '../../../../hooks/useGoalProgress'
 import { useFocusGoals } from '../../../../hooks/useFocusGoals'
+import { useFocusGroups } from '../../../../hooks/useFocusGroups'
+import { setActiveGroup } from '../../../../hooks/useActiveFocusGroup'
 import type { Goal } from '../../../../services/GoalStore'
 import { CalendarDays, Sparkles, ChevronDown, ChevronRight, Target, AlertCircle, Loader2, Plus, X } from 'lucide-react'
 
@@ -24,6 +26,7 @@ export function DailyPlannerCard({ date = new Date().toISOString().slice(0, 10) 
 
   const { progressMap, refetch: refetchProgress } = useGoalProgress(date, goals)
   const { focusState, activeGoalIds, getAccumulatedSeconds } = useFocusGoals(goals)
+  const { selected: selectedGroup } = useFocusGroups()
 
   useEffect(() => {
     const api = (window as any).deskflowAPI
@@ -63,8 +66,22 @@ export function DailyPlannerCard({ date = new Date().toISOString().slice(0, 10) 
   const startFocus = useCallback((goal: Goal) => {
     const api = (window as any).deskflowAPI
     if (!api?.focus?.start) return
-    api.focus.start({ durationSec: (goal.target?.targetSeconds || 3600) - (goal.progressSeconds || 0), strictness: 'distracting' })
-  }, [])
+    const remaining = Math.max(60, (goal.target?.targetSeconds || 3600) - (goal.progressSeconds || 0))
+    if (selectedGroup && api.focusGroup?.startWith) {
+      api.focusGroup.startWith(selectedGroup.id, remaining, 'distracting').then((r: any) => {
+        if (r?.sessionId != null) {
+          setActiveGroup({
+            sessionId: Number(r.sessionId),
+            groupId: selectedGroup.id,
+            allowedCategories: (selectedGroup.allowed_categories || []).map(String),
+            startedAt: Date.now(),
+          })
+        }
+      })
+    } else {
+      api.focus.start({ durationSec: remaining, strictness: 'distracting' })
+    }
+  }, [selectedGroup])
 
   const handleSuggest = useCallback(async () => {
     if (!canRequestSuggestion()) { setError('Rate limited. Try again later.'); setTimeout(() => setError(null), 3000); return }

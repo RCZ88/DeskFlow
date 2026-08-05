@@ -107,6 +107,9 @@ export function useVoiceInput({
   const solidifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userStoppedRef = useRef(false);
   const startedAtRef = useRef<number>(0);
+  const retriesRef = useRef(0);
+  const networkRetriesRef = useRef(0);
+  const MAX_RETRIES = 5;
 
   // Refs for values used inside recognition callbacks (avoid stale closures)
   const onTranscriptRef = useRef(onTranscript);
@@ -237,6 +240,8 @@ export function useVoiceInput({
 
       // Reset silence timer
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      retriesRef.current = 0;
+      networkRetriesRef.current = 0;
       const currentSilenceMs = silenceMsRef.current;
       const countdownSetter = c ? c.setCountdownMs : setLocalCountdown;
       countdownSetter(currentSilenceMs);
@@ -258,6 +263,13 @@ export function useVoiceInput({
         return;
       }
 
+      if (event.error === 'network') {
+        networkRetriesRef.current++;
+        if (c) c.setError(undefined);
+        else setLocalError(undefined);
+        return;
+      }
+
       if (c) {
         if (event.error === 'not-allowed') c.setError('no-permission');
         else c.setError('unknown');
@@ -276,7 +288,10 @@ export function useVoiceInput({
 
     recognition.onend = () => {
       if (userStoppedRef.current) {
-        userStoppedRef.current = false;
+    userStoppedRef.current = false;
+    retriesRef.current = 0;
+    networkRetriesRef.current = 0;
+        networkRetriesRef.current = 0;
         const c = ctxRef.current;
         if (c) c.stopSession();
         else {
@@ -287,17 +302,48 @@ export function useVoiceInput({
         return;
       }
 
-      // Natural end — restart recognition
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.start();
-        } catch {
-          const c = ctxRef.current;
-          if (c) c.stopSession();
-          else setLocalState('idle');
-          clearTimers();
-        }
+      // Network errors: always restart, never count toward limit
+      if (networkRetriesRef.current > 0) {
+        const delay = Math.min(1000 * Math.pow(1.5, Math.min(networkRetriesRef.current - 1, 4)), 5000);
+        setTimeout(() => {
+          if (recognitionRef.current) {
+            try { recognitionRef.current.start(); } catch {
+              const c = ctxRef.current;
+              if (c) c.stopSession();
+              else setLocalState('idle');
+              clearTimers();
+              retriesRef.current = 0;
+              networkRetriesRef.current = 0;
+            }
+          }
+        }, delay);
+        return;
       }
+
+      // Non-network errors: backoff with retry limit
+      if (retriesRef.current >= MAX_RETRIES) {
+        const c = ctxRef.current;
+        if (c) { c.setError('unknown'); c.stopSession(); }
+        else { setLocalState('idle'); setLocalError('unknown'); }
+        clearTimers();
+        retriesRef.current = 0;
+        return;
+      }
+      const delay = Math.min(300 * Math.pow(2, retriesRef.current), 3000);
+      retriesRef.current++;
+      setTimeout(() => {
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.start();
+          } catch {
+            const c = ctxRef.current;
+            if (c) c.stopSession();
+            else setLocalState('idle');
+            clearTimers();
+            retriesRef.current = 0;
+          }
+        }
+      }, delay);
     };
 
     recognitionRef.current = recognition;

@@ -26,7 +26,7 @@ export const TEXT = {
 	disabled: "text-zinc-600",
 } as const
 
-export type AccentKey = "pink" | "emerald" | "amber" | "violet" | "red" | "cyan"
+export type AccentKey = "pink" | "emerald" | "amber" | "violet" | "red" | "cyan" | "automation"
 
 export interface AccentDef {
 	dot: string
@@ -70,6 +70,14 @@ export const ACCENT: Record<AccentKey, AccentDef> = {
 		ring: "ring-violet-500/30",
 		hex: "#a78bfa",
 	},
+	automation: {
+		dot: "bg-violet-400",
+		bar: "bg-violet-500",
+		pill: "bg-violet-500/10 text-violet-300 ring-1 ring-violet-500/20",
+		text: "text-violet-300",
+		ring: "ring-violet-500/30",
+		hex: "#a78bfa",
+	},
 	red: {
 		dot: "bg-red-400",
 		bar: "bg-red-500",
@@ -106,4 +114,37 @@ export const SECTION_ACCENT = {
 	focus: "emerald",
 	plan: "violet",
 	reflect: "amber",
+	automation: "violet",
 } as const satisfies Record<string, AccentKey>
+
+export type ActionType =
+  | 'goal-toggle' | 'goal-add' | 'goal-delete' | 'goal-update' | 'goal-suggestions'
+  | 'schedule-add' | 'schedule-delete' | 'schedule-update'
+  | 'deadline-add' | 'deadline-delete' | 'deadline-update'
+  | 'email-send' | 'email-mark-read' | 'email-sync'
+  | 'calendar-create' | 'calendar-update' | 'calendar-delete'
+  | 'composition-create' | 'composition-update' | 'composition-delete' | 'composition-evaluate'
+  | 'canvas-add' | 'canvas-remove' | 'canvas-group' | 'canvas-ungroup'
+  | 'ai-generate' | 'ai-stream' | 'connector-sync'
+
+export const ACTION_ACCENT: Record<ActionType, AccentKey> = {
+  'goal-toggle': 'emerald', 'goal-add': 'emerald', 'goal-delete': 'red', 'goal-update': 'amber', 'goal-suggestions': 'violet',
+  'schedule-add': 'cyan', 'schedule-delete': 'red', 'schedule-update': 'amber',
+  'deadline-add': 'amber', 'deadline-delete': 'red', 'deadline-update': 'amber',
+  'email-send': 'pink', 'email-mark-read': 'pink', 'email-sync': 'cyan',
+  'calendar-create': 'violet', 'calendar-update': 'violet', 'calendar-delete': 'red',
+  'composition-create': 'emerald', 'composition-update': 'amber', 'composition-delete': 'red', 'composition-evaluate': 'cyan',
+  'canvas-add': 'violet', 'canvas-remove': 'red', 'canvas-group': 'pink', 'canvas-ungroup': 'amber',
+  'ai-generate': 'violet', 'ai-stream': 'pink', 'connector-sync': 'cyan',
+}
+
+export const ACTION_ICON: Record<ActionType, string> = {
+  'goal-toggle': 'Check', 'goal-add': 'Plus', 'goal-delete': 'Trash2', 'goal-update': 'Pencil', 'goal-suggestions': 'Sparkles',
+  'schedule-add': 'CalendarPlus', 'schedule-delete': 'Trash2', 'schedule-update': 'Pencil',
+  'deadline-add': 'Clock', 'deadline-delete': 'Trash2', 'deadline-update': 'Pencil',
+  'email-send': 'Send', 'email-mark-read': 'Mail', 'email-sync': 'RefreshCw',
+  'calendar-create': 'CalendarPlus', 'calendar-update': 'Pencil', 'calendar-delete': 'Trash2',
+  'composition-create': 'Plus', 'composition-update': 'Pencil', 'composition-delete': 'Trash2', 'composition-evaluate': 'Play',
+  'canvas-add': 'Plus', 'canvas-remove': 'X', 'canvas-group': 'Group', 'canvas-ungroup': 'Ungroup',
+  'ai-generate': 'Sparkles', 'ai-stream': 'Radio', 'connector-sync': 'RefreshCw',
+}

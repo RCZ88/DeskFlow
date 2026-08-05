@@ -96,3 +96,19 @@ Every name, URL, and label for external services must be verified against real d
 1. Search for the actual service name and API docs
 2. Verify the URL pattern against their official docs
 3. Confirm the service actually exists (a provider with zero search results = doesn't exist)
+
+## 15. NEVER claim "fully fixed" without auditing the FULL spec
+
+Build passing + a unit test passing is NOT proof a feature works. Before claiming done, audit EVERY deliverable/acceptance criterion in the spec against the code, end-to-end (main → preload → renderer → UI render), and runtime-verify the layer the feature lives in. If not runtime-verified, the verdict is "NOT LAUNCHED", never PASS.
+
+## 16. ALWAYS update requests/problems state every cycle
+
+Every feature/bug must have an entry in `agent/requests.json` / `agent/problems.json` with checks[]. Create it at cycle start; update status honestly at cycle end (In Progress → AI Attempted Fix → User Testing). A 17k-line commit with zero request tracking is a failed cycle.
+
+## 17. ALWAYS read the reflection logs before ANY task
+
+`agent/AGENTS.md` mandates reading `agent/skills/agent-reflect/logs/` + `problem.md` before acting. Skipping it = repeating logged mistakes. This is not optional.
+
+## 18. Resolve CONTEXT_GAPS in the doc when the code pivots
+
+If the implementation makes a decision that answers an OPEN gap (e.g. "db-pid primary instead of output-parsing"), mark it `[RESOLVED]` with the reason IN THE DOC, same cycle. Stale gap docs = future agents re-litigate closed decisions.

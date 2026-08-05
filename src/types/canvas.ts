@@ -3,6 +3,8 @@ export type CardType =
   | 'digest' | 'approval' | 'transient' | 'annotation'
   | 'response' | 'group' | 'connectors'
   | 'schedule' | 'deadlines' | 'planner'
+  | 'automation'
+  | 'generated'
 
 export type CardStatus = 'live' | 'stale' | 'error' | 'loading'
 
@@ -75,6 +77,8 @@ export type CanvasAction =
   | { type: 'ADD_TO_GROUP'; cardId: string; groupId: string }
   | { type: 'REMOVE_FROM_GROUP'; cardId: string; newPosition?: { x: number; y: number } }
   | { type: 'ARRANGE_GROUP'; id: string; positions: Record<string, { x: number; y: number }>; size: { w: number; h: number } }
+  | { type: 'ADD_GENERATED_CARD'; card: CanvasCard }
+  | { type: 'REMOVE_GENERATED_CARD'; id: string }
 
 export const DEFAULT_STATE: CanvasState = {
   cards: {},
@@ -281,6 +285,16 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
         groups: { ...state.groups, [action.id]: { ...group, size: action.size } },
         cards: updatedCards,
       }
+    }
+    case 'ADD_GENERATED_CARD':
+      return {
+        ...state,
+        cards: { ...state.cards, [action.card.id]: { ...action.card, zIndex: state.nextZIndex } },
+        nextZIndex: state.nextZIndex + 1,
+      }
+    case 'REMOVE_GENERATED_CARD': {
+      const { [action.id]: _, ...restCards } = state.cards
+      return { ...state, cards: restCards }
     }
     default:
       return state

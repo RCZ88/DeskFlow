@@ -7,6 +7,9 @@ import { NumberTicker } from '../../components/ui/number-ticker';
 import { GlassCard } from '../../components/GlassCard';
 import { Badge } from '../../components/ui/badge';
 import type { FocusPublicState } from '../../hooks/useFocusSession';
+import type { FocusGroup } from '../../hooks/useFocusGroups';
+import { FocusGroupSelector } from './FocusGroupSelector';
+import { DragDurationBar } from './DragDurationBar';
 import { fmtClock } from './focusHelpers';
 
 const PRESETS = [
@@ -32,6 +35,14 @@ interface FocusTimerProps {
   mode?: FocusMode;
   onModeChange?: (mode: FocusMode) => void;
   stopwatchElapsed?: number;
+  groups?: FocusGroup[];
+  selectedGroupId?: number | null;
+  onGroupSelect?: (id: number | null) => void;
+  onGroupCreate?: () => void;
+  onGroupEdit?: (g: FocusGroup) => void;
+  onGroupDelete?: (g: FocusGroup) => void;
+  onStartWithGroup?: (groupId: number, durationSec: number, strictness: 'distracting' | 'non_allowed') => void;
+  onDurationDrag?: (sec: number) => void;
 }
 
 const tapScale = { scale: 0.95 };
@@ -42,7 +53,7 @@ const crossfade = {
   transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const },
 };
 
-export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, onStart, onStop, justCompleted, mode = 'timer', onModeChange, stopwatchElapsed = 0 }: FocusTimerProps) {
+export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, onStart, onStop, justCompleted, mode = 'timer', onModeChange, stopwatchElapsed = 0, groups = [], selectedGroupId = null, onGroupSelect, onGroupCreate, onGroupEdit, onGroupDelete, onStartWithGroup, onDurationDrag }: FocusTimerProps) {
   const active = !!state?.active;
   const plannedSec = mins * 60;
 
@@ -118,9 +129,9 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
               value={mode === 'stopwatch' ? stopwatchSec : remainingSec}
               duration={active ? 600 : 200}
               formatter={clockFormatter}
-              className="text-5xl font-bold tabular-nums font-mono text-white"
+              className="text-6xl font-bold tabular-nums font-mono text-white"
             />
-            <span className="text-[10px] text-zinc-500 uppercase tracking-wider mt-1">
+            <span className="text-[11px] text-zinc-400 uppercase tracking-wider mt-2">
               {active ? (mode === 'stopwatch' ? 'elapsed' : 'remaining') : `${mins} min session`}
             </span>
           </div>
@@ -157,6 +168,19 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
               transition={crossfade.transition}
               className="w-full"
             >
+              <div className="w-full">
+                {onGroupSelect && onGroupCreate && (
+                  <FocusGroupSelector
+                    groups={groups}
+                    selectedId={selectedGroupId}
+                    onSelect={onGroupSelect}
+                    onCreate={onGroupCreate}
+                    onEdit={onGroupEdit ?? (() => {})}
+                    onDelete={onGroupDelete ?? (() => {})}
+                  />
+                )}
+              </div>
+
               <div className="flex gap-2 mb-3">
                 <motion.button
                   whileTap={tapScale}
@@ -185,7 +209,11 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
               </div>
 
               {mode === 'timer' && (
-                <div className="grid grid-cols-6 gap-2 mb-3">
+                <>
+                  {onDurationDrag && (
+                    <DragDurationBar valueSec={mins * 60} onChange={onDurationDrag} />
+                  )}
+                  <div className="grid grid-cols-6 gap-2 mb-3">
                   {PRESETS.map(p => (
                     <motion.button
                       key={p.sec}
@@ -201,7 +229,8 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
                       {p.label}
                     </motion.button>
                   ))}
-                </div>
+                  </div>
+                </>
               )}
 
               <button
@@ -225,11 +254,18 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
 
               <motion.button
                 whileTap={tapScale}
-                onClick={onStart}
+                onClick={() => {
+                  if (mode !== 'stopwatch' && selectedGroupId != null && onStartWithGroup) onStartWithGroup(selectedGroupId, mins * 60, strict);
+                  else onStart();
+                }}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 transition-colors"
               >
                 <Play className="w-4 h-4" />
-                {mode === 'stopwatch' ? 'Start challenge' : `Start ${mins}-min focus`}
+                {mode === 'stopwatch'
+                  ? 'Start challenge'
+                  : selectedGroupId != null
+                    ? `Start ${groups.find(g => g.id === selectedGroupId)?.name ?? 'group'} focus`
+                    : `Start ${mins}-min focus`}
               </motion.button>
             </motion.div>
           )}

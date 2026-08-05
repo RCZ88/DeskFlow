@@ -1,3 +1,7 @@
+// DEPRECATED: This page has been replaced by CompositionPanel in the AI assistant page.
+// The /compositions route now redirects to /ai. This file is kept for backward compatibility only.
+// All composition UI is now in src/components/ai/compositions/CompositionPanel.tsx
+
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Play, Pencil, Trash2, CheckCircle, XCircle, AlertTriangle, RotateCcw, Shield, FileCode, Loader2, X, Save, AlertCircle } from 'lucide-react';

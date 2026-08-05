@@ -55,7 +55,7 @@ export function SpotlightCard({
         transition={{ duration: 0.3, ease: 'easeOut' }}
       />
       {/* Content sits above spotlight */}
-      <div className="relative z-10">{children}</div>
+      <div className="relative z-10 h-full">{children}</div>
     </motion.div>
   );
 }

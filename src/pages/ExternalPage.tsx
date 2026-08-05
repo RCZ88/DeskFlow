@@ -10,7 +10,7 @@ import {
   ChevronLeft, ChevronRight, GripVertical,
   ArrowRightLeft,
   Calendar,
-  PieChart as PieChartIcon, BarChart3
+  PieChart as PieChartIcon, BarChart3, LayoutGrid, Timer, CalendarDays, Sparkles
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -39,6 +39,16 @@ import { SectionHeader } from '../components/SectionHeader';
 import { LoadingState } from '../components/LoadingState';
 import TransferSessionModal from '../components/TransferSessionModal';
 import { EmptyState } from '../components/EmptyState';
+import { computeActivityGridLayout } from '@/lib/external/grid';
+import { fillGapWithSegments, type Gap } from '@/lib/external/gaps';
+import { buildDailyTimeline, buildWeeklyTimeline, buildMonthlyTimeline } from '@/lib/external/timelines';
+import { ActivityMosaic } from '@/components/external/ActivityMosaic';
+import { DailyTimeline } from '@/components/external/DailyTimeline';
+import { WeeklyTimeline } from '@/components/external/WeeklyTimeline';
+import { MonthlyTimeline } from '@/components/external/MonthlyTimeline';
+import { GapFillModal } from '@/components/external/GapFillModal';
+import { GapsListModal } from '@/components/external/GapsListModal';
+import { ActivitySelectionOverlay } from '@/components/external/ActivitySelectionOverlay';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler);
 
@@ -288,6 +298,10 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
   const [morningPromptData, setMorningPromptData] = useState<{ lastCloseTime: number; lastCloseType: string } | null>(null);
   const [sleepLatencyMinutes, setSleepLatencyMinutes] = useState(15);
   const [wakeUpMinutes, setWakeUpMinutes] = useState(5);
+  const [vizTab, setVizTab] = useState<'grid' | 'daily' | 'weekly' | 'monthly'>('grid');
+  const [gapTarget, setGapTarget] = useState<{ id: string; start: Date; end: Date; duration_seconds: number } | null>(null);
+  const [showGapsList, setShowGapsList] = useState(false);
+  const [viewDate, setViewDate] = useState<Date | null>(null);
 
   // Load existing sleep data when date changes in the modal
   useEffect(() => {
@@ -382,17 +396,6 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     return () => document.removeEventListener('keydown', handleKeyDown, true);
   }, [selectedActivity, activeSession]);
 
-  // Click outside to unselect
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    if (selectedActivity && !activeSession) {
-      const target = e.target as HTMLElement;
-      if (target.id === 'activity-selection-overlay') {
-        console.log('[ExternalPage] Click on overlay: Unselecting activity');
-        setSelectedActivity(null);
-      }
-    }
-  };
-
   const handleRestoreSession = (session: any, activity: any) => {
     const startTime = new Date(session.started_at);
     const now = new Date();
@@ -424,8 +427,8 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
 
   // Load stats
   const currentRange = useMemo(() =>
-    getDateRange(selectedPeriod, 0),
-    [selectedPeriod]
+    getDateRange(selectedPeriod, dateOffset),
+    [selectedPeriod, dateOffset]
   );
 
   useEffect(() => {
@@ -789,7 +792,98 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     return { labels: bars.map(b => b.label), data: bars.map(b => b.hours) };
   }, [allSessions, selectedPeriod, currentRange]);
 
+  // Activity grid layout via squarified treemap
+  const gridLayout = useMemo(() => {
+    return computeActivityGridLayout({
+      activities: orderedActivities,
+      stats,
+      aspect: 16 / 9,
+      width: 1200,
+    });
+  }, [orderedActivities, stats]);
 
+  // Usage-based gaps (holes where NO app/browser/external activity was tracked) —
+  // the OLD detect-usage-gaps logic; feeds timeline gap blocks.
+  const [usageGaps, setUsageGaps] = useState<Gap[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setUsageGaps(null);
+
+    const period =
+      selectedPeriod === 'today'
+        ? 'today'
+        : selectedPeriod === 'month' || selectedPeriod === '30day'
+          ? 'month'
+          : selectedPeriod === 'all'
+            ? 'all'
+            : 'week';
+
+    (window as any).deskflowAPI?.detectUsageGaps?.({ period, minGapMinutes: 5 })
+      .then((list: any[]) => {
+        if (cancelled) return;
+        const mapped: Gap[] = (list || []).map((gap: any) => ({
+          id: `${gap.start}-${gap.end}`,
+          start: new Date(gap.start),
+          end: new Date(gap.end),
+          duration_seconds: Math.max(
+            0,
+            Math.floor((new Date(gap.end).getTime() - new Date(gap.start).getTime()) / 1000)
+          ),
+        }));
+        setUsageGaps(mapped);
+      })
+      .catch(() => {
+        if (!cancelled) setUsageGaps([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPeriod, dateOffset]);
+
+  // Timeline data via new modules
+  const dailyData = useMemo(() => {
+    return buildDailyTimeline({
+      date: viewDate ?? new Date(),
+      sessions: allSessions,
+      activities: orderedActivities,
+      usageGaps,
+    });
+  }, [allSessions, orderedActivities, viewDate, usageGaps]);
+
+  const weeklyData = useMemo(() => {
+    const range = getDateRange('week', dateOffset);
+    return buildWeeklyTimeline({
+      date: range.start,
+      sessions: allSessions,
+      activities: orderedActivities,
+      usageGaps,
+    });
+  }, [allSessions, orderedActivities, dateOffset, usageGaps]);
+
+  const monthlyData = useMemo(() => {
+    const range = getDateRange('month', dateOffset);
+    return buildMonthlyTimeline({
+      date: range.start,
+      sessions: allSessions,
+      activities: orderedActivities,
+      usageGaps,
+    });
+  }, [allSessions, orderedActivities, dateOffset, usageGaps]);
+
+  // Timeframe the Gaps list should open on, mirroring the selected period
+  const gapsDefaultTimeframe = useMemo(() => {
+    if (selectedPeriod === 'today') return 'day' as const;
+    if (selectedPeriod === 'month' || selectedPeriod === '30day') return 'month' as const;
+    if (selectedPeriod === 'all') return 'all' as const;
+    return 'week' as const;
+  }, [selectedPeriod]);
+
+  // Drill-down to a specific day resets when the period/offset changes
+  useEffect(() => {
+    setViewDate(null);
+  }, [selectedPeriod, dateOffset]);
 
   // Load viewing activity data
   const handleLoadViewingActivity = useCallback(async (activity: ExternalActivity) => {
@@ -810,7 +904,15 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
           
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => window.dispatchEvent(new Event('open-gap-panel'))} className="px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 transition">Gaps</button>
+          <button
+            onClick={() => window.dispatchEvent(new Event('open-gap-drawer'))}
+            title="Fill gaps with tracked apps, websites, or external activities"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 transition"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Smart Fill
+          </button>
+          <button onClick={() => setShowGapsList(true)} className="px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 transition">Gaps</button>
           <button onClick={() => setShowPastSleepModal(true)} className="px-3 py-1.5 rounded-lg text-sm text-amber-400 hover:text-amber-300 transition">+ Sleep</button>
         </div>
       </div>
@@ -1396,143 +1498,44 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
           </motion.div>
         )}
 
-        {/* Activity Grid with inline mini charts */}
-        
+        {/* Activity Grid — Squarified Treemap */}
           <div data-tutorial="external.grid" className="relative mb-8">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {orderedActivities.map((activity, idx) => {
-                const Icon = getIcon(activity.icon);
-                const actStats = stats.byActivity[activity.name];
-                const totalSeconds = actStats?.total_seconds || 0;
-                const isDragging = dragIndex.current === idx;
-                const isOver = dragIndex.current !== null && !isDragging;
-                return (
-                  <div
-                    key={activity.id}
-                    className="relative group"
-                    data-activity-card
-                    draggable
-                    onDragStart={(e) => { dragIndex.current = idx; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)); }}
-                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const from = dragIndex.current;
-                      dragIndex.current = null;
-                      if (from === null || from === idx) return;
-                      setOrderedActivities(prev => {
-                        const reordered = [...prev];
-                        const [moved] = reordered.splice(from, 1);
-                        reordered.splice(idx, 0, moved);
-                        if (window.deskflowAPI?.reorderExternalActivities) {
-                          window.deskflowAPI.reorderExternalActivities(reordered.map((a, i) => ({ id: a.id, sort_order: i })));
-                        }
-                        return reordered;
-                      });
-                    }}
-                    onDragEnd={() => { dragIndex.current = null; }}
-                    style={{ opacity: isDragging ? 0.4 : 1 }}
-                  >
-                    {/* Drag handle dots — left side */}
-                    <div className="absolute top-2 left-2 flex flex-col gap-[2px] opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/5">
-                      <GripVertical className="w-3.5 h-3.5 text-zinc-500" />
-                    </div>
-                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedActivity(activity)} className={`rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-colors duration-150 hover:ring-2 w-full h-[140px] ${selectedActivity?.id === activity.id ? 'ring-2' : ''} ${isOver ? 'ring-1 ring-white/10' : ''}`} style={{ backgroundColor: selectedActivity?.id === activity.id ? activity.color + '40' : activity.color + '20', borderColor: selectedActivity?.id === activity.id ? activity.color : activity.color + '40' }}>
-                      <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: activity.color }}><Icon className="w-6 h-6 text-white" /></div>
-                      <div className="text-center min-w-0"><div className="font-medium text-zinc-100 text-sm leading-tight truncate">{activity.name}</div><div className="text-xs text-zinc-400 mt-0.5">{formatHours(totalSeconds)}</div></div>
-                      {(() => {
-                        const now = new Date();
-                        const dayData: number[] = [];
-                        for (let i = 6; i >= 0; i--) {
-                          const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-                          const dateStr = d.toISOString().split('T')[0];
-                          const daySec = actStats?.daily?.[dateStr] || 0;
-                          dayData.push(daySec);
-                        }
-                        const maxD = maxOf(dayData, 1);
-                        const hasData = maxD > 1;
-                        const linePoints = dayData.map((sec, i) => {
-                          const x = (i / (dayData.length - 1)) * 100;
-                          const y = hasData ? 28 - (sec / maxD) * 24 : 16;
-                          return `${x},${y}`;
-                        }).join(' ');
-                        return (
-                      <div className="relative w-full h-8 px-1">
-                        <div className="absolute inset-0 flex items-end gap-[2px] px-1">
-                          {dayData.map((sec, dIdx) => (
-                            <div key={dIdx} className="flex-1 flex flex-col items-center">
-                              <div style={{ height: `${Math.max(2, (sec / maxD) * 24)}px`, backgroundColor: dIdx === 6 ? '#FCD34D' : activity.color }} className="w-full rounded-t" />
-                            </div>
-                          ))}
-                        </div>
-                        <svg viewBox="0 0 100 32" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-                          <polyline fill="none" stroke={activity.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity={hasData ? 0.6 : 0.35} strokeDasharray={hasData ? 'none' : '3 3'} points={linePoints} />
-                        </svg>
-                      </div>
-                        );
-                      })()}
-                    </motion.button>
-                    <button onClick={(e) => { e.stopPropagation(); setEditingActivity(activity); }} className="absolute top-2 right-2 w-6 h-6 rounded-full bg-zinc-800/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-zinc-700"><Edit3 className="w-3 h-3 text-zinc-300" /></button>
-                  </div>
-                );
-              })}
-              <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setShowAddModal(true)} className="rounded-xl p-4 flex flex-col items-center justify-center gap-2 bg-zinc-800/50 border border-dashed border-zinc-700 hover:border-zinc-500 transition-colors h-[140px]">
-                <div className="w-12 h-12 rounded-full flex items-center justify-center bg-zinc-700"><Plus className="w-6 h-6 text-zinc-400" /></div>
-                <div className="text-center"><div className="font-medium text-zinc-400">Add Custom</div></div>
-              </motion.button>
-            </div>
+            <ActivityMosaic
+              activities={orderedActivities}
+              stats={stats}
+              sessions={allSessions}
+              getIcon={getIcon}
+              selectedActivityId={selectedActivity?.id}
+              onSelectActivity={setSelectedActivity}
+            />
           </div>
 
         {/* Selection Overlay with View Data */}
         {selectedActivity && !activeSession && (
-          <>
-            <div id="activity-selection-overlay" className="fixed inset-0 z-40" onClick={handleOverlayClick} />
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: -10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: -10 }} className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 min-w-80" style={{ perspective: '1000px' }}>
-              <div className="relative overflow-hidden rounded-xl bg-zinc-900/90 backdrop-blur-xl p-5 shadow-black/50 border" style={{ borderColor: selectedActivity.color + '40' }}>
-                <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full opacity-20 blur-2xl" style={{ backgroundColor: selectedActivity.color }} />
-                <div className="text-center mb-5">
-                  <div className="relative w-16 h-16 mx-auto mb-3">
-                    <div className="absolute inset-0 rounded-full opacity-30 blur-lg" style={{ backgroundColor: selectedActivity.color }} />
-                    <div className="relative w-16 h-16 rounded-full flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5 ring-1 ring-white/10" style={{ boxShadow: `0 0 20px ${selectedActivity.color}40` }}>{(() => { const Icon = getIcon(selectedActivity.icon); return <Icon className="w-8 h-8" style={{ color: selectedActivity.color }} />; })()}</div>
-                  </div>
-                  <div className="text-xl font-bold text-zinc-100">{selectedActivity.name}</div>
-                  <div className="text-sm text-zinc-500 mt-1">Ready to start</div>
-                </div>
-                <div className="flex flex-col gap-2.5">
-                  <button onClick={() => { handleLoadViewingActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm font-medium flex items-center justify-center gap-2.5 text-zinc-300 hover:text-white bg-zinc-800/50 hover:bg-zinc-700/60 border border-zinc-700/50 hover:border-zinc-600/60"><BarChart3 className="w-4 h-4" />View Data & Charts</button>
-                  <button onClick={() => { startActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm font-medium flex items-center justify-center gap-2.5 text-white" style={{ background: `linear-gradient(135deg, ${selectedActivity.color}, ${selectedActivity.color}dd)`, boxShadow: `0 4px 15px ${selectedActivity.color}40` }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.filter = 'brightness(1.15)' }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.filter = 'brightness(1)' }}><Play className="w-4 h-4" />Start</button>
-                  <button onClick={() => { const n = new Date(); n.setMinutes(n.getMinutes() - 30); setManualSessionHours(0); setManualSessionMinutes(30); const d2 = new Date(); setManualSessionDate(`${d2.getFullYear()}-${String(d2.getMonth()+1).padStart(2,'0')}-${String(d2.getDate()).padStart(2,'0')}`); setManualSessionStartHours(n.getHours()); setManualSessionStartMinutes(n.getMinutes()); setManualSessionActivity(selectedActivity); setSelectedActivity(null); }} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm font-medium flex items-center justify-center gap-2.5 text-zinc-300 hover:text-white bg-zinc-800/50 hover:bg-zinc-700/60 border border-zinc-700/50 hover:border-zinc-600/60"><Clock className="w-4 h-4" />Add Session</button>
-                  <button onClick={() => setSelectedActivity(null)} className="w-full px-4 py-3 rounded-xl transition-colors duration-150 text-sm text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30">Cancel</button>
-                </div>
-                {(() => {
-                  const recent = (allSessions || [])
-                    .filter((s: any) => String(s.activity_id) === String(selectedActivity.id))
-                    .sort((a: any, b: any) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
-                    .slice(0, 3);
-                  if (recent.length === 0) return null;
-                  return (
-                    <div className="mt-4 pt-4 border-t border-zinc-800">
-                      <div className="text-[11px] text-zinc-600 mb-2 tracking-wide uppercase">Recent</div>
-                      <div className="flex flex-col gap-1.5">
-                        {recent.map((s: any) => {
-                          const d = new Date(s.started_at);
-                          const dur = Math.floor(s.duration_seconds / 60);
-                          const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-                          const timeStr = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-                          return (
-                            <div key={s.id} className="flex items-center justify-between text-xs text-zinc-400">
-                              <span>{dateStr} {timeStr}</span>
-                              <span className="font-mono text-zinc-500">{Math.floor(dur / 60)}h {dur % 60}m</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
-                <div className="text-[11px] text-zinc-600 mt-4 text-center tracking-wide uppercase">Press ESC to close</div>
-              </div>
-            </motion.div>
-          </>
+          <ActivitySelectionOverlay
+            activity={selectedActivity}
+            onClose={() => setSelectedActivity(null)}
+            onViewData={(activity) => {
+              handleLoadViewingActivity(activity);
+              setSelectedActivity(null);
+            }}
+            onStart={(activity) => {
+              startActivity(activity);
+              setSelectedActivity(null);
+            }}
+            onAddSession={(activity) => {
+              const n = new Date();
+              n.setMinutes(n.getMinutes() - 30);
+              setManualSessionHours(0);
+              setManualSessionMinutes(30);
+              const d2 = new Date();
+              setManualSessionDate(`${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, '0')}-${String(d2.getDate()).padStart(2, '0')}`);
+              setManualSessionStartHours(n.getHours());
+              setManualSessionStartMinutes(n.getMinutes());
+              setManualSessionActivity(activity);
+              setSelectedActivity(null);
+            }}
+          />
         )}
 
         {/* Manual Session Modal */}
@@ -1956,84 +1959,161 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
           )}
         </div>
 
-        {/* Charts Section - 3 Glass-Styled Charts */}
-          <div data-tutorial="external.streak" className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            {/* Daily Usage Trend */}
-            <GlassCard>
-              <SectionHeader title="Daily Usage Trend" />
-              <div className="h-48">
-                {breakdownData.labels.length > 0 ? (
-                  <Bar data={{
-                    labels: breakdownData.labels,
-                    datasets: [{ label: 'Hours', data: breakdownData.data, backgroundColor: breakdownData.colors, borderRadius: 4 }]
-                  }} options={{
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: { x: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
-                  }} />
-                ) : (
-                  <EmptyState title="No data yet" />
-                )}
-              </div>
-            </GlassCard>
+        {/* Timeline Visualization */}
+          <div data-tutorial="external.streak" className="mb-8">
+            {/* Tab Switcher */}
+            <div className="flex items-center gap-1 bg-zinc-900/50 rounded-xl p-1 mb-6 border border-zinc-800/50">
+              {[
+                { key: 'grid' as const, label: 'Overview', icon: LayoutGrid },
+                { key: 'daily' as const, label: 'Daily', icon: Timer },
+                { key: 'weekly' as const, label: 'Weekly', icon: CalendarDays },
+                { key: 'monthly' as const, label: 'Monthly', icon: Calendar },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setVizTab(tab.key)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 ${
+                    vizTab === tab.key
+                      ? 'bg-orange-500/15 text-orange-300 border border-orange-500/30'
+                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                  }`}
+                >
+                  <tab.icon className="w-3.5 h-3.5" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-            {/* Activity Distribution (Conic Doughnut) */}
-            <GlassCard>
-              <SectionHeader title="Activity Distribution" />
-              <div className="flex items-center justify-center h-36">
-                {breakdownData.labels.length > 0 ? (() => {
-                  const total = breakdownData.data.reduce((a, b) => a + b, 0);
-                  let conicStr = '';
-                  let currentPct = 0;
-                  breakdownData.labels.forEach((name, i) => {
-                    const pct = total > 0 ? (breakdownData.data[i] / total) * 100 : 0;
-                    const start = currentPct;
-                    const end = currentPct + pct;
-                    conicStr += `${breakdownData.colors[i]} ${start}% ${end}%`;
-                    if (i < breakdownData.labels.length - 1) conicStr += ', ';
-                    currentPct = end;
-                  });
-                  return (
-                    <div className="relative w-32 h-32">
-                      <div className="w-full h-full rounded-full" style={{ background: `conic-gradient(${conicStr})` }}>
-                        <div className="absolute inset-3 rounded-full bg-zinc-900 flex items-center justify-center">
-                          <span className="text-lg font-bold text-zinc-100">{Math.round(total)}h</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })() : (
-                  <EmptyState title="No data yet" />
-                )}
-              </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-4 justify-center">
-                {breakdownData.labels.slice(0, 6).map((name, i) => (
-                  <div key={name} className="flex items-center gap-1.5 text-xs">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: breakdownData.colors[i] }} />
-                    <span className="text-zinc-400 truncate max-w-24">{name}</span>
+            {/* Tab: Overview (original charts) */}
+            {vizTab === 'grid' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <GlassCard>
+                  <SectionHeader titleClassName="font-display font-extrabold tracking-tight" title="Daily Usage Trend" />
+                  <div className="h-48">
+                    {breakdownData.labels.length > 0 ? (
+                      <Bar data={{
+                        labels: breakdownData.labels,
+                        datasets: [{ label: 'Hours', data: breakdownData.data, backgroundColor: breakdownData.colors, borderRadius: 4 }]
+                      }} options={{
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { x: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
+                      }} />
+                    ) : (
+                      <EmptyState title="No data yet" />
+                    )}
                   </div>
-                ))}
-              </div>
-            </GlassCard>
+                </GlassCard>
 
-            {/* Usage Trend */}
-            <GlassCard>
-              <SectionHeader title={selectedPeriod === 'today' ? 'Hourly Trend' : selectedPeriod === 'week' || selectedPeriod === '7day' ? 'Weekly Trend' : selectedPeriod === 'month' || selectedPeriod === '30day' ? 'Monthly Trend' : 'All Time Trend'} />
-              <div className="h-48">
-                {trendChartData.labels.length > 0 ? (
-                  <Bar data={{
-                    labels: trendChartData.labels,
-                    datasets: [{ label: 'Hours', data: trendChartData.data, backgroundColor: '#8b5cf6', borderRadius: 4 }]
-                  }} options={{
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: { x: { grid: { display: false }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
-                  }} />
-                ) : (
-                  <EmptyState title="No data yet" />
-                )}
+                <GlassCard>
+                  <SectionHeader title="Activity Distribution" />
+                  <div className="flex items-center justify-center h-36">
+                    {breakdownData.labels.length > 0 ? (() => {
+                      const total = breakdownData.data.reduce((a, b) => a + b, 0);
+                      let conicStr = '';
+                      let currentPct = 0;
+                      breakdownData.labels.forEach((name, i) => {
+                        const pct = total > 0 ? (breakdownData.data[i] / total) * 100 : 0;
+                        const start = currentPct;
+                        const end = currentPct + pct;
+                        conicStr += `${breakdownData.colors[i]} ${start}% ${end}%`;
+                        if (i < breakdownData.labels.length - 1) conicStr += ', ';
+                        currentPct = end;
+                      });
+                      return (
+                        <div className="relative w-32 h-32">
+                          <div className="w-full h-full rounded-full" style={{ background: `conic-gradient(${conicStr})` }}>
+                            <div className="absolute inset-3 rounded-full bg-zinc-900 flex items-center justify-center">
+                              <span className="text-lg font-bold text-zinc-100">{Math.round(total)}h</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })() : (
+                      <EmptyState title="No data yet" />
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-4 justify-center">
+                    {breakdownData.labels.slice(0, 6).map((name, i) => (
+                      <div key={name} className="flex items-center gap-1.5 text-xs">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: breakdownData.colors[i] }} />
+                        <span className="text-zinc-400 truncate max-w-24">{name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+
+                <GlassCard>
+                  <SectionHeader title={selectedPeriod === 'today' ? 'Hourly Trend' : selectedPeriod === 'week' || selectedPeriod === '7day' ? 'Weekly Trend' : selectedPeriod === 'month' || selectedPeriod === '30day' ? 'Monthly Trend' : 'All Time Trend'} />
+                  <div className="h-48">
+                    {trendChartData.labels.length > 0 ? (
+                      <Bar data={{
+                        labels: trendChartData.labels,
+                        datasets: [{ label: 'Hours', data: trendChartData.data, backgroundColor: '#8b5cf6', borderRadius: 4 }]
+                      }} options={{
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { x: { grid: { display: false }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
+                      }} />
+                    ) : (
+                      <EmptyState title="No data yet" />
+                    )}
+                  </div>
+                </GlassCard>
               </div>
-            </GlassCard>
+            )}
+
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={vizTab}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18 }}
+              >
+            {/* Tab: Daily */}
+            {vizTab === 'daily' && (
+              <DailyTimeline
+                data={dailyData}
+                onGapClick={(gapBlock) => {
+                  setGapTarget({
+                    id: gapBlock.id,
+                    start: gapBlock.start,
+                    end: gapBlock.end,
+                    duration_seconds: gapBlock.durationSeconds,
+                  });
+                }}
+              />
+            )}
+
+            {/* Tab: Weekly */}
+            {vizTab === 'weekly' && (
+              <WeeklyTimeline
+                days={weeklyData}
+                onGapClick={(gapBlock) => {
+                  setGapTarget({
+                    id: gapBlock.id,
+                    start: gapBlock.start,
+                    end: gapBlock.end,
+                    duration_seconds: gapBlock.durationSeconds,
+                  });
+                }}
+              />
+            )}
+
+            {/* Tab: Monthly */}
+            {vizTab === 'monthly' && (
+              <MonthlyTimeline
+                days={monthlyData.days}
+                summary={monthlyData.summary}
+                onDayClick={(day) => {
+                  setViewDate(day.date);
+                  setVizTab('daily');
+                }}
+              />
+            )}
+              </motion.div>
+            </AnimatePresence>
           </div>
       </div>
 
@@ -3013,6 +3093,39 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
             </motion.div>
           </motion.div>
         )}
+        {/* Gaps List */}
+        <GapsListModal
+          open={showGapsList}
+          activities={activities}
+          sessions={allSessions}
+          defaultTimeframe={gapsDefaultTimeframe}
+          onClose={() => setShowGapsList(false)}
+          onPickGap={(gap) => {
+            setGapTarget(gap);
+            setShowGapsList(false);
+          }}
+        />
+        {/* Gap Fill Modal */}
+        <GapFillModal
+          open={!!gapTarget}
+          gap={gapTarget as any}
+          activities={activities}
+          sessions={allSessions}
+          onClose={() => setGapTarget(null)}
+          onFillGap={async (gap, segments) => {
+            await fillGapWithSegments(
+              gap,
+              segments,
+              async (activityId, minutes, startedAt, endedAt) => {
+                await window.deskflowAPI?.addExternalTime(activityId, minutes, startedAt, endedAt);
+              }
+            );
+            refreshStats();
+            if (window.deskflowAPI?.getExternalActivities) {
+              window.deskflowAPI.getExternalActivities().then((data: any[]) => setActivities(data));
+            }
+          }}
+        />
         {transferSession && (
           <TransferSessionModal
             open={!!transferSession}

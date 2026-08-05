@@ -1,4 +1,4 @@
-import { BookOpen, Wand2, FileUp, ClipboardPaste, Compass, Copy, Check, Layers } from 'lucide-react';
+import { BookOpen, Wand2, FileUp, ClipboardPaste, Compass, BookMarked } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { BlurFade } from '../ui/blur-fade';
 import { FeatureShowcase } from '../showcase/FeatureShowcase';
@@ -12,6 +12,7 @@ export interface LearnHomeProps {
   onImport: () => void;
   onPaste: () => void;
   onBrowse?: () => void;
+  onOpenSavedIdeas?: () => void;
 }
 
 export function LearnHome(props: LearnHomeProps) {
@@ -61,42 +62,45 @@ export function LearnHome(props: LearnHomeProps) {
 
             <BlurFade delay={0.16} inView>
               <p className="mt-5 max-w-md text-[15px] leading-relaxed text-zinc-400">
-                Compose a grounded, citation-backed lesson on anything you want to understand.
-                Describe a topic and Lyceum drafts the concepts, diagrams, and quizzes — every
-                claim tied to a source.
+                A personal library of grounded, citation-backed lessons.
+                Study what you've already built, or compose something new.
               </p>
             </BlurFade>
 
             <BlurFade delay={0.24} inView>
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-                <button
-                  onClick={props.onCompose}
-                  className="inline-flex items-center gap-2 rounded-xl border border-clay-400/40 bg-clay-500/15 px-6 py-3 font-serif text-sm font-semibold text-glow transition-all hover:bg-clay-500/25 hover:shadow-[0_0_20px_rgba(194,85,58,0.25)]"
-                >
-                  <Wand2 className="h-4 w-4" />
-                  Compose a lesson
-                </button>
-                <button
-                  onClick={props.onTryExample}
-                  className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-400 underline-offset-4 transition-colors hover:text-glow hover:underline"
-                >
-                  or read a sample first
-                </button>
+              <div className="mt-8 flex flex-col gap-4 max-w-sm">
+                {/* Primary: Browse Library */}
                 {props.onBrowse && (
                   <button
                     onClick={props.onBrowse}
-                    className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-500 underline-offset-4 transition-colors hover:text-glow hover:underline"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-clay-400/40 bg-clay-500/15 px-6 py-3 font-serif text-sm font-semibold text-glow transition-all hover:bg-clay-500/25 hover:shadow-[0_0_20px_rgba(194,85,58,0.25)]"
                   >
-                    or browse your library &rarr;
+                    <BookMarked className="h-4 w-4" />
+                    Browse Library
                   </button>
                 )}
-                <button
-                  onClick={scrollToFeatures}
-                  className="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-amber-400/70 underline-offset-4 transition-colors hover:text-amber-300 hover:underline"
-                >
-                  <Layers className="w-3 h-3" />
-                  explore all features
-                </button>
+                {/* Secondary row */}
+                <div className="flex items-center gap-4 text-[11px] font-mono uppercase tracking-[0.15em]">
+                  <button
+                    onClick={props.onCompose}
+                    className="text-zinc-500 hover:text-clay-300 transition-colors"
+                  >
+                    <Wand2 className="w-3 h-3 inline mr-1" />
+                    New lesson
+                  </button>
+                  <button
+                    onClick={props.onTryExample}
+                    className="text-zinc-500 hover:text-clay-300 transition-colors"
+                  >
+                    Read a sample
+                  </button>
+                  <button
+                    onClick={scrollToFeatures}
+                    className="text-zinc-600 hover:text-amber-300 transition-colors"
+                  >
+                    Features
+                  </button>
+                </div>
               </div>
             </BlurFade>
           </div>
@@ -113,7 +117,7 @@ export function LearnHome(props: LearnHomeProps) {
       {/* Quick actions — natural document flow */}
       <section className="mx-auto max-w-5xl px-6 pb-12">
         <BlurFade delay={0.32} inView>
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-3">
             <button
               onClick={props.onTryExample}
               className="group rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition-colors hover:border-clay-400/40 hover:bg-clay-500/[0.06]"
@@ -137,24 +141,6 @@ export function LearnHome(props: LearnHomeProps) {
               <ClipboardPaste className="h-4 w-4 text-clay-300 transition-transform group-hover:scale-110" />
               <p className="mt-2 font-serif text-[15px] font-semibold text-glow">Paste a draft</p>
               <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">Drop in Lesson Markdown and we compile it for you.</p>
-            </button>
-            <button
-              onClick={handleCopyPrompt}
-              className="group rounded-xl border border-dashed border-amber-500/30 bg-amber-500/[0.04] p-4 text-left transition-colors hover:border-amber-500/50 hover:bg-amber-500/[0.08]"
-            >
-              {copiedPrompt ? (
-                <Check className="h-4 w-4 text-emerald-400" />
-              ) : (
-                <Copy className="h-4 w-4 text-amber-400 transition-transform group-hover:scale-110" />
-              )}
-              <p className="mt-2 font-serif text-[15px] font-semibold text-glow">
-                {copiedPrompt ? 'Copied!' : 'Copy Lesson Prompt'}
-              </p>
-              <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-                {copiedPrompt
-                  ? 'Paste into any AI chat to start generating .ldoc lessons'
-                  : 'System prompt for any AI — paste into ChatGPT, Claude, etc.'}
-              </p>
             </button>
           </div>
         </BlurFade>

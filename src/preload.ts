@@ -157,6 +157,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getProductivitySessions: (opts?: { period?: 'today' | 'week' | 'month' | 'all'; minDuration?: number; limit?: number; offset?: number }) =>
     ipcRenderer.invoke('get-productivity-sessions', opts || {}),
   clearProductivitySessions: () => ipcRenderer.invoke('clear-productivity-sessions'),
+  getLongestFocus: () => ipcRenderer.invoke('get-longest-focus'),
   getCurrentForeground: () => ipcRenderer.invoke('get-current-foreground'),
 
   // App control
@@ -306,6 +307,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // Dashboard Overview
   getIDEProjectsOverview: (period?: string, dateOffset?: number) => ipcRenderer.invoke('get-ide-projects-overview', period, dateOffset),
+  getCodeChangeStats: (period?: string, dateOffset?: number, projectId?: string) => ipcRenderer.invoke('get-code-change-stats', period, dateOffset, projectId),
 
   // AI Usage Sync
   syncAIUsage: () => ipcRenderer.invoke('sync-ai-usage'),
@@ -891,7 +893,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.invoke('provider-chat-call', data),
   providerChatBasic: (data: { provider: any; messages: Array<{ role: string; content: string }>; model?: string; maxTokens?: number; temperature?: number }) =>
     ipcRenderer.invoke('provider-chat-basic', data),
-  onProviderChunk: (callback: (data: { delta?: string; done?: boolean; error?: string; full?: string; diagId?: string; durationMs?: number; providerId?: string }) => void) => {
+  onProviderChunk: (callback: (data: { delta?: string; done?: boolean; error?: string; full?: string; diagId?: string; durationMs?: number; providerId?: string; purpose?: string }) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('provider-chunk', handler);
     return () => { ipcRenderer.removeListener('provider-chunk', handler); };
@@ -906,6 +908,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   deleteGoal: (goalId: string) => ipcRenderer.invoke('delete-goal', goalId),
   saveGoalReview: (date: string, reviewSummary: string) => ipcRenderer.invoke('save-goal-review', date, reviewSummary),
   getGoalReview: (date: string) => ipcRenderer.invoke('get-goal-review', date),
+  getDailyReflection: (date: string) => ipcRenderer.invoke('get-daily-reflection', date),
   saveGoalSuggestion: (data: { title: string; category: string; date: string; source: string; reason?: string }) =>
     ipcRenderer.invoke('save-goal-suggestion', data),
   getGoalContext: () => ipcRenderer.invoke('get-goal-context'),
@@ -972,7 +975,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     deleteEvent: (data: { connectorId: string; eventId: string }) => ipcRenderer.invoke('connectors:delete-event', data),
     markRead: (data: { connectorId: string; emailId: string; read: boolean }) => ipcRenderer.invoke('connectors:mark-read', data),
     onNewEmails: (callback: (data: { connectorId: string; connectorName: string; unreadCount: number; newItems: any[] }) => void) => {
-      ipcRenderer.on('connectors:new-emails', (_event, data) => callback(data));
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('connectors:new-emails', handler);
+      return () => { ipcRenderer.removeListener('connectors:new-emails', handler); };
     },
   },
 
@@ -1236,6 +1241,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // ========== Image Generation ==========
   learnGenerateIllustration: (args: { prompt: string; nodeId?: string; lessonId?: string }) => ipcRenderer.invoke('learn:generateIllustration', args),
   learnExplainWithImage: (args: { selectedText: string; contextText: string; nodeId?: string }) => ipcRenderer.invoke('learn:explainWithImage', args),
+  learnUploadIllustration: (args: { lessonId?: string; filename?: string }) => ipcRenderer.invoke('learn:uploadIllustration', args),
 
   // ========== Learning Intents ==========
   learnSaveIntent: (args: { title: string; description?: string; context?: string; category?: string }) => ipcRenderer.invoke('learn:saveIntent', args),
@@ -1246,6 +1252,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // ========== Lesson Management ==========
   learnGetLessonSource: (args: { lessonId: string }) => ipcRenderer.invoke('learn:getLessonSource', args),
   learnUpdateLessonMeta: (args: { lessonId: string; title?: string; part?: number; summary?: string; chapter?: string }) => ipcRenderer.invoke('learn:updateLessonMeta', args),
+  learnUpdateLessonDoc: (args: { lessonId: string; docJson: string }) => ipcRenderer.invoke('learn:updateLessonDoc', args),
   learnDeleteLesson: (args: { lessonId: string }) => ipcRenderer.invoke('learn:deleteLesson', args),
 
   // ========== Timer System ==========
@@ -1345,11 +1352,20 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
       ipcRenderer.on('focus:state', handler);
       return () => { ipcRenderer.removeListener('focus:state', handler); };
     },
-    onEnded: (cb: () => void) => {
+     onEnded: (cb: () => void) => {
       const handler = () => cb();
       ipcRenderer.on('focus:ended', handler);
       return () => { ipcRenderer.removeListener('focus:ended', handler); };
     },
+  },
+
+  focusGroup: {
+    list: () => ipcRenderer.invoke('focusGroup:list'),
+    get: (id: number) => ipcRenderer.invoke('focusGroup:get', id),
+    save: (g: any) => ipcRenderer.invoke('focusGroup:save', g),
+    remove: (id: number) => ipcRenderer.invoke('focusGroup:remove', id),
+    startWith: (id: number, durationSec?: number, strictness?: string) => ipcRenderer.invoke('focusGroup:startWith', id, durationSec, strictness),
+    linkUsage: (args: { sessionId: number; groupId: number; goalIds: string[] }) => ipcRenderer.invoke('focusGroup:linkUsage', args),
   },
 
   // ========== Resume Builder ==========

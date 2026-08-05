@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Archive, RotateCcw, Trash2, Wallet, Landmark, CreditCard, PiggyBank, Banknote, Lock as LockIcon } from 'lucide-react';
+import { X, Archive, RotateCcw, Trash2, Wallet, Landmark, CreditCard, PiggyBank, Banknote, Lock as LockIcon, Nfc, WalletCards } from 'lucide-react';
 import type { FinanceAccount, FinanceWallet } from './finance-types';
 
 interface ArchivedItemsModalProps {
@@ -23,7 +23,9 @@ const walletMeta: Record<string, { icon: any; label: string; color: string }> = 
   credit_card: { icon: CreditCard, label: 'Credit Card', color: '#F59E0B' },
   crypto: { icon: Wallet, label: 'Crypto', color: '#8B5CF6' },
   cash: { icon: PiggyBank, label: 'Cash', color: '#EC4899' },
+  physical: { icon: WalletCards, label: 'Physical', color: '#F97316' },
   ewallet: { icon: Banknote, label: 'E-Wallet', color: '#06B6D4' },
+  prepaid_card: { icon: Nfc, label: 'Prepaid Card', color: '#22D3EE' },
   other: { icon: Wallet, label: 'Other', color: '#6B7280' },
 };
 

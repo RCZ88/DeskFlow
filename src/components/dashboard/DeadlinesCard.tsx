@@ -29,7 +29,7 @@ const PRIORITIES: { value: Priority; label: string; color: string; dot: string }
   { value: 'critical', label: 'Critical', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20', dot: '#f87171' },
   { value: 'high', label: 'High', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20', dot: '#fb923c' },
   { value: 'medium', label: 'Medium', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20', dot: '#fbbf24' },
-  { value: 'low', label: 'Low', color: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20', dot: '#6b7280' },
+  { value: 'low', label: 'Low', color: 'bg-zinc-500/10 text-white/60 border-zinc-500/20', dot: '#6b7280' },
 ];
 
 const CATEGORIES: { value: DeadlineCategory; label: string }[] = [
@@ -77,7 +77,7 @@ const URGENCY_META = {
   urgent: { color: '#f87171', bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/20', label: 'Today' },
   critical: { color: '#fb923c', bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/20', label: 'Soon' },
   soon: { color: '#fbbf24', bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/20', label: 'Upcoming' },
-  normal: { color: '#6b7280', bg: 'bg-zinc-800/50', text: 'text-zinc-500', border: 'border-zinc-700/30', label: 'Later' },
+  normal: { color: '#6b7280', bg: 'bg-zinc-800/50', text: 'text-white/50', border: 'border-zinc-700/30', label: 'Later' },
 };
 
 interface DeadlinesCardProps {
@@ -165,8 +165,8 @@ export function DeadlinesCard({
 
   if (loading) {
     return (
-      <SpotlightCard spotlightColor="rgba(244, 63, 94, 0.08)" className="rounded-xl">
-        <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px]">
+      <SpotlightCard spotlightColor="rgba(244, 63, 94, 0.08)" className="rounded-xl h-full">
+        <div className="relative rounded-xl overflow-hidden bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/60 p-5 h-full">
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-rose-500/30 via-rose-500/10 to-transparent" />
           <div className="animate-pulse space-y-4">
             <div className="h-5 bg-zinc-800 rounded w-1/3" />
@@ -182,22 +182,22 @@ export function DeadlinesCard({
 
   if (error) {
     return (
-      <SpotlightCard spotlightColor="rgba(244, 63, 94, 0.08)" className="rounded-xl">
-        <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px] flex flex-col items-center justify-center text-center">
+      <SpotlightCard spotlightColor="rgba(244, 63, 94, 0.08)" className="rounded-xl h-full">
+        <div className="relative rounded-xl overflow-hidden bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/60 p-5 h-full flex flex-col items-center justify-center text-center">
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-rose-500/30 via-rose-500/10 to-transparent" />
           <div className="w-14 h-14 rounded-full bg-zinc-800/50 flex items-center justify-center mb-3">
-            <AlertCircle size={24} className="text-zinc-600" />
+            <AlertCircle size={24} className="text-white/40" />
           </div>
-          <p className="text-[14px] font-medium text-zinc-400">Could not load deadlines</p>
-          <p className="text-[12px] text-zinc-600 mt-1 max-w-[220px]">{error}</p>
+          <p className="text-[14px] font-medium text-white/60">Could not load deadlines</p>
+          <p className="text-[12px] text-white/40 mt-1 max-w-[220px]">{error}</p>
         </div>
       </SpotlightCard>
     );
   }
 
   return (
-    <SpotlightCard spotlightColor="rgba(244, 63, 94, 0.08)" className="rounded-xl">
-      <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px] flex flex-col">
+    <SpotlightCard spotlightColor="rgba(244, 63, 94, 0.08)" className="rounded-xl h-full">
+      <div className="relative rounded-xl overflow-hidden bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/60 p-5 flex flex-col h-full">
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-rose-500/30 via-rose-500/10 to-transparent" />
 
         {urgentCount > 0 && <BorderBeam size={140} duration={6} colorFrom="#f87171" colorTo="#fbbf24" />}
@@ -209,8 +209,8 @@ export function DeadlinesCard({
               <AlertCircle size={15} className="text-rose-400" />
             </div>
             <div>
-              <h2 className="text-[15px] font-semibold text-zinc-100">Deadlines</h2>
-              <p className="text-[11px] text-zinc-500">
+              <h2 className="text-[15px] font-semibold text-white">Deadlines</h2>
+              <p className="text-[11px] text-white/50">
                 {sortedPending.length} upcoming · {completed.length} done
               </p>
             </div>
@@ -231,7 +231,7 @@ export function DeadlinesCard({
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => setIsAdding(!isAdding)}
-              className="w-8 h-8 rounded-md bg-zinc-800/50 hover:bg-zinc-700/50 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
+              className="w-8 h-8 rounded-md bg-zinc-800/50 hover:bg-zinc-700/50 flex items-center justify-center text-white/60 hover:text-white transition-colors"
               aria-label={isAdding ? 'Cancel adding deadline' : 'Add new deadline'}
             >
               {isAdding ? <X size={14} /> : <Plus size={14} />}
@@ -261,7 +261,7 @@ export function DeadlinesCard({
                 <div className="flex items-center gap-2 flex-wrap">
                   <Popover>
                     <PopoverTrigger asChild>
-                      <button className="h-9 px-3 text-xs flex-1 justify-start rounded-md bg-zinc-900/80 border border-zinc-700/50 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors text-left min-w-[140px]">
+                      <button className="h-9 px-3 text-xs flex-1 justify-start rounded-md bg-zinc-900/80 border border-zinc-700/50 text-white/60 hover:text-white hover:border-zinc-600 transition-colors text-left min-w-[140px]">
                         {newDl.dueDate ? format(newDl.dueDate, 'PPP') : "Pick due date"}
                       </button>
                     </PopoverTrigger>
@@ -293,7 +293,7 @@ export function DeadlinesCard({
                       <Plus size={12} className="mr-1" /> Add
                     </Button>
                   </motion.div>
-                  <Button size="sm" variant="ghost" onClick={() => { resetAddForm(); setIsAdding(false); }} className="text-zinc-400 hover:text-white text-[12px] h-8">
+                  <Button size="sm" variant="ghost" onClick={() => { resetAddForm(); setIsAdding(false); }} className="text-white/60 hover:text-white text-[12px] h-8">
                     Cancel
                   </Button>
                 </div>
@@ -332,7 +332,7 @@ export function DeadlinesCard({
                     <div className="flex items-center gap-2 flex-wrap">
                       <Popover>
                         <PopoverTrigger asChild>
-                          <button className="h-9 px-3 text-xs flex-1 justify-start rounded-md bg-zinc-900/80 border border-zinc-700/50 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors text-left">
+                          <button className="h-9 px-3 text-xs flex-1 justify-start rounded-md bg-zinc-900/80 border border-zinc-700/50 text-white/60 hover:text-white hover:border-zinc-600 transition-colors text-left">
                             {editDate ? format(editDate, 'PPP') : "Pick due date"}
                           </button>
                         </PopoverTrigger>
@@ -352,7 +352,7 @@ export function DeadlinesCard({
                           Save
                         </Button>
                       </motion.div>
-                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({}); setEditDate(undefined); }} className="text-zinc-400 hover:text-white text-[12px] h-8">
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({}); setEditDate(undefined); }} className="text-white/60 hover:text-white text-[12px] h-8">
                         Cancel
                       </Button>
                     </div>
@@ -387,7 +387,7 @@ export function DeadlinesCard({
                     <div className="flex items-start justify-between pl-3 gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-[13px] text-zinc-200 truncate">{dl.title}</span>
+                          <span className="text-[13px] text-white/90 truncate">{dl.title}</span>
                           {urgency === 'overdue' && (
                             <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/20 text-rose-400 border border-rose-500/20">
                               OVERDUE
@@ -396,7 +396,7 @@ export function DeadlinesCard({
                         </div>
 
                         {dl.description && (
-                          <p className="text-[11px] text-zinc-600 mt-0.5 line-clamp-1">{dl.description}</p>
+                          <p className="text-[11px] text-white/40 mt-0.5 line-clamp-1">{dl.description}</p>
                         )}
 
                         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -405,12 +405,12 @@ export function DeadlinesCard({
                             {dl.priority}
                           </Badge>
                           {dl.category && (
-                            <Badge className="text-[10px] px-1.5 py-0.5 bg-zinc-800/50 text-zinc-400 border-zinc-700/30">
+                            <Badge className="text-[10px] px-1.5 py-0.5 bg-zinc-800/50 text-white/60 border-zinc-700/30">
                               {dl.category}
                             </Badge>
                           )}
                           {dl.course && (
-                            <span className="text-[10px] text-zinc-600">{dl.course}</span>
+                            <span className="text-[10px] text-white/40">{dl.course}</span>
                           )}
                         </div>
                       </div>
@@ -438,7 +438,7 @@ export function DeadlinesCard({
                             whileHover={{ scale: 1.1 }}
                             whileTap={{ scale: 0.9 }}
                             onClick={() => startEdit(dl)}
-                            className="w-7 h-7 rounded-md bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50 hover:text-white flex items-center justify-center transition-colors"
+                            className="w-7 h-7 rounded-md bg-zinc-800/50 text-white/60 hover:bg-zinc-700/50 hover:text-white flex items-center justify-center transition-colors"
                             title="Edit deadline"
                           >
                             <Edit3 size={12} />
@@ -450,7 +450,7 @@ export function DeadlinesCard({
                             className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
                               deleteConfirmId === dl.id
                                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                                : 'bg-zinc-800/50 text-zinc-400 hover:bg-red-500/20 hover:text-red-400'
+                                : 'bg-zinc-800/50 text-white/60 hover:bg-red-500/20 hover:text-red-400'
                             }`}
                             title={deleteConfirmId === dl.id ? 'Click again to confirm delete' : 'Delete deadline'}
                           >
@@ -473,10 +473,10 @@ export function DeadlinesCard({
               className="flex-1 flex flex-col items-center justify-center text-center py-10"
             >
               <div className="w-14 h-14 rounded-full bg-zinc-800/50 flex items-center justify-center mb-3">
-                <CheckCircle2 size={24} className="text-zinc-600" />
+                <CheckCircle2 size={24} className="text-white/40" />
               </div>
-              <p className="text-[14px] font-medium text-zinc-400">No deadlines tracked</p>
-              <p className="text-[12px] text-zinc-600 mt-1 max-w-[200px]">
+              <p className="text-[14px] font-medium text-white/60">No deadlines tracked</p>
+              <p className="text-[12px] text-white/40 mt-1 max-w-[200px]">
                 Add assignments, exams, or personal deadlines to stay on top of your schedule
               </p>
               <motion.button
@@ -497,7 +497,7 @@ export function DeadlinesCard({
           <div className="mt-3 pt-3 border-t border-zinc-800/50 shrink-0">
             <button
               onClick={() => setShowCompleted(!showCompleted)}
-              className="flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors w-full py-1"
+              className="flex items-center gap-1.5 text-[11px] text-white/50 hover:text-white/80 transition-colors w-full py-1"
             >
               {showCompleted ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               <span>{completed.length} completed</span>
@@ -520,12 +520,12 @@ export function DeadlinesCard({
                         className="flex items-center gap-2 p-2 rounded-md bg-zinc-900/30 opacity-50 hover:opacity-80 transition-opacity"
                       >
                         <CheckCircle2 size={12} className="text-emerald-500" />
-                        <span className="text-[12px] text-zinc-500 line-through flex-1">{dl.title}</span>
+                        <span className="text-[12px] text-white/50 line-through flex-1">{dl.title}</span>
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => onUpdate(dl.id, { status: 'pending' })}
-                          className="text-zinc-600 hover:text-zinc-400 p-1 rounded"
+                          className="text-white/40 hover:text-white/60 p-1 rounded"
                           title="Reopen deadline"
                         >
                           <RotateCcw size={10} />

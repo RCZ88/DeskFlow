@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Landmark, CreditCard, Wallet, Banknote, PiggyBank, Save, RefreshCw, AlertTriangle, Plus, Trash2, Eye, EyeOff, Link2, Unlink, WalletCards, Users } from 'lucide-react';
+import { ArrowLeft, Landmark, CreditCard, Wallet, Banknote, PiggyBank, Save, RefreshCw, AlertTriangle, Plus, Trash2, Eye, EyeOff, Link2, Unlink, WalletCards, Users, Nfc } from 'lucide-react';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Filler } from 'chart.js';
 import { Line, Doughnut } from 'react-chartjs-2';
 import { GlassSurface } from './_fx/GlassSurface';
@@ -10,6 +10,7 @@ import { maskNumber } from '../../utils/maskNumber';
 import { TransactionDetailModal } from './TransactionDetailModal';
 import { CryptoAssetDetailModal } from './CryptoAssetDetailModal';
 import { CurrencyInput } from './CurrencyInput';
+import WalletMonthlyChart from './WalletMonthlyChart';
 import type { FinanceWallet, FinanceTransaction, CashDenomination, CryptoPrice, CryptoHistoryPoint, FinanceSubscription, AssetPrice, AssetSearchResult, FinanceAccount, FinanceCategory } from './finance-types';
 
 interface WalletDetailViewProps {
@@ -43,6 +44,7 @@ const walletMeta: Record<string, { icon: any; label: string; color: string }> = 
   cash: { icon: PiggyBank, label: 'Cash', color: '#EC4899' },
   physical: { icon: WalletCards, label: 'Physical', color: '#F97316' },
   ewallet: { icon: Banknote, label: 'E-Wallet', color: '#06B6D4' },
+  prepaid_card: { icon: Nfc, label: 'Prepaid Card', color: '#22D3EE' },
   other: { icon: Wallet, label: 'Other', color: '#6B7280' },
 };
 
@@ -1749,6 +1751,7 @@ function PhysicalDetail({ metadata, onChange, onDenominationsChange, transaction
   const sym = getCurrencyInfo(displayCurrency).symbol;
   const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
   const fmtSym = (v: number) => showNumbers ? `${sym}${v.toFixed(2)}` : maskNumber(`${sym}${v.toFixed(2)}`, maskMode, maskFixedValue);
+  const [editingCards, setEditingCards] = useState(false);
   const denoms: CashDenomination[] = useMemo(() => {
     if (Array.isArray(metadata.denominations) && metadata.denominations.length > 0) return metadata.denominations;
     return getDenominations(displayCurrency).map(d => ({ value: d.value, label: d.label, count: 0 }));
@@ -1873,11 +1876,19 @@ function PhysicalDetail({ metadata, onChange, onDenominationsChange, transaction
       <GlassSurface tier={2} className="p-4">
         <div className="flex items-center justify-between mb-2">
           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">Cards & Items</div>
-          <button onClick={addCard} className="text-[10px] px-2 py-1 rounded-lg bg-[#F97316]/10 text-[#F97316] hover:bg-[#F97316]/20 transition-colors">+ Add Card</button>
+          <div className="flex items-center gap-1.5">
+            {editingCards && (
+              <button onClick={addCard} className="text-[10px] px-2 py-1 rounded-lg bg-[#F97316]/10 text-[#F97316] hover:bg-[#F97316]/20 transition-colors">+ Add</button>
+            )}
+            <button onClick={() => setEditingCards(v => !v)}
+              className="text-[10px] px-2 py-1 rounded-lg bg-zinc-700/40 text-zinc-400 hover:text-white hover:bg-zinc-700/60 transition-colors">
+              {editingCards ? 'Done' : 'Edit'}
+            </button>
+          </div>
         </div>
         {cards.length === 0 ? (
-          <p className="text-[11px] text-zinc-600 text-center py-3">No cards stored. Click "Add Card" to track cards in this wallet.</p>
-        ) : (
+          <p className="text-[11px] text-zinc-600 text-center py-3">No cards stored. Click "Edit" then "Add" to track cards in this wallet.</p>
+        ) : editingCards ? (
           <div className="space-y-2">
             {cards.map((card, i) => (
               <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-zinc-800/30">
@@ -1896,6 +1907,29 @@ function PhysicalDetail({ metadata, onChange, onDenominationsChange, transaction
                 <button onClick={() => removeCard(i)} className="text-zinc-600 hover:text-red-400 text-xs px-1">×</button>
               </div>
             ))}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {cards.map((card, i) => {
+              const typeColors: Record<string, string> = {
+                debit: 'bg-blue-500/15 text-blue-400 border-blue-500/25',
+                credit: 'bg-violet-500/15 text-violet-400 border-violet-500/25',
+                id: 'bg-amber-500/15 text-amber-400 border-amber-500/25',
+                transit: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
+                other: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/25',
+              };
+              const typeLabels: Record<string, string> = {
+                debit: 'Debit', credit: 'Credit', id: 'ID', transit: 'Transit', other: 'Other',
+              };
+              return (
+                <div key={i} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] ${typeColors[card.type] || typeColors.other}`}>
+                  <CreditCard className="w-3 h-3 opacity-70" />
+                  <span className="font-medium text-zinc-200">{card.name || 'Unnamed'}</span>
+                  {card.last4 && <span className="text-zinc-500">••••{card.last4}</span>}
+                  <span className="text-[9px] uppercase tracking-wider opacity-60 ml-0.5">{typeLabels[card.type] || 'Other'}</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </GlassSurface>
@@ -1992,6 +2026,54 @@ function EwalletDetail({ metadata, onChange, transactions, displayCurrency, wall
       <GlassSurface tier={2} className="p-4">
         <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500 mb-2">Recent Transactions</div>
         <TransactionList transactions={transactions} displayCurrency={displayCurrency} walletId={walletId} onTxnClick={onTxnClick} />
+      </GlassSurface>
+    </div>
+  );
+}
+
+function PrepaidCardDetail({ metadata, onChange, transactions, displayCurrency, walletId, onTxnClick }: {
+  metadata: Record<string, any>; onChange: (k: string, v: string) => void;
+  transactions: FinanceTransaction[]; displayCurrency: string; walletId?: number; onTxnClick?: (txn: FinanceTransaction) => void;
+}) {
+  const sym = getCurrencyInfo(displayCurrency).symbol;
+  const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
+  const fmtSym = (v: number) => showNumbers ? `${sym}${v.toFixed(2)}` : maskNumber(`${sym}${v.toFixed(2)}`, maskMode, maskFixedValue);
+
+  const walletTxns = useMemo(() =>
+    transactions.filter(t => t.type === 'expense' || t.type === 'income'),
+    [transactions]
+  );
+
+  const recentTxns = walletTxns.slice(-10).reverse();
+
+  return (
+    <div className="space-y-4">
+      <GlassSurface tier={2} className="p-4">
+        <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500 mb-2">Card Info</div>
+        <div className="space-y-1">
+          <FieldRow label="Provider" value={metadata.provider} onChange={v => onChange('provider', v)} />
+          <FieldRow label="Card Number" value={metadata.card_number} onChange={v => onChange('card_number', v)} placeholder="Last 4-6 digits" />
+          <div className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-zinc-800/30">
+            <span className="text-[11px] text-zinc-400">Auto Top-Up</span>
+            <button
+              onClick={() => onChange('auto_topup', metadata.auto_topup ? 'false' : 'true')}
+              className={`relative w-9 h-5 rounded-full transition-colors ${metadata.auto_topup === 'true' ? 'bg-[#22D3EE]' : 'bg-zinc-700'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${metadata.auto_topup === 'true' ? 'translate-x-4' : ''}`} />
+            </button>
+          </div>
+          <FieldRow label="Top-Up Limit" value={metadata.top_up_limit} onChange={v => onChange('top_up_limit', v)} type="number" />
+          <FieldRow label="Notes" value={metadata.notes} onChange={v => onChange('notes', v)} />
+        </div>
+      </GlassSurface>
+
+      <GlassSurface tier={2} className="p-4">
+        <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500 mb-2">Recent Transactions</div>
+        {recentTxns.length === 0 ? (
+          <div className="text-center py-4 text-xs text-zinc-500">No transactions yet. Tap + to add one.</div>
+        ) : (
+          <TransactionList transactions={recentTxns} displayCurrency={displayCurrency} walletId={walletId} onTxnClick={onTxnClick} />
+        )}
       </GlassSurface>
     </div>
   );
@@ -2185,6 +2267,7 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
       case 'cash': return <CashDetail metadata={localMetadata} onChange={handleMetadataChange} onDenominationsChange={handleDenominationsChange} displayCurrency={displayCurrency} onTotalValueChange={v => { cashTotalRef.current = v; setCashLiveTotal(v); }} onTxnClick={setDetailTxn} />;
       case 'physical': return <PhysicalDetail metadata={localMetadata} onChange={handleMetadataChange} onDenominationsChange={handleDenominationsChange} transactions={walletTransactions} displayCurrency={displayCurrency} onTotalValueChange={v => { cashTotalRef.current = v; setCashLiveTotal(v); }} walletId={wallet.id} onTxnClick={setDetailTxn} />;
       case 'ewallet': return <EwalletDetail metadata={localMetadata} onChange={handleMetadataChange} transactions={walletTransactions} displayCurrency={displayCurrency} walletId={wallet.id} onTxnClick={setDetailTxn} />;
+      case 'prepaid_card': return <PrepaidCardDetail metadata={localMetadata} onChange={handleMetadataChange} transactions={walletTransactions} displayCurrency={displayCurrency} walletId={wallet.id} onTxnClick={setDetailTxn} />;
       default: return <OtherDetail metadata={localMetadata} onChange={handleMetadataChange} />;
     }
   };
@@ -2435,6 +2518,19 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Monthly income/expense chart — skipped for crypto (has its own) */}
+        {wallet.type !== 'crypto' && wallet.type !== 'investment' && (
+          <div className="mb-4">
+            <WalletMonthlyChart
+              transactions={transactions}
+              walletId={wallet.id}
+              displayCurrency={displayCurrency}
+              baseCurrency={displayCurrency}
+              walletColor={walletMeta[wallet.type]?.color || '#6B7280'}
+            />
           </div>
         )}
 

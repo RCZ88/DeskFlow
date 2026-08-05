@@ -15,7 +15,6 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '..
 import { BorderBeam } from '../components/ui/border-beam';
 import { NumberTicker } from '../components/ui/number-ticker';
 import { DotPattern } from '../components/ui/dot-pattern';
-import { AnimatedGradientText } from '../components/ui/animated-gradient-text';
 import { format as dateFormat, format } from 'date-fns';
 import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import { Pie, Bar, Line } from 'react-chartjs-2';
@@ -898,11 +897,8 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
       <GlassCard className="relative overflow-hidden">
         <DotPattern className="absolute inset-0 text-[var(--page-accent)]" opacity={0.05} radius={1} gap={26} />
         <div className="relative">
-        <SectionHeader title={
-          <AnimatedGradientText colorFrom="#38bdf8" colorTo="#8b5cf6">
-            {selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
-          </AnimatedGradientText>
-        }
+        <SectionHeader title={selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
+          titleClassName="font-display font-extrabold tracking-tight"
           icon={hourlyChartMode === 'bar' ? <BarChart3 className="w-5 h-5" /> : <TrendingUpIcon className="w-5 h-5" />}
           action={
             <div data-tutorial="browser.toggle" className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
@@ -914,7 +910,7 @@ export default function BrowserActivityPage({ embedded, selectedPeriod = 'week',
                 aria-label="Line Chart"><TrendingUpIcon className="w-4 h-4" /></Toggle>
             </div>
           } />
-        <p className="text-xs text-zinc-500 mb-4">
+        <p className="text-sm text-zinc-500 mb-4">
           {selectedPeriod === 'today' ? 'Activity by hour of day' : 'Activity over time'}
         </p>
         <div className="relative h-48">

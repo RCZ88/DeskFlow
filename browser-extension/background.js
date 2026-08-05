@@ -9,7 +9,10 @@
 
 const DESKFLOW_SERVER = 'http://localhost:54321';
 const ALARM_NAME = 'deskflowSync';
-const SYNC_PERIOD_MINUTES = 0.083; // ~5 seconds
+// MV3 minimum alarm period: 0.5 min (30s) for unpacked extensions, 1 min installed.
+// Values below the minimum are silently clamped by Chrome, so 0.5 is the fastest
+// reliable period that keeps the service worker waking on schedule.
+const SYNC_PERIOD_MINUTES = 0.5; // 30 seconds
 const MIN_SESSION_MS = 3000;       // Minimum 3 seconds before logging
 const HEALTH_CHECK_TIMEOUT_MS = 3000;
 
@@ -125,9 +128,16 @@ function getBrowserProcessNames(browserName) {
 // --- Send browser identification to DeskFlow ---
 async function identifyBrowser() {
   try {
-    const processNames = getBrowserProcessNames(BROWSER_NAME);
-    // Send the BROWSER_NAME (brand) AND a normalized process-compatible name
-    // so the desktop app can match against OS process names
+    // Send the union of ALL known alias process names (not just the detected
+    // brand's) so the desktop app keeps matching the foreground browser even
+    // when UA-based brand detection misidentifies (e.g. Comet reporting as
+    // "Chrome" because its UA contains "Chrome"). This prevents the server from
+    // clobbering its comet/edge entries in browserProcessNames.
+    const allProcessNames = new Set(getBrowserProcessNames(BROWSER_NAME));
+    for (const names of Object.values(BROWSER_PROCESS_NAMES)) {
+      for (const n of names) allProcessNames.add(n);
+    }
+    const processNames = [...allProcessNames];
     await fetch(`${DESKFLOW_SERVER}/browser-identify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -240,15 +250,24 @@ async function checkBrowserFocus() {
       const appName = (data.app || '').toLowerCase();
       const browserName = BROWSER_NAME.toLowerCase();
       const processNames = getBrowserProcessNames(BROWSER_NAME);
-      
+
+      // Match against the brand name AND every known alias. UA-based brand detection
+      // is unreliable (Comet's UA often contains "Chrome" but the OS process is
+      // "comet"), so if the foreground app matches ANY tracked browser alias the
+      // extension's own window is considered focused.
+      const allAliases = new Set([browserName, ...processNames]);
+      for (const names of Object.values(BROWSER_PROCESS_NAMES)) {
+        for (const n of names) allAliases.add(n);
+      }
+
       // Check multiple matching strategies:
       // 1. Foreground app contains the browser brand name (e.g., "chrome.exe" contains "chrome")
       // 2. Browser brand name contains the foreground app (handles short process names)
-      // 3. Foreground app matches any known process name for this browser (handles brand-name mismatch)
-      const isBrowserActive = browserName.length > 0 && (
+      // 3. Foreground app matches any known process name for any tracked browser
+      const isBrowserActive = appName.length > 0 && (
         appName.includes(browserName) ||
         browserName.includes(appName) ||
-        processNames.some(p => appName.includes(p))
+        [...allAliases].some(p => appName.includes(p))
       );
       
       console.log('[DeskFlow] 🔍 Foreground app:', data.app, `(extension host: ${BROWSER_NAME})`, '-> Browser focused:', isBrowserActive);
@@ -324,12 +343,12 @@ async function updateActiveTab(tabId) {
 async function logPreviousSession(force = false) {
   if (!state.activeTabId || !state.activeTabUrl) return;
 
-  // Skip if browser lost focus UNLESS this is the final flush on focus loss
-  // Prevents background tab navigations/activations from creating phantom entries
-  if (!force && !state.isBrowserFocused) {
-    console.debug('[DeskFlow] 🔇 Browser not focused, skipping background tab log');
-    return;
-  }
+  // NOTE: No focus gate here. We ALWAYS send the session and flag
+  // is_browser_focused; the DeskFlow desktop app is the authority and decides
+  // (it enforces a fresh foreground check unless forceBrowserTracking is on).
+  // Gating here caused 24/7 data loss when the flag got stuck false (e.g. UA
+  // misdetect on Comet), which is worse than the phantom-entry risk it guarded
+  // against.
 
   const duration = Date.now() - state.sessionStart;
 
@@ -364,13 +383,9 @@ async function periodicSync() {
   // Don't track if no active tab or tracking is disabled
   if (!state.activeTabId || !state.isTrackingEnabled) return;
 
-  // If browser is not focused, just update sync timestamp and return
-  // Prevents phantom delta accumulation when focus returns
-  if (!state.isBrowserFocused) {
-    state.lastPeriodicSync = Date.now();
-    await saveState();
-    return;
-  }
+  // NOTE: No focus gate here — see logPreviousSession. The desktop app decides
+  // whether to accept (fresh foreground check / forceBrowserTracking). Removing
+  // this gate fixes the stuck-focus false that silently stopped ALL tracking.
 
   // Calculate DELTA (new time since last sync), not total duration
   const deltaMs = Date.now() - state.lastPeriodicSync;

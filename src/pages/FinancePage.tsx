@@ -31,7 +31,7 @@ import { SpendingCategoryChart } from '../components/finance/SpendingCategoryCha
 import { followThroughReceivable, netWorthWithReceivable } from '../lib/netWorth';
 import {
   BankTransactionModal, DebitTransactionModal, CreditTransactionModal,
-  CryptoTransactionModal, PhysicalTransactionModal, CashTransactionModal, EwalletTransactionModal,
+  CryptoTransactionModal, PhysicalTransactionModal, CashTransactionModal, EwalletTransactionModal, PrepaidCardTransactionModal,
 } from '../components/finance/modals';
 import type {
   FinanceAccount, FinanceWallet, FinanceCategory, FinanceTransaction,
@@ -63,7 +63,6 @@ const tabs: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'transactions', label: 'Transactions', icon: <ArrowUpRight className="w-3.5 h-3.5" /> },
   { key: 'people', label: 'People', icon: <Users className="w-3.5 h-3.5" /> },
   { key: 'categories', label: 'Categories', icon: <Tag className="w-3.5 h-3.5" /> },
-  { key: 'subscriptions', label: 'Subscriptions', icon: <Bell className="w-3.5 h-3.5" /> },
   { key: 'budget', label: 'Budget & Expenses', icon: <Target className="w-3.5 h-3.5" /> },
   { key: 'audit', label: 'Audit Log', icon: <Shield className="w-3.5 h-3.5" /> },
   { key: 'charts', label: 'Charts', icon: <BarChart3 className="w-3.5 h-3.5" /> },
@@ -125,6 +124,7 @@ export function FinancePage() {
   const passwordResolveRef = useRef<((pw: string | null) => void) | null>(null);
   const [selectedWalletId, setSelectedWalletId] = useState<number | null>(null);
   const [showSubscriptionsPage, setShowSubscriptionsPage] = useState(false);
+  const [budgetSubView, setBudgetSubView] = useState<'bills' | 'subscriptions'>('bills');
   const [showRecalculateModal, setShowRecalculateModal] = useState(false);
   const [recalculateData, setRecalculateData] = useState<{ walletId: number; walletName: string; initialBalance: number; currentBalance: number; computedBalance: number; breakdown: RecalculateBreakdown[] } | null>(null);
   const [notifMsg, setNotifMsg] = useState<string | null>(null);
@@ -1341,76 +1341,70 @@ export function FinancePage() {
                   />
                 </motion.div>
               )}
-              {activeTab === 'subscriptions' && !showSubscriptionsPage && (
-                <motion.div
-                  key="subscriptions"
-                  variants={tabPanel}
-                  initial="enter"
-                  animate="center"
-                  exit="exit"
-                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                >
-                  <SubscriptionsTab
-                    data-section="finance.subscriptions"
-                    subscriptions={subscriptions}
-                    wallets={wallets}
-                    transactions={transactions}
-                    categories={categories}
-                    displayCurrency={displayCurrency}
-                    onRefresh={fetchData}
-                    onGenerateTransactions={handleGenerateSubscriptions}
-                    onSkipRenewal={handleSkipRenewal}
-                    onViewAll={() => setShowSubscriptionsPage(true)}
-                    onCreate={handleCreateSubscription}
-                    onUpdate={handleUpdateSubscription}
-                    onDelete={handleDeleteSubscription}
-                    onMoveTransaction={handleMoveSubscriptionTransaction}
-                    onRetryPayment={handleRetrySubscriptionPayment}
-                    onToggleAutodebet={handleToggleAutodebet}
-                    onRecordPaymentManual={handleRecordSubscriptionPayment}
-                    onGetPaymentHistory={async (subId) => {
-                      try { return await (window as any).deskflowAPI?.subscriptionsGetPaymentHistory?.(subId); }
-                      catch { return { success: false }; }
-                    }}
-                    onCancelPayment={async (subId, txnId, reason) => {
-                      try {
-                        const r = await (window as any).deskflowAPI?.subscriptionsCancelPayment?.({ subscriptionId: subId, transactionId: txnId, reason });
-                        if (r?.success) { await fetchData(); return true; }
-                        return false;
-    } catch (e: any) { console.error('[FinancePage] handleAddTransaction error:', e); throw e; }
-                    }}
-                    onNotify={(msg, type) => { setNotifMsg(msg); setTimeout(() => setNotifMsg(null), 3000); }}
-                  />
-                </motion.div>
-              )}
-               {activeTab === 'subscriptions' && showSubscriptionsPage && (
-                 <motion.div
-                   key="subscriptions-full"
-                   variants={tabPanel}
-                   initial="enter"
-                   animate="center"
-                   exit="exit"
-                   transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                 >
-                   <SubscriptionsPageView
-                     data-section="finance.subscriptions.full"
-                     subscriptions={subscriptions}
-                     wallets={wallets}
-                     categories={categories}
-                     displayCurrency={displayCurrency}
-                     onRefresh={fetchData}
-                     onGenerateTransactions={handleGenerateSubscriptions}
-                     onSkipRenewal={handleSkipRenewal}
-                     onBack={() => setShowSubscriptionsPage(false)}
-                   />
+               {activeTab === 'budget' && (
+                 <motion.div key="budget" variants={tabPanel} initial="enter" animate="center" exit="exit"
+                   transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}>
+                   <div className="mb-4">
+                     <TabBar
+                       tabs={[
+                         { key: 'bills', label: 'Bills & Budget', icon: <Target className="w-3.5 h-3.5" /> },
+                         { key: 'subscriptions', label: 'Subscriptions', icon: <Bell className="w-3.5 h-3.5" /> },
+                       ]}
+                       activeKey={budgetSubView}
+                       onTabChange={(k) => setBudgetSubView(k as 'bills' | 'subscriptions')}
+                     />
+                   </div>
+                   {budgetSubView === 'bills' && (
+                     <BudgetExpensesDashboard displayCurrency={displayCurrency} />
+                   )}
+                   {budgetSubView === 'subscriptions' && !showSubscriptionsPage && (
+                     <SubscriptionsTab
+                       data-section="finance.subscriptions"
+                       subscriptions={subscriptions}
+                       wallets={wallets}
+                       transactions={transactions}
+                       categories={categories}
+                       displayCurrency={displayCurrency}
+                       onRefresh={fetchData}
+                       onGenerateTransactions={handleGenerateSubscriptions}
+                       onSkipRenewal={handleSkipRenewal}
+                       onViewAll={() => setShowSubscriptionsPage(true)}
+                       onCreate={handleCreateSubscription}
+                       onUpdate={handleUpdateSubscription}
+                       onDelete={handleDeleteSubscription}
+                       onMoveTransaction={handleMoveSubscriptionTransaction}
+                       onRetryPayment={handleRetrySubscriptionPayment}
+                       onToggleAutodebet={handleToggleAutodebet}
+                       onRecordPaymentManual={handleRecordSubscriptionPayment}
+                       onGetPaymentHistory={async (subId) => {
+                         try { return await (window as any).deskflowAPI?.subscriptionsGetPaymentHistory?.(subId); }
+                         catch { return { success: false }; }
+                       }}
+                        onCancelPayment={async (subId, txnId, reason) => {
+                          try {
+                            const r = await (window as any).deskflowAPI?.subscriptionsCancelPayment?.({ subscriptionId: subId, transactionId: txnId, reason });
+                            if (r?.success) { await fetchData(); return true; }
+                            return false;
+                          } catch (e: any) { console.error('[FinancePage] subscriptionsCancelPayment error:', e); throw e; }
+                        }}
+                       onNotify={(msg, type) => { setNotifMsg(msg); setTimeout(() => setNotifMsg(null), 3000); }}
+                     />
+                   )}
+                   {budgetSubView === 'subscriptions' && showSubscriptionsPage && (
+                     <SubscriptionsPageView
+                       data-section="finance.subscriptions.full"
+                       subscriptions={subscriptions}
+                       wallets={wallets}
+                       categories={categories}
+                       displayCurrency={displayCurrency}
+                       onRefresh={fetchData}
+                       onGenerateTransactions={handleGenerateSubscriptions}
+                       onSkipRenewal={handleSkipRenewal}
+                       onBack={() => setShowSubscriptionsPage(false)}
+                     />
+                   )}
                  </motion.div>
-                )}
-                {activeTab === 'budget' && (
-                  <motion.div key="budget" variants={tabPanel} initial="enter" animate="center" exit="exit"
-                    transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}>
-                    <BudgetExpensesDashboard displayCurrency={displayCurrency} />
-                  </motion.div>
-                )}
+               )}
                 {activeTab === 'charts' && (
                  <motion.div
                    key="charts"
@@ -1575,6 +1569,7 @@ export function FinancePage() {
           case 'physical': return <PhysicalTransactionModal key={w.id} {...modalProps} />;
           case 'cash': return <CashTransactionModal key={w.id} {...modalProps} />;
           case 'ewallet': return <EwalletTransactionModal key={w.id} {...modalProps} />;
+          case 'prepaid_card': return <PrepaidCardTransactionModal key={w.id} {...modalProps} />;
         }
       })()}
 

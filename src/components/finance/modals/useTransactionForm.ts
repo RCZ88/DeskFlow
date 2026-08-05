@@ -4,7 +4,7 @@ import type { TxModalProps, TxType } from './modalUtils'
 
 export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) {
 	const walletType = props.wallet.type.replace('_card', '').replace('ewallet', 'ewallet')
-	const prefsType = walletType === 'physical' ? 'cash' : walletType === 'other' ? 'bank' : walletType
+	const prefsType = walletType === 'physical' ? 'cash' : walletType === 'prepaid' ? 'debit' : walletType === 'other' ? 'bank' : walletType
 
 	const lastType = getLastType(prefsType)
 	const lastCat = getLastCategoryId(prefsType)
@@ -21,11 +21,15 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
 	const [showAdvanced, setShowAdvanced] = useState(false)
 	const [onBehalfOf, setOnBehalfOf] = useState(props.initialOnBehalfOf ?? false)
 	const [ftPersonId, setFtPersonId] = useState<number | null>(props.initialFtPersonId ?? null)
-	const [ftPersons, setFtPersons] = useState<{ id: number; name: string; email?: string | null; phone?: string | null }[]>([])
+	const [ftPersons, setFtPersons] = useState<{ id: number; name: string; email?: string | null; phone?: string | null }[]>(props.ftPersons ?? [])
 	const [fee, setFee] = useState('')
 	const [merchant, setMerchant] = useState('')
 	const [isAdjustment, setIsAdjustment] = useState(false)
 	const [usePersonBalance, setUsePersonBalance] = useState(false)
+
+	useEffect(() => {
+		if (props.ftPersons?.length) setFtPersons(props.ftPersons)
+	}, [props.ftPersons])
 
 	const numericAmount = Number(amount.replace(/[^0-9.]/g, '')) || 0
 	const numericFee = Number(fee.replace(/[^0-9.]/g, '')) || 0

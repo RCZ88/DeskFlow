@@ -15,6 +15,7 @@ import {
   X,
   AlignLeft,
   List,
+  Lightbulb,
 } from 'lucide-react';
 import { ResourceInput, type Resource } from './ResourceInput';
 
@@ -106,11 +107,13 @@ export function CreateLessonDialog({
   onClose,
   onImported,
   seed,
+  onBrowseSavedIdeas,
 }: {
   open: boolean;
   onClose: () => void;
   onImported: () => void;
   seed?: LessonSeed | null;
+  onBrowseSavedIdeas?: () => void;
 }) {
   const [step, setStep] = useState<Step>('input');
   const [inputMode, setInputMode] = useState<InputMode>('simple');
@@ -639,6 +642,15 @@ export function CreateLessonDialog({
 
               {step === 'input' && (
                 <div className="flex items-center gap-2">
+                  {onBrowseSavedIdeas && (
+                    <button
+                      onClick={() => { onClose(); onBrowseSavedIdeas(); }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-zinc-800/60 text-amber-400 border border-amber-500/20 hover:bg-amber-500/10 hover:text-amber-300 transition-all duration-150"
+                    >
+                      <Lightbulb className="w-3.5 h-3.5" />
+                      Pick from saved ideas
+                    </button>
+                  )}
                   {(userInput.trim().length > 0 || description.trim().length > 0) && (
                     <button
                       onClick={handleSaveForLater}

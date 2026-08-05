@@ -360,7 +360,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   }, []);
   const commitHistoryRef = useRef<any[]>([]);
   const [commitHistory, setCommitHistory] = useState<any[]>([]);
-  const [workspaceAnalytics, setWorkspaceAnalytics] = useState<{ aiUsage: any; sessions: any[]; problems: any[]; requests: any[]; promptHistory: any[] } | null>(null);
+  const [workspaceAnalytics, setWorkspaceAnalytics] = useState<{ aiUsage: any; sessions: any[]; problems: any[]; requests: any[]; promptHistory: any[]; codeStats: any } | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const analyticsCacheRef = useRef<{ data: typeof workspaceAnalytics; timestamp: number } | null>(null);
@@ -619,7 +619,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       const effectiveOffset = dateOffset;
 
       console.log('[IDEProjectsPage] Fetching analytics data for period:', effectivePeriod);
-      const [aiUsageSummary, problems, requests, sessions, promptHistory] = await Promise.all([
+      const [aiUsageSummary, problems, requests, sessions, promptHistory, codeStats] = await Promise.all([
         window.deskflowAPI.getAIUsageSummary(effectivePeriod, effectiveOffset).catch(err => {
           console.error('[IDEProjectsPage] Failed to fetch AI usage summary:', err);
           return null;
@@ -640,6 +640,10 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           console.error('[IDEProjectsPage] Failed to fetch prompt history:', err);
           return [];
         }),
+        window.deskflowAPI.getCodeChangeStats?.(effectivePeriod, effectiveOffset, selectedProject || undefined).catch(err => {
+          console.error('[IDEProjectsPage] Failed to fetch code change stats:', err);
+          return null;
+        }),
       ]);
 
       // Progressive data rendering - process in chunks to prevent UI freezing
@@ -651,6 +655,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           requests: requests?.data || requests || [],
           sessions: sessions?.data || sessions || [],
           promptHistory: promptHistory || [],
+          codeStats: codeStats || null,
         };
         analyticsCacheRef.current = { data, timestamp: Date.now() };
         setWorkspaceAnalytics(data);
@@ -2550,6 +2555,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 problems={workspaceAnalytics.problems}
                 requests={workspaceAnalytics.requests}
                 promptHistory={workspaceAnalytics.promptHistory}
+                codeStats={workspaceAnalytics.codeStats}
                 loading={analyticsLoading}
                 period={selectedPeriod}
                 variant="workspace"

@@ -100,9 +100,8 @@ export default function ActivityPage(props: ActivityPageProps) {
         </div>
       </div>
 
-      {/* Tab Content — dimmed backdrop so the animated AppBackground doesn't bleed through card gaps */}
+      {/* Tab Content */}
       <div className="flex-1 min-h-0 overflow-auto relative">
-        <div className="absolute inset-0 pointer-events-none bg-[#121212]/70" aria-hidden />
         <div className="relative z-10">
           <Suspense fallback={<LoadingState variant="spinner" className="py-24" />}>
             <AnimatePresence mode="wait">

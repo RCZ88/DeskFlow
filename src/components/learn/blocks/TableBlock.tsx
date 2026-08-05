@@ -19,14 +19,12 @@ export function TableBlock({ block, onAsk }: Props) {
     import('tabulator-tables').then((Tabulator) => {
       if (!mounted || !containerRef.current) return;
       containerRef.current.innerHTML = '';
-      const Tab = Tabulator.default || Tabulator;
+      const Tab = Tabulator.Tabulator || Tabulator.default || (Tabulator as any);
       new Tab(containerRef.current, {
         data: block.rows,
         columns: block.columns.map((c) => ({
           title: c.title,
           field: c.field,
-          headerFilter: true,
-          headerSort: true,
         })),
         layout: 'fitColumns',
         theme: 'dark',

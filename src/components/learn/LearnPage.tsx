@@ -443,6 +443,7 @@ export function LearnPage() {
             onImport={() => setImportDialogOpen(true)}
             onPaste={() => { setImportDialogOpen(true); setImportMode('paste'); }}
             onBrowse={() => navigate('library')}
+            onOpenSavedIdeas={() => setIntentPanelOpen(true)}
           />
         );
       case 'library':
@@ -656,6 +657,7 @@ export function LearnPage() {
         open={showCreateDialog}
         onClose={() => { setShowCreateDialog(false); setLessonSeed(null); }}
         onImported={() => { loadLessons(); navigate('library'); }}
+        onBrowseSavedIdeas={() => { setShowCreateDialog(false); setIntentPanelOpen(true); }}
       />
       <OnboardingPanel open={showOnboarding} onClose={() => setShowOnboarding(false)} />
       <LearnerSetup open={showSetup} onClose={() => setShowSetup(false)} />

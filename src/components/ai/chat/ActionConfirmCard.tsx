@@ -1,5 +1,7 @@
 import { useState } from "react"
 import { Check, X, Send, CalendarPlus, Trash2, Mail, Loader2 } from "lucide-react"
+import { actionBus } from "../lib/actionBus"
+import type { ActionType } from "../tokens"
 
 interface ActionConfirmCardProps {
   action: {
@@ -16,11 +18,15 @@ export function ActionConfirmCard(props: ActionConfirmCardProps) {
 
   const handleConfirm = async () => {
     setExecuting(true)
+    const actionId = `confirm-${props.action.kind}-${Date.now()}`
+    actionBus.start(actionId, (props.action.kind || 'ai-stream') as ActionType, title)
     try {
       await props.onConfirm()
+      actionBus.complete(actionId)
       setDone(true)
       setTimeout(() => props.onDismiss(), 2000)
-    } catch {
+    } catch (e: any) {
+      actionBus.fail(actionId, e?.message)
       setExecuting(false)
     }
   }

@@ -196,8 +196,8 @@ export function GoalsCard({
   // ─── Loading Skeleton ───
   if (loading) {
     return (
-      <SpotlightCard spotlightColor="rgba(139, 92, 246, 0.08)" className="rounded-xl">
-        <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px]">
+      <SpotlightCard spotlightColor="rgba(139, 92, 246, 0.08)" className="rounded-xl h-full">
+        <div className="relative rounded-xl overflow-hidden bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/60 p-5 h-full">
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-violet-500/30 via-violet-500/10 to-transparent" />
           <div className="animate-pulse space-y-4">
             <div className="h-5 bg-zinc-800 rounded w-1/3" />
@@ -214,22 +214,22 @@ export function GoalsCard({
   // ─── Error State ───
   if (error) {
     return (
-      <SpotlightCard spotlightColor="rgba(139, 92, 246, 0.08)" className="rounded-xl">
-        <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px] flex flex-col items-center justify-center text-center">
+      <SpotlightCard spotlightColor="rgba(139, 92, 246, 0.08)" className="rounded-xl h-full">
+        <div className="relative rounded-xl overflow-hidden bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/60 p-5 h-full flex flex-col items-center justify-center text-center">
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-violet-500/30 via-violet-500/10 to-transparent" />
           <div className="w-14 h-14 rounded-full bg-zinc-800/50 flex items-center justify-center mb-3">
-            <AlertCircle size={24} className="text-zinc-600" />
+            <AlertCircle size={24} className="text-white/40" />
           </div>
-          <p className="text-[14px] font-medium text-zinc-400">Could not load goals</p>
-          <p className="text-[12px] text-zinc-600 mt-1 max-w-[220px]">{error}</p>
+          <p className="text-[14px] font-medium text-white/60">Could not load goals</p>
+          <p className="text-[12px] text-white/40 mt-1 max-w-[220px]">{error}</p>
         </div>
       </SpotlightCard>
     );
   }
 
   return (
-    <SpotlightCard spotlightColor="rgba(139, 92, 246, 0.08)" className="rounded-xl">
-      <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px] flex flex-col">
+      <SpotlightCard spotlightColor="rgba(139, 92, 246, 0.08)" className="rounded-xl h-full">
+      <div className="relative rounded-xl overflow-hidden bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/60 p-5 flex flex-col h-full">
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-violet-500/30 via-violet-500/10 to-transparent" />
 
         {activeGoals.length > 0 && <BorderBeam size={140} duration={10} colorFrom="#10b981" colorTo="#34d399" />}
@@ -246,8 +246,8 @@ export function GoalsCard({
             </button>
             <div>
               <button onClick={() => navigate('/goals')} className="hover:opacity-80 transition-opacity text-left">
-                <h2 className="text-[15px] font-semibold text-zinc-100">Today&apos;s Goals</h2>
-                <p className="text-[11px] text-zinc-500">
+                <h2 className="text-[15px] font-semibold text-white">Today&apos;s Goals</h2>
+                <p className="text-[11px] text-white/50">
                   {activeGoals.length} active · {completedGoals.length} done
                 </p>
               </button>
@@ -280,7 +280,7 @@ export function GoalsCard({
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => setIsAdding(!isAdding)}
-              className="w-8 h-8 rounded-md bg-zinc-800/50 hover:bg-zinc-700/50 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
+              className="w-8 h-8 rounded-md bg-zinc-800/50 hover:bg-zinc-700/50 flex items-center justify-center text-white/60 hover:text-white transition-colors"
               aria-label={isAdding ? 'Cancel adding goal' : 'Add new goal'}
             >
               {isAdding ? <X size={14} /> : <Plus size={14} />}
@@ -333,15 +333,15 @@ export function GoalsCard({
                       exit={{ height: 0, opacity: 0 }}
                       className="flex items-center gap-2 overflow-hidden"
                     >
-                      <span className="text-[11px] text-zinc-500">Target:</span>
+                      <span className="text-[11px] text-white/50">Target:</span>
                       <Input type="number" min={0} max={23} value={newGoal.targetHours}
                         onChange={e => setNewGoal(p => ({ ...p, targetHours: parseInt(e.target.value) || 0 }))}
                         className="w-16 bg-zinc-900/80 border-zinc-700/50 text-[13px] h-8" />
-                      <span className="text-[11px] text-zinc-500">h</span>
+                      <span className="text-[11px] text-white/50">h</span>
                       <Input type="number" min={0} max={59} value={newGoal.targetMinutes}
                         onChange={e => setNewGoal(p => ({ ...p, targetMinutes: parseInt(e.target.value) || 0 }))}
                         className="w-16 bg-zinc-900/80 border-zinc-700/50 text-[13px] h-8" />
-                      <span className="text-[11px] text-zinc-500">m</span>
+                      <span className="text-[11px] text-white/50">m</span>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -362,7 +362,7 @@ export function GoalsCard({
                       <Plus size={12} className="mr-1" /> Add Goal
                     </Button>
                   </motion.div>
-                  <Button size="sm" variant="ghost" onClick={() => { resetAddForm(); setIsAdding(false); }} className="text-zinc-400 hover:text-white text-[12px] h-8">
+                  <Button size="sm" variant="ghost" onClick={() => { resetAddForm(); setIsAdding(false); }} className="text-white/60 hover:text-white text-[12px] h-8">
                     Cancel
                   </Button>
                 </div>
@@ -381,7 +381,7 @@ export function GoalsCard({
                     <Sparkles size={12} className="text-violet-400" />
                     <span className="text-[11px] text-violet-400 font-medium">AI Suggested Goals</span>
                   </div>
-                  <button onClick={() => setShowSuggestions(false)} className="text-zinc-500 hover:text-zinc-300 p-1 rounded">
+                  <button onClick={() => setShowSuggestions(false)} className="text-white/50 hover:text-white/80 p-1 rounded">
                     <X size={12} />
                   </button>
                 </div>
@@ -397,9 +397,9 @@ export function GoalsCard({
                       <div className="flex items-center gap-2 min-w-0">
                         <Sparkles size={12} className="text-violet-400 shrink-0" />
                         <div className="min-w-0">
-                          <span className="text-[13px] text-zinc-300 truncate block">{suggestion.title}</span>
+                          <span className="text-[13px] text-white/80 truncate block">{suggestion.title}</span>
                           {suggestion.parentId && longTermGoals.find(l => l.id === suggestion.parentId) && (
-                            <span className="text-[10px] text-zinc-600 truncate block">
+                            <span className="text-[10px] text-white/40 truncate block">
                               Serves: {longTermGoals.find(l => l.id === suggestion.parentId)?.title}
                             </span>
                           )}
@@ -419,7 +419,7 @@ export function GoalsCard({
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => onDismissSuggestion(suggestion.id)}
-                          className="w-7 h-7 rounded-md bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50 flex items-center justify-center transition-colors"
+                          className="w-7 h-7 rounded-md bg-zinc-800/50 text-white/60 hover:bg-zinc-700/50 flex items-center justify-center transition-colors"
                           title="Dismiss"
                         >
                           <X size={12} />
@@ -468,7 +468,7 @@ export function GoalsCard({
                           Save
                         </Button>
                       </motion.div>
-                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({}); }} className="text-zinc-400 hover:text-white text-[12px] h-8">
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({}); }} className="text-white/60 hover:text-white text-[12px] h-8">
                         Cancel
                       </Button>
                     </div>
@@ -490,21 +490,21 @@ export function GoalsCard({
 
                     <div className="flex-1 min-w-0">
                       <div className={`text-[13px] truncate transition-colors ${
-                        goal.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-200'
+                        goal.status === 'done' ? 'text-white/50 line-through' : 'text-white/90'
                       }`}>
                         {goal.title}
                       </div>
 
                       {goal.description && (
-                        <p className="text-[11px] text-zinc-600 mt-0.5 line-clamp-1">{goal.description}</p>
+                        <p className="text-[11px] text-white/40 mt-0.5 line-clamp-1">{goal.description}</p>
                       )}
 
                       {goal.parentId && (() => {
                         const parent = longTermGoals.find(ltg => ltg.id === goal.parentId);
                         return parent ? (
                           <div className="flex items-center gap-1 mt-1">
-                            <ArrowRight size={8} className="text-zinc-600" />
-                            <span className="text-[10px] text-zinc-500 truncate">Serves: {parent.title}</span>
+                            <ArrowRight size={8} className="text-white/40" />
+                            <span className="text-[10px] text-white/50 truncate">Serves: {parent.title}</span>
                           </div>
                         ) : null;
                       })()}
@@ -513,11 +513,11 @@ export function GoalsCard({
                         <Badge className={`text-[10px] px-1.5 py-0.5 ${getCategoryMeta(goal.category).color}`}>
                           {getCategoryMeta(goal.category).label}
                         </Badge>
-                        <span className="text-[10px] text-zinc-600 flex items-center gap-1">
+                        <span className="text-[10px] text-white/40 flex items-center gap-1">
                           <RefreshCw size={8} />{goal.period}
                         </span>
                         {goal.target.type === 'time' && goal.target.targetSeconds && (
-                          <span className="text-[10px] text-zinc-600">
+                          <span className="text-[10px] text-white/40">
                             {formatTime(goal.progressSeconds || 0)} / {formatTime(goal.target.targetSeconds)}
                           </span>
                         )}
@@ -556,7 +556,7 @@ export function GoalsCard({
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
                         onClick={(e) => { e.stopPropagation(); startEdit(goal); }}
-                        className="w-7 h-7 rounded-md bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50 hover:text-white flex items-center justify-center transition-colors"
+                        className="w-7 h-7 rounded-md bg-zinc-800/50 text-white/60 hover:bg-zinc-700/50 hover:text-white flex items-center justify-center transition-colors"
                         title="Edit goal"
                       >
                         <Edit3 size={12} />
@@ -568,7 +568,7 @@ export function GoalsCard({
                         className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
                           deleteConfirmId === goal.id
                             ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                            : 'bg-zinc-800/50 text-zinc-400 hover:bg-red-500/20 hover:text-red-400'
+                            : 'bg-zinc-800/50 text-white/60 hover:bg-red-500/20 hover:text-red-400'
                         }`}
                         title={deleteConfirmId === goal.id ? 'Click again to confirm delete' : 'Delete goal'}
                       >
@@ -589,10 +589,10 @@ export function GoalsCard({
               className="flex-1 flex flex-col items-center justify-center text-center py-10"
             >
               <div className="w-14 h-14 rounded-full bg-zinc-800/50 flex items-center justify-center mb-3">
-                <Target size={24} className="text-zinc-600" />
+                <Target size={24} className="text-white/40" />
               </div>
-              <p className="text-[14px] font-medium text-zinc-400">No goals yet today</p>
-              <p className="text-[12px] text-zinc-600 mt-1 max-w-[200px]">
+              <p className="text-[14px] font-medium text-white/60">No goals yet today</p>
+              <p className="text-[12px] text-white/40 mt-1 max-w-[200px]">
                 Add one manually or let AI suggest goals from your long-term plans
               </p>
               <div className="flex items-center gap-2 mt-3">
@@ -609,7 +609,7 @@ export function GoalsCard({
                   whileHover={{ scale: 1.02, y: -1 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={onGenerateSuggestions}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-800/50 text-zinc-400 border border-zinc-700/30 hover:bg-zinc-700/50 hover:text-white transition-colors text-[12px] font-medium"
+                  className="px-3 py-1.5 rounded-lg bg-zinc-800/50 text-white/60 border border-zinc-700/30 hover:bg-zinc-700/50 hover:text-white transition-colors text-[12px] font-medium"
                 >
                   <Sparkles size={12} className="inline mr-1" />
                   AI Suggest
@@ -624,7 +624,7 @@ export function GoalsCard({
           <div className="mt-3 pt-3 border-t border-zinc-800/50 shrink-0">
             <button
               onClick={() => setShowCompleted(!showCompleted)}
-              className="flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors w-full py-1"
+              className="flex items-center gap-1.5 text-[11px] text-white/50 hover:text-white/80 transition-colors w-full py-1"
             >
               {showCompleted ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               <span>{completedGoals.length} completed</span>
@@ -650,12 +650,12 @@ export function GoalsCard({
                         className="flex items-center gap-2 p-2 rounded-md bg-zinc-900/30 opacity-50 hover:opacity-80 transition-opacity"
                       >
                         <Check size={12} className="text-emerald-500" />
-                        <span className="text-[12px] text-zinc-500 line-through flex-1">{goal.title}</span>
+                        <span className="text-[12px] text-white/50 line-through flex-1">{goal.title}</span>
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => onToggle(goal.id)}
-                          className="text-zinc-600 hover:text-zinc-400 p-1 rounded"
+                          className="text-white/40 hover:text-white/60 p-1 rounded"
                           title="Undo completion"
                         >
                           <RefreshCw size={10} />

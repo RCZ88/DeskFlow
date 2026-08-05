@@ -5,4 +5,5 @@ export { CryptoTransactionModal } from './CryptoTransactionModal';
 export { PhysicalTransactionModal } from './PhysicalTransactionModal';
 export { CashTransactionModal } from './CashTransactionModal';
 export { EwalletTransactionModal } from './EwalletTransactionModal';
+export { PrepaidCardTransactionModal } from './PrepaidCardTransactionModal';
 export { TransactionModalShell } from './TransactionModalShell';

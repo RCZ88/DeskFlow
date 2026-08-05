@@ -1,100 +1,47 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, Edit3, Palette, Ungroup, X, Check, GripVertical, Layers, Rows3, Columns3 } from 'lucide-react'
-import { GROUP_COLORS, type GroupColorId, type CanvasCard, type CanvasGroup } from '../../../types/canvas'
+import { ChevronDown, Edit3, Palette, Ungroup, X, Layers } from 'lucide-react'
+import { GROUP_COLORS, type CanvasCard, type CanvasGroup } from '../../../types/canvas'
 
-function extractCardPreview(card: CanvasCard): string {
-  const d = card.data
-  if (!d) return `[${card.type}]`
-  switch (card.type) {
-    case 'response': return String(d.content || '').slice(0, 120)
-    case 'annotation':
-    case 'transient': return String(d.text || d.message || '').slice(0, 120)
-    case 'focus': {
-      const goals = d.goals
-      if (Array.isArray(goals) && goals.length > 0) {
-        const g = goals[0]
-        return `${goals.length} goal${goals.length > 1 ? 's' : ''}: ${String(g.text || g.title || g.name || '').slice(0, 80)}`
-      }
-      return '[focus]'
-    }
-    case 'plan': {
-      const goals = d.goals
-      const notes = d.notes
-      if (Array.isArray(goals) && goals.length > 0) {
-        const g = goals[0]
-        return `Plan: ${String(g.text || g.title || g.name || '').slice(0, 80)}`
-      }
-      if (notes) return String(notes).slice(0, 120)
-      return '[plan]'
-    }
-    case 'reflect': {
-      const days = d.days
-      if (Array.isArray(days) && days.length > 0) {
-        const latest = days[days.length - 1]
-        if (latest.reviewSummary) return String(latest.reviewSummary).slice(0, 120)
-        const goalCount = Array.isArray(latest.goals) ? latest.goals.length : 0
-        return `${goalCount} goal${goalCount !== 1 ? 's' : ''} reviewed`
-      }
-      return '[reflect]'
-    }
-    case 'finance': {
-      const s = d.summary
-      if (s) {
-        const parts = []
-        if (s.totalBalance != null) parts.push(`$${Number(s.totalBalance).toFixed(0)}`)
-        if (s.monthlySpent != null) parts.push(`$${Number(s.monthlySpent).toFixed(0)} spent`)
-        return parts.join(' · ') || '[finance]'
-      }
-      return '[finance]'
-    }
-    case 'digest': {
-      const topics = d.topics
-      if (Array.isArray(topics) && topics.length > 0) {
-        const t = topics[0]
-        return `${topics.length} topic${topics.length > 1 ? 's' : ''}: ${String(t.topic || t.title || '').slice(0, 80)}`
-      }
-      return '[digest]'
-    }
-    case 'approval': {
-      if (d.title) return String(d.title).slice(0, 120)
-      if (d.description) return String(d.description).slice(0, 120)
-      return '[approval]'
-    }
-    case 'connectors': {
-      const conns = d.connectors
-      if (Array.isArray(conns) && conns.length > 0) {
-        const types = [...new Set(conns.map((c: any) => c.type || 'connector'))]
-        return `${conns.length} connector${conns.length > 1 ? 's' : ''}: ${types.join(', ')}`
-      }
-      return '[connectors]'
-    }
-    case 'schedule': return 'Weekly Schedule'
-    case 'deadlines': return 'Deadline Tracker'
-    case 'planner': return 'Daily Planner'
-    case 'group': return d.label || '[group]'
-    default: return `[${card.type}]`
-  }
-}
+const CELL = 40
 
 interface GroupCardProps {
   group: CanvasGroup
   cards: CanvasCard[]
-  onUpdateGroup: (patch: Partial<Pick<CanvasGroup, 'label' | 'colorId' | 'orientation' | 'ratio'>>) => void
+  renderChild: (card: CanvasCard) => ReactNode
+  onUpdateGroup: (patch: Partial<Pick<CanvasGroup, 'label' | 'colorId'>>) => void
   onUngroup: (mode: 'restore' | 'scatter') => void
   onRemoveFromGroup: (cardId: string, newPosition?: { x: number; y: number }) => void
 }
 
-export function GroupCard({ group, cards, onUpdateGroup, onUngroup, onRemoveFromGroup }: GroupCardProps) {
+export function GroupCard({ group, cards, renderChild, onUpdateGroup, onUngroup, onRemoveFromGroup }: GroupCardProps) {
   const [expanded, setExpanded] = useState(true)
   const [editing, setEditing] = useState(false)
   const [editLabel, setEditLabel] = useState(group.label)
   const [showColorPicker, setShowColorPicker] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const colorRef = useRef<HTMLDivElement>(null)
-  const cardRef = useRef<HTMLDivElement>(null)
 
   const color = GROUP_COLORS.find(c => c.id === group.colorId) || GROUP_COLORS[0]
+
+  // Children are placed at their real canvas positions (relative to the group
+  // container) with their real sizes — grouping only wraps them in a box.
+  const { placed, contentW, contentH } = useMemo(() => {
+    const baseX = group.position?.x || 0
+    const baseY = group.position?.y || 0
+    const placed = cards.map(card => {
+      const left = Math.max(0, (card.position?.x || 0) - baseX - 10)
+      const top = Math.max(0, (card.position?.y || 0) - baseY - 30)
+      return { card, left, top, right: left + card.size.w * CELL, bottom: top + card.size.h * CELL }
+    })
+    let w = 0
+    let h = 0
+    for (const p of placed) {
+      w = Math.max(w, p.right)
+      h = Math.max(h, p.bottom)
+    }
+    return { placed, contentW: w, contentH: cards.length === 0 ? 64 : h }
+  }, [cards, group.position])
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -120,24 +67,8 @@ export function GroupCard({ group, cards, onUpdateGroup, onUngroup, onRemoveFrom
     setEditing(false)
   }, [editLabel, group.label, onUpdateGroup])
 
-  const handleDragEnd = useCallback((cardId: string, e: any) => {
-    // Only remove from group when the mini-card is dropped OUTSIDE the group
-    // container. Dropping inside (or an aborted drag with no real drop point)
-    // keeps the card grouped.
-    const container = cardRef.current
-    if (!container) return
-    const rect = container.getBoundingClientRect()
-    const x = e.clientX
-    const y = e.clientY
-    if (typeof x !== 'number' || typeof y !== 'number') return
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      onRemoveFromGroup(cardId)
-    }
-  }, [onRemoveFromGroup])
-
   return (
     <div
-      ref={cardRef}
       className="group-card"
       style={{
         '--group-accent': color.accent,
@@ -224,25 +155,6 @@ export function GroupCard({ group, cards, onUpdateGroup, onUngroup, onRemoveFrom
             </AnimatePresence>
           </div>
 
-          {cards.length >= 2 && (
-            <div className="group-orientation-toggle">
-              <button
-                className={`group-action-btn ${(group.orientation || 'vertical') === 'vertical' ? 'active' : ''}`}
-                onClick={() => onUpdateGroup({ orientation: 'vertical' })}
-                title="Vertical layout"
-              >
-                <Rows3 size={12} />
-              </button>
-              <button
-                className={`group-action-btn ${group.orientation === 'horizontal' ? 'active' : ''}`}
-                onClick={() => onUpdateGroup({ orientation: 'horizontal' })}
-                title="Horizontal layout"
-              >
-                <Columns3 size={12} />
-              </button>
-            </div>
-          )}
-
           <button
             onClick={() => onUngroup(cards.length > 5 ? 'scatter' : 'restore')}
             title="Ungroup cards"
@@ -253,30 +165,12 @@ export function GroupCard({ group, cards, onUpdateGroup, onUngroup, onRemoveFrom
         </div>
       </div>
 
-      {/* Ratio slider — only when 2+ cards */}
-      {expanded && cards.length >= 2 && (
-        <div className="group-ratio-bar">
-          <span className="group-ratio-label" style={{ color: color.accent }}>A</span>
-          <input
-            type="range"
-            min={0.2}
-            max={0.8}
-            step={0.05}
-            value={group.ratio ?? 0.5}
-            onChange={e => onUpdateGroup({ ratio: parseFloat(e.target.value) })}
-            className="group-ratio-slider"
-            style={{ '--ratio-fill': color.accent } as React.CSSProperties}
-          />
-          <span className="group-ratio-label" style={{ color: color.accent }}>B</span>
-        </div>
-      )}
-
-      {/* Body */}
+      {/* Body — real cards at their real positions, just wrapped */}
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
+            animate={{ height: contentH, opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="group-body-wrapper"
@@ -284,7 +178,13 @@ export function GroupCard({ group, cards, onUpdateGroup, onUngroup, onRemoveFrom
             <div
               className="group-cards"
               style={{
-                flexDirection: group.orientation === 'horizontal' ? 'row' : 'column',
+                position: 'relative',
+                display: 'block',
+                width: contentW,
+                height: contentH,
+                padding: 0,
+                maxHeight: 'none',
+                overflow: 'visible',
               } as React.CSSProperties}
             >
               {cards.length === 0 ? (
@@ -293,55 +193,23 @@ export function GroupCard({ group, cards, onUpdateGroup, onUngroup, onRemoveFrom
                   <span>No cards yet</span>
                 </div>
               ) : (
-                cards.map((card, i) => {
-                  const isHorizontal = group.orientation === 'horizontal'
-                  const ratio = group.ratio ?? 0.5
-                  // In horizontal mode with exactly 2 cards: first card gets ratio, second gets 1-ratio
-                  // With 3+ cards: first two get ratio split, rest flex equally
-                  let flexStyle: React.CSSProperties = {}
-                  if (isHorizontal && cards.length === 2) {
-                    flexStyle = { flex: i === 0 ? ratio : (1 - ratio) }
-                  } else if (isHorizontal) {
-                    flexStyle = { flex: 1 }
-                  }
-                  return (
-                  <motion.div
+                placed.map(({ card, left, top }) => (
+                  <div
                     key={card.id}
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.15, delay: i * 0.03 }}
-                    className="group-mini-card"
-                    style={flexStyle}
-                    draggable
-                    onDragEnd={(e) => handleDragEnd(card.id, e)}
+                    className="group-real-card"
+                    style={{ left, top, width: card.size.w * CELL, height: card.size.h * CELL }}
                   >
-                    <div className="group-mini-card-grip">
-                      <GripVertical size={10} />
-                    </div>
-                    <div className="group-mini-card-content">
-                      <div className="group-mini-card-header">
-                        <span className="group-mini-card-type" style={{ color: color.accent }}>
-                          {card.type}
-                        </span>
-                        <span className={`group-mini-card-status status-${card.status}`} />
-                      </div>
-                      <div className="group-mini-card-body">
-                        <span className="group-mini-card-text">
-                          {extractCardPreview(card)}
-                        </span>
-                      </div>
-                    </div>
+                    {renderChild(card)}
                     <button
-                      className="group-mini-card-remove"
+                      type="button"
+                      className="group-real-remove"
                       onClick={(e) => { e.stopPropagation(); onRemoveFromGroup(card.id) }}
                       title="Remove from group"
                     >
                       <X size={10} />
                     </button>
-                  </motion.div>
-                  )
-                })
+                  </div>
+                ))
               )}
             </div>
           </motion.div>

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { MermaidBlock } from '../../../shared/learn/types';
-import { ZoomPan } from './ZoomPan';
 
 interface Props {
   block: MermaidBlock;
@@ -33,10 +32,9 @@ export function MermaidBlock({ block, onAsk }: Props) {
           if (svgEl) {
             svgEl.removeAttribute('height');
             svgEl.removeAttribute('width');
-            svgEl.style.removeProperty('max-width');
             svgEl.style.width = '100%';
             svgEl.style.height = 'auto';
-            svgEl.style.maxWidth = '100%';
+            svgEl.style.maxHeight = '500px';
             svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
           }
           setLoading(false);
@@ -53,25 +51,25 @@ export function MermaidBlock({ block, onAsk }: Props) {
   }, [block.src, block.id]);
 
   return (
-    <div className="my-6 py-4 px-4 rounded-xl bg-zinc-800/30 border border-zinc-700/40 group relative" data-block-id={block.id}>
+    <div className="my-6 rounded-xl bg-zinc-800/30 border border-zinc-700/40 overflow-hidden group relative" data-block-id={block.id}>
       {loading && (
         <div className="h-40 flex items-center justify-center">
           <div className="w-8 h-8 border-2 border-zinc-600 border-t-clay-400 rounded-full animate-spin" />
         </div>
       )}
       {error && (
-        <div className="text-red-400 text-sm">
+        <div className="p-4 text-red-400 text-sm">
           <div>Mermaid render error</div>
           <pre className="mt-2 text-xs bg-zinc-900/50 p-2 rounded overflow-x-auto">{block.src}</pre>
         </div>
       )}
-      {!error && (
-        <ZoomPan minH={220}>
+      {!error && !loading && (
+        <div className="p-4 overflow-x-auto">
           <div ref={containerRef} />
-        </ZoomPan>
+        </div>
       )}
       {block.caption && (
-        <div className="mt-2 text-sm text-zinc-500 italic text-center">{block.caption}</div>
+        <div className="px-4 pb-3 text-sm text-zinc-500 italic text-center">{block.caption}</div>
       )}
       {onAsk && (
         <button

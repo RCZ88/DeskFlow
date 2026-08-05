@@ -823,6 +823,12 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - **Activity sessions edit/delete:** Hover-revealed Pencil/Trash buttons on session items
 - **Uniform activity button height:** h-[140px] with always-visible duration
 
+#### 7.11 Gaps (unused time in period)
+- **Gaps button (header):** Opens `GapsListModal` (`src/components/external/GapsListModal.tsx`) listing ALL gaps in the current period — time range, day label, top suggested activity, duration badge, per-row Fill button
+- **Fill:** Per-gap Fill opens the existing single-gap `GapFillModal` (drag reorder, suggestGapActivities auto-fill, used/remaining, Remove)
+- **Gap detection:** `detectGaps(allSessions, periodStart, periodEnd, 5)` in `src/lib/external/gaps.ts`; empty state "No gaps in this period"
+- **Legacy GapFillDrawer** in App.tsx (`open-gap-panel`) still reachable via global banner — distinct from page-level list
+
 ---
 
 ## ðŸ“Š 8. Insights / Reports Page (`/reports`)

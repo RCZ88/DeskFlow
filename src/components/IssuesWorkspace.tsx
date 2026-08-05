@@ -8,6 +8,7 @@ import CheckFeedbackControls from './CheckFeedbackControls';
 import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import { sortAndGroupChecks, DEFAULT_CHECKLIST_CONFIG, ChecklistConfig } from '../lib/checklistAlgorithm';
 import { resolveSessionForCheck } from '../lib/sessionResolution';
+import { sanitizeMojibake } from '../lib/sanitize';
 
 interface Problem {
   id: string; title: string; status: string; priority: string; category: string;
@@ -318,7 +319,7 @@ function ProblemCard({ problem, onClick }: { problem: Problem; onClick: () => vo
             <PriorityBadge priority={problem.priority} />
             <span className="text-[9px] font-mono text-zinc-600">{problem.id}</span>
           </div>
-          <p className="text-sm text-zinc-200 font-medium leading-snug line-clamp-2">{problem.title}</p>
+          <p className="text-sm text-zinc-200 font-medium leading-snug line-clamp-2">{sanitizeMojibake(problem.title)}</p>
         </div>
       </div>
       <div className="flex items-center gap-3 mt-2 text-[9px] text-zinc-500">
@@ -359,7 +360,7 @@ function RequestCard({ request, onClick }: { request: Request; onClick: () => vo
             <PriorityBadge priority={request.priority} />
             <span className="text-[9px] font-mono text-zinc-600">#{request.id}</span>
           </div>
-          <p className="text-sm text-zinc-200 font-medium leading-snug line-clamp-2">{request.title}</p>
+          <p className="text-sm text-zinc-200 font-medium leading-snug line-clamp-2">{sanitizeMojibake(request.title)}</p>
         </div>
       </div>
       <div className="flex items-center gap-3 mt-2 text-[9px] text-zinc-500">
@@ -410,7 +411,7 @@ function ProblemDetailModal({
             </div>
             <div>
               <h2 className="text-base font-semibold text-zinc-100">{problem.id}</h2>
-              <p className="text-sm text-zinc-300 mt-0.5">{problem.title}</p>
+              <p className="text-sm text-zinc-300 mt-0.5">{sanitizeMojibake(problem.title)}</p>
             </div>
           </div>
           <button onClick={onClose} className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors">
@@ -554,7 +555,7 @@ function RequestDetailModal({
             </div>
             <div>
               <h2 className="text-base font-semibold text-zinc-100">#{request.id}</h2>
-              <p className="text-sm text-zinc-300 mt-0.5">{request.title}</p>
+              <p className="text-sm text-zinc-300 mt-0.5">{sanitizeMojibake(request.title)}</p>
             </div>
           </div>
           <button onClick={onClose} className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors">
@@ -630,7 +631,7 @@ function RequestDetailModal({
             >
               <option value="">Link a problem...</option>
               {allProblems.filter(p => !request.linked_problems.includes(p.id)).map(p => (
-                <option key={p.id} value={p.id}>#{p.id} — {p.title.slice(0, 40)}</option>
+                <option key={p.id} value={p.id}>#{p.id} — {sanitizeMojibake(p.title).slice(0, 40)}</option>
               ))}
             </select>
             <button onClick={handleLink} disabled={!linkId} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-[10px] rounded-lg transition-all active:scale-95">
@@ -1020,7 +1021,7 @@ function CombinedChecklist({
                       >
                         <span className={`text-xs ${statusColor}`}>{statusIcon}</span>
                         <span className={`text-[11px] flex-1 ${check.checkStatus === 'completed' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
-                          {check.description}
+                          {sanitizeMojibake(check.description)}
                         </span>
                         <span className="text-[9px] text-zinc-700 font-mono">
                           {check.checkId.split('-').slice(-2).join('-')}

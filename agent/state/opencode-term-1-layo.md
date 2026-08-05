@@ -1,45 +1,47 @@
-<!-- AGENT STATE — opencode spoke file (sleep detection trigger fix cycle) -->
+<!-- AGENT STATE — opencode spoke file -->
+<!-- SESSION: opencode-term-1-layo -->
+<!-- AGENT: opencode | TERMINAL: term-1 | PROJECT: RHEO (App Tracker) -->
 
 # Agent State — opencode-term-1-layo
 
-> **STATUS:** build OK, runtime NOT LAUNCHED | **UPDATED:** 2026-08-02T14:05:00.000Z
+> **STATUS:** completed | **UPDATED:** 2026-08-05T17:30:00.000Z
 
 ---
 
-## CURRENT CYCLE (6)
-**ROLE:** Fix sleep detection so it fires when RHEO stays focused while user sleeps (RHEO)
-**STATUS:** completed (build) — runtime NOT LAUNCHED (needs real-world >45min idle / resume test)
+## CURRENT CYCLE (21)
+**ROLE:** Hands & Eyes — Gold page The Vault: long-term goal CRUD (add/edit/delete + persisted deadline + progress ring)
+**STATUS:** completed (source verified + build + artifact verification) — runtime NOT LAUNCHED
 
 **COMPLETED:**
-- Root-caused: detection only fired on RHEO window focus/blur events + poll gaps where `active-win` returned null. Fell-asleep-with-RHEO-focused never triggered.
-- `checkSleepGap` now accepts `opts?: { skipActiveGuard?: boolean }` — skips the "system idle only Ns" guard when caller already established idle.
-- Added idle-based detection at top of `pollForeground()`: `powerMonitor.getSystemIdleTime()` ≥ 45min opens an idle window (`idleDetectionStartMs`); on return-to-active calls `checkSleepGap(..., { skipActiveGuard: true })`.
-- Added `powerMonitor.on('resume')` + `on('unlock-screen')` listeners after `loadSleepState()` in `app.whenReady()` — `checkResumeSleepGap()` uses `lastPollTime || lastFocusTime || appStartTime` as gap start, resets + persists `lastFocusTime`.
-- Renderer (`App.tsx` SleepDetectionModal wiring) verified complete — untouched.
-- Build PASS (full 4 steps): main.cjs 1,225 KB @14:00, preload.cjs 94 KB @13:55, index.html OK, hashed bundle index.BSKLRTbD.js 13.6 MB. Bundle grep confirms idleDetectionStartMs / skipActiveGuard / unlock-screen / checkResumeSleepGap / "User active again after" all present in main.cjs.
-
-**NEXT ACTION:** User launches fresh RHEO build, then real-world verify: (a) leave RHEO focused + idle >45min inside sleep hours → SleepDetectionModal appears on return; (b) resume from machine sleep → detection fires. NOTE: gaps with NEITHER endpoint inside sleep hours (`isWithinSleepHours`) are skipped by design — daytime idle gaps won't detect; revisit if too restrictive.
-**NOTES:** `SLEEP_DETECTION_MIN_GAP_MS` = 45min; `check-sleep-detection` IPC deliberately does NOT mark `checked` (only confirm/dismiss do). Persistence: `deskflow-sleep-detection.json` + `deskflow-last-focus.json`. No zip/package produced (standing user rule).
+- AUDIT RESULT: the full Vault CRUD was already implemented in-session (source state confirms complete end-to-end):
+  - Backend (main.ts): `deadline TEXT` column exists (line 2778 guarded ALTER); `save-goal` INSERT includes deadline (16393); `save-goals-batch` INSERT includes deadline (16548); `get-longterm-goals` maps deadline via `...r` spread AND computes `progress` from `progress_seconds/target_seconds` capped 100 (16419).
+  - Frontend (GoldPage.tsx): TheVault has header `+` add button (520-526), full add form (title/category/priority/deadline/description, 529-588), edit pre-fill via startEdit (488-497), two-step delete confirm with 3s arm timeout (armDelete 509-512 + Sure?/X 625-647), ProgressRing (442-457), deadline countdown `du` (596-609), serving count of linked daily goals (612-616), actionable empty state (590-591).
+  - Parent wiring: `handleLTGSave` (1076-1094) → saveGoalsBatch with deadline/period:'longterm'/date:'2000-01-01'/priority, reloads via loadLongTerm; `handleLTGDelete` (1096-1102) → api.deleteGoal + optimistic local removal; loadLongTerm (968-973) on mount.
+- GATES: tsc clean (only pre-existing aiAgentService.test.ts syntax errors — documented baseline); node scripts/build.mjs OK (4/4, exit 0); preload.cjs 96,084 B > 1 KB; main.cjs 1,253,816 B; dist/index.html has #root + df-fallback + module script index.BjLJY8U5.js; index.js 13.3 MB > 10 KB; LifePage chunk (LifePage._81dgpaV.js, 305 KB) contains 'The Vault' (3), 'Add goal' (4), 'ltg_' idgen (1) → CRUD code ships.
+- Tracking: agent/requests.json #060 + agent/problems.json #172 created (BOM-safe JSON writes) with checks c1-c6; c6 (build/preload/main migration) = passed; c1-c5 runtime checks stay pending.
+- Runtime: NOT LAUNCHED — app launched at 17:18 WITH debug ports (56326/56327) closed before attach; remaining electron instances (16:16) have NO debug port; port 9222 = Lenovo Vantage (never attach for RHEO). No process killed (process-management rules).
+**NEXT ACTION:** CZ relaunches RHEO → Gold page → The Vault: tap + → add goal with deadline → row shows countdown + progress ring; hover row → edit (pre-filled) → Save changes persists after app restart; delete → 'Sure?' two-step confirm removes row; restart app → goal still there (deadline persisted in goals.deadline).
+**NOTES:** LongTermGoal UI type (types.ts:64-71) already has deadline/priority fields; hook useLongTermGoals.ts is NOT used by GoldPage (page has its own local state + loadLongTerm) — no hook change needed.
 
 ---
 
 ## HISTORY (previous 2 cycles, oldest first)
 
-### Cycle 5 — 2026-08-01T20:55:00.000Z
-**ROLE:** Fix Canvas group feature wiring in AI page (RHEO)
-**STATUS:** completed (build) — runtime NOT LAUNCHED
+### Cycle 20 — 2026-08-04T20:25:00.000Z
+**ROLE:** Settings → AI Category assignment: confirmation POPUP + visible provider logs + fix "Unmatched JSON brace/bracket" (RHEO)
+**STATUS:** completed (source fix + build + artifact verification) — runtime NOT LAUNCHED
 **COMPLETED:**
-- Group render path in `CanvasCard.renderCardContent` threw ReferenceError → refactored to `CardContentCtx`; group cards resolve canonical group from `ctx.groups[groupId]`, wire real `onUpdateGroup`/`onUngroup`/`onRemoveFromGroup`.
-- Threaded `groups`/`onUpdateGroup`/`onUngroup`/`onRemoveFromGroup` through CanvasGrid → CanvasContainer → AiPage.
-- Reducers keep group `data.childCards` snapshot in sync (ADD/REMOVE/DELETE_GROUP/CREATE_GROUP positions).
-- Build PASS: index.DDwlMR91.js 13,585 KB; black-screen Steps 1–5 PASS.
-**NEXT ACTION:** User restarts RHEO, verifies CREATE GROUP tags children, group card edits, UNGROUP restores positions, drag-out removes, DELETE GROUP removes card.
+- USER REPORT: (1) result UI is a panel on top of the page, not a popup asking to confirm category changes; (2) "STILL no logs" of the provider; (3) error "Unmatched JSON brace/bracket".
+- ROOT CAUSE (JSON): extractJsonFromResponse's single brace-walk threw on prose-wrapped/truncated responses. FIX (main.ts:14719): tries every `{`/`[` candidate + direct parse, repairs truncated arrays, gives clear truncation message.
+- LOGS: category maxTokens 2000→4000, colors 1000→1500; both handlers stream `prompt` via provider-chunk + send `full` on done; console retagged [AI-Categorize]/[AI-Colors] PROMPT/RESPONSE.
+- UI: replaced inline card with createPortal confirmation MODAL "Confirm AI Category Changes" (per-change approve/discard, Approve All, resolved empty state). Status panel gains Review(N) + collapsible PROMPT/RAW OUTPUT.
+- BUG FOUND & FIXED: approveChange/approveAllChanges never called setAppCategory/setDomainCategory IPC — AI-approved changes were not persisted. Fixed; DB handlers existed at main.ts:5350 but were never called.
+- GATES: tsc clean (pre-existing test only); build.mjs OK.
+**NEXT ACTION:** User restarts RHEO → Settings → Category → Magic Category → modal pops; toggle logs chevron.
 
-### Cycle 4 — 2026-08-01T20:00:00.000Z
-**ROLE:** Verify finance dashboard de-dup in source + bundle; app running stale
-**STATUS:** awaiting user restart
+### Cycle 19 — 2026-08-04T21:15:00.000Z
+**ROLE:** Fix AI assistant page rendering unstyled on first load until a mode switch (RHEO)
+**STATUS:** completed (source fix + build + artifact verification) — runtime NOT LAUNCHED
 **COMPLETED:**
-- Confirmed user complaint = OLD bundle (RHEO started 19:24, fresh index.BronQo5R.js written 19:52).
-- OverviewTab renders exactly ONE Net Flow hero + ONE Receivables card; Quick Stats = Income/Expense/SpendingSplit; FollowThroughCard not rendered.
-- Removed 7 dead imports from OverviewTab. Rebuilt: index.BronQo5R.js 13,264 KB; Steps 1–5 PASS.
-**NEXT ACTION:** User restarts RHEO; check Finance → Overview single Net Flow + Receivables with per-person Repaid.
+- Root cause: whole AiPage shell styled only by deck.css imported only by lazy AiPageDeck; first load = canvas mode → no CSS. Fix: eager import deck.css in AiPage.tsx. Build PASS.
+**NEXT ACTION:** restart RHEO → AI page styled immediately on load.

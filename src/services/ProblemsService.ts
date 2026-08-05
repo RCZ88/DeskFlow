@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { repairMojibakeDeep } from '../lib/mojibake';
 
 export interface Problem {
   id: string;
@@ -159,6 +160,25 @@ export class ProblemsService {
     fs.writeFileSync(this.mdFile, md, 'utf-8');
   }
 
+  private repairJsonInPlace(problems: Problem[]): Problem[] {
+    try {
+      const repaired = repairMojibakeDeep(problems) as Problem[];
+      const before = JSON.stringify(problems);
+      const after = JSON.stringify(repaired);
+      if (before !== after && fs.existsSync(this.jsonFile)) {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const bak = `${this.jsonFile}.bak-${stamp}`;
+        fs.copyFileSync(this.jsonFile, bak);
+        fs.writeFileSync(this.jsonFile, after, 'utf-8');
+        console.log(`[ProblemsService] Repaired mojibake in problems.json (backup: ${bak})`);
+      }
+      return repaired;
+    } catch (e) {
+      console.error('[ProblemsService] mojibake repair failed:', e);
+      return problems;
+    }
+  }
+
   getProblems(): Problem[] {
     this.ensureAgentDir();
 
@@ -166,7 +186,7 @@ export class ProblemsService {
       try {
         const content = fs.readFileSync(this.jsonFile, 'utf-8');
         const problems = JSON.parse(content);
-        if (Array.isArray(problems) && problems.length > 0) return problems;
+        if (Array.isArray(problems) && problems.length > 0) return this.repairJsonInPlace(problems);
         if (Array.isArray(problems) && problems.length === 0) {
           const migrated = this.migrateFromMd();
           if (migrated.length > 0) return migrated;

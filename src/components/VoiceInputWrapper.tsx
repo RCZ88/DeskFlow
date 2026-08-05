@@ -7,7 +7,7 @@
 import { useRef, useCallback, useEffect, useState, type ReactElement, cloneElement } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Square, Delete, AlertCircle } from 'lucide-react';
+import { Mic, MicOff, Square, Delete, AlertCircle, WifiOff } from 'lucide-react';
 
 interface VoiceInputWrapperProps {
   children: ReactElement;
@@ -36,6 +36,10 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
   const [volume, setVolume] = useState(0);
   const [sentences, setSentences] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+  const retriesRef = useRef(0);
+  const networkRetriesRef = useRef(0);
+  const MAX_RETRIES = 5;
 
   // Measure input and compute absolute portal position
   const [portalPos, setPortalPos] = useState<{
@@ -169,6 +173,9 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
 
   // ── Speech Recognition ──────────────────────────────────────────────
   const stopListening = useCallback(() => {
+    retriesRef.current = 0;
+    networkRetriesRef.current = 0;
+    setReconnecting(false);
     setListening(false);
     setInterim('');
     if (recognitionRef.current) {
@@ -200,18 +207,52 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
       }
       if (interimStr) setInterim(interimStr);
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      retriesRef.current = 0;
+      networkRetriesRef.current = 0;
+      setReconnecting(false);
       silenceTimerRef.current = setTimeout(() => stopListening(), silenceMs);
     };
 
     recognition.onerror = (event: any) => {
       if (event.error === 'no-speech' || event.error === 'aborted') return;
+      if (event.error === 'network') {
+        networkRetriesRef.current++;
+        setReconnecting(true);
+        return;
+      }
       setError(event.error === 'not-allowed' ? 'Microphone permission denied' : 'Voice error');
       setTimeout(() => setError(null), 2000);
       stopListening();
     };
 
     recognition.onend = () => {
-      if (recognitionRef.current) { try { recognition.start(); } catch { stopListening(); } }
+      if (!recognitionRef.current) return;
+
+      // Network errors: always restart, never count toward limit
+      if (networkRetriesRef.current > 0) {
+        const delay = Math.min(1000 * Math.pow(1.5, Math.min(networkRetriesRef.current - 1, 4)), 5000);
+        setTimeout(() => {
+          if (recognitionRef.current) {
+            try { recognitionRef.current.start(); } catch { stopListening(); }
+          }
+        }, delay);
+        return;
+      }
+
+      // Non-network errors: backoff with retry limit
+      if (retriesRef.current >= MAX_RETRIES) {
+        setError('Connection lost');
+        setTimeout(() => setError(null), 2000);
+        stopListening();
+        return;
+      }
+      const delay = Math.min(300 * Math.pow(2, retriesRef.current), 3000);
+      retriesRef.current++;
+      setTimeout(() => {
+        if (recognitionRef.current) {
+          try { recognitionRef.current.start(); } catch { stopListening(); }
+        }
+      }, delay);
     };
 
     recognitionRef.current = recognition;
@@ -247,7 +288,7 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
   });
 
   // ── Portal Panel ────────────────────────────────────────────────────
-  const panel = portalPos && (listening || error) ? createPortal(
+  const panel = portalPos && (listening || error || reconnecting) ? createPortal(
     <AnimatePresence>
       <motion.div
         key="voice-panel"
@@ -295,6 +336,11 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
                 <div className="flex items-center gap-1 text-red-400" style={{ fontSize: fontSize * 0.85 }}>
                   <AlertCircle className="flex-shrink-0" style={{ width: micIconSize, height: micIconSize }} />
                   <span className="truncate">{error}</span>
+                </div>
+              ) : reconnecting ? (
+                <div className="flex items-center gap-1 text-amber-400/80" style={{ fontSize: fontSize * 0.85 }}>
+                  <WifiOff className="flex-shrink-0 animate-pulse" style={{ width: micIconSize, height: micIconSize }} />
+                  <span className="truncate">Reconnecting...</span>
                 </div>
               ) : interim ? (
                 <p className="text-zinc-300 italic truncate" style={{ fontSize: fontSize * 0.85 }}>{interim}</p>

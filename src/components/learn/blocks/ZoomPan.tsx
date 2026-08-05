@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Plus, Minus, Maximize2, Scan } from 'lucide-react';
 
 export function ZoomPan({ children, minH = 220 }: { children: React.ReactNode; minH?: number }) {
@@ -7,12 +7,21 @@ export function ZoomPan({ children, minH = 220 }: { children: React.ReactNode; m
   const [ty, setTy] = useState(0);
   const [full, setFull] = useState(false);
   const drag = useRef<{ startX: number; startY: number; tx: number; ty: number; dragging: boolean } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const DRAG_THRESHOLD = 5;
   const clamp = (v: number) => Math.min(4, Math.max(0.25, v));
 
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    setScale((s) => clamp(s * (e.deltaY < 0 ? 1.1 : 0.9)));
+  // Use native wheel listener with { passive: false } to actually preventDefault
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setScale((s) => clamp(s * (e.deltaY < 0 ? 1.1 : 0.9)));
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
   }, []);
 
   const reset = () => { setScale(1); setTx(0); setTy(0); };
@@ -34,9 +43,9 @@ export function ZoomPan({ children, minH = 220 }: { children: React.ReactNode; m
         </button>
       </div>
       <div
+        ref={containerRef}
         className="overflow-hidden cursor-grab active:cursor-grabbing flex-1"
         style={{ minHeight: full ? undefined : minH }}
-        onWheel={onWheel}
         onMouseDown={(e) => { drag.current = { startX: e.clientX, startY: e.clientY, tx, ty, dragging: false }; }}
         onMouseMove={(e) => {
           if (drag.current) {

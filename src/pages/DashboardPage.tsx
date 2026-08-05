@@ -10,6 +10,7 @@ import { ScheduleCard } from './dashboard/ScheduleCard';
 import { StatusBand } from './dashboard/StatusBand';
 import { GoalsCard } from '../components/dashboard/GoalsCard';
 import { DeadlinesCard } from '../components/dashboard/DeadlinesCard';
+import { LongestFocusCard } from '../components/dashboard/LongestFocusCard';
 import { useDashboardData } from '../components/dashboard/useDashboardData';
 import { InsightStrip } from './dashboard/InsightStrip';
 import { MomentumHero } from '../components/dashboard/MomentumHero';
@@ -496,6 +497,8 @@ export default function DashboardPage({
   const [streak, setStreak] = useState(0);
   const [bestDay, setBestDay] = useState('--');
   const [productivityScore, setProductivityScore] = useState(0);
+  const [longestFocus, setLongestFocus] = useState<any>({ today: [], week: [], allTime: [] });
+  const [longestFocusLoading, setLongestFocusLoading] = useState(true);
 
   // Merge hook insights with page-computed streak/productivityScore
   const dashboardInsights = useMemo(() => ({
@@ -616,6 +619,24 @@ export default function DashboardPage({
     })();
     return () => { cancelled = true; };
   }, [fetchPeriod, dateOffset, weekOffset]);
+
+  // Fetch longest focus data
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const api = await awaitApi();
+        const data = await api.getLongestFocus();
+        if (!cancelled) {
+          setLongestFocus(data);
+          setLongestFocusLoading(false);
+        }
+      } catch (_e) {
+        if (!cancelled) setLongestFocusLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Fetch today's gap data for unfilled time indicator
   useEffect(() => {
@@ -1102,21 +1123,22 @@ export default function DashboardPage({
         return;
       }
 
+      // Tracker app (DeskFlow/Electron) in show-other/pause mode:
+      // keep the currently displayed website/app visible — never jump to the
+      // last non-browser app (that caused the Browsing → VS Code flip and the
+      // "Waiting for app" freeze). Only pause updates the paused flag.
+      if (isTrackerApp && tam !== 'track') {
+        console.log('[Focus] Tracker app foreground, mode', tam, '— keeping current website/app visible');
+        if (tam === 'pause') {
+          setIsPaused(true);
+          setPausedByTrackerApp(true);
+        }
+        return;
+      }
+
       console.log('[Focus] Not tracking browser — tracking app:', data.app);
       setIsInBrowser(false);
       setCurrentWebsite(null);
-
-      if (isTrackerApp) {
-        if (tam === 'show-other') {
-          setCurrentApp(lnb || null);
-          return;
-        } else if (tam === 'pause') {
-          setCurrentApp(lnb || null);
-          setIsPaused(true);
-          setPausedByTrackerApp(true);
-          return;
-        }
-      }
 
       console.log('[Focus] Setting currentApp:', data.app, '| category:', data.category);
       setLastNonBrowserApp(data);
@@ -1176,13 +1198,13 @@ export default function DashboardPage({
         const isTrackerApp = !!(initialData.app) && (initialData.app.toLowerCase().includes('deskflow') || initialData.app.toLowerCase().includes('electron'));
 
         if (isTrackingBrowser) { setIsInBrowser(true); setCurrentApp(lnb || null); return; }
-        setIsInBrowser(false);
-        setCurrentWebsite(null);
 
         if (isTrackerApp) {
-          if (tam === 'show-other') { setCurrentApp(lnb || null); return; }
-          else if (tam === 'pause') { setCurrentApp(lnb || null); setIsPaused(true); setPausedByTrackerApp(true); return; }
+          if (tam === 'show-other') { return; }
+          else if (tam === 'pause') { setIsPaused(true); setPausedByTrackerApp(true); return; }
         }
+        setIsInBrowser(false);
+        setCurrentWebsite(null);
 
         console.log('[Focus] Initial foreground:', initialData.app, '| category:', initialData.category);
         setLastNonBrowserApp(initialData);
@@ -1220,6 +1242,11 @@ export default function DashboardPage({
           setIsInBrowser(true);
           return;
         }
+        // A real non-browser app is foreground — make sure we're NOT stuck in website mode.
+        // (Previously this only refreshed currentApp; a stale isInBrowser/currentWebsite would
+        // keep the dashboard showing the last website instead of the real app.)
+        setIsInBrowser(false);
+        setCurrentWebsite(null);
         // If we have a real non-browser app and currentApp is null or stale, refresh it
         setCurrentApp(prev => {
           if (!prev?.app || prev.app !== data.app) {
@@ -1259,6 +1286,18 @@ export default function DashboardPage({
         return 'neutral';
       };
       console.log('[Dashboard] Browser event:', data.type, 'domain:', data.domain, 'isInBrowser:', iib);
+
+      // Main process rejected website data (browser no longer foreground / non-browser app
+      // detected). Exit website mode immediately so the dashboard tracks the real app again
+      // instead of staying "stuck" on the last website.
+      if (data.type === 'clear') {
+        console.log('[Dashboard] Clearing website — browser no longer foreground');
+        setIsInBrowser(false);
+        setCurrentWebsite(null);
+        activityFeedRef.current = activityFeedRef.current.filter((item) => item.type !== 'browser' || !item.isActive);
+        setActivityFeed([...activityFeedRef.current]);
+        return;
+      }
 
       if (data.type === 'browser-data' || data.type === 'live-log') {
         // Only track if we're in the tracking browser
@@ -2471,9 +2510,9 @@ export default function DashboardPage({
             />
           </div>
 
-           {/* Row 4: Triple Column — Goals + Deadlines + Focus */}
+           {/* Row 4: Quadruple Column — Goals + Deadlines + Focus + Longest Focus */}
            <BlurFade delay={0.14} duration={0.4}>
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4 items-stretch">
                 <GoalsCard
                   goals={goals}
                   longTermGoals={longTermGoals}
@@ -2503,6 +2542,7 @@ export default function DashboardPage({
                   onUpdate={updateDeadline}
                   onComplete={completeDeadline}
                 />
+                <LongestFocusCard data={longestFocus} loading={longestFocusLoading} />
              </div>
            </BlurFade>
 

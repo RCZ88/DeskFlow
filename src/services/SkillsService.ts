@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-const { enhanceSkillWithDSL } = require('./SkillDSLParser.cjs');
+const { enhanceSkillWithDSL } = require('./SkillDSLParser');
 
 export interface SkillIO {
   name: string;

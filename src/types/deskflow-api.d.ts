@@ -69,6 +69,7 @@ interface DeskflowAPI {
   saveProductivitySession: (session: any) => Promise<any>;
   getProductivitySessions: (opts?: any) => Promise<any>;
   clearProductivitySessions: () => Promise<void>;
+  getLongestFocus: () => Promise<{ today: any[]; week: any[]; allTime: any[] }>;
   getCurrentForeground: () => Promise<any>;
   cleanCorruptedData: () => Promise<{ success: boolean; deletedCount: number; error?: string }>;
   deepCleanAndRebuild: () => Promise<{ success: boolean; logsCleared?: number; aggregatesCleared?: number; message?: string }>;
@@ -100,6 +101,7 @@ interface DeskflowAPI {
   getAIUsageSummary: (period?: string, dateOffset?: number, projectId?: string) => Promise<any>;
   getCommitStats: (projectId?: string, period?: string) => Promise<any>;
   getIDEProjectsOverview: (period?: string, dateOffset?: number) => Promise<any>;
+  getCodeChangeStats: (period?: string, dateOffset?: number, projectId?: string) => Promise<any>;
   scanIdeDefaultProjects: () => Promise<{ ide: string; projects: { name: string; path: string }[] }[]>;
   detectProjectScripts: (projectPath: string) => Promise<any>;
   getProjectRunConfig: (projectId: string) => Promise<any>;
@@ -350,6 +352,16 @@ interface DeskflowAPI {
     history: (opts?: { limit?: number }) => Promise<any[]>;
     onState: (cb: (state: { active: boolean; endsAt: number | null; remainingSec: number; strictness: string; paused: boolean }) => void) => (() => void);
     onEnded: (cb: (data: { outcome: string; reason: string | null; id: number }) => void) => (() => void);
+  };
+
+  // Focus Groups (named allowed-app sets for Deep Focus sessions)
+  focusGroup: {
+    list: () => Promise<any[]>;
+    get: (id: number) => Promise<any>;
+    save: (g: any) => Promise<{ success: boolean; id?: number; error?: string }>;
+    remove: (id: number) => Promise<{ success: boolean; error?: string }>;
+    startWith: (id: number, durationSec?: number, strictness?: string) => Promise<any>;
+    linkUsage: (args: { sessionId: number; groupId: number; goalIds: string[] }) => Promise<{ success: boolean; error?: string }>;
   };
 
   // ========== Project Backup (Design Workspace) ==========

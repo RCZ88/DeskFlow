@@ -52,5 +52,7 @@ export interface AiProvidersState {
     default: { providerId: string; model: string };
     researchDigest?: { providerId: string; model: string } | null;
     goalAssistant?: { providerId: string; model: string } | null;
+    category?: { providerId: string; model: string } | null;
+    colors?: { providerId: string; model: string } | null;
   };
 }

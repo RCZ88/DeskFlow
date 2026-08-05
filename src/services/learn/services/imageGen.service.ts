@@ -6,25 +6,41 @@ import { join } from 'path';
 
 // ── Ian Xiaohei Style Instructions ──────────────────────────────────────────
 
-export const IAN_XIAOHEI_STYLE = `STYLE RULES (Ian Xiaohei / 小黑):
-- Pure white background (#FFFFFF), no texture, no paper grain, no beige, no shadows, no gradients
-- Black ink line art with slight hand-drawn wobble, thin consistent strokes
-- Subject occupies 40-60% of frame, generous white space
-- 1-3 sparse Chinese handwritten annotations in red (#E53935), orange (#FF9800), or blue (#1E88E5)
-- Whimsical and clever, NOT childish, NOT cute/kawaii, NOT cartoonish
-- Maximum 3-4 distinct objects in scene
-- One clear focal action
+export const IAN_XIAOHEI_STYLE = `STYLE RULES (Ian Xiaohei / 小黑 — https://github.com/helloianneo/ian-xiaohei-illustrations):
+Visual DNA: Pure white background (#FFFFFF). Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no cute mascot poster, no children's illustration, no realistic UI.
 
 CHARACTER: 小黑 (Xiaohei)
-- Simple black silhouette body, round head, white circle eyes, stick-thin legs
-- Expression: neutral/focused, not smiling, not frowning
-- Always engaged in the core action of the illustration
-- NOT a mascot, NOT a sticker, NOT standing in the corner
+- Small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression
+- Slightly uneven hand-drawn body shape (can be cylinder, black bean, box, funnel, shadow)
+- 小黑 must perform the core conceptual action, not decorate the scene
+- Serious, deadpan, slightly bizarre — NOT cute, NOT a mascot, NOT a sticker
+- If removing 小黑 makes the core metaphor still work, 小黑 is too decorative — redo
 
 COMPOSITION:
+- 16:9 horizontal format
+- Subject occupies 40-60% of frame, at least 35% blank white space
+- One clear focal action, 2-4 distinct objects max
 - Isometric or slight 3/4 view preferred
 - Clean lines, no crosshatching, no shading
-- 16:9 horizontal format`;
+
+COLOR USE:
+- Black: main line art, 小黑, frame lines, structure, main text
+- Orange (#FF9800): main flow, path, arrows, automation direction
+- Red (#E53935): key warnings, problems, results, emotional points
+- Blue (#1E88E5): secondary notes, feedback, system state, AI/assistant hints
+- Colors are restrained — less is more. Blue is not required on every image.
+
+ANNOTATIONS:
+- Max 5-8 short handwritten Chinese labels per image, each 2-8 characters
+- Do NOT write a title in the top-left corner
+- Do NOT write the structure type name on the image
+
+AVOID:
+- Commercial illustration, PPT infographics, formal flowcharts, course slides
+- Cute cartoon posters, children's illustration, mascot-style characters
+- Complex architecture diagrams, polished flat illustration, tech UI
+- Complex backgrounds, gradients, shadows, textures
+- Explaining every node — keep it sparse and suggestive`;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -211,24 +227,27 @@ export async function generateImage(
 
 // ── Explain-with-Image: AI generates prompt from confused text ──────────────
 
-const EXPLAIN_WITH_IMAGE_SYSTEM = `You are a visual educator. The user is confused about a concept. Your job is to:
+const EXPLAIN_WITH_IMAGE_SYSTEM = `You are a visual educator generating illustrations in the Ian Xiaohei (小黑) style (https://github.com/helloianneo/ian-xiaohei-illustrations).
 
+The user is confused about a concept. Your job is to:
 1. Understand what they're confused about
-2. Think of a visual metaphor or diagram that would explain it clearly
-3. Generate an illustration prompt in the Ian Xiaohei (小黑) style
+2. Invent a low-tech physical metaphor that makes the abstract concept concrete (funnel, box, lever, scale, pipe, door, well, ladder, machine, sorting desk, postal service)
+3. Put 小黑 (a small deadpan black creature with white dot eyes) IN the action — pulling, carrying, sorting, pushing, feeding, holding — NOT standing beside a diagram
+4. Generate a prompt following the Ian Xiaohei style rules
 
-RULES:
-- The illustration must show ONE core concept, not multiple
-- Use visual metaphors (e.g., water flow for data flow, building blocks for layers)
-- Include the 小黑 character actively demonstrating the concept
-- Add 1-2 Chinese annotations for key terms
-- Keep the prompt concise (1-2 sentences for the scene)
+STYLE RULES:
+- Pure white background, black hand-drawn line art, slightly wobbly
+- Generous white space (subject 40-60% of canvas)
+- 1-3 sparse Chinese handwritten annotations (red for warnings, orange for flow, blue for notes)
+- 16:9 horizontal format
+- One image = one core concept only
+- NOT cute, NOT cartoonish, NOT PPT infographic, NOT complex architecture
 
 OUTPUT FORMAT (JSON only):
 {
   "concept": "one-line summary of what the user is confused about",
-  "metaphor": "the visual metaphor you chose",
-  "prompt": "the full illustration prompt in English",
+  "metaphor": "the physical metaphor you chose (e.g. 'sorting desk', 'funnel machine', 'lever system')",
+  "prompt": "the full prompt following the Ian Xiaohei template — include Visual DNA, 小黑 character, theme, structure type, core idea, composition, suggested elements, and Chinese labels",
   "annotations": ["中文标注1", "中文标注2"]
 }`;
 

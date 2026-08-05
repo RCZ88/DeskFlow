@@ -26,6 +26,7 @@ function getAPI(): any {
 export const READ_IPC: Record<string, (payload: any) => Promise<any>> = {
   getGoals:                (p) => getAPI().getGoals(p.date),
   getGoalsBatch:           (p) => getAPI().getGoalsBatch(p.start, p.end),
+  getDailyReflection:      (p) => getAPI().getDailyReflection(p.date),
   getGoalContext:          ()  => getAPI().getGoalContext(),
   getLongtermGoals:        ()  => getAPI().getLongtermGoals(),
   getReminders:            ()  => getAPI().getReminders(),

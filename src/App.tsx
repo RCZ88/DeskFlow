@@ -8,12 +8,20 @@ import { SidebarLogo } from './components/SidebarLogo';
 import {
   Home, Monitor, Globe, Code2, BarChart3, Settings, Play, Pause, Clock,
   Download, Trash2, Award, Zap, Users, Info, Database, CheckCircle, XCircle, AlertTriangle,
-  Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard, Target,
+  Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard,
   ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
   X,   FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen, Wallet, GraduationCap, Activity, Smartphone, Brain,
-  HeartHandshake, Target,
-  PanelLeftClose, PanelRightClose, GitBranch, FileCode
+  HeartHandshake,
+  PanelLeftClose, PanelRightClose, GitBranch, FileCode, GripVertical, Pencil, Check, RotateCcw
 } from 'lucide-react';
+import {
+  DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter,
+} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import SleepDetectionModal from './components/SleepDetectionModal';
 import { format as dateFormat } from 'date-fns';
 import SettingsPage from './pages/SettingsPage';
@@ -24,7 +32,7 @@ import ActivityPage from './pages/ActivityPage';
 import DatabasePage from './pages/DatabasePage';
 import IDEProjectsPage from './pages/IDEProjectsPage';
 import IDEHelpPage from './pages/IDEHelpPage';
-import CompositionPage from './pages/CompositionPage';
+import { Navigate } from 'react-router-dom';
 import TutorialPage from './pages/TutorialPage';
 import { LearnPage } from './components/learn/LearnPage';
 import GuidePage from './pages/GuidePage';
@@ -37,7 +45,6 @@ import { AiPage } from './pages/AiPage';
 import { AppBackground } from './components/AppBackground';
 
 import InsightsPage from './pages/InsightsPage';
-import GoalsPage from './pages/GoalsPage';
 import { FinancePage } from './pages/FinancePage';
 import ResumePage from './pages/ResumePage';
 import ResumeBuilderPage from './pages/ResumeBuilderPage';
@@ -60,6 +67,104 @@ const OrbitSystem = lazy(() => import('./components/OrbitSystem').then(module =>
 // Life page combines Covenant (commitments/streaks) and Memories (photo/video
 // collage) under a single tabbed page — warm clay/sage/amber/sky palette
 const LifePage = lazy(() => import('./features/warmth/LifePage'));
+
+// --- Sidebar navigation (reorderable) ---
+const DEFAULT_SIDEBAR_ITEMS = [
+  { icon: Home, label: 'Dashboard', path: '/' },
+  { icon: Activity, label: 'Activity', path: '/activity' },
+  { icon: Brain, label: 'AI Assistant', path: '/ai' },
+  { icon: GraduationCap, label: 'Learn', path: '/learn' },
+  { icon: FileText, label: 'Resume', path: '/resume' },
+  { icon: Code2, label: 'IDE Projects', path: '/ide' },
+  { icon: Clock4, label: 'External', path: '/external' },
+  { icon: Wallet, label: 'Finance', path: '/finance' },
+  { icon: BarChart3, label: 'Insights', path: '/reports' },
+  { icon: Database, label: 'Database', path: '/database' },
+  { icon: HeartHandshake, label: 'Life', path: '/life' },
+  { icon: Settings, label: 'Settings', path: '/settings' },
+  { icon: BookOpen, label: 'Guide', path: '/guide' },
+];
+const SIDEBAR_ORDER_KEY = 'df-sidebar-order';
+
+function loadSidebarOrder(): string[] | null {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_ORDER_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((p): p is string => typeof p === 'string');
+  } catch {
+    return null;
+  }
+}
+
+function persistSidebarOrder(order: string[]) {
+  try { localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
+}
+
+function clearSidebarOrder() {
+  try { localStorage.removeItem(SIDEBAR_ORDER_KEY); } catch { /* ignore */ }
+}
+
+type SidebarItem = typeof DEFAULT_SIDEBAR_ITEMS[number];
+
+function SidebarSortableItem({ item, collapsed, reorderMode, isActive, onNavigate }: {
+  item: SidebarItem;
+  collapsed: boolean;
+  reorderMode: boolean;
+  isActive: boolean;
+  onNavigate: () => void;
+}) {
+  const dragEnabled = reorderMode && !collapsed;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: item.path,
+    disabled: !dragEnabled,
+  });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-stretch gap-1 rounded-xl ${dragEnabled ? 'border border-dashed border-zinc-700 py-1 pl-1 pr-1.5' : ''} ${isDragging ? 'opacity-40 z-10' : ''}`}
+    >
+      {dragEnabled && (
+        <button
+          {...attributes}
+          {...listeners}
+          className="grip-handle flex items-center justify-center w-6 shrink-0 cursor-grab touch-none rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 active:cursor-grabbing transition-colors"
+          title="Drag to reorder"
+          aria-label={`Reorder ${item.label}`}
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+      )}
+      <motion.button
+        key={item.path}
+        onClick={onNavigate}
+        className={`flex items-center rounded-xl text-sm transition-colors duration-150 flex-1 min-w-0 ${collapsed ? 'justify-center w-full px-0 py-3' : 'w-full gap-3.5 px-4 py-3'} ${isActive
+          ? 'bg-zinc-800 text-white'
+          : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
+          }`}
+        title={collapsed ? item.label : undefined}
+      >
+        <item.icon className="w-4 h-4 shrink-0" />
+        <AnimatePresence initial={false}>
+          {!collapsed && (
+            <motion.span
+              initial={{ opacity: 0, width: 0 }}
+              animate={{ opacity: 1, width: 'auto' }}
+              exit={{ opacity: 0, width: 0 }}
+              transition={{ duration: 0.15, ease: 'easeInOut' }}
+              className="overflow-hidden whitespace-nowrap"
+            >
+              {item.label}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </motion.button>
+    </div>
+  );
+}
 
 interface ActivityLog {
   id: number;
@@ -1942,32 +2047,7 @@ function App() {
 
   // Phase 3: Focus Time vs Total Time
   // Focus = productive categories only, Total = all categories
-  const [timeMode, setTimeMode] = useState<'focus' | 'total'>('focus');
-
-  // Compute time by category - SEPARATE for apps and websites
-  // All apps time (for Total mode) - include ALL apps including browsers
-  const appsTimeByCategory = useMemo(() => {
-    const categoryTime: Record<string, number> = {};
-    filteredLogs.forEach(log => {
-      if (log.is_browser_tracking) return; // Only skip actual website tracking
-      const cat = log.category || 'Uncategorized';
-      categoryTime[cat] = (categoryTime[cat] || 0) + log.duration;
-    });
-    return categoryTime;
-  }, [filteredLogs]);
-
-  // Productive websites time (for Focus mode)
-  const productiveWebsitesTime = useMemo(() => {
-    let productiveTime = 0;
-    browserLogs.forEach(log => {
-      const websiteCategory = (log as any).category || 'Uncategorized';
-      const mappedCategory = WEBSITE_CATEGORY_MAP[websiteCategory] || 'Other';
-      if (tierAssignments?.productive.includes(mappedCategory)) {
-        productiveTime += log.duration;
-      }
-    });
-    return productiveTime;
-  }, [browserLogs, tierAssignments]);
+  const [timeMode, setTimeMode] = useState<'focus' | 'total'>('total');
 
   // Total time by category (apps + all websites, used for score calculation)
   const timeByCategory = useMemo(() => {
@@ -2018,22 +2098,24 @@ function App() {
   }, [timeByCategory, tierAssignments]);
 
   // Compute focus time vs total time
-  // Total = apps only (no websites)
-  // Focus = apps productive only (no websites)
+  // Total = ALL tracked activity for the period (apps + websites) — same source as the
+  //         activity chart, so the top-bar clock always matches the chart.
+  // Focus = productive tier only (apps + websites mapped via WEBSITE_CATEGORY_MAP)
   const focusAndTotalTime = useMemo(() => {
-    // Total time = apps only
-    const totalTime = Object.values(appsTimeByCategory).reduce((sum, d) => sum + d, 0);
-    
-    // Focus time = apps productive only
-    let productiveAppsTime = 0;
-    Object.entries(appsTimeByCategory).forEach(([category, duration]) => {
+    // Total time = every tracked log in the period (apps + websites)
+    const totalTime = filteredLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
+
+    // Focus time = productive categories only (timeByCategory already merges apps +
+    // websites mapped through WEBSITE_CATEGORY_MAP)
+    let productiveTime = 0;
+    Object.entries(timeByCategory).forEach(([category, duration]) => {
       if (tierAssignments?.productive.includes(category)) {
-        productiveAppsTime += duration;
+        productiveTime += duration;
       }
     });
 
-    return { focus: productiveAppsTime, total: totalTime };
-  }, [appsTimeByCategory, tierAssignments]);
+    return { focus: productiveTime, total: totalTime };
+  }, [filteredLogs, timeByCategory, tierAssignments]);
   
   // Compute breakdown for display (apps vs websites)
   // Excludes browser tracking (is_browser_tracking) from apps
@@ -2398,23 +2480,54 @@ Trend: +14% vs. yesterday. Keep it up!`;
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
 
-  const sidebarItems = [
-    { icon: Home, label: 'Dashboard', path: '/' },
-    { icon: Activity, label: 'Activity', path: '/activity' },
-    { icon: Brain, label: 'AI Assistant', path: '/ai' },
-    { icon: GraduationCap, label: 'Learn', path: '/learn' },
-    { icon: FileText, label: 'Resume', path: '/resume' },
-    { icon: Code2, label: 'IDE Projects', path: '/ide' },
-    { icon: Clock4, label: 'External', path: '/external' },
-    { icon: Wallet, label: 'Finance', path: '/finance' },
-    { icon: BarChart3, label: 'Insights', path: '/reports' },
-    { icon: Database, label: 'Database', path: '/database' },
-    { icon: Target, label: 'Goals', path: '/goals' },
-    { icon: HeartHandshake, label: 'Life', path: '/life' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
-    { icon: BookOpen, label: 'Guide', path: '/guide' },
-    { icon: FileCode, label: 'Compositions', path: '/compositions' },
-  ];
+  const [sidebarOrder, setSidebarOrder] = useState<string[] | null>(loadSidebarOrder);
+  const [reorderMode, setReorderMode] = useState(false);
+  const [orderSaved, setOrderSaved] = useState(false);
+  const orderSavedTimer = useRef<number | null>(null);
+
+  const sidebarItems = useMemo(() => {
+    if (!sidebarOrder || sidebarOrder.length === 0) return DEFAULT_SIDEBAR_ITEMS;
+    const byPath = new Map(DEFAULT_SIDEBAR_ITEMS.map((i) => [i.path, i]));
+    const ordered: SidebarItem[] = [];
+    for (const p of sidebarOrder) {
+      const item = byPath.get(p);
+      if (item) { ordered.push(item); byPath.delete(p); }
+    }
+    for (const item of byPath.values()) ordered.push(item);
+    return ordered;
+  }, [sidebarOrder]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const flashOrderSaved = useCallback(() => {
+    setOrderSaved(true);
+    if (orderSavedTimer.current) window.clearTimeout(orderSavedTimer.current);
+    orderSavedTimer.current = window.setTimeout(() => setOrderSaved(false), 1600);
+  }, []);
+
+  const handleSidebarDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setSidebarOrder((prev) => {
+      const current = prev ?? DEFAULT_SIDEBAR_ITEMS.map((i) => i.path);
+      const oldIndex = current.indexOf(String(active.id));
+      const newIndex = current.indexOf(String(over.id));
+      if (oldIndex < 0 || newIndex < 0) return prev;
+      const next = arrayMove(current, oldIndex, newIndex);
+      persistSidebarOrder(next);
+      flashOrderSaved();
+      return next;
+    });
+  }, [flashOrderSaved]);
+
+  const handleResetSidebarOrder = useCallback(() => {
+    clearSidebarOrder();
+    setSidebarOrder(null);
+    flashOrderSaved();
+  }, [flashOrderSaved]);
 
   return (
     <VoiceProvider>
@@ -2441,54 +2554,66 @@ Trend: +14% vs. yesterday. Keep it up!`;
               </button>
             </div>
           ) : (
-            <div className="flex items-center justify-between w-full pr-2">
-              <div className="p-5">
-                <SidebarLogo />
+              <div className="flex items-center justify-between w-full pr-2">
+                <div className="p-5">
+                  <SidebarLogo />
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setReorderMode((v) => !v)}
+                    className={`p-1.5 rounded-lg transition-colors ${reorderMode ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
+                    title={reorderMode ? 'Done reordering' : 'Reorder navigation'}
+                  >
+                    {reorderMode ? <Check className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={toggleSidebar}
+                    className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+                    title="Collapse sidebar"
+                  >
+                    <PanelLeftClose className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={toggleSidebar}
-                className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-                title="Collapse sidebar"
-              >
-                <PanelLeftClose className="w-4 h-4" />
-              </button>
-            </div>
           )}
         </div>
 
         <div className="flex-1 min-h-0 flex flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 flex flex-col">
             <div className="flex flex-col gap-2 items-stretch">
-            {sidebarItems.map((item) => {
-              const isActive = location.pathname === item.path;
-              return (
-                <motion.button
-                  key={item.path}
-                  onClick={() => { console.log('[NAV] fired — path:', item.path, 'current:', location.pathname); handleSidebarNavigation(item.path); }}
-                  className={`flex items-center rounded-xl text-sm transition-colors duration-150 ${sidebarCollapsed ? 'justify-center w-full px-0 py-3' : 'w-full gap-3.5 px-4 py-3'} ${isActive
-                    ? 'bg-zinc-800 text-white'
-                    : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
-                    }`}
-                  title={sidebarCollapsed ? item.label : undefined}
-                >
-                  <item.icon className="w-4 h-4 shrink-0" />
-                  <AnimatePresence initial={false}>
-                    {!sidebarCollapsed && (
-                      <motion.span
-                        initial={{ opacity: 0, width: 0 }}
-                        animate={{ opacity: 1, width: 'auto' }}
-                        exit={{ opacity: 0, width: 0 }}
-                        transition={{ duration: 0.15, ease: 'easeInOut' }}
-                        className="overflow-hidden whitespace-nowrap"
-                      >
-                        {item.label}
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </motion.button>
-              );
-            })}
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleSidebarDragEnd}>
+              <SortableContext items={sidebarItems.map((i) => i.path)} strategy={verticalListSortingStrategy}>
+                {sidebarItems.map((item) => (
+                  <SidebarSortableItem
+                    key={item.path}
+                    item={item}
+                    collapsed={sidebarCollapsed}
+                    reorderMode={reorderMode}
+                    isActive={location.pathname === item.path}
+                    onNavigate={() => { console.log('[NAV] fired — path:', item.path, 'current:', location.pathname); handleSidebarNavigation(item.path); }}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
             </div>
+            {reorderMode && !sidebarCollapsed && (
+              <div className="mt-3 flex items-center justify-between px-1">
+                <button
+                  onClick={handleResetSidebarOrder}
+                  className="flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-lg px-2 py-1.5 transition-colors"
+                  title="Restore default navigation order"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reset order
+                </button>
+                <span
+                  className={`text-[11px] text-emerald-400 transition-opacity duration-300 ${orderSaved ? 'opacity-100' : 'opacity-0'}`}
+                  aria-hidden={!orderSaved}
+                >
+                  Order saved
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -2564,7 +2689,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <button
                 onClick={() => setTimeMode('focus')}
                 className={`px-3 py-1.5 rounded-full transition flex items-center gap-1.5 w-[72px] justify-center flex-shrink-0 text-xs ${timeMode === 'focus' ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400 hover:text-white'}`}
-                title="Focus Time: Sum of all logged sessions"
+                title="Focus Time: Productive apps + websites only"
               >
                 <Zap className="w-3 h-3" />
                 Focus
@@ -2765,9 +2890,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <Route path="/old-dashboard" element={<Navigate to="/external" replace />} />
 
               <Route path="/guide" element={<GuidePage />} />
-              <Route path="/compositions" element={<CompositionPage />} />
+              <Route path="/compositions" element={<Navigate to="/ai" replace />} />
 
-              <Route path="/goals" element={<GoalsPage />} />
               <Route path="/life" element={<ErrorBoundary><Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Life...</div>}><LifePage /></Suspense></ErrorBoundary>} />
 
               <Route path="/learn" element={<LearnPage />} />

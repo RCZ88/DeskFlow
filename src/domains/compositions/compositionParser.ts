@@ -6,6 +6,13 @@ export class ParserError extends Error {
   }
 }
 
+// Maps human-readable word operators (emitted by the visual builder's
+// dslGenerator + NL parser) to the engine's canonical operator strings.
+const WORD_OP_MAP: Partial<Record<TokenType, string>> = {
+  EQW: '==', NEQW: '!=', GTW: '>', GTEW: '>=', LTW: '<', LTEW: '<=',
+  CONTAINS: 'contains', MATCHES: 'matches', EXISTS: 'exists', NOT_EXISTS: 'not_exists',
+};
+
 export class Parser {
   private pos = 0;
 
@@ -32,20 +39,20 @@ export class Parser {
     if (this.peek().type !== 'ON') return undefined;
     this.advance('ON');
     const source = this.advance('IDENTIFIER').value;
-    this.advance('DOT');
-    const eventName = this.advance('IDENTIFIER').value;
-    let filters: ConditionClause | undefined;
-    if (this.peek().type === 'IF') filters = this.parseConditionClause();
-    return { kind: 'event', source, eventName, filters };
+    let eventName = source;
+    while (this.peek().type === 'DOT') {
+      this.advance('DOT');
+      eventName = this.advance('IDENTIFIER').value;
+    }
+    return { kind: 'event', source, eventName, filters: undefined };
   }
 
   private tryParseSchedule(): SchedulePattern | undefined {
     if (this.peek().type !== 'EVERY') return undefined;
     this.advance('EVERY');
     let parts: string[] = [];
-    while (this.peek().type !== 'DO' && this.peek().type !== 'NEWLINE' && this.peek().type !== 'EOF') {
+    while (this.peek().type !== 'DO' && this.peek().type !== 'NEWLINE' && this.peek().type !== 'EOF' && this.peek().type !== 'STRING') {
       parts.push(this.advance().value);
-      if (this.peek().type === 'NEWLINE') break;
     }
     let cron: string;
     const raw = parts.join(' ');
@@ -76,7 +83,16 @@ export class Parser {
   }
 
   private parseConditionClause(): ConditionClause {
-    if (this.peek().type === 'IF') this.advance('IF');
+    while (this.peek().type === 'NEWLINE') this.advance('NEWLINE');
+    let hadIf = false;
+    if (this.peek().type === 'IF') {
+      this.advance('IF');
+      hadIf = true;
+    }
+    if (!this.isConditionStart(this.peek().type)) {
+      if (hadIf) throw new ParserError(this.peek(), `Expected condition after 'if'`);
+      return { kind: 'condition', operator: 'and', operands: [] };
+    }
     const operands: (ConditionClause | ExpressionNode)[] = [];
     operands.push(this.parseExpression());
 
@@ -94,12 +110,20 @@ export class Parser {
     return { kind: 'condition', operator, operands };
   }
 
+  private isConditionStart(t: TokenType): boolean {
+    return ['IDENTIFIER', 'STRING', 'NUMBER', 'BOOLEAN', 'LPAREN', 'NOT', 'MINUS'].includes(t);
+  }
+
   private parseExpression(): ExpressionNode | LiteralNode | IdentifierNode {
     let left = this.parsePrimary();
 
     while (this.isComparisonOp(this.peek().type)) {
       const opToken = this.advance();
-      const operator = opToken.value;
+      const operator = WORD_OP_MAP[opToken.type] ?? opToken.value;
+      if (operator === 'exists' || operator === 'not_exists') {
+        left = { kind: 'expr', operator, left, right: { kind: 'literal', type: 'null', value: null } };
+        continue;
+      }
       const right = this.parsePrimary();
       left = { kind: 'expr', operator, left, right };
     }
@@ -212,7 +236,7 @@ export class Parser {
   }
 
   private isComparisonOp(t: TokenType): boolean {
-    return ['EQ', 'NEQ', 'GT', 'GTE', 'LT', 'LTE'].includes(t);
+    return ['EQ', 'NEQ', 'GT', 'GTE', 'LT', 'LTE', 'EQW', 'NEQW', 'GTW', 'GTEW', 'LTW', 'LTEW', 'CONTAINS', 'MATCHES', 'EXISTS', 'NOT_EXISTS'].includes(t);
   }
 
   private peek(): Token { return this.tokens[this.pos]; }

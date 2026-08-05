@@ -3,9 +3,10 @@ interface SectionHeaderProps {
   icon?: React.ReactNode;
   action?: React.ReactNode;
   className?: string;
+  titleClassName?: string;
 }
 
-export function SectionHeader({ title, icon, action, className = '' }: SectionHeaderProps) {
+export function SectionHeader({ title, icon, action, className = '', titleClassName = '' }: SectionHeaderProps) {
   return (
     <div className={`flex items-center justify-between mb-3 ${className}`}>
       <div className="flex items-center gap-2.5">
@@ -14,7 +15,7 @@ export function SectionHeader({ title, icon, action, className = '' }: SectionHe
             {icon}
           </div>
         )}
-        <h2 className="text-[15px] font-semibold text-zinc-100">{title}</h2>
+        <h2 className={`text-[15px] font-semibold text-zinc-100 ${titleClassName}`}>{title}</h2>
       </div>
       {action}
     </div>

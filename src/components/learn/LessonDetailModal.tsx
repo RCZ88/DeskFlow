@@ -28,6 +28,7 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
   const [editChapter, setEditChapter] = useState('');
   const [originalPrompt, setOriginalPrompt] = useState('');
   const [saving, setSaving] = useState(false);
+  const [sourceSaving, setSourceSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [existingChapters, setExistingChapters] = useState<string[]>([]);
@@ -80,6 +81,26 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
       setTimeout(() => setCopied(false), 2000);
     } catch { /* ignore */ }
   }, [source]);
+
+  const handleSaveSource = async () => {
+    if (!lesson || !source) return;
+    setSourceSaving(true);
+    try {
+      const result = await api.learnUpdateLessonDoc({
+        lessonId: lesson.id,
+        docJson: source,
+      });
+      if (result.ok) {
+        onUpdated();
+        onClose();
+      } else {
+        alert(result.error || 'Failed to save');
+      }
+    } catch (e: any) {
+      alert(e.message || 'Failed to save');
+    }
+    setSourceSaving(false);
+  };
 
   const handleSave = async () => {
     if (!lesson) return;
@@ -186,31 +207,44 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
 
           {/* Content */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
-            {/* Source tab */}
+            {/* Source tab — editable ldoc JSON */}
             {tab === 'source' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-zinc-500">Raw document JSON — the unparsed lesson structure</p>
-                  <button
-                    onClick={handleCopy}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                      copied
-                        ? 'bg-sage-500/15 text-sage-300 border-sage-500/25'
-                        : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50 hover:bg-zinc-700/80 hover:text-zinc-200'
-                    }`}
-                  >
-                    {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    {copied ? 'Copied!' : 'Copy'}
-                  </button>
+              <div className="space-y-3 h-full flex flex-col">
+                <div className="flex items-center justify-between shrink-0">
+                  <p className="text-xs text-zinc-500">Edit the lesson document JSON directly</p>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={handleCopy}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                        copied
+                          ? 'bg-sage-500/15 text-sage-300 border-sage-500/25'
+                          : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50 hover:bg-zinc-700/80 hover:text-zinc-200'
+                      }`}
+                    >
+                      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                    <button
+                      onClick={handleSaveSource}
+                      disabled={sourceSaving}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-clay-500/15 text-clay-300 border border-clay-500/20 hover:bg-clay-500/25 transition-all disabled:opacity-50"
+                    >
+                      {sourceSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                      {sourceSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
                 </div>
                 {sourceLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
                   </div>
                 ) : (
-                  <pre className="rounded-xl border border-zinc-800/50 bg-zinc-950/80 p-4 font-mono text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap overflow-x-auto max-h-[50vh]">
-                    {source || 'No source available'}
-                  </pre>
+                  <textarea
+                    value={source}
+                    onChange={(e) => setSource(e.target.value)}
+                    className="flex-1 min-h-[40vh] w-full rounded-xl border border-zinc-800/50 bg-zinc-950/80 p-4 font-mono text-[11px] leading-relaxed text-zinc-300 resize-y focus:outline-none focus:border-clay-500/40 transition-all"
+                    spellCheck={false}
+                  />
                 )}
               </div>
             )}

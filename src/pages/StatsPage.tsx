@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
-import { MagicCard } from '../components/ui/magic-card';
 import { SectionHeader } from '../components/SectionHeader';
 import { LoadingState } from '../components/LoadingState';
 import { SectionState } from '../components/SectionState';
@@ -23,7 +22,6 @@ import { Toggle } from '../components/ui/toggle';
 import { BorderBeam } from '../components/ui/border-beam';
 import { NumberTicker } from '../components/ui/number-ticker';
 import { DotPattern } from '../components/ui/dot-pattern';
-import { AnimatedGradientText } from '../components/ui/animated-gradient-text';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -80,6 +78,32 @@ const CATEGORY_COLORS: Record<string, string> = {
   'Tools': '#f59e0b',
   'Other': '#64748b',
 };
+
+// Website category to app category mapping for productivity calculation
+const WEBSITE_CATEGORY_MAP: Record<string, string> = {
+  'Developer Tools': 'Tools',
+  'AI Tools': 'AI Tools',
+  'Social Media': 'Social Media',
+  'Entertainment': 'Entertainment',
+  'News': 'News',
+  'Shopping': 'Shopping',
+  'Productivity': 'Productivity',
+  'Design': 'Design',
+  'Search Engine': 'Productivity',
+  'Communication': 'Communication',
+  'Education': 'Education',
+  'Uncategorized': 'Uncategorized',
+  'Other': 'Other'
+};
+
+// A log counts as productive when its (mapped) category is in the productive tier.
+// Website logs carry website categories, so they must be mapped first.
+function isProductiveLog(log: any, tiers?: { productive: string[]; neutral: string[]; distracting: string[] }): boolean {
+  const productive = tiers?.productive || [];
+  const raw = log?.category || 'Uncategorized';
+  const cat = log?.is_browser_tracking ? (WEBSITE_CATEGORY_MAP[raw] || raw) : raw;
+  return productive.includes(cat);
+}
 
 // Format duration in seconds to human-readable string
 function formatDuration(seconds: number): string {
@@ -158,17 +182,23 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     return filtered.sort((a, b) => b.total_ms - a.total_ms);
   }, [appStats, timeMode, tierAssignments]);
 
-  // Aggregate stats - filtered by timeMode and filteredLogs
+  // Aggregate stats — Total Time / Total Sessions now cover ALL tracked activity
+  // (apps + websites) so the summary cards match the daily usage chart. App-specific
+  // stats (uniqueApps) remain apps-only.
   const totals = useMemo(() => {
-    const filteredApps = timeMode === 'focus'
-      ? sortedApps.filter(app => tierAssignments?.productive.includes(app.category))
-      : sortedApps;
-    const totalTimeMs = filteredApps.reduce((sum, s) => sum + (s.total_ms || 0), 0);
-    const totalSessions = filteredApps.reduce((sum, s) => sum + (s.sessions || 0), 0);
+    const allLogsArr = (logs as any[]) || [];
+    const scopedLogs = timeMode === 'focus'
+      ? allLogsArr.filter(l => isProductiveLog(l, tierAssignments))
+      : allLogsArr;
+    const totalTimeMs = scopedLogs.reduce((sum, l) => sum + (l.duration || 0), 0) * 1000;
+    const totalSessions = scopedLogs.length;
     const avgSession = totalSessions > 0 ? totalTimeMs / totalSessions : 0;
-    const uniqueApps = filteredApps.length;
+    const uniqueApps = sortedApps.length;
     return { totalTime: totalTimeMs, totalSessions, avgSession, uniqueApps };
-  }, [sortedApps, timeMode, tierAssignments]);
+  }, [sortedApps, timeMode, tierAssignments, logs]);
+
+  // Apps-only denominator for Top Applications percentage bars (the pie is apps-only)
+  const appsOnlyTotalMs = useMemo(() => sortedApps.reduce((s, a) => s + (a.total_ms || 0), 0), [sortedApps]);
 
   // Category breakdown - filtered by timeMode and filteredLogs
   const categoryBreakdown = useMemo(() => {
@@ -204,13 +234,17 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
   }, [sortedApps]);
 
   // Daily/hourly usage data based on selected period + dateOffset
+  // In Focus mode only productive activity is included — matches the top-bar clock
+  // and the summary cards in every mode.
   const dailyUsage = useMemo(() => {
-    const now = new Date();
+    const scopedLogs = timeMode === 'focus'
+      ? (filteredLogs as any[]).filter(l => isProductiveLog(l, tierAssignments))
+      : (filteredLogs as any[]);
 
     if (selectedPeriod === 'today') {
       const hourBuckets = Array.from({ length: 24 }, () => 0);
 
-      for (const log of (filteredLogs as any[])) {
+      for (const log of scopedLogs) {
         const sessionStart = log.timestamp.getTime();
         const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
 
@@ -240,7 +274,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
 
     // Build date-keyed map once (single pass) for all multi-day periods
     const logsByDate = new Map<string, number>();
-    for (const log of (filteredLogs as any[])) {
+    for (const log of scopedLogs) {
       const key = format(log.timestamp, 'yyyy-MM-dd');
       logsByDate.set(key, (logsByDate.get(key) || 0) + (log.duration || 0));
     }
@@ -302,7 +336,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
 
     // 'all'
     const monthMap: Record<string, { total: number }> = {};
-    (filteredLogs as any[]).forEach(log => {
+    scopedLogs.forEach(log => {
       const key = format(log.timestamp, 'yyyy-MM');
       if (!monthMap[key]) monthMap[key] = { total: 0 };
       monthMap[key].total += log.duration || 0;
@@ -312,7 +346,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
       label: format(new Date(key + '-01'), 'MMM yy'),
       minutes: val.total
     }));
-  }, [filteredLogs, selectedPeriod, dateOffset]);
+  }, [filteredLogs, selectedPeriod, dateOffset, timeMode, tierAssignments]);
 
   // Hourly distribution — reuse dailyUsage's hour data when period is 'today' (saves a full O(N*M) while-loop)
   const hourlyDistribution = useMemo(() => {
@@ -323,7 +357,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     const hourBuckets = Array.from({ length: 24 }, () => 0);
 
     for (const log of (filteredLogs as any[])) {
-      if (log.is_browser_tracking) continue;
+      if (timeMode === 'focus' && !isProductiveLog(log, tierAssignments)) continue;
       const sessionStart = log.timestamp.getTime();
       const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
 
@@ -345,7 +379,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     }
 
     return hourBuckets.map((minutes, hour) => ({ hour, minutes }));
-  }, [filteredLogs, selectedPeriod, dailyUsage]);
+  }, [filteredLogs, selectedPeriod, dailyUsage, timeMode, tierAssignments]);
 
   // Selected app detailed data
   const selectedAppData = useMemo(() => {
@@ -821,10 +855,8 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
               <TrendingUpIcon className="w-5 h-5 text-indigo-400" />
             )}
             <div>
-              <div className="text-xl font-semibold">
-                <AnimatedGradientText colorFrom="#22d3ee" colorTo="#6366f1">
-                  {selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
-                </AnimatedGradientText>
+              <div className="text-xl font-extrabold font-display tracking-tight text-white">
+                {selectedPeriod === 'today' ? 'Hourly Activity' : 'Daily Usage Trend'}
               </div>
               <div className="text-sm text-zinc-500">
                 {selectedPeriod === 'today' ? 'Activity by hour of day' : 'Activity over time'}
@@ -892,19 +924,17 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.05 }}
           >
-            <MagicCard gradientFrom={stat.gradientFrom || '#6366f1'} gradientTo={stat.gradientTo || '#8b5cf6'} gradientSize={300} className="rounded-xl">
-              <div className="p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="h-9 w-9 rounded-lg grid place-items-center" style={{ background: stat.chipBg }}>
-                    <stat.icon className="w-4.5 h-4.5" style={{ color: stat.iconColor }} />
-                  </div>
+            <GlassCard className="h-full">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="h-9 w-9 rounded-lg grid place-items-center" style={{ background: stat.chipBg }}>
+                  <stat.icon className="w-4.5 h-4.5" style={{ color: stat.iconColor }} />
                 </div>
-                <div className="text-3xl font-semibold tabular-nums tracking-tight text-white">
-                  {stat.numeric ? <NumberTicker value={stat.value as number} /> : stat.display}
-                </div>
-                <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mt-1">{stat.label}</div>
               </div>
-            </MagicCard>
+              <div className="text-3xl font-semibold tabular-nums tracking-tight text-white">
+                {stat.numeric ? <NumberTicker value={stat.value as number} /> : stat.display}
+              </div>
+              <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mt-1">{stat.label}</div>
+            </GlassCard>
           </motion.div>
         ))}
       </div>
@@ -947,7 +977,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
               <motion.div initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}>
                 {sortedApps.slice(0, 6).map((app, idx) => {
                   const catColor = CATEGORY_COLORS[app.category] || '#64748b';
-                  const pct = totals.totalTime > 0 ? Math.round((app.total_ms / totals.totalTime) * 100) : 0;
+                  const pct = appsOnlyTotalMs > 0 ? Math.round((app.total_ms / appsOnlyTotalMs) * 100) : 0;
                   return (
                     <motion.div
                       key={app.app}

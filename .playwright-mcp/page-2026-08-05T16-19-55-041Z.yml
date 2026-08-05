@@ -1,0 +1,77 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - button "Canvas manager — save/load canvases" [ref=e6] [cursor=pointer]
+    - button "Arrange cards neatly" [ref=e10] [cursor=pointer]
+    - button "Focus — bring camera to cards" [ref=e16] [cursor=pointer]
+    - button "Zoom out" [ref=e21] [cursor=pointer]
+    - generic [ref=e25]: 100%
+    - button "Zoom in" [ref=e26] [cursor=pointer]
+    - 'button "Auto-focus: OFF — manual navigation" [ref=e31] [cursor=pointer]'
+    - button "Save canvas layout" [ref=e36] [cursor=pointer]
+    - button "Fullscreen" [ref=e42] [cursor=pointer]
+  - generic [ref=e45]:
+    - generic:
+      - generic [ref=e46]:
+        - generic [ref=e47]:
+          - generic [ref=e48]: response
+          - generic [ref=e49]:
+            - button "Unpin card" [ref=e50] [cursor=pointer]
+            - button "✕" [ref=e55] [cursor=pointer]
+        - generic [ref=e57]:
+          - generic [ref=e58]:
+            - generic [ref=e62]: AI Response
+            - generic [ref=e63]: "1785946794834"
+          - generic [ref=e65]:
+            - heading "Plan" [level=1] [ref=e66]
+            - list [ref=e67]:
+              - listitem [ref=e68]: Write the spec
+              - listitem [ref=e69]: Implement the fix
+            - generic [ref=e70]:
+              - generic [ref=e71]: js
+              - code [ref=e72]: const x = 1
+      - generic [ref=e74]:
+        - generic [ref=e75]:
+          - generic [ref=e76]: response
+          - generic [ref=e77]:
+            - button "Unpin card" [ref=e78] [cursor=pointer]
+            - button "✕" [ref=e83] [cursor=pointer]
+        - generic [ref=e85]:
+          - generic [ref=e86]:
+            - generic [ref=e90]: AI Response
+            - generic [ref=e91]: "1785946794834"
+          - paragraph [ref=e94]:
+            - text: Short response with
+            - strong [ref=e95]: bold
+            - text: and a
+            - link "link" [ref=e96] [cursor=pointer]:
+              - /url: https://example.com
+            - text: .
+      - generic [ref=e98]:
+        - generic [ref=e99]:
+          - generic [ref=e100]: annotation
+          - generic [ref=e101]:
+            - button "Unpin card" [ref=e102] [cursor=pointer]
+            - button "✕" [ref=e107] [cursor=pointer]
+        - generic [ref=e108]: Standalone annotation card
+      - generic [ref=e114]:
+        - generic [ref=e115]:
+          - generic [ref=e116]: plan
+          - generic [ref=e117]:
+            - button "Unpin card" [ref=e118] [cursor=pointer]
+            - button "✕" [ref=e123] [cursor=pointer]
+        - generic [ref=e125]:
+          - generic [ref=e126]: 2 goals
+          - list [ref=e128]:
+            - listitem [ref=e129]
+            - listitem [ref=e131]
+          - textbox "# Notes..." [ref=e134]: Focus on pointer events
+  - generic [ref=e143]:
+    - generic [ref=e144]:
+      - generic [ref=e145]:
+        - textbox "Ask anything, or type / for commands..." [ref=e146]
+        - button "Start voice input" [ref=e148]
+      - button "Send" [disabled] [ref=e156]
+    - generic [ref=e160]:
+      - generic [ref=e161]: Ctrl+K commands
+      - generic [ref=e162]: Enter send
+      - generic [ref=e163]: Esc close palette

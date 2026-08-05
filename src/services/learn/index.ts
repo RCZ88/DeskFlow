@@ -694,6 +694,22 @@ export function registerLearnHandlers(
     }
   });
 
+  // ── Update lesson doc_json (full document edit) ──
+  ipcMain.handle('learn:updateLessonDoc', async (_event, args: { lessonId: string; docJson: string }) => {
+    try {
+      const doc = JSON.parse(args.docJson);
+      if (!doc.lesson || !doc.nodes) {
+        return { ok: false, error: 'Invalid document: must have "lesson" and "nodes" fields' };
+      }
+      const title = doc.lesson?.title || '';
+      db.prepare('UPDATE learn_lessons SET doc_json = ?, title = ?, updated_at = ? WHERE id = ?')
+        .run(args.docJson, title, new Date().toISOString(), args.lessonId);
+      return { ok: true, data: null };
+    } catch (e: any) {
+      return { ok: false, error: `Invalid JSON: ${e.message}` };
+    }
+  });
+
   ipcMain.handle('learn:deleteLesson', async (_event, args: { lessonId: string }) => {
     try {
       // Cascade: delete nodes, prereqs, sources, chunks, progress, evidence
@@ -805,6 +821,42 @@ export function registerLearnHandlers(
         },
         error: imageResult.error,
       };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Upload externally-generated illustration ──
+  ipcMain.handle('learn:uploadIllustration', async (_event, args: { lessonId?: string; filename?: string }) => {
+    try {
+      const { dialog, BrowserWindow } = require('electron');
+      const { copyFileSync, mkdirSync, existsSync } = require('fs');
+      const { join } = require('path');
+
+      const win = BrowserWindow.getFocusedWindow();
+      const result = await dialog.showOpenDialog(win, {
+        title: 'Select illustration image',
+        filters: [
+          { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] },
+        ],
+        properties: ['openFile'],
+      });
+
+      if (result.canceled || !result.filePaths?.[0]) {
+        return { ok: false, error: 'Cancelled' };
+      }
+
+      const srcPath = result.filePaths[0];
+      const lessonId = args.lessonId || 'general';
+      const assetsDir = join(require('electron').app.getPath('userData'), 'lyceum', 'illustrations', lessonId);
+      mkdirSync(assetsDir, { recursive: true });
+
+      const ext = srcPath.split('.').pop() || 'png';
+      const fname = args.filename || `illustration-${Date.now()}.${ext}`;
+      const destPath = join(assetsDir, fname);
+      copyFileSync(srcPath, destPath);
+
+      return { ok: true, data: { imagePath: destPath } };
     } catch (e: any) {
       return { ok: false, error: e.message };
     }

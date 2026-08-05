@@ -38,11 +38,20 @@ export function useFocusSession() {
     return api.start({ durationSec, strictness }).then(setState);
   }, []);
 
+  const startWithGroup = useCallback((groupId: number, durationSec?: number, strictness?: 'distracting' | 'non_allowed') => {
+    const api = (window as any).deskflowAPI?.focusGroup as any;
+    if (!api) return Promise.resolve();
+    return api.startWith(groupId, durationSec, strictness).then((res: any) => {
+      if (res?.state) setState(res.state);
+      return res;
+    });
+  }, []);
+
   const stop = useCallback(() => {
     const api = getApi();
     if (!api) return Promise.resolve();
     return api.end('aborted').then(() => api.getState().then(setState));
   }, []);
 
-  return { state, history, start, stop, refreshHistory };
+  return { state, history, start, stop, startWithGroup, refreshHistory };
 }

@@ -9,14 +9,14 @@ export type Strictness = 'distracting' | 'non_allowed';
 export interface FocusConfig {
   durationSec: number;
   strictness?: Strictness;
-  allowed?: { apps?: string[]; domains?: string[]; tiers?: Tier[] };
+  allowed?: { apps?: string[]; domains?: string[]; tiers?: Tier[]; categories?: string[] };
 }
 
 interface FocusState {
   active: boolean; sessionId: number | null;
   startedAt: number | null; endsAt: number | null;
   strictness: Strictness;
-  allowed: { apps: string[]; domains: string[]; tiers: Tier[] };
+  allowed: { apps: string[]; domains: string[]; tiers: Tier[]; categories: string[] };
   returnCount: number; paused: boolean;
 }
 
@@ -41,7 +41,7 @@ export class FocusManager {
   private idle(): FocusState {
     return { active: false, sessionId: null, startedAt: null, endsAt: null,
       strictness: 'distracting',
-      allowed: { apps: [], domains: [], tiers: ['productive', 'neutral'] },
+      allowed: { apps: [], domains: [], tiers: ['productive', 'neutral'], categories: [] },
       returnCount: 0, paused: false };
   }
 
@@ -54,7 +54,17 @@ export class FocusManager {
         ? Math.max(0, Math.round((this.state.endsAt - Date.now()) / 1000))
         : 0,
       paused: this.state.paused,
+      outcome: this.state.active ? 'active' : null,
+      id: this.state.sessionId,
+      allowed_json: JSON.stringify(this.state.allowed),
+      broke_on_type: null,
+      broke_on_name: null,
+      startedAt: this.state.startedAt,
     };
+  }
+
+  getActiveSessionId(): number | null {
+    return this.state.active ? this.state.sessionId : null;
   }
 
   verifyToken(t?: string | string[]) {
@@ -71,6 +81,7 @@ export class FocusManager {
       apps: cfg.allowed?.apps ?? [],
       domains: cfg.allowed?.domains ?? [],
       tiers: cfg.allowed?.tiers ?? ['productive', 'neutral'] as Tier[],
+      categories: cfg.allowed?.categories ?? [],
     };
     const info = this.db.prepare(
       `INSERT INTO deep_focus_sessions (started_at, planned_sec, outcome, strictness, allowed_json)

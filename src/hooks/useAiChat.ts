@@ -6,6 +6,8 @@ import {
   type ParsedMessage,
 } from "../components/ai/chat/parsed"
 import { buildContextBundleDetailed, todayIso } from "../services/aiContextBundle"
+import { parseNlAutomation, stripAutomationBlock } from "../components/ai/automations/lib/nlParser"
+import { generateDsl } from "../components/ai/automations/lib/dslGenerator"
 
 export interface ChatMsg {
   id: string
@@ -402,14 +404,36 @@ export function useAiChat(): UseAiChat {
       streamingRef.current = true
       setStreaming(true)
 
-      const finish = (finalText: string) => {
-        const { text: prose, parsed } = parseAssistantContent(finalText)
+      const finish = async (finalText: string) => {
+        // §11 — Natural Language → Automation. Detect fenced ```automation
+        // JSON, create the rule via IPC, strip the block from the visible text.
+        let displayText = finalText
+        const nl = parseNlAutomation(finalText)
+        if (nl) {
+          try {
+            await (bridge() as AnyRec).compositionsCreate?.({
+              id: generateUUID(),
+              name: nl.config.name,
+              description: nl.narration || nl.config.name,
+              dsl_source: generateDsl(nl.config),
+              enabled: 1,
+              priority: nl.config.priority,
+              category: nl.config.category,
+              lifecycle: nl.config.lifecycle,
+            })
+            displayText = `${stripAutomationBlock(finalText)}\n\n${nl.narration}`
+          } catch (e) {
+            console.error("[useAiChat] automation create:", e)
+            displayText = stripAutomationBlock(finalText)
+          }
+        }
+        const { text: prose, parsed } = parseAssistantContent(displayText)
         setMessages((prev) => {
           const next = prev.map((m) =>
             m.id === assistantId
               ? {
                   ...m,
-                  content: parsed && parsed.type !== "text" ? prose : finalText,
+                  content: parsed && parsed.type !== "text" ? prose : displayText,
                   parsed: parsed && parsed.type !== "text" ? parsed : undefined,
                 }
               : m,

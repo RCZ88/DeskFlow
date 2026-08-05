@@ -28,7 +28,7 @@ export default function ResumeBuilderPage() {
   const {
     builderProgress, currentQuestion, aiFeedback, resumeContent, score,
     updateBuilderProgress, setCurrentQuestion, setAiFeedback, submitAnswer,
-    isSaving, isLoading, setIsLoading,
+    isSaving, isLoading, setIsLoading, saveProgress, loadProgress,
   } = useResumeStore();
 
   const [answer, setAnswer] = useState<any>('');
@@ -41,6 +41,7 @@ export default function ResumeBuilderPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [revisitIndex, setRevisitIndex] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
 
   // AI Provider state
   const [aiProviders, setAiProviders] = useState<ProviderOption[]>([]);
@@ -59,12 +60,70 @@ export default function ResumeBuilderPage() {
   const isFirstInPhase = phaseHistory.length === 0 || (isRevisitMode && revisitIndex === 0);
   const hasProviderConfigured = aiRouting !== null && !!aiRouting.providerId;
 
-  // Load first question on mount
+  // Load saved progress (or first question if nothing saved) on mount
   useEffect(() => {
     if (!currentQuestion) {
-      loadFirstQuestion();
+      initProgress();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Restore previously saved builder progress from resume-data.json
+  const initProgress = async () => {
+    try {
+      setIsLoading(true);
+      setLoadError(null);
+      const restored = await loadProgress();
+      const hydrated = builderProgress;
+      const hasAnswers = (p: any) =>
+        p && (Object.keys(p.answers || {}).length > 0 || (p.questionHistory ?? []).length > 0);
+      const hydratedHasData = hasAnswers(hydrated);
+      const restoredHasData = hasAnswers(restored);
+      if (!restoredHasData && !hydratedHasData) {
+        await loadFirstQuestion();
+        return;
+      }
+      const progress = restoredHasData ? restored : hydrated;
+      const phaseStatus = Object.fromEntries(
+        Object.entries(progress.phaseStatus || {}).map(([k, v]) => [Number(k), v])
+      ) as Record<number, 'locked' | 'in_progress' | 'complete'>;
+      updateBuilderProgress({ ...progress, phaseStatus });
+      const phase = progress.currentPhase ?? 1;
+      const hist = Array.isArray(progress.questionHistory) ? progress.questionHistory : [];
+      const phaseHist = hist.filter((h: any) => h?.question?.phase === phase);
+      const last = phaseHist.length ? phaseHist[phaseHist.length - 1] : hist.length ? hist[hist.length - 1] : null;
+      if (last) {
+        const result = await (window as any).deskflowAPI?.resume?.nextQuestion?.({
+          currentPhase: phase,
+          currentQuestionId: last.questionId,
+          previousAnswers: progress.answers || {},
+          targetRole: '',
+          careerLevel: 'mid',
+        });
+        if (result?.nextQuestion) {
+          setCurrentQuestion(result.nextQuestion);
+          setAiFeedback(result.aiFeedback);
+          return;
+        }
+      }
+      await loadFirstQuestion(phase);
+    } catch (e: any) {
+      console.error('[Builder] Failed to restore progress:', e);
+      setLoadError(e?.message || 'Failed to restore progress.');
+      await loadFirstQuestion();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Explicit Save button — persists builder progress to resume-data.json
+  const handleSave = async () => {
+    const ok = await saveProgress();
+    if (ok) {
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1500);
+    }
+  };
 
   // Load AI providers on mount
   useEffect(() => {
@@ -688,8 +747,8 @@ export default function ResumeBuilderPage() {
           >
             <Settings className="w-3.5 h-3.5" />
           </Button>
-          <Button variant="ghost" size="sm" disabled={isSaving} className="text-zinc-400 hover:text-white">
-            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          <Button variant="ghost" size="sm" onClick={handleSave} disabled={isSaving || justSaved} title="Save progress" className={`text-zinc-400 hover:text-white ${justSaved ? 'text-emerald-400' : ''}`}>
+            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : justSaved ? <CheckCircle className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
           </Button>
         </div>
       </div>

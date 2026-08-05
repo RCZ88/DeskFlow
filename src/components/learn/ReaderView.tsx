@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Grid3X3, Network, Keyboard, BookOpen, Brain, RotateCcw } from 'lucide-react';
+import { Grid3X3, Network, Keyboard, BookOpen, Brain, RotateCcw, ImageIcon } from 'lucide-react';
 import { BlockRenderer } from './blocks/BlockRenderer';
+import { PendingIllustrationsPanel } from './blocks/PendingIllustrationsPanel';
 import { FlashcardBlock } from './blocks/FlashcardBlock';
 import { TutorPanel } from './TutorPanel';
 import { MasteryRing } from './MasteryRing';
@@ -56,6 +57,13 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
   const { getPart } = (window as any).__LYCEUM_CURRICULUM__ || {};
   const part = lesson.lesson ? { slug: `part-${lesson.lesson.part}`, title: lesson.lesson.title, checklist: [], defaultMasteryTarget: 'L2' as MasteryLevel } : null;
 
+  // Scroll to top when node changes
+  useEffect(() => {
+    if (containerRef?.current) {
+      containerRef.current.scrollTop = 0;
+    }
+  }, [currentNode?.id]);
+
   // Memoize TOC headings — only changes when nodes change
   const tocHeadings: TOCHeading[] = useMemo(() => lesson.nodes.map((n) => ({
     id: n.id,
@@ -79,13 +87,6 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
 
   // Memoize blocks array — CRITICAL for preventing re-renders
   const blocks: LdocBlock[] = useMemo(() => currentNode?.blocks ?? [], [currentNode]);
-
-  // Content mode: original vs expanded (blocks tagged with is_expansion)
-  const [contentMode, setContentMode] = useState<'original' | 'expanded'>('original');
-  const filteredBlocks: LdocBlock[] = useMemo(() => {
-    if (contentMode === 'expanded') return blocks;
-    return blocks.filter((b: any) => !b.is_expansion);
-  }, [blocks, contentMode]);
 
   // Reader tab: content | recall | tutor
   const [readerTab, setReaderTab] = useState<'content' | 'recall' | 'tutor'>('content');
@@ -113,6 +114,22 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
     error?: string;
     selectedText?: string;
   }>({ loading: false });
+
+  // Illustrations panel
+  const [showIllustrations, setShowIllustrations] = useState(false);
+
+  // Count pending illustrations across all nodes
+  const pendingIllustrationCount = useMemo(() => {
+    let count = 0;
+    for (const node of lesson.nodes) {
+      for (const block of (node.blocks || [])) {
+        if (block.type === 'illustration' && !(block as any).meta?.image_path) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }, [lesson.nodes]);
 
   const handleExplainWithImage = useCallback(async (selectedText: string, contextText: string) => {
     setExplainImage({ loading: true, selectedText });
@@ -284,37 +301,19 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                   </button>
                 ))}
 
-                {/* Content mode toggle — only show on Content tab */}
-                {readerTab === 'content' && (
-                  <>
-                    <div className="w-px h-4 bg-zinc-700/60 mx-1" />
-                    <div className="flex items-center bg-zinc-800/60 border border-zinc-700/50 rounded-md p-0.5">
-                      <button
-                        onClick={() => setContentMode('original')}
-                        className={`px-2 py-1 rounded text-[11px] font-medium transition-all ${
-                          contentMode === 'original'
-                            ? 'bg-zinc-700 text-zinc-100'
-                            : 'text-zinc-500 hover:text-zinc-300'
-                        }`}
-                      >
-                        Original
-                      </button>
-                      <button
-                        onClick={() => setContentMode('expanded')}
-                        className={`px-2 py-1 rounded text-[11px] font-medium transition-all ${
-                          contentMode === 'expanded'
-                            ? 'bg-sage-400/15 text-sage-300'
-                            : 'text-zinc-500 hover:text-zinc-300'
-                        }`}
-                      >
-                        Expanded
-                      </button>
-                    </div>
-                  </>
-                )}
-
                 {/* Spacer */}
                 <div className="flex-1" />
+
+                {/* Illustrations pending badge */}
+                {pendingIllustrationCount > 0 && (
+                  <button
+                    onClick={() => setShowIllustrations(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/10 transition-all"
+                  >
+                    <ImageIcon className="w-3 h-3" />
+                    {pendingIllustrationCount} illustration{pendingIllustrationCount !== 1 ? 's' : ''} pending
+                  </button>
+                )}
 
                 {/* Tutor toggle */}
                 <button
@@ -359,7 +358,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                             </div>
                           </div>
                         </div>
-                        {filteredBlocks.map((block) => (
+                        {blocks.map((block) => (
                           <div key={block.id} className={(block as any).is_expansion ? 'border-l-2 border-sage-400/40 pl-4' : ''}>
                             <BlockRenderer
                               block={block}
@@ -561,6 +560,14 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
           </div>
         )}
       </div>
+
+      {/* Illustrations panel */}
+      <PendingIllustrationsPanel
+        lesson={lesson}
+        open={showIllustrations}
+        onClose={() => setShowIllustrations(false)}
+        onNavigateToNode={(id) => { onSelectNode(id); setShowIllustrations(false); }}
+      />
     </>
   );
 }

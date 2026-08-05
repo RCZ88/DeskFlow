@@ -18,30 +18,31 @@ const child_process_1 = require("child_process");
 const active_win_1 = __importDefault(require("active-win"));
 const http_1 = __importDefault(require("http"));
 const os = require("os");
-const ProblemsServiceModule = require("./services/ProblemsService.cjs");
+const ProblemsServiceModule = require("./services/ProblemsService");
 const ProblemsService = ProblemsServiceModule.ProblemsService || ProblemsServiceModule;
-const RequestsServiceModule = require("./services/RequestsService.cjs");
+const RequestsServiceModule = require("./services/RequestsService");
 const RequestsService = RequestsServiceModule.RequestsService || RequestsServiceModule;
-const SkillsServiceModule = require("./services/SkillsService.cjs");
+const SkillsServiceModule = require("./services/SkillsService");
 const SkillsService = SkillsServiceModule.SkillsService || SkillsServiceModule;
-const AgentHostServiceModule = require("./services/AgentHostService.cjs");
+const AgentHostServiceModule = require("./services/AgentHostService");
 const { agentHostService } = AgentHostServiceModule.AgentHostService || AgentHostServiceModule;
-const GameDetectionModule = require("./gameDetection.cjs");
+const GameDetectionModule = require("./gameDetection");
 const { resolveForegroundApp, buildInstalledGameIndex, rescanGames } = GameDetectionModule;
-const CariScraperModule = require("./services/design/CariScraperService.cjs");
+const CariScraperModule = require("./services/design/CariScraperService");
 const { scrapeAesthetics } = CariScraperModule;
-const FontsInUseModule = require("./services/design/FontsInUseScraperService.cjs");
+const FontsInUseModule = require("./services/design/FontsInUseScraperService");
 const { getTypographyPairs } = FontsInUseModule;
-const MotionTemplatesModule = require("./services/design/MotionTemplates.cjs");
+const MotionTemplatesModule = require("./services/design/MotionTemplates");
 const { getTemplate, listTemplates, getTemplatesByFramework } = MotionTemplatesModule;
-const CliWrapperModule = require("./services/design/CliWrapperService.cjs");
+const CliWrapperModule = require("./services/design/CliWrapperService");
 const { installComponent } = CliWrapperModule;
-const ColorSyncModule = require("./services/design/ColorSyncService.cjs");
+const ColorSyncModule = require("./services/design/ColorSyncService");
 const { syncTokens, generateCssVariables, generateRealtimeColorsUrl, parseRealtimeColorsUrl } = ColorSyncModule;
 // Desktop bridge: sync agent + terminal relay
 import { SyncAgent } from "./main/syncAgent";
 import { startTerminalRelay, issueRelayTicket } from "./main/terminalRelay";
 import { parseAgentOutput, ParsedAgentOutput } from "./main/agentOutput";
+import { StateCoordinator } from "./main/stateCoordinator";
 
 // --- Global shortcut for DevTools ---
 const { globalShortcut } = require('electron');
@@ -1852,6 +1853,7 @@ function saveCategoryConfig() {
         console.error('[DeskFlow] Failed to save category config:', err);
     }
 }
+
 function getTierForCategory(category) {
     const { tierAssignments } = categoryConfig;
     if (tierAssignments.productive.includes(category))
@@ -2773,6 +2775,7 @@ function initializeStorage() {
         try { db.exec('ALTER TABLE goals ADD COLUMN linked_schedule_id TEXT'); } catch {}
         try { db.exec('ALTER TABLE goals ADD COLUMN journal_text TEXT'); } catch {}
         try { db.exec('ALTER TABLE goals ADD COLUMN slipped_count INTEGER DEFAULT 0'); } catch {}
+        try { db.exec('ALTER TABLE goals ADD COLUMN deadline TEXT'); } catch {}
 
         // Reminders table (AI agent reminders â€” linked to goals or free-standing)
         db.exec(`
@@ -2967,7 +2970,7 @@ function initializeStorage() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             account_id INTEGER NOT NULL,
             name TEXT NOT NULL,
-            type TEXT NOT NULL CHECK(type IN ('bank','debit_card','credit_card','crypto','cash','ewallet','other')),
+            type TEXT NOT NULL CHECK(type IN ('bank','debit_card','credit_card','crypto','cash','ewallet','physical','prepaid_card','other')),
             provider TEXT,
             last_four TEXT,
             balance REAL DEFAULT 0.0,
@@ -3056,6 +3059,31 @@ function initializeStorage() {
             console.log('[DB MIGRATION] finance_wallets CHECK constraint updated to include physical');
           }
         } catch (e: any) { console.log('[DB MIGRATION] wallets CHECK skip:', e?.message); }
+
+        // Add 'prepaid_card' to finance_wallets type CHECK constraint
+        try {
+          const row2 = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='finance_wallets'").get() as any;
+          if (row2?.sql && !row2.sql.includes("'prepaid_card'")) {
+            db.exec('ALTER TABLE finance_wallets RENAME TO finance_wallets_old');
+            db.exec(`
+              CREATE TABLE finance_wallets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL CHECK(type IN ('bank','debit_card','credit_card','crypto','cash','physical','ewallet','prepaid_card','other')),
+                provider TEXT, last_four TEXT, balance REAL DEFAULT 0.0,
+                currency TEXT DEFAULT 'USD', is_archived INTEGER DEFAULT 0,
+                metadata TEXT,
+                created_at DATETIME DEFAULT (datetime('now','localtime')),
+                updated_at DATETIME DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
+              )
+            `);
+            db.exec('INSERT INTO finance_wallets SELECT id,account_id,name,type,provider,last_four,balance,currency,is_archived,metadata,created_at,updated_at FROM finance_wallets_old');
+            db.exec('DROP TABLE finance_wallets_old');
+            console.log('[DB MIGRATION] finance_wallets CHECK constraint updated to include prepaid_card');
+          }
+        } catch (e: any) { console.log('[DB MIGRATION] wallets prepaid_card CHECK skip:', e?.message); }
 
         // Fix FK references in finance_transactions broken by the RENAME above (SQLite auto-updates FK targets)
         try {
@@ -3476,6 +3504,27 @@ function initializeStorage() {
         try { const { runMigrations } = require('./main/migrations/runMigrations'); runMigrations(db); } catch (e) { console.error('[DeskFlow] âš ï¸ Migration runner failed:', e); }
 
         // Start automatic verified backup scheduler
+
+        // Repair double-encoded UTF-8 (mojibake) in problem/request title+description columns
+        try {
+            const { repairDoubleEncodedUtf8 } = require('./lib/mojibake');
+            for (const table of ['workspace_problems', 'problems', 'requests']) {
+                try {
+                    const rows = db.prepare(`SELECT id, title, description FROM ${table}`).all() as Array<{ id: any; title: string; description: string }>;
+                    const updateStmt = db.prepare(`UPDATE ${table} SET title = ?, description = ? WHERE id = ?`);
+                    let fixed = 0;
+                    for (const row of rows) {
+                        const cleanTitle = repairDoubleEncodedUtf8(row.title);
+                        const cleanDesc = repairDoubleEncodedUtf8(row.description);
+                        if (cleanTitle !== row.title || cleanDesc !== row.description) {
+                            updateStmt.run(cleanTitle, cleanDesc, row.id);
+                            fixed++;
+                        }
+                    }
+                    if (fixed > 0) console.log(`[DeskFlow] Mojibake repair: fixed ${fixed} row(s) in ${table}`);
+                } catch { /* table may not exist yet */ }
+            }
+        } catch (e) { console.error('[DeskFlow] Mojibake repair failed:', e); }
         try { startBackupScheduler(db); } catch (e) { console.error('[DeskFlow] âš ï¸ Backup scheduler failed:', e); }
 
         // Backfill stats tables from existing logs (runs once)
@@ -3497,7 +3546,7 @@ function initializeStorage() {
         try {
           console.log('[DeskFlow] Registering Lyceum Learn module... db:', db ? 'OK' : 'NULL');
           const { registerLearnHandlers } = require('./services/learn/index.js');
-          const { buildChain, runWithFallback } = require("./services/providers/router.cjs");
+const { buildChain, runWithFallback } = require("./services/providers/router");
           registerLearnHandlers(db, async (prompt: string, systemPrompt: string, maxTokens?: number) => {
             const p = userPreferences || {};
             const pState = migrateProviderNames(JSON.parse(p.aiProviders || 'null'));
@@ -3878,6 +3927,7 @@ let sessionStart = Date.now();
 let trackingInterval = null;
 let isTracking = true;
 let focusManager = null;
+let focusGroupManager = null;
 let compositionEngine = null;
 let lastPollTime = Date.now();
 let consecutiveNullPolls = 0;
@@ -4337,15 +4387,23 @@ async function pollForeground() {
                 // Fall through to normal tracking â€” log session, update timer
                 // Don't reset currentApp so session tracking works
             } else {
-                // show-other or pause: notify renderer but don't log
-                currentApp = null;
+                // show-other or pause: notify renderer but don't log.
+                // IMPORTANT: do NOT null currentApp here — the renderer decides what
+                // to display. Nulling it made the dashboard drop the currently tracked
+                // website (or previous app) and show "Waiting for app" / jump to the
+                // nearest other app instead of keeping the previous tracked thing
+                // visible while the user is in the tracker app itself.
+                // Still reset sessionStart so time in the tracker app is never
+                // attributed to the previous app's session on the next log.
+                sessionStart = now;
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('foreground-changed', {
                         app: appName,
                         title: windowTitle,
                         category: categorizeApp(appName, { isResolvedGame }),
                         timestamp: new Date().toISOString(),
-                        isReal: true
+                        isReal: true,
+                        isTrackerApp: true
                     });
                 }
                 return;
@@ -4576,16 +4634,28 @@ function createWindow() {
             if (rel === '/') rel = '/index.html';
             const filePath = path_1.default.join(dist, rel);
             const ext = path_1.default.extname(filePath);
+            const cacheHeaders = { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' };
             fs_1.default.readFile(filePath, (err, data) => {
                 if (err) {
+                    // Missing file under /assets (stale hashed chunk after a rebuild) must NOT
+                    // SPA-fallback to index.html — serving text/html to a module import() would
+                    // throw "Failed to fetch dynamically imported module". Return a clean 404 so
+                    // the renderer's auto-heal (dynamic-import self-reload) can recover by loading
+                    // the freshly built index.html + new chunk names.
+                    const isAsset = ext && ext !== '.html';
+                    if (isAsset) {
+                        res.writeHead(404, { 'Content-Type': 'text/plain', ...corsHeaders, ...cacheHeaders });
+                        res.end('Not Found: ' + rel);
+                        return;
+                    }
                     fs_1.default.readFile(path_1.default.join(dist, 'index.html'), (err2, data2) => {
                         if (err2) { res.writeHead(500, corsHeaders); res.end('Internal Server Error'); return; }
-                        res.writeHead(200, { 'Content-Type': 'text/html', ...corsHeaders });
+                        res.writeHead(200, { 'Content-Type': 'text/html', ...corsHeaders, ...cacheHeaders });
                         res.end(data2);
                     });
                     return;
                 }
-                res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream', ...corsHeaders });
+                res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream', ...corsHeaders, ...cacheHeaders });
                 res.end(data);
             });
         });
@@ -4642,9 +4712,74 @@ function createWindow() {
         };
         
         focusManager = new FocusManager(db!, () => mainWindow, classifyApp, classifyDomain, focusToken);
+
+        const { FocusGroupManager } = require('./domains/focus/focusGroupManager');
+        focusGroupManager = new FocusGroupManager(db!);
         console.log('[DeskFlow] âœ… Deep Focus manager initialized');
     } catch (err) {
         console.error('[DeskFlow] Failed to init FocusManager:', err);
+    }
+
+    // Focus Groups IPC: named allowed-app sets for Deep Focus sessions
+    if (focusGroupManager) {
+        try {
+            electron_1.ipcMain.handle('focusGroup:list', () => focusGroupManager.list());
+            electron_1.ipcMain.handle('focusGroup:get', (_e, id: number) => focusGroupManager.get(Number(id)));
+            electron_1.ipcMain.handle('focusGroup:save', (_e, g: any) => {
+                if (!g || typeof g.name !== 'string' || !g.name.trim()) {
+                    return { success: false, error: 'Group name is required' };
+                }
+                try {
+                    const id = focusGroupManager.save({
+                        id: g.id, name: g.name.trim(), description: g.description ?? null,
+                        allowed_apps: Array.isArray(g.allowed_apps) ? g.allowed_apps : [],
+                        allowed_domains: Array.isArray(g.allowed_domains) ? g.allowed_domains : [],
+                        allowed_categories: Array.isArray(g.allowed_categories) ? g.allowed_categories : [],
+                        strictness: g.strictness === 'non_allowed' ? 'non_allowed' : 'distracting',
+                        default_duration: typeof g.default_duration === 'number' ? g.default_duration : null,
+                    });
+                    return { success: true, id };
+                } catch (err) {
+                    return { success: false, error: String(err) };
+                }
+            });
+            electron_1.ipcMain.handle('focusGroup:remove', (_e, id: number) => {
+                try { return { success: focusGroupManager.remove(Number(id)) }; }
+                catch (err) { return { success: false, error: String(err) }; }
+            });
+            electron_1.ipcMain.handle('focusGroup:startWith', (_e, id: number, durationSec?: number, strictness?: string) => {
+                try {
+                    const cfg = focusGroupManager.toConfig(
+                        Number(id),
+                        typeof durationSec === 'number' ? durationSec : undefined,
+                        strictness === 'non_allowed' || strictness === 'distracting' ? strictness : undefined,
+                    );
+                    if (!cfg) return { success: false, error: 'Focus group not found' };
+                    const state = focusManager ? focusManager.start(cfg) : null;
+                    if (!state) return { success: false, error: 'Focus engine unavailable' };
+                    // record usage against the created session
+                    const sessionId = focusManager?.getActiveSessionId?.() ?? null;
+                    if (sessionId != null) focusGroupManager.recordUsage(Number(id), sessionId);
+                    return { success: true, state, sessionId };
+                } catch (err) {
+                    return { success: false, error: String(err) };
+                }
+            });
+            electron_1.ipcMain.handle('focusGroup:linkUsage', (_e, args: { sessionId?: number; groupId?: number; goalIds?: string[] }) => {
+                try {
+                    const sessionId = Number(args?.sessionId);
+                    const groupId = Number(args?.groupId);
+                    if (!sessionId || !groupId) return { success: false, error: 'sessionId and groupId required' };
+                    focusGroupManager.linkUsage(groupId, sessionId, Array.isArray(args?.goalIds) ? args.goalIds.map(String) : []);
+                    return { success: true };
+                } catch (err) {
+                    return { success: false, error: String(err) };
+                }
+            });
+            console.log('[DeskFlow] Focus Groups IPC ready');
+        } catch (err) {
+            console.error('[DeskFlow] Failed to register Focus Groups IPC:', err);
+        }
     }
 
     // Initialize Compositions engine
@@ -10127,8 +10262,8 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
         const commits = db.prepare(`
             SELECT COUNT(*) as count, SUM(additions) as additions, SUM(deletions) as deletions
             FROM commits
-            WHERE date >= datetime('now', '-30 days')
-        `).get();
+            ${dateFilterSQL}
+        `).get(...(dateFilterParam ? [dateFilterParam] : []));
 
         // Daily breakdown per tool for charts (real message_count)
         const aiUsageDaily = db.prepare(`
@@ -10296,6 +10431,81 @@ electron_1.ipcMain.handle('get-ide-projects-overview', (event, period?: string, 
             aiUsage: { totalTokens: 0, totalCost: 0, totalMessages: 0, byTool: {} },
             commits: { totalCommits: 0, totalAdditions: 0, totalDeletions: 0 }
         };
+    }
+});
+
+// Get code change stats (commits/additions/deletions/hours) for a period
+electron_1.ipcMain.handle('get-code-change-stats', (event, period = 'week', dateOffset = 0, projectId) => {
+    if (useJson) return { totalCommits: 0, totalAdditions: 0, totalDeletions: 0, totalHours: 0, daily: [], weekly: [] };
+
+    try {
+        const now = new Date();
+        let sinceDateStr: string | null = null;
+
+        if (period === 'today' || period === 'day') {
+            const d = new Date(now);
+            d.setDate(d.getDate() - dateOffset);
+            sinceDateStr = d.toISOString().split('T')[0];
+        } else if (period === 'week' || period === '7day') {
+            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        } else if (period === 'month' || period === '30day') {
+            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        } // 'all' → null → no date filter (full history)
+
+        const conditions: string[] = [];
+        const params: any[] = [];
+        if (sinceDateStr) conditions.push('date >= ?');
+        if (projectId) conditions.push('project_id = ?');
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+        if (sinceDateStr) params.push(sinceDateStr);
+        if (projectId) params.push(projectId);
+
+        const daily = db.prepare(`
+            SELECT date, SUM(additions) as additions, SUM(deletions) as deletions, COUNT(*) as commits
+            FROM commits ${whereClause} GROUP BY date ORDER BY date ASC
+        `).all(...params) as any[];
+
+        const totals = db.prepare(`
+            SELECT COUNT(*) as totalCommits, SUM(additions) as totalAdditions, SUM(deletions) as totalDeletions
+            FROM commits ${whereClause}
+        `).get(...params) as any;
+
+        // Hours derivation: 2h base per active day + 1h per commit, capped at 8h/day
+        let totalHours = 0;
+        for (const day of daily) {
+            if ((day.commits || 0) > 0) totalHours += Math.min(2 + (day.commits || 0), 8);
+        }
+
+        // Weekly aggregates (Monday-start weeks, ISO-like)
+        const weeklyMap = new Map<string, { additions: number; deletions: number; commits: number }>();
+        for (const day of daily) {
+            const d = new Date(day.date + 'T00:00:00');
+            if (isNaN(d.getTime())) continue;
+            const dayOfWeek = (d.getDay() + 6) % 7; // Mon=0
+            const weekStart = new Date(d);
+            weekStart.setDate(d.getDate() - dayOfWeek);
+            const weekKey = weekStart.toISOString().split('T')[0];
+            const entry = weeklyMap.get(weekKey) || { additions: 0, deletions: 0, commits: 0 };
+            entry.additions += day.additions || 0;
+            entry.deletions += day.deletions || 0;
+            entry.commits += day.commits || 0;
+            weeklyMap.set(weekKey, entry);
+        }
+        const weekly = Array.from(weeklyMap.entries())
+            .map(([weekStart, data]) => ({ weekStart, ...data }))
+            .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+
+        return {
+            totalCommits: totals?.totalCommits || 0,
+            totalAdditions: totals?.totalAdditions || 0,
+            totalDeletions: totals?.totalDeletions || 0,
+            totalHours,
+            daily,
+            weekly
+        };
+    } catch (err) {
+        console.error('[DeskFlow] Code change stats error:', err);
+        return { totalCommits: 0, totalAdditions: 0, totalDeletions: 0, totalHours: 0, daily: [], weekly: [] };
     }
 });
 
@@ -11102,7 +11312,7 @@ function handleBugOwnerResponse(response: {
                 const projectId = projectRow?.project_id;
                 const projectPath = projectId ? getProjectPath(projectId) : undefined;
 
-                const ProblemsServiceModule = require('./services/ProblemsService.cjs');
+                const ProblemsServiceModule = require('./services/ProblemsService');
                 const ProblemsService = ProblemsServiceModule.ProblemsService || ProblemsServiceModule;
                 const ps = new ProblemsService(projectPath || '', projectId);
                 const problem = ps.createProblem({
@@ -11373,17 +11583,20 @@ electron_1.ipcMain.handle('terminal:create', async (_event, id: string, cwd: str
                     const now = new Date().toISOString();
                     const spoke = template
                         .replace(/\{SESSION_ID\}/g, sessionId)
+                        .replace(/\{AGENT_TYPE\}/g, type)
+                        .replace(/\{TERMINAL_ID\}/g, id)
+                        .replace(/\{PROJECT_PATH\}/g, cwd || '')
                         .replace(/\{CYCLE_NUMBER\}/g, '1')
                         .replace(/\{ISO_TIMESTAMP\}/g, now)
                         .replace(/\{working\|idle\|error\|completed\}/g, 'working')
                         .replace(/\{what you are doing this cycle\}/g, `Initializing ${type} session`)
-                        .replace(/\{active task 1\}/g, '- Starting agent session')
-                        .replace(/\{task completed this cycle\}/g, '- Session spawned')
+                        .replace(/\{active task 1\}/g, 'Starting agent session')
+                        .replace(/\{task completed this cycle\}/g, 'Session spawned')
                         .replace(/\{what happens next\}/g, 'Waiting for agent to be ready')
                         .replace(/\{optional freeform context\}/g, '')
                         .replace(/\{role\}/g, 'Initializing')
                         .replace(/\{status\}/g, 'working')
-                        .replace(/\{task\}/g, '- Initializing')
+                        .replace(/\{task\}/g, 'Initializing')
                         .replace(/\{next\}/g, 'Agent startup');
                     require('fs').writeFileSync(spokePath, spoke, 'utf-8');
                 }
@@ -11532,26 +11745,27 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
                     if (!require('fs').existsSync(spokePath)) {
                         const template = require('fs').readFileSync(templatePath, 'utf-8');
                         const now = new Date().toISOString();
-                        const spoke = template
-                            .replace(/\{SESSION_ID\}/g, sessionId)
-                            .replace(/\{CYCLE_NUMBER\}/g, '1')
-                            .replace(/\{ISO_TIMESTAMP\}/g, now)
-                            .replace(/\{working\|idle\|error\|completed\}/g, 'working')
-                            .replace(/\{what you are doing this cycle\}/g, `Initializing ${type} session`)
-                            .replace(/\{active task 1\}/g, '- Starting agent session')
-                            .replace(/\{task completed this cycle\}/g, '- Session spawned')
-                            .replace(/\{what happens next\}/g, 'Waiting for agent to be ready')
-                            .replace(/\{optional freeform context\}/g, '')
-                            .replace(/\{role\}/g, 'Initializing')
-                            .replace(/\{status\}/g, 'working')
-                            .replace(/\{task\}/g, '- Initializing')
-                            .replace(/\{next\}/g, 'Agent startup');
-                        require('fs').writeFileSync(spokePath, spoke, 'utf-8');
-                        // Update hub after creating spoke
-                        try { require('./stateCoordinator').regenerateHub?.(); } catch {}
-                    }
-                } catch {}
-            }
+                            const spoke = template
+                                .replace(/\{SESSION_ID\}/g, sessionId)
+                                .replace(/\{AGENT_TYPE\}/g, type)
+                                .replace(/\{TERMINAL_ID\}/g, id)
+                                .replace(/\{PROJECT_PATH\}/g, cwd || '')
+                                .replace(/\{CYCLE_NUMBER\}/g, '1')
+                                .replace(/\{ISO_TIMESTAMP\}/g, now)
+                                .replace(/\{working\|idle\|error\|completed\}/g, 'working')
+                                .replace(/\{what you are doing this cycle\}/g, `Initializing ${type} session`)
+                                .replace(/\{active task 1\}/g, 'Starting agent session')
+                                .replace(/\{task completed this cycle\}/g, 'Session spawned')
+                                .replace(/\{what happens next\}/g, 'Waiting for agent to be ready')
+                                .replace(/\{optional freeform context\}/g, '')
+                                .replace(/\{role\}/g, 'Initializing')
+                                .replace(/\{status\}/g, 'working')
+                                .replace(/\{task\}/g, 'Initializing')
+                                .replace(/\{next\}/g, 'Agent startup');
+                            require('fs').writeFileSync(spokePath, spoke, 'utf-8');
+                        }
+                    } catch {}
+                }
             armTerminalReadyFallback(id);
 
             // [FLOW-CONTROL] Batch same-tick PTY data chunks (same as terminal:create handler)
@@ -12535,13 +12749,14 @@ function __cfgContextMd(cli) {
     '- agent/DEFAULT_SYSTEM_PROMPT.md - the system prompt / rules',
     '- agent/RULES_COMPACT.md - compact rules reference',
     '- agent/PROBLEMS.md and agent/REQUESTS.md - issues and feature requests to work on',
-    '- agent/state.md - current project state',
+    '- agent/state.md - current project state (READ-ONLY hub; write your own spoke in agent/state/)',
+    '- agent/state/_template.md - spoke format to copy',
     '- agent/skills/ - reusable skills',
     '',
     '## How to work',
     '1. Read agent/AGENTS.md and agent/INITIALIZE.md first.',
     '2. Check agent/PROBLEMS.md and agent/REQUESTS.md for tasks.',
-    '3. Keep agent/state.md updated as you make changes.',
+    '3. Update your own state spoke (agent/state/{SESSION_ID}.md) as you make changes - never edit the hub agent/state.md.',
     ''
   ].join('\n');
 }
@@ -14664,29 +14879,74 @@ function getOpenRouterApiKey(): string {
     return '';
 }
 
-// Helper to extract JSON from AI response (handles markdown code blocks, trailing commas, etc.)
+// Helper to extract JSON from AI response (handles markdown code blocks, trailing commas,
+// prose before/after the JSON, and TRUNCATED responses where max_tokens cut the model off).
 function extractJsonFromResponse(content: string): any {
     let cleaned = content.trim();
     const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (codeBlockMatch) cleaned = codeBlockMatch[1].trim();
     const firstBrace = cleaned.indexOf('{');
     const firstBracket = cleaned.indexOf('[');
-    if (firstBrace === -1 && firstBracket === -1) throw new Error('No JSON object or array found');
-    const start = firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace) ? firstBracket : firstBrace;
-    const endChar = start === firstBracket ? ']' : '}';
-    let depth = 0, inString = false, end = -1;
-    for (let i = start; i < cleaned.length; i++) {
+    if (firstBrace === -1 && firstBracket === -1) throw new Error('No JSON object or array found in AI response');
+
+    // Collect every { or [ candidate (the real JSON may come AFTER explanatory prose).
+    interface Candidate { start: number; text: string; stack: string[]; lastClose: number; balanced: boolean; }
+    const candidates: Candidate[] = [];
+    for (let i = 0; i < cleaned.length; i++) {
         const ch = cleaned[i];
-        if (inString) { if (ch === '\\') i++; else if (ch === '"') inString = false; continue; }
-        if (ch === '"') { inString = true; continue; }
-        if (ch === '{' || ch === '[') depth++;
-        if (ch === '}' || ch === ']') { depth--; if (depth === 0) { end = i; break; } }
+        if (ch !== '{' && ch !== '[') continue;
+        const stack: string[] = [];
+        let inString = false, lastClose = -1, balanced = false;
+        for (let j = i; j < cleaned.length; j++) {
+            const c = cleaned[j];
+            if (inString) { if (c === '\\') j++; else if (c === '"') inString = false; continue; }
+            if (c === '"') { inString = true; continue; }
+            if (c === '{' || c === '[') { stack.push(c); continue; }
+            if (c === '}' || c === ']') {
+                if (stack.length) stack.pop();
+                lastClose = j;
+                if (stack.length === 0) { balanced = true; break; }
+            }
+        }
+        candidates.push({ start: i, text: cleaned.slice(i), stack, lastClose, balanced });
+        i = Math.max(i, lastClose);
     }
-    if (end === -1) throw new Error('Unmatched JSON brace/bracket');
-    let json = cleaned.slice(start, end + 1);
-    json = json.replace(/,\s*([}\]])/g, '$1');
-    json = json.replace(/\.\.\./g, '"..."');
-    return JSON.parse(json);
+
+    const tryParse = (json: string): any | null => {
+        json = json.replace(/,\s*([}\]])/g, '$1');
+        json = json.replace(/\.\.\./g, '"..."');
+        try { return JSON.parse(json); } catch { return null; }
+    };
+
+    // Pass 1: any balanced candidate that parses cleanly wins.
+    for (const c of candidates) {
+        if (!c.balanced) continue;
+        const parsed = tryParse(cleaned.slice(c.start, c.lastClose + 1));
+        if (parsed !== null) return parsed;
+    }
+
+    // Pass 2: repair truncated candidates — keep up to the last complete value,
+    // then close whatever brackets are still open.
+    for (const c of candidates) {
+        let part = c.lastClose >= c.start ? cleaned.slice(c.start, c.lastClose + 1) : '';
+        for (let k = c.stack.length - 1; k >= 0; k--) part += c.stack[k] === '[' ? ']' : '}';
+        if (!part.trim()) continue;
+        const parsed = tryParse(part);
+        if (parsed !== null) return parsed;
+    }
+
+    // Pass 3: truncation mid-string — cut at the last comma (end of the last
+    // complete key/value pair) and close the open brackets.
+    for (const c of candidates) {
+        const cutAt = cleaned.slice(c.start, c.lastClose >= c.start ? c.lastClose + 1 : undefined).lastIndexOf(',');
+        if (cutAt <= 0) continue;
+        let part = cleaned.slice(c.start, c.start + cutAt + 1);
+        for (let k = c.stack.length - 1; k >= 0; k--) part += c.stack[k] === '[' ? ']' : '}';
+        const parsed = tryParse(part);
+        if (parsed !== null) return parsed;
+    }
+
+    throw new Error('Unmatched JSON brace/bracket — the AI response was likely truncated. Try fewer items, or check the raw output below.');
 }
 
 // ========== Auto-Assign Routing Helpers ==========
@@ -14852,16 +15112,21 @@ Rules:
 - Use exactly these categories: IDE, AI Tools, Browser, Entertainment, Communication, Design, Productivity, Tools, Education, Developer Tools, Search Engine, News, Shopping, Social Media, Uncategorized, Other
 - Be accurate and consistent`;
 
-// Generate AI colors for apps/websites using OpenRouter API
+// Generate AI colors for apps/websites using the multi-provider router
 electron_1.ipcMain.handle('generate-ai-colors', async (event, apps: string[]) => {
     try {
-        const OPENROUTER_API_KEY = getOpenRouterApiKey();
-        if (!OPENROUTER_API_KEY) {
-            console.warn('[DeskFlow] OpenRouter API key not set');
+        const { buildChain: buildChainColors, runWithFallback: runWithFallbackColors } = require('./services/providers/router');
+        const p = userPreferences || {};
+        const pState = migrateProviderNames(JSON.parse(p.aiProviders || 'null')) || { providers: [], routing: { default: { providerId: 'auto', model: '' } } };
+        const chain = buildChainColors(pState, 'colors');
+        if (!chain.length) {
+            console.warn('[DeskFlow] No AI providers configured — cannot generate colors');
+            event.sender.send('provider-chunk', { delta: null, done: true, error: 'No AI providers configured. Add a provider in Settings → AI Assistant.', purpose: 'colors' });
             return {};
         }
 
-        console.log(`[DeskFlow] Generating colors for ${apps.length} apps...`);
+        console.log(`[DeskFlow] Generating colors for ${apps.length} apps (chain=${chain.length} providers)...`);
+        event.sender.send('provider-chunk', { delta: `Generating colors for ${apps.length} app(s) using ${chain[0].provider.config.label}...`, providerId: chain[0].provider.config.id, purpose: 'colors' });
 
         const userPrompt = `Generate brand-appropriate hex colors for these apps/websites. Return ONLY a JSON object with app names as keys and hex colors as values.
 
@@ -14869,93 +15134,32 @@ Apps: ${apps.join(', ')}
 
 Example format: {"app1": "#FF5733", "app2": "#33FF57"}`;
 
-        const response = await fetch(OPENROUTER_BASE_URL, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://deskflow.app',
-                'X-Title': 'DeskFlow',
-            },
-            body: JSON.stringify({
-                model: OPENROUTER_MODELS[0],
-                messages: [
-                    { role: 'system', content: COLOR_SYSTEM_PROMPT },
-                    { role: 'user', content: userPrompt }
-                ],
-                max_tokens: 1000,
-                temperature: 0.7,
-                stream: true,
-            }),
+        console.log(`[DeskFlow] [AI-Colors] PROMPT >>> ${userPrompt}`);
+        event.sender.send('provider-chunk', { delta: null, prompt: userPrompt, providerId: chain[0].provider.config.id, purpose: 'colors' });
+
+        const { result, usedProviderId } = await runWithFallbackColors(chain, {
+            systemPrompt: COLOR_SYSTEM_PROMPT,
+            messages: [{ role: 'user', content: userPrompt }],
+            maxTokens: 1500,
+            temperature: 0.7,
         });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[DeskFlow] OpenRouter API error (${response.status}):`, errorText);
-            return {};
-        }
-
-        // Handle streaming response
-        const reader = response.body?.getReader();
-        if (!reader) {
-            console.error('[DeskFlow] Response body is not readable');
-            return {};
-        }
-        
-        const decoder = new TextDecoder();
-        let fullContent = '';
-        let usage = { prompt_tokens: 0, completion_tokens: 0 };
-        
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-            
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const data = line.slice(6);
-                    if (data === '[DONE]') continue;
-                    
-                    try {
-                        const parsed = JSON.parse(data);
-                        
-                        // Extract content from delta
-                        if (parsed.choices?.[0]?.delta?.content) {
-                            fullContent += parsed.choices[0].delta.content;
-                        }
-                        
-                        // Extract usage information
-                        if (parsed.usage) {
-                            usage = {
-                                prompt_tokens: parsed.usage.prompt_tokens || 0,
-                                completion_tokens: parsed.usage.completion_tokens || 0,
-                            };
-                        }
-                    } catch (e) {
-                        // Skip invalid JSON lines
-                        continue;
-                    }
-                }
-            }
-        }
-
-        console.log('[DeskFlow] OpenRouter response:', JSON.stringify({ content: fullContent, usage }, null, 2));
-
-        const content = fullContent;
+        const content = result.content;
         if (!content) {
-            console.error('[DeskFlow] No content in OpenRouter response');
+            console.error('[DeskFlow] [AI-Colors] No content in AI response');
+            event.sender.send('provider-chunk', { delta: null, done: true, error: 'AI returned an empty response.', providerId: usedProviderId, purpose: 'colors' });
             return {};
         }
 
-        console.log('[DeskFlow] Raw AI response:', content);
+        console.log('[DeskFlow] [AI-Colors] RESPONSE >>>', content);
+        event.sender.send('provider-chunk', { delta: null, done: true, providerId: usedProviderId, full: content, purpose: 'colors' });
 
         const colors = extractJsonFromResponse(content);
         console.log('[DeskFlow] Parsed colors:', colors);
         return colors;
     } catch (err: any) {
-        console.error('[DeskFlow] AI color generation error:', err.message);
+        console.error('[DeskFlow] [AI-Colors] ERROR:', err.message);
+        event.sender.send('provider-chunk', { delta: null, done: true, error: err.message, purpose: 'colors' });
         return {};
     }
 });
@@ -15087,10 +15291,10 @@ Use headers (##) and bullet points. Be factual and precise. Do not fabricate inf
 });
 
 // ========== AI Daily Briefing & News Features ==========
-const AIServiceModule = require("./services/AIService.cjs");
+const AIServiceModule = require("./services/AIService");
 const AIService = AIServiceModule.AIService || AIServiceModule;
-const { buildChain, runWithFallback } = require("./services/providers/router.cjs");
-const { PROVIDER_TEMPLATES } = require("./services/providers/templates.cjs");
+const { buildChain, runWithFallback } = require("./services/providers/router");
+const { PROVIDER_TEMPLATES } = require("./services/providers/templates");
 
 // Compute weekly quarter (ISO week string YYYY-WXX)
 function getWeekKey(date: Date): string {
@@ -15657,9 +15861,13 @@ electron_1.ipcMain.handle('save-auto-assign-config', async (_event, config: Auto
 // Generate AI categorization for apps/websites using OpenRouter API
 electron_1.ipcMain.handle('generate-ai-categorization', async (event, items) => {
     try {
-        const OPENROUTER_API_KEY = getOpenRouterApiKey();
-        if (!OPENROUTER_API_KEY) {
-            console.warn('[DeskFlow] OpenRouter API key not set');
+        const { buildChain: buildChainCat, runWithFallback: runWithFallbackCat } = require('./services/providers/router');
+        const p = userPreferences || {};
+        const pState = migrateProviderNames(JSON.parse(p.aiProviders || 'null')) || { providers: [], routing: { default: { providerId: 'auto', model: '' } } };
+        const chain = buildChainCat(pState, 'category');
+        if (!chain.length) {
+            console.warn('[DeskFlow] No AI providers configured — cannot generate categories');
+            event.sender.send('provider-chunk', { delta: null, done: true, error: 'No AI providers configured. Add a provider in Settings → AI Assistant.', purpose: 'category' });
             return { changes: [], lockedSkipped: [] };
         }
 
@@ -15679,10 +15887,12 @@ electron_1.ipcMain.handle('generate-ai-categorization', async (event, items) => 
 
         if (unlockedItems.length === 0) {
             console.log('[DeskFlow] All items are locked, skipping AI categorization');
+            event.sender.send('provider-chunk', { delta: null, done: true, error: 'All items are locked — unlock some to generate categories.', purpose: 'category' });
             return { changes: [], lockedSkipped };
         }
 
         console.log(`[DeskFlow] Generating categories for ${unlockedItems.length} items (${lockedSkipped.length} locked skipped)...`);
+        event.sender.send('provider-chunk', { delta: `Categorizing ${unlockedItems.length} item(s) using ${chain[0].provider.config.label}...`, providerId: chain[0].provider.config.id, purpose: 'category' });
 
         const itemsList = unlockedItems.map(i => `${i.name} (current: ${i.category})`).join(', ');
         
@@ -15694,46 +15904,25 @@ Return ONLY a JSON array of objects with "name" and "category" keys.
 
 Example format: [{"name": "app1", "category": "Productivity"}, {"name": "app2", "category": "Entertainment"}]`;
 
-        const response = await fetch(OPENROUTER_BASE_URL, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://deskflow.app',
-                'X-Title': 'DeskFlow',
-            },
-            body: JSON.stringify({
-                model: OPENROUTER_MODELS[0],
-                messages: [
-                    { role: 'system', content: CATEGORY_SYSTEM_PROMPT },
-                    { role: 'user', content: userPrompt }
-                ],
-                max_tokens: 2000,
-                temperature: 0.3,
-            }),
+        console.log(`[DeskFlow] [AI-Categorize] PROMPT >>> ${userPrompt}`);
+        event.sender.send('provider-chunk', { delta: null, prompt: userPrompt, providerId: chain[0].provider.config.id, purpose: 'category' });
+
+        const { result, usedProviderId } = await runWithFallbackCat(chain, {
+            systemPrompt: CATEGORY_SYSTEM_PROMPT,
+            messages: [{ role: 'user', content: userPrompt }],
+            maxTokens: 4000,
+            temperature: 0.3,
         });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[DeskFlow] OpenRouter API error (${response.status}):`, errorText);
-            return { changes: [], lockedSkipped };
-        }
-
-        const data = await response.json();
-        console.log('[DeskFlow] OpenRouter response:', JSON.stringify(data, null, 2));
-
-        if (data.error) {
-            console.error('[DeskFlow] OpenRouter returned error:', data.error);
-            return { changes: [], lockedSkipped };
-        }
-
-        const content = data.choices?.[0]?.message?.content;
+        const content = result.content;
         if (!content) {
-            console.error('[DeskFlow] No content in OpenRouter response');
+            console.error('[DeskFlow] [AI-Categorize] No content in AI response');
+            event.sender.send('provider-chunk', { delta: null, done: true, error: 'AI returned an empty response.', providerId: usedProviderId, purpose: 'category' });
             return { changes: [], lockedSkipped };
         }
 
-        console.log('[DeskFlow] Raw AI response:', content);
+        console.log('[DeskFlow] [AI-Categorize] RESPONSE >>>', content);
+        event.sender.send('provider-chunk', { delta: null, done: true, providerId: usedProviderId, full: content, purpose: 'category' });
 
         const parsed = extractJsonFromResponse(content);
         // Build change objects with previous categories
@@ -15749,7 +15938,8 @@ Example format: [{"name": "app1", "category": "Productivity"}, {"name": "app2", 
         console.log('[DeskFlow] Parsed changes:', changes);
         return { changes, lockedSkipped };
     } catch (err: any) {
-        console.error('[DeskFlow] AI categorization error:', err.message);
+        console.error('[DeskFlow] [AI-Categorize] ERROR:', err.message);
+        event.sender.send('provider-chunk', { delta: null, done: true, error: err.message, purpose: 'category' });
         return { changes: [], lockedSkipped: [] };
     }
 });
@@ -15869,7 +16059,7 @@ electron_1.ipcMain.handle('test-ai-provider', async (_event, providerId: string)
     if (cfg.templateId === 'cloudflare' && !cfg.extraConfig?.cloudflareAccountId) {
       return { success: false, error: 'Missing Cloudflare Account ID \u2014 add it in Settings under the Cloudflare provider (find it at https://dash.cloudflare.com in the URL after /account/)' };
     }
-    const { callProvider: call } = require('./services/providers/callProvider.cjs');
+    const { callProvider: call } = require('./services/providers/callProvider');
     const result = await call(
       cfg,
       { model: cfg.models[0] || 'gpt-3.5-turbo', messages: [{ role: 'system', content: 'Reply with exactly: OK' }, { role: 'user', content: 'Ping' }], maxTokens: 10 },
@@ -15887,7 +16077,7 @@ electron_1.ipcMain.handle('provider-chat-call', async (event, data: { provider: 
     const pState = migrateProviderNames(JSON.parse(p.aiProviders || 'null'));
     const cfg = data.provider?.id ? data.provider : pState?.providers.find((pr: any) => pr.id === (data.provider || pState.routing?.default?.providerId));
     if (!cfg) return { success: false, error: 'No provider found or configured' };
-    const { callProvider: call } = require('./services/providers/callProvider.cjs');
+    const { callProvider: call } = require('./services/providers/callProvider');
     const result = await call(
       cfg,
       { model: data.model || cfg.models[0] || 'gpt-4o-mini', messages: data.messages, maxTokens: data.maxTokens, temperature: data.temperature },
@@ -15908,7 +16098,7 @@ electron_1.ipcMain.handle('provider-chat-basic', async (_event, data: { provider
     const pState = migrateProviderNames(JSON.parse(p.aiProviders || 'null'));
     const cfg = data.provider?.id ? data.provider : pState?.providers.find((pr: any) => pr.id === (data.provider || pState.routing?.default?.providerId));
     if (!cfg) return { success: false, error: 'No provider found or configured' };
-    const { callProvider: call } = require('./services/providers/callProvider.cjs');
+    const { callProvider: call } = require('./services/providers/callProvider');
     const result = await call(
       cfg,
       { model: data.model || cfg.models[0] || 'gpt-4o-mini', messages: data.messages, maxTokens: data.maxTokens, temperature: data.temperature },
@@ -16156,8 +16346,8 @@ For type "error": data = { message: string, recovery?: string }`;
     ];
 
     // 5. Call AI provider (non-streaming)
-    const { PROVIDER_TEMPLATES: PT } = require('./services/providers/templates.cjs');
-    const { callProvider: call } = require('./services/providers/callProvider.cjs');
+    const { PROVIDER_TEMPLATES: PT } = require('./services/providers/templates');
+    const { callProvider: call } = require('./services/providers/callProvider');
     const template = PT[cfg.templateId];
     if (!template) return { success: false, error: `Unknown provider template: ${cfg.templateId}` };
     const resolvedProvider = { config: cfg, template };
@@ -16222,12 +16412,12 @@ For type "error": data = { message: string, recovery?: string }`;
 
 // ========== Provider diagnostics & logging ==========
 electron_1.ipcMain.handle('get-provider-diagnostics', async () => {
-  const { getDiagnostics } = require('./services/providers/providerLog.cjs');
+  const { getDiagnostics } = require('./services/providers/providerLog');
   return getDiagnostics();
 });
 
 electron_1.ipcMain.handle('clear-provider-logs', async () => {
-  const { clearDiagnostics } = require('./services/providers/providerLog.cjs');
+  const { clearDiagnostics } = require('./services/providers/providerLog');
   clearDiagnostics();
   return { success: true };
 });
@@ -16296,14 +16486,14 @@ electron_1.ipcMain.handle('get-goals-batch', async (_event, startDate: string, e
 electron_1.ipcMain.handle('save-goal', async (_event, date: string, goal: any) => {
   try {
     db!.prepare(`
-      INSERT OR REPLACE INTO goals (id, date, title, description, category, target_type, target_seconds, match_category, status, period, source, links, progress_seconds, completed_at, priority, parent_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO goals (id, date, title, description, category, target_type, target_seconds, match_category, status, period, source, links, progress_seconds, completed_at, priority, parent_id, deadline)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       goal.id, date, goal.title, goal.description || null,
       goal.category || 'work', goal.target?.type || 'time', goal.target?.targetSeconds || null, goal.target?.matchCategory || null,
       goal.status || 'pending', goal.period || 'daily', goal.source || 'manual',
       JSON.stringify(goal.links || []), goal.progressSeconds || 0, goal.completedAt || null,
-      goal.priority ?? 0, goal.parentId || null,
+      goal.priority ?? 0, goal.parentId || null, goal.deadline || null,
     );
     return { success: true };
   } catch (err: any) {
@@ -16322,6 +16512,7 @@ electron_1.ipcMain.handle('get-longterm-goals', async () => {
         completedAt: r.completed_at,
         links: JSON.parse(r.links || '[]'),
         target: r.target_type ? { type: r.target_type, targetSeconds: r.target_seconds, matchCategory: r.match_category } : undefined,
+        progress: r.target_type === 'time' && r.target_seconds ? Math.min(100, Math.round(((r.progress_seconds || 0) / r.target_seconds) * 100)) : 0,
       })),
     };
   } catch (err: any) {
@@ -16354,6 +16545,44 @@ electron_1.ipcMain.handle('get-goal-review', async (_event, date: string) => {
     return { success: true, review: row || null };
   } catch (err: any) {
     return { success: false, error: err.message, review: null };
+  }
+});
+
+electron_1.ipcMain.handle('get-daily-reflection', async (_event, date: string) => {
+  try {
+    const productiveCategories = DEFAULT_TIER_ASSIGNMENTS.productive;
+    const codingCategories = ['IDE', 'AI Tools'];
+
+    const logRows = db!.prepare('SELECT category, duration_ms FROM logs WHERE date(timestamp) = ?').all(date) as any[];
+    let productiveSec = 0;
+    let codingSec = 0;
+    for (const row of logRows) {
+      if (row.duration_ms > 0 && productiveCategories.includes(row.category)) {
+        productiveSec += Math.floor(row.duration_ms / 1000);
+      }
+      if (row.duration_ms > 0 && codingCategories.includes(row.category)) {
+        codingSec += Math.floor(row.duration_ms / 1000);
+      }
+    }
+
+    const goals = db!.prepare('SELECT title, status, is_habit FROM goals WHERE date = ?').all(date) as any[];
+    const completedGoals = goals.filter(g => g.status === 'done');
+    const habits = goals.filter(g => g.is_habit === 1);
+    const completedHabits = habits.filter(g => g.status === 'done');
+
+    const reviewRow = db!.prepare('SELECT review_summary FROM goal_reviews WHERE date = ?').get(date) as any;
+
+    return {
+      success: true,
+      date,
+      productiveSec,
+      codingSec,
+      goals: { total: goals.length, completed: completedGoals.length },
+      habits: { total: habits.length, completed: completedHabits.length },
+      reviewSummary: reviewRow?.review_summary || null,
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message, date };
   }
 });
 
@@ -16412,8 +16641,8 @@ electron_1.ipcMain.handle('get-child-goals', async (_event, parentId: string) =>
 electron_1.ipcMain.handle('save-goals-batch', async (_event, goals: any[]) => {
   try {
     const insert = db!.prepare(`
-      INSERT OR REPLACE INTO goals (id, date, title, description, category, target_type, target_seconds, match_category, status, period, source, links, progress_seconds, completed_at, parent_id, priority)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO goals (id, date, title, description, category, target_type, target_seconds, match_category, status, period, source, links, progress_seconds, completed_at, parent_id, priority, deadline)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const txn = db!.transaction((items: any[]) => {
       for (const g of items) {
@@ -16422,7 +16651,7 @@ electron_1.ipcMain.handle('save-goals-batch', async (_event, goals: any[]) => {
           g.category || 'work', g.target?.type || 'custom', g.target?.targetSeconds || null, g.target?.matchCategory || null,
           g.status || 'pending', g.period || 'daily', g.source || 'ai_assistant',
           JSON.stringify(g.links || []), g.progressSeconds || 0, g.completedAt || null,
-          g.parent_id || null, g.priority ?? 0,
+          g.parent_id || null, g.priority ?? 0, g.deadline || null,
         );
       }
     });
@@ -17481,7 +17710,7 @@ function startBrowserTrackingServer() {
         if (req.method === 'POST' && req.url === '/browser-data') {
             let body = '';
             req.on('data', chunk => { body += chunk.toString(); });
-            req.on('end', () => {
+            req.on('end', async () => {
                 try {
                     const data = JSON.parse(body);
                     
@@ -17501,24 +17730,44 @@ function startBrowserTrackingServer() {
                     // forceBrowserTracking bypasses all checks.
                     if (!forceTracking && data.is_browser_focused === false) {
                         console.log(`[DeskFlow] SKIPPED: extension says not focused`);
+                        notifyRendererClearBrowser();
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         res.end(JSON.stringify({ status: 'skipped', reason: 'not_focused' }));
                         return;
                     }
                     
-                    // If browsers are configured, do a light sanity check:
-                    // if currentApp is DEFINITELY a non-browser app, skip.
-                    // But if currentApp is null (unknown) or matches any browser, accept.
-                    // forceBrowserTracking bypasses all checks.
-                    if (!forceTracking && hasAnyBrowser && currentApp && !matchesAnyBrowser) {
-                        // currentApp is set AND it's not any of the configured browsers
-                        console.log(`[DeskFlow] SKIPPED: currentApp='${curApp}' doesn't match any configured browser`);
-                        res.writeHead(200, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ status: 'skipped', reason: 'app_mismatch' }));
-                        return;
+                    // CONSERVATIVE CHECK: the tracking browser must be the CONFIRMED foreground app.
+                    // If currentApp is null/unknown OR is not a configured browser, don't trust the
+                    // cached poll — do a fresh OS foreground check. (Old bug: a null currentApp
+                    // bypassed the old guard and left the app "stuck" tracking a website after the
+                    // poll reset, while the user was really in a normal app.)
+                    if (!forceTracking && hasAnyBrowser && !matchesAnyBrowser) {
+                        const stillBrowser = await freshForegroundIsBrowser(browsersList);
+                        if (stillBrowser !== true) {
+                            console.log(`[DeskFlow] SKIPPED: currentApp='${curApp}' doesn't match any configured browser and fresh check not confirmed browser`);
+                            notifyRendererClearBrowser();
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ status: 'skipped', reason: 'app_mismatch' }));
+                            return;
+                        }
                     }
                     
-                    // Data accepted â€” process it
+                    // STALE-GUARD: currentApp says "browser", but the poll may be lagging behind a real
+                    // app switch (active-win returning null/keepalive while the user is in another app).
+                    // Do a fresh OS foreground check before logging the website. If a real non-browser
+                    // app is focused, reject and tell the renderer to exit website mode immediately.
+                    if (!forceTracking && matchesAnyBrowser) {
+                        const stillBrowser = await freshForegroundIsBrowser(browsersList);
+                        if (stillBrowser === false) {
+                            console.log(`[DeskFlow] SKIPPED: fresh foreground check shows user in a non-browser app (stale currentApp)`);
+                            notifyRendererClearBrowser();
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ status: 'skipped', reason: 'app_mismatch' }));
+                            return;
+                        }
+                    }
+                    
+                    // Data accepted — process it
                     handleBrowserData(data);
                     // Always stream to renderer
                     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -17674,6 +17923,46 @@ function startBrowserTrackingServer() {
     // FIX 2: Start the stale session flush timer
     startBrowserSessionFlushTimer();
 }
+
+// Tell the renderer to exit website mode immediately (website data rejected while a
+// non-browser app is foreground). Prevents the dashboard staying "stuck" on a website.
+function notifyRendererClearBrowser() {
+    try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('browser-tracking-event', {
+                type: 'clear',
+                timestamp: Date.now()
+            });
+        }
+    } catch (_err) {}
+}
+
+// Fresh OS foreground check: confirm the configured browser is REALLY the active window.
+// The cached currentApp can lag behind a real app switch (active-win null/keepalive gaps),
+// so we do one live active-win call before trusting extension website data.
+// Returns true = browser confirmed foreground, false = confirmed non-browser foreground,
+// null = indeterminate (no window / unknown), in which case we trust the cache.
+async function freshForegroundIsBrowser(browsersList: string[]): Promise<boolean | null> {
+    try {
+        const raw = await (0, active_win_1.default)();
+        if (!raw) return null; // no active window (e.g. transition) — indeterminate
+        const appName = (raw.owner?.name ?? raw.ownerName ?? '').replace(/\.exe$/i, '');
+        if (!appName) return null;
+        const lower = appName.toLowerCase();
+        // If the OS foreground is DeskFlow itself, it means the user is back in the app
+        if (lower.includes('electron') || lower.includes('deskflow') || lower.includes('rheo')) {
+            return false;
+        }
+        // If it matches any configured browser → still browser → website data is valid
+        if (browsersList.some((b: string) => isAppMatchingBrowser(appName, b))) {
+            return true;
+        }
+        // Otherwise a real non-browser app is foreground → reject website data
+        return false;
+    } catch (_err) {
+        return null;
+    }
+}
 // Handle incoming browser tracking data from extension
 // FIX 1 + FIX 4: Use Map<string, LogEntry> keyed by domain, track time deltas properly
 // FIX: Only track the MOST RECENTLY active tab, not all tabs
@@ -17682,8 +17971,11 @@ function handleBrowserData(data) {
         return;
     if (!data.domain || !data.url)
         return;
-    // Block all browser data when unfocused (phantom deltas from background tabs)
-    if (data.is_browser_focused === false) {
+    // Block all browser data when unfocused (phantom deltas from background tabs).
+    // forceBrowserTracking bypasses this check: the extension now always sends and
+    // the user explicitly opted into 24/7 tracking, so a not-focused flag must not
+    // silently drop everything (that was the bug that made Comet time vanish).
+    if (data.is_browser_focused === false && !(userPreferences?.forceBrowserTracking === true)) {
         return;
     }
     // Check if domain is excluded
@@ -18302,7 +18594,7 @@ electron_1.ipcMain.handle('conductor:engineer-workflow', async (_event, objectiv
 // PROJECT BACKUP â€” file-level backup/restore IPC handlers
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 try {
-  const { registerProjectBackupIPC } = require('./services/ProjectBackupService.cjs');
+  const { registerProjectBackupIPC } = require('./services/ProjectBackupService');
   if (db) registerProjectBackupIPC(db);
 } catch (e: any) {
   console.warn('[DeskFlow] ProjectBackupService not loaded:', e.message);
@@ -18341,7 +18633,7 @@ electron_1.app.whenReady().then(() => {
             responseHeaders: {
                 ...details.responseHeaders,
                 'Content-Security-Policy': [
-                    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; frame-src https://www.realtimecolors.com; img-src 'self' data: https:; connect-src 'self' http://localhost:* https://api.exchangerate-api.com https://raw.githack.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'none'"
+                    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; frame-src https://www.realtimecolors.com; img-src 'self' data: https:; connect-src 'self' http://localhost:* https://api.exchangerate-api.com https://raw.githack.com; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'none'"
                 ]
             }
         });
@@ -18378,7 +18670,6 @@ electron_1.app.whenReady().then(() => {
 
     // Initialize multi-agent state coordinator
     try {
-        const { StateCoordinator } = require('./stateCoordinator');
         const stateCoordinator = new StateCoordinator();
         stateCoordinator.initialize().catch(() => {});
     } catch {}
@@ -18791,9 +19082,9 @@ electron_1.ipcMain.handle('stop-external-session', (event, sessionId, endTime, d
         const startedAt = new Date(session.started_at);
         let durationSeconds = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
 
-        // Sanity cap: total duration cannot exceed 16 hours
-        if (durationSeconds > 16 * 3600) {
-            durationSeconds = 16 * 3600;
+        // Sanity cap: total duration cannot exceed 24 hours
+        if (durationSeconds > 24 * 3600) {
+            durationSeconds = 24 * 3600;
         }
 
         // Cap latencies to 4 hours max
@@ -18853,9 +19144,9 @@ electron_1.ipcMain.handle('add-manual-sleep', (event, sleepData: { started_at: s
             return { success: false, error: 'End time must be after start time' };
         }
 
-        // Sanity cap: total duration cannot exceed 16 hours
-        if (durationSeconds > 16 * 3600) {
-            durationSeconds = 16 * 3600;
+        // Sanity cap: total duration cannot exceed 24 hours
+        if (durationSeconds > 24 * 3600) {
+            durationSeconds = 24 * 3600;
         }
 
         // Cap pre-sleep latency to 4 hours max
@@ -18896,12 +19187,14 @@ electron_1.ipcMain.handle('get-sleep-for-date', (event, dateStr: string) => {
         const sleepActivity = db.prepare(`SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1`).get() as any;
         if (!sleepActivity) return null;
 
-        // Query by bedtime date only (date of started_at)
+        // Match by bedtime date, wake-up date, or the evening date the sleep chart
+        // groups the sleep under (bedtime before 6 AM belongs to the previous day's evening)
         const session = db.prepare(`
             SELECT * FROM external_sessions
-            WHERE activity_id = ? AND ended_at IS NOT NULL AND date(started_at) = ?
+            WHERE activity_id = ? AND ended_at IS NOT NULL
+              AND (date(started_at) = ? OR date(ended_at) = ? OR date(started_at) = date(?, '+1 day'))
             ORDER BY started_at DESC LIMIT 1
-        `).get(sleepActivity.id, dateStr) as any;
+        `).get(sleepActivity.id, dateStr, dateStr, dateStr) as any;
 
         if (!session) return null;
 
@@ -18929,9 +19222,9 @@ electron_1.ipcMain.handle('update-manual-sleep', (event, sessionId: string, slee
             return { success: false, error: 'End time must be after start time' };
         }
 
-        // Sanity cap: total duration cannot exceed 16 hours
-        if (durationSeconds > 16 * 3600) {
-            durationSeconds = 16 * 3600;
+        // Sanity cap: total duration cannot exceed 24 hours
+        if (durationSeconds > 24 * 3600) {
+            durationSeconds = 24 * 3600;
         }
         // Cap pre-sleep latency to 4 hours max
         const preSleep = Math.min(sleepData.device_off_to_sleep_seconds || 0, 4 * 3600);
@@ -19047,9 +19340,9 @@ electron_1.ipcMain.handle('confirm-sleep', (event, sleepData: {
         
         if (durationSeconds <= 0) return { success: false, error: 'End must be after start' };
 
-        // Sanity cap: total duration cannot exceed 16 hours
-        if (durationSeconds > 16 * 3600) {
-            durationSeconds = 16 * 3600;
+        // Sanity cap: total duration cannot exceed 24 hours
+        if (durationSeconds > 24 * 3600) {
+            durationSeconds = 24 * 3600;
         }
         // Cap pre-sleep latency to 4 hours max
         const preSleep = Math.min(sleepData.device_off_to_sleep_seconds || 0, 4 * 3600);
@@ -19512,6 +19805,89 @@ electron_1.ipcMain.handle('get-productivity-sessions', (event, opts: {
     }
 });
 
+// ─── IPC: get-longest-focus ──────────────────────────────────
+// Finds the top 3 longest continuous productive sessions for today / this week / all time.
+// Merges consecutive same-app logs within a 10s gap.
+electron_1.ipcMain.handle('get-longest-focus', async () => {
+    ensureDb();
+    try {
+        const tierMap = getTierMap(db);
+
+        function findTopSessions(logs: any[], limit = 3): any[] {
+            const sessions: any[] = [];
+            let current: any = null;
+            for (let i = 0; i < logs.length; i++) {
+                const log = logs[i];
+                const app = log.is_browser_tracking ? (log.domain || log.app) : log.app;
+                const tier = tierMap.get(app) || 'neutral';
+                const logTime = new Date(log.timestamp).getTime();
+                const logEnd = logTime + (log.duration_ms || 0);
+
+                if (tier !== 'productive') {
+                    if (current) sessions.push({ ...current });
+                    current = null;
+                    continue;
+                }
+
+                if (current && logTime - current.endTime < 10000) {
+                    current.durationMs += log.duration_ms || 0;
+                    current.endTime = logEnd;
+                    if (!current.apps.includes(app)) current.apps.push(app);
+                } else {
+                    if (current) sessions.push({ ...current });
+                    current = {
+                        apps: [app],
+                        category: log.category || 'Other',
+                        startTime: logTime,
+                        endTime: logEnd,
+                        durationMs: log.duration_ms || 0,
+                        title: log.title || '',
+                    };
+                }
+            }
+            if (current) sessions.push({ ...current });
+            sessions.sort((a: any, b: any) => b.durationMs - a.durationMs);
+            return sessions.slice(0, limit);
+        }
+
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        const allLogs = db.prepare(`
+            SELECT id, timestamp, app, title, duration_ms, category, is_browser_tracking, domain, url
+            FROM logs WHERE duration_ms > 0
+            ORDER BY timestamp ASC
+        `).all() as any[];
+
+        const todayLogs = allLogs.filter((l: any) => l.timestamp >= todayStr);
+        const weekLogs = allLogs.filter((l: any) => l.timestamp >= weekAgo);
+
+        const todayTop = findTopSessions(todayLogs);
+        const weekTop = findTopSessions(weekLogs);
+        const allTimeTop = findTopSessions(allLogs);
+
+        const format = (s: any) => ({
+            apps: s.apps,
+            app: s.apps[0],
+            category: s.category,
+            title: s.title,
+            durationSeconds: Math.round(s.durationMs / 1000),
+            startTime: new Date(s.startTime).toISOString(),
+            endTime: new Date(s.endTime).toISOString(),
+        });
+
+        return {
+            today: todayTop.map(format),
+            week: weekTop.map(format),
+            allTime: allTimeTop.map(format),
+        };
+    } catch (err: any) {
+        console.error('[DeskFlow] get-longest-focus error:', err);
+        return { today: [], week: [], allTime: [] };
+    }
+});
+
 electron_1.ipcMain.handle('clear-productivity-sessions', () => {
     if (useJson) return;
     try {
@@ -19908,32 +20284,39 @@ electron_1.ipcMain.handle('fix-sleep-dates', () => {
             const startD = new Date(s.started_at);
             const endD = new Date(s.ended_at);
             const startH = startD.getHours();
-            const durHours = (s.duration_seconds || 0) / 3600;
+            let durHours = (s.duration_seconds || 0) / 3600;
             const preSleepH = (s.device_off_to_sleep_seconds || 0) / 3600;
-            const actualSleepH = Math.max(0, durHours - preSleepH);
+            let actualSleepH = Math.max(0, durHours - preSleepH);
 
             let issue = '';
             let wasFixed = false;
 
-            // PROBLEM 1: Bedtime before 6 AM â€” shift to previous day
-            if (startH < 6) {
+            // PROBLEM 1: Bedtime before 6 AM on a span that crosses calendar days with an
+            // absurd length — started_at was back-shifted to the previous calendar day by an
+            // old buggy fix. Restore the physical date: bedtime at 00:30 on Aug 4 IS Aug 4,
+            // so shift started_at FORWARD one day and recompute the duration. A normal
+            // post-midnight sleep (00:30 → 07:30 same day) is left untouched.
+            const spanHours = (endD.getTime() - startD.getTime()) / 3600;
+            if (startH < 6 && startD.toDateString() !== endD.toDateString() && spanHours >= 18) {
                 const newStart = new Date(startD);
-                newStart.setDate(newStart.getDate() - 1);
+                newStart.setDate(newStart.getDate() + 1);
                 const newDuration = Math.max(0, Math.floor((endD.getTime() - newStart.getTime()) / 1000));
-                if (newDuration > 3600 && newDuration < 14 * 3600) {
-                    db.prepare(`UPDATE external_sessions SET started_at = ?, duration_seconds = ? WHERE id = ?`).run(
-                        newStart.toISOString(), newDuration, s.id
-                    );
-                    updates.push({
-                        id: s.id, oldStart: s.started_at, newStart: newStart.toISOString(),
-                        oldEnd: s.ended_at, newEnd: s.ended_at,
-                        oldDuration: s.duration_seconds || 0, newDuration,
-                        reason: `Bedtime at ${startH}:${String(startD.getMinutes()).padStart(2,'0')} AM shifted to previous day`
-                    });
-                    fixedCount++;
-                    wasFixed = true;
-                }
-                issue = `Bedtime before 6 AM (${startH}:${String(startD.getMinutes()).padStart(2,'0')})`;
+                db.prepare(`UPDATE external_sessions SET started_at = ?, duration_seconds = ? WHERE id = ?`).run(
+                    newStart.toISOString(), newDuration, s.id
+                );
+                updates.push({
+                    id: s.id, oldStart: s.started_at, newStart: newStart.toISOString(),
+                    oldEnd: s.ended_at, newEnd: s.ended_at,
+                    oldDuration: s.duration_seconds || 0, newDuration,
+                    reason: `Bedtime at ${startH}:${String(startD.getMinutes()).padStart(2,'0')} AM restored to its physical date (was back-shifted to previous day)`
+                });
+                fixedCount++;
+                wasFixed = true;
+                s.started_at = newStart.toISOString();
+                s.duration_seconds = newDuration;
+                durHours = newDuration / 3600;
+                actualSleepH = Math.max(0, durHours - preSleepH);
+                issue = `Bedtime before 6 AM on a ${spanHours.toFixed(1)}h cross-day span — restored to ${newStart.toISOString()}`;
             }
 
             // PROBLEM 2: Total duration > 16 hours (unreasonable)
@@ -22835,7 +23218,7 @@ You communicate through:
 1. Read \`agent/AGENTS.md\` at session start
 2. Read context files before making changes
 3. Run build after code changes
-4. Update \`agent/state.md\` after every change
+4. Update YOUR OWN state spoke \`agent/state/{SESSION_ID}.md\` after every change (never write the auto-generated \`agent/state.md\` hub)
 5. Check \`agent/PROBLEMS.md\` before starting new work
 6. Never use git checkout/restore/reset commands
 \`\`\`
@@ -25337,8 +25720,9 @@ electron_1.ipcMain.handle('finance:get-transactions', async (_event, filters?: a
   if (!db) return [];
   try {
     let query = `
-      SELECT t.*, a.name as account_name, c.name as category_name, c.color as category_color, c.icon as category_icon, w.name as wallet_name
+      SELECT t.*, COALESCE(t.on_behalf_of_label, fp.name) as on_behalf_of_label, a.name as account_name, c.name as category_name, c.color as category_color, c.icon as category_icon, w.name as wallet_name
       FROM finance_transactions t
+      LEFT JOIN finance_ft_persons fp ON t.ft_person_id = fp.id
       LEFT JOIN finance_accounts a ON t.account_id = a.id
       LEFT JOIN finance_categories c ON t.category_id = c.id
       LEFT JOIN finance_wallets w ON t.wallet_id = w.id
@@ -26281,7 +26665,10 @@ electron_1.ipcMain.handle('finance:get-on-behalf-of-summary', async () => {
   if (!db) return { totalExpense: 0 };
   try {
     if (financeDataKey) {
-      const rows = db.prepare('SELECT amount, on_behalf_of_label FROM finance_transactions WHERE type=\'expense\' AND on_behalf_of = 1 AND (is_adjustment IS NULL OR is_adjustment = 0)').all() as any[];
+      const rows = db.prepare(`SELECT t.amount, COALESCE(t.on_behalf_of_label, fp.name) as on_behalf_of_label
+        FROM finance_transactions t
+        LEFT JOIN finance_ft_persons fp ON t.ft_person_id = fp.id
+        WHERE t.type='expense' AND t.on_behalf_of = 1 AND (t.is_adjustment IS NULL OR t.is_adjustment = 0)`).all() as any[];
       let totalExpense = 0;
       const breakdownMap = new Map<string, { label: string; total: number; count: number }>();
       for (const r of rows) {
@@ -26295,11 +26682,13 @@ electron_1.ipcMain.handle('finance:get-on-behalf-of-summary', async () => {
       const breakdown = [...breakdownMap.values()].sort((a, b) => b.total - a.total);
       return { totalExpense, breakdown };
     }
-    const expense = db.prepare("SELECT COALESCE(ABS(SUM(amount)),0) as total FROM finance_transactions WHERE type='expense' AND on_behalf_of = 1 AND (is_adjustment IS NULL OR is_adjustment = 0)").get() as any;
+    const expense = db.prepare("SELECT COALESCE(ABS(SUM(t.amount)),0) as total FROM finance_transactions t WHERE t.type='expense' AND t.on_behalf_of = 1 AND (t.is_adjustment IS NULL OR t.is_adjustment = 0)").get() as any;
     const breakdown = db.prepare(`
-      SELECT COALESCE(on_behalf_of_label, 'Someone') as label, COALESCE(ABS(SUM(amount)),0) as total, COUNT(*) as count
-      FROM finance_transactions WHERE type='expense' AND on_behalf_of = 1 AND (is_adjustment IS NULL OR is_adjustment = 0)
-      GROUP BY on_behalf_of_label ORDER BY total DESC
+      SELECT COALESCE(t.on_behalf_of_label, fp.name, 'Someone') as label, COALESCE(ABS(SUM(t.amount)),0) as total, COUNT(*) as count
+      FROM finance_transactions t
+      LEFT JOIN finance_ft_persons fp ON t.ft_person_id = fp.id
+      WHERE t.type='expense' AND t.on_behalf_of = 1 AND (t.is_adjustment IS NULL OR t.is_adjustment = 0)
+      GROUP BY COALESCE(t.on_behalf_of_label, fp.name, 'Someone') ORDER BY total DESC
     `).all();
     return { totalExpense: expense.total, breakdown };
   } catch {
@@ -26326,16 +26715,16 @@ electron_1.ipcMain.handle('finance:get-ft-persons', async () => {
     for (const p of persons) {
       const stats = db.prepare(`
         SELECT COUNT(*) as transaction_count, COALESCE(ABS(SUM(amount)),0) as total_owed
-        FROM finance_transactions WHERE on_behalf_of = 1 AND on_behalf_of_label = ?
-      `).get(p.name) as any;
+        FROM finance_transactions WHERE on_behalf_of = 1 AND (on_behalf_of_label = ? OR ft_person_id = ?)
+      `).get(p.name, p.id) as any;
       p.transaction_count = stats?.transaction_count || 0;
       p.total_owed = stats?.total_owed || 0;
       // Compute total_paid from repayment transactions (income flagged as on_behalf_of)
       const paidStats = db.prepare(`
         SELECT COALESCE(ABS(SUM(amount)), 0) as total_paid
         FROM finance_transactions
-        WHERE on_behalf_of = 1 AND on_behalf_of_label = ? AND type = 'income'
-      `).get(p.name) as any;
+        WHERE on_behalf_of = 1 AND (on_behalf_of_label = ? OR ft_person_id = ?) AND type = 'income'
+      `).get(p.name, p.id) as any;
       p.total_paid = paidStats?.total_paid || 0;
     }
     return persons;
@@ -28430,7 +28819,7 @@ electron_1.ipcMain.handle('finance:get-liquidity-breakdown', async () => {
   if (!db) return { success: false, error: 'Database not ready' };
   try {
     const tiers = [
-      { name: 'Immediate', types: ['cash', 'physical', 'ewallet'], color: '#10b981', icon: 'cash' },
+      { name: 'Immediate', types: ['cash', 'physical', 'ewallet', 'prepaid_card'], color: '#10b981', icon: 'cash' },
       { name: 'Same Day', types: ['bank', 'debit_card'], color: '#3b82f6', icon: 'bank' },
       { name: '1-3 Days', types: ['credit_card', 'other'], color: '#f59e0b', icon: 'credit' },
       { name: 'Locked', types: ['crypto'], color: '#8b5cf6', icon: 'lock' },

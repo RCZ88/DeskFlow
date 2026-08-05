@@ -14,7 +14,7 @@ import {
 import {
   HeartPulse, TrendingDown, TrendingUp, AlertTriangle,
   Activity, Receipt, CreditCard, Wallet, Coins, Smartphone,
-  Landmark, Banknote, Package
+  Landmark, Banknote, Package, Nfc
 } from 'lucide-react';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
@@ -57,11 +57,13 @@ interface WalletHealthData {
 const WALLET_ICONS: Record<string, any> = {
   cash: Banknote, physical: Wallet, crypto: Coins, investment: Coins,
   debit: CreditCard, credit: CreditCard, ewallet: Smartphone, bank: Landmark,
+  prepaid_card: Nfc,
 };
 
 const WALLET_COLORS: Record<string, string> = {
   cash: '#F97316', physical: '#F97316', crypto: '#8B5CF6', investment: '#8B5CF6',
   debit: '#3B82F6', credit: '#EF4444', ewallet: '#06B6D4', bank: '#10B981',
+  prepaid_card: '#22D3EE',
 };
 
 function getScoreColor(score: number): string {

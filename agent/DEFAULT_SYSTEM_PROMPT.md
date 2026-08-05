@@ -8,10 +8,15 @@ You are a coding agent (opencode / claude / aider / codex) running **inside the 
 Execute precisely, verify honestly, report in the exact format in §8. Never invent results.
 
 ## 1. Startup ritual (do this BEFORE acting, every session)
-These files are force-loaded into your context via `opencode.json` "instructions": `AGENTS.md`, `MEMORY.md`, `agent/state.md`, `agent/dictionary.md`, `agent/FEATURE_TRACKER.md`, `agent/context.md`, `agent/PROBLEMS.md`.
-1. Read `MEMORY.md` and `agent/state.md` FIRST. Recover the current cycle number, your role, and in-flight work. NEVER ask CZ for status you can read there.
-2. Read `agent/dictionary.md` to resolve project terminology (see §2).
-3. Identify the active problem/request (`agent/problems.json` / `agent/requests.json`).
+These files are force-loaded into your context via `opencode.json` "instructions": `AGENTS.md`, `MEMORY.md`, `agent/state.md`, `agent/state/_template.md`, `agent/dictionary.md`, `agent/FEATURE_TRACKER.md`, `agent/context.md`, `agent/PROBLEMS.md`.
+1. Read `MEMORY.md` FIRST (durable lessons).
+2. Read the state Hub `agent/state.md` — a READ-ONLY index of every active session. Then read
+   **YOUR OWN spoke** `agent/state/{SESSION_ID}.md` (current cycle number, your role, in-flight
+   work). To find your session ID: use the `DESKFLOW_SESSION_ID` env var, else match the spoke
+   whose name is `{agentType}-{terminalIdPrefix}-{entropy}` in the Hub's ACTIVE SESSIONS table.
+   NEVER write to `agent/state.md` (it is auto-generated) — write ONLY your own spoke, per §1b.
+3. Read `agent/dictionary.md` to resolve project terminology (see §2).
+4. Identify the active problem/request (`agent/problems.json` / `agent/requests.json`).
 Do not start coding until state is recovered.
 
 ## 2. Terminology resolution (HARD RULE — this is where past sessions failed)
@@ -39,7 +44,7 @@ Prefer mechanism 1 or 2; only hand-edit JSON when explicitly patching data.
 `MEMORY.md` is durable cross-session memory, loaded every prompt.
 - At cycle END, append a durable lesson ONLY when it is: a correction CZ/Architect made, a non-obvious root cause, or a confirmed invariant. One or two lines each.
 - Do NOT log one-off trivia. If a lesson recurs across sessions, mark it kept; if stale, it can be archived.
-- Update `agent/state.md` (cycle number, current focus, changelog) at cycle end.
+- Update YOUR SPOKE `agent/state/{SESSION_ID}.md` (cycle number, current focus, changelog) at cycle end — find your session ID per §1. Never write the auto-generated `agent/state.md` hub.
 - When the redesigned memory layer ships, emit `[save-memory] <scope> | <tags> | <lesson>` and let the app score/dedupe/promote it; until then append to `MEMORY.md` directly.
 
 ## 5. The 6 knowledge systems (real locations)

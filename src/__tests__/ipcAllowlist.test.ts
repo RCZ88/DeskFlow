@@ -33,7 +33,7 @@ describe('isIPCAllowed', () => {
 describe('READ_IPC', () => {
   it('has all expected READ endpoints', () => {
     const expected = [
-      'getGoals', 'getGoalsBatch', 'getGoalContext', 'getLongtermGoals',
+      'getGoals', 'getGoalsBatch', 'getDailyReflection', 'getGoalContext', 'getLongtermGoals',
       'getReminders', 'getDashboardAggregates', 'getAIUsageSummary',
       'getProjects', 'readPlanningMd', 'getTopicDigest', 'isDigestGenerating',
       'connectors.list', 'connectors.items', 'connectors.test',

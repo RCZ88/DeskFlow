@@ -43,6 +43,8 @@ export type TokenType =
   | 'DOT' | 'COMMA' | 'COLON' | 'ARROW' | 'PIPE'
   | 'LPAREN' | 'RPAREN' | 'LBRACE' | 'RBRACE' | 'LBRACKET' | 'RBRACKET'
   | 'EQ' | 'NEQ' | 'GT' | 'GTE' | 'LT' | 'LTE'
+  | 'EQW' | 'NEQW' | 'GTW' | 'GTEW' | 'LTW' | 'LTEW'
+  | 'CONTAINS' | 'MATCHES' | 'EXISTS' | 'NOT_EXISTS'
   | 'PLUS' | 'MINUS' | 'STAR' | 'SLASH'
   | 'NEWLINE' | 'EOF' | 'ERROR';
 

@@ -1,0 +1,1074 @@
+---
+title: Performance & Efficiency — The Optimization Craft
+id: performance-and-efficiency-the-optimization-craft
+part: 2
+version: 1.0.0
+summary: A measured, systems-level approach to making software fast and cheap — from profiling to cache hierarchies to throughput engineering.
+authored_by: ai
+chapter: Core Systems Engineering
+---
+
+# Measure First: Profiling Before You Guess
+
+@mastery L2
+@prereq the-systems-lens debugging-as-a-science
+
+You have shipped DeskFlow. You have watched Electron's renderer process climb to 400 MB while a user drags a window. You have felt the SQLite query that was "fast enough" at 100 rows become a 3-second hang at 10,000. And your instinct — the one that got you through backprop derivations and SVM kernel math — says: *I know where the problem is. It's the IPC bridge. It's the React re-render. It's the JOIN.*
+
+Here is the uncomfortable truth that separates senior engineers from everyone else: **you are wrong about where the bottleneck is roughly 70% of the time.** Not because you are unintelligent. Because performance is an emergent property of a system, and emergent properties do not respect your mental model. The expensive thing is almost never the thing that *looks* expensive.
+
+This node teaches you the discipline that replaces guessing with evidence: **measure first, optimize second, and only the thing the measurement points at.**
+
+## The Profiling Mindset
+
+Profiling is not "running your code and watching it feel slow." Profiling is constructing a *causal map* of where time and memory actually go. The difference matters because your brain is a pattern-matching engine trained on narrative — it wants a story ("the database is slow because the query is bad") — while the profiler gives you a *distribution* ("73% of wall-clock time is in `memcpy` calls from a serialization layer you forgot existed").
+
+The three questions every profiling session answers:
+
+1. **Where does time go?** (CPU profiling)
+2. **Where does memory go?** (Allocation profiling, heap snapshots)
+3. **Where does waiting go?** (I/O profiling, lock contention)
+
+Most developers only ask question 1, and only when things are already on fire. The craft is asking all three *before* the fire.
+
+## Flame Graphs: Reading the Stack as a Landscape
+
+The single most powerful visualization in performance work is the **flame graph**, invented by Brendan Gregg at Netflix. A flame graph takes thousands of stack samples (typically from `perf`, `dtrace`, or language-specific profilers) and renders them as a horizontal bar chart where:
+
+- The x-axis is *not* time — it is the alphabetical ordering of stack frames (this is the most common misreading)
+- The y-axis is stack depth (bottom = main, top = leaf function)
+- The width of each bar is proportional to how often that function appeared on-CPU
+
+```mermaid
+graph TD
+    subgraph "Flame Graph Anatomy"
+        A["Wide bar at bottom<br>= function called often<br>= high self-time OR<br>= many children"] --> B["Narrow bar at top<br>= leaf function<br>= actual CPU work"]
+        C["Plateau (flat top)<br>= single hot function<br>= optimization target"] --> D["Stalactites<br>= deep call chains<br>= overhead from abstraction"]
+    end
+    style A fill:#fff3e0,stroke:#e65100
+    style B fill:#e3f2fd,stroke:#1565c0
+    style C fill:#fce4ec,stroke:#c62828
+    style D fill:#f3e5f5,stroke:#6a1b9a
+```
+
+The insight: **you optimize the widest plateaus, not the tallest towers.** A function that is 40 frames deep but only 2% of samples is not your problem. A function that is 3 frames deep but 60% of samples is.
+
+:::illustration {"prompt":"Generate one standalone 16:9 horizontal Chinese article illustration. Visual DNA: Pure white background. Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture. Recurring IP character: 小黑, a small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression. 小黑 must perform the core conceptual action, not decorate the scene. Theme: Measure before you guess. Structure type: Before/after contrast. Core idea: Left side shows 小黑 blindly poking a complex machine with a stick, question marks floating above. Right side shows 小黑 carefully holding a large magnifying glass over one specific gear, a small flame graph chart visible through the lens. A bold orange arrow connects left to right. Composition: Left half is chaotic with tangled wires and random arrows pointing in wrong directions. Right half is calm and focused, single spotlight on the magnifying glass. Suggested elements: tangled machine / blindfold on left 小黑 / magnifying glass / tiny flame graph / orange arrow. Chinese handwritten labels: 猜 / 测 / 瓶颈 / 火焰图. Color use: Black for main line art. Orange for the transformation arrow. Red for the question marks and wrong guesses on the left. Blue for the flame graph bars on the right.","concept":"Profiling replaces blind guessing with targeted measurement — the flame graph reveals the true bottleneck"}
+:::
+
+## Practical Profiling: Your Stack
+
+For your specific stack (Electron + Node + SQLite + Python/PyTorch), here is the toolkit:
+
+| Layer | Tool | What it tells you |
+|-------|------|-------------------|
+| Node.js / Electron renderer | `--prof` flag, Chrome DevTools Performance tab | V8 function-level CPU, GC pauses |
+| Node.js / Electron main | `clinic.js` (flame, doctor, bubbleprof) | Flame graphs, event-loop lag, I/O bottlenecks |
+| Python / PyTorch | `py-spy`, `cProfile`, `torch.profiler` | Python call stacks, CUDA kernel timing |
+| SQLite | `EXPLAIN QUERY PLAN`, `.timer on` | Query plan, actual execution time |
+| System-wide (Linux) | `perf record -g`, `perf report` | Kernel + user-space, hardware counters |
+| System-wide (macOS) | `Instruments.app`, `dtrace` | Time Profiler, Allocations, System Trace |
+
+```python
+# py-spy: attach to a running PyTorch training loop, zero code changes
+# $ py-spy record -o profile.svg --pid <training_pid>
+# The resulting SVG is a flame graph of Python + native frames.
+
+# torch.profiler: when you need CUDA kernel granularity
+import torch
+from torch.profiler import profile, ProfilerActivity
+
+with profile(
+    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    record_shapes=True,
+    profile_memory=True,
+) as prof:
+    # your training step here
+    output = model(batch)
+    loss = criterion(output, target)
+    loss.backward()
+    optimizer.step()
+
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+# This table tells you: is your bottleneck in matmul? in data loading?
+# in the optimizer? in Python overhead between CUDA kernels?
+```
+
+## Benchmarking: The Discipline of Comparison
+
+Profiling tells you *where*. Benchmarking tells you *how much* and *whether your change helped*. The rules:
+
+1. **Benchmark the thing you changed, in isolation, with everything else held constant.** If you changed a data structure, benchmark that operation. Do not benchmark "the whole app feels faster."
+2. **Run enough iterations that noise is below your effect size.** For microbenchmarks, this often means 10,000+ iterations. For system benchmarks, it means enough requests that your p99 stabilizes.
+3. **Report distributions, not means.** (This connects directly to the next node.) A "2x speedup" that is actually "p50 went from 10ms to 5ms but p99 went from 50ms to 200ms" is a regression for your users.
+4. **Benchmark on the target hardware.** Your M2 MacBook Pro's memory hierarchy is not your user's 2019 Intel laptop. Your CUDA kernel's occupancy on an A100 is not its occupancy on a T4.
+
+```bash
+# A minimal but honest benchmark harness (Python)
+import time
+import statistics
+
+def benchmark(fn, *args, iterations=10000, warmup=1000):
+    """Return (median, p95, p99) in microseconds."""
+    # Warmup: let JIT compile, caches fill, GC settle
+    for _ in range(warmup):
+        fn(*args)
+
+    timings = []
+    for _ in range(iterations):
+        start = time.perf_counter_ns()
+        fn(*args)
+        end = time.perf_counter_ns()
+        timings.append((end - start) / 1000.0)  # microseconds
+
+    timings.sort()
+    n = len(timings)
+    return {
+        "median": timings[n // 2],
+        "p95": timings[int(n * 0.95)],
+        "p99": timings[int(n * 0.99)],
+        "mean": statistics.mean(timings),
+        "stdev": statistics.stdev(timings),
+    }
+
+# Usage: benchmark(my_new_function, input_data)
+# Compare BEFORE and AFTER with the same harness, same machine, same load.
+```
+
+## Premature Optimization: The Quote and the Reality
+
+Donald Knuth's 1974 line — "premature optimization is the root of all evil" — is the most misquoted sentence in software engineering. The full context:
+
+> "We should forget about small efficiencies, say about 97% of the time: premature optimization is the root of all evil. **Yet we should not pass up our opportunities in that critical 3%.**"
+
+The 3% is the part everyone omits. Knuth was not saying "never optimize." He was saying: **do not optimize without measurement, and do not optimize the 97% that does not matter.** The craft is knowing which 3% you are in — and you only know that after profiling.
+
+The anti-pattern you will see (and feel tempted by) in your own code:
+
+```typescript
+// ANTI-PATTERN: "optimizing" without measurement
+// "I bet this Map is slow, let me use a plain object instead"
+const cache: Record<string, Widget> = {};  // "faster than Map!"
+
+// Three weeks later: prototype pollution bug, no .size,
+// no iteration order guarantee, and the Map was never the bottleneck.
+// The bottleneck was a 47ms JSON.parse in a hot loop.
+```
+
+The discipline: **write the clear version first. Profile. Optimize the measured hotspot. Re-profile to confirm.** If the clear version is fast enough, ship it. You just saved yourself a maintenance nightmare and a bug.
+
+::: callout warning
+The most expensive optimization is the one you did not need to do. Every "clever" optimization is a maintenance tax, a readability cost, and a potential bug surface. Spend that tax only where the profiler writes the invoice.
+:::
+
+::: quiz mcq L2
+You profile your Electron app and find that 68% of CPU time is spent in a JSON serialization function called from your IPC bridge. The function uses `JSON.stringify` on a 2MB object, 40 times per second. What is the correct first step?
+- [ ] Rewrite the IPC bridge in Rust for maximum speed
+- [ ] Replace JSON.stringify with a hand-rolled binary serializer
+- [x] Reduce the call frequency or payload size, since 40 × 2MB/s is the actual cost driver
+- [ ] Add a Web Worker to move serialization off the main thread
+explain: The profiler identified the hotspot, but the root cause is the volume of data being serialized (80 MB/s through JSON.stringify). Before reaching for a faster serializer or a language rewrite, ask whether you need to send 2MB 40 times per second. Batching, diffing, or reducing payload size attacks the actual cost. A Web Worker moves the work but does not reduce it. A binary serializer helps but is premature before you have reduced the volume.
+:::
+
+::: quiz numeric L2
+A function takes 4ms per call and is called 200 times per second. What percentage of one CPU-second (1000ms) does this function consume?
+answer: 80
+explain: 4ms × 200 = 800ms of CPU work per 1000ms of wall time. 800/1000 = 80%. This function consumes 80% of one core — it is a legitimate optimization target, but you still profile to confirm it is the dominant cost before touching it.
+:::
+
+:::: grounding
+includes: The discipline of measuring before optimizing — profiling tools, flame graphs, benchmarking methodology, and the correct interpretation of Knuth's premature optimization warning.
+know: Flame graphs display stack samples where bar width represents frequency of appearance on-CPU, not time sequence; the x-axis is alphabetical ordering of frames, not chronological order [brendan-gregg-flamegraphs]
+know: Knuth's 1974 statement "premature optimization is the root of all evil" was qualified by "yet we should not pass up our opportunities in that critical 3%" — the craft is identifying the 3% via measurement [knuth-1974-structured]
+know: py-spy can attach to a running Python process and produce flame graphs without code modification, sampling at up to 1000 Hz with negligible overhead [py-spy-github]
+know: Chrome DevTools Performance tab in Electron captures V8 CPU profiles, GC events, and rendering pipeline timing in a single recording [electron-devtools-docs]
+source: brendan-gregg-flamegraphs | Flame Graphs | https://www.brendangregg.com/flamegraphs.html
+source: knuth-1974-structured | Structured Programming with go to Statements | https://dl.acm.org/doi/10.1145/356635.356640
+source: py-spy-github | py-spy: Sampling profiler for Python | https://github.com/benfred/py-spy
+source: electron-devtools-docs | Electron DevTools Documentation | https://www.electronjs.org/docs/latest/tutorial/devtools
+misconception: The x-axis of a flame graph represents time passing left-to-right | The x-axis is alphabetical ordering of stack frames; width represents sample frequency, not duration or sequence
+misconception: Premature optimization means you should never optimize anything | It means you should not optimize without measurement; the "critical 3%" is where focused optimization is essential
+excludes: Distributed tracing; APM tooling (Datadog, New Relic); GPU-specific profiling (Nsight, ROCm)
+::::
+
+# Latency, Throughput, and the Lie of Averages
+
+@mastery L3
+@prereq performance-and-efficiency-the-optimization-craft
+
+You deploy a new version of your inference endpoint. The dashboard says "average latency: 45ms." You feel good. Then a user tweets that your API "randomly hangs for 3 seconds." You check the logs. The p99 is 2,800ms. The average was not wrong. It was just *lying by omission*.
+
+This node builds the vocabulary and intuition for the two fundamental axes of performance — **latency** and **throughput** — and then dismantles the most dangerous statistical illusion in systems engineering: the arithmetic mean.
+
+## Latency vs Throughput: Not the Same Axis
+
+**Latency** is the time from request to response for a single unit of work. It is what one user experiences. "How long until *my* result appears?"
+
+**Throughput** is the rate of completed work per unit time. It is what the system experiences. "How many requests can we serve per second?"
+
+These are related but not interchangeable. You can have:
+
+- Low latency, low throughput: a single-threaded server that responds in 5ms but can only handle 1 request at a time (200 req/s max).
+- High latency, high throughput: a batch processing pipeline that takes 10 seconds per batch but processes 10,000 items per batch (1,000 items/s).
+- Low latency, high throughput: the ideal — an async server with connection pooling, serving 10,000 req/s at 5ms p50.
+- High latency, low throughput: the nightmare — a synchronous server with lock contention, serving 50 req/s at 2-second p50.
+
+```mermaid
+quadrantChart
+    title Latency vs Throughput Tradeoffs
+    x-axis "Low Throughput" --> "High Throughput"
+    y-axis "High Latency" --> "Low Latency"
+    quadrant-1 "Ideal: fast AND scalable"
+    quadrant-2 "Batch processing territory"
+    quadrant-3 "Worst case: slow AND limited"
+    quadrant-4 "Single-user fast, multi-user slow"
+    "Async I/O server": [0.8, 0.85]
+    "Batch ML pipeline": [0.7, 0.3]
+    "Sync server + locks": [0.2, 0.2]
+    "Single-threaded fast fn": [0.15, 0.9]
+```
+
+The key insight for your DeskFlow work: **Electron's main process is a single-threaded event loop.** Every synchronous operation in the main process blocks *all* IPC, *all* window management, *all* menu interactions. A 200ms SQLite query in the main process is not "200ms of database time" — it is 200ms of *total application unresponsiveness* for every window. That is a latency problem masquerading as a throughput problem.
+
+## The Distribution Is the Truth
+
+A single number cannot describe a distribution. When you report "average latency: 45ms," you are collapsing a potentially bimodal, heavy-tailed, or multi-modal distribution into a single point. Here is why that is catastrophic:
+
+$$
+\text{If } X \sim \begin{cases} 10\text{ms} & \text{with probability } 0.95 \\ 5000\text{ms} & \text{with probability } 0.05 \end{cases}
+$$
+
+$$
+E[X] = 0.95 \times 10 + 0.05 \times 5000 = 9.5 + 250 = 259.5\text{ms}
+$$
+
+The "average" is 259ms. But 95% of users see 10ms. 5% of users see 5 seconds. Neither group experiences "259ms." The average describes *nobody*.
+
+This is why production systems report **percentiles**, not means:
+
+| Percentile | Meaning | Why it matters |
+|-----------|---------|----------------|
+| p50 (median) | Half of requests are faster | "Typical" experience |
+| p90 | 90% are faster | Most users' experience |
+| p99 | 99% are faster | The "unlucky" 1% — often your power users |
+| p99.9 | 99.9% are faster | At scale, this is thousands of users per hour |
+| max | The worst observed | Your incident trigger |
+
+**Tail latency** (p99, p99.9) is where user trust lives. A p50 of 20ms with a p99 of 4 seconds means that in a session of 100 API calls, a user will hit the 4-second wall *at least once* (probability of avoiding it: $0.99^{100} \approx 0.366$, so 63% chance of hitting it). In a session of 500 calls, it is near-certain.
+
+:::illustration {"prompt":"Generate one standalone 16:9 horizontal Chinese article illustration. Visual DNA: Pure white background. Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture. Recurring IP character: 小黑, a small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression. 小黑 must perform the core conceptual action, not decorate the scene. Theme: Averages lie, distributions tell truth. Structure type: Before/after contrast. Core idea: Left side shows 小黑 standing next to a single number '259ms' written large, looking confused. Right side shows 小黑 holding a histogram chart where 95% of bars are tiny (10ms) and 5% are extremely tall (5000ms), with an orange arrow pointing to the tall tail. Composition: Left half has one flat boring number. Right half has a dramatic skewed distribution with a long tail. 小黑 on the right is pointing at the tail with alarm. Suggested elements: single number / histogram / long tail / orange arrow to tail / tiny vs tall bars. Chinese handwritten labels: 平均 / 分布 / 尾部 / p99 / 谎言. Color use: Black for main line art. Orange for the arrow highlighting the tail. Red for the word 谎言 and the tall tail bars. Blue for the p99 annotation.","concept":"The arithmetic mean of a bimodal latency distribution describes no actual user — percentiles reveal the truth"}
+:::
+
+## Why Tails Get Fat: The Fan-Out Problem
+
+In a microservice architecture (or any system where one request fans out to N sub-requests), the overall latency is the *maximum* of the sub-latencies, not the average. If each sub-call has a 1% chance of being slow:
+
+$$
+P(\text{at least one slow in } N \text{ calls}) = 1 - (1 - 0.01)^N
+$$
+
+For $N = 100$: $1 - 0.99^{100} \approx 0.634$. **63% of requests hit a slow sub-call.** This is the "tail at scale" problem identified by Dean and Barroso at Google. Your p99 becomes your users' p50 when you fan out.
+
+```mermaid
+graph LR
+    A["User Request"] --> B["Fan-out: 50 sub-calls"]
+    B --> C1["Sub-call 1: 8ms"]
+    B --> C2["Sub-call 2: 12ms"]
+    B --> C3["Sub-call 3: 7ms"]
+    B --> C4["..."]
+    B --> C50["Sub-call 50: 3,200ms ← GC pause"]
+    C1 --> D["Response = max(all) = 3,200ms"]
+    C2 --> D
+    C3 --> D
+    C4 --> D
+    C50 --> D
+    style C50 fill:#ffcdd2,stroke:#c62828
+    style D fill:#ffcdd2,stroke:#c62828
+```
+
+The fix is not "make every sub-call faster." The fixes are: **hedged requests** (send the same call to two replicas, take the first response), **timeouts with fallbacks** (cut off the slow tail, return a degraded result), and **reducing fan-out** (batch sub-calls, cache aggressively).
+
+## Measuring Latency Correctly
+
+The practical rules:
+
+1. **Instrument at the boundary.** Measure from the moment the request hits your service to the moment the response is fully written to the socket. Do not measure "handler function time" — that excludes serialization, network buffering, and GC pauses that happen outside your handler.
+2. **Use histograms, not summaries.** A histogram (fixed buckets) can be aggregated across instances. A summary (computed quantiles) cannot be meaningfully combined. Prometheus, OpenTelemetry, and most APM tools use histograms for this reason.
+3. **Record the context.** A p99 of 4 seconds means nothing if you do not know whether it correlates with GC pauses, cache misses, lock contention, or a specific user's data shape. Tag your latency observations with relevant dimensions.
+4. **Separate cold from warm.** The first request after a deploy, after a cache eviction, after a GC cycle — these are structurally different from steady-state requests. Report them separately or your p99 will be dominated by cold-start artifacts.
+
+```python
+# A minimal latency histogram for a Python service
+import time
+import bisect
+
+class LatencyHistogram:
+    """Fixed-bucket histogram for latency tracking. Aggregatable across instances."""
+
+    BUCKETS_MS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
+
+    def __init__(self):
+        self.counts = [0] * (len(self.BUCKETS_MS) + 1)  # +1 for +Inf
+        self.total_count = 0
+        self.total_sum = 0.0
+
+    def observe(self, latency_ms: float):
+        idx = bisect.bisect_left(self.BUCKETS_MS, latency_ms)
+        self.counts[idx] += 1
+        self.total_count += 1
+        self.total_sum += latency_ms
+
+    def percentile(self, p: float) -> float:
+        """Return the bucket upper bound for the given percentile."""
+        target = self.total_count * p / 100.0
+        cumulative = 0
+        for i, count in enumerate(self.counts):
+            cumulative += count
+            if cumulative >= target:
+                if i < len(self.BUCKETS_MS):
+                    return self.BUCKETS_MS[i]
+                return float("inf")
+        return float("inf")
+
+    def report(self) -> dict:
+        return {
+            "p50": self.percentile(50),
+            "p90": self.percentile(90),
+            "p99": self.percentile(99),
+            "p999": self.percentile(99.9),
+            "count": self.total_count,
+            "mean": self.total_sum / self.total_count if self.total_count else 0,
+        }
+
+# Usage:
+# hist = LatencyHistogram()
+# hist.observe(elapsed_ms)
+# print(hist.report())
+# {"p50": 10, "p90": 50, "p99": 2500, "p999": 5000, "count": 100000, "mean": 87.3}
+```
+
+::: callout tip
+When you see a latency number without a percentile attached, ask: "p50 or p99?" When you see "average latency," ask: "what does the distribution look like?" These two questions will save you from every "but the dashboard says it's fine" incident.
+:::
+
+::: quiz mcq L3
+Your service fans out to 20 sub-calls per request. Each sub-call has a 2% chance of taking 5 seconds (due to occasional GC pauses). What is the approximate probability that a given user request experiences the 5-second tail?
+- [ ] 2%
+- [ ] 20%
+- [x] 33%
+- [ ] 50%
+explain: P(at least one slow) = 1 - (1-0.02)^20 = 1 - 0.98^20 ≈ 1 - 0.668 = 0.332, or about 33%. This is the fan-out amplification effect: individual tail probabilities compound across parallel calls, making the system-level tail far worse than any single component's tail.
+:::
+
+::: quiz open L3
+Your Electron app's IPC bridge shows p50 = 3ms, p99 = 800ms. The main process handles both IPC and SQLite queries on the same event loop. Describe two distinct hypotheses for the p99 spike and one measurement you would take to distinguish between them.
+rubric: A strong answer identifies (1) GC pauses in the V8 heap as one hypothesis (testable via --prof or DevTools memory timeline showing GC events correlated with latency spikes), (2) synchronous SQLite queries blocking the event loop as another hypothesis (testable via EXPLAIN QUERY PLAN + .timer on, or by moving queries to a worker thread and observing whether p99 drops), and proposes a concrete distinguishing measurement (e.g., correlating GC event timestamps with latency spikes, or A/B testing with queries in a worker thread).
+:::
+
+:::: grounding
+includes: The distinction between latency and throughput, why arithmetic means mislead for latency distributions, percentile-based reporting, tail latency amplification in fan-out architectures, and practical measurement methodology.
+know: In fan-out systems, the probability of hitting at least one slow sub-call is 1-(1-p)^N, meaning a 1% per-call tail probability becomes 63% at N=100 parallel calls [dean-barroso-tail-at-scale]
+know: The arithmetic mean of a bimodal latency distribution (e.g., 95% at 10ms, 5% at 5000ms) describes no actual user's experience; percentiles (p50, p99) are the correct reporting primitive [google-sre-book-latency]
+know: Prometheus and OpenTelemetry use fixed-bucket histograms rather than computed summaries for latency because histograms can be meaningfully aggregated across instances while summaries cannot [prometheus-histograms]
+source: dean-barroso-tail-at-scale | The Tail at Scale (Dean & Barroso, 2013) | https://research.google/pubs/pub40801/
+source: google-sre-book-latency | Google SRE Book: Addressing Cascading Failures | https://sre.google/sre-book/addressing-cascading-failures/
+source: prometheus-histograms | Prometheus Histograms and Summaries | https://prometheus.io/docs/practices/histograms/
+misconception: Average latency is a useful summary of system performance | The mean of a heavy-tailed distribution describes no actual user; percentiles (especially p99) are the correct metric for user experience
+misconception: Making each sub-call faster will fix tail latency in fan-out systems | Tail amplification is a structural property of parallelism; the fixes are hedging, timeouts, and reducing fan-out, not just per-call speed
+excludes: Network-level latency (TCP, DNS, TLS); CDN and edge caching strategies; Mobile-specific latency constraints
+::::
+
+# Algorithmic vs Systems Optimization: Choosing the Right Lever
+
+@mastery L3
+@prereq performance-and-efficiency-the-optimization-craft locality
+
+You have a function that processes 10 million records. It takes 45 seconds. Your colleague suggests rewriting it in Rust. You profile and discover that 92% of the time is spent in a linear search through an unsorted list — an $O(n^2)$ operation hiding inside what looks like an $O(n)$ loop.
+
+You fix the data structure. The function now takes 0.3 seconds. In Python. The Rust rewrite would have gotten you to 0.15 seconds. **The algorithmic fix was 150x. The language rewrite would have been 2x.**
+
+This node teaches you to diagnose which *category* of optimization applies before you reach for a tool, because the categories differ by orders of magnitude in their potential impact.
+
+## The Hierarchy of Performance Levers
+
+Not all optimizations are created equal. They exist in a hierarchy where each level can dwarf the one below it:
+
+$$
+\text{Algorithmic} \gg \text{Data Structure} \gg \text{Systems} \gg \text{Micro} \gg \text{Language}
+$$
+
+Concretely:
+
+| Level | Example | Typical speedup range | When to reach for it |
+|-------|---------|----------------------|---------------------|
+| Algorithmic | $O(n^2) \to O(n \log n)$ | 10x – 10,000x | Always check first |
+| Data structure | List search → Hash map | 10x – 1,000x | After algorithm is sound |
+| Systems | Blocking I/O → async; single-threaded → parallel | 2x – 50x | When I/O or parallelism is the bottleneck |
+| Micro | Cache-friendly layout; branch prediction; SIMD | 1.5x – 8x | After profiling shows CPU-bound hot loop |
+| Language | Python → C/Rust for a hot function | 2x – 100x (for that function) | Last resort, only for proven hotspots |
+
+The reason this hierarchy exists: **algorithmic complexity is asymptotic.** It grows with input size. A constant-factor improvement (better language, better cache usage) does not grow. At $n = 10^7$, the difference between $O(n^2)$ and $O(n \log n)$ is a factor of $\frac{n}{\log n} \approx \frac{10^7}{23} \approx 434,000$. No amount of cache tuning or language switching closes that gap.
+
+:::illustration {"prompt":"Generate one standalone 16:9 horizontal Chinese article illustration. Visual DNA: Pure white background. Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture. Recurring IP character: 小黑, a small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression. 小黑 must perform the core conceptual action, not decorate the scene. Theme: Choosing the right optimization lever. Structure type: Concept metaphor. Core idea: 小黑 stands before a wall of five levers of vastly different sizes, from enormous (labeled 算法) to tiny (labeled 语言). 小黑 is reaching for the largest lever. The smaller levers have cobwebs on them. A large orange arrow points from the big lever to a speedometer showing 10000x. Composition: 小黑 on the left reaching up toward the top lever. Five levers arranged vertically like a pipe organ, decreasing in size downward. Speedometer on the right. Suggested elements: five levers / speedometer / cobwebs on small levers / orange arrow. Chinese handwritten labels: 算法 / 数据结构 / 系统 / 微调 / 语言 / 10000x. Color use: Black for main line art. Orange for the arrow and the big lever highlight. Red for the 10000x number. Blue for the cobwebs and unused levers.","concept":"Algorithmic optimization yields orders of magnitude more improvement than language-level tuning — always pull the biggest lever first"}
+:::
+
+## The Diagnostic Question
+
+Before optimizing, ask: **"Is this problem CPU-bound, memory-bound, I/O-bound, or algorithm-bound?"**
+
+- **Algorithm-bound:** The asymptotic complexity is wrong for the input size. Symptom: runtime grows superlinearly with input. Fix: better algorithm or data structure.
+- **CPU-bound:** The algorithm is correct but the constant factors are high. Symptom: profiler shows a tight loop dominating. Fix: micro-optimization, SIMD, or language change *for that loop only*.
+- **Memory-bound:** The CPU is stalled waiting for data from RAM/cache. Symptom: high cache-miss rate in `perf stat`, low IPC (instructions per cycle). Fix: data-oriented design (next node), reduce working set, improve locality.
+- **I/O-bound:** The CPU is idle waiting for disk/network. Symptom: low CPU utilization, high iowait. Fix: async I/O, batching, caching, pipelining.
+
+```mermaid
+flowchart TD
+    A["Performance Problem"] --> B{"Profile: where is time spent?"}
+    B -->|"CPU at 100%,<br>tight loop"| C["CPU-bound"]
+    B -->|"CPU idle,<br>waiting on disk/network"| D["I/O-bound"]
+    B -->|"High cache-miss rate,<br>low IPC"| E["Memory-bound"]
+    B -->|"Runtime grows as n²<br>or worse"| F["Algorithm-bound"]
+    C --> G["Micro-opt: SIMD, branch hints,<br>language for hot loop only"]
+    D --> H["Async I/O, batching,<br>caching, pipelining"]
+    E --> I["Data-oriented design,<br>cache-friendly layout,<br>reduce working set"]
+    F --> J["Better algorithm or<br>data structure FIRST"]
+    J -->|"Then re-profile"| B
+    style F fill:#ffcdd2,stroke:#c62828
+    style J fill:#c8e6c9,stroke:#2e7d32
+```
+
+## A Worked Example: Your SQLite Query
+
+You have a DeskFlow feature that searches across 50,000 stored keyboard shortcuts. The current implementation:
+
+```sql
+-- The "obvious" query: full table scan with LIKE
+SELECT * FROM shortcuts WHERE name LIKE '%copy%';
+-- EXPLAIN QUERY PLAN: SCAN TABLE shortcuts
+-- Time at 50K rows: 340ms
+-- Time at 500K rows: 3,400ms (linear, but the constant is brutal)
+```
+
+The algorithmic fix is not "make SQLite faster." It is "do not do a linear scan for a substring search":
+
+```sql
+-- Option 1: FTS5 full-text search index
+CREATE VIRTUAL TABLE shortcuts_fts USING fts5(name, content=shortcuts);
+-- Query: SELECT * FROM shortcuts_fts WHERE shortcuts_fts MATCH 'copy';
+-- Time at 50K rows: 0.8ms
+-- Time at 500K rows: 1.2ms (sublinear due to inverted index)
+
+-- Option 2: If you need substring (not word) matching, trigram index
+-- (SQLite does not have native trigrams, but you can build a covering index
+-- on a computed column, or use an external search library)
+```
+
+The speedup is **425x** at 50K rows and grows with data size. No amount of "tuning SQLite" or "switching to PostgreSQL" would have gotten you there. The algorithm changed from $O(n)$ scan to $O(\log n)$ index lookup.
+
+## When Systems Optimization Is the Right Lever
+
+Algorithmic fixes are not always available. Sometimes the algorithm is already optimal and the bottleneck is genuinely systems-level:
+
+- **Parallelism:** You need to process 1,000 independent images. The algorithm is $O(n)$ per image and cannot be improved. But you can process them in parallel across 8 cores: 8x throughput.
+- **I/O overlap:** You need to read 100 files, transform each, and write results. Sequential: read→transform→write per file. Pipelined: read file N+1 while transforming file N while writing file N-1. The algorithm is unchanged; the *overlap* eliminates idle time.
+- **Batching:** You make 1,000 HTTP calls to an API. Each call has 50ms of network overhead. Batching into 10 calls of 100 items each: 10 × 50ms = 500ms overhead instead of 1,000 × 50ms = 50,000ms. The algorithm per item is unchanged; the *amortization* of fixed costs is the win.
+
+The meta-skill: **read the profiler output and classify the bottleneck before choosing the tool.** A CPU-bound hot loop in a matrix multiply is a SIMD/vectorization problem (next node). An I/O-bound web scraper is a concurrency problem. A memory-bound graph traversal is a data-layout problem. The diagnosis determines the prescription.
+
+::: callout caution
+The most common failure mode in optimization is applying a systems-level fix to an algorithm-bound problem. "Let's add more servers" does not fix an $O(n^2)$ algorithm. "Let's use a faster language" does not fix a missing index. Diagnose the category first. The fix is almost always cheaper than you think if it is the right category, and almost always more expensive than you think if it is the wrong one.
+:::
+
+::: quiz mcq L3
+A data pipeline processes 1 million records. Profiling shows: 70% of time in a nested loop comparing every record to every other record (O(n²)), 20% in JSON parsing, 10% in disk I/O. The team proposes switching from Python to Go for a 5x speedup on the parsing step. What is the highest-impact intervention?
+- [ ] Switch to Go for the entire pipeline
+- [ ] Optimize the JSON parser with a streaming library
+- [x] Replace the O(n²) comparison with a hash-based join or spatial index
+- [ ] Add more disk I/O bandwidth with an SSD upgrade
+explain: The O(n²) comparison dominates at 70% and grows quadratically. At 1M records, n² = 10^12 comparisons. Replacing this with an O(n log n) or O(n) approach (hash join, spatial index) yields a speedup of n/log(n) ≈ 50,000x for that component. The Go rewrite of parsing (20% of time, 5x speedup) yields at most a 1.25x overall improvement. The algorithmic fix is orders of magnitude more impactful.
+:::
+
+::: quiz open L3
+You are optimizing a PyTorch training loop. Profiling with torch.profiler shows: 60% of time in `DataLoader` worker processes (CPU-bound preprocessing), 30% in CUDA kernels (GPU compute), 10% in Python overhead between steps. Classify each bottleneck and propose one intervention per category, explaining why the intervention matches the bottleneck type.
+rubric: A strong answer classifies DataLoader as CPU-bound/parallelism-limited (intervention: increase num_workers, use persistent_workers=True, move preprocessing to GPU via transforms or DALI), CUDA kernels as compute-bound (intervention: enable mixed precision with torch.cuda.amp, use torch.compile for kernel fusion, or check if batch size is saturating GPU SMs), and Python overhead as interpreter-bound (intervention: use torch.compile to fuse operations and eliminate Python dispatch overhead, or restructure to reduce per-step Python calls). Each intervention must match the bottleneck category.
+:::
+
+:::: grounding
+includes: The hierarchy of optimization levers (algorithmic through language-level), the diagnostic framework for classifying bottlenecks (CPU/memory/IO/algorithm-bound), and worked examples showing when each category of fix applies.
+know: Algorithmic complexity improvements (e.g., O(n²) to O(n log n)) yield speedups proportional to n/log(n), which at n=10^7 is approximately 434,000x — dwarfing any constant-factor improvement from language or micro-optimization [cormen-algorithms-ch3]
+know: The four bottleneck categories (CPU-bound, memory-bound, I/O-bound, algorithm-bound) require qualitatively different interventions; misdiagnosis leads to expensive fixes with minimal impact [brendan-gregg-systems-performance]
+know: SQLite FTS5 inverted indexes reduce full-text search from O(n) table scan to O(log n) index lookup, yielding 100-1000x speedups on large tables compared to LIKE queries [sqlite-fts5-docs]
+source: cormen-algorithms-ch3 | Introduction to Algorithms, Ch. 3: Growth of Functions | https://mitpress.mit.edu/9780262046305/introduction-to-algorithms/
+source: brendan-gregg-systems-performance | Systems Performance: Enterprise and the Cloud (2nd ed.) | https://www.brendangregg.com/sysperfbook.html
+source: sqlite-fts5-docs | SQLite FTS5 Documentation | https://www.sqlite.org/fts5.html
+misconception: A faster programming language is the primary lever for performance | Language choice is the lowest-leverage optimization; algorithmic and data-structure changes typically yield 10-1000x more improvement than language switches
+misconception: If the profiler shows a hot function, you should rewrite that function in a faster language | First verify the algorithm is asymptotically correct; a hot O(n²) function rewritten in Rust is still O(n²) and still dominates at scale
+excludes: Compiler-specific optimizations (LLVM passes, GCC flags); JIT compilation internals; Hardware-specific tuning (FPGA, ASIC)
+::::
+
+# Memory: The Invisible Tax
+
+@mastery L3
+@prereq performance-and-efficiency-the-optimization-craft locality
+
+Every object you create is a debt. Every allocation is a promise to the garbage collector: "I will need you to clean this up later, and I will pay for that cleanup in CPU cycles, in pause times, in cache pollution." Most code pays this tax invisibly — until the bill arrives as a 200ms GC pause in the middle of a user's drag operation, or a slow memory leak that grows 2MB per hour until the Electron renderer crashes at 4GB.
+
+This node makes the invisible visible: what allocation actually costs, how garbage collection works and why it hurts, where memory leaks hide in JavaScript/Python, and how to design code that minimizes the tax.
+
+## The True Cost of Allocation
+
+When you write `const obj = { x: 1, y: 2 }` in JavaScript or `obj = {"x": 1, "y": 2}` in Python, the following happens:
+
+1. **The runtime finds free space** in the heap (or requests more from the OS via `mmap`/`sbrk`).
+2. **The object header is written** (type pointer, GC metadata, hash code — typically 12-16 bytes overhead per object).
+3. **The fields are written** into the allocated space.
+4. **The reference is stored** on the stack or in a parent object.
+5. **Eventually, the GC must discover** that this object is unreachable, mark it, and reclaim the space.
+
+Steps 1-4 are the *allocation cost*. Step 5 is the *collection cost*. Both are real, both are paid in CPU time, and both are amplified by volume.
+
+The numbers that matter:
+
+- A single small object allocation in V8: ~10-50ns (fast path, bump-pointer in young generation).
+- A single small object allocation in CPython: ~100-500ns (slower due to reference counting + cyclic GC).
+- A GC pause in V8 (major collection, 100MB heap): 5-50ms.
+- A GC pause in CPython (cyclic GC, many objects): 1-10ms.
+- A `malloc` call in C for a 64-byte block: ~20-100ns (with thread-local caches).
+
+These numbers look small. But in a hot loop processing 1 million records, creating 3 temporary objects per record:
+
+$$
+1{,}000{,}000 \times 3 \times 50\text{ns} = 150\text{ms of pure allocation overhead}
+$$
+
+And the GC must later scan and collect 3 million objects. The tax compounds.
+
+:::illustration {"prompt":"Generate one standalone 16:9 horizontal Chinese article illustration. Visual DNA: Pure white background. Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture. Recurring IP character: 小黑, a small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression. 小黑 must perform the core conceptual action, not decorate the scene. Theme: Memory allocation as invisible tax. Structure type: Workflow. Core idea: 小黑 is a factory worker on an assembly line, stamping out small cube objects. Each cube has a tiny tax receipt attached. A large looming shadow of a tax collector (the GC) waits at the end of the line with a basket, collecting receipts. 小黑 looks tired. Orange arrows show the flow from creation to tax collection. Composition: Left side shows 小黑 stamping cubes rapidly. Middle shows cubes piling up with receipts. Right side shows the GC shadow sweeping them into a basket. Suggested elements: assembly line / cube objects / tax receipts / GC shadow figure / collection basket. Chinese handwritten labels: 分配 / 对象 / 税 / GC / 回收. Color use: Black for main line art. Orange for the flow arrows along the assembly line. Red for the tax receipts and the GC shadow. Blue for the tiny receipt numbers.","concept":"Every object allocation is a debt the garbage collector must eventually collect — the invisible tax on performance"}
+:::
+
+## Garbage Collection: How It Works and Why It Hurts
+
+V8 (Node.js, Electron) uses a **generational, stop-the-world** collector:
+
+- **Young generation (Scavenge):** Small, short-lived objects. Collected frequently (every few MB allocated). Fast (~1-5ms) because most objects are dead.
+- **Old generation (Mark-Sweep-Compact):** Long-lived objects that survived multiple young collections. Collected less frequently but takes longer (10-100ms) because it must trace the entire live object graph.
+
+The pain points:
+
+1. **Stop-the-world pauses:** During collection, *all* JavaScript execution halts. In Electron's main process, this means no IPC, no window updates, no event handling. A 50ms old-gen GC is a 50ms UI freeze.
+2. **Allocation rate pressure:** If you allocate faster than the GC can collect, the heap grows, GCs become more frequent and longer, and you enter a "GC thrash" where the program spends more time collecting than computing.
+3. **Memory fragmentation:** Over time, the heap becomes fragmented. The GC must compact (move live objects), which is expensive and causes additional pauses.
+
+```mermaid
+sequenceDiagram
+    participant App as Application Code
+    participant Heap as V8 Heap
+    participant GC as Garbage Collector
+    participant OS as Operating System
+
+    App->>Heap: Allocate obj1 (young gen)
+    App->>Heap: Allocate obj2 (young gen)
+    Note over Heap: Young gen fills up (16MB)
+    Heap->>GC: Trigger Scavenge
+    GC->>GC: Stop-the-world (2ms)
+    GC->>Heap: Copy live objects, free dead
+    GC->>App: Resume execution
+    App->>Heap: Allocate obj3 (promoted to old gen)
+    Note over Heap: Old gen grows over time
+    Heap->>GC: Trigger Mark-Sweep-Compact
+    GC->>GC: Stop-the-world (45ms)
+    GC->>OS: Request more memory (mmap)
+    GC->>App: Resume execution
+    Note over App: User experienced 47ms of UI freeze
+```
+
+## Memory Leaks: The Silent Growth
+
+A memory leak is not "memory that is never freed." It is **memory that is no longer needed but remains reachable.** The GC cannot collect what is still referenced. Common patterns in your stack:
+
+```javascript
+// LEAK 1: Forgotten event listeners
+class WindowManager {
+  constructor() {
+    this.windows = [];
+    ipcMain.on('window-closed', (event, id) => {
+      this.windows = this.windows.filter(w => w.id !== id);
+      // The closure still holds references to removed windows
+    });
+  }
+}
+
+// LEAK 2: Closures capturing large scope
+function createHandler(largeData) {
+  // largeData is 50MB of parsed JSON
+  return function handler(event) {
+    if (event.type === 'click') { /* ... */ }
+    // largeData stays alive forever in this closure
+  };
+}
+
+// LEAK 3: Caches without eviction
+const queryCache = new Map(); // grows forever
+function getCachedResult(key) {
+  if (!queryCache.has(key)) {
+    queryCache.set(key, expensiveQuery(key));
+  }
+  return queryCache.get(key);
+}
+```
+
+In Python (PyTorch training loops):
+
+```python
+# LEAK: Accumulating tensors with computation graphs
+losses = []
+for epoch in range(100):
+    for batch in dataloader:
+        loss = model(batch)
+        losses.append(loss)  # Each loss retains the full autograd graph!
+
+# Fix: detach and convert to scalar
+losses.append(loss.item())  # .item() extracts the float, breaks the graph
+```
+
+## Object Pooling and Allocation Avoidance
+
+When you must create and destroy many similar objects rapidly, **object pooling** eliminates the allocation/collection cycle:
+
+```python
+class BufferPool:
+    def __init__(self, size: int, buffer_size: int):
+        self._pool = [bytearray(buffer_size) for _ in range(size)]
+        self._available = list(range(size))
+
+    def acquire(self) -> bytearray:
+        if not self._available:
+            self._pool.append(bytearray(len(self._pool[0])))
+            return self._pool[-1]
+        idx = self._available.pop()
+        return self._pool[idx]
+
+    def release(self, buf: bytearray):
+        idx = self._pool.index(buf)
+        self._available.append(idx)
+```
+
+The rule: **pool when allocation rate is high AND object lifetime is short AND object size is uniform.** Do not pool speculatively.
+
+## GC Pressure Diagnostics
+
+```bash
+# Node.js / Electron: track GC events
+node --trace-gc --max-old-space-size=512 app.js
+
+# Python: track allocations with tracemalloc
+python -X tracemalloc=10 app.py
+```
+
+::: quiz mcq L3
+Your Electron app's renderer process grows from 150MB to 1.2GB over 4 hours of normal use. Chrome DevTools Memory tab shows a steady increase in "Detached DOM trees" and "Event listeners" between GC cycles. What is the most likely cause?
+- [ ] V8's old-generation heap is too small and needs --max-old-space-size increased
+- [x] DOM elements are being removed from the document but JavaScript closures still reference them, preventing GC
+- [ ] The garbage collector is not running frequently enough
+- [ ] SQLite is caching too many query results in memory
+explain: "Detached DOM trees" in DevTools means DOM nodes that are no longer in the document tree but are still referenced by JavaScript objects (typically event listener closures, global variables, or data structures that were not cleaned up). The GC cannot collect them because they are still reachable. The fix is to remove event listeners and null out references when components unmount.
+:::
+
+::: quiz numeric L3
+A Python training loop creates 500 temporary tensors per epoch, each 2MB. Each tensor's computation graph adds 3x overhead (so 8MB effective per tensor). None are freed until the epoch ends. What is the peak memory usage from these temporaries alone, in GB? (Round to nearest integer.)
+answer: 4
+explain: 500 tensors × 8MB = 4,000MB = 4GB. This is the peak within a single epoch. The fix is to call .item() or .detach() on loss tensors and avoid storing intermediate activations unless needed for backprop.
+:::
+
+:::: grounding
+includes: The true cost of object allocation, generational garbage collection mechanics (V8 and CPython), common memory leak patterns in JavaScript and Python, object pooling, and GC pressure diagnostics.
+know: V8 uses a generational stop-the-world collector where young-generation scavenges take 1-5ms but old-generation mark-sweep-compact collections can take 10-100ms, during which all JavaScript execution halts [v8-gc-design]
+know: In CPython, reference counting handles most deallocation immediately, but cyclic references require the cyclic garbage collector, which runs periodically and can cause 1-10ms pauses [cpython-gc-docs]
+know: "Detached DOM trees" in Chrome DevTools Memory tab indicate DOM nodes removed from the document but still referenced by JavaScript closures, preventing garbage collection — the most common memory leak pattern in SPAs and Electron apps [chrome-devtools-memory]
+know: Calling .item() on a PyTorch tensor extracts the scalar value and breaks the computation graph reference, preventing the entire autograd graph from being retained in memory [pytorch-memory-management]
+source: v8-gc-design | V8 Garbage Collection Design | https://v8.dev/blog/trash-talk
+source: cpython-gc-docs | CPython gc module documentation | https://docs.python.org/3/library/gc.html
+source: chrome-devtools-memory | Chrome DevTools: Memory Problems | https://developer.chrome.com/docs/devtools/memory-problems/
+source: pytorch-memory-management | PyTorch Memory Management | https://pytorch.org/docs/stable/notes/memory_management.html
+misconception: Garbage collection means you never have to think about memory | GC manages reclamation but not reachability; leaks occur when objects remain reachable but unnecessary, and GC pauses are a real latency cost
+misconception: Object pooling is always faster than allocation | Pooling adds complexity and can mask bugs; it is only beneficial when allocation rate is high, lifetime is short, and size is uniform
+excludes: OS-level virtual memory and page tables; Memory-mapped files; GPU memory management (CUDA unified memory)
+::::
+
+# Data-Oriented Design: Thinking in Cache Lines, Not Objects
+
+@mastery L4
+@prereq performance-and-efficiency-the-optimization-craft locality
+
+You write a loop that iterates over 10 million `Particle` objects, updating each one's `x`, `y`, `vx`, `vy` fields. In Python, it takes 12 seconds. You rewrite it in C with the same logic. It takes 4 seconds. You are confused — C should be 50-100x faster for a tight loop. Then you rewrite the C version to use a **struct-of-arrays** layout instead of an **array-of-structs**, and it drops to 0.4 seconds. The language gave you 3x. The data layout gave you 10x.
+
+This node teaches you why: **the memory hierarchy is the real machine.** Your CPU does not execute your code; it executes your code *as filtered through 4-5 levels of cache, each with different latency, bandwidth, and capacity.* Data-oriented design is the practice of arranging your data so that the cache hierarchy works *for* you instead of against you.
+
+## The Memory Hierarchy: Numbers That Govern Everything
+
+```mermaid
+graph TD
+    subgraph "Memory Hierarchy (typical 2024 desktop/server CPU)"
+        L1["L1 Cache<br>32-64 KB per core<br>~1 ns (4 cycles)<br>Bandwidth: ~2 TB/s"]
+        L2["L2 Cache<br>256 KB - 1 MB per core<br>~4 ns (12 cycles)<br>Bandwidth: ~1 TB/s"]
+        L3["L3 Cache (shared)<br>16-64 MB<br>~12 ns (40 cycles)<br>Bandwidth: ~400 GB/s"]
+        RAM["Main Memory (DDR5)<br>16-256 GB<br>~80-100 ns (250 cycles)<br>Bandwidth: ~50-100 GB/s"]
+        DISK["NVMe SSD<br>1-8 TB<br>~10,000-100,000 ns<br>Bandwidth: ~3-7 GB/s"]
+    end
+    L1 --> L2 --> L3 --> RAM --> DISK
+    style L1 fill:#c8e6c9,stroke:#2e7d32
+    style L2 fill:#dcedc8,stroke:#558b2f
+    style L3 fill:#fff9c4,stroke:#f9a825
+    style RAM fill:#ffccbc,stroke:#e64a19
+    style DISK fill:#ffcdd2,stroke:#c62828
+```
+
+The critical insight: **the ratio between L1 and RAM latency is ~100x. The ratio between L1 and disk is ~100,000x.** If your working set fits in L1, your loop runs at full CPU speed. If it streams from RAM, you are stalled 250 cycles per access. If it hits disk, you are stalled 100,000 cycles.
+
+A **cache line** is the unit of transfer between levels: typically 64 bytes. When you access one byte, the CPU fetches the entire 64-byte line. This is why **spatial locality** (accessing nearby addresses) and **temporal locality** (re-accessing the same data soon) are the two principles that determine performance.
+
+:::illustration {"prompt":"Generate one standalone 16:9 horizontal Chinese article illustration. Visual DNA: Pure white background. Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture. Recurring IP character: 小黑, a small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression. 小黑 must perform the core conceptual action, not decorate the scene. Theme: Cache-friendly data layout vs scattered objects. Structure type: Before/after contrast. Core idea: Left side shows 小黑 struggling to collect scattered objects (small cubes) spread far apart across the page, running back and forth with sweat drops, each trip labeled with a red X for cache miss. Right side shows 小黑 neatly sliding a long contiguous bar of cubes through a narrow slot (the cache line), smiling, with orange checkmarks. Composition: Left half is chaotic with objects spread wide. Right half is orderly with a single contiguous strip. A bold orange arrow divides the two halves. Suggested elements: scattered cubes / running 小黑 / contiguous bar / cache slot / orange arrow. Chinese handwritten labels: 分散 / 连续 / 缓存行 / 命中 / 未命中. Color use: Black for main line art. Orange for the dividing arrow and checkmarks. Red for the X marks and sweat drops on the left. Blue for the cache slot outline on the right.","concept":"Contiguous memory layout lets the CPU cache line capture useful data in one fetch — scattered objects waste bandwidth on misses"}
+:::
+
+## Array-of-Structs vs Struct-of-Arrays
+
+The classic example. You have 1 million particles, each with `x, y, z, vx, vy, vz` (6 floats = 24 bytes).
+
+**Array-of-Structs (AoS)** — the "natural" OOP layout:
+
+```c
+struct Particle { float x, y, z, vx, vy, vz; };  // 24 bytes
+Particle particles[1000000];  // 24 MB contiguous
+
+// Update only x positions:
+for (int i = 0; i < 1000000; i++) {
+    particles[i].x += particles[i].vx * dt;
+}
+// Memory access pattern: stride of 24 bytes between useful floats
+// Each 64-byte cache line contains 2.67 particles
+// You load 64 bytes to use 8 bytes (x and vx) = 12.5% utilization
+```
+
+**Struct-of-Arrays (SoA)** — the data-oriented layout:
+
+```c
+struct Particles {
+    float* x;   // 4 MB contiguous
+    float* y;   // 4 MB
+    float* z;   // 4 MB
+    float* vx;  // 4 MB
+    float* vy;  // 4 MB
+    float* vz;  // 4 MB
+};
+
+// Update only x positions:
+for (int i = 0; i < 1000000; i++) {
+    p.x[i] += p.vx[i] * dt;
+}
+// Memory access pattern: stride of 4 bytes (contiguous floats)
+// Each 64-byte cache line contains 16 x-values
+// You load 64 bytes to use 64 bytes = 100% utilization
+```
+
+The SoA version is **8x faster** for this operation because every cache line is fully utilized. The AoS version wastes 87.5% of every cache line fetch.
+
+## Why NumPy and PyTorch Are Fast: Vectorization and Layout
+
+This is the secret behind every "why is NumPy 100x faster than a Python loop" answer. It is not "NumPy is written in C." It is:
+
+1. **Contiguous memory layout:** A NumPy array is a single contiguous block of memory (row-major by default). Iterating over it is a sequential memory scan — perfect for prefetching and cache utilization.
+
+2. **Vectorized operations in C/SIMD:** `a + b` on two NumPy arrays calls a single C function that loops over the contiguous memory with SIMD instructions (SSE, AVX, NEON), processing 4-8 floats per instruction.
+
+3. **No per-element Python overhead:** A Python `for` loop over a list pays ~100ns per iteration for interpreter dispatch, type checking, and object allocation. A NumPy vectorized operation pays that cost *once* for the entire array.
+
+```python
+import numpy as np
+
+# Python loop: 10 million iterations, ~100ns each = ~1 second
+result = [a[i] + b[i] for i in range(10_000_000)]
+
+# NumPy: one C function call, SIMD loop over contiguous memory
+# ~10 million additions in ~5ms (200x faster)
+result = a + b  # a and b are np.ndarray, contiguous float64
+
+# PyTorch on GPU: same principle, but the "contiguous memory" is
+# GPU global memory (HBM), and the "SIMD" is thousands of CUDA cores
+result = a_gpu + b_gpu  # ~0.1ms for 10M elements on a modern GPU
+```
+
+The row-major vs column-major distinction matters when you access data along the "wrong" axis:
+
+```python
+import numpy as np
+
+a = np.random.randn(10000, 10000)  # 800 MB, row-major (C order)
+
+# Fast: iterating over rows (contiguous in memory)
+row_sum = a[5000, :].sum()  # Sequential access, ~0.1ms
+
+# Slow: iterating over columns (stride of 10000 elements = 80KB)
+col_sum = a[:, 5000].sum()  # Strided access, cache-line waste, ~2ms
+
+# Fix: use Fortran-order (column-major) if you access columns frequently
+a_f = np.asfortranarray(a)
+col_sum_fast = a_f[:, 5000].sum()  # Now contiguous, ~0.1ms
+```
+
+## SIMD: The Hardware Multiplier
+
+**SIMD** (Single Instruction, Multiple Data) lets one CPU instruction operate on 4-16 data elements simultaneously:
+
+| Instruction set | Width | Floats per op | Typical CPUs |
+|----------------|-------|---------------|--------------|
+| SSE4.2 | 128-bit | 4 × float32 | All x86 since 2006 |
+| AVX2 | 256-bit | 8 × float32 | Most x86 since 2013 |
+| AVX-512 | 512-bit | 16 × float32 | Server x86 (Ice Lake+) |
+| NEON | 128-bit | 4 × float32 | ARM (Apple Silicon, phones) |
+
+You rarely write SIMD intrinsics by hand. The compiler auto-vectorizes tight loops over contiguous arrays. NumPy, PyTorch, and BLAS libraries use hand-tuned SIMD under the hood. Your job is to **not prevent vectorization**: use contiguous arrays, avoid branches in inner loops, and let the library handle the SIMD.
+
+```mermaid
+graph LR
+    subgraph "Scalar (1 float per instruction)"
+        A1["a[0]+b[0]"] --> A2["a[1]+b[1]"] --> A3["a[2]+b[2]"] --> A4["a[3]+b[3]"]
+    end
+    subgraph "SIMD AVX2 (8 floats per instruction)"
+        B1["a[0..7]+b[0..7]<br>ONE instruction"]
+    end
+    A1 -.->|"4 instructions"| R1["4 results"]
+    B1 -.->|"1 instruction"| R2["8 results"]
+    style B1 fill:#c8e6c9,stroke:#2e7d32
+```
+
+## Data-Oriented Design Principles
+
+1. **Separate hot data from cold data.** If you iterate over 10 fields but only use 2 in the hot loop, put those 2 in a separate contiguous array.
+2. **Process data in streams, not objects.** Transform an array of values, not an array of objects that each contain a value.
+3. **Align access patterns with memory layout.** If you access columns, use column-major. If you access rows, use row-major.
+4. **Minimize indirection.** Every pointer chase is a potential cache miss. Flat arrays beat linked structures for bulk processing.
+5. **Batch operations.** Process 1000 elements at a time rather than 1 element 1000 times.
+
+::: callout tip
+The question to ask before writing any data-processing loop: "What is my access pattern, and does my memory layout match it?" If you are iterating sequentially over a contiguous array, you are cache-friendly. If you are chasing pointers, jumping between objects, or striding across a multi-dimensional array on the wrong axis, you are paying the RAM-latency tax on every access.
+:::
+
+::: quiz mcq L4
+You have a 10,000 × 10,000 matrix of float64 values (800 MB) stored in row-major (C) order. You need to compute the sum of each column. Which approach minimizes cache misses?
+- [ ] Iterate with nested loops: for j in cols, for i in rows, sum a[i][j]
+- [x] Transpose the matrix first (making columns contiguous), then sum rows of the transposed matrix
+- [ ] Use a Python for-loop over columns with a[i][j] indexing
+- [ ] Increase the CPU's L3 cache size via BIOS settings
+explain: In row-major order, a[i][j] with fixed j and varying i strides by 10,000 × 8 = 80KB between accesses — every access is a cache miss. Transposing makes the original columns into contiguous rows, so summing them is a sequential scan with perfect cache utilization.
+:::
+
+::: quiz open L4
+Explain why `torch.matmul(A, B)` on two 4096×4096 float32 tensors is approximately 1000x faster than a triple-nested Python loop computing the same result, referencing at least three distinct factors from this node (memory layout, SIMD/GPU parallelism, Python overhead, BLAS library optimization).
+rubric: A strong answer identifies (1) memory layout: tensors are contiguous in GPU HBM, enabling coalesced memory access vs Python list-of-lists with pointer chasing; (2) parallelism: GPU executes thousands of CUDA cores in SIMT fashion vs single-threaded Python loop; (3) Python overhead: the triple loop pays ~100ns per iteration for interpreter dispatch (4096³ ≈ 68 billion iterations × 100ns = impossible) vs a single kernel launch; (4) BLAS/cuBLAS: hand-tuned routines with tiling, register blocking, and software pipelining that achieve near-peak FLOPS. Must reference at least three of these factors with specific numbers or mechanisms.
+:::
+
+:::: grounding
+includes: The memory hierarchy (L1/L2/L3/RAM/disk latencies and bandwidths), cache-line mechanics, array-of-structs vs struct-of-arrays layout, why NumPy/PyTorch are fast (contiguous memory + SIMD/GPU + no Python overhead), SIMD instruction sets, and data-oriented design principles.
+know: A typical desktop CPU has L1 latency of ~1ns (4 cycles), L3 of ~12ns (40 cycles), and main RAM of ~80-100ns (250 cycles), making the L1-to-RAM latency ratio approximately 100x — meaning a cache miss costs 250x more than a cache hit [hennessy-patterson-ch5]
+know: NumPy arrays are contiguous blocks of memory accessed via vectorized C loops with SIMD instructions, eliminating per-element Python interpreter overhead (~100ns/iteration) and achieving near-hardware memory bandwidth [numpy-internals-oliphant]
+know: In row-major (C-order) arrays, accessing elements along the column axis strides by the full row width, causing a cache miss per access; transposing or using Fortran-order eliminates this for column-heavy workloads [numpy-memory-layout]
+know: AVX2 SIMD instructions process 8 float32 values per instruction, providing up to 8x throughput over scalar code for data-parallel operations on contiguous arrays [intel-avx2-manual]
+source: hennessy-patterson-ch5 | Computer Architecture: A Quantitative Approach, Ch. 5 | https://www.elsevier.com/books/computer-architecture/hennessy/978-0-12-811905-1
+source: numpy-internals-oliphant | A Guide to NumPy (Oliphant, 2006) | https://web.mit.edu/dvp/Public/numpybook.pdf
+source: numpy-memory-layout | NumPy Internals: Memory Layout | https://numpy.org/doc/stable/reference/internals.html
+source: intel-avx2-manual | Intel AVX2 Intrinsics Guide | https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html
+misconception: NumPy is fast because it is "written in C" | NumPy is fast because of contiguous memory layout + vectorized SIMD loops + elimination of per-element Python overhead; a C loop over a linked list would be equally slow
+misconception: Object-oriented design (array of objects) is the natural and efficient way to store collections | For bulk numerical processing, struct-of-arrays (data-oriented) layout is 5-10x faster than array-of-structs due to cache-line utilization
+excludes: GPU architecture deep-dive (warp scheduling, shared memory); Database storage engines (B-trees, LSM trees); Network packet layout and zero-copy I/O
+::::
+
+# Throughput Engineering and the Cost Mindset
+
+@mastery L4
+@prereq performance-and-efficiency-the-optimization-craft
+
+You have optimized the hot loop. You have fixed the data layout. You have eliminated the GC pauses. And now you discover that your system's throughput is limited not by any single operation but by **how work is organized**: whether requests are batched or individual, whether stages overlap or run sequentially, whether the system pushes work faster than downstream can consume it.
+
+This final node integrates the previous four into a systems-level perspective: **throughput engineering** (batching, pipelining, backpressure) and the **cost mindset** (treating compute, memory, and network as a finite budget you spend deliberately).
+
+## Batching: Amortizing Fixed Costs
+
+Every operation has a **fixed cost** (setup, network round-trip, function call, disk seek) and a **variable cost** (per-item processing). Batching amortizes the fixed cost across many items:
+
+$$
+\text{Cost per item} = \frac{C_{\text{fixed}}}{B} + C_{\text{variable}}
+$$
+
+where $B$ is the batch size. As $B$ grows, the fixed cost per item approaches zero.
+
+Concrete examples from your stack:
+
+| Operation | Fixed cost | Batched version | Speedup at B=100 |
+|-----------|-----------|-----------------|------------------|
+| HTTP API call | 50ms RTT | Send 100 items in one request | ~50x per item |
+| SQLite INSERT | 0.1ms per transaction | Wrap 100 INSERTs in one transaction | ~100x |
+| CUDA kernel launch | 5-10μs | Process 1000 elements per kernel | ~1000x amortized |
+| Python function call | 100ns | Vectorize with NumPy (1 call for 1M elements) | ~10,000x |
+| Disk write (HDD) | 5ms seek | Write 1MB sequentially vs 4KB random | ~1000x |
+
+```python
+# SQLite: the difference between 1000 individual transactions and one batch
+import sqlite3
+import time
+
+conn = sqlite3.connect("test.db")
+conn.execute("CREATE TABLE IF NOT EXISTS items (id INTEGER, data TEXT)")
+
+# SLOW: 1000 separate transactions
+start = time.perf_counter()
+for i in range(1000):
+    conn.execute("INSERT INTO items VALUES (?, ?)", (i, f"data_{i}"))
+    conn.commit()  # fsync to disk each time!
+print(f"Individual commits: {time.perf_counter() - start:.3f}s")  # ~2-5 seconds
+
+# FAST: one transaction for all 1000 inserts
+conn.execute("DELETE FROM items")
+start = time.perf_counter()
+conn.execute("BEGIN")
+for i in range(1000):
+    conn.execute("INSERT INTO items VALUES (?, ?)", (i, f"data_{i}"))
+conn.commit()  # single fsync
+print(f"Batched commit: {time.perf_counter() - start:.3f}s")  # ~5-10ms
+```
+
+## Pipelining: Overlapping Stages
+
+A pipeline breaks work into stages and overlaps them, so that multiple items are in-flight simultaneously:
+
+```mermaid
+graph LR
+    subgraph "Sequential (no pipeline)"
+        S1["Read A"] --> S2["Transform A"] --> S3["Write A"]
+        S3 --> S4["Read B"] --> S5["Transform B"] --> S6["Write B"]
+    end
+    subgraph "Pipelined (3 stages overlap)"
+        P1["Read A"] --> P2["Transform A"] --> P3["Write A"]
+        P4["Read B"] --> P5["Transform B"] --> P6["Write B"]
+        P7["Read C"] --> P8["Transform C"] --> P9["Write C"]
+    end
+    P1 -.->|"overlap"| P4 -.->|"overlap"| P7
+    style S1 fill:#fff3e0
+    style S4 fill:#fff3e0
+    style P1 fill:#c8e6c9
+    style P4 fill:#c8e6c9
+    style P7 fill:#c8e6c9
+```
+
+In the sequential version, total time for 3 items = 3 × (read + transform + write). In the pipelined version, total time = (read + transform + write) + 2 × max(read, transform, write). The pipeline fills, then runs at the rate of the *slowest stage*.
+
+The key insight: **pipelining does not make any single item faster. It increases throughput by keeping all stages busy.**
+
+## Backpressure: When the Consumer Cannot Keep Up
+
+A pipeline without backpressure is a buffer overflow waiting to happen. If the producer generates work faster than the consumer can process it, unbounded queues grow, memory explodes, and latency becomes unbounded.
+
+**Backpressure** is the mechanism by which a slow consumer signals the producer to slow down:
+
+- **TCP:** The receiver advertises a window size. The sender cannot send more than the window allows.
+- **Node.js Streams:** A `Readable` stream pauses when the `Writable` consumer's buffer exceeds `highWaterMark`.
+- **Reactive streams:** The subscriber requests N items. The publisher sends at most N until the subscriber requests more.
+
+```javascript
+// Node.js: backpressure with streams
+const fs = require('fs');
+const zlib = require('zlib');
+
+const readStream = fs.createReadStream('huge_file.dat');
+const gzip = zlib.createGzip();
+const writeStream = fs.createWriteStream('huge_file.dat.gz');
+
+readStream.pipe(gzip).pipe(writeStream);
+// pipe() internally handles backpressure:
+// - If writeStream is slow, gzip pauses
+// - If gzip is slow, readStream pauses
+// - Memory usage stays bounded regardless of file size
+```
+
+The absence of backpressure is the root cause of most "memory grows unboundedly under load" bugs. If your queue has no maximum size and no rejection policy, you do not have a queue — you have a memory leak with extra steps.
+
+## The Cost Mindset: Compute as a Budget
+
+The final integration. Every design decision spends from a finite budget:
+
+| Resource | Unit | Typical constraint | Question to ask |
+|----------|------|--------------------|-----------------|
+| CPU | core-seconds | Instance size, battery | "How many core-seconds does this feature cost per user per day?" |
+| Memory | GB-hours | Instance RAM, mobile limits | "What is the peak working set? Does it fit in the cache hierarchy?" |
+| Network | GB transferred | Egress costs, mobile data | "How many bytes cross the network per request?" |
+| Storage | GB-months | Disk costs, backup costs | "How long do I retain this?" |
+| Latency | ms at p99 | User experience, SLAs | "What is the tail latency budget for this path?" |
+| Developer time | hours | Your most expensive resource | "Is this optimization worth 3 days for a 2% speedup?" |
+
+The cost mindset is not "make everything as fast as possible." It is **"allocate the budget where it creates the most value."**
+
+```python
+# A cost-model sketch for an inference endpoint
+def estimate_monthly_cost(
+    requests_per_day: int,
+    avg_input_tokens: int,
+    avg_output_tokens: int,
+    gpu_cost_per_hour: float,
+    requests_per_gpu_per_second: float,
+) -> dict:
+    seconds_per_day = 86400
+    total_requests = requests_per_day * 30
+    gpu_seconds_needed = total_requests / requests_per_gpu_per_second
+    gpu_hours = gpu_seconds_needed / 3600
+    gpu_cost = gpu_hours * gpu_cost_per_hour
+
+    output_bytes = total_requests * avg_output_tokens * 4
+    egress_gb = output_bytes / (1024**3)
+    egress_cost = egress_gb * 0.09
+
+    return {
+        "gpu_cost_monthly": round(gpu_cost, 2),
+        "egress_cost_monthly": round(egress_cost, 2),
+        "total_monthly": round(gpu_cost + egress_cost, 2),
+        "cost_per_request": round((gpu_cost + egress_cost) / total_requests, 6),
+    }
+
+print(estimate_monthly_cost(1_000_000, 500, 200, 2.50, 50))
+```
+
+The meta-skill this entire lesson builds: **you do not optimize by feel. You measure, you classify the bottleneck, you choose the lever that matches the category, you verify the improvement, and you spend your optimization budget where the return is highest.** That is the craft.
+
+:::illustration {"prompt":"Generate one standalone 16:9 horizontal Chinese article illustration. Visual DNA: Pure white background. Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture. Recurring IP character: 小黑, a small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression. 小黑 must perform the core conceptual action, not decorate the scene. Theme: Compute as a budget you spend deliberately. Structure type: System partial. Core idea: 小黑 stands at a control panel with three large labeled dials (CPU, 内存, 网络), each showing a decreasing budget bar. 小黑 is carefully turning one dial while looking at a small receipt showing the cost. Below the panel, a conveyor belt carries small labeled boxes (requests) through. Composition: 小黑 center-left at the control panel. Three dials with budget bars. Conveyor belt at bottom. Small receipt in 小黑's other hand. Suggested elements: control panel / three dials / budget bars / conveyor belt / receipt. Chinese handwritten labels: 预算 / CPU / 内存 / 网络 / 成本. Color use: Black for main line art. Orange for the budget bars and conveyor arrows. Red for the decreasing budget indicators. Blue for the receipt and cost numbers.","concept":"Treat compute, memory, and network as a finite budget — spend deliberately where the return is highest"}
+:::
+
+::: callout info
+The cost mindset applies to your own time as well. A 2x speedup on a function that runs once per deploy is not worth a week of engineering. A 10% reduction in p99 latency on a path hit 10,000 times per second is worth a month. The budget includes your hours. Spend them where the compound return is highest.
+:::
+
+::: quiz mcq L4
+Your data pipeline reads records from S3, transforms them, and writes to a database. Currently it processes one record at a time: read (50ms network), transform (5ms CPU), write (10ms disk). You pipeline the three stages. What is the theoretical throughput in records per second once the pipeline is full?
+- [ ] 15.4 records/s (1/65ms)
+- [x] 20 records/s (1/50ms, limited by slowest stage)
+- [ ] 66.7 records/s (1/15ms, sum of parallel stages)
+- [ ] 100 records/s (1/10ms, fastest stage)
+explain: In a pipelined system, throughput is limited by the slowest stage (the bottleneck). The read stage takes 50ms, so the pipeline can emit one record every 50ms = 20 records/second. The transform (5ms) and write (10ms) stages are faster and will have idle time. Pipelining overlaps the stages but cannot exceed the bottleneck rate.
+:::
+
+::: quiz open L4
+You are designing an inference API that must serve 10,000 requests per second at p99 < 100ms. Each request requires a 50ms GPU inference. Describe a system architecture using batching and pipelining that achieves this throughput, and identify where backpressure is needed. Explain why a single GPU cannot serve this load without batching.
+rubric: A strong answer identifies that a single GPU processing requests sequentially achieves only 20 req/s (1000ms/50ms), far below 10,000 req/s. The architecture should include: (1) a request queue with backpressure (reject or queue with bounded size when full), (2) a dynamic batcher that accumulates requests for 5-10ms or until batch size reaches 32-64, (3) multiple GPU workers processing batches in parallel — 10,000 req/s ÷ 64 per batch = 156 batches/s, each taking 50ms, requiring ~8 GPUs in parallel, (4) pipelining between tokenization, GPU inference, and response serialization. Backpressure points: the request queue (bounded, reject at capacity), the batcher (stop accepting when GPUs are saturated), and the response writer (pause if client is slow). Must explain that batching amortizes GPU kernel launch overhead and saturates GPU compute units.
+:::
+
+:::: grounding
+includes: Batching as amortization of fixed costs, pipelining as stage overlap for throughput, backpressure as flow control to prevent unbounded buffering, and the cost mindset of treating compute/memory/network as a finite budget allocated by value.
+know: Batching amortizes fixed costs (network RTT, transaction overhead, kernel launch) across B items, reducing per-item cost as C_fixed/B + C_variable; optimal batch size balances amortization against latency increase and memory growth [cloud-batching-patterns]
+know: In a pipelined system, steady-state throughput equals the rate of the slowest stage (the bottleneck), not the sum of stage rates; pipelining increases throughput but does not reduce single-item latency [hennessy-patterson-pipeline]
+know: TCP flow control uses a receiver-advertised window to implement backpressure; when the receiver buffer is full, the window shrinks to zero and the sender must stop, preventing unbounded memory growth [rfc-9293-tcp]
+know: Node.js streams implement backpressure via the write() return value and drain event; ignoring backpressure (writing without checking) causes unbounded memory growth under load [nodejs-streams-docs]
+source: cloud-batching-patterns | AWS Well-Architected: Batch Processing Patterns | https://docs.aws.amazon.com/wellarchitected/latest/performance-efficiency-pillar/batch-processing.html
+source: hennessy-patterson-pipeline | Computer Architecture: A Quantitative Approach, Ch. 3: Pipelining | https://www.elsevier.com/books/computer-architecture/hennessy/978-0-12-811905-1
+source: rfc-9293-tcp | RFC 9293: Transmission Control Protocol | https://www.rfc-editor.org/rfc/rfc9293
+source: nodejs-streams-docs | Node.js Streams Documentation: Backpressure | https://nodejs.org/api/stream.html#backpressure
+misconception: Pipelining makes individual requests faster | Pipelining increases throughput by overlapping stages; single-request latency is unchanged (or slightly increased due to queuing)
+misconception: A larger queue always improves throughput | An unbounded queue without backpressure converts a throughput problem into a memory problem and increases tail latency unboundedly; queues must be bounded with rejection or shedding policies
+excludes: Distributed consensus and replication; Load balancer algorithms (round-robin, least-connections); Kernel-level I/O scheduling (io_uring, epoll internals)
+::::

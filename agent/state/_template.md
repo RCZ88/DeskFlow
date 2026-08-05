@@ -1,5 +1,7 @@
 <!-- AGENT STATE TEMPLATE — Copy this to create your spoke file -->
 <!-- Replace ALL {braces} with actual values before writing -->
+<!-- SESSION: {SESSION_ID} -->
+<!-- AGENT: {AGENT_TYPE} | TERMINAL: {TERMINAL_ID} | PROJECT: {PROJECT_PATH} -->
 
 # Agent State — {SESSION_ID}
 

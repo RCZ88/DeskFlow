@@ -1,12 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Database, BarChart3, DollarSign, Zap, AlertTriangle,
   Clock, Activity, Cpu, TrendingUp, Code2,
-  PieChart as PieChartIcon, FileText, Timer, Wrench, Loader2
+  PieChart as PieChartIcon, FileText, Timer, Wrench, Loader2, GitCommitHorizontal
 } from 'lucide-react';
 import { WorkspaceCard } from './workspace/_ds/containers';
 import { listContainer, riseItem } from './workspace/_ds/motion';
+import { Skeleton } from './ui/skeleton';
 import { format } from 'date-fns';
 import {
   Chart as ChartJS,
@@ -62,6 +63,74 @@ const barOptions = {
   },
 };
 
+const makeStripedPattern = (color: string): string | CanvasPattern => {
+  try {
+    if (typeof document === 'undefined') return color;
+    const tile = 8;
+    const c = document.createElement('canvas');
+    c.width = tile; c.height = tile;
+    const ctx = c.getContext('2d');
+    if (!ctx) return color;
+    ctx.clearRect(0, 0, tile, tile);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.4;
+    ctx.fillRect(0, 0, tile, tile);
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(tile, tile);
+    ctx.moveTo(tile * 0.5, -tile * 0.5); ctx.lineTo(tile * 1.5, tile * 0.5);
+    ctx.moveTo(-tile * 0.5, tile * 0.5); ctx.lineTo(tile * 0.5, tile * 1.5);
+    ctx.stroke();
+    return ctx.createPattern(c, 'repeat');
+  } catch {
+    return color;
+  }
+};
+
+const crosshairPlugin = {
+  id: 'dashedCrosshair',
+  afterDraw(chart: any) {
+    const active = chart.tooltip?.getActiveElements?.();
+    if (!active || !active.length) return;
+    const { ctx, chartArea } = chart;
+    const x = active[0].element.x;
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
+const stackedBarOptions = {
+  responsive: true, maintainAspectRatio: false,
+  interaction: { mode: 'index' as const, intersect: false },
+  scales: {
+    x: { stacked: true, grid: { display: false }, ticks: { color: '#71717a', font: { size: 9 } } },
+    y: { stacked: true, grid: { color: 'rgba(113,113,122,0.06)' }, border: { color: 'rgba(113,113,122,0.12)' }, ticks: { color: '#71717a', font: { size: 9 }, padding: 6 } },
+  },
+  plugins: {
+    legend: { display: false },
+    tooltip: { backgroundColor: 'rgba(20, 22, 30, 0.92)', titleColor: '#e4e4e7', bodyColor: '#a1a1aa', borderColor: 'rgba(255, 255, 255, 0.15)', borderWidth: 1, cornerRadius: 10, padding: 10 },
+  },
+};
+
+export interface CodeStats {
+  totalCommits: number;
+  totalAdditions: number;
+  totalDeletions: number;
+  totalHours: number;
+  daily: { date: string; additions: number; deletions: number; commits: number }[];
+  weekly: { weekStart: string; additions: number; deletions: number; commits: number }[];
+  error?: string;
+}
+
 function StatCard({ icon: Icon, iconColor, iconBg, value, label, sub, delay = 0 }: {
   icon: any; iconColor: string; iconBg: string; value: string; label: string; sub?: string; delay?: number;
 }) {
@@ -108,8 +177,91 @@ function ChartCard({ title, icon: Icon, subtitle, children, isEmpty, emptyText, 
 
 type DashboardVariant = 'project' | 'workspace' | 'full';
 
-export default function AnalyticsDashboard({ aiUsage, sessions, problems, requests, dailyStats, appStats, promptHistory, loading, period, variant = 'full', projectLanguages }: {
-  aiUsage?: any; sessions: any[]; problems?: any[]; requests?: any[]; dailyStats?: any[]; appStats?: any[]; promptHistory?: any[]; loading: boolean; period: string; variant?: DashboardVariant; projectLanguages?: { language: string; count: number }[];
+function CodeChanges({ codeStats }: { codeStats?: CodeStats | null }) {
+  const [mode, setMode] = useState<'daily' | 'weekly'>('daily');
+  const series = useMemo(() => {
+    const rows = mode === 'daily' ? codeStats?.daily || [] : codeStats?.weekly || [];
+    return rows.map((r: any) => ({
+      label: (() => {
+        try { return format(new Date((r.date || r.weekStart) + 'T00:00:00'), 'MMM d'); } catch { return r.date || r.weekStart; }
+      })(),
+      additions: r.additions || 0,
+      deletions: r.deletions || 0,
+    }));
+  }, [codeStats, mode]);
+
+  const isEmpty = !codeStats || (codeStats.totalCommits === 0 && series.length === 0);
+  const isLoading = codeStats === undefined;
+  const netLines = (codeStats?.totalAdditions || 0) - (codeStats?.totalDeletions || 0);
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.35 }} className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-3">
+        {isLoading ? (
+          [0, 1, 2].map(i => (
+            <Skeleton key={i} className="rounded-xl p-5 h-[96px]" />
+          ))
+        ) : (
+          <>
+        <StatCard icon={GitCommitHorizontal} iconColor="text-cyan-400" iconBg="bg-cyan-500/10"
+          value={fmtNum(codeStats?.totalCommits || 0)} label="Total Commits"
+          sub={!isEmpty ? `${codeStats?.daily?.length || 0} active days` : undefined} delay={0} />
+        <StatCard icon={Code2} iconColor={netLines >= 0 ? 'text-emerald-400' : 'text-rose-400'} iconBg={netLines >= 0 ? 'bg-emerald-500/12' : 'bg-rose-500/10'}
+          value={`${netLines >= 0 ? '+' : ''}${fmtNum(netLines)}`} label="Net Lines"
+          sub={!isEmpty ? `+${fmtNum(codeStats?.totalAdditions || 0)} / -${fmtNum(codeStats?.totalDeletions || 0)}` : undefined} delay={0.05} />
+        <StatCard icon={Clock} iconColor="text-amber-400" iconBg="bg-amber-500/10"
+          value={fmtNum(codeStats?.totalHours || 0)} label="Hours Coded"
+          sub={!isEmpty ? `${fmtNum(codeStats?.totalHours || 0)}h estimated` : undefined} delay={0.1} />
+          </>
+        )}
+      </div>
+
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.35 }}
+        className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5">
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-2">
+            <GitCommitHorizontal className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-sm font-medium text-zinc-200">Code Velocity</h3>
+          </div>
+          <div className="flex items-center gap-1 bg-zinc-800/60 rounded-lg p-0.5">
+            {(['daily', 'weekly'] as const).map(m => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${mode === m ? 'bg-zinc-700/80 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                {m === 'daily' ? 'Daily' : 'Weekly'}
+              </button>
+            ))}
+          </div>
+        </div>
+        {isLoading ? (
+          <div className="py-4">
+            <Skeleton className="h-4 w-32 mb-4" />
+            <Skeleton className="h-[200px] rounded-lg" />
+          </div>
+        ) : codeStats?.error ? (
+          <p className="text-xs text-rose-400 text-center py-10">Failed to load commit data.</p>
+        ) : isEmpty ? (
+          <div className="flex flex-col items-center justify-center py-10 text-zinc-600">
+            <GitCommitHorizontal className="w-8 h-8 mb-2 opacity-30" />
+            <span className="text-xs text-center max-w-xs">No commits synced yet. Run 'Sync Commits' from project settings to track code changes.</span>
+          </div>
+        ) : (
+          <div className="relative mt-2" style={{ height: 240 }}>
+            <Bar data={{
+              labels: series.map(s => s.label),
+              datasets: [
+                { label: 'Additions', data: series.map(s => s.additions), backgroundColor: makeStripedPattern('#10b981'), borderColor: '#10b981', borderWidth: 1, borderRadius: 4, hoverBackgroundColor: '#10b981' },
+                { label: 'Deletions', data: series.map(s => s.deletions), backgroundColor: makeStripedPattern('#f87171'), borderColor: '#f87171', borderWidth: 1, borderRadius: 4, hoverBackgroundColor: '#f87171' },
+              ],
+            }} options={stackedBarOptions} plugins={[crosshairPlugin]} />
+          </div>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+export default function AnalyticsDashboard({ aiUsage, sessions, problems, requests, dailyStats, appStats, promptHistory, loading, period, variant = 'full', projectLanguages, codeStats }: {
+  aiUsage?: any; sessions: any[]; problems?: any[]; requests?: any[]; dailyStats?: any[]; appStats?: any[]; promptHistory?: any[]; loading: boolean; period: string; variant?: DashboardVariant; projectLanguages?: { language: string; count: number }[]; codeStats?: CodeStats | null;
 }) {
   const tokenByTool = useMemo(() => {
     if (!aiUsage?.byTool) return { labels: [], values: [] };
@@ -362,9 +514,11 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
                     ))}
                 </tbody>
               </table>
-            </div>
-          )}
-        </motion.div>
+          </div>
+        )}
+      </motion.div>
+
+      <CodeChanges codeStats={codeStats} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.35 }}
@@ -573,6 +727,8 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
           </div>
         )}
       </motion.div>
+
+      <CodeChanges codeStats={codeStats} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.35 }}

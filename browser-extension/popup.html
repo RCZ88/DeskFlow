@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeskFlow Tracker</title>
+  <style>
+    :root {
+      --bg: #141416;
+      --card: rgba(24, 24, 27, 0.85);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 300px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, "Segoe UI", Inter, sans-serif;
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(24,24,27,0.9), rgba(24,24,27,0.4));
+    }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+    .dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 8px currentColor;
+    }
+    .dot.ok { background: var(--emerald); color: var(--emerald); }
+    .dot.warn { background: var(--amber); color: var(--amber); }
+    .dot.off { background: var(--rose); color: var(--rose); }
+    .status-label { font-size: 11px; color: var(--muted); }
+    .body { padding: 10px 14px 12px; }
+    .row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 7px 0;
+      gap: 10px;
+    }
+    .row + .row { border-top: 1px solid rgba(255,255,255,0.05); }
+    .label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .value {
+      font-family: var(--mono);
+      font-size: 12px;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 190px;
+      color: var(--text);
+    }
+    .domain { color: var(--emerald); }
+    .switch {
+      position: relative;
+      width: 38px; height: 20px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.12);
+      cursor: pointer;
+      transition: background 0.15s ease;
+      flex: none;
+    }
+    .switch.tracking { background: var(--emerald); }
+    .switch .knob {
+      position: absolute; top: 2px; left: 2px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #fff;
+      transition: transform 0.15s ease;
+    }
+    .switch.tracking .knob { transform: translateX(18px); }
+    .footer {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .err { color: var(--rose); font-size: 11px; padding: 8px 14px; display: none; }
+    .pill {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <span class="dot" id="statusDot"></span>
+      DeskFlow Tracker
+    </div>
+    <span class="status-label" id="statusLabel">checkingâ€¦</span>
+  </div>
+
+  <div class="body">
+    <div class="row">
+      <span class="label">Tracking</span>
+      <div class="switch" id="trackToggle" role="switch" aria-checked="true" tabindex="0">
+        <span class="knob"></span>
+      </div>
+    </div>
+    <div class="row">
+      <span class="label">Server</span>
+      <span class="value" id="serverVal">â€¦</span>
+    </div>
+    <div class="row">
+      <span class="label">Active domain</span>
+      <span class="value domain" id="domainVal">â€”</span>
+    </div>
+    <div class="row">
+      <span class="label">Page</span>
+      <span class="value" id="titleVal">â€”</span>
+    </div>
+    <div class="row">
+      <span class="label">Session</span>
+      <span class="value" id="sessionVal">0:00</span>
+    </div>
+    <div class="row">
+      <span class="label">Last sync</span>
+      <span class="value" id="syncVal">â€”</span>
+    </div>
+  </div>
+
+  <div class="err" id="errorBox"></div>
+
+  <div class="footer">
+    <span>DeskFlow Browser Tracker v1.1.2</span>
+    <span class="pill" id="browserPill">chrome</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

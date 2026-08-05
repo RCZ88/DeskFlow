@@ -4,16 +4,20 @@ window.__DESKFLOW_LOADED = true;
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import { NumberMaskProvider } from './context/NumberMaskContext';
-import { ErrorBoundary, triggerGlobalError } from './components/ErrorBoundary'
+import { ErrorBoundary, triggerGlobalError, isDynamicImportFailure, autoHealDynamicImport } from './components/ErrorBoundary'
 import App from './App.tsx'
 import './index.css'
 import './styles/lyceum-learn-features.css'
 
-console.log('BUILD MARKER v4');
+console.log('BUILD MARKER v5');
 
 // Route ALL errors through React ErrorBoundary — both classic and modern patterns
 let lastError: string | null = null;
 const routeToBoundary = (err: unknown) => {
+  if (isDynamicImportFailure(err)) {
+    autoHealDynamicImport();
+    return;
+  }
   const key = err instanceof Error ? err.message : String(err);
   if (key === lastError) return; // deduplicate
   lastError = key;

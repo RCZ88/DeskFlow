@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Search, Landmark, Wallet, Banknote, CreditCard, PiggyBank, WalletCards, ChevronDown } from 'lucide-react';
+import { Search, Landmark, Wallet, Banknote, CreditCard, PiggyBank, WalletCards, ChevronDown, Nfc } from 'lucide-react';
 import type { FinanceWallet, FinanceAccount } from '../finance-types';
 import { convertAmount, formatCurrency as fmtCurrency } from '../currency-data';
 
@@ -11,6 +11,7 @@ const walletMeta: Record<string, { icon: any; color: string }> = {
   cash: { icon: PiggyBank, color: '#EC4899' },
   physical: { icon: WalletCards, color: '#F97316' },
   ewallet: { icon: Banknote, color: '#06B6D4' },
+  prepaid_card: { icon: Nfc, color: '#22D3EE' },
   other: { icon: Wallet, color: '#6B7280' },
 };
 

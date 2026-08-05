@@ -63,7 +63,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
 
   return (
     <MagicCard className="rounded-xl h-full" gradientFrom="#8b5cf6" gradientTo="#6366f1" gradientColor="rgba(139,92,246,0.06)">
-      <div className="relative overflow-hidden bg-[#09090b] border border-zinc-800/60 rounded-xl p-5">
+      <div className="relative overflow-hidden bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5 h-full">
         {/* Aurora Effect */}
         <div className="absolute top-[-50%] left-[-10%] right-[-10%] h-[200px]
                         bg-[radial-gradient(ellipse_at_center,_rgba(139,92,246,0.15)_0%,_transparent_70%)]
@@ -74,7 +74,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
             <Focus className="w-4 h-4 text-violet-400" />
-            <h3 className="text-sm font-semibold text-zinc-100">Deep Focus</h3>
+            <h3 className="text-sm font-semibold text-white">Deep Focus</h3>
           </div>
           <Badge variant={active ? 'default' : 'secondary'}>{active ? 'Active' : 'Idle'}</Badge>
         </div>
@@ -95,7 +95,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
             className="text-2xl font-bold tabular-nums font-mono text-white"
           />
         </AnimatedCircularProgressBar>
-        <span className="text-[10px] text-zinc-500">
+        <span className="text-[10px] text-white/50">
           {active ? (mode === 'stopwatch' ? 'elapsed' : 'remaining') : mode === 'stopwatch' ? 'count up' : 'count down'}
         </span>
 
@@ -109,7 +109,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
               transition={crossfade.transition}
               className="w-full text-center"
             >
-              <p className="text-xs text-zinc-500 mb-4">
+              <p className="text-xs text-white/50 mb-4">
                 Distracting {state.strictness === 'non_allowed' ? '& neutral ' : ''}apps/sites will prompt you.
               </p>
               <motion.button
@@ -137,7 +137,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
                   className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all ${
                     mode === 'timer'
                       ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
-                      : 'text-zinc-500 hover:text-zinc-400'
+                      : 'text-white/50 hover:text-white/60'
                   }`}
                 >
                   <Clock className="w-3 h-3" />
@@ -149,7 +149,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
                   className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all ${
                     mode === 'stopwatch'
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                      : 'text-zinc-500 hover:text-zinc-400'
+                      : 'text-white/50 hover:text-white/60'
                   }`}
                 >
                   <Timer className="w-3 h-3" />
@@ -167,7 +167,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
                       className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
                         mins === p.sec / 60
                           ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
-                          : 'bg-zinc-800/60 text-zinc-400 border border-zinc-800/40 hover:bg-zinc-800'
+                          : 'bg-zinc-800/60 text-white/60 border border-zinc-800/40 hover:bg-zinc-800'
                       }`}
                     >
                       {p.label}
@@ -189,7 +189,7 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
         </AnimatePresence>
 
         <div className="mt-1 pt-3 border-t border-zinc-800/30 w-full">
-          <p className="text-[10px] text-zinc-600 leading-relaxed text-center">
+          <p className="text-[10px] text-white/40 leading-relaxed text-center">
             Soft-block overlay — not enforcement. Your choice is always logged.
           </p>
         </div>

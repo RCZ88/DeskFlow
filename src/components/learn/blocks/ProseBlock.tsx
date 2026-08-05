@@ -90,11 +90,8 @@ function renderMarkdown(md: string): string {
   });
   text = text.replace(/%%C(\d+)%%/g, (_, idx) => codeSpans[Number(idx)]);
 
-  // Code blocks
-  text = text
-    .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="bg-zinc-800/50 rounded-lg p-3 my-2 overflow-x-auto text-sm font-mono text-zinc-300 select-text"><code>$2</code></pre>')
-    // Restore code placeholders
-    .replace(/%%CODE(\d+)%%/g, (_, idx) => codeSpans[Number(idx)]);
+  // Restore code placeholders (code blocks are handled by CodeBlock, not here)
+  text = text.replace(/%%CODE(\d+)%%/g, (_, idx) => codeSpans[Number(idx)]);
 
   return text
     // Bold

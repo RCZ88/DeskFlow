@@ -133,12 +133,23 @@ export class CompositionEngine {
 
   private applyOperator(op: string, left: any, right: any): boolean {
     switch (op) {
-      case '==': return left == right;
-      case '!=': return left != right;
-      case '>': return left > right;
-      case '>=': return left >= right;
-      case '<': return left < right;
-      case '<=': return left <= right;
+      case '==':
+      case '=':
+      case 'eq': return left == right;
+      case '!=':
+      case 'neq': return left != right;
+      case '>':
+      case 'gt': return left > right;
+      case '>=':
+      case 'gte': return left >= right;
+      case '<':
+      case 'lt': return left < right;
+      case '<=':
+      case 'lte': return left <= right;
+      case 'contains': return typeof left === 'string' && typeof right === 'string' ? left.includes(right) : false;
+      case 'matches': return typeof left === 'string' && typeof right === 'string' ? new RegExp(right).test(left) : false;
+      case 'exists': return left !== null && left !== undefined;
+      case 'not_exists': return left === null || left === undefined;
       case 'not': return !left;
       case 'and': return left && right;
       case 'or': return left || right;
