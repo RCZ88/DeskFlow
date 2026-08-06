@@ -134,6 +134,11 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
   const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null)
   const isDraggingRef = useRef(false)
   const hasMovedRef = useRef(false)
+  // A real drag ends with a pointerup that the browser ALSO turns into a click
+  // on the same element. Without this flag, that click fires onClick → selects
+  // the card → auto-focus pans the camera to the just-dropped card, making the
+  // drag look like it "snapped back". Suppress the click after a real drag.
+  const suppressClickRef = useRef(false)
 
   // ── Resize handlers (defined FIRST so drag handlers can reference them) ──
   const handleResizeDown = useCallback((e: React.PointerEvent) => {
@@ -184,11 +189,15 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
       cardRef.current.style.width = `${card.size.w * CELL}px`
       cardRef.current.style.height = `${card.size.h * CELL}px`
     }
-    if (wasActive) onDragStop?.()
+    if (wasActive) {
+      suppressClickRef.current = true
+      onDragStop?.()
+    }
   }, [card.zIndex, card.position.x, card.position.y, card.size.w, card.size.h, onDragStop])
 
   // ── Drag handlers ──
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    suppressClickRef.current = false
     if ((e.target as HTMLElement).closest('button, input, textarea, select, a, [role="button"], [onClick]')) return
     if ((e.target as HTMLElement).closest('.dk-canvas-resize-handle')) return
 
@@ -245,6 +254,7 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
       const snappedX = Math.round(rawX / CELL) * CELL
       const snappedY = Math.round(rawY / CELL) * CELL
       onDragEnd(card.id, { x: snappedX, y: snappedY })
+      suppressClickRef.current = true
     }
     dragRef.current = null
     isDraggingRef.current = false
@@ -280,6 +290,12 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
   }, [cleanupInteraction])
 
   const handleCardClick = useCallback((e: React.PointerEvent) => {
+    // A click that immediately follows a real drag must not select the card —
+    // otherwise auto-focus pans the camera away from where the card was dropped.
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
     // Only fire if not dragging or resizing
     if (dragRef.current || resizeRef.current) return
     // Don't fire on any interactive element (buttons, inputs, links, etc.)

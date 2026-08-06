@@ -81,6 +81,7 @@ interface DeskflowAPI {
   getDatabaseTables: () => Promise<{ tables: string[]; type: string; error?: string }>;
   getTableData: (tableName: string, limit?: number) => Promise<any[] | { error: string }>;
   updateCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => Promise<{ success: boolean; updatedCount: number; error?: string }>;
+  previewCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => Promise<{ success: boolean; preview: boolean; totalMismatch: number; mismatches: { kind: 'app' | 'domain'; key: string; current: string | null; next: string; count: number }[]; byCategory: Record<string, number>; error?: string }>;
   saveFile: (options: { content: string; filename: string; fileType: string }) => Promise<{ success: boolean; path?: string; message?: string }>;
   pickFolder: () => Promise<{ success: boolean; path: string | null }>;
   scanCustomDirectory: (rootDir: string) => Promise<{ success: boolean; projects: any[] }>;
@@ -194,6 +195,15 @@ interface DeskflowAPI {
   writeFeatureSpecFile: (content: string) => Promise<{ success: boolean; error?: string }>;
   getGoalContext: () => Promise<{ success: boolean; last7dByCategory?: any[]; yesterday?: any; error?: string }>;
   parseGoalFeedback: (data: { message: string; goals: string[] }) => Promise<{ completed: string[]; added: any[]; note: string }>;
+  // Life Phases Timeline (The River of Years)
+  lifePhaseGet: () => Promise<{ ok: boolean; data?: any[]; error?: string }>;
+  lifePhaseGetSummary: () => Promise<{ ok: boolean; data?: string | null; error?: string }>;
+  lifePhaseSave: (phase: any) => Promise<{ ok: boolean; data?: any; error?: string }>;
+  lifePhaseDelete: (phaseId: string) => Promise<{ ok: boolean; data?: any; error?: string }>;
+  lifePhaseSaveAll: (phases: any[]) => Promise<{ ok: boolean; data?: any[]; error?: string }>;
+  lifePhaseAiReflect: (params: { phase: any; answers: string[] }) => Promise<{ ok: boolean; data?: string; error?: string }>;
+  lifePhaseAiEraTrends: (params: { startYear: number; endYear: number | null; title: string }) => Promise<{ ok: boolean; data?: string; error?: string }>;
+  lifePhaseAiSummarize: (phases: any[]) => Promise<{ ok: boolean; data?: string; error?: string }>;
   connectors: {
     list: () => Promise<{ success: boolean; connectors: any[]; error?: string }>;
     add: (connector: { type: string; provider: string; displayName: string; config: any }) => Promise<{ success: boolean; connector?: any; error?: string }>;
@@ -362,6 +372,7 @@ interface DeskflowAPI {
     remove: (id: number) => Promise<{ success: boolean; error?: string }>;
     startWith: (id: number, durationSec?: number, strictness?: string) => Promise<any>;
     linkUsage: (args: { sessionId: number; groupId: number; goalIds: string[] }) => Promise<{ success: boolean; error?: string }>;
+    getUsage: () => Promise<Array<{ group_id: number; session_id: number }>>;
   };
 
   // ========== Project Backup (Design Workspace) ==========

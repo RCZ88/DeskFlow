@@ -39,6 +39,16 @@ import BrowserProfileSettings from '../components/BrowserProfileSettings';
 import { BorderBeam } from '../components/ui/border-beam';
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
+import { Button } from '../components/ui/button';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 
 interface SettingsPageProps {
   logs: any[];
@@ -689,74 +699,97 @@ export default function SettingsPage({
     }
     return 'forward';
   });
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
-  const [syncMessage, setSyncMessage] = useState('');
 
   // Save dataSyncMode when it changes
   useEffect(() => {
     localStorage.setItem('deskflow-data-sync-mode', dataSyncMode);
   }, [dataSyncMode]);
 
-  // Auto-refactor when category overrides change (if dataSyncMode is 'refactor')
-  useEffect(() => {
-    if (dataSyncMode === 'refactor' && syncStatus === 'idle' && (Object.keys(appCategoryOverrides).length > 0 || Object.keys(domainCategoryOverrides).length > 0)) {
-      // Only auto-refactor if we've already loaded overrides (not on initial mount)
-      if (hasInitiallyLoadedRef.current) {
-        console.log('[Settings] Auto-refactoring due to category override change...');
-        performRefactor();
-      } else {
-        hasInitiallyLoadedRef.current = true;
-      }
+  // Refactor flow: analyze (read-only preview) -> confirm dialog -> apply -> feedback
+  type RefactorPhase = 'idle' | 'analyzing' | 'preview' | 'running' | 'done' | 'error';
+  interface RefactorMismatch { kind: 'app' | 'domain'; key: string; current: string | null; next: string; count: number; }
+  interface RefactorPreview { success: boolean; totalMismatch: number; mismatches: RefactorMismatch[]; byCategory: Record<string, number>; error?: string; }
+  const [refactorPhase, setRefactorPhase] = useState<RefactorPhase>('idle');
+  const [refactorPreview, setRefactorPreview] = useState<RefactorPreview | null>(null);
+  const [refactorMessage, setRefactorMessage] = useState('');
+  const [refactorConfirmOpen, setRefactorConfirmOpen] = useState(false);
+  const [refactorDoneCount, setRefactorDoneCount] = useState(0);
+
+  const buildOverrideMaps = () => {
+    const appOverrides: Record<string, string> = {};
+    const domainOverrides: Record<string, string> = {};
+    for (const [app, category] of Object.entries(appCategoryOverrides)) {
+      if (app && typeof category === 'string' && category.trim()) appOverrides[app.toLowerCase()] = category.trim();
     }
-  }, [appCategoryOverrides, domainCategoryOverrides, dataSyncMode]);
+    for (const [domain, category] of Object.entries(domainCategoryOverrides)) {
+      if (domain && typeof category === 'string' && category.trim()) domainOverrides[domain.toLowerCase()] = category.trim();
+    }
+    return { appOverrides, domainOverrides };
+  };
 
-  const hasInitiallyLoadedRef = useRef(false);
-
-  const performRefactor = async () => {
-    if (!window.deskflowAPI?.updateCategoriesFromOverrides) {
-      setSyncStatus('error');
-      setSyncMessage('Database sync not available');
+  const analyzeRefactor = async () => {
+    if (!window.deskflowAPI?.previewCategoriesFromOverrides) {
+      setRefactorPhase('error');
+      setRefactorMessage('Category preview is not available in this build.');
       return;
     }
-    setSyncStatus('syncing');
-    setSyncMessage('Syncing categories to database...');
+    const { appOverrides, domainOverrides } = buildOverrideMaps();
+    setRefactorPhase('analyzing');
+    setRefactorMessage('');
     try {
-      const appOverrides: Record<string, string> = {};
-      const domainOverrides: Record<string, string> = {};
-
-      for (const [app, category] of Object.entries(appCategoryOverrides)) {
-        appOverrides[app.toLowerCase()] = category;
-      }
-      for (const [domain, category] of Object.entries(domainCategoryOverrides)) {
-        domainOverrides[domain.toLowerCase()] = category;
-      }
-
-      const result = await window.deskflowAPI.updateCategoriesFromOverrides(appOverrides, domainOverrides);
+      const result = await window.deskflowAPI.previewCategoriesFromOverrides(appOverrides, domainOverrides);
       if (result.success) {
-        setSyncStatus('success');
-        setSyncMessage(`Updated ${result.updatedCount} rows`);
-        if (onReloadData) {
-          setTimeout(() => onReloadData(), 500);
-        }
-        setTimeout(() => {
-          setSyncStatus('idle');
-          setSyncMessage('');
-        }, 3000);
+        setRefactorPreview({
+          success: true,
+          totalMismatch: typeof result.totalMismatch === 'number' ? result.totalMismatch : 0,
+          mismatches: Array.isArray(result.mismatches) ? result.mismatches : [],
+          byCategory: result.byCategory && typeof result.byCategory === 'object' ? result.byCategory : {},
+        });
+        setRefactorPhase('preview');
       } else {
-        setSyncStatus('error');
-        setSyncMessage(result.error || 'Sync failed');
+        setRefactorPhase('error');
+        setRefactorMessage(result.error || 'Could not analyze the data.');
       }
     } catch (err) {
-      setSyncStatus('error');
-      setSyncMessage('Sync error: ' + (err as Error).message);
+      setRefactorPhase('error');
+      setRefactorMessage('Analysis error: ' + (err as Error).message);
     }
   };
 
-  useEffect(() => {
-    if (dataSyncMode === 'refactor' && syncStatus === 'idle') {
-      performRefactor();
+  const applyRefactor = async () => {
+    if (!window.deskflowAPI?.updateCategoriesFromOverrides) {
+      setRefactorPhase('error');
+      setRefactorMessage('Database sync is not available.');
+      return;
     }
-  }, [dataSyncMode]);
+    const { appOverrides, domainOverrides } = buildOverrideMaps();
+    setRefactorConfirmOpen(false);
+    setRefactorPhase('running');
+    setRefactorMessage('');
+    try {
+      const result = await window.deskflowAPI.updateCategoriesFromOverrides(appOverrides, domainOverrides);
+      if (result.success) {
+        setRefactorDoneCount(typeof result.updatedCount === 'number' ? result.updatedCount : 0);
+        setRefactorPhase('done');
+        if (onReloadData) setTimeout(() => onReloadData(), 400);
+        setTimeout(() => { if (dataSyncMode === 'refactor') analyzeRefactor(); }, 2600);
+      } else {
+        setRefactorPhase('error');
+        setRefactorMessage(result.error || 'Refactor failed.');
+      }
+    } catch (err) {
+      setRefactorPhase('error');
+      setRefactorMessage('Refactor error: ' + (err as Error).message);
+    }
+  };
+
+  // Read-only preview whenever Refactor mode is active and overrides are loaded/edited
+  useEffect(() => {
+    if (dataSyncMode !== 'refactor' || refactorPhase !== 'idle') return;
+    if (Object.keys(appCategoryOverrides).length === 0 && Object.keys(domainCategoryOverrides).length === 0) return;
+    analyzeRefactor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataSyncMode, appCategoryOverrides, domainCategoryOverrides]);
 
   const getAssignedCategories = () => {
     return new Set([
@@ -1380,7 +1413,6 @@ export default function SettingsPage({
   const [appRecordingMode, setAppRecordingMode] = useState<'always' | 'on-view'>('always');
   const [availableBrowsers, setAvailableBrowsers] = useState<string[]>([]);
   const [selectedBrowsers, setSelectedBrowsers] = useState<string[]>([]);
-  const [forceBrowserTracking, setForceBrowserTracking] = useState(false);
   const [serverStatus, setServerStatus] = useState<any>(null);
 
   // System Prompts state
@@ -1413,9 +1445,6 @@ export default function SettingsPage({
           setSelectedBrowsers(prefs.browsersWithExtension);
         } else if (prefs?.browserWithExtension) {
           setSelectedBrowsers([prefs.browserWithExtension.toLowerCase()]);
-        }
-        if (prefs?.forceBrowserTracking !== undefined) {
-          setForceBrowserTracking(prefs.forceBrowserTracking);
         }
       }
       if (window.deskflowAPI?.getAvailableBrowsers) {
@@ -1688,21 +1717,147 @@ export default function SettingsPage({
               </button>
             </div>
             {dataSyncMode === 'refactor' && (
-              <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-amber-500/10 rounded-lg border border-amber-500/20">
-                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                <p className="text-xs text-amber-200">This will update all existing data to match your category settings. This action cannot be undone.</p>
-              </div>
-            )}
-            {syncStatus !== 'idle' && (
-              <div className={`mt-3 text-xs px-3 py-2 rounded-lg ${syncStatus === 'success' ? 'bg-emerald-500/10 text-emerald-400' :
-                syncStatus === 'error' ? 'bg-red-500/10 text-red-400' :
-                  'bg-zinc-800/50 text-zinc-400'
-                }`}>
-                {syncMessage}
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={analyzeRefactor}
+                    disabled={refactorPhase === 'analyzing' || refactorPhase === 'running'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800/60 border border-zinc-700/50 text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {refactorPhase === 'analyzing' ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Search className="w-3.5 h-3.5" />
+                    )}
+                    {refactorPhase === 'analyzing' ? 'Analyzing data…' : 'Analyze changes'}
+                  </button>
+                  {(refactorPhase === 'done' || refactorPhase === 'error') && (
+                    <button
+                      onClick={analyzeRefactor}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800/60 border border-zinc-700/50 text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      Re-analyze
+                    </button>
+                  )}
+                  {refactorPhase === 'idle' && (
+                    <p className="text-xs text-zinc-500">Run a read-only analysis to see what would change.</p>
+                  )}
+                </div>
+
+                {refactorPhase === 'analyzing' && (
+                  <div className="space-y-2 px-3 py-3 bg-zinc-900/60 rounded-lg border border-zinc-800">
+                    <div className="h-3 bg-zinc-800 rounded animate-pulse w-2/3" />
+                    <div className="h-3 bg-zinc-800 rounded animate-pulse w-1/2" />
+                    <div className="h-3 bg-zinc-800 rounded animate-pulse w-3/4" />
+                  </div>
+                )}
+
+                {refactorPhase === 'error' && (
+                  <div className="flex items-start gap-2 px-3 py-2 bg-red-500/10 rounded-lg border border-red-500/20">
+                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs text-red-300">{refactorMessage}</p>
+                      <button onClick={analyzeRefactor} className="mt-1.5 text-xs text-red-300 underline underline-offset-2 hover:text-red-200">Retry analysis</button>
+                    </div>
+                  </div>
+                )}
+
+                {refactorPhase === 'preview' && refactorPreview && (
+                  refactorPreview.totalMismatch === 0 ? (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                      <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                      <p className="text-xs text-emerald-300">Everything already matches your category settings — nothing to refactor.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                        <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-200">
+                          <span className="font-semibold text-amber-300">{refactorPreview.totalMismatch.toLocaleString()} rows</span> across{' '}
+                          {refactorPreview.mismatches.length} apps/websites don't match your category settings. This action is permanent and cannot be undone.
+                        </p>
+                      </div>
+
+                      {Object.keys(refactorPreview.byCategory).length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(refactorPreview.byCategory).map(([cat, count]) => (
+                            <span key={cat} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/20">
+                              {cat}: {count.toLocaleString()}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="max-h-40 overflow-y-auto rounded-lg border border-zinc-800 divide-y divide-zinc-800/80">
+                        {refactorPreview.mismatches.map((m) => (
+                          <div key={`${m.kind}-${m.key}`} className="flex items-center justify-between gap-2 px-3 py-1.5 bg-zinc-900/50">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs text-zinc-300 truncate">{m.key}</span>
+                              <span className="text-[11px] text-zinc-500 shrink-0">{m.kind === 'domain' ? 'website' : 'app'}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0 text-[11px]">
+                              <span className="text-zinc-500">{m.current || 'unset'}</span>
+                              <ChevronRight className="w-3 h-3 text-zinc-600" />
+                              <span className="text-amber-300 font-medium">{m.next}</span>
+                              <span className="ml-1 px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">{(m.count || 0).toLocaleString()}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => setRefactorConfirmOpen(true)}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 transition-colors"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        Refactor All Data ({refactorPreview.totalMismatch.toLocaleString()} rows)
+                      </button>
+                    </>
+                  )
+                )}
+
+                {refactorPhase === 'running' && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-zinc-800/50 text-zinc-400 rounded-lg">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span className="text-xs">Refactoring categories across all data…</span>
+                  </div>
+                )}
+
+                {refactorPhase === 'done' && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                    <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                    <p className="text-xs text-emerald-300">Updated {refactorDoneCount.toLocaleString()} rows to match your category settings.</p>
+                  </div>
+                )}
               </div>
             )}
           </GlassCard>
           </SearchableSection>
+
+          <Dialog open={refactorConfirmOpen} onOpenChange={setRefactorConfirmOpen}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Refactor all data?</DialogTitle>
+                <DialogDescription>
+                  {refactorPreview && refactorPreview.totalMismatch > 0
+                    ? `${refactorPreview.totalMismatch.toLocaleString()} rows across ${refactorPreview.mismatches.length} apps/websites will be updated to match your category settings. This is permanent — there is no undo.`
+                    : 'Your category overrides will be applied to all existing data. This is permanent — there is no undo.'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-200">Double-check the breakdown above before continuing. Past tracking data cannot be restored.</p>
+              </div>
+              <DialogFooter>
+                <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+                <Button onClick={applyRefactor} className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30">
+                  <RefreshCw className="w-4 h-4" />
+                  {refactorPreview && refactorPreview.totalMismatch > 0 ? `Refactor ${refactorPreview.totalMismatch.toLocaleString()} rows` : 'Refactor all data'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Custom Categories */}
           <SearchableSection terms={['custom', 'categories', 'add category', 'new category']} search={settingsSearch}>
@@ -3544,28 +3699,8 @@ export default function SettingsPage({
               )}
             </div>
 
-            {/* Server Status + Force Toggle */}
+            {/* Server Status */}
             <div className="pt-4 border-t border-zinc-700/50 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-medium text-zinc-300">Force Browser Tracking</label>
-                  <p className="text-xs text-zinc-500">Bypass focus checks — accept all extension data regardless of foreground app</p>
-                </div>
-                <button
-                  onClick={async () => {
-                    const newVal = !forceBrowserTracking;
-                    setForceBrowserTracking(newVal);
-                    if (window.deskflowAPI?.setPreference) {
-                      await window.deskflowAPI.setPreference('forceBrowserTracking', newVal);
-                    }
-                  }}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${forceBrowserTracking ? 'bg-emerald-500' : 'bg-zinc-700'}`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${forceBrowserTracking ? 'translate-x-5' : ''}`} />
-                </button>
-              </div>
-
-              {/* Server Status */}
               <div className="p-3 rounded-lg bg-zinc-800/50 border border-zinc-700/30">
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`w-2 h-2 rounded-full ${serverStatus && !serverStatus.error ? 'bg-emerald-400' : 'bg-red-400'}`} />

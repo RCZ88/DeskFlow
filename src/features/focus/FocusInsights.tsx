@@ -44,8 +44,8 @@ export function FocusInsights({ history }: FocusInsightsProps) {
   };
 
   return (
-    <GlassCard>
-      <SectionHeader title="Focus insights" icon={<TrendingUp className="w-4 h-4" />} />
+    <GlassCard className="bg-zinc-900/95 border-zinc-800/60">
+      <SectionHeader title="Focus insights" titleClassName="font-display" icon={<TrendingUp className="w-4 h-4" />} />
       <div className="h-28 mb-4">
         <Line data={chartData} options={chartOptions} />
       </div>

@@ -203,6 +203,26 @@
 
 ## 🔧 Data Troubleshooting
 
+## Life Phases (River of Years) — Gold warmth page
+
+### DB tables
+- `life_phases` — id TEXT PK, version INTEGER, title, description, category, start_month, start_year, end_month, end_year, magnitude, color, reflection, era_trends, impact_notes, milestones TEXT (JSON array), connections TEXT (JSON array), created_at, updated_at
+- `life_timeline_meta` — key TEXT PK, value TEXT, updated_at (stores journey summary + summaryUpdatedAt)
+
+### IPC (all return `{ ok, data?, error? }`)
+| Channel | Purpose |
+|---------|---------|
+| `lifePhase:get` | All phases (ordered by start) |
+| `lifePhase:getSummary` | Journey summary + summaryUpdatedAt from life_timeline_meta |
+| `lifePhase:save` | Upsert one phase (version++ if existing) |
+| `lifePhase:delete` | Delete phase by id |
+| `lifePhase:saveAll` | Batch upsert (e.g. after title rename save) |
+| `lifePhase:aiReflect` | AI reflection text for a phase (response.choices[0].message.content) |
+| `lifePhase:aiEraTrends` | AI JSON `{ world, culture, field }` era trends |
+| `lifePhase:aiSummarize` | AI journey summary string |
+
+Preload: `window.deskflowAPI.lifePhase*` (8 methods, typed in `src/types/deskflow-api.d.ts`). Renderer: `src/hooks/useLifePhases.ts`, `src/lib/riverMath.ts`, `src/components/life-river/`.
+
 ### Weekly vs Today Inconsistency
 - **Issue:** Weekly timeframe shows less time than Today (12h vs 10h)
 - **Investigation:** Checking getAppStats query in main.ts

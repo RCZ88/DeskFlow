@@ -149,7 +149,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getDatabaseTables: () => ipcRenderer.invoke('get-database-tables'),
   getTableData: (tableName: string, limit?: number) => ipcRenderer.invoke('get-table-data', tableName, limit),
   updateCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => 
-    ipcRenderer.invoke('update-categories-from-overrides', appOverrides, domainOverrides),
+    ipcRenderer.invoke('update-categories-from-overrides', appOverrides, domainOverrides, false),
+  previewCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => 
+    ipcRenderer.invoke('update-categories-from-overrides', appOverrides, domainOverrides, true),
 
   // Productivity sessions
   saveProductivitySession: (session: { started_at: string; ended_at?: string; duration_seconds?: number; app_name?: string; category?: string; is_streak?: boolean }) =>
@@ -921,6 +923,16 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getGoal: (goalId: string) => ipcRenderer.invoke('get-goal', goalId),
   getChildGoals: (parentId: string) => ipcRenderer.invoke('get-child-goals', parentId),
   saveGoalsBatch: (goals: any[]) => ipcRenderer.invoke('save-goals-batch', goals),
+
+  // Life Phases Timeline (The River of Years)
+  lifePhaseGet: () => ipcRenderer.invoke('lifePhase:get'),
+  lifePhaseGetSummary: () => ipcRenderer.invoke('lifePhase:getSummary'),
+  lifePhaseSave: (phase: any) => ipcRenderer.invoke('lifePhase:save', phase),
+  lifePhaseDelete: (phaseId: string) => ipcRenderer.invoke('lifePhase:delete', phaseId),
+  lifePhaseSaveAll: (phases: any[]) => ipcRenderer.invoke('lifePhase:saveAll', phases),
+  lifePhaseAiReflect: (params: { phase: any; answers: string[] }) => ipcRenderer.invoke('lifePhase:aiReflect', params),
+  lifePhaseAiEraTrends: (params: { startYear: number; endYear: number | null; title: string }) => ipcRenderer.invoke('lifePhase:aiEraTrends', params),
+  lifePhaseAiSummarize: (phases: any[]) => ipcRenderer.invoke('lifePhase:aiSummarize', phases),
   linkGoalToEntity: (goalId: string, link: { type: 'problem' | 'request'; id: string; label?: string }) => ipcRenderer.invoke('link-goal-to-entity', goalId, link),
   unlinkGoalFromEntity: (goalId: string, type: 'problem' | 'request', entityId: string) => ipcRenderer.invoke('unlink-goal-from-entity', goalId, type, entityId),
 
@@ -1366,6 +1378,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     remove: (id: number) => ipcRenderer.invoke('focusGroup:remove', id),
     startWith: (id: number, durationSec?: number, strictness?: string) => ipcRenderer.invoke('focusGroup:startWith', id, durationSec, strictness),
     linkUsage: (args: { sessionId: number; groupId: number; goalIds: string[] }) => ipcRenderer.invoke('focusGroup:linkUsage', args),
+    getUsage: () => ipcRenderer.invoke('focusGroup:getUsage'),
   },
 
   // ========== Resume Builder ==========

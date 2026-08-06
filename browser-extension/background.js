@@ -251,23 +251,22 @@ async function checkBrowserFocus() {
       const browserName = BROWSER_NAME.toLowerCase();
       const processNames = getBrowserProcessNames(BROWSER_NAME);
 
-      // Match against the brand name AND every known alias. UA-based brand detection
-      // is unreliable (Comet's UA often contains "Chrome" but the OS process is
-      // "comet"), so if the foreground app matches ANY tracked browser alias the
-      // extension's own window is considered focused.
-      const allAliases = new Set([browserName, ...processNames]);
-      for (const names of Object.values(BROWSER_PROCESS_NAMES)) {
-        for (const n of names) allAliases.add(n);
-      }
+      // Match against THIS extension's own brand name + its process-name aliases ONLY.
+      // The union-of-all-browsers approach made this extension consider itself focused
+      // whenever ANY browser (Edge, Chrome, ...) was foreground, producing phantom
+      // website entries in other browsers. UA-based brand detection is unreliable
+      // (Comet's UA often contains "Chrome" but the OS process is "comet"), so the
+      // brand's own alias list is still included.
+      const thisBrowserAliases = new Set([browserName, ...processNames]);
 
       // Check multiple matching strategies:
-      // 1. Foreground app contains the browser brand name (e.g., "chrome.exe" contains "chrome")
+      // 1. Foreground app contains the browser brand name (e.g., "comet.exe" contains "comet")
       // 2. Browser brand name contains the foreground app (handles short process names)
-      // 3. Foreground app matches any known process name for any tracked browser
+      // 3. Foreground app matches any known process name for THIS browser
       const isBrowserActive = appName.length > 0 && (
         appName.includes(browserName) ||
         browserName.includes(appName) ||
-        [...allAliases].some(p => appName.includes(p))
+        [...thisBrowserAliases].some(p => appName.includes(p))
       );
       
       console.log('[DeskFlow] 🔍 Foreground app:', data.app, `(extension host: ${BROWSER_NAME})`, '-> Browser focused:', isBrowserActive);

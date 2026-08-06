@@ -209,7 +209,7 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   const [activities, setActivities] = useState<ExternalActivity[]>([]);
   const [orderedActivities, setOrderedActivities] = useState<ExternalActivity[]>([]);
   const dragIndex = useRef<number | null>(null);
-  useEffect(() => { setOrderedActivities(activities); }, [activities]);
+  useEffect(() => { setOrderedActivities(activities.filter(a => a.type !== 'sleep')); }, [activities]);
   const [stats, setStats] = useState<ExternalStats>({ byActivity: {}, total_seconds: 0, sleep_deficit_seconds: 0, average_sleep_hours: 0 });
   const [consistency, setConsistency] = useState<ConsistencyData>({ score: 0, weekly_comparison: [] });
   const [allSessions, setAllSessions] = useState<any[]>([]);
@@ -3130,7 +3130,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
           <TransferSessionModal
             open={!!transferSession}
             session={transferSession}
-            activities={activities}
+            activities={activities.filter(a => a.type !== 'sleep')}
             onClose={() => setTransferSession(null)}
             onTransferred={async () => {
               if (window.deskflowAPI?.getExternalSessions && viewingActivity) {

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Layers, AppWindow, Globe, Tag, Eye, EyeOff, Save, Target, Clock, Activity } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Layers, AppWindow, Globe, Tag, Eye, EyeOff, Save, Activity, AlertTriangle, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -9,78 +9,10 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { Button } from '../../components/ui/button';
-import { Badge } from '../../components/ui/badge';
+import { FocusAppPicker, type KnownApp } from './FocusAppPicker';
 import type { GroupDraft, FocusGroup } from '../../hooks/useFocusGroups';
 
 const PRESET_DURATIONS = [5, 10, 15, 25, 50, 90];
-
-interface TagInputProps {
-  label: string;
-  icon: React.ReactNode;
-  placeholder: string;
-  values: string[];
-  onChange: (next: string[]) => void;
-}
-
-function TagInput({ label, icon, placeholder, values, onChange }: TagInputProps) {
-  const [text, setText] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const addValue = (raw: string) => {
-    const v = raw.trim().replace(/,$/, '');
-    if (!v) return;
-    if (!values.some(x => x.toLowerCase() === v.toLowerCase())) {
-      onChange([...values, v]);
-    }
-    setText('');
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      addValue(text);
-    } else if (e.key === 'Backspace' && !text && values.length > 0) {
-      onChange(values.slice(0, -1));
-    }
-  };
-
-  return (
-    <div>
-      <span className="text-[10px] uppercase tracking-wider text-zinc-500 flex items-center gap-1 mb-1.5">
-        {icon}
-        {label}
-      </span>
-      <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-zinc-800/40 border border-zinc-800/50 min-h-[38px] focus-within:border-pink-500/40">
-        {values.map(v => (
-          <span
-            key={v}
-            className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-pink-500/15 text-pink-300 text-[11px]"
-          >
-            {v}
-            <button
-              type="button"
-              onClick={() => onChange(values.filter(x => x !== v))}
-              className="text-pink-300/60 hover:text-pink-200"
-              aria-label={`Remove ${v}`}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <input
-          ref={inputRef}
-          value={text}
-          onChange={e => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          onBlur={() => text && addValue(text)}
-          placeholder={values.length === 0 ? placeholder : ''}
-          className="flex-1 min-w-[80px] bg-transparent outline-none text-[12px] text-zinc-200 placeholder:text-zinc-600"
-        />
-      </div>
-      <p className="text-[9px] text-zinc-600 mt-1">Press Enter or comma to add. Exact match — use lowercase names.</p>
-    </div>
-  );
-}
 
 interface FocusGroupEditorProps {
   open: boolean;
@@ -101,6 +33,9 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
   const [goalCategory, setGoalCategory] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [knownApps, setKnownApps] = useState<KnownApp[]>([]);
+  const [appsLoading, setAppsLoading] = useState(false);
+  const [appsError, setAppsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -115,6 +50,27 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
     setGoalCategory(group?.goal_category ?? '');
     setErr(null);
   }, [open, group]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setAppsLoading(true);
+    setAppsError(null);
+    const api = (window as any).deskflowAPI;
+    (api?.getKnownApps ? api.getKnownApps() : Promise.resolve([]))
+      .then((rows: KnownApp[]) => {
+        if (!cancelled) setKnownApps(Array.isArray(rows) ? rows : []);
+      })
+      .catch((e: any) => {
+        if (!cancelled) setAppsError(String(e?.message ?? e) || 'Could not fetch tracked apps');
+      })
+      .finally(() => {
+        if (!cancelled) setAppsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -139,10 +95,17 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
     else setErr('Could not save group. Check the console for details.');
   };
 
+  const fieldLabel = (icon: React.ReactNode, label: string) => (
+    <span className="text-[10px] uppercase tracking-wider text-zinc-500 flex items-center gap-1 mb-1.5">
+      {icon}
+      {label}
+    </span>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-zinc-950/95 backdrop-blur-xl border border-zinc-800/60">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-md bg-zinc-950 border border-zinc-800/60 max-h-[85vh] flex flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-pink-400" />
             {group ? 'Edit focus group' : 'New focus group'}
@@ -152,9 +115,9 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="space-y-3 overflow-y-auto min-h-0 ws-scroll pr-1">
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5 block">Name</span>
+            {fieldLabel(null, 'Name')}
             <input
               value={name}
               onChange={e => setName(e.target.value)}
@@ -164,7 +127,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           </div>
 
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5 block">Description</span>
+            {fieldLabel(null, 'Description')}
             <input
               value={description}
               onChange={e => setDescription(e.target.value)}
@@ -173,35 +136,70 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
             />
           </div>
 
-          <TagInput
-            label="Allowed apps"
-            icon={<AppWindow className="w-3 h-3" />}
-            placeholder="vscode, capcut…"
-            values={apps}
-            onChange={setApps}
-          />
-
-          <TagInput
-            label="Allowed sites"
-            icon={<Globe className="w-3 h-3" />}
-            placeholder="github.com, notion.so…"
-            values={domains}
-            onChange={setDomains}
-          />
-
-          <TagInput
-            label="Allowed categories"
-            icon={<Tag className="w-3 h-3" />}
-            placeholder="IDE, AI Tools…"
-            values={categories}
-            onChange={setCategories}
-          />
+          <div>
+            {fieldLabel(<AppWindow className="w-3 h-3" />, 'Allowed apps')}
+            {appsLoading ? (
+              <div className="p-3 rounded-xl bg-zinc-800/40 border border-zinc-800/50 flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 text-pink-400 animate-spin" />
+                <span className="text-[11px] text-zinc-500">Loading tracked apps…</span>
+              </div>
+            ) : appsError ? (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30">
+                <p className="text-[11px] text-rose-300">{appsError}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAppsLoading(true);
+                    setAppsError(null);
+                    const api = (window as any).deskflowAPI;
+                    (api?.getKnownApps ? api.getKnownApps() : Promise.resolve([]))
+                      .then((rows: KnownApp[]) => setKnownApps(Array.isArray(rows) ? rows : []))
+                      .catch((e: any) => setAppsError(String(e?.message ?? e) || 'Could not fetch tracked apps'))
+                      .finally(() => setAppsLoading(false));
+                  }}
+                  className="text-[11px] text-pink-300 hover:text-pink-200 mt-1.5 underline"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <FocusAppPicker knownApps={knownApps} selected={apps} onChange={setApps} />
+            )}
+          </div>
 
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5 flex items-center gap-1">
-              {strict === 'non_allowed' ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-              Strictness
-            </span>
+            {fieldLabel(<Globe className="w-3 h-3" />, 'Allowed sites')}
+            <FocusAppPicker
+              knownApps={[]}
+              selected={domains}
+              onChange={setDomains}
+              placeholder="Type to add sites…"
+              emptyText="Type a site domain, e.g. github.com"
+              addLabel="custom site"
+            />
+          </div>
+
+          <div>
+            {fieldLabel(<Tag className="w-3 h-3" />, 'Allowed categories')}
+            <FocusAppPicker
+              knownApps={[]}
+              selected={categories}
+              onChange={setCategories}
+              placeholder="Type to add categories…"
+              emptyText="Type a category, e.g. IDE, AI Tools"
+              addLabel="custom category"
+            />
+          </div>
+
+          {apps.length === 0 && domains.length === 0 && (
+            <p className="text-[11px] text-amber-400/90 flex items-center gap-1.5">
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              No apps specified. Strict mode will block all apps.
+            </p>
+          )}
+
+          <div>
+            {fieldLabel(strict === 'non_allowed' ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />, 'Strictness')}
             <div className="flex gap-1.5">
               <button
                 type="button"
@@ -229,7 +227,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           </div>
 
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5 block">Default duration</span>
+            {fieldLabel(null, 'Default duration')}
             <div className="flex flex-wrap gap-1.5">
               {PRESET_DURATIONS.map(m => (
                 <button
@@ -249,7 +247,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           </div>
 
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5 block">Daily goal (minutes)</span>
+            {fieldLabel(null, 'Daily goal (minutes)')}
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -268,10 +266,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           </div>
 
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5 flex items-center gap-1">
-              <Activity className="w-3 h-3" />
-              Goal category
-            </span>
+            {fieldLabel(<Activity className="w-3 h-3" />, 'Goal category')}
             {categories.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {categories.map(c => (
@@ -297,7 +292,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           {err && <p className="text-[11px] text-rose-400">{err}</p>}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving} className="gap-1.5">
             <Save className="w-3.5 h-3.5" />

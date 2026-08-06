@@ -36,6 +36,8 @@ export function ensureFocusSchema(db: Database.Database) {
       allowed_categories TEXT NOT NULL DEFAULT '[]',
       strictness      TEXT NOT NULL DEFAULT 'distracting',
       default_duration INTEGER,
+      daily_goal_sec  INTEGER,
+      goal_category   TEXT,
       created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       updated_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
@@ -55,6 +57,23 @@ export function ensureFocusSchema(db: Database.Database) {
   if (usageCols.length > 0 && !usageCols.some(c => c.name === 'goal_ids')) {
     try {
       db.exec('ALTER TABLE focus_group_usage ADD COLUMN goal_ids TEXT');
+    } catch {
+      /* column already added */
+    }
+  }
+
+  // Migration for existing DBs: add daily goal fields to focus_groups if missing
+  const groupCols = db.prepare('PRAGMA table_info(focus_groups)').all() as any[];
+  if (groupCols.length > 0 && !groupCols.some(c => c.name === 'daily_goal_sec')) {
+    try {
+      db.exec('ALTER TABLE focus_groups ADD COLUMN daily_goal_sec INTEGER');
+    } catch {
+      /* column already added */
+    }
+  }
+  if (groupCols.length > 0 && !groupCols.some(c => c.name === 'goal_category')) {
+    try {
+      db.exec('ALTER TABLE focus_groups ADD COLUMN goal_category TEXT');
     } catch {
       /* column already added */
     }

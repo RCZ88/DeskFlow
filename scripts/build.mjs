@@ -55,9 +55,10 @@ async function main() {
   console.log('\n=== Step 3/4: Pre-compiling services ===');
   const serviceFiles = findAllTs(resolve(SRC, 'services'));
   const domainFiles = findAllTs(resolve(SRC, 'domains'));
+  const libFiles = findAllTs(resolve(SRC, 'lib'));
   const mainExtraFiles = findAllTs(resolve(SRC, 'main')).filter(f => !f.endsWith('terminalRelay.ts'));
   const gameDetectionFile = resolve(SRC, 'gameDetection.ts');
-  const allTsFiles = [gameDetectionFile, ...serviceFiles, ...domainFiles, ...mainExtraFiles].filter(f => existsSync(f));
+  const allTsFiles = [gameDetectionFile, ...serviceFiles, ...domainFiles, ...libFiles, ...mainExtraFiles].filter(f => existsSync(f));
 
   for (const tsFile of allTsFiles) {
     const rel = relative(SRC, tsFile).replace(/\.ts$/, '.js');

@@ -38,7 +38,7 @@ function SessionCard({ row }: { row: FocusHistoryRow }) {
 
   return (
     <motion.div ref={cardRef} variants={itemVariants}>
-      <GlassCard variant="interactive" className="flex items-center gap-3">
+      <GlassCard variant="interactive" className="flex items-center gap-3 bg-zinc-900/95 border-zinc-800/60">
         <div className={`w-9 h-9 rounded-lg bg-zinc-800/60 flex items-center justify-center shrink-0 ${meta.color}`}>
           <Icon className="w-4.5 h-4.5" />
         </div>
@@ -72,9 +72,9 @@ export function FocusHistory({ history, onStartFirstSession }: FocusHistoryProps
   const emptyAction = { label: 'Start your first session', onClick: onStartFirstSession };
   if (history.length === 0) {
     return (
-      <GlassCard>
-        <h3 className="text-sm font-semibold text-zinc-300 mb-1 flex items-center gap-2">
-          <List className="w-4 h-4 text-zinc-400" />
+      <GlassCard className="bg-zinc-900/95 border-zinc-800/60">
+        <h3 className="text-sm font-semibold text-zinc-300 mb-1 flex items-center gap-2 font-display">
+          <List className="w-4 h-4 text-pink-400" />
           Session history
         </h3>
         <EmptyState
@@ -88,9 +88,9 @@ export function FocusHistory({ history, onStartFirstSession }: FocusHistoryProps
   }
 
   return (
-    <GlassCard>
-      <h3 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2">
-        <List className="w-4 h-4 text-zinc-400" />
+    <GlassCard className="bg-zinc-900/95 border-zinc-800/60">
+      <h3 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2 font-display">
+        <List className="w-4 h-4 text-pink-400" />
         Session history
       </h3>
       <motion.div className="space-y-2 max-h-[420px] overflow-y-auto ws-scroll pr-1" initial="hidden" animate="show" variants={listVariants}>

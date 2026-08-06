@@ -32,6 +32,42 @@ function formatMinutes(minutes: number): string {
   return `${minutes}m`;
 }
 
+// Splits multi-day gaps (backend merges untracked spans across day boundaries
+// into one contiguous gap) into one per-day segment, clipped at local midnights
+// so each calendar day renders as its own row with its own duration.
+function splitGapByDay(gap: Gap): Gap[] {
+  const start = new Date(gap.start);
+  const end = new Date(gap.end);
+
+  if (start.toDateString() === end.toDateString()) return [gap];
+
+  const result: Gap[] = [];
+  let dayStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+
+  while (dayStart.getTime() < end.getTime()) {
+    const nextDay = new Date(dayStart);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const segStart = start.getTime() > dayStart.getTime() ? start : dayStart;
+    const segEnd = end.getTime() < nextDay.getTime() ? end : nextDay;
+
+    if (segEnd.getTime() > segStart.getTime()) {
+      result.push({
+        id: `${gap.id}|${segStart.getTime()}-${segEnd.getTime()}`,
+        start: segStart,
+        end: segEnd,
+        duration_seconds: Math.max(
+          0,
+          Math.round((segEnd.getTime() - segStart.getTime()) / 1000)
+        ),
+      });
+    }
+    dayStart = nextDay;
+  }
+
+  return result.length > 0 ? result : [gap];
+}
+
 function formatDay(date: Date): string {
   const today = new Date();
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -89,15 +125,18 @@ export function GapsListModal({
     (window as any).deskflowAPI?.detectUsageGaps?.({ period, minGapMinutes: 5 })
       .then((list: any[]) => {
         if (cancelled) return;
-        const mapped: Gap[] = (list || []).map((gap: any) => ({
-          id: `${gap.start}-${gap.end}`,
-          start: new Date(gap.start),
-          end: new Date(gap.end),
-          duration_seconds: Math.max(
-            0,
-            Math.floor((new Date(gap.end).getTime() - new Date(gap.start).getTime()) / 1000)
-          ),
-        }));
+        const mapped: Gap[] = (list || []).flatMap((gap: any) => {
+          const base: Gap = {
+            id: `${gap.start}-${gap.end}`,
+            start: new Date(gap.start),
+            end: new Date(gap.end),
+            duration_seconds: Math.max(
+              0,
+              Math.floor((new Date(gap.end).getTime() - new Date(gap.start).getTime()) / 1000)
+            ),
+          };
+          return splitGapByDay(base);
+        });
         setRawGaps(mapped);
       })
       .catch(() => {

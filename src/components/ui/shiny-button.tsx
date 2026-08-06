@@ -2,6 +2,7 @@
 
 import React from "react"
 import { motion, type MotionProps } from "framer-motion"
+import { cn } from "@/lib/utils"
 
 const animationProps: MotionProps = {
   initial: { "--x": "100%", scale: 0.8 },
@@ -27,16 +28,22 @@ const animationProps: MotionProps = {
 interface ShinyButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: React.ReactNode
   className?: string
+  accent?: string
+  borderClass?: string
 }
 
 export const ShinyButton = React.forwardRef<
   HTMLButtonElement,
   ShinyButtonProps
->(({ children, className, ...props }, ref) => {
+>(({ children, className, accent = "99,102,241", borderClass = "border-indigo-500/40", ...props }, ref) => {
   return (
     <motion.button
       ref={ref}
-      className={`relative cursor-pointer rounded-xl border border-indigo-500/40 px-6 py-3 font-semibold text-sm text-zinc-50 backdrop-blur-xl transition-shadow duration-300 ease-in-out hover:shadow-[0_0_20px_rgba(99,102,241,0.25)] ${className || ""}`}
+      className={cn(
+        `relative cursor-pointer rounded-xl border ${borderClass} px-6 py-3 font-semibold text-sm text-zinc-50 backdrop-blur-xl transition-shadow duration-300 ease-in-out`,
+        `hover:shadow-[0_0_20px_rgba(${accent},0.25)]`,
+        className
+      )}
       initial={{ "--x": "100%", scale: 0.8 }}
       animate={{ "--x": "-100%", scale: 1 }}
       whileTap={{ scale: 0.95 }}
@@ -54,8 +61,8 @@ export const ShinyButton = React.forwardRef<
       <span
         className="relative block size-full uppercase tracking-wide pointer-events-none"
         style={{
-          maskImage: "linear-gradient(-75deg, rgba(99,102,241,0.8) calc(var(--x) + 20%),transparent calc(var(--x) + 30%),rgba(99,102,241,0.8) calc(var(--x) + 100%))",
-          WebkitMaskImage: "linear-gradient(-75deg, rgba(99,102,241,0.8) calc(var(--x) + 20%),transparent calc(var(--x) + 30%),rgba(99,102,241,0.8) calc(var(--x) + 100%))",
+          maskImage: `linear-gradient(-75deg, rgba(${accent},0.8) calc(var(--x) + 20%),transparent calc(var(--x) + 30%),rgba(${accent},0.8) calc(var(--x) + 100%))`,
+          WebkitMaskImage: `linear-gradient(-75deg, rgba(${accent},0.8) calc(var(--x) + 20%),transparent calc(var(--x) + 30%),rgba(${accent},0.8) calc(var(--x) + 100%))`,
         }}
       >
         {children}
@@ -67,7 +74,7 @@ export const ShinyButton = React.forwardRef<
           mask: "linear-gradient(#000, #000) content-box, linear-gradient(#000, #000)",
           WebkitMask: "linear-gradient(#000, #000) content-box, linear-gradient(#000, #000)",
           padding: "1px",
-          background: "linear-gradient(-75deg, rgba(99,102,241,0.15) calc(var(--x)+20%),rgba(99,102,241,0.55) calc(var(--x)+25%),rgba(99,102,241,0.15) calc(var(--x)+100%))",
+          background: `linear-gradient(-75deg, rgba(${accent},0.15) calc(var(--x)+20%),rgba(${accent},0.55) calc(var(--x)+25%),rgba(${accent},0.15) calc(var(--x)+100%))`,
           maskComposite: "exclude",
           WebkitMaskComposite: "xor",
         }}

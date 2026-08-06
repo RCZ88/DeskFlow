@@ -17,6 +17,7 @@ import { NumberTicker } from '../../../components/ui/number-ticker';
 import { BorderBeam } from '../../../components/ui/border-beam';
 import { AnimatedCircularProgressBar } from '../../../components/ui/animated-circular-progress-bar';
 import { VoiceInputWrapper } from '../../../components/VoiceInputWrapper';
+import { LifeRiver } from '../../../components/life-river/river';
 import type { Goal, LongTermGoal, GoalCategory } from '../../../components/dashboard/types';
 import { loadCompletions } from '../../covenant/storage';
 
@@ -1295,6 +1296,8 @@ export default function GoldPage({ embedded }: { embedded?: boolean }) {
           <WeekReview weekDates={weekDates} reflections={weekReflections} />
         </div>
       </div>
+
+      <LifeRiver />
     </div>
   );
 }

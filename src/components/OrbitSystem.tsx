@@ -5,7 +5,7 @@ import { EffectComposer, Bloom, ToneMapping, Vignette } from '@react-three/postp
 import { ToneMappingMode, BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, RotateCcw, X, RefreshCw, Globe, ChevronDown, ChevronUp, Clock, Settings, Activity } from 'lucide-react';
+import { Play, RotateCcw, X, RefreshCw, Globe, ChevronDown, ChevronUp, Clock, Settings, Activity, Gauge, SatelliteDish } from 'lucide-react';
 import { maxOf, maxBy } from '../utils/safeMath';
 
 // Cleanup component to properly dispose of WebGL resources
@@ -1210,11 +1210,11 @@ function createProceduralTexture(color: string, category: string, seed: number):
   const rand = createSeededRandom(seed);
 
   // Brighter space base for visibility against black space
-  ctx.fillStyle = '#1e1e40';
+  ctx.fillStyle = '#2a2a55';
   ctx.fillRect(0, 0, 512, 256);
 
   const baseColor = color;
-  const darkColor = adjustColor(color, -15);  // Less darkening
+  const darkColor = adjustColor(color, -5);  // Less darkening
   const lightColor = adjustColor(color, 70);   // Brighter highlights
   const lighterColor = adjustColor(color, 130); // More vivid highlights
 
@@ -1559,8 +1559,7 @@ function TexturedPlanet({
   const angleRef = useRef(initialAngle);
   const [isHovered, setIsHovered] = useState(false);
   const labelPosRef = useRef(new THREE.Vector3());
-  const [cameraDist, setCameraDist] = useState(30);
-  const distScaleRef = useRef(15);
+  const labelDivRef = useRef<HTMLDivElement | null>(null);
   // C1: LOD geometry
   const { geometry: lodGeo, setDetail: setLODDetail, detail: lodDetail } = useLODGeometry(data.radius);
   const lastLODDetailRef = useRef(0);
@@ -1648,19 +1647,24 @@ function TexturedPlanet({
 
     // C2: Activity pulse glow — emissive intensity pulses based on usage
     const mat = meshRef.current.material as THREE.MeshStandardMaterial;
-    const pulseBase = 0.15 + (data.time / 3600) * 0.02;
+    const pulseBase = 0.5 + (data.time / 3600) * 0.05;
     const pulseT = Date.now() * 0.001;
-    const pulseVal = pulseBase + Math.sin(pulseT * 1.2 + angle) * 0.08;
+    const pulseVal = Math.min(1.5, pulseBase + Math.sin(pulseT * 1.2 + angle) * 0.15);
     mat.emissiveIntensity = pulseVal;
 
-    // B14: Distance-scaled labels — scale based on camera distance
+    // B14: Distance-scaled label — opacity/size updates via refs, never per-frame React state
     const camPos = camera.position;
     const dx = camPos.x - x;
     const dy = camPos.y - y;
     const dz = camPos.z - z;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    distScaleRef.current = dist;
-    setCameraDist(dist);
+    if (labelDivRef.current) {
+      const distFade = Math.min(1, Math.max(0.25, 1 - (dist - 15) / 160));
+      const targetOpacity = isHovered ? 1 : distFade;
+      if (Math.abs(parseFloat(labelDivRef.current.style.opacity || '0') - targetOpacity) > 0.01) {
+        labelDivRef.current.style.opacity = String(targetOpacity);
+      }
+    }
 
     // Update label world position
     labelPosRef.current.set(x, y - data.radius - 1.0, z);
@@ -1753,7 +1757,7 @@ function TexturedPlanet({
           roughness={0.4}
           metalness={0.15}
           emissive={new THREE.Color(data.color)}
-          emissiveIntensity={0.25}
+          emissiveIntensity={0.6}
           emissiveMap={texture}
         />
       </mesh>
@@ -1783,18 +1787,16 @@ function TexturedPlanet({
         />
       </mesh>
 
-      {/* B14: Distance-scaled label — opacity/size scales with camera distance */}
+      {/* B14: Distance-scaled label — opacity updates via ref, crisp at all zoom levels */}
       <group ref={labelRef}>
-        <Html center distanceFactor={15}>
+        <Html center distanceFactor={30} zIndexRange={[50, 0]}>
           <div
+            ref={labelDivRef}
             style={{
               pointerEvents: 'none',
-              opacity: isHovered ? 1 : Math.min(1, Math.max(0.3, 1 - (cameraDist - 15) / 120)),
-              transform: `scale(${isHovered ? 1 : Math.min(1.2, Math.max(0.6, 20 / cameraDist + 0.5))})`,
               transition: 'opacity 0.2s ease',
               transformOrigin: 'center center',
               background: 'rgba(8, 8, 24, 0.95)',
-              backdropFilter: 'blur(8px)',
               border: `1.5px solid ${isHovered ? data.color : 'rgba(255,255,255,0.18)'}`,
               borderRadius: '10px',
               padding: '5px 14px',
@@ -1805,9 +1807,6 @@ function TexturedPlanet({
               letterSpacing: '0.03em',
               fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
               boxShadow: isHovered ? `0 0 16px ${data.color}44` : '0 2px 8px rgba(0,0,0,0.4)',
-              maxWidth: isHovered ? '200px' : `${Math.max(60, Math.min(200, 200 - (cameraDist - 15) * 2))}px`,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
             }}
           >
             {data.name}{isHovered && <span style={{ marginLeft: '8px', opacity: 0.7, fontWeight: 400 }}>{formatDurationSeconds(data.time)}</span>}
@@ -2426,9 +2425,6 @@ function SolarSystemScene({ planets, isPaused, speed, onPlanetClick, controlsRef
       )}
       <WarpLines active={!!isAnimating} />
       <Sun category={category} size={sunSize} />
-      <ambientLight color="#ffffff" intensity={0.15} />
-      <hemisphereLight color="#6688cc" groundColor="#222233" intensity={0.1} />
-      <directionalLight position={[5, 10, 5]} intensity={0.15} color="#aabbff" />
       {planets.filter((p) => p && p.name && (p.category || p.color)).map((planetData) => (<OrbitPath key={`orbit-${planetData.name}`} planet={planetData} />))}
       {planets.filter((p) => { if (!p) return false; if (!p.name) return false; if (!p.category && !p.color) return false; return true; }).map((planetData) => (<TexturedPlanet key={planetData.name} data={planetData} isPaused={isPaused} speedMultiplier={speed} onClick={onPlanetClick} onPositionUpdate={onPlanetPositionUpdate} />))}
       {showBelt && <AsteroidBelt radius={45} count={400} isPaused={isPaused} camera={camera} />}
@@ -2925,6 +2921,11 @@ function GalaxyView({
 }) {
   const appsGroupRef = useRef<THREE.Group>(null!);
   const websitesGroupRef = useRef<THREE.Group>(null!);
+  // Fix 2: label refs for constant-screen-size scaling (both galaxies render simultaneously,
+  // so keys must be galaxy-scoped to avoid category collisions between apps & websites)
+  const labelRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const systemGroups = useRef<Record<string, THREE.Group | null>>({});
+  const labelWorldPos = useMemo(() => new THREE.Vector3(), []);
   
   // Apps galaxy position: (0, 0, 0)
   // Websites galaxy position: (3250, 0, 0) - 5x galaxy widths apart
@@ -2956,6 +2957,20 @@ function GalaxyView({
       }
       if (websitesGroupRef.current) {
         websitesGroupRef.current.rotation.y += speeds.websites;
+      }
+    }
+    // Fix 2: constant-screen-size labels — scale each label to compensate for camera distance
+    for (const key of Object.keys(systemGroups.current)) {
+      const group = systemGroups.current[key];
+      const label = labelRefs.current[key];
+      if (!group || !label) continue;
+      group.getWorldPosition(labelWorldPos);
+      const dist = state.camera.position.distanceTo(labelWorldPos);
+      const scale = Math.min(1.8, Math.max(0.6, 220 / dist));
+      const current = parseFloat(label.dataset.scale || '0');
+      if (Math.abs(current - scale) > 0.01) {
+        label.dataset.scale = String(scale);
+        label.style.transform = `scale(${scale})`;
       }
     }
   });
@@ -2996,7 +3011,8 @@ function GalaxyView({
     idx: number,
     config: typeof appSunConfigs[string],
     trailPos: Float32Array,
-    basePos: [number, number, number]
+    basePos: [number, number, number],
+    scope: 'apps' | 'websites'
   ) => {
     const pos = getSystemPosition(idx, 0, 0); // Will be recalculated
     const brightness = Math.min(1, system.totalTime / 60);
@@ -3040,12 +3056,29 @@ function GalaxyView({
           />
         </sprite>
         
-        {/* Always visible label */}
-        <Html center distanceFactor={30} position={[0, sphereSize * 3, 0]} style={{ pointerEvents: 'none' }}>
-          <div className="px-3 py-1.5 rounded-lg bg-black/90 text-white font-bold text-sm whitespace-nowrap border-2 border-white/40" style={{ fontSize: '15px', textShadow: '0 0 10px rgba(0,0,0,0.8), 0 0 20px rgba(0,0,0,0.5)' }}>
-            {system.category}
-          </div>
-        </Html>
+        {/* Fix 2: Constant-screen-size label — scaled per-frame by camera distance,
+            glass chip styling (no distanceFactor scaling, no backdrop-filter) */}
+        <group ref={(el) => { if (el) systemGroups.current[`${scope}__${system.category}`] = el; }}>
+          <group position={[0, sphereSize * 3, 0]}>
+            <Html center zIndexRange={[40, 0]}>
+              <div
+                ref={(el) => { if (el) labelRefs.current[`${scope}__${system.category}`] = el; }}
+                className="px-3 py-1.5 rounded-lg text-white font-bold whitespace-nowrap"
+                style={{
+                  pointerEvents: 'none',
+                  fontSize: '13px',
+                  background: 'rgba(8, 8, 24, 0.85)',
+                  border: `1.5px solid ${config.color}66`,
+                  boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
+                  transformOrigin: 'center center',
+                  willChange: 'transform',
+                }}
+              >
+                {system.category}
+              </div>
+            </Html>
+          </group>
+        </group>
       </group>
     );
   };
@@ -3058,7 +3091,7 @@ function GalaxyView({
         {appSolarSystems.map((system, idx) => {
           const config = appSunConfigs[system.category] || DEFAULT_SUN_CONFIG;
           const pos = getSystemPosition(idx, appSolarSystems.length, 0);
-          return renderSolarSystem(system, idx, config, appTrailPositions[idx], [pos[0], pos[1], pos[2]]);
+          return renderSolarSystem(system, idx, config, appTrailPositions[idx], [pos[0], pos[1], pos[2]], 'apps');
         })}
       </group>
       
@@ -3068,7 +3101,7 @@ function GalaxyView({
         {websiteSolarSystems.map((system, idx) => {
           const config = websiteSunConfigs[system.category] || DEFAULT_WEBSITE_SUN_CONFIG;
           const pos = getSystemPosition(idx, websiteSolarSystems.length, 0);
-          return renderSolarSystem(system, idx, config, websiteTrailPositions[idx], [pos[0], pos[1], pos[2]]);
+          return renderSolarSystem(system, idx, config, websiteTrailPositions[idx], [pos[0], pos[1], pos[2]], 'websites');
         })}
       </group>
     </>
@@ -3324,7 +3357,19 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
   const [textureRefreshKey, setTextureRefreshKey] = useState(0);
   const [viewMode, setViewMode] = useState<'galaxy' | 'solarSystem'>('galaxy');
   const [galaxyType, setGalaxyType] = useState<'apps' | 'websites'>('apps');
-  const [perfMode, setPerfMode] = useState<'high' | 'balanced' | 'performance'>('balanced');
+  // Fix 5: Graphics Quality — persisted across sessions via localStorage
+  const [perfMode, setPerfMode] = useState<'high' | 'balanced' | 'performance'>(() => {
+    try {
+      const stored = localStorage.getItem('deskflow-graphics-quality');
+      if (stored === 'high' || stored === 'balanced' || stored === 'performance') return stored;
+    } catch { /* ignore */ }
+    return 'balanced';
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('deskflow-graphics-quality', perfMode);
+    } catch { /* ignore */ }
+  }, [perfMode]);
   const [isVisible, setIsVisible] = useState(true);
   const cameraPosRef = useRef<[number, number, number]>([0, 100, 200]);
   const fpsDisplayRef = useRef<HTMLDivElement | null>(null);
@@ -3494,6 +3539,18 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
     return solarSystems.flatMap(s => s.planets);
   }, [solarSystems]);
   
+  // Fix 3d: After a period switch the saved category may no longer exist in the new data —
+  // auto-fall back to the first available category so the view never renders empty
+  useEffect(() => {
+    if (viewMode !== 'solarSystem') return;
+    const found = solarSystems.find((s) => s.category === currentCategory);
+    if (!found && solarSystems.length > 0) {
+      const newCat = solarSystems[0].category;
+      setCurrentCategory(newCat);
+      setStoredCategory(newCat, galaxyType);
+    }
+  }, [solarSystems, currentCategory, viewMode]);
+  
   // Extract unique categories from planet data for dropdown
   const planetCategories = useMemo(() => {
     return [...new Set(allPlanets.map(p => p.category).filter(Boolean))];
@@ -3579,10 +3636,11 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
       
       // Animate into the solar system (zoom in close to sun)
       setViewMode('solarSystem');
-      const targetX = galaxyType === 'websites' ? 3250 : 0;
+      // Solar systems always render at origin (SolarSystemScene has no offset) —
+      // camera must fly to origin regardless of galaxy type, else websites view is blank
       const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
-      const targetPos = new THREE.Vector3(targetX, 30, 60); // Close to sun
-      const lookAtPos = new THREE.Vector3(targetX, 0, 0); // Look at sun
+      const targetPos = new THREE.Vector3(0, 30, 60); // Close to sun
+      const lookAtPos = new THREE.Vector3(0, 0, 0); // Look at sun
       animateCamera(targetPos, lookAtPos, duration, () => setPortalKey(k => k + 1));
     }
   };
@@ -3623,10 +3681,10 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
     trackedPlanetRef.current = null;
     if (controlsRef.current) {
       setViewMode('solarSystem');
-      const targetX = galaxyType === 'websites' ? 3250 : 0;
+      // Solar systems always render at origin — camera flies to origin for both galaxy types
       const duration = animationSpeed === 'instant' ? 100 : ANIMATION_DURATIONS[animationSpeed];
-      const targetPos = new THREE.Vector3(targetX, 30, 60);
-      const lookAtPos = new THREE.Vector3(targetX, 0, 0);
+      const targetPos = new THREE.Vector3(0, 30, 60);
+      const lookAtPos = new THREE.Vector3(0, 0, 0);
       animateCamera(targetPos, lookAtPos, duration, () => setPortalKey(k => k + 1));
     }
   };
@@ -3916,6 +3974,30 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
             {/* FPS Line Graph - always visible when perf is shown */}
             <FPSLineGraph fpsHistoryRef={fpsHistoryRef} width={176} height={48} />
             
+            {/* Fix 5b: Graphics Quality — persisted segmented control */}
+            <div className="border-t border-zinc-700 pt-2 mt-2">
+              <div className="flex items-center gap-1.5 mb-1.5 text-zinc-400">
+                <Gauge className="w-3 h-3 text-indigo-400" />
+                <span>Graphics Quality</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {(['high', 'balanced', 'performance'] as const).map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => setPerfMode(q)}
+                    className={`px-1.5 py-1 rounded-md text-[10px] font-medium transition ${
+                      perfMode === q 
+                        ? 'bg-indigo-500/30 text-indigo-300' 
+                        : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                    }`}
+                    title={q === 'high' ? 'Max particles, MSAA 4x, Bloom' : q === 'balanced' ? 'Balanced quality & performance' : 'Reduced particles, no Bloom'}
+                  >
+                    {q === 'high' ? 'High' : q === 'performance' ? 'Low' : 'Balanced'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
             {/* Expanded stats */}
             {perfExpanded && (
               <motion.div 
@@ -4011,7 +4093,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
               <Canvas
                 resize={{ scroll: false, offsetSize: true }}
                 style={{ width: '100%', height: '100%' }} 
-                key={`canvas-${textureRefreshKey}`} 
+                key={`canvas-${textureRefreshKey}-${perfMode}`} 
                 camera={{ position: viewMode === 'galaxy' ? (galaxyType === 'websites' ? [3250, 100, 200] : [0, 100, 200]) : [0, 100, 180], fov: 45, near: 0.1, far: 10000 }} 
                 onError={(e) => console.error('[OrbitSystem] Canvas error:', e)}
                 onCreated={({ gl }) => {
@@ -4019,7 +4101,7 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                 }}
                 gl={{
                   powerPreference: 'high-performance',
-                  antialias: false,
+                  antialias: perfMode === 'high',
                   alpha: false,
                   stencil: false,
                   depth: true,
@@ -4038,20 +4120,20 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
                   <color attach="background" args={['#0a0a14']} />
                   <fog attach="fog" args={['#0a0a14', 1500, 4500]} />
                   
-                  {/* Space Lighting */}
-                  <ambientLight intensity={0.03} color="#1a1a2e" />
-                  <hemisphereLight groundColor="#000000" skyColor="#0d1b2a" intensity={0.08} />
-                  <pointLight position={[0, 0, 0]} intensity={3} color="#ffaa00" distance={200} decay={1.5} />
-                  <directionalLight position={[50, 30, 50]} intensity={0.5} color="#fff5e6" />
+                  {/* Space Lighting — balanced so planets at orbit ~220 stay visible */}
+                  <ambientLight intensity={0.13} color="#3a4a6e" />
+                  <hemisphereLight groundColor="#10131c" skyColor="#b8d0f0" intensity={0.18} />
+                  <pointLight position={[0, 0, 0]} intensity={8} color="#ffdd99" distance={400} decay={1.0} />
+                  <directionalLight position={[-80, -20, -60]} intensity={0.4} color="#cfe0ff" />
                   
-                  {/* Post-Processing Effects - disabled in performance mode */}
-                  <EffectComposer multisampling={0}>
+                  {/* Post-Processing Effects - disabled in performance mode; MSAA only on High */}
+                  <EffectComposer multisampling={perfMode === 'high' ? 4 : 0}>
                     {perfMode !== 'performance' && (
                       <Bloom 
-                        intensity={1.2} 
-                        luminanceThreshold={0.6} 
+                        intensity={1.6} 
+                        luminanceThreshold={0.4} 
                         luminanceSmoothing={0.5}
-                        radius={0.5}
+                        radius={0.8}
                         mipmapBlur 
                       />
                     )}
@@ -4127,6 +4209,25 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
           }
         })()}
       </div>
+      
+      {/* Fix 3e: Friendly empty state — never a silent blank view */}
+      {viewMode === 'solarSystem' && planets.length === 0 && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <div className="glass rounded-xl px-6 py-5 flex flex-col items-center gap-3 text-center max-w-xs pointer-events-auto">
+            <SatelliteDish className="w-8 h-8 text-indigo-400" />
+            <div className="text-sm text-zinc-300 font-medium">No activity here yet</div>
+            <div className="text-xs text-zinc-500 leading-relaxed">
+              Nothing was tracked in this category for the selected period. Pick another category or head back to the galaxy.
+            </div>
+            <button
+              onClick={() => { setSelectedPlanet(null); trackedPlanetRef.current = null; setViewMode('galaxy'); }}
+              className="mt-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 transition"
+            >
+              Back to galaxy
+            </button>
+          </div>
+        </div>
+      )}
       
       {/* Category sidebar - when system selected in galaxy view */}
       {selectedSystem && viewMode === 'galaxy' && (

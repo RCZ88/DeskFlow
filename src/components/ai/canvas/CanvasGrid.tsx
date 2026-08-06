@@ -23,6 +23,7 @@ interface CanvasGridProps {
   setIsPanning: (v: boolean) => void
   focusedCardId?: string | null
   onGroupCards?: (cardIds: string[]) => void
+  onDraggingChange?: (dragging: boolean) => void
 }
 
 const MIN_ZOOM = 0.15
@@ -33,7 +34,7 @@ const CELL = 40
 export function CanvasGrid({
   cards, pan, onPanChange, zoom, onZoomChange, onMoveCard, onDismissCard,
   onPinCard, onResizeCard, onCardClick, onUpdateCard, groups, onUpdateGroup, onUngroup, onRemoveFromGroup,
-  isPanning, setIsPanning, focusedCardId, onGroupCards,
+  isPanning, setIsPanning, focusedCardId, onGroupCards, onDraggingChange,
 }: CanvasGridProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const gridLayerRef = useRef<HTMLDivElement>(null)
@@ -170,8 +171,9 @@ export function CanvasGrid({
 
   const handleCardDragStart = useCallback((cardId: string) => {
     draggingCardId.current = cardId
+    onDraggingChange?.(true)
     gridLayerRef.current?.setAttribute('data-card-dragging', 'true')
-  }, [])
+  }, [onDraggingChange])
 
   const handleCardDragStop = useCallback((cardId: string) => {
     const targetId = dropTargetRef.current
@@ -181,8 +183,9 @@ export function CanvasGrid({
     draggingCardId.current = null
     dropTargetRef.current = null
     setDropTargetId(null)
+    onDraggingChange?.(false)
     gridLayerRef.current?.removeAttribute('data-card-dragging')
-  }, [onGroupCards])
+  }, [onGroupCards, onDraggingChange])
 
   const handleDropTarget = useCallback((targetId: string | null) => {
     // Ignore self-targeting

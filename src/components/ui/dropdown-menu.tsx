@@ -19,10 +19,10 @@ function DropdownMenuContent({
       <MenuPrimitive.Positioner>
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
-          className={cn(
-            "z-50 min-w-40 origin-[var(--transform-origin)] rounded-lg border border-border bg-popover p-1 text-sm shadow-lg transition-[transform,opacity] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-            className
-          )}
+      className={cn(
+        "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-zinc-200 outline-none select-none data-highlighted:bg-white/[0.08] data-highlighted:text-zinc-50 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
           {...props}
         />
       </MenuPrimitive.Positioner>

@@ -28,6 +28,23 @@ export function fmtDuration(sec: number): string {
   return `${rem}s`;
 }
 
+const GROUP_ACCENTS = [
+  '#ec4899',
+  '#a855f7',
+  '#38bdf8',
+  '#34d399',
+  '#f59e0b',
+  '#f43f5e',
+  '#22d3ee',
+  '#fbbf24',
+];
+
+export function groupAccent(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return GROUP_ACCENTS[h % GROUP_ACCENTS.length];
+}
+
 function dayKey(iso: string): string {
   return new Date(iso).toDateString();
 }
@@ -116,4 +133,48 @@ export function computeAvgSessionLength(history: FocusHistoryRow[]): number {
   const completed = history.filter(h => h.outcome === 'completed' && h.actual_sec);
   if (completed.length === 0) return 0;
   return completed.reduce((sum, h) => sum + (h.actual_sec || 0), 0) / completed.length;
+}
+
+// ===== Group-attributed progress =====
+
+export interface GroupDailyProgress {
+  currentSec: number;
+  goalSec: number;
+  pct: number;
+}
+
+export function computeGroupDailyProgress(
+  group: { daily_goal_sec: number | null },
+  history: FocusHistoryRow[],
+  attributedSessionIds: number[],
+): GroupDailyProgress {
+  if (!group.daily_goal_sec || group.daily_goal_sec <= 0) {
+    return { currentSec: 0, goalSec: 0, pct: 0 };
+  }
+  const today = new Date().toDateString();
+  const todaySec = history
+    .filter(h => attributedSessionIds.includes(h.id) && new Date(h.started_at).toDateString() === today && h.outcome === 'completed')
+    .reduce((sum, h) => sum + (h.actual_sec || 0), 0);
+
+  const pct = Math.min(100, Math.round((todaySec / group.daily_goal_sec) * 100));
+  return { currentSec: todaySec, goalSec: group.daily_goal_sec, pct };
+}
+
+export function computeGroupStreak(history: FocusHistoryRow[], attributedSessionIds: number[]): number {
+  const completedDays = new Set(
+    history
+      .filter(h => attributedSessionIds.includes(h.id) && h.outcome === 'completed')
+      .map(h => new Date(h.started_at).toDateString()),
+  );
+  if (completedDays.size === 0) return 0;
+  let streak = 0;
+  const cursor = new Date();
+  if (!completedDays.has(cursor.toDateString())) cursor.setDate(cursor.getDate() - 1);
+  for (let i = 0; i < 3650; i++) {
+    if (completedDays.has(cursor.toDateString())) {
+      streak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    } else break;
+  }
+  return streak;
 }

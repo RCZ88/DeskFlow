@@ -51,6 +51,75 @@ function visualWeight(seconds: number): number {
 }
 
 /**
+ * Hard ceiling on the largest card's share of the mosaic, per mode.
+ * The gamma curve only flattens the spread — without a cap the dominant
+ * activity can still swallow a third+ of the grid in ANY mode. These are the
+ * maximum allowed shares: subtle stays tiny, balanced is moderate, dramatic
+ * is the only mode that lets a card get genuinely big (but never half+).
+ */
+const MAX_SHARE_MAP: Record<Hierarchy, number> = {
+  subtle: 0.18,
+  balanced: 0.3,
+  dramatic: 0.48,
+};
+
+/**
+ * Water-filling ceiling: clamp every card over `maxShare` to the cap, then
+ * redistribute the freed mass proportionally to the cards still below the
+ * cap, repeating until stable. Ordering and legibility are preserved — the
+ * smaller cards just absorb what the giant used to hog.
+ *
+ * Degenerate data (so few cards that not all can fit under the cap, e.g. a
+ * 95/5 split with two activities) ends in a renormalized equal-ish split
+ * rather than an infinite oscillation — the cap itself still holds.
+ */
+function applyMaxShare(weights: number[], maxShare: number): number[] {
+  if (!(maxShare > 0) || maxShare >= 1) return weights;
+  const n = weights.length;
+  if (n < 2) return weights;
+
+  let result = weights.slice();
+
+  for (let iter = 0; iter < 32; iter++) {
+    const over: number[] = [];
+    const under: number[] = [];
+    let excess = 0;
+    let underSum = 0;
+
+    for (let i = 0; i < n; i++) {
+      if (result[i] > maxShare + 1e-9) {
+        over.push(i);
+        excess += result[i] - maxShare;
+      } else if (result[i] < maxShare - 1e-9) {
+        under.push(i);
+        underSum += result[i];
+      }
+    }
+
+    if (!over.length) break;
+
+    for (const i of over) result[i] = maxShare;
+
+    if (!under.length || underSum <= 1e-9) {
+      // No one left to absorb the excess: renormalize and stop.
+      const total = result.reduce((a, b) => a + b, 0);
+      if (total > 0) result = result.map((w) => w / total);
+      break;
+    }
+
+    for (const i of under) {
+      result[i] += excess * (result[i] / underSum);
+    }
+  }
+
+  // Defensive final renormalization (floating-point drift).
+  const total = result.reduce((a, b) => a + b, 0);
+  if (total > 0) result = result.map((w) => w / total);
+
+  return result;
+}
+
+/**
  * Proportional target weights for the mosaic.
  * The old model hardcoded a fixed ladder (hero 0.55 / secondary 0.27 / rest
  * sharing ~0.18) — the user reported the sizes look FIXED, not proportional
@@ -61,6 +130,8 @@ function visualWeight(seconds: number): number {
  *      proportion, gamma > 1 exaggerates → dramatic)
  *   3. s_i normalized so the fractions sum to 1 → each card's area IS its
  *      share of tracked time. Dominance emerges from the data, not a ladder.
+ *   4. applyMaxShare() caps the biggest card per mode (subtle 18% / balanced
+ *      30% / dramatic 48%) so no card can ever swallow the grid.
  */
 export function buildTargetWeights(sorted: ActivityWithSeconds[], hierarchy: Hierarchy = "balanced"): number[] {
   const n = sorted.length;
@@ -84,7 +155,9 @@ export function buildTargetWeights(sorted: ActivityWithSeconds[], hierarchy: Hie
     return sorted.map(() => 1 / n);
   }
 
-  return raw.map((w) => w / total);
+  const normalized = raw.map((w) => w / total);
+
+  return applyMaxShare(normalized, MAX_SHARE_MAP[hierarchy] ?? 0.3);
 }
 
 /**

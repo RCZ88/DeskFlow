@@ -4,11 +4,11 @@ import { Play, Square, Target, Eye, EyeOff, Focus as FocusIcon, Timer, Clock } f
 import { AnimatedCircularProgressBar } from '../../components/ui/animated-circular-progress-bar';
 import { Particles } from '../../components/ui/particles';
 import { NumberTicker } from '../../components/ui/number-ticker';
+import { ShinyButton } from '../../components/ui/shiny-button';
 import { GlassCard } from '../../components/GlassCard';
 import { Badge } from '../../components/ui/badge';
 import type { FocusPublicState } from '../../hooks/useFocusSession';
 import type { FocusGroup } from '../../hooks/useFocusGroups';
-import { FocusGroupSelector } from './FocusGroupSelector';
 import { DragDurationBar } from './DragDurationBar';
 import { fmtClock } from './focusHelpers';
 
@@ -37,10 +37,7 @@ interface FocusTimerProps {
   stopwatchElapsed?: number;
   groups?: FocusGroup[];
   selectedGroupId?: number | null;
-  onGroupSelect?: (id: number | null) => void;
-  onGroupCreate?: () => void;
-  onGroupEdit?: (g: FocusGroup) => void;
-  onGroupDelete?: (g: FocusGroup) => void;
+  activeGroup?: FocusGroup | null;
   onStartWithGroup?: (groupId: number, durationSec: number, strictness: 'distracting' | 'non_allowed') => void;
   onDurationDrag?: (sec: number) => void;
 }
@@ -53,7 +50,7 @@ const crossfade = {
   transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const },
 };
 
-export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, onStart, onStop, justCompleted, mode = 'timer', onModeChange, stopwatchElapsed = 0, groups = [], selectedGroupId = null, onGroupSelect, onGroupCreate, onGroupEdit, onGroupDelete, onStartWithGroup, onDurationDrag }: FocusTimerProps) {
+export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, onStart, onStop, justCompleted, mode = 'timer', onModeChange, stopwatchElapsed = 0, groups = [], selectedGroupId = null, activeGroup = null, onStartWithGroup, onDurationDrag }: FocusTimerProps) {
   const active = !!state?.active;
   const plannedSec = mins * 60;
 
@@ -105,7 +102,7 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
 
   return (
     <GlassCard accent="pink" className="relative overflow-hidden h-full">
-      {active && <Particles className="opacity-60" quantity={22} color="#ec4899" opacity={0.18} />}
+      {active && <Particles className="opacity-60" quantity={22} color="#ec4899" />}
       <div className="relative z-10 flex flex-col items-center gap-4">
         <div className="flex items-center justify-between w-full">
           <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
@@ -117,8 +114,8 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
 
         <AnimatedCircularProgressBar
           value={active ? (mode === 'stopwatch' ? Math.min(100, (stopwatchSec / 3600) * 100) : progressPct) : 100}
-          size={168}
-          strokeWidth={10}
+          size={180}
+          strokeWidth={12}
           gaugePrimaryColor={ringPrimary}
           gaugeSecondaryColor="rgba(255,255,255,0.06)"
           linear={active}
@@ -169,15 +166,27 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
               className="w-full"
             >
               <div className="w-full">
-                {onGroupSelect && onGroupCreate && (
-                  <FocusGroupSelector
-                    groups={groups}
-                    selectedId={selectedGroupId}
-                    onSelect={onGroupSelect}
-                    onCreate={onGroupCreate}
-                    onEdit={onGroupEdit ?? (() => {})}
-                    onDelete={onGroupDelete ?? (() => {})}
-                  />
+                {activeGroup && (
+                  <div className="mb-3 p-3 rounded-lg bg-pink-500/10 border border-pink-500/30 flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-2 h-2 rounded-full bg-pink-400 animate-pulse shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-semibold text-pink-300 truncate">{activeGroup.name}</p>
+                        <p className="text-[10px] text-zinc-500 truncate">
+                          {activeGroup.daily_goal_sec
+                            ? `Daily goal: ${Math.round(activeGroup.daily_goal_sec / 60)} min`
+                            : activeGroup.allowed_categories.length > 0
+                              ? `${activeGroup.allowed_categories.length} categories tracked`
+                              : 'All productive categories'}
+                        </p>
+                      </div>
+                    </div>
+                    {activeGroup.strictness === 'non_allowed' && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 shrink-0">
+                        strict
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -252,21 +261,22 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
                 </p>
               )}
 
-              <motion.button
-                whileTap={tapScale}
+              <ShinyButton
+                accent="16,185,129"
+                borderClass="border-emerald-500/40"
                 onClick={() => {
                   if (mode !== 'stopwatch' && selectedGroupId != null && onStartWithGroup) onStartWithGroup(selectedGroupId, mins * 60, strict);
                   else onStart();
                 }}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm"
               >
                 <Play className="w-4 h-4" />
                 {mode === 'stopwatch'
                   ? 'Start challenge'
                   : selectedGroupId != null
-                    ? `Start ${groups.find(g => g.id === selectedGroupId)?.name ?? 'group'} focus`
+                    ? `Start ${activeGroup?.name ?? groups.find(g => g.id === selectedGroupId)?.name ?? 'group'} focus`
                     : `Start ${mins}-min focus`}
-              </motion.button>
+              </ShinyButton>
             </motion.div>
           )}
         </AnimatePresence>

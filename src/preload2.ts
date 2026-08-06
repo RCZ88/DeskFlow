@@ -148,7 +148,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getDatabaseTables: () => ipcRenderer.invoke('get-database-tables'),
   getTableData: (tableName: string, limit?: number) => ipcRenderer.invoke('get-table-data', tableName, limit),
   updateCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => 
-    ipcRenderer.invoke('update-categories-from-overrides', appOverrides, domainOverrides),
+    ipcRenderer.invoke('update-categories-from-overrides', appOverrides, domainOverrides, false),
+  previewCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => 
+    ipcRenderer.invoke('update-categories-from-overrides', appOverrides, domainOverrides, true),
 
   // Productivity sessions
   saveProductivitySession: (session: { started_at: string; ended_at?: string; duration_seconds?: number; app_name?: string; category?: string; is_streak?: boolean }) =>

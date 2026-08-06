@@ -2777,6 +2777,46 @@ function initializeStorage() {
         try { db.exec('ALTER TABLE goals ADD COLUMN slipped_count INTEGER DEFAULT 0'); } catch {}
         try { db.exec('ALTER TABLE goals ADD COLUMN deadline TEXT'); } catch {}
 
+        // ========== Life Phases Timeline (The River of Years) ==========
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS life_phases (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT 'growth',
+            start_month INTEGER NOT NULL,
+            start_year INTEGER NOT NULL,
+            end_month INTEGER, end_year INTEGER,
+            magnitude INTEGER NOT NULL DEFAULT 50 CHECK (magnitude BETWEEN 0 AND 100),
+            color TEXT,
+            reflection TEXT NOT NULL DEFAULT '',
+            era_trends TEXT NOT NULL DEFAULT '',
+            impact_notes TEXT NOT NULL DEFAULT '',
+            milestones TEXT NOT NULL DEFAULT '[]',
+            connections TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_life_phases_start ON life_phases(start_year, start_month)');
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS life_timeline_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          )
+        `);
+        // older-DB safety: add any missing columns
+        const lphHave = db.prepare(`PRAGMA table_info(life_phases)`).all().map((c: any) => c.name);
+        for (const [col, type] of [
+          ['reflection', 'TEXT NOT NULL DEFAULT \'\''],
+          ['era_trends', 'TEXT NOT NULL DEFAULT \'\''],
+          ['impact_notes', 'TEXT NOT NULL DEFAULT \'\''],
+          ['milestones', 'TEXT NOT NULL DEFAULT \'[]\''],
+          ['connections', 'TEXT NOT NULL DEFAULT \'[]\''],
+          ['updated_at', 'TEXT NOT NULL DEFAULT (datetime(\'now\'))'],
+        ] as [string, string][]) {
+          if (!lphHave.includes(col)) { try { db.exec(`ALTER TABLE life_phases ADD COLUMN ${col} ${type}`); } catch {} }
+        }
+
         // Reminders table (AI agent reminders â€” linked to goals or free-standing)
         db.exec(`
           CREATE TABLE IF NOT EXISTS reminders (
@@ -4228,6 +4268,10 @@ function categorizeDomain(domain, title, url) {
 // ðŸŽ® Game-mode poll skip counter: reduces active-win calls during gameplay to prevent stutter
 let gameModePollCount = 0;
 const GAME_POLL_SKIP = 6; // Only call active-win every 6th poll (30s) during games
+// Whether the current foreground app was resolved as an actual game (resolver source
+// != 'raw'). Used by checkpoints so non-game apps (VS Code, Spotify, ...) never get
+// force-categorized as 'Gaming'.
+let currentIsResolvedGame = false;
 
 // Real window polling using active-win
 async function pollForeground() {
@@ -4282,6 +4326,8 @@ async function pollForeground() {
         const timeSinceLastPoll = now - lastPollTime;
         lastPollTime = now;
         const resolved = await resolveForegroundApp(result ?? null);
+        // Resolver sources other than 'raw' mean an actual game was detected
+        currentIsResolvedGame = !!resolved && resolved.source !== 'raw';
 
         // --- Sleep / gap detection ---
         if (!result) {
@@ -4456,7 +4502,7 @@ async function pollForeground() {
             const shouldCheckpoint = checkpointDuration > 5000 && !(isTrackerCheckpoint && trackerAppMode !== 'track') && !isBrowserCheckpoint;
             if (shouldCheckpoint) {
                 const duration = Math.min(checkpointDuration, MAX_SESSION_MS);
-                const category = categorizeApp(currentApp, { isResolvedGame: true });
+                const category = categorizeApp(currentApp, currentIsResolvedGame ? { isResolvedGame: true } : undefined);
                 addLog(new Date(sessionStart).toISOString(), currentApp, category, duration, `${currentApp} Window`, null);
                 console.log(`[DeskFlow] ðŸ“ Checkpoint: ${currentApp} â†’ ${Math.round(duration / 1000)}s`);
                 sessionStart = now;
@@ -4737,6 +4783,8 @@ function createWindow() {
                         allowed_categories: Array.isArray(g.allowed_categories) ? g.allowed_categories : [],
                         strictness: g.strictness === 'non_allowed' ? 'non_allowed' : 'distracting',
                         default_duration: typeof g.default_duration === 'number' ? g.default_duration : null,
+                        daily_goal_sec: typeof g.daily_goal_sec === 'number' ? g.daily_goal_sec : null,
+                        goal_category: typeof g.goal_category === 'string' ? g.goal_category : null,
                     });
                     return { success: true, id };
                 } catch (err) {
@@ -4774,6 +4822,14 @@ function createWindow() {
                     return { success: true };
                 } catch (err) {
                     return { success: false, error: String(err) };
+                }
+            });
+            electron_1.ipcMain.handle('focusGroup:getUsage', () => {
+                try {
+                    return focusGroupManager.getUsage();
+                } catch (err) {
+                    console.error('[DeskFlow] Failed to get focus group usage:', err);
+                    return [];
                 }
             });
             console.log('[DeskFlow] Focus Groups IPC ready');
@@ -5115,27 +5171,73 @@ electron_1.ipcMain.handle('get-table-data', (event, tableName, limit = 50) => {
     }
 });
 
-electron_1.ipcMain.handle('update-categories-from-overrides', (event, appOverrides, domainOverrides) => {
+const sanitizeCategoryOverrides = (map) => {
+    const clean = {};
+    if (map && typeof map === 'object') {
+        for (const [key, value] of Object.entries(map)) {
+            if (key && typeof value === 'string' && value.trim() !== '') {
+                clean[key.toLowerCase()] = value.trim();
+            }
+        }
+    }
+    return clean;
+};
+const REFACTOR_STATS_TABLES = ['stats_hourly', 'stats_daily'];
+electron_1.ipcMain.handle('update-categories-from-overrides', (event, appOverrides, domainOverrides, previewOnly = false) => {
+    const apps = sanitizeCategoryOverrides(appOverrides);
+    const domains = sanitizeCategoryOverrides(domainOverrides);
+    const previewMismatches = () => {
+        const mismatches = [];
+        const byCategory = {};
+        const probe = (kind, sql, params, next) => {
+            const rows = db.prepare(sql).all(...params);
+            const count = rows.reduce((sum, r) => sum + r.c, 0);
+            if (count > 0) {
+                const current = rows.length === 1 ? rows[0].category : (rows.length > 1 ? 'Mixed' : null);
+                mismatches.push({ kind, key: params[0], current, next, count });
+                byCategory[next] = (byCategory[next] || 0) + count;
+            }
+        };
+        for (const [app, cat] of Object.entries(apps)) {
+            probe('app', 'SELECT category, COUNT(*) AS c FROM logs WHERE LOWER(app) = ? AND category != ? GROUP BY category', [app, cat], cat);
+        }
+        for (const [domain, cat] of Object.entries(domains)) {
+            probe('domain', 'SELECT category, COUNT(*) AS c FROM logs WHERE LOWER(domain) = ? AND is_browser_tracking = 1 AND category != ? GROUP BY category', [domain, cat], cat);
+        }
+        mismatches.sort((a, b) => b.count - a.count);
+        return { mismatches, byCategory, totalMismatch: mismatches.reduce((sum, m) => sum + m.count, 0) };
+    };
     if (useJson) {
         try {
-            let updatedCount = 0;
-            jsonLogs = jsonLogs.map(log => {
-                // Check app overrides
-                const appKey = log.app?.toLowerCase();
-                if (appKey && appOverrides[appKey]) {
-                    log.category = appOverrides[appKey];
-                    updatedCount++;
-                }
-                // Check domain overrides for browser-tracked logs
-                else if (log.is_browser_tracking && log.domain) {
-                    const domainKey = log.domain.toLowerCase();
-                    if (domainOverrides[domainKey]) {
-                        log.category = domainOverrides[domainKey];
-                        updatedCount++;
+            if (previewOnly) {
+                let totalMismatch = 0;
+                const byCategory = {};
+                const mismatches = [];
+                for (const log of jsonLogs) {
+                    const appKey = log.app?.toLowerCase();
+                    const domainKey = log.domain?.toLowerCase();
+                    const next = (appKey && apps[appKey]) ? apps[appKey]
+                        : (log.is_browser_tracking && domainKey && domains[domainKey]) ? domains[domainKey]
+                            : null;
+                    if (next && log.category !== next) {
+                        totalMismatch++;
+                        byCategory[next] = (byCategory[next] || 0) + 1;
                     }
                 }
-                return log;
-            });
+                return { success: true, preview: true, totalMismatch, mismatches: [], byCategory };
+            }
+            let updatedCount = 0;
+            for (const log of jsonLogs) {
+                const appKey = log.app?.toLowerCase();
+                const domainKey = log.domain?.toLowerCase();
+                const next = (appKey && apps[appKey]) ? apps[appKey]
+                    : (log.is_browser_tracking && domainKey && domains[domainKey]) ? domains[domainKey]
+                        : null;
+                if (next && log.category !== next) {
+                    log.category = next;
+                    updatedCount++;
+                }
+            }
             saveJsonLogs();
             console.log('[DeskFlow] Updated categories for', updatedCount, 'logs');
             return { success: true, updatedCount };
@@ -5146,21 +5248,34 @@ electron_1.ipcMain.handle('update-categories-from-overrides', (event, appOverrid
         }
     }
     try {
-        let updatedCount = 0;
-        // Update app categories
-        for (const [appName, category] of Object.entries(appOverrides)) {
-            const stmt = db.prepare('UPDATE logs SET category = ? WHERE LOWER(app) = ?');
-            const result = stmt.run(category, appName.toLowerCase());
-            updatedCount += result.changes;
+        const preview = previewMismatches();
+        if (previewOnly) {
+            return { success: true, preview: true, ...preview };
         }
-        // Update domain categories for browser-tracked logs
-        for (const [domain, category] of Object.entries(domainOverrides)) {
-            const stmt = db.prepare('UPDATE logs SET category = ? WHERE LOWER(domain) = ? AND is_browser_tracking = 1');
-            const result = stmt.run(category, domain.toLowerCase());
-            updatedCount += result.changes;
-        }
-        console.log('[DeskFlow] Updated categories for', updatedCount, 'logs');
-        return { success: true, updatedCount };
+        const apply = db.transaction(() => {
+            let updated = 0;
+            for (const [app, cat] of Object.entries(apps)) {
+                const r = db.prepare('UPDATE logs SET category = ? WHERE LOWER(app) = ? AND category != ?').run(cat, app, cat);
+                updated += r.changes;
+                for (const t of REFACTOR_STATS_TABLES) {
+                    db.prepare(`UPDATE \`${t}\` SET category = ? WHERE LOWER(app_name) = ? AND app_type = 'app' AND category != ?`).run(cat, app, cat);
+                }
+                db.prepare("UPDATE app_totals SET category = ? WHERE LOWER(app_name) = ? AND app_type = 'app' AND category != ?").run(cat, app, cat);
+                db.prepare('UPDATE sessions SET category = ? WHERE LOWER(app) = ? AND category != ?').run(cat, app, cat);
+            }
+            for (const [domain, cat] of Object.entries(domains)) {
+                const r = db.prepare('UPDATE logs SET category = ? WHERE LOWER(domain) = ? AND is_browser_tracking = 1 AND category != ?').run(cat, domain, cat);
+                updated += r.changes;
+                for (const t of REFACTOR_STATS_TABLES) {
+                    db.prepare(`UPDATE \`${t}\` SET category = ? WHERE LOWER(app_name) = ? AND app_type = 'domain' AND category != ?`).run(cat, domain, cat);
+                }
+                db.prepare("UPDATE app_totals SET category = ? WHERE LOWER(app_name) = ? AND app_type = 'domain' AND category != ?").run(cat, domain, cat);
+            }
+            return updated;
+        });
+        const updatedCount = apply();
+        console.log('[DeskFlow] Refactored categories for', updatedCount, 'logs (', preview.totalMismatch, 'mismatches )');
+        return { success: true, updatedCount, totalMismatch: preview.totalMismatch };
     }
     catch (err) {
         console.error('[DeskFlow] update-categories-from-overrides error:', err);
@@ -16548,6 +16663,147 @@ electron_1.ipcMain.handle('get-goal-review', async (_event, date: string) => {
   }
 });
 
+// ═══════════ Life Phases Timeline (The River of Years) ═══════════
+function mapLifePhaseRow(r: any) {
+  const parseArr = (raw: string): any[] => {
+    try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+  };
+  return {
+    id: r.id,
+    title: r.title,
+    description: r.description || '',
+    category: r.category || 'growth',
+    startMonth: r.start_month,
+    startYear: r.start_year,
+    endMonth: r.end_month ?? null,
+    endYear: r.end_year ?? null,
+    magnitude: r.magnitude ?? 50,
+    color: r.color || null,
+    reflection: r.reflection || '',
+    eraTrends: r.era_trends || '',
+    impactNotes: r.impact_notes || '',
+    milestones: parseArr(r.milestones),
+    connections: parseArr(r.connections),
+    updatedAt: r.updated_at,
+  };
+}
+
+const LIFE_PHASE_INSERT = `
+  INSERT OR REPLACE INTO life_phases (id, title, description, category, start_month, start_year, end_month, end_year, magnitude, color, reflection, era_trends, impact_notes, milestones, connections, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+`;
+
+function upsertLifePhase(phase: any) {
+  db!.prepare(LIFE_PHASE_INSERT).run(
+    phase.id, phase.title, phase.description || '', phase.category || 'growth',
+    phase.startMonth, phase.startYear, phase.endMonth ?? null, phase.endYear ?? null,
+    phase.magnitude ?? 50, phase.color || null, phase.reflection || '',
+    phase.eraTrends || '', phase.impactNotes || '',
+    JSON.stringify(phase.milestones || []), JSON.stringify(phase.connections || []),
+  );
+}
+
+// One AI path for all three life-phase endpoints: provider chain, then OpenRouter fallback. No key ever reaches the renderer.
+async function runLifePhaseAI(systemPrompt: string, userMsg: string, maxTokens = 400): Promise<string> {
+  const p = userPreferences || {};
+  const pState = p.aiProviders ? JSON.parse(p.aiProviders) : null;
+  const chain = pState ? buildChain(pState, 'lifeAssistant') : [];
+  if (chain.length > 0) {
+    const { result } = await runWithFallback(chain, { systemPrompt, messages: [{ role: 'user', content: userMsg }], maxTokens, temperature: 0.7 });
+    return result.content;
+  }
+  const apiKey = getOpenRouterApiKey();
+  if (!apiKey) throw new Error('No AI providers configured');
+  const model = p.ai_briefModel || 'google/gemini-2.0-flash-001';
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }], max_tokens: maxTokens }),
+    signal: AbortSignal.timeout(60000),
+  });
+  const data: any = await response.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+electron_1.ipcMain.handle('lifePhase:get', async () => {
+  try {
+    const rows = db!.prepare('SELECT * FROM life_phases ORDER BY start_year ASC, start_month ASC').all() as any[];
+    return { ok: true, data: rows.map(mapLifePhaseRow) };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+electron_1.ipcMain.handle('lifePhase:getSummary', async () => {
+  try {
+    const row = db!.prepare('SELECT value FROM life_timeline_meta WHERE key = ?').get('summary') as any;
+    return { ok: true, data: row?.value || null };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+electron_1.ipcMain.handle('lifePhase:save', async (_event, phase: any) => {
+  try {
+    upsertLifePhase(phase);
+    const row = db!.prepare('SELECT * FROM life_phases WHERE id = ?').get(phase.id) as any;
+    return { ok: true, data: row ? mapLifePhaseRow(row) : null };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+electron_1.ipcMain.handle('lifePhase:delete', async (_event, phaseId: string) => {
+  try {
+    db!.prepare('DELETE FROM life_phases WHERE id = ?').run(phaseId);
+    const all = db!.prepare('SELECT id, connections FROM life_phases').all() as any[];
+    for (const r of all) {
+      let conns: string[] = [];
+      try { conns = JSON.parse(r.connections || '[]'); } catch { /* keep empty */ }
+      if (conns.includes(phaseId)) {
+        db!.prepare('UPDATE life_phases SET connections = ? WHERE id = ?').run(JSON.stringify(conns.filter((c: string) => c !== phaseId)), r.id);
+      }
+    }
+    return { ok: true, data: null };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+electron_1.ipcMain.handle('lifePhase:saveAll', async (_event, phases: any[]) => {
+  try {
+    const tx = db!.transaction((items: any[]) => { for (const phase of items) upsertLifePhase(phase); });
+    tx(Array.isArray(phases) ? phases : []);
+    const rows = db!.prepare('SELECT * FROM life_phases ORDER BY start_year ASC, start_month ASC').all() as any[];
+    return { ok: true, data: rows.map(mapLifePhaseRow) };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+electron_1.ipcMain.handle('lifePhase:aiReflect', async (_event, params: { phase: any; answers: string[] }) => {
+  try {
+    const { phase, answers = [] } = params || {};
+    const milestoneTxt = (phase?.milestones || []).map((m: any) => `${m.month}/${m.year} - ${m.label}`).join('; ');
+    const range = phase?.endMonth ? `${phase.endMonth}/${phase.endYear}` : 'ongoing';
+    const systemPrompt = 'You are a warm, precise biographer. Write in first person, 90-130 words, no clichés, no self-help tone. Weave the user\'s three answers and their milestones. End with one sentence pointing toward what this chapter made possible next.';
+    const userMsg = `Chapter: "${phase?.title || ''}" (${phase?.category || 'growth'}), ${phase?.startMonth}/${phase?.startYear} -> ${range}. Magnitude: ${phase?.magnitude ?? 50}/100. Description: ${phase?.description || '(none)'}. Milestones: ${milestoneTxt || '(none)'}. My three answers: 1) ${answers[0] || ''} 2) ${answers[1] || ''} 3) ${answers[2] || ''}`;
+    const content = await runLifePhaseAI(systemPrompt, userMsg, 350);
+    return { ok: true, data: content };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+electron_1.ipcMain.handle('lifePhase:aiEraTrends', async (_event, params: { startYear: number; endYear: number | null; title: string }) => {
+  try {
+    const { startYear, endYear, title } = params || {};
+    const systemPrompt = 'You are a historian. Return strict JSON: {"world": [2 one-sentence items], "culture": [2], "field": [2]}. One sentence each, well-anchored facts only; if the years exceed your knowledge, say so generically rather than invent.';
+    const userMsg = `Era: ${startYear} - ${endYear ?? 'now'} (chapter "${title || ''}").`;
+    const content = await runLifePhaseAI(systemPrompt, userMsg, 350);
+    return { ok: true, data: content };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+electron_1.ipcMain.handle('lifePhase:aiSummarize', async (_event, phases: any[]) => {
+  try {
+    const systemPrompt = 'You are a warm second-person narrator. Write ONE paragraph, at most 80 words, in second person ("you"), naming the current chapter and the direction of flow. Stats (counts/years) are computed in code - never invent numbers.';
+    const userMsg = `My life phases: ${(phases || []).map((p: any) => `${p.title} (${p.category}, ${p.startMonth}/${p.startYear} -> ${p.endMonth ? `${p.endMonth}/${p.endYear}` : 'now'})`).join('; ') || '(none yet)'}`;
+    const content = await runLifePhaseAI(systemPrompt, userMsg, 250);
+    db!.prepare('INSERT OR REPLACE INTO life_timeline_meta (key, value) VALUES (?, ?)').run('summary', content);
+    db!.prepare('INSERT OR REPLACE INTO life_timeline_meta (key, value) VALUES (?, ?)').run('summary.updatedAt', new Date().toISOString());
+    return { ok: true, data: content };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
 electron_1.ipcMain.handle('get-daily-reflection', async (_event, date: string) => {
   try {
     const productiveCategories = DEFAULT_TIER_ASSIGNMENTS.productive;
@@ -17721,14 +17977,13 @@ function startBrowserTrackingServer() {
                     const curApp = currentApp || '(null)';
                     const matchesAnyBrowser = hasAnyBrowser && currentApp ? 
                         browsersList.some((b: string) => isAppMatchingBrowser(currentApp, b)) : false;
-                    const forceTracking = userPreferences?.forceBrowserTracking === true;
                     
-                    console.log(`[DeskFlow] /browser-data: domain=${data.domain} ext_focused=${data.is_browser_focused} browsers=${browsersList.join(',')} currentApp=${curApp} matches=${matchesAnyBrowser} force=${forceTracking}`);
+                    console.log(`[DeskFlow] /browser-data: domain=${data.domain} ext_focused=${data.is_browser_focused} browsers=${browsersList.join(',')} currentApp=${curApp} matches=${matchesAnyBrowser}`);
                     
                     // SIMPLE FOCUS CHECK: Trust the extension's is_browser_focused flag.
                     // Only block if extension explicitly says NOT focused.
-                    // forceBrowserTracking bypasses all checks.
-                    if (!forceTracking && data.is_browser_focused === false) {
+                    // No bypass: website data is ONLY valid while the browser is focused.
+                    if (data.is_browser_focused === false) {
                         console.log(`[DeskFlow] SKIPPED: extension says not focused`);
                         notifyRendererClearBrowser();
                         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -17741,7 +17996,7 @@ function startBrowserTrackingServer() {
                     // cached poll — do a fresh OS foreground check. (Old bug: a null currentApp
                     // bypassed the old guard and left the app "stuck" tracking a website after the
                     // poll reset, while the user was really in a normal app.)
-                    if (!forceTracking && hasAnyBrowser && !matchesAnyBrowser) {
+                    if (hasAnyBrowser && !matchesAnyBrowser) {
                         const stillBrowser = await freshForegroundIsBrowser(browsersList);
                         if (stillBrowser !== true) {
                             console.log(`[DeskFlow] SKIPPED: currentApp='${curApp}' doesn't match any configured browser and fresh check not confirmed browser`);
@@ -17756,7 +18011,7 @@ function startBrowserTrackingServer() {
                     // app switch (active-win returning null/keepalive while the user is in another app).
                     // Do a fresh OS foreground check before logging the website. If a real non-browser
                     // app is focused, reject and tell the renderer to exit website mode immediately.
-                    if (!forceTracking && matchesAnyBrowser) {
+                    if (matchesAnyBrowser) {
                         const stillBrowser = await freshForegroundIsBrowser(browsersList);
                         if (stillBrowser === false) {
                             console.log(`[DeskFlow] SKIPPED: fresh foreground check shows user in a non-browser app (stale currentApp)`);
@@ -17972,10 +18227,9 @@ function handleBrowserData(data) {
     if (!data.domain || !data.url)
         return;
     // Block all browser data when unfocused (phantom deltas from background tabs).
-    // forceBrowserTracking bypasses this check: the extension now always sends and
-    // the user explicitly opted into 24/7 tracking, so a not-focused flag must not
-    // silently drop everything (that was the bug that made Comet time vanish).
-    if (data.is_browser_focused === false && !(userPreferences?.forceBrowserTracking === true)) {
+    // No bypass: the desktop app is the authority — website data is only recorded
+    // while the browser is actually the foreground window.
+    if (data.is_browser_focused === false) {
         return;
     }
     // Check if domain is excluded
@@ -19491,7 +19745,7 @@ electron_1.ipcMain.handle('get-external-sessions', (event, period = 'all') => {
             SELECT es.*, ea.name as activity_name, ea.type, ea.color, ea.icon
             FROM external_sessions es
             JOIN external_activities ea ON es.activity_id = ea.id
-            WHERE es.ended_at IS NOT NULL ${dateFilter}
+            WHERE es.ended_at IS NOT NULL AND ea.type != 'sleep' ${dateFilter}
             ORDER BY es.started_at DESC
         `).all();
     } catch (err) {
@@ -19546,7 +19800,7 @@ electron_1.ipcMain.handle('get-external-stats', (event, period = 'all') => {
             SELECT es.*, ea.name, ea.type
             FROM external_sessions es
             JOIN external_activities ea ON es.activity_id = ea.id
-            WHERE es.ended_at IS NOT NULL ${dateFilter}
+            WHERE es.ended_at IS NOT NULL AND ea.type != 'sleep' ${dateFilter}
         `).all();
         
         const byActivity: Record<string, { total_seconds: number; session_count: number }> = {};
@@ -19561,8 +19815,13 @@ electron_1.ipcMain.handle('get-external-stats', (event, period = 'all') => {
             totalSeconds += s.duration_seconds || 0;
         }
         
-        // Calculate sleep deficit
-        const sleepSessions = sessions.filter((s: any) => s.type === 'sleep');
+        // Calculate sleep deficit (sleep-only query — sleep is excluded from the stats query above)
+        const sleepSessions = db.prepare(`
+            SELECT es.*, ea.type
+            FROM external_sessions es
+            JOIN external_activities ea ON es.activity_id = ea.id
+            WHERE es.ended_at IS NOT NULL AND ea.type = 'sleep' ${dateFilter}
+        `).all();
         const targetSleepSeconds = 8 * 3600; // 8 hours
         const totalSleepSeconds = sleepSessions.reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0);
         const sleepDeficitSeconds = (targetSleepSeconds * sleepSessions.length) - totalSleepSeconds;

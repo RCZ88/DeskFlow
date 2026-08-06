@@ -183,11 +183,24 @@ export function CanvasContainer({
     setZoom(newZoom)
   }, [zoom])
 
-  // Auto-pan to focused card when it changes
+  // Auto-pan to focused card ONLY when the AI actually updates its content or a
+  // different card becomes focused. NEVER fight the user: skip while a card is
+  // being dragged (mid-drag re-renders must not shift the camera), and never
+  // re-pan when the focused card's position changed without its content changing
+  // (that is the user moving it — a pan back would make the drag appear broken).
+  const draggingRef = useRef(false)
+  const panStateRef = useRef<{ id: string | null; contentKey: string }>({ id: null, contentKey: '' })
   useEffect(() => {
     if (!autoFocus || !focusedCardId || viewportSize.w === 0) return
+    if (draggingRef.current) return
     const card = cards.find(c => c.id === focusedCardId)
     if (!card) return
+
+    const contentKey = typeof card.data?.content === 'string' ? card.data.content : ''
+    const prev = panStateRef.current
+    const contentChanged = prev.id !== focusedCardId || prev.contentKey !== contentKey
+    if (!contentChanged) return
+    panStateRef.current = { id: focusedCardId, contentKey }
 
     const cardCenterX = card.position.x + (card.size.w * 40) / 2
     const cardCenterY = card.position.y + (card.size.h * 40) / 2
@@ -350,6 +363,7 @@ export function CanvasContainer({
         setIsPanning={setIsPanning}
         focusedCardId={focusedCardId}
         onGroupCards={onGroupCards}
+        onDraggingChange={(v) => { draggingRef.current = v }}
       />
 
       {!anyCardVisible && clusterCenter && viewportSize.w > 0 && (

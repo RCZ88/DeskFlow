@@ -60,9 +60,10 @@ export function FocusDistractionLog({ distractions, isActive }: FocusDistraction
 
   if (!isActive && distractions.length === 0) {
     return (
-      <GlassCard className="h-full">
+      <GlassCard className="h-full bg-zinc-900/95 border-zinc-800/60">
         <SectionHeader
           title="Distractions"
+          titleClassName="font-display"
           icon={<AlertTriangle className="w-4 h-4 text-zinc-500" />}
         />
         <div className="flex flex-col items-center justify-center py-6 text-center">
@@ -79,9 +80,10 @@ export function FocusDistractionLog({ distractions, isActive }: FocusDistraction
   }
 
   return (
-    <GlassCard className="h-full">
+    <GlassCard className="h-full bg-zinc-900/95 border-zinc-800/60">
       <SectionHeader
         title="Distractions"
+        titleClassName="font-display"
         icon={<AlertTriangle className="w-4 h-4 text-amber-400" />}
         action={
           <button

@@ -81,9 +81,10 @@ export function FocusLeaderboard({ history }: FocusLeaderboardProps) {
   };
 
   return (
-    <GlassCard className="h-full">
+    <GlassCard className="h-full bg-zinc-900/95 border-zinc-800/60">
       <SectionHeader
         title="Leaderboard"
+        titleClassName="font-display"
         icon={<Trophy className="w-4 h-4 text-yellow-400" />}
         action={
           <div className="flex gap-1">

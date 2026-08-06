@@ -1091,6 +1091,12 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ## Recent Feature Additions
 
+### 2026-08-06:
+- Life Phases "River of Years" (Gold warmth page → LifeRiver section): proportional SVG river timeline (reach width = on-canvas date span, height ∝ magnitude 0–100 → 10–116px), dashed open-water future with shimmering plus-signs, golden now marker, tributary curves, adaptive zoom (5 levels) + minimap + year ruler, prefers-reduced-motion respected
+- Phase drawer (right sheet): 8 categories, 6-color palette + auto, magnitude slider with words, start/end year+month, in-canvas title rename, delete arm (3s), milestones, phase-to-phase connections, impact notes; ReflectionFlow 3-question wizard → AI serif reflection; Era Trends chips (World/Culture/My field, sky/violet/amber); Journey Summary blockquote via backend AI; empty state with 3-card example plan
+- Backend: `life_phases` + `life_timeline_meta` tables (guarded migration), 7 IPC `lifePhase:*` handlers (get/getSummary/save/delete/saveAll/aiReflect/aiEraTrends/aiSummarize), preload `lifePhase*` (8 methods), starter phase seeded
+- New base-ui primitives: `src/components/ui/{sheet,slider,textarea,alert,label}.tsx`; Source Serif 4 added to Google Fonts in index.html
+
 ### 2026-06-23:
 - AI Usage Cityscape visual overhaul: window atlas shader, neon edge trim, procedural NeonGround, GPU Atmosphere particles, morph transitions, chromatic aberration + noise + SMAA post-processing, hover/select pulse
 - Cityscape rooftop agent-name sprites, smog clouds, wet reflective ground, graphics quality toggle (Cinematic/Balanced/Performance)

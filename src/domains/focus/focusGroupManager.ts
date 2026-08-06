@@ -10,6 +10,8 @@ export interface FocusGroup {
   allowed_categories: string[];
   strictness: 'distracting' | 'non_allowed';
   default_duration: number | null;
+  daily_goal_sec: number | null;
+  goal_category: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -35,7 +37,7 @@ export class FocusGroupManager {
   list(): FocusGroup[] {
     const rows = this.db
       .prepare(
-        `SELECT id, name, description, allowed_apps, allowed_domains, allowed_categories, strictness, default_duration, created_at, updated_at
+        `SELECT id, name, description, allowed_apps, allowed_domains, allowed_categories, strictness, default_duration, daily_goal_sec, goal_category, created_at, updated_at
          FROM focus_groups ORDER BY name ASC`,
       )
       .all() as any[];
@@ -48,6 +50,8 @@ export class FocusGroupManager {
       allowed_categories: parseList(r.allowed_categories),
       strictness: r.strictness ?? 'distracting',
       default_duration: r.default_duration ?? null,
+      daily_goal_sec: r.daily_goal_sec ?? null,
+      goal_category: r.goal_category ?? null,
       created_at: r.created_at,
       updated_at: r.updated_at,
     }));
@@ -56,7 +60,7 @@ export class FocusGroupManager {
   get(id: number): FocusGroup | null {
     const r = this.db
       .prepare(
-        `SELECT id, name, description, allowed_apps, allowed_domains, allowed_categories, strictness, default_duration, created_at, updated_at
+        `SELECT id, name, description, allowed_apps, allowed_domains, allowed_categories, strictness, default_duration, daily_goal_sec, goal_category, created_at, updated_at
          FROM focus_groups WHERE id = ?`,
       )
       .get(id) as any | undefined;
@@ -70,6 +74,8 @@ export class FocusGroupManager {
       allowed_categories: parseList(r.allowed_categories),
       strictness: r.strictness ?? 'distracting',
       default_duration: r.default_duration ?? null,
+      daily_goal_sec: r.daily_goal_sec ?? null,
+      goal_category: r.goal_category ?? null,
       created_at: r.created_at,
       updated_at: r.updated_at,
     };
@@ -79,13 +85,14 @@ export class FocusGroupManager {
     id?: number; name: string; description?: string | null;
     allowed_apps?: string[]; allowed_domains?: string[]; allowed_categories?: string[];
     strictness?: 'distracting' | 'non_allowed'; default_duration?: number | null;
+    daily_goal_sec?: number | null; goal_category?: string | null;
   }): number {
     const now = new Date().toISOString();
     if (g.id) {
       this.db
         .prepare(
           `UPDATE focus_groups SET name = ?, description = ?, allowed_apps = ?, allowed_domains = ?,
-           allowed_categories = ?, strictness = ?, default_duration = ?, updated_at = ? WHERE id = ?`,
+           allowed_categories = ?, strictness = ?, default_duration = ?, daily_goal_sec = ?, goal_category = ?, updated_at = ? WHERE id = ?`,
         )
         .run(
           g.name, g.description ?? null,
@@ -93,14 +100,15 @@ export class FocusGroupManager {
           JSON.stringify(g.allowed_domains ?? []),
           JSON.stringify(g.allowed_categories ?? []),
           g.strictness ?? 'distracting', g.default_duration ?? null,
+          g.daily_goal_sec ?? null, g.goal_category ?? null,
           now, g.id,
         );
       return g.id;
     }
     const info = this.db
       .prepare(
-        `INSERT INTO focus_groups (name, description, allowed_apps, allowed_domains, allowed_categories, strictness, default_duration, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO focus_groups (name, description, allowed_apps, allowed_domains, allowed_categories, strictness, default_duration, daily_goal_sec, goal_category, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         g.name, g.description ?? null,
@@ -108,6 +116,7 @@ export class FocusGroupManager {
         JSON.stringify(g.allowed_domains ?? []),
         JSON.stringify(g.allowed_categories ?? []),
         g.strictness ?? 'distracting', g.default_duration ?? null,
+        g.daily_goal_sec ?? null, g.goal_category ?? null,
         now, now,
       );
     return Number(info.lastInsertRowid);
@@ -139,6 +148,16 @@ export class FocusGroupManager {
         .run(json, groupId, sessionId);
     } catch {
       /* ignore — table may not exist in very old DBs */
+    }
+  }
+
+  getUsage(): Array<{ group_id: number; session_id: number }> {
+    try {
+      return this.db
+        .prepare('SELECT group_id, session_id FROM focus_group_usage')
+        .all() as Array<{ group_id: number; session_id: number }>;
+    } catch {
+      return [];
     }
   }
 

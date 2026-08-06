@@ -1,6 +1,6 @@
-# 🌌 DeskFlow - AI-Powered Productivity Tracker
+# 🌊 RHEO — Daily-Driver AI Orchestration
 
-> Electron desktop app that visualizes your app and browser usage as an interactive 3D galaxy with real-time tracking. Now includes AI agent usage tracking, external activity tracking, integrated terminal workspace with Tracker Mind system, insights dashboard, and knowledge graph architecture visualization.
+> RHEO (formerly DeskFlow) is your daily-driver AI orchestration desktop app. It tracks every minute of your digital life — apps, websites, IDE/AI agent usage, and real-world activities — then orchestrates AI agents inside a full terminal workspace to act on that data: tracking problems, executing missions, managing goals, finance, learning, and life admin — all in one always-on Electron app.
 
 [![Electron](https://img.shields.io/badge/Electron-41.1.1-47848F?style=flat&logo=electron&logoColor=white)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19.2.0-61DAFB?style=flat&logo=react&logoColor=white)](https://reactjs.org/)
@@ -13,11 +13,22 @@
 
 ---
 
+## What is RHEO?
+
+RHEO is a **daily driver** — it lives in your system tray, silently tracking what you do, and turns that data into action:
+
+- **🛰️ Always-on tracking** — apps, websites (via browser extension), IDE/AI agent usage, and non-laptop activities like sleep, exercise, and commute. Auto-detects sleep gaps and fills the blanks in your day.
+- **🤖 AI orchestration** — a real terminal workspace (PTY + xterm.js) where AI agents (Claude, OpenCode, Gemini, Codex) get full project context — problems, requests, skills, knowledge graphs — and execute. Tracker Mind tracks problems/requests; Conductor runs multi-agent swarms (director/planner/worker/QA) on your projects.
+- **🧭 Life admin in one place** — Finance (budget & expenses, subscriptions, follow-through), Life (goals, "River of Years" timeline), Learn (Lyceum), and a full Resume Builder.
+- **🔮 Intelligence** — AI Assistant with real LLM tool calling, an automation DSL engine, focus groups with daily goals, smart gap-filling, RAG semantic search over your history, and a deep analytics suite.
+
+---
+
 ## 🚀 Quick Start
 
 ### Option 1: Use the Desktop App (Recommended)
 
-1. **Double-click** `DeskFlow.lnk` on your desktop
+1. **Double-click** `RHEO.lnk` on your desktop
 2. The app will launch with a window
 3. Click the **system tray icon** (blue circle) to show/hide the window
 
@@ -55,19 +66,19 @@ npm install
 # Build the app
 npm run build
 
-# Package as Windows executable
-npx electron-builder --win portable
+# Package as Windows installer
+npx electron-builder --win
 ```
 
 The executable will be created at:
 ```
-release/win-unpacked/DeskFlow.exe
+release/win-unpacked/RHEO.exe
 ```
 
 ### Adding to Desktop
 
 1. Go to `release/win-unpacked/`
-2. Right-click `DeskFlow.exe`
+2. Right-click `RHEO.exe`
 3. Send to > Desktop (create shortcut)
 
 Or use the auto-created shortcut on your desktop.
@@ -78,36 +89,27 @@ Or use the auto-created shortcut on your desktop.
 
 | Feature | Description |
 |---------|-------------|
-| **🌌 Two-Galaxy System** | Apps Galaxy (blue/purple spiral) + Websites Galaxy (cyan/violet nebula) with smooth camera transitions |
-| **📊 Real-time Dashboard** | Focus time, productivity scores, interactive heatmap with week navigation and solar system view |
-| **📊 Insights Dashboard** | Heatmap grid, stat cards with trends, day/week/activity tabs, sleep & recovery charts |
-| **🌐 Browser Tracking** | Track websites in Chrome/Firefox via browser extension with smart categorization |
-| **🔍 Deep Search** | Query your usage history across all apps and websites |
-| **⚡ Auto-start** | Launch on system boot |
-| **🔔 System Tray** | Runs in background, click to show/hide |
-| **🎯 Focus Tracking** | Categorize apps as Productive/Neutral/Distracting |
-| **🎨 Custom Colors** | Per-app, per-website, and per-category color customization |
-| **📱 Category Overrides** | Override automatic categorization for any app/website |
-| **💤 External Activities** | Track non-laptop activities: Sleep, Exercise, Gym, Commute, Reading, Studying — with glass-styled usage charts |
-| **🖥️ Terminal Workspace** | Integrated terminal with PTY support, presets, session history, resizable sidebar, and problem/file browser |
-| **🤖 AI Agent Tracking** | Track Claude Code, Cursor, OpenCode usage with tokens, cost, and session metrics |
-| **🧠 Tracker Mind** | Integrated problem tracking (PROBLEMS.md), terminal binding, and agent orchestration |
-| **📈 Graphify Knowledge Graph** | Codebase architecture visualization with clustered communities and audit reports |
-| **🧠 AI Color Magic** | Auto-generate brand-appropriate colors using OpenRouter AI |
-| **🏷️ AI Categorization** | Auto-categorize apps/websites using AI |
-| **🏷️ Custom Categories** | Create custom app/website categories in Settings, auto-assigned to Neutral tier |
-| **💤 Sleep Detection** | Auto-detects sleep gaps (45+ min), duration/latency pickers, sleep deficit tracking |
-| **📈 DORA Metrics** | CFR (change failure rate) and MTTR (mean time to recovery) from real deploy + error analysis |
-| **🧠 LLM Summarization** | Session compaction via OpenRouter API with extractive fallback |
-| **🔍 RAG Semantic Search** | Cosine similarity vector search over session data |
-| **📋 Context Sidebar** | 6-section workspace config panel with auto-save debounce |
-| **🎓 Tutorial Page** | Feature inventory with 12 items, category filtering, spotlight overlay walkthrough |
-| **🧩 Checklist Service** | Full CRUD IPC for task checklists linked to problems/requests |
-| **🗂️ Prompt History** | Full prompt CRUD with history tab for reusing compose prompts |
-| **🧠 Context Assembly** | Pipeline assembling 12+ context sources for AI agent awareness |
-| **⚡ Init System** | 16-step animated workspace init with "Initialize" vs "Setup" split |
-| **💬 Design Workspace** | Compose design context from SKILL.md/DESIGN.md, send to active terminal |
-| **📊 Database Analytics** | 5 stat cards, 8 charts (token/cost/session distributions), period selector |
+| **🌌 3D Galaxy Dashboard** | Interactive two-galaxy system (apps + websites) with solar-system view, particles, bloom, and custom shaders |
+| **📊 Real-time Tracking** | Live foreground-window detection (2s polling), website tracking via browser extension, live stopwatches |
+| **🤖 AI Assistant** | Multi-agent chat with real LLM tool calling, change history/undo, compositions, slash commands |
+| **🖥️ Terminal Workspace** | Full PTY terminal (node-pty + xterm.js) with 5-group workspace sidebar (Setup/Work/Insights/Studio/Context), split panes, session resume |
+| **🧠 Tracker Mind** | Problem/request orchestration — markdown-synced problems, checklists, terminal binding, context delta messages |
+| **🧭 Conductor Swarms** | Multi-agent orchestration (director/planner/worker/QA/auditor/resolver) with missions and autonomy levels |
+| **📈 AI Agent Usage Tracking** | Parse Claude Code, Cursor, and OpenCode usage — tokens, cost, sessions, per-project breakdown |
+| **💰 Finance Suite** | Budget & expenses with deep analytics, subscription management with renewal countdowns, "Follow Through" (on-behalf-of) tracking, privacy masks |
+| **🌳 Life & Goals** | Gold page: daily/weekly goals, The Vault long-term goals, "River of Years" life-phases timeline, day journal |
+| **🎓 Learn (Lyceum)** | Learning module with spaced repetition, stats, and progress tracking |
+| **📄 Resume Builder** | Guided builder with phase tracking, live preview, import/export — progress persisted across restarts |
+| **💤 External Activities** | Track sleep, exercise, gym, commute, reading with glass-styled charts, sleep deficit & latency detection |
+| **🧩 Smart Gap Fill** | Auto-detect empty time gaps in your day and fill them with apps/websites/external activities |
+| **🎯 Focus Groups** | Configurable focus groups with daily goals, streak tracking, and usage analytics |
+| **🖼️ Canvas System** | Freeform card canvas with drag/resize/grouping, floating canvas navigation mode, AI-generated cards |
+| **⚙️ Automation DSL** | Declarative automation engine — compositions and automation rules with real execution |
+| **🎨 Design Studio** | Registry browser (Cult UI, React Bits, shadcn), motion explorer, taste knobs, style references |
+| **📊 Insights & Analytics** | Heatmap grids, day/week/activity tabs, sleep & recovery charts, DORA metrics, database analytics (5 stat cards, 8 charts) |
+| **🔍 RAG Semantic Search** | Cosine-similarity vector search over your entire session history |
+| **🌐 Browser Extension** | Chrome/Firefox extension with smart categorization, incognito support, force-flush sync |
+| **🔔 System Tray + Auto-start** | Runs in the background, click to show/hide, launches on system boot |
 
 ---
 
@@ -123,24 +125,27 @@ Or use the auto-created shortcut on your desktop.
 
 | Action | Result |
 |--------|--------|
-| Click tray icon | Show/hide DeskFlow window |
+| Click tray icon | Show/hide RHEO window |
 | Right-click tray | Context menu (Show/Toggle Tracking/Quit) |
 
 ### Navigation
 
 | Page | Access | Features |
 |------|--------|----------|
-| **Dashboard** | Sidebar | Focus time, productivity, solar system, heatmap with week navigation, stats cards |
-| **Productivity** | Sidebar | Apps vs Websites comparison, productivity scores |
-| **Applications** | Sidebar | Detailed breakdown by app with time totals |
-| **Browser Activity** | Sidebar | Website tracking, hourly charts, category breakdown |
-| **IDE Projects** | Sidebar | AI agent tracking, project management, Git metrics |
-| **External** | Sidebar | Track non-laptop activities with glass-styled charts |
-| **Insights** | Sidebar | Heatmap grid, stat cards, tabs, sleep & activity charts |
-| **Terminal** | IDE Workspace | Terminal workspace with resizable sidebar, presets, sessions, problem/file browser |
-| **Database** | Sidebar | Raw data viewer with JSON fallback |
-| **Settings** | Sidebar | Categories, custom categories, colors, preferences |
-| **Tutorial** | Sidebar | Feature walkthrough with spotlight overlay, progress tracking, 12 features |
+| **Dashboard** | Sidebar | Focus time, timer, 3D galaxy, heatmap with week navigation, stats cards |
+| **Activity** | Sidebar | Unified apps/websites/productivity with tabs and deep search |
+| **AI Assistant** | Sidebar | Multi-agent chat, tool calling, change history, compositions |
+| **Learn** | Sidebar | Lyceum learning module with spaced repetition |
+| **Resume** | Sidebar | Resume builder suite (build/preview/import/export) |
+| **IDE Projects** | Sidebar | AI agent usage tracking, AI Tools subpage, Git metrics |
+| **External** | Sidebar | Non-laptop activities, Smart Gap Fill, sleep tracking |
+| **Finance** | Sidebar | Budget & expenses, subscriptions, follow-through |
+| **Insights** | Sidebar | Heatmap grid, day/week/activity tabs, sleep & recovery |
+| **Database** | Sidebar | Analytics dashboard + raw table browser with CSV export |
+| **Life** | Sidebar | Gold goals, River of Years timeline, day journal |
+| **Settings** | Sidebar | Categories, colors, tracking, browser activity, system prompts |
+| **Guide** | Sidebar | Feature walkthrough and onboarding |
+| **Terminal** | IDE Workspace | Terminal workspace with 5-group sidebar, PTY panes, presets, sessions, Conductor swarms |
 
 ### Galaxy Navigation
 
@@ -154,16 +159,16 @@ Or use the auto-created shortcut on your desktop.
 ### Timeline Selection
 
 Use the timeline buttons (Today/Week/Month/All) to filter data on:
-- Applications page
-- Browser Activity page
+- Activity page
 - Galaxy view
-- Productivity page
+- Insights page
+- External page
 
 ### Auto-Start
 
-To start DeskFlow automatically when you turn on your computer:
+To start RHEO automatically when you turn on your computer:
 
-1. Open DeskFlow
+1. Open RHEO
 2. Go to Settings
 3. Enable "Start on system boot"
 
@@ -190,7 +195,7 @@ npx electron-rebuild
 
 ### Browser tracking not working
 
-1. Make sure the DeskFlow browser extension is installed
+1. Make sure the RHEO browser extension is installed
 2. Enable "Allow in incognito" in Chrome/Firefox extensions page
 3. Enable "Allow access to file URLs" if using file:// protocol
 4. Click the extension icon to confirm it's tracking
@@ -211,51 +216,53 @@ The database may be initializing. Wait a few seconds. If it persists:
 ```
 App Tracker/
 ├── src/
-│   ├── main.ts              # Electron main process (tracking, DB, IPC)
+│   ├── main.ts              # Electron main process (tracking, DB, IPC, orchestrators)
 │   ├── preload.ts           # IPC bridge (contextBridge)
 │   ├── main.tsx             # React entry point
 │   ├── App.tsx              # Main app (routing, state, computation)
 │   ├── components/
 │   │   ├── OrbitSystem.tsx         # 3D galaxy visualization
-│   │   ├── ContextSidebar.tsx      # 6-section workspace config sidebar
-│   │   ├── ContextMaintenanceTab.tsx   # 6-tab context manager
-│   │   ├── InitializeProgressModal.tsx # 16-step animated init
-│   │   ├── TutorialOverlay.tsx     # Spotlight walkthrough
 │   │   ├── TerminalWindow.tsx      # xterm.js terminal
-│   │   ├── TerminalMiniMap.tsx     # Terminal layout viz
-│   │   ├── PromptDesignDialog.tsx  # Prompt composition
-│   │   ├── PromptHistoryTab.tsx    # Prompt CRUD history
-│   │   ├── ChecklistPanel.tsx      # Task checklists
-│   │   ├── DayDetailPopup.tsx      # Click-day detail view
-│   │   ├── context-ui/             # Context maintenance subcomponents
-│   │   └── workspace/              # Design workspace subcomponents
+│   │   ├── GapFillDrawer.tsx       # Smart Gap Fill drawer
+│   │   ├── canvas/                 # Freeform canvas system (cards, grouping)
+│   │   ├── conductor/              # Conductor swarm orchestration UI
+│   │   ├── life-river/             # River of Years timeline components
+│   │   ├── workspace/              # Design workspace subcomponents
+│   │   └── ui/                     # shadcn/base-ui primitives
+│   ├── features/
+│   │   └── warmth/gold/            # Gold goals page (DayRing, WeekBoard, TheVault…)
+│   ├── hooks/
+│   │   ├── useLifePhases.ts        # River of Years CRUD
+│   │   └── useTransactionForm.ts   # Finance transaction form
+│   ├── lib/
+│   │   ├── riverMath.ts            # River of Years math/types
+│   │   ├── focusHelpers.ts         # Focus group daily progress/streaks
+│   │   └── external/               # External activity + gap logic
 │   ├── services/
 │   │   ├── ProblemsService.ts      # Markdown-based problem management
-│   │   ├── ProblemsParser.ts       # Parse PROBLEMS.md format
-│   │   ├── ProblemsSyncService.ts  # Bidirectional markdown↔DB sync
 │   │   ├── RequestsService.ts      # Request tracking service
 │   │   ├── SkillsService.ts        # Skill template management
 │   │   ├── SessionContextService.ts  # Terminal output parsing
-│   │   ├── ChecklistService.ts     # Task checklist CRUD
 │   │   ├── ContextAssemblyService.ts  # assembleContext() pipeline
-│   │   ├── ContextService.ts       # Context retrieval & caching
-│   │   ├── ProjectContextService.ts  # File tree scanning
 │   │   ├── CompactionService.ts    # LLM summarization (OpenRouter)
 │   │   ├── RAGService.ts           # Cosine similarity search
+│   │   ├── focusGroupManager.ts    # Focus group persistence
 │   │   └── WorkspaceRegistry.ts    # Workspace + terminal bindings
 │   └── pages/
 │       ├── DashboardPage.tsx        # Main dashboard with 3D orbit + heatmap
-│       ├── StatsPage.tsx           # Applications breakdown
-│       ├── ProductivityPage.tsx    # Productivity scores & trends
-│       ├── BrowserActivityPage.tsx  # Website tracking
-│       ├── InsightsPage.tsx        # Reports and insights
-│       ├── IDEProjectsPage.tsx     # AI agent & project tracking
-│       ├── TerminalPage.tsx        # Terminal workspace (12-tab sidebar)
-│       ├── ExternalPage.tsx        # External activities
-│       ├── SettingsPage.tsx        # Category/colors/settings
-│       ├── DatabasePage.tsx        # DB viewer + analytics dashboard
-│       ├── TutorialPage.tsx        # Feature inventory + overlay
-│       └── DesignWorkspacePage.tsx # AI design context
+│       ├── ActivityPage.tsx         # Unified activity (apps/websites/productivity)
+│       ├── AiPage.tsx               # AI Assistant with tool calling
+│       ├── LearnPage.tsx            # Lyceum learning module
+│       ├── ResumeBuilderPage.tsx    # Resume builder suite
+│       ├── IDEProjectsPage.tsx      # AI agent & project tracking
+│       ├── ExternalPage.tsx         # External activities + gap fill
+│       ├── FinancePage.tsx          # Budget, subscriptions, follow-through
+│       ├── LifePage.tsx             # Gold goals + River of Years
+│       ├── InsightsPage.tsx         # Reports and insights
+│       ├── TerminalPage.tsx         # Terminal workspace (5-group sidebar)
+│       ├── DatabasePage.tsx         # DB viewer + analytics dashboard
+│       ├── SettingsPage.tsx         # Category/colors/settings
+│       └── GuidePage.tsx            # Feature walkthrough
 ├── browser-extension/       # Chrome/Firefox extension
 ├── agent/                 # AI agent resources & docs
 ├── graphify-out/          # Knowledge graph output
@@ -263,7 +270,7 @@ App Tracker/
 ├── dist/                   # Built renderer
 ├── dist-electron/          # Built Electron main/preload
 ├── release/win-unpacked/    # Packaged executable
-│   └── DeskFlow.exe
+│   └── RHEO.exe
 └── README.md
 ```
 
@@ -279,7 +286,8 @@ App Tracker/
 | **Language** | TypeScript ~5.9.3 |
 | **Build Tool** | Vite ^7.3.1 |
 | **Styling** | Tailwind CSS ^4.2.1 |
-| **Navigation** | React Router ^7.13.1 |
+| **Navigation** | React Router ^6.30.4 |
+| **UI Primitives** | @base-ui/react ^1.6.0 |
 
 ### 3D & Visualization
 | Component | Technology |
@@ -296,19 +304,29 @@ App Tracker/
 |-----------|------------|
 | **Database** | better-sqlite3 ^12.9.0 |
 | **Window Tracking** | active-win ^8.2.1 |
-| **Terminal** | node-pty ^0.11.0 |
+| **Terminal** | node-pty ^1.1.0 |
 | **Date Handling** | date-fns ^4.1.0 |
 | **DB Fallback** | sql.js ^1.14.1 |
+| **CalDAV/Email** | tsdav ^2.3.0, node-imap ^0.9.6 |
+
+### AI & Orchestration
+| Component | Technology |
+|-----------|------------|
+| **LLM Provider** | @openrouter/sdk ^0.12.16 |
+| **HTTP Client** | axios ^1.18.1 |
+| **Diagrams** | mermaid ^11.16.0 |
+| **Spaced Repetition** | ts-fsrs ^5.4.1 |
+| **Semantic Search** | Custom cosine-similarity RAG (Float32Array) |
 
 ### UI & Animation
 | Component | Technology |
 |-----------|------------|
 | **Animations** | Framer Motion ^12.35.0 |
 | **Icons** | Lucide React ^0.577.0 |
-| **Charts** | Chart.js ^4.5.1 & recharts ^3.8.1 |
-| **React Charts** | react-chartjs-2 ^5.3.1 |
-| **Celebrations** | canvas-confetti ^1.9.4 |
+| **Charts** | Chart.js ^4.5.1, recharts ^3.10.1, lightweight-charts ^5.2.0 |
+| **Tables** | tabulator-tables ^6.5.2 |
 | **Drag & Drop** | @dnd-kit ^6.3.1 |
+| **Math Rendering** | KaTeX ^0.17.0, PrismJS ^1.30.0 |
 
 ---
 
@@ -319,88 +337,67 @@ App Tracker/
 - **Apps Galaxy** - Spiral galaxy with 4,000+ particles, blue/purple color theme
 - **Websites Galaxy** - Nebula-style dust cloud with cyan/violet colors
 - **Camera-Based Detection** - Drag right to visit Websites Galaxy, left for Apps Galaxy
-- **Spiral Galaxy Rendering** - Particles with custom color gradients
 - **Solar System View** - Animated planets with orbits, rings, and moons
 - **Custom Shaders** - GLSL shaders for particle systems and effects
 - **Post-Processing** - Bloom, tone mapping, vignette, chromatic aberration
 - **Performance Optimization** - Adaptive quality with PerformanceMonitor
 
-### AI Agent Integration
-- **Claude Code Tracking** - Parse ~/.claude/projects for token usage
-- **Cursor Tracking** - Query cursorDiskKV for chat data
-- **OpenCode Tracking** - Read SQLite sessions table
-- **Usage Analytics** - Tokens, cost, sessions per agent
-- **Project Breakdown** - Which projects each AI is used on
-- **Model Tracking** - Which models were used and how much
+### AI Orchestration
+- **AI Assistant** - Multi-agent chat with real LLM tool calling (OpenRouter, Nemotron safety layer)
+- **Change History/Undo** - Roll back AI edits and see what changed
+- **Compositions** - Reusable prompt/action compositions
+- **Conductor Swarms** - Director/planner/worker/QA/auditor/resolver agents with L2-L4 autonomy
+- **Real TUI Agent Interaction** - True opencode/claude/gemini/codex terminal sessions with phase detection
+- **AI Agent Usage Tracking** - Parse Claude Code, Cursor, OpenCode for tokens, cost, sessions
+- **RAG Semantic Search** - Cosine-similarity vector search over session history
 
 ### Terminal Workspace
 - **PTY Support** - Full terminal with node-pty
 - **xterm.js** - Terminal emulator in React
+- **5-Group Sidebar** - Setup / Work / Insights / Studio / Context with accent colors and subtabs
 - **Presets** - Save and execute command presets
 - **Sessions** - Track terminal sessions with resume capability
-- **Split View** - Multi-pane terminal layout
-- **Resizable Sidebar** - Drag-resizable left sidebar (200-600px) with 7 tool tabs
-- **Send Instructions** - Send prompts directly to active terminal from the UI
-
-### External Activities
-- **Timed Activities** - Stopwatch mode for Exercise, Gym, Studying
-- **Check-in Mode** - Quick activities (Commute, Eating, Short Break)
-- **Sleep Tracking** - Sleep deficit calculation with 8h target
-- **Wake-up Reminder** - Optional wake-up time picker
-- **Glass-Styled Charts** - Daily usage trend, activity distribution (conic doughnut), weekly trend comparison
+- **Split View** - Multi-pane terminal layout with mini-map
+- **Swarm Subtab** - Conductor mission list per selected project
 
 ### Tracker Mind System
-- **Problem Tracking** - Markdown-based issue tracker using agent/PROBLEMS.md with status workflow
+- **Problem Tracking** - Markdown-synced issue tracker with status workflow (NEW → Fixed)
+- **Request Tracking** - Feature requests with checklists and cross-linking
 - **Terminal Binding** - Bind problems to active terminals for AI agent orchestration
-- **File Browser** - Browse agent/ markdown files from terminal sidebar
-- **Workspace Setup** - Initialize agent/ directory structure for any project
-- **Send Instructions** - Send prompts to active terminal from the UI with input bar
-- **Request Tracking** - Track feature requests via agent/REQUESTS.md
-- **Skill Templates** - Reusable skill definitions for AI agents
+- **Context Deltas** - Real-time notifications written to active terminal on context change
+- **Context Assembly** - 12+ context sources (LLM Wiki, Skills, Graphify, PARA, QMD, Automations)
+- **Session Compaction** - OpenRouter LLM summarization with extractive fallback
 
-### Context Sidebar
-- **6 Sections** - Systems (LLM Wiki, Skills, Graphify, PARA, QMD, Automations, Design Skills), Design Taste (variance, intensity, density), Model Settings, File Paths, Terminal Comms, Workspace Defaults
-- **Auto-Save** - 600ms debounce per field, localStorage-backed
-- **Backward Compatible** - Uses same `workspace-context-config` key as NewSessionDialog pre-population
+### Finance Suite
+- **Budget & Expenses** - Budget tracking with category analytics, transactions with modals
+- **Subscriptions** - Full management: renewal countdowns, Record Payment, cancel links
+- **Follow Through** - On-behalf-of transactions ("they'll pay me back") with person breakdown
+- **Privacy Masks** - Number masking for shared-screen privacy
+- **CSV Export** - Export transactions and tables
 
-### Tutorial & Onboarding
-- **Feature Inventory** - 12 documented features with category filtering
-- **Spotlight Overlay** - Step-by-step walkthrough with "Try it" button
-- **Progress Persistence** - Completion state saved per feature in localStorage
+### Life & Goals
+- **Gold Goals** - Daily/weekly goal ledger, streaks, deadline radar
+- **The Vault** - Long-term goals with progress rings and priority
+- **River of Years** - Life-phases timeline canvas with era trends, reflections, and AI summaries
+- **Day Journal** - Daily reflection entries
 
-### Backend Services
-- **DORA Metrics** - Real CFR (deploy commits matched to error sessions within 24h) and MTTR (error session → next success session)
-- **LLM Summarization** - OpenRouter API compaction via `summarize-with-llm` IPC, extractive fallback (message extraction + stats)
-- **RAG Semantic Search** - Proper Float32Array cosine similarity with dimension mismatch handling and minScore filtering
-- **CompactionService** - DefaultLLMProvider calls IPC with fallback to extractive summarization
+### External Activities & Gap Fill
+- **Timed Activities** - Stopwatch mode for Exercise, Gym, Studying
+- **Check-in Mode** - Quick activities (Commute, Eating, Short Break)
+- **Sleep Tracking** - Sleep deficit calculation, latency picker, auto-detection (45+ min gaps)
+- **Smart Gap Fill** - Detect empty time holes and fill with apps/websites/external segments
+- **Glass-Styled Charts** - Daily usage trend, activity distribution, weekly trend comparison
 
-### Init System
-- **16-Step Animated Progress** - Real `trackerMindSetup('init-all')` IPC running in parallel
-- **Live Checkmarks** - Per-step green checkmark/done/error states with retry capability
-- **"Workspace Ready" Summary** - Completion card with timestamp and next steps
-- **Split Workflow** - "Initialize" (16-step infra setup) vs "Setup" (toggle systems/adjust sliders)
+### Canvas System
+- **Freeform Cards** - Drag, resize, arrange, group cards on an infinite canvas
+- **Grouping** - Combine cards into resized group containers preserving real card content
+- **Floating Canvas Navigation** - Canvas mode overlay navigation (Stitch)
+- **AI Cards** - Spawn cards from chat messages with dedup by message ID
 
-### Database Analytics
-- **5 Stat Cards** - Total tokens, total cost, session count, problems, requests
-- **8 Charts** - Token/cost/session distributions, category breakdown, problem/request progress, response timing, daily trends
-- **Period Selector** - 7 Days / 30 Days / All Time with Promise.allSettled for fault tolerance
-- **CSV Export** - Table data export with pagination
-
-### Context Assembly Pipeline
-- **12+ Context Sources** - LLM Wiki, Skills, Design Skills, Graphify, PARA, QMD, Automations, Deep Memory, Session Summaries, RAG, Project Context Manifest, Terminal Bindings
-- **Modular Architecture** - Each source has dedicated service with typed interfaces
-
-### Visual Effects
-- **Bloom/Glow** - HDR bloom for emissive objects
-- **ACES Filmic Tone Mapping** - Cinematic color grading
-- **Atmospheric Scattering** - Fresnel effects for planet atmospheres
-- **Layered Corona** - Multi-layer sun glow with additive blending
-- **Vignette & Chromatic Aberration** - Cinematic lens effects
-
-### AI Features
-- **Magic Color** - Auto-generate brand-appropriate colors
-- **Magic Category** - Auto-categorize apps/websites
-- **OpenRouter API** - AI integration with multiple model fallbacks
+### Automation & Design
+- **Automation DSL Engine** - Declarative automation rules and compositions with real execution
+- **Design Studio** - Registry browser (Cult UI, React Bits, shadcn MCP), Motion Explorer, taste knobs
+- **Focus Groups** - Configurable groups with daily goals and streak tracking
 
 ### Electron Features
 - **System Tray** - Background operation with show/hide toggle
@@ -408,6 +405,7 @@ App Tracker/
 - **Browser Extension** - Chrome/Firefox website tracking
 - **SQLite Storage** - Persistent local data with JSON fallback
 - **Auto-Start** - Launch on system boot
+- **Self-Healing DB** - getDb() reconnects on each call, WAL mode, guarded migrations
 
 ---
 
@@ -416,7 +414,7 @@ App Tracker/
 | Concept | Where It's Used |
 |---------|----------------|
 | **Event-Driven Architecture** | IPC between main process and renderer |
-| **Real-time Data Polling** | 30-second interval for live dashboard |
+| **Real-time Data Polling** | 2-second foreground detection, live dashboard |
 | **Caching Strategies** | Single source of truth pattern |
 | **Procedural Texture Generation** | Canvas-based planet textures |
 | **GPU-Accelerated Rendering** | Three.js WebGL pipeline |
@@ -424,6 +422,9 @@ App Tracker/
 | **Delta-Based Updates** | Browser extension incremental updates |
 | **PTY Process Management** | Terminal pseudo-terminal spawning |
 | **Agentic AI Parsing** | Multi-format AI log parsing |
+| **Cosine Similarity Search** | RAG semantic search over session history |
+| **FSRS Spaced Repetition** | Learn module scheduling algorithm |
+| **State Machines** | Agent phases (launching → ready → busy → attention → error) |
 
 ---
 
@@ -444,11 +445,11 @@ npm run build
 ### Packaging
 
 ```bash
-# Portable exe (single file)
-npx electron-builder --win portable
-
 # Installer
 npx electron-builder --win nsis
+
+# Portable exe (single file)
+npx electron-builder --win portable
 ```
 
 ---
@@ -467,14 +468,15 @@ graph TD
     G -->|State| H[Pages]
     G -->|3D Render| I[OrbitSystem]
 
-    C -->|Services| S[ProblemsService<br/>RequestsService<br/>SkillsService]
+    C -->|Services| S[ProblemsService<br/>RequestsService<br/>ContextAssemblyService]
 
-    H -->|Dashboard| J[DashboardPage<br/>+ Heatmap]
-    H -->|Apps| K[StatsPage]
-    H -->|Browser| L[BrowserActivityPage]
-    H -->|Productivity| M[ProductivityPage]
-    H -->|IDE| N[IDEProjectsPage]
-    H -->|Terminal| O[TerminalPage]
+    H -->|Dashboard| J[DashboardPage<br/>+ 3D Galaxy]
+    H -->|Activity| K[ActivityPage]
+    H -->|AI Assistant| K2[AiPage<br/>LLM Tool Calling]
+    H -->|Finance| L[FinancePage]
+    H -->|Life| L2[LifePage<br/>Goals + River of Years]
+    H -->|Learn| L3[LearnPage]
+    H -->|Terminal| O[TerminalPage<br/>PTY Workspace]
     H -->|External| P[ExternalPage]
     H -->|Insights| Q[InsightsPage]
 
@@ -482,10 +484,12 @@ graph TD
     I -->|Websites Galaxy| S2[Websites Galaxy<br/>Cyan/Violet]
 
     T[Browser Extension] -->|Website Data| C
+    O -->|node-pty| U[AI Agents<br/>opencode / claude / gemini]
 
     style R fill:#6366f1,color:#fff
     style S2 fill:#06b6d4,color:#fff
     style D fill:#003B57,color:#fff
+    style U fill:#10b981,color:#fff
 ```
 
 ### Context Assembly Pipeline
@@ -549,21 +553,54 @@ graph LR
 | 3.62 | 2026-05-27 | Database analytics dashboard (5 stat cards, 8 charts) |
 | 3.63 | 2026-05-27 | Init system redesign (16-step modal), Setup vs Initialize split |
 | 3.65 | 2026-05-27 | ContextSidebar, TutorialPage, backend gaps fixed (DORA/LLM/RAG/IPC) |
+| 4.0 | 2026-06-06 | AI Assistant revamp, tracking overhaul, cross-session sync, context monitoring, 27 new components, 50+ fixes |
+| 4.5 | 2026-06-16 | Complete AI agent system with real LLM tool calling + Nemotron safety layer |
+| 5.0 | 2026-07-11 | Massive release: AI system, Finance overhaul, Lyceum Learn module, workspace redesign, startup fix |
+| 6.0 | 2026-08-06 | Automation DSL engine, canvas grouping + floating nav, Gold goals & River of Years, Resume Builder persistence, Finance Budget & Subscriptions, Smart Gap Fill, Design Studio, TUI agent interaction, IPC allowlist, 100+ features |
 
 ---
 
 ## 🚀 Development Highlights
 
-### v3.65 (2026-05-27) — Recent
+### v6.0 (2026-08-06) — Latest
+- **Automation DSL Engine** - Declarative automation rules + compositions with real execution
+- **Canvas System** - Card grouping preserving real card content, floating canvas navigation mode
+- **Gold Goals + River of Years** - Life page: daily/weekly goals, The Vault, life-phases timeline with AI era trends & summaries
+- **Resume Builder Persistence** - Progress now survives restarts (localStorage + disk sync)
+- **Finance Suite** - Budget & Expenses with analytics, Subscriptions management, Follow Through tracking
+- **Smart Gap Fill** - Drawer entry point restored, mixed app/website/external gap filling
+- **Focus Groups Overhaul** - Prominent, goal-configurable focus groups with daily goals + streaks
+- **Design Studio** - Registry browser, motion explorer, taste knobs
+- **Real TUI Agent Interaction** - True agent terminal sessions with phase detection
+- **IPC Allowlist** - Hardened preload bridge with allowed-channels list
+
+### v5.0 (2026-07-11)
+- **AI System Expansion** - Real LLM tool calling pipeline, multi-model support
+- **Finance Overhaul** - Full budget/expense tracking with category analytics
+- **Lyceum Learn Module** - Learning with spaced repetition (ts-fsrs)
+- **Workspace Redesign** - 5-group workspace sidebar, conductor integration
+- **Startup Fix** - Window always shows on launch
+
+### v4.5 (2026-06-16)
+- **Real LLM Tool Calling** - AI Assistant can invoke tools with a Nemotron safety layer
+- **Flex Layout Fixes** - AI page layout hardening
+
+### v4.0 (2026-06-06)
+- **AI Assistant Revamp** - AiPage with planning.md integration, context management, checklist parsing
+- **Tracking Overhaul** - Improved foreground/browser tracking accuracy
+- **Cross-Session Sync** - Terminal sessions sync across views
+- **27 New Components** - Comprehensive UI expansion
+- **50+ Fixes** - Across all pages and services
+
+### v3.65 (2026-05-27)
 - **ContextSidebar** - 832-line sidebar replacing WorkspaceSettingsDialog, 6 sections, auto-save debounce
 - **TutorialPage** - Feature inventory with 12 items, spotlight overlay walkthrough, progress persistence
-- **Backend Gaps Fixed** - Real DORA CFR/MTTR calculation, LLM summarization via OpenRouter, RAG cosine similarity search, dead IPC handlers resolved, 5 missing preload bridges added
+- **Backend Gaps Fixed** - Real DORA CFR/MTTR calculation, LLM summarization via OpenRouter, RAG cosine similarity search
 - **New Services** - RAGService (proper cosine similarity), CompactionService (OpenRouter + extractive fallback)
 
 ### v3.63 (2026-05-27)
 - **Init System Redesign** - 16-step animated InitializeProgressModal with real trackerMind IPC
 - **Setup vs Initialize Split** - Green "Initialize" opens progress modal, amber "Setup" opens settings dialog
-- **WorkspaceSettingsDialog** - Persistent config panel with 7 system toggles, taste knobs, context assembly map
 
 ### v3.62 (2026-05-27)
 - **Database Analytics** - Full analytics view with 5 stat cards, 8 charts, period selector (7D/30D/All)
@@ -598,7 +635,7 @@ graph LR
 - **State.md Restructure** - "Since Last Commit" tracking section added
 
 ### v2.2 (2026-05-09)
-- **Insights Page Redesign** - Complete overhaul: heatmap grid, stat cards with trends, day/week/activity tabs, sleep & recovery charts, activity breakdown
+- **Insights Page Redesign** - Complete overhaul: heatmap grid, stat cards with trends, day/week/activity tabs, sleep & recovery charts
 - **Orbit System Research** - Logarithmic planet spacing, visual balance factor (0.65), sun texture enhancements
 - **Project-Aware Problems** - ProblemsService reads from project-specific agent/ directory
 - **Tailwind CSS v4** - Migrated to Tailwind CSS ^4.2.1 with @tailwindcss/vite
@@ -672,7 +709,7 @@ The app includes PerformanceMonitor that:
 - Can increase quality when performance improves
 
 ### Console Logs
-- `[DeskFlow]` - App state and loading
+- `[RHEO]` / `[DeskFlow]` - App state and loading
 - `[OrbitSystem]` - 3D visualization
 - Errors appear in red
 
@@ -693,10 +730,10 @@ If you encounter issues:
 
 **Built with ❤️ using Electron + React + Three.js**
 
-[Report Bug](https://github.com/anomalyco/deskflow/issues) · [Request Feature](https://github.com/anomalyco/deskflow/issues)
+[Report Bug](https://github.com/RCZ88/RHEO/issues) · [Request Feature](https://github.com/RCZ88/RHEO/issues)
 
 </div>
 
-**Last Updated:** 2026-05-28
+**Last Updated:** 2026-08-06
 
 **Maintained By:** DeskFlow Team

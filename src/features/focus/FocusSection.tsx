@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Focus as FocusIcon, Target, Clock, TrendingUp, Flame } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Focus as FocusIcon, AlertTriangle } from 'lucide-react';
 import { SectionHeader } from '../../components/SectionHeader';
 import { LoadingState } from '../../components/LoadingState';
+import { AnimatedGradientText } from '../../components/ui/animated-gradient-text';
+import { confetti } from '../../components/ui/confetti';
 import { useFocusSession } from '../../hooks/useFocusSession';
 import { useFocusGroups, type FocusGroup, type GroupDraft } from '../../hooks/useFocusGroups';
 import { setActiveGroup } from '../../hooks/useActiveFocusGroup';
@@ -9,6 +11,7 @@ import { useToasts } from '../../hooks/useToasts';
 import { FocusTimer } from './FocusTimer';
 import { FocusStats } from './FocusStats';
 import { FocusGroupProgress } from './FocusGroupProgress';
+import { FocusGroupsPanel } from './FocusGroupsPanel';
 import { FocusHistory } from './FocusHistory';
 import { FocusInsights } from './FocusInsights';
 import { FocusLeaderboard } from './FocusLeaderboard';
@@ -26,7 +29,7 @@ interface PendingGroupSession {
 
 export function FocusSection() {
   const { state, history, start, stop, startWithGroup } = useFocusSession();
-  const { groups, save, remove, selectedId, setSelectedId } = useFocusGroups();
+  const { groups, loading, error: groupsError, save, remove, selectedId, setSelectedId, selected } = useFocusGroups();
   const { toasts, showToast, removeToast } = useToasts();
   const [mins, setMins] = useState(25);
   const [strict, setStrict] = useState<'distracting' | 'non_allowed'>('distracting');
@@ -36,6 +39,7 @@ export function FocusSection() {
   const [distractions, setDistractions] = useState<Array<{ name: string; type: 'app' | 'website'; timestamp: number }>>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<FocusGroup | null>(null);
+  const [usageMap, setUsageMap] = useState<Map<number, number[]>>(new Map());
   const pendingGroupRef = useRef<PendingGroupSession | null>(null);
 
   useEffect(() => {
@@ -53,6 +57,32 @@ export function FocusSection() {
   const rows = history as unknown as FocusHistoryRow[];
   const todayStats = computeTodayStats(rows);
   const streak = computeStreak(rows);
+
+  const refreshUsage = useCallback(async () => {
+    const api = (window as any).deskflowAPI;
+    if (!api?.focusGroup?.getUsage) return;
+    try {
+      const usageRows = await api.focusGroup.getUsage();
+      const map = new Map<number, number[]>();
+      if (Array.isArray(usageRows)) {
+        for (const r of usageRows) {
+          const gid = Number(r?.group_id);
+          const sid = Number(r?.session_id);
+          if (!gid || !sid) continue;
+          const arr = map.get(gid) ?? [];
+          arr.push(sid);
+          map.set(gid, arr);
+        }
+      }
+      setUsageMap(map);
+    } catch (e) {
+      console.error('[Focus] Failed to load group usage:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshUsage();
+  }, [refreshUsage, groups]);
 
   const handleStart = () => start(mins * 60, strict);
   const handleStop = () => stop();
@@ -105,7 +135,11 @@ export function FocusSection() {
       } catch (e) {
         console.error('[Focus] linkUsage failed:', e);
       }
+      void refreshUsage();
       const minsDone = Math.max(1, Math.round(pending.plannedSec / 60));
+      if (bestPct >= 100) {
+        confetti({ particleCount: 120, spread: 75, startVelocity: 42, colors: ['#ec4899', '#a855f7', '#fbbf24', '#34d399'] });
+      }
       showToast(
         goalTitle
           ? `${group.name} · ${minsDone} min · ${bestPct}% of '${goalTitle}' goal`
@@ -141,20 +175,45 @@ export function FocusSection() {
     }
   }, [state, history]);
 
-  if (apiMissing) {
+  if (apiMissing || (loading && groups.length === 0)) {
     return (
       <div>
-        <SectionHeader title="Deep Focus" icon={<FocusIcon className="w-4 h-4" />} />
-        <LoadingState variant="skeleton" className="h-48" />
+        <SectionHeader title={<AnimatedGradientText colorFrom="#ec4899" colorTo="#a855f7">Deep Focus</AnimatedGradientText>} icon={<FocusIcon className="w-4 h-4" />} />
+        <LoadingState variant="skeleton" className="h-96" />
+      </div>
+    );
+  }
+
+  if (groupsError && groups.length === 0) {
+    return (
+      <div>
+        <SectionHeader title={<AnimatedGradientText colorFrom="#ec4899" colorTo="#a855f7">Deep Focus</AnimatedGradientText>} icon={<FocusIcon className="w-5 h-5" />} />
+        <div className="rounded-xl border border-rose-500/30 bg-zinc-900/95 p-5">
+          <p className="text-[13px] font-semibold text-rose-300 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            Failed to load Focus data.
+          </p>
+          <p className="text-[11px] text-zinc-500 mt-1">{groupsError}</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <SectionHeader title="Deep Focus" icon={<FocusIcon className="w-5 h-5" />} />
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        <div className="lg:col-span-3">
+      <SectionHeader title={<AnimatedGradientText colorFrom="#ec4899" colorTo="#a855f7">Deep Focus</AnimatedGradientText>} icon={<FocusIcon className="w-5 h-5" />} />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-1">
+          <FocusGroupsPanel
+            groups={groups}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onCreate={() => { setEditingGroup(null); setEditorOpen(true); }}
+            onEdit={g => { setEditingGroup(g); setEditorOpen(true); }}
+            onDelete={handleDeleteGroup}
+          />
+        </div>
+        <div className="lg:col-span-1 space-y-4">
           <FocusTimer
             state={state}
             mins={mins}
@@ -168,17 +227,14 @@ export function FocusSection() {
             onModeChange={setMode}
             groups={groups}
             selectedGroupId={selectedId}
-            onGroupSelect={setSelectedId}
-            onGroupCreate={() => { setEditingGroup(null); setEditorOpen(true); }}
-            onGroupEdit={g => { setEditingGroup(g); setEditorOpen(true); }}
-            onGroupDelete={handleDeleteGroup}
+            activeGroup={selected}
             onStartWithGroup={handleStartWithGroup}
             onDurationDrag={sec => setMins(Math.round(sec / 60))}
           />
-        </div>
-        <div className="lg:col-span-2 space-y-4">
-          <FocusGroupProgress groups={groups} selectedId={selectedId} history={rows} />
           <FocusStats stats={todayStats} streak={streak} />
+        </div>
+        <div className="lg:col-span-1 space-y-4">
+          <FocusGroupProgress groups={groups} selectedId={selectedId} history={rows} usageMap={usageMap} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FocusLeaderboard history={rows} />
             <FocusDistractionLog distractions={distractions} isActive={!!state?.active} />

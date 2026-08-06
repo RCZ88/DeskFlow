@@ -127,7 +127,7 @@ export function GapFillDrawer({
         color: '#6366f1',
         type: 'app' as const,
       })))
-      setExternalActivities(ext.filter((a: any) => a.name !== 'AFK').map((a: any) => ({
+      setExternalActivities(ext.filter((a: any) => a.name !== 'AFK' && a.type !== 'sleep').map((a: any) => ({
         id: 'ext:' + a.id,
         name: a.name,
         category: 'External',
