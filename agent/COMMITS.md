@@ -4,40 +4,52 @@
 
 ### Commit Message
 ```
-feat: real TUI agent interaction, canvas grouping, gold goals tab, AI change-history/undo, compositions DSL engine, sleep-detection gap fix (141 files)
+feat: Lyceum Learn 9-block renderer fixes + accumulated multi-session work (finance recap, life phases, IDE analytics extension, canvas/focus fixes)
 ```
 
-**Hash:** `a6ae60c`
-**Date:** 2026-08-02
+**Hash:** `6fc82f3`
+**Date:** 2026-08-08
 
 ### Detailed Changes
 
-#### Agent TUI Interaction (`src/main/agentOutput.ts`, `src/main.ts`, `src/preload.ts`, `scripts/verify-parser.mjs`)
-- **`src/main/agentOutput.ts`** (new) — Incremental parser for agent CLI/TUI output in the Electron main process. `parseSessionIdFromOutput` extracts the agent's REAL session id from PTY output (primary source, replacing path-matching a separate SQLite DB). `parseAgentOutput` incrementally parses each chunk: session id, errors, action-required prompts, and structured file-change events. Pure module (no electron/better-sqlite3 imports) so it's unit-testable via `node scripts/verify-parser.mjs` without launching the app.
-- **`capture-opencode-session-id`** IPC + `agent:config` + `agent:get-status` handlers; `onAgentStatus` event with `{ terminalId, phase, sessionId?, error? }`.
-- **`scripts/verify-parser.mjs`** (new) — unit test harness for `agentOutput.ts` parser.
+#### Lyceum Learn — 9 renderer bugs fixed (opencode-term-1-lyc2 round-01)
+- **`src/components/learn/blocks/mermaidLoader.ts`** (new) — mermaid 11.16 hangs when `initialize()` runs before EVERY render; initialize EXACTLY ONCE per session + 15s render timeout with readable error. Used by MermaidBlock + FlowBlock.
+- **`TableBlock.tsx`** (rewritten) — imports `tabulator.min.css` + `tabulator_site_dark.min.css` (Tabulator v6 themes are CSS-only; `theme:'dark'` silently ignored → unstyled stacked text); auto-heal via `isDynamicImportFailure → autoHealDynamicImport`; plain-HTML fallback table inside error `<details>`.
+- **`FlowBlock.tsx`** — sankey emits `A --> B : 10` (JSON.stringify quotes + `|value|` labels hang sankey-beta); error panel shows the REAL rendered source (`edgesToMermaid`).
+- **`ChartBlock.tsx`** (rewritten) — auto-heal on dynamic-import catch (old `.catch` swallowed errors so global self-heal never fired); container cleared between renders; Retry button + spec display.
+- **`FinChartBlock.tsx`** (rewritten) — `extractData()` pulls from vega-lite `spec.data.values` (parser stores FULL spec → old code threw "No data series found"); line/bar/area mark detection; multi-series; tick labels; cleanup fixed (`chart.remove` now runs); auto-heal + Retry.
+- **`CodeBlock.tsx`** — single-pass highlight (one regex alternation over escaped source: strings→comments→numbers→keywords); spans can never be re-tokenized (fixes `class="text-emerald-400">400"</span>` corruption).
+- **`WidgetHost.tsx`** — per-block remount key + retry button + error reset on content change.
+- **`parseLessonMarkdown.ts`** — directive open regex `^:{3,}(?:\s+)?(\w+)`: `:::illustration` without space now parses as a directive (was prose); bare `:::` closes; 4+ colons always close.
+- **`PendingIllustrationsPanel.tsx`** — EVERY illustration card (pending AND done) shows prompt + Copy + Upload/Replace; done items show image preview (white bg for `file://`).
+- **`resources/learn/author-guide.md` + `prompts/master-prompt.md`** — contract v4.0 (`#` H1 nodes, `::: kind`/bare `:::`, `know:` ends `[source_id]`, block-variety rules).
+- **Lyceum services** — `learn:validate`/`generateLdoc`/ImportService pass `publishedIds`; `checkVisual` matches parser's 19-type VISUAL_TYPES; promptLibrary/learnerProfile updates.
+- **`HierarchyGuide.tsx`** (new) — hierarchy tree visualization wired into LearnHome + OnboardingPanel; `MASTERY_LABELS`/`MASTERY_SHORT`; Part→Topic + Chapter→Group label renames; `/learn` route ErrorBoundary (App.tsx).
 
-#### Canvas Grouping System (`src/components/ai/canvas/`, `src/hooks/useCanvasState.ts`, `src/services/canvasPersistence.ts`, `src/types/canvas.ts`)
-- **`GroupCard.tsx`** (new) — group card with `data.childCards` snapshots; `CanvasGrid`/`CanvasContainer`/`CanvasCard` group wiring (CREATE_GROUP tags child cards with `groupId`, UNGROUP restores from `data.childCards`, DELETE_GROUP). Canonical `state.groups[id]` + per-card `data.childCards` kept in sync by reducers.
-- **`CanvasManagerPanel`, `SaveIndicator`, `canvas.css`** — manager panel, save indicator, canvas styles updated for groups.
+#### Finance Monthly Recap AI-output cleaning (opencode-term-1-layo)
+- **`src/shared/recap.ts`** (new) — `cleanRecapSummary` heuristic cleaner + `computeApexInsight`; wired at generate-time (`finance:recap-generate` stores cleaned summary; fallback + status 'failed') AND render-time defensively in **`RecapPanel.tsx`** (new; narrative memo fixes legacy verbatim rows); apex insight from REAL stats in `stats_json`.
+- `finance-types.ts` + `FinancePage.tsx` integration; `router.ts` buildChain feature union extended.
 
-#### Gold/Goals Feature (`src/features/warmth/gold/GoldPage.tsx`, `src/pages/GoalsPage.tsx`, `src/components/goals/`, `src/hooks/useFocusGoals.ts`)
-- **`GoldPage.tsx`** (new) — consistent daily goals + daily-custom goals + reminders/notes + calendar view + fulfillment check; integrated as a tab inside Life page (`/life` → LifePage `?tab=` state, `{ key: 'gold', label: 'Gold', icon: Target, accent: '#fbbf24' }`).
-- **`GoalCard.tsx`, `CriteriaBuilder.tsx`, `CalendarStrip.tsx`** (new) — goal cards with skeleton/empty/error states, criteria builder, calendar strip.
-- **`GoalsPage.tsx`** (new) — standalone goals page (422 lines).
-- **`useFocusGoals.ts`** hook + goals/reminders IPC already in main.ts (~line 2746 DDL, IPC ~16134+; reminders IPC ~16489+; preload methods ~890–908).
+#### IDE Analytics + VS Code Extension (opencode-term-1-backf)
+- **`vscode-extension/`** (new) — VS Code extension capturing code activity (crypto.randomUUID ids → idempotent INSERT OR IGNORE), posts to `localhost:54321/code-activity`.
+- **`main.ts`** — always-on `/code-activity` route on capture server (sibling of `/browser-data`, not gated on browser-tracking pref); `code_activity` table; `get-code-activity-stats` IPC + `codeActivity` on `get-ide-projects-overview`; preload `getCodeActivityStats`.
+- `IDEProjectsPage.tsx`/`AnalyticsDashboard.tsx` — Live Pulse grid + Coding Activity chart.
 
-#### AI Change History & Locked Items (main.ts, preload.ts, SettingsPage.tsx)
-- **New IPC:** `get-locked-items`, `set-locked-items`, `get-ai-change-history`, `add-ai-change-history`, `undo-ai-change`, `redo-ai-change`, `clear-ai-change-history` + preload bindings.
-- **SettingsPage.tsx** (+716) — app/domain lock toggles (per-app, per-domain, lock-all), AI change history with undo/redo via `Undo2`/`History` icons, masked currency helpers.
+#### AI Tools timeline (opencode-term-1-yzjl)
+- `AIToolsTab.tsx` — per-tool "Tool Usage Timeline" (`byTool[toolId].daily`) + dominance "phases" strips (contiguous winner-per-day chips) beside the existing all-time Model Usage Timeline.
 
-#### Sleep Detection Gap Fix (main.ts)
-- Three independent triggers: window focus/blur, tracking-poll gaps (null `active-win`), and system-idle + `powerMonitor` resume/unlock-screen. `checkSleepGap(gapStart, gapEnd, { skipActiveGuard })`; `powerMonitor.getSystemIdleTime()` ≥ `SLEEP_DETECTION_MIN_GAP_MS` (45min) tracked in `pollForeground()`; `powerMonitor.on('resume'/'unlock-screen')`. `check-sleep-detection` must NOT mark `checked`.
+#### Life Phases / River + Gold + Memories (opencode-term-1-lriv)
+- `PhaseCard`, `RiverMap`, `TodayTributary`, `memory-lightbox`, `phase-drawer`, `river-canvas`, `river`, `riverMath`, `LifePage` — color-customizable phases, no translucent overlays on card content.
+- `GoldPage.tsx` gold tab + `MemoryCard.tsx` updates.
 
-#### Compositions DSL Engine (`src/domains/compositions/`, `src/pages/CompositionPage.tsx`)
-- **`compositionLexer`, `compositionParser`, `compositionSchema`, `compositionScopeChecker`, `compositionEngine`, `compositionEventBus`, `CompositionEngineManager`, `CompositionEngineService`** (new) — DSL engine for the self-expanding agentic system.
-- **`dataSourceRegistry` + data adapters** — `dataAdapterFinance`, `dataAdapterFocus`, `dataAdapterGoals`, `dataAdapterIde`, `dataAdapterLearning`, `dataAdapterSystem` (new).
-- **`CompositionPage.tsx`** (new, 418 lines) — compositions UI tab.
+#### Canvas drag/group/resize + Focus Groups (opencode-term-1-solar / fgrp / auto)
+- `CanvasCard`/`GroupCard`/`canvas.css`/`useCanvasState`/`canvas.ts` — pointer-cancel fallbacks, 2px drag threshold, grid-coord drop targets, group card real-content rendering (`renderChild`).
+- Focus: `FocusAppPicker`, `FocusGroupEditor`, `FocusLeaderboard`, `FocusSection`, `shiny-button.tsx` accent/borderClass via `cn()`.
+
+#### Misc fixes + infra
+- `ExternalPage.tsx` — sleep excluded everywhere except Sleep Patterns card + Add/Edit flows (user rule); `StatsPage.tsx`, `main.ts` pollForeground tracker-app handling.
+- `OrbitSystem`/`AICityscape` solar render fixes; `scripts/build.mjs` now compiles `src/lib` into dist-electron (was missing → runtime "Cannot find module ../lib/mojibake"); `index.html` Source Serif 4 font; `index.css` `--animate-gradient` theme token; preload/main/preload-API types sync.
+- Agent infra — PROBLEMS.md P1-P9 section, MEMORY.md durable lessons (mermaid init-once, sankey syntax, tabulator CSS, spec.data.values, directive regex, per-file service compile), state hub + session spokes, `round-01.md`/`errorsfound.md`/`lesson.txt` for lyceum-featurefix-08082026, life-phases overhaul docs, canvas drag/group docs, finance recap RESULT, font-selection skill.
 
 #### Stats/Activity/External/Finance Reorganizations
 - **StatsPage.tsx** (~398 changed) — stats rework.
