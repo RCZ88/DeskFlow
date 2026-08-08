@@ -8,6 +8,7 @@ import {
   Loader2,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   AlertCircle,
   CheckCircle2,
   Wand2,
@@ -16,6 +17,9 @@ import {
   AlignLeft,
   List,
   Lightbulb,
+  BookOpen,
+  Plus,
+  BookMarked,
 } from 'lucide-react';
 import { ResourceInput, type Resource } from './ResourceInput';
 
@@ -131,10 +135,20 @@ export function CreateLessonDialog({
   const [validPrompt, setValidPrompt] = useState(false);
   const [genPhase, setGenPhase] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [knowledgeUsed, setKnowledgeUsed] = useState<any>(null);
+  const [chapterChoice, setChapterChoice] = useState('');
+  const [chapterPickerOpen, setChapterPickerOpen] = useState(false);
+  const [availableGroups, setAvailableGroups] = useState<string[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
   useEffect(() => {
     if (open) {
       setSaved(false);
+      setChapterChoice('');
+      setChapterPickerOpen(false);
+      setNewGroupName('');
       if (seed) {
         setInputMode('detailed');
         setDescription(seed.title);
@@ -143,6 +157,7 @@ export function CreateLessonDialog({
           setResources([{ id: 'res-seed', type: 'text', content: `Curriculum brief:\n${seed.topicPrompt}` }]);
         }
       }
+      loadGroups();
     } else {
       setStep('input');
       setInputMode('simple');
@@ -156,6 +171,9 @@ export function CreateLessonDialog({
       setGenResult(null);
       setValidPrompt(false);
       setGenPhase(0);
+      setKnowledgeUsed(null);
+      setChapterChoice('');
+      setAvailableGroups([]);
     }
   }, [open, seed]);
 
@@ -163,18 +181,60 @@ export function CreateLessonDialog({
   const canBuildDetailed = description.trim().length >= 3 && !building;
   const canBuild = inputMode === 'simple' ? canBuildSimple : canBuildDetailed;
 
+  const loadGroups = async () => {
+    setGroupsLoading(true);
+    try {
+      const [customRes, existingRes] = await Promise.all([
+        api.learnGetProfile({ key: 'lyceum.learnerProfile.v1' }),
+        api.learnListChapters({}),
+      ]);
+      const custom = customRes?.ok ? JSON.parse(customRes.value || '{}').customChapters ?? [] : [];
+      const existing = existingRes.ok ? (existingRes.data ?? []) : [];
+      const all = Array.from(new Set([...custom, ...existing])).sort();
+      setAvailableGroups(all);
+    } catch {
+      setAvailableGroups([]);
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    setCreatingGroup(true);
+    try {
+      const res = await api.learnGetProfile({ key: 'lyceum.learnerProfile.v1' });
+      if (res?.ok) {
+        const profile = JSON.parse(res.value || '{}');
+        const cur = profile.customChapters ?? [];
+        if (!cur.includes(name)) {
+          profile.customChapters = [...cur, name];
+          await api.learnSetProfile({ key: 'lyceum.learnerProfile.v1', value: JSON.stringify(profile) });
+        }
+      }
+      setAvailableGroups((prev) => Array.from(new Set([...prev, name])).sort());
+      setChapterChoice(name);
+      setNewGroupName('');
+      setChapterPickerOpen(false);
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
   const handleBuildPrompt = async () => {
     if (!canBuild) return;
     setBuilding(true);
     try {
       const contextDoc = resources.map(r => r.content).join('\n\n---\n\n');
       const params = inputMode === 'simple'
-        ? { userInput: userInput.trim(), contextDoc: contextDoc || undefined }
-        : { topic: description.trim(), description: description.trim(), contextDoc: contextDoc || undefined, numNodes: numNodes > 0 ? numNodes : undefined };
+        ? { userInput: userInput.trim(), contextDoc: contextDoc || undefined, chapter: chapterChoice || undefined }
+        : { topic: description.trim(), description: description.trim(), contextDoc: contextDoc || undefined, numNodes: numNodes > 0 ? numNodes : undefined, chapter: chapterChoice || undefined };
       const result = await api.learnBuildPrompt(params);
       if (result.ok) {
         setPrompt(result.prompt);
         setSystemPrompt(result.systemPrompt);
+        setKnowledgeUsed(result.knowledgeUsed ?? null);
         setStep('prompt');
         setValidPrompt(true);
       } else {
@@ -261,6 +321,11 @@ export function CreateLessonDialog({
       setGenPhase(3);
       await new Promise(r => setTimeout(r, 200));
       if (result.ok && result.data?.lessonId) {
+        if (chapterChoice) {
+          try {
+            await api.learnUpdateLessonMeta({ lessonId: result.data.lessonId, chapter: chapterChoice });
+          } catch { /* non-fatal, chapter already in prompt */ }
+        }
         setGenStatus('done');
         setGenResult(result);
         onImported();
@@ -411,6 +476,105 @@ export function CreateLessonDialog({
                     </label>
                     <ResourceInput resources={resources} onChange={setResources} />
                   </div>
+
+                  {/* Chapter / Group selector */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-2">
+                      Group <span className="text-zinc-600 font-normal">(optional)</span>
+                    </label>
+                    <div className="relative">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setChapterPickerOpen(!chapterPickerOpen)}
+                          className="flex-1 px-3 py-2 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-clay-500/40 focus:ring-2 focus:ring-clay-500/10 text-left transition-all duration-150 hover:border-zinc-600/60"
+                          aria-haspopup="listbox"
+                          aria-expanded={chapterPickerOpen}
+                        >
+                          {chapterChoice
+                            ? chapterChoice
+                            : <span className="text-zinc-600">Let the AI pick</span>}
+                        </button>
+                        {!groupsLoading && availableGroups.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setChapterPickerOpen(!chapterPickerOpen); }}
+                            className="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 transition-colors"
+                            aria-label="Open group picker"
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      <AnimatePresence>
+                        {chapterPickerOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -4 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute z-10 mt-1 w-full max-h-60 overflow-y-auto rounded-xl border border-zinc-700/50 bg-zinc-900/95 backdrop-blur-xl shadow-xl"
+                            role="listbox"
+                          >
+                            <button
+                              onClick={() => { setChapterChoice(''); setChapterPickerOpen(false); }}
+                              className={`w-full px-3 py-2 text-left text-sm transition-colors ${
+                                !chapterChoice
+                                  ? 'bg-clay-500/15 text-clay-300'
+                                  : 'text-zinc-300 hover:bg-zinc-800/50'
+                              }`}
+                              role="option"
+                            >
+                              <span className="flex items-center gap-2">
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span>Let the AI pick</span>
+                              </span>
+                            </button>
+                            <div className="h-px bg-zinc-700/50 mx-2 my-1" />
+                            {availableGroups.map((g) => (
+                              <button
+                                key={g}
+                                onClick={() => { setChapterChoice(g); setChapterPickerOpen(false); }}
+                                className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800/50 transition-colors flex items-center gap-2"
+                                role="option"
+                              >
+                                <BookMarked className="w-3.5 h-3.5 text-clay-400" />
+                                <span className="truncate">{g}</span>
+                              </button>
+                            ))}
+                            <div className="h-px bg-zinc-700/50 mx-2 my-1" />
+                            <div className="px-2 py-1.5">
+                              <input
+                                type="text"
+                                value={newGroupName}
+                                onChange={(e) => setNewGroupName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && newGroupName.trim()) {
+                                    e.preventDefault();
+                                    handleCreateGroup();
+                                  }
+                                }}
+                                placeholder="Create new group…"
+                                className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-clay-500/40"
+                                autoFocus
+                              />
+                            </div>
+                            <div className="px-2 pb-2">
+                              <button
+                                onClick={handleCreateGroup}
+                                disabled={creatingGroup || !newGroupName.trim()}
+                                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 text-clay-300 border border-clay-500/30 hover:bg-clay-500/15 disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                {creatingGroup ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                                {creatingGroup ? 'Creating…' : 'Create group'}
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                    <p className="text-[10px] text-zinc-600 mt-1">Pick a group or create one — the lesson will be placed there</p>
+                  </div>
                 </motion.div>
               )}
 
@@ -468,6 +632,105 @@ export function CreateLessonDialog({
                       ))}
                     </div>
                   </div>
+
+                  {/* Chapter / Group selector */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-2">
+                      Group <span className="text-zinc-600 font-normal">(optional)</span>
+                    </label>
+                    <div className="relative">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setChapterPickerOpen(!chapterPickerOpen)}
+                          className="flex-1 px-3 py-2 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm leading-relaxed focus:outline-none focus:border-clay-500/40 focus:ring-2 focus:ring-clay-500/10 text-left transition-all duration-150 hover:border-zinc-600/60"
+                          aria-haspopup="listbox"
+                          aria-expanded={chapterPickerOpen}
+                        >
+                          {chapterChoice
+                            ? chapterChoice
+                            : <span className="text-zinc-600">Let the AI pick</span>}
+                        </button>
+                        {!groupsLoading && availableGroups.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setChapterPickerOpen(!chapterPickerOpen); }}
+                            className="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 transition-colors"
+                            aria-label="Open group picker"
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      <AnimatePresence>
+                        {chapterPickerOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -4 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute z-10 mt-1 w-full max-h-60 overflow-y-auto rounded-xl border border-zinc-700/50 bg-zinc-900/95 backdrop-blur-xl shadow-xl"
+                            role="listbox"
+                          >
+                            <button
+                              onClick={() => { setChapterChoice(''); setChapterPickerOpen(false); }}
+                              className={`w-full px-3 py-2 text-left text-sm transition-colors ${
+                                !chapterChoice
+                                  ? 'bg-clay-500/15 text-clay-300'
+                                  : 'text-zinc-300 hover:bg-zinc-800/50'
+                              }`}
+                              role="option"
+                            >
+                              <span className="flex items-center gap-2">
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span>Let the AI pick</span>
+                              </span>
+                            </button>
+                            <div className="h-px bg-zinc-700/50 mx-2 my-1" />
+                            {availableGroups.map((g) => (
+                              <button
+                                key={g}
+                                onClick={() => { setChapterChoice(g); setChapterPickerOpen(false); }}
+                                className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800/50 transition-colors flex items-center gap-2"
+                                role="option"
+                              >
+                                <BookMarked className="w-3.5 h-3.5 text-clay-400" />
+                                <span className="truncate">{g}</span>
+                              </button>
+                            ))}
+                            <div className="h-px bg-zinc-700/50 mx-2 my-1" />
+                            <div className="px-2 py-1.5">
+                              <input
+                                type="text"
+                                value={newGroupName}
+                                onChange={(e) => setNewGroupName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && newGroupName.trim()) {
+                                    e.preventDefault();
+                                    handleCreateGroup();
+                                  }
+                                }}
+                                placeholder="Create new group…"
+                                className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-clay-500/40"
+                                autoFocus
+                              />
+                            </div>
+                            <div className="px-2 pb-2">
+                              <button
+                                onClick={handleCreateGroup}
+                                disabled={creatingGroup || !newGroupName.trim()}
+                                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 text-clay-300 border border-clay-500/30 hover:bg-clay-500/15 disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                {creatingGroup ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                                {creatingGroup ? 'Creating…' : 'Create group'}
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                    <p className="text-[10px] text-zinc-600 mt-1">Pick a group or create one — the lesson will be placed there</p>
+                  </div>
                 </motion.div>
               )}
 
@@ -491,6 +754,35 @@ export function CreateLessonDialog({
                       to create it directly with DeskFlow.
                     </p>
                   </div>
+
+                  {/* Knowledge used */}
+                  {knowledgeUsed && (
+                    <div className="flex items-start gap-2.5 p-3 rounded-xl bg-sage-500/5 border border-sage-500/15">
+                      <BookOpen className="w-4 h-4 text-sage-400 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-zinc-400 leading-relaxed mb-1.5">
+                          {knowledgeUsed.entries?.length
+                            ? 'Built on your knowledge of:'
+                            : knowledgeUsed.relatedTopics?.length
+                            ? 'No exact matches — referencing your related topics only:'
+                            : 'No matching knowledge — teaching from first principles.'}
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {(knowledgeUsed.entries ?? []).map((e: any, i: number) => (
+                            <span key={e.id ?? i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sage-500/10 border border-sage-500/20 text-[10px] text-sage-300 max-w-full">
+                              <span className="truncate">{e.statement}</span>
+                              {e.level && <span className="font-mono text-[9px] text-sage-400/70 shrink-0">{e.level}</span>}
+                            </span>
+                          ))}
+                          {(knowledgeUsed.relatedTopics ?? []).map((rt: any) => (
+                            <span key={rt.part} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-clay-500/10 border border-clay-500/20 text-[10px] text-clay-300">
+                              {rt.emoji} {rt.title}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                     {/* Prompt block */}
                     <div className="relative rounded-xl border border-zinc-800/50 bg-zinc-950/80 backdrop-blur-xl overflow-hidden">

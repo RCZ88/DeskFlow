@@ -133,3 +133,14 @@ one short question rather than guessing. After a correction, fix the entry in `d
 re-open or re-read it each turn. For "which page has feature X?", open
 `agent/FEATURE_TRACKER.md` ON DEMAND (only when you actually need it) â€” it is large and is
 NOT loaded every prompt.
+
+## Installing the VS Code Extension (code activity capture)
+
+The `vscode-extension/` folder at the repo root is the DeskFlow Activity Tracker VS Code extension (live coding telemetry ? `code_activity` table via the always-on local capture server at `http://localhost:54321/code-activity`).
+
+1. `cd vscode-extension`
+2. `npm install`
+3. `npm run compile`
+4. Press **F5** in VS Code to test, or package with `npx @vscode/vsce package` and install the `.vsix` (Extensions ? ... ? Install from VSIX...).
+
+The capture server runs even when browser tracking is disabled — only website (`/browser-data`) ingestion is gated by the browser-tracking pref.

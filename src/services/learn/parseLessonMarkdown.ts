@@ -248,8 +248,9 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
       continue;
     }
 
-    // directive blocks ::: kind ...
-    const dir = ln.text.match(/^:{3,}\s+(\w+)\s*(.*)$/);
+    // directive blocks ::: kind ... (space after ::: is OPTIONAL — `:::flow sankey`
+    // and `:::illustration {...}` must parse exactly like `::: flow sankey`)
+    const dir = ln.text.match(/^:{3,}(?:\s+)?(\w+)\s*(.*)$/);
     if (dir) {
       flushProse();
       const kind = dir[1].toLowerCase();
@@ -259,7 +260,7 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
       let depth = 1;
       i++;
       while (i < body.length && depth > 0) {
-        if (/^:{3,}\s+\w/.test(body[i].text)) depth++;
+        if (/^:{3,}(?:\s+)?\w/.test(body[i].text)) depth++;
         else if (/^:{3,}\s*$/.test(body[i].text)) { depth--; if (depth === 0) break; }
         inner.push(body[i]);
         i++;
@@ -624,11 +625,15 @@ function parseQuiz(inner: Line[], args: string, blockId: string, line: number): 
     }
     const ans = ln.text.match(/^answer\s*:\s*(.+)$/i);
     if (ans) { numericAnswer = Number(ans[1].trim()); continue; }
-    const exp = ln.text.match(/^explain\s*:\s*(.+)$/i);
+    const exp = ln.text.match(/^(?:explain|explanation)\s*:\s*(.+)$/i);
     if (exp) { explain = exp[1].trim(); continue; }
     const rub = ln.text.match(/^rubric\s*:\s*(.+)$/i);
     if (rub) { rubric.criteria = rub[1].trim(); continue; }
-    if (ln.text && !q) q = ln.text;
+    if (ln.text && !q) {
+      // Strip question/Q prefix if present
+      const stripped = ln.text.replace(/^(?:question|Q)\s*:\s*/i, '');
+      q = stripped;
+    }
     else if (ln.text) q += ' ' + ln.text;
   }
   if (!q) throw new LessonMarkdownError('A quiz needs a question line.', line);
@@ -663,7 +668,7 @@ function parseGrounding(inner: Line[]): LdocGrounding {
     if (inc) { includes = inc[1].trim(); continue; }
     const exc = ln.text.match(/^excludes?\s*:\s*(.+)$/i);
     if (exc) { excludes = exc[1].split(';').map((s) => s.trim()).filter(Boolean); continue; }
-    const know = ln.text.match(/^know\s*:\s*(.+?)\s*\[([^\]]+)\]\s*$/i);
+    const know = ln.text.match(/^know\s*:\s*(.+?)\s*\[([^\]]+)\]\s*[.!?,;:]*\s*$/i);
     if (know) { must_know.push({ claim: know[1].trim(), source_id: know[2].trim() }); continue; }
     const src = ln.text.match(/^source\s*:\s*([^|]+)\|([^|]+)\|(.+)$/i);
     if (src) { sources.push({ id: src[1].trim(), title: src[2].trim(), url: src[3].trim() }); continue; }

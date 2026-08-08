@@ -1,4 +1,4 @@
-﻿# ðŸ“‹ Feature Tracker
+# ðŸ“‹ Feature Tracker
 
 **Purpose:** Complete inventory of every page and feature in DeskFlow app.
 
@@ -6,6 +6,42 @@
 
 **Maintainer:** AI Development Team
 
+---
+
+## NEW: Finance Monthly Recap — AI-output cleaning + live progress stages + APEX card — 2026-08-08 (session opencode-term-1-layo)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | Shared heuristic cleaner for AI recap output: strips "Financial Biographer"-style briefs, data bullet echoes (category: amount (n txns), wallet/net lines, "X on YYYY-MM-DD"), "Thought:" blocks, preambles ("This is a narrative summary… Please read the data below…") — narrative-only output | Implemented (build OK, parser verified via fixture, NOT LAUNCHED) | `src/shared/recap.ts` `cleanRecapSummary` — BRIEF_PATTERNS/DATA_PATTERNS; consumed by main.ts `finance:recap-generate` AND defensively in RecapPanel.tsx narrative memo (legacy rows fixed without regen) |
+| F2 | APEX insight card derived from REAL stats instead of AI-invented: dominant category (≥30% of spending) → net swing vs prev month → wallet delta ≥5000 → biggest expense | Implemented (build OK, NOT LAUNCHED) | `computeApexInsight(stats)` in `src/shared/recap.ts`; stored inside stats_json (no schema change); rendered in RecapPanel when present |
+| F3 | Live generation progress: reading → analyzing → writing → saving → done over `finance:recap-progress` IPC with animated stage bar + stage-labeled buttons; stronger system prompt (strict OUTPUT FORMAT) + maxTokens 500→700 | Implemented (build OK, NOT LAUNCHED) | main.ts generateRecapInternal + RECAP_SYSTEM_PROMPT; preload `onRecapProgress`; deskflow-api.d.ts; RecapPanel genStage/STAGE_LABEL/STAGE_DESC/STAGE_WIDTH |
+
+---
+
+## NEW: Lyceum Learn refinement round — 2026-08-08 (session opencode-term-1-kbse)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | Rename "Rerun setup" → "Adjust setup answers" + confirm dialog; strengthen reset-profile confirm | Implemented (build OK, NOT LAUNCHED) | LearnerProfilePanel.tsx (onRerunSetup prop) — button renamed + `confirm()` dialog; LearnerSetup pre-fills from `loadProfile()` (line 19) |
+| F2 | Knowledge Base form chips = user's OWN lesson topics (loadUserLessons), not CURRICULUM_BLUEPRINT chips | Implemented (build OK, NOT LAUNCHED) | LearnerProfilePanel.tsx KB editor + LearnerSetup.tsx Q9 — chips show lesson titles, `linkedLessons: string[]`, empty state |
+| F3 | Prior Knowledge section shows ONLY curriculum parts the user has lessons in | Implemented (build OK, NOT LAUNCHED) | LearnerProfilePanel.tsx + LearnerSetup.tsx Q8 — filtered by `userLessons.parts`, empty state |
+| F4 | Remove redundant duplicate chapter/topic list in reader (node outline + TableOfContents + ChecklistProgress all list the same titles) | Implemented (build OK, NOT LAUNCHED) | ReaderView.tsx — compact ChecklistProgress removed from sidebar; outline is the single listing; full checklist remains at node bottom |
+| F5 | Image generation respects profile setting (ImageGenSettings.enabled): when disabled → placeholder + notification, offer prompt-based setup UI | Implemented (build OK, NOT LAUNCHED) | IllustrationBlock.tsx — `aiEnabled` from `learnGetImageGenSettings`; disabled → "AI generation is off" hint button; upload still available |
+| F6 | CodeBlock Run/execute button (bash/python) via electron:execute-command (runnable flag already in data model) | Implemented (build OK, NOT LAUNCHED) | CodeBlock.tsx + new `learn:runCode` IPC (services/learn/index.ts) + preload `learnRunCode` — language-keyed (runnable flag is hardcoded false by parser), 15s timeout, scratch dir |
+| F7 | Learn keyboard shortcuts on/off toggle — NO preference exists today (hardcoded keydown LearnPage.tsx ~134-193); add toggle in the '?' shortcuts modal | Implemented (build OK, NOT LAUNCHED) | LearnPage.tsx — `lyceum.shortcutsEnabled` (localStorage, default true), guard keeps only Esc + '?' when off, Switch in '?' modal |
+| F8 | LDOC viewer toggle per node: button in reader shows raw .ldoc source for the current section (debug + modify) | Implemented (build OK, NOT LAUNCHED) | ReaderView.tsx — "Source" tab-bar button, `learnGetLessonSource({lessonId})`, pretty-printed JSON pane |
+| L3 | Quiz/Assessment styling pass | Implemented (build OK, NOT LAUNCHED) | QuizBlock.tsx — lucide ClipboardList icon, Enter-to-submit, open-format "awaiting coach review" state, MCQ try-again; AssessmentCard.tsx — ClipboardCheck icon, "x/y answered" hint |
+
+---
+
+## NEW: AI Tools - all-time Tool Usage Timeline + dominance phases - 2026-08-08 (session opencode-term-1-yzjl)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | Tool Usage Timeline (per-tool stacked daily chart - the per-tool counterpart of the existing all-time Model Usage Timeline) | Implemented (build OK, NOT LAUNCHED) | AIToolsTab.tsx - new "Tool Usage Timeline" GlassCard right after "Model Usage Timeline"; aggregates overview.aiUsage.byTool[toolId].daily (fields identical to modelDaily: tokens/tokens_in/tokens_out/messageCount/sessions/cost), AGENT_CONFIG display names, honors aiChartMode + tokenDisplayMode + cost + messages modes, all-time anchoring via timeLock |
+| F2 | Dominance "phases" strips on both timelines - "which model/tool roughly, and how it changes" | Implemented (build OK, NOT LAUNCHED) | AIToolsTab.tsx - contiguous winner-per-day runs rendered as chips (date range - label - % of period total) under each timeline header; hidden when >6 runs or no data |
+
+Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAiPeriod 'all', minDate-anchored); this round added the phases strip to it plus the new Tool timeline. Renderer-only, no new IPC.
 ---
 
 ## ðŸ“Œ Page Index
@@ -1091,6 +1127,10 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ## Recent Feature Additions
 
+### 2026-08-07:
+- Life Interconnected River round-03 close-out (back-and-forth collaboration, specialist answers): (1) TodayTributary creation UI — Plus button per column: Covenant → NewCommitmentModal (covenant.addCommitment), Gold → inline CriteriaBuilder reusing GoldPage's exported defaultCriteria/criteriaToGoal, Vault & Memories → inline LTG form (title/category/priority/deadline/description) via onAddLTG + Upload for memory files; LifePage owns persistence (handleAddGoal → api.saveGoal(today); handleAddLTG → api.saveGoalsBatch with period:'longterm', date:'2000-01-01', id:ltg_<ts>_<rand>). GoldPage now exports CAT_META/catDot/defaultCriteria/criteriaToGoal/LTGForm/emptyLTGForm/PRIORITY_OPTIONS. (2) Dead code deleted: river.tsx (LifeRiver) + phase-drawer.tsx (zero importers). (3) MemoryCard idPrefix prop → layoutId per-grid (`tributary`/`phase-${id}`, bare `memory-${id}` default).
+- Finance Monthly Recap typography (user: "recap has ridiculously ugly fonts"): font-selection skill round — USER-PICKED classic-authority pairing = Libre Caslon Text 700 headings + Source Serif 4 narrative body + JetBrains Mono numbers, applied to RecapPanel (hero + empty-state AnimatedGradientText titles `font-caslon`, "Follow Through" / "The Month's Story" h3s `font-caslon`, narrative paragraphs `font-serif`, NumberTicker stat values `font-mono`). New `--font-caslon` token in index.css @theme; Libre Caslon Text added to Google Fonts in index.html. GOTCHA: AnimatedGradientText doesn't forward `style` → font via className utility.
+
 ### 2026-08-06:
 - Life Phases "River of Years" (Gold warmth page → LifeRiver section): proportional SVG river timeline (reach width = on-canvas date span, height ∝ magnitude 0–100 → 10–116px), dashed open-water future with shimmering plus-signs, golden now marker, tributary curves, adaptive zoom (5 levels) + minimap + year ruler, prefers-reduced-motion respected
 - Phase drawer (right sheet): 8 categories, 6-color palette + auto, magnitude slider with words, start/end year+month, in-canvas title rename, delete arm (3s), milestones, phase-to-phase connections, impact notes; ReflectionFlow 3-question wizard → AI serif reflection; Era Trends chips (World/Culture/My field, sky/violet/amber); Journey Summary blockquote via backend AI; empty state with 3-card example plan
@@ -1220,3 +1260,11 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - 12-hour format heatmap labels
 - TDZ fix: useMemoâ†’useState+useEffect for complex objects
 
+
+## Recent Feature Additions
+
+### 2026-08-07 — Finance Monthly Recap
+- **Where:** Finance page → Recap tab (FinanceTabKey 'recap'), `src/components/finance/RecapPanel.tsx`
+- **Backend:** `finance_monthly_recaps` table (month UNIQUE), 5 IPC `finance:recap-{list,get,generate,delete,months-with-data}`, auto-gen `checkMonthlyRecaps` (prev calendar month, whenReady + every 6h)
+- **AI:** narrative via provider chain (`buildChain` feature 'monthlyRecap') or OpenRouter fallback (`ai_briefModel`); stats frozen in `stats_json` with generation-time display currency, converted live in UI
+- **Docs:** spec at `agent/docs/generate-prompt-docs/finance-monthly-recap-07082026/RESULT.md`

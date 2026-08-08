@@ -174,6 +174,10 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
   // Logs are already period-filtered by parent (App.tsx filteredLogs)
   const filteredLogs = logs;
 
+  // App-only logs (exclude browser/website tracking) — used for totals, hourly, daily charts
+  // so they match the pie chart and top-apps which are apps-only from appStats
+  const appLogs = useMemo(() => (logs as any[] || []).filter(l => !l.is_browser_tracking), [logs]);
+
   // Filter and sort apps — use parent pre-computed appStats (already period-filtered)
   const sortedApps = useMemo(() => {
     const filtered = timeMode === 'focus'
@@ -182,20 +186,17 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     return filtered.sort((a, b) => b.total_ms - a.total_ms);
   }, [appStats, timeMode, tierAssignments]);
 
-  // Aggregate stats — Total Time / Total Sessions now cover ALL tracked activity
-  // (apps + websites) so the summary cards match the daily usage chart. App-specific
-  // stats (uniqueApps) remain apps-only.
+  // Aggregate stats — apps-only (matches pie chart and top-apps breakdown)
   const totals = useMemo(() => {
-    const allLogsArr = (logs as any[]) || [];
     const scopedLogs = timeMode === 'focus'
-      ? allLogsArr.filter(l => isProductiveLog(l, tierAssignments))
-      : allLogsArr;
+      ? appLogs.filter(l => isProductiveLog(l, tierAssignments))
+      : appLogs;
     const totalTimeMs = scopedLogs.reduce((sum, l) => sum + (l.duration || 0), 0) * 1000;
     const totalSessions = scopedLogs.length;
     const avgSession = totalSessions > 0 ? totalTimeMs / totalSessions : 0;
     const uniqueApps = sortedApps.length;
     return { totalTime: totalTimeMs, totalSessions, avgSession, uniqueApps };
-  }, [sortedApps, timeMode, tierAssignments, logs]);
+  }, [sortedApps, timeMode, tierAssignments, appLogs]);
 
   // Apps-only denominator for Top Applications percentage bars (the pie is apps-only)
   const appsOnlyTotalMs = useMemo(() => sortedApps.reduce((s, a) => s + (a.total_ms || 0), 0), [sortedApps]);
@@ -235,11 +236,11 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
 
   // Daily/hourly usage data based on selected period + dateOffset
   // In Focus mode only productive activity is included — matches the top-bar clock
-  // and the summary cards in every mode.
+  // and the summary cards in every mode. Uses app-only logs (no browser/website).
   const dailyUsage = useMemo(() => {
     const scopedLogs = timeMode === 'focus'
-      ? (filteredLogs as any[]).filter(l => isProductiveLog(l, tierAssignments))
-      : (filteredLogs as any[]);
+      ? appLogs.filter(l => isProductiveLog(l, tierAssignments))
+      : appLogs;
 
     if (selectedPeriod === 'today') {
       const hourBuckets = Array.from({ length: 24 }, () => 0);
@@ -346,7 +347,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
       label: format(new Date(key + '-01'), 'MMM yy'),
       minutes: val.total
     }));
-  }, [filteredLogs, selectedPeriod, dateOffset, timeMode, tierAssignments]);
+  }, [appLogs, selectedPeriod, dateOffset, timeMode, tierAssignments]);
 
   // Hourly distribution — reuse dailyUsage's hour data when period is 'today' (saves a full O(N*M) while-loop)
   const hourlyDistribution = useMemo(() => {
@@ -356,7 +357,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
 
     const hourBuckets = Array.from({ length: 24 }, () => 0);
 
-    for (const log of (filteredLogs as any[])) {
+    for (const log of appLogs) {
       if (timeMode === 'focus' && !isProductiveLog(log, tierAssignments)) continue;
       const sessionStart = log.timestamp.getTime();
       const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
@@ -379,7 +380,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     }
 
     return hourBuckets.map((minutes, hour) => ({ hour, minutes }));
-  }, [filteredLogs, selectedPeriod, dailyUsage, timeMode, tierAssignments]);
+  }, [appLogs, selectedPeriod, dailyUsage, timeMode, tierAssignments]);
 
   // Selected app detailed data
   const selectedAppData = useMemo(() => {
@@ -387,8 +388,8 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     const stat = appStats.find(s => s.app === selectedApp);
     if (!stat) return null;
 
-    // Session timeline - filter filteredLogs for this app
-    const appLogs = (filteredLogs as any[]).filter(log => log.app === selectedApp).sort((a, b) =>
+    // Session timeline - filter app-only logs for this app
+    const selectedAppLogs = (appLogs as any[]).filter(log => log.app === selectedApp).sort((a, b) =>
       a.timestamp.getTime() - b.timestamp.getTime()
     );
 
@@ -397,7 +398,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     const startDate = subDays(now, 6);
     const daysInRange = eachDayOfInterval({ start: startDate, end: now });
     const logsByDayStr = new Map<string, { seconds: number; sessions: number }>();
-    for (const log of appLogs) {
+    for (const log of selectedAppLogs) {
       const d = format(new Date(log.timestamp), 'yyyy-MM-dd');
       const cur = logsByDayStr.get(d);
       logsByDayStr.set(d, { seconds: (cur?.seconds || 0) + (log.duration || 0), sessions: (cur?.sessions || 0) + 1 });
@@ -412,7 +413,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
     const hourlyDist = Array.from({ length: 24 }, () => ({ hour: 0, seconds: 0, sessions: 0 }));
     for (let i = 0; i < 24; i++) hourlyDist[i].hour = i;
 
-    for (const log of (appLogs as any[])) {
+    for (const log of (selectedAppLogs as any[])) {
       const sessionStart = new Date(log.timestamp).getTime();
       const sessionEnd = sessionStart + ((log.duration || 0) * 1000);
 
@@ -439,7 +440,7 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
 
     // Longest session (in seconds) — avoid spread on large array
     let longestSession = 0;
-    for (const log of appLogs) {
+    for (const log of selectedAppLogs) {
       if ((log.duration || 0) > longestSession) longestSession = log.duration || 0;
     }
 
@@ -452,25 +453,25 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
 
     return {
       stat,
-      appLogs,
+      appLogs: selectedAppLogs,
       dailyBreakdown,
       hourlyDist,
       peakHour,
       longestSession,
       productivityScore,
-      totalSessions: appLogs.length,
+      totalSessions: selectedAppLogs.length,
     };
-  }, [selectedApp, appStats, filteredLogs]);
+  }, [selectedApp, appStats, appLogs]);
 
   // Detail view — app logs filtered by detail period/offset (independent of parent)
   const detailAppLogs = useMemo(() => {
     if (!selectedApp) return [];
-    const sourceLogs = (allLogs || filteredLogs) as any[];
+    const sourceLogs = ((allLogs || appLogs) as any[]).filter(l => !l.is_browser_tracking);
     const range = getDateRange(detailPeriod, detailDateOffset);
     return sourceLogs
       .filter(log => log.app === selectedApp && log.timestamp >= range.start && log.timestamp < range.end)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [selectedApp, detailPeriod, detailDateOffset, allLogs, filteredLogs]);
+  }, [selectedApp, detailPeriod, detailDateOffset, allLogs, appLogs]);
 
   // Detail daily breakdown based on detail period
   const detailDailyBreakdown = useMemo(() => {

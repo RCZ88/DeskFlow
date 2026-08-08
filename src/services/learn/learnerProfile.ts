@@ -1,5 +1,5 @@
 import { DEFAULT_PROFILE, PROFILE_KNOBS } from '../../shared/learn/types';
-import type { LearnerProfile, ProfileKnob, MasteryLevel } from '../../shared/learn/types';
+import type { LearnerProfile, ProfileKnob, MasteryLevel, KnowledgeEntry } from '../../shared/learn/types';
 
 const KEY = 'lyceum.learnerProfile.v1';
 const SETUP_COMPLETE_KEY = 'lyceum.setupComplete.v1';
@@ -74,6 +74,7 @@ export function loadProfile(): LearnerProfile {
       ...DEFAULT_PROFILE, ...parsed,
       confidence: { ...DEFAULT_PROFILE.confidence, ...(parsed.confidence ?? {}) },
       priorKnowledge: { ...(parsed.priorKnowledge ?? {}) },
+      knowledgeBase: Array.isArray(parsed.knowledgeBase) ? parsed.knowledgeBase : [],
       version: 1,
     };
   } catch { return { ...DEFAULT_PROFILE }; }
@@ -111,6 +112,108 @@ export function setPriorKnowledge(part: number, level: MasteryLevel): LearnerPro
 
 export function getPartMastery(part: number): MasteryLevel | undefined {
   return loadProfile().priorKnowledge[part];
+}
+
+// ── Knowledge Base (user-maintainable "what I already know") ──
+
+export interface KnowledgeEntryInput {
+  statement: string;
+  topic?: string;
+  partIds?: number[];
+  linkedLessons?: string[];
+  keywords?: string[];
+  level?: MasteryLevel;
+}
+
+function newKnowledgeId(): string {
+  return `kb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function loadKnowledgeBase(): KnowledgeEntry[] {
+  return loadProfile().knowledgeBase ?? [];
+}
+
+export function addKnowledgeEntry(input: KnowledgeEntryInput): LearnerProfile {
+  const p = loadProfile();
+  const now = new Date().toISOString();
+  const entry: KnowledgeEntry = {
+    id: newKnowledgeId(),
+    statement: input.statement.trim(),
+    topic: input.topic?.trim() || undefined,
+    partIds: input.partIds?.length ? input.partIds : undefined,
+    linkedLessons: input.linkedLessons?.map((l) => l.trim()).filter(Boolean) || undefined,
+    keywords: input.keywords?.map((k) => k.trim()).filter(Boolean),
+    level: input.level,
+    createdAt: now,
+    updatedAt: now,
+  };
+  p.knowledgeBase = [...(p.knowledgeBase ?? []), entry];
+  return saveProfile(p);
+}
+
+export function updateKnowledgeEntry(id: string, patch: Partial<Omit<KnowledgeEntry, 'id' | 'createdAt'>>): LearnerProfile {
+  const p = loadProfile();
+  p.knowledgeBase = (p.knowledgeBase ?? []).map((e) =>
+    e.id === id ? { ...e, ...patch, updatedAt: new Date().toISOString() } : e,
+  );
+  return saveProfile(p);
+}
+
+export function removeKnowledgeEntry(id: string): LearnerProfile {
+  const p = loadProfile();
+  p.knowledgeBase = (p.knowledgeBase ?? []).filter((e) => e.id !== id);
+  return saveProfile(p);
+}
+
+// ── Custom chapter groups (user-managed list of groups for lesson organization) ──
+
+export function loadCustomChapters(): string[] {
+  return loadProfile().customChapters ?? [];
+}
+
+export function addCustomChapter(name: string): LearnerProfile {
+  const p = loadProfile();
+  const clean = name.trim();
+  if (!clean) return p;
+  const cur = loadCustomChapters();
+  if (cur.includes(clean)) return p;
+  p.customChapters = [...cur, clean];
+  return saveProfile(p);
+}
+
+export function renameCustomChapter(oldName: string, nextName: string): LearnerProfile {
+  const p = loadProfile();
+  const clean = nextName.trim();
+  if (!clean) return p;
+  p.customChapters = (p.customChapters ?? []).map((c) => (c === oldName ? clean : c));
+  return saveProfile(p);
+}
+
+export function removeCustomChapter(name: string): LearnerProfile {
+  const p = loadProfile();
+  p.customChapters = (p.customChapters ?? []).filter((c) => c !== name);
+  return saveProfile(p);
+}
+
+// ── User's own lessons = their personal curriculum ──
+
+export interface UserLessonSummary {
+  titles: string[];
+  parts: number[];
+}
+
+export async function loadUserLessons(): Promise<UserLessonSummary> {
+  try {
+    const listApi = (api as any)?.learnListLessons;
+    if (!listApi) return { titles: [], parts: [] };
+    const res = await listApi();
+    const rows: any[] = res?.ok ? (res.data ?? []) : [];
+    const titles = Array.from(new Set(rows.map((r: any) => (r?.title ?? '').trim()).filter(Boolean)));
+    const parts = Array.from(new Set(rows.map((r: any) => r?.part).filter((p: any) => typeof p === 'number')));
+    return { titles, parts };
+  } catch {
+    return { titles: [], parts: [] };
+  }
 }
 
 export function resetProfile(): void {

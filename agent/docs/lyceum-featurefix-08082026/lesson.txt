@@ -1,0 +1,195 @@
+---
+title: Testing the Lyceum Parser
+id: testing-the-lyceum-parser
+part: 9
+chapter: Meta & Testing
+version: 1.0.0
+summary: A comprehensive test of all Lyceum Lesson Markdown parsing features.
+authored_by: ai
+---
+
+# The Parser's Anatomy
+@mastery L2
+@prereq the-systems-lens
+
+Welcome to the parser sandbox. This node tests basic prose, tables, math, and flowcharts to ensure the foundational structure of the lesson is compiling correctly. When building complex applications, verifying the base layer prevents cascading failures in downstream rendering.
+
+| Feature | Status |
+|---------|--------|
+| Prose   | Active |
+| Table   | Active |
+| Mermaid | Active |
+
+```mermaid
+flowchart TD
+    A["Start"] --> B["Parse Frontmatter"]
+    B --> C{"Valid YAML?"}
+    C -->|"Yes"| D["Parse Nodes"]
+    C -->|"No"| E["Throw Error"]
+    D --> F["Render UI"]
+```
+
+The mathematical complexity of parsing $N$ nodes with $B$ blocks each is bounded by:
+
+$$
+\mathcal{O}(N \cdot B \cdot \log(B))
+$$
+
+::: callout tip
+Always verify your YAML frontmatter before debugging node content. A missing `chapter` field will fail the schema validator before the parser even looks at your Markdown.
+:::
+
+::: quiz mcq L2
+Which block type is strictly required on every node?
+- [ ] chart
+- [x] grounding
+- [ ] callout
+- [ ] quiz
+explain: Every node must have exactly one grounding block to provide fact-checking context and source citations.
+:::
+
+::: grounding
+includes: This node covers the basic structural elements of a Lyceum lesson.
+know: The parser reads YAML frontmatter before processing Markdown nodes [parser_docs]
+source: parser_docs | Lyceum Parser Documentation | https://lyceum.dev/docs/parser
+misconception: The parser processes JSON directly | The parser strictly consumes Lesson Markdown (.lmd) to avoid JSON corruption.
+excludes: advanced directives;custom widgets
+:::
+
+# Data Flow and Visualization
+@mastery L3
+@prereq measure-first-profiling-before-you-guess
+
+Data visualization and flow diagrams help us understand resource allocation and performance trends. In systems engineering, distinguishing between process flow and quantitative resource flow is critical for accurate mental modeling.
+
+::: chart Parser Execution Time by Block Type
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "data": {
+    "values": [
+      {"block": "Prose", "time_ms": 12},
+      {"block": "Table", "time_ms": 18},
+      {"block": "Mermaid", "time_ms": 45},
+      {"block": "Chart", "time_ms": 32}
+    ]
+  },
+  "mark": {"type": "bar", "cornerRadiusEnd": 4},
+  "encoding": {
+    "x": {"field": "block", "type": "nominal", "axis": {"labelAngle": 0}},
+    "y": {"field": "time_ms", "type": "quantitative", "title": "Parse Time (ms)"}
+  },
+  "width": 400,
+  "height": 200
+}
+:::
+
+::: finchart Financial Impact of Parser Optimization
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "data": {
+    "values": [
+      {"quarter": "Q1", "revenue": 100, "cost": 40},
+      {"quarter": "Q2", "revenue": 120, "cost": 45},
+      {"quarter": "Q3", "revenue": 150, "cost": 50}
+    ]
+  },
+  "mark": "line",
+  "encoding": {
+    "x": {"field": "quarter", "type": "nominal"},
+    "y": {"field": "revenue", "type": "quantitative"},
+    "color": {"field": "metric", "type": "nominal"}
+  }
+}
+:::
+
+::: flow sankey
+- Input Text -> Frontmatter Parser : 10
+- Input Text -> Node Parser : 90
+- Node Parser -> Block Router : 90
+- Block Router -> Visual Renderer : 40
+- Block Router -> Text Renderer : 50
+caption: How text flows through the parsing pipeline
+:::
+
+::: table
+- [Directive | directive_name]
+- [Complexity | complexity]
+- [Status | status]
+rows:
+{"directive_name": "chart", "complexity": "High", "status": "Verified"}
+{"directive_name": "figure", "complexity": "Medium", "status": "Verified"}
+{"directive_name": "flow", "complexity": "Low", "status": "Verified"}
+:::
+
+::: quiz numeric L3
+If a lesson has 4 nodes, and each node requires 1 grounding block, how many total grounding blocks are in the lesson?
+answer: 4
+explain: 4 nodes multiplied by 1 grounding block per node equals 4 grounding blocks.
+:::
+
+::: grounding
+includes: This node tests quantitative data charts, sankey flows, and financial charts.
+know: Sankey diagrams are specifically used for resource allocation and proportions [viz_guide]
+source: viz_guide | Lyceum Visualization Guide | https://lyceum.dev/docs/viz
+misconception: Mermaid should be used for quantitative data | Charts (Vega-Lite) are strictly for quantitative data, while Mermaid is for processes.
+:::
+
+# Advanced Rendering and Interactivity
+@mastery L4
+@prereq debugging-as-a-science
+
+This node tests advanced directives including code, figures, illustrations, layers, and open quizzes. These elements transform static text into interactive learning experiences.
+
+```python
+import sys
+
+def test_parser_features():
+    features = ["code", "table", "figure", "illustration", "callout", "layer", "quiz"]
+    parsed_count = 0
+    for feature in features:
+        parsed_count += 1
+        print(f"Successfully parsed: {feature}")
+    
+    print(f"Total features verified: {parsed_count}")
+    return parsed_count
+
+if __name__ == "__main__":
+    test_parser_features()
+```
+
+::: figure
+<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+  <rect x="10" y="10" width="180" height="80" fill="#f8fafc" stroke="#cbd5e1" rx="8"/>
+  <text x="100" y="55" fill="#334155" font-size="16" text-anchor="middle" font-family="sans-serif">SVG Figure Rendered</text>
+</svg>
+:::
+
+::: html
+<div style="padding: 20px; background: #1e293b; color: #f8fafc; border-radius: 8px; text-align: center;">
+  <h3>Interactive HTML Widget</h3>
+  <p>This block tests self-contained HTML/CSS/JS rendering.</p>
+  <button onclick="this.innerText='Clicked!'" style="padding: 8px 16px; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer;">Test Interaction</button>
+</div>
+:::
+
+:::illustration {"prompt":"Generate one standalone 16:9 horizontal Chinese article illustration. Visual DNA: Pure white background. Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture. Recurring IP character: 小黑, a small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression. 小黑 must perform the core conceptual action, not decorate the scene. Theme: Testing a parser. Structure type: Workflow. Core idea: 小黑 feeds markdown blocks into a sorting machine that outputs structured nodes. Composition: 小黑 standing at a conveyor belt, dropping paper blocks with symbols into a hopper. Orange arrows show the flow into a neat stack of compiled nodes on the right. Suggested elements: conveyor belt / hopper / paper blocks / compiled nodes. Chinese handwritten labels: 解析器 / 语法树 / 渲染 / 测试. Color use: Black for main line art. Orange for flow arrows. Red for warnings.","concept":"The parser ingests raw markdown and compiles it into structured learning nodes"}
+:::
+
+::: layer L4 deeper
+### Deep Dive: AST Generation
+The parser converts the .lmd text into an Abstract Syntax Tree (AST) before rendering.
+Each directive block becomes a specialized node in the tree, allowing the frontend
+to apply specific React components for `chart`, `mermaid`, and `code` blocks.
+:::
+
+::: quiz open L4
+Explain why the Lyceum parser uses Lesson Markdown (.lmd) instead of JSON for authoring.
+rubric: Should mention that code samples, diagrams, and prose contain backticks, quotes, and newlines that easily corrupt hand-written JSON. Markdown removes this failure class, allowing the compiler to handle structure.
+:::
+
+::: grounding
+includes: This node tests advanced directives, interactive elements, and knowledge checks.
+know: Open quizzes require an explicit rubric line, otherwise the compiler substitutes a generic one [quiz_spec]
+source: quiz_spec | Lyceum Quiz Specification | https://lyceum.dev/docs/quiz
+misconception: Explanations in quizzes use the key 'explanation:' | The parser only recognizes 'explain:', and will swallow 'explanation:' into the question text.
+:::

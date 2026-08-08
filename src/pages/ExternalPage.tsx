@@ -1789,7 +1789,9 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                     
                     // Helper: resolve the actual calendar date for this bar's sleep
                     // day.date is ALREADY the grouped bedtime date (shifted if needed)
-                    // was_shifted just tells us the raw started_at was on the next calendar day
+                    // was_shifted = raw started_at was on the NEXT calendar day, so the
+                    // actual bedtime date = day.date + 1 (dates shown in tooltip are actual,
+                    // while the bar position + popup date selection stay on the grouped date)
                     const resolveDate = (offsetDays: number = 0) => {
                       const d = new Date(day.date + 'T00:00:00');
                       if (offsetDays) d.setDate(d.getDate() + offsetDays);
@@ -1811,12 +1813,10 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                               <>
                 <div className="font-medium text-white text-center mb-1">
                                    {(() => {
-                                     const bedtimeDate = resolveDate();
+                                     const bedtimeDate = wasShifted ? resolveDate(1) : resolveDate();
                                      const bedHour = Math.floor(appExitMin / 60);
                                      const wakeHour = Math.floor(wakeMin / 60);
-                                     const isCrossMidnight = wasShifted
-                                       ? (wakeHour < bedHour)
-                                       : (wakeHour < bedHour);
+                                     const isCrossMidnight = wakeHour < bedHour;
                                      if (isCrossMidnight) {
                                        const wakeDate = new Date(bedtimeDate);
                                        wakeDate.setDate(wakeDate.getDate() + 1);

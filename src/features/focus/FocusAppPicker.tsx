@@ -5,6 +5,7 @@ export interface KnownApp {
   app: string;
   category: string;
   last_used: string;
+  is_browser_tracking?: number;
 }
 
 interface FocusAppPickerProps {

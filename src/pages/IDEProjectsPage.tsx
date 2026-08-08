@@ -360,7 +360,8 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
   }, []);
   const commitHistoryRef = useRef<any[]>([]);
   const [commitHistory, setCommitHistory] = useState<any[]>([]);
-  const [workspaceAnalytics, setWorkspaceAnalytics] = useState<{ aiUsage: any; sessions: any[]; problems: any[]; requests: any[]; promptHistory: any[]; codeStats: any } | null>(null);
+  const [workspaceAnalytics, setWorkspaceAnalytics] = useState<{ aiUsage: any; sessions: any[]; problems: any[]; requests: any[]; promptHistory: any[]; codeStats: any; codeActivity?: any } | null>(null);
+  const [codeActivity, setCodeActivity] = useState<any>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const analyticsCacheRef = useRef<{ data: typeof workspaceAnalytics; timestamp: number } | null>(null);
@@ -619,7 +620,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       const effectiveOffset = dateOffset;
 
       console.log('[IDEProjectsPage] Fetching analytics data for period:', effectivePeriod);
-      const [aiUsageSummary, problems, requests, sessions, promptHistory, codeStats] = await Promise.all([
+      const [aiUsageSummary, problems, requests, sessions, promptHistory, codeStats, codeActivityResult] = await Promise.all([
         window.deskflowAPI.getAIUsageSummary(effectivePeriod, effectiveOffset).catch(err => {
           console.error('[IDEProjectsPage] Failed to fetch AI usage summary:', err);
           return null;
@@ -644,6 +645,10 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           console.error('[IDEProjectsPage] Failed to fetch code change stats:', err);
           return null;
         }),
+        window.deskflowAPI.getCodeActivityStats?.(effectivePeriod, effectiveOffset, selectedProject || undefined).catch(err => {
+          console.error('[IDEProjectsPage] Failed to fetch code activity stats:', err);
+          return null;
+        }),
       ]);
 
       // Progressive data rendering - process in chunks to prevent UI freezing
@@ -656,9 +661,11 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           sessions: sessions?.data || sessions || [],
           promptHistory: promptHistory || [],
           codeStats: codeStats || null,
+          codeActivity: codeActivityResult || null,
         };
         analyticsCacheRef.current = { data, timestamp: Date.now() };
         setWorkspaceAnalytics(data);
+        setCodeActivity(codeActivityResult || null);
         setAnalyticsLoading(false);
       }, 100); // Small delay to allow UI to render loading state
 
@@ -765,9 +772,16 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
       console.log('[IDEProjectsPage] Loading overview for period:', effectivePeriod, 'offset:', effectiveOffset, 'activeTab:', activeTab);
 
-      const data = await window.deskflowAPI!.getIDEProjectsOverview(effectivePeriod, effectiveOffset);
+      const [data, caData] = await Promise.all([
+        window.deskflowAPI!.getIDEProjectsOverview(effectivePeriod, effectiveOffset),
+        window.deskflowAPI!.getCodeActivityStats?.(effectivePeriod, effectiveOffset, selectedProject || undefined).catch(err => {
+          console.error('[IDEProjectsPage] Failed to fetch code activity stats:', err);
+          return null;
+        }),
+      ]);
       console.log('[IDEProjectsPage] Overview loaded, projects:', data?.projects?.length);
       setOverview(data);
+      setCodeActivity(caData || data?.codeActivity || null);
       setLoading(false);
     } catch (err) {
       console.error('[IDEProjectsPage] Failed to load IDE projects overview:', err);
@@ -1156,6 +1170,32 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
     );
   };
 
+  const fmtNum = (n: number): string => {
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+    return String(Math.round(n || 0));
+  };
+
+  const fmtSec = (s: number): string => {
+    if (!s || s <= 0) return '0m';
+    if (s < 60) return `${Math.round(s)}s`;
+    if (s < 3600) return `${(s / 60).toFixed(s % 60 === 0 ? 0 : 1)}m`;
+    const h = Math.floor(s / 3600);
+    const m = Math.round((s % 3600) / 60);
+    return `${h}h ${m}m`;
+  };
+
+  const topToolName = useMemo(() => {
+    const byTool = overview?.aiUsage?.byTool || {};
+    let best: string | null = null;
+    let bestTokens = 0;
+    for (const [tool, d] of Object.entries<any>(byTool)) {
+      const t = Number(d?.tokens || 0);
+      if (t > bestTokens) { bestTokens = t; best = tool; }
+    }
+    return best;
+  }, [overview]);
+
   const formatCurrency = (amount: number): string => {
     if (amount >= 1e9) return `$${(amount / 1e9).toFixed(1)}B`;
     if (amount >= 1e6) return `$${(amount / 1e6).toFixed(1)}M`;
@@ -1304,34 +1344,25 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
       {/* Overview Tab */}
       {activeTab === 'overview' && (
         <div data-section="ide.overview" className="space-y-6">
-          {/* Metric Cards (clickable → navigate to tab) */}
-          <div data-tutorial="ide.metrics" className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Live Pulse Grid - Replaces old navigate-away cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {[
-              { label: 'Environment', value: (overview?.ides?.length || 0) + (overview?.tools?.length || 0), subValue: `${overview?.ides?.length || 0} IDEs · ${overview?.tools?.length || 0} tools`, icon: Boxes, color: '#3b82f6', bg: 'bg-blue-500/10', tab: 'environment' as TabKey },
-              { label: 'AI Usage', value: <TokenValue value={overview?.aiUsage?.totalTokens || 0} />, subValue: <CostValue value={overview?.aiUsage?.totalCost || 0} />, icon: Sparkles, color: '#a855f7', bg: 'bg-violet-500/10', tab: 'ai' as TabKey },
-              { label: 'Commits', value: overview?.commits?.totalCommits || 0, subValue: `+${overview?.commits?.totalAdditions || 0} / -${overview?.commits?.totalDeletions || 0}`, icon: GitCommit, color: '#f59e0b', bg: 'bg-amber-500/10', tab: 'git' as TabKey },
-              { label: 'Last Backup', value: '—', subValue: 'Not configured', icon: Archive, color: '#10b981', bg: 'bg-emerald-500/10', tab: 'backup' as TabKey },
+              { label: 'Live Coding', value: `+${fmtNum(codeActivity?.totalLinesAdded || 0)}`, sub: `-${fmtNum(codeActivity?.totalLinesRemoved || 0)} lines · ${fmtSec((codeActivity?.totalDurationMs || 0) / 1000)} active`, icon: Code2, color: '#10b981', bg: 'bg-emerald-500/10' },
+              { label: 'AI Pulse', value: <TokenValue value={overview?.aiUsage?.totalTokens || 0} />, sub: <CostValue value={overview?.aiUsage?.totalCost || 0} />, icon: Sparkles, color: '#a855f7', bg: 'bg-violet-500/10' },
+              { label: 'Git Velocity', value: overview?.commits?.totalCommits || 0, sub: `commits this period`, icon: GitCommit, color: '#f59e0b', bg: 'bg-amber-500/10' },
+              { label: 'Top Tool', value: topToolName || '—', icon: Cpu, color: '#3b82f6', bg: 'bg-blue-500/10' },
             ].map((stat, idx) => (
-              <motion.button
-                key={idx}
-                onClick={() => setActiveTab(stat.tab)}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.05 }}
-                className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5 text-left hover:bg-zinc-900/60 transition-colors"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div className={`w-10 h-10 rounded-xl ${stat.bg} flex items-center justify-center`}>
-                    <stat.icon className="w-5 h-5" style={{ color: stat.color }} />
-                  </div>
-                  <div className="text-xs text-zinc-500 font-medium">LIVE</div>
+              <motion.div key={idx} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }}
+                className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl p-4 flex items-center gap-4">
+                <div className={`w-10 h-10 rounded-lg ${stat.bg} flex items-center justify-center flex-shrink-0`}>
+                  <stat.icon className="w-5 h-5" style={{ color: stat.color }} />
                 </div>
-                <div className="text-3xl font-semibold tabular-nums tracking-tight" style={{ color: stat.color }}>
-                  {stat.value}
+                <div className="min-w-0">
+                  <div className="text-xl font-semibold tabular-nums tracking-tight text-white truncate">{stat.value}</div>
+                  <div className="text-xs text-zinc-400 truncate">{stat.label}</div>
+                  {stat.sub && <div className="text-[10px] text-zinc-500 truncate mt-0.5">{stat.sub}</div>}
                 </div>
-                <div className="text-sm text-zinc-400 mt-1">{stat.label}</div>
-                {stat.subValue && <div className="text-xs text-zinc-500 mt-1">{stat.subValue}</div>}
-              </motion.button>
+              </motion.div>
             ))}
           </div>
 
@@ -2556,6 +2587,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                 requests={workspaceAnalytics.requests}
                 promptHistory={workspaceAnalytics.promptHistory}
                 codeStats={workspaceAnalytics.codeStats}
+                codeActivity={workspaceAnalytics.codeActivity}
                 loading={analyticsLoading}
                 period={selectedPeriod}
                 variant="workspace"

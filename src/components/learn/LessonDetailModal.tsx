@@ -66,10 +66,14 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
 
   const loadExistingChapters = async () => {
     try {
-      const result = await api.learnListChapters({ part: lesson?.part });
-      if (result.ok && result.data) {
-        setExistingChapters(result.data);
-      }
+      const [chaptersRes, profileRes] = await Promise.all([
+        api.learnListChapters({ part: lesson?.part }),
+        api.learnGetProfile({ key: 'lyceum.learnerProfile.v1' }),
+      ]);
+      const chapters = chaptersRes.ok ? (chaptersRes.data ?? []) : [];
+      const custom = profileRes?.ok ? JSON.parse(profileRes.value || '{}').customChapters ?? [] : [];
+      const all = Array.from(new Set([...chapters, ...custom])).sort();
+      setExistingChapters(all);
     } catch { /* ignore */ }
   };
 
@@ -158,7 +162,7 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-zinc-100 leading-snug truncate">{lesson.title}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-zinc-500">Part {String(lesson.part).padStart(2, '0')}</span>
+                  <span className="text-[10px] text-zinc-500">Topic {String(lesson.part).padStart(2, '0')}</span>
                   <span className="text-[10px] text-zinc-600">·</span>
                   <span className="text-[10px] text-zinc-500">{lesson.nodeCount} nodes</span>
                   <span className="text-[10px] text-zinc-600">·</span>
@@ -305,7 +309,7 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-zinc-500">No curriculum topic assigned (part {lesson.part})</p>
+                  <p className="text-sm text-zinc-500">No topic assigned (topic {lesson.part})</p>
                 )}
               </div>
             )}
@@ -357,7 +361,7 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
                       ))}
                     </datalist>
                   )}
-                  <p className="text-[10px] text-zinc-600 mt-1">Group lessons into chapters within this part. Leave blank for ungrouped.</p>
+                  <p className="text-[10px] text-zinc-600 mt-1">Group lessons into groups within this topic. Leave blank for ungrouped.</p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-zinc-400 mb-1.5">Summary</label>

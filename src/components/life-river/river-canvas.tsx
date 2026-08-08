@@ -22,16 +22,24 @@ const TRIBUTARY_COLORS = ['#38bdf8', '#a78bfa', '#2dd4bf', '#f472b6']
 
 interface RiverCanvasProps {
   phases: LifePhase[]
-  selectedId?: string | null
-  onSelect: (phase: LifePhase) => void
+  activePhaseId?: string | null
+  onPhaseClick: (phase: LifePhase) => void
   className?: string
+  zoomLevel?: number
+  onZoomLevelChange?: (zoom: number) => void
 }
 
-export function RiverCanvas({ phases, selectedId, onSelect, className }: RiverCanvasProps) {
+export function RiverCanvas({ phases, activePhaseId, onPhaseClick, className, zoomLevel, onZoomLevelChange }: RiverCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
-  const [zoom, setZoom] = useState(1)
+  const [internalZoom, setInternalZoom] = useState(1)
   const [reduceMotion, setReduceMotion] = useState(false)
+
+  const zoom = zoomLevel ?? internalZoom
+  const setZoomSafe = (fn: (z: number) => number) => {
+    if (onZoomLevelChange != null) onZoomLevelChange(fn(zoom))
+    else setInternalZoom(fn)
+  }
 
   useEffect(() => {
     const el = containerRef.current
@@ -191,7 +199,7 @@ export function RiverCanvas({ phases, selectedId, onSelect, className }: RiverCa
               const cat = categoryOf(p.category)
               const base = p.color || cat.color
               const y = BASELINE - h
-              const selected = selectedId === p.id
+              const selected = activePhaseId === p.id
               return (
                 <g
                   key={p.id}
@@ -199,7 +207,7 @@ export function RiverCanvas({ phases, selectedId, onSelect, className }: RiverCa
                   data-phase-id={p.id}
                   transform={`translate(${x}, ${y})`}
                   className="cursor-pointer"
-                  onClick={() => onSelect(p)}
+                  onClick={() => onPhaseClick(p)}
                 >
                   <motion.rect
                     rx={Math.min(14, h / 2)}
@@ -298,7 +306,7 @@ export function RiverCanvas({ phases, selectedId, onSelect, className }: RiverCa
       {/* zoom controls */}
       <div className="absolute bottom-2 right-2 flex items-center gap-1" data-lifephase="zoom-controls">
         <button
-          onClick={() => setZoom(z => Math.max(0, z - 1))}
+          onClick={() => setZoomSafe(z => Math.max(0, z - 1))}
           disabled={zoom <= 0}
           className="flex size-6 items-center justify-center rounded-md border border-white/10 bg-white/5 text-zinc-300 transition-colors hover:bg-white/10 disabled:opacity-35"
           aria-label="Zoom out"
@@ -307,7 +315,7 @@ export function RiverCanvas({ phases, selectedId, onSelect, className }: RiverCa
           <ZoomOut size={12} />
         </button>
         <button
-          onClick={() => setZoom(z => Math.min(4, z + 1))}
+          onClick={() => setZoomSafe(z => Math.min(4, z + 1))}
           disabled={zoom >= 4}
           className="flex size-6 items-center justify-center rounded-md border border-white/10 bg-white/5 text-zinc-300 transition-colors hover:bg-white/10 disabled:opacity-35"
           aria-label="Zoom in"

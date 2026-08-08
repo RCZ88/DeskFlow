@@ -202,6 +202,7 @@ export function FocusSection() {
   return (
     <div className="space-y-6">
       <SectionHeader title={<AnimatedGradientText colorFrom="#ec4899" colorTo="#a855f7">Deep Focus</AnimatedGradientText>} icon={<FocusIcon className="w-5 h-5" />} />
+      <FocusStats stats={todayStats} streak={streak} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-1">
           <FocusGroupsPanel
@@ -231,7 +232,6 @@ export function FocusSection() {
             onStartWithGroup={handleStartWithGroup}
             onDurationDrag={sec => setMins(Math.round(sec / 60))}
           />
-          <FocusStats stats={todayStats} streak={streak} />
         </div>
         <div className="lg:col-span-1 space-y-4">
           <FocusGroupProgress groups={groups} selectedId={selectedId} history={rows} usageMap={usageMap} />

@@ -2894,7 +2894,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
               <Route path="/life" element={<ErrorBoundary><Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Life...</div>}><LifePage /></Suspense></ErrorBoundary>} />
 
-              <Route path="/learn" element={<LearnPage />} />
+              <Route path="/learn" element={<ErrorBoundary><Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Learn...</div>}><LearnPage /></Suspense></ErrorBoundary>} />
               <Route path="/conductor" element={<div className="flex items-center justify-center h-full text-zinc-500 text-sm">Conductor is now in the workspace sidebar</div>} />
 
               <Route path="/ide-help" element={<IDEHelpPage />} />

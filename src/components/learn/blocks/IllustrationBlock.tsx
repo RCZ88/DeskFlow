@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Loader2, ImageIcon, RefreshCw, AlertCircle, Copy, Check, Upload, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Loader2, ImageIcon, RefreshCw, AlertCircle, Copy, Check, Upload, ExternalLink, Settings2 } from 'lucide-react';
 
 const api = (window as any).deskflowAPI;
 
@@ -22,8 +22,21 @@ export function IllustrationBlock({ meta, nodeId, onGenerated }: Props) {
   const [imagePath, setImagePath] = useState<string | null>(meta.image_path || null);
   const [copied, setCopied] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    api.learnGetImageGenSettings?.()
+      .then((res: any) => { if (mounted && res?.ok) setAiEnabled(!!res.data?.enabled); })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   const handleGenerate = async () => {
+    if (aiEnabled === false) {
+      setError('Image generation is off. Enable it in your profile → AI Illustrations, or generate externally and upload.');
+      return;
+    }
     setGenerating(true);
     setError(null);
     try {
@@ -181,13 +194,23 @@ export function IllustrationBlock({ meta, nodeId, onGenerated }: Props) {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={handleGenerate}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/20 hover:bg-amber-500/25 transition-all"
-              >
-                <ImageIcon className="w-3.5 h-3.5" />
-                Generate with AI
-              </button>
+              {aiEnabled === false ? (
+                <button
+                  onClick={() => setError('Image generation is off. Enable it in your profile → AI Illustrations, or generate externally and upload.')}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-medium bg-zinc-800/60 text-zinc-500 border border-zinc-700/50 hover:text-zinc-300 transition-all"
+                >
+                  <Settings2 className="w-3.5 h-3.5" />
+                  AI generation is off
+                </button>
+              ) : (
+                <button
+                  onClick={handleGenerate}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/20 hover:bg-amber-500/25 transition-all"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  Generate with AI
+                </button>
+              )}
               <span className="text-zinc-600 text-xs">or</span>
               <button
                 onClick={handleUpload}

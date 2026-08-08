@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ChartBlock as ChartBlockType } from '../../../shared/learn/types';
+import { isDynamicImportFailure, autoHealDynamicImport } from '../../ErrorBoundary';
 
 interface Props {
   block: ChartBlockType;
@@ -10,11 +11,13 @@ export function ChartBlock({ block, onAsk }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let mounted = true;
     setLoading(true);
     setError(null);
+    if (containerRef.current) containerRef.current.innerHTML = '';
 
     let spec: Record<string, unknown>;
     try {
@@ -50,10 +53,19 @@ export function ChartBlock({ block, onAsk }: Props) {
           setLoading(false);
         }
       });
+    }).catch((err: any) => {
+      if (mounted) {
+        if (isDynamicImportFailure(err)) {
+          autoHealDynamicImport();
+          return;
+        }
+        setError(`Failed to load chart renderer: ${err?.message ?? err}`);
+        setLoading(false);
+      }
     });
 
     return () => { mounted = false; };
-  }, [block.id, block.spec, block.parsed]);
+  }, [block.id, block.spec, block.parsed, retry]);
 
   return (
     <div className="my-6 py-4 px-4 rounded-xl bg-zinc-800/30 border border-zinc-700/40 group relative min-h-[220px]" data-block-id={block.id}>
@@ -66,9 +78,15 @@ export function ChartBlock({ block, onAsk }: Props) {
         <div className="text-red-400 text-sm">
           <div>{error}</div>
           <pre className="mt-2 text-xs bg-zinc-900/50 p-2 rounded overflow-x-auto">{block.spec}</pre>
+          <button
+            onClick={() => setRetry((r) => r + 1)}
+            className="mt-2 text-xs font-medium text-clay-400 hover:text-clay-300 transition"
+          >
+            ↻ Retry
+          </button>
         </div>
       )}
-      <div ref={containerRef} className={loading ? 'hidden' : ''} />
+      <div ref={containerRef} className={loading || error ? 'hidden' : ''} />
       {block.caption && (
         <div className="mt-2 text-sm text-zinc-500 italic text-center">{block.caption}</div>
       )}

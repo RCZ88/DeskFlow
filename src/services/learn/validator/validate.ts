@@ -61,10 +61,17 @@ function checkPrereqIds(doc: LdocDocument, publishedIds: Set<string>): Validatio
     if (!node.prereq) continue;
     for (const pid of node.prereq) {
       if (!nodeIds.has(pid) && !publishedIds.has(pid)) {
+        // Build a helpful error with sample valid IDs
+        const sampleIds = [...nodeIds].slice(0, 3);
+        const samplePublished = [...publishedIds].slice(0, 5);
+        const allSamples = [...sampleIds, ...samplePublished];
+        const sampleStr = allSamples.length > 0
+          ? ` Valid IDs include: ${allSamples.join(', ')}${publishedIds.size > 5 ? ` (and ${publishedIds.size - 5} more)` : ''}`
+          : ' No valid IDs found in database.';
         issues.push({
           rule: 'prereq-resolve',
           nodeId: node.id,
-          message: `prereq "${pid}" does not resolve to any node in this lesson or a published lesson`,
+          message: `prereq "${pid}" does not resolve to any node in this lesson or a published lesson.${sampleStr}`,
         });
       }
     }
@@ -125,10 +132,15 @@ function checkDag(doc: LdocDocument): ValidationIssue[] {
 }
 
 /**
- * Visual rule: mastery_target >= L2 requires at least one visual block (mermaid/image/widget).
+ * Visual rule: mastery_target >= L2 requires at least one visual block.
+ * Visual types match the parser's VISUAL_TYPES exactly.
  */
 function checkVisual(doc: LdocDocument): ValidationIssue[] {
-  const visualTypes = new Set(['mermaid', 'image', 'widget', 'math', 'chart', 'finchart', 'flow', 'svg']);
+  const visualTypes = new Set([
+    'mermaid', 'image', 'widget', 'math', 'chart', 'finchart', 'flow', 'svg',
+    'code', 'table', 'layer', 'illustration', 'viz_heatmap', 'viz_graph',
+    'viz_timeline', 'viz_concept_map', 'flashcard', 'layer_reveal', 'whiteboard',
+  ]);
   const levelOrder = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
   const issues: ValidationIssue[] = [];
 
@@ -141,7 +153,7 @@ function checkVisual(doc: LdocDocument): ValidationIssue[] {
       issues.push({
         rule: 'visual-required',
         nodeId: node.id,
-        message: `node "${node.id}" targets ${node.mastery_target} (>= L2) but has no visual block (mermaid/image/widget/svg)`,
+        message: `node "${node.id}" targets ${node.mastery_target} (>= L2) but has no visual block`,
       });
     }
   }

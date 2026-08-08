@@ -34,6 +34,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [knownApps, setKnownApps] = useState<KnownApp[]>([]);
+  const [knownSites, setKnownSites] = useState<KnownApp[]>([]);
   const [appsLoading, setAppsLoading] = useState(false);
   const [appsError, setAppsError] = useState<string | null>(null);
 
@@ -67,6 +68,15 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
       .finally(() => {
         if (!cancelled) setAppsLoading(false);
       });
+    if (api?.getKnownSites) {
+      api.getKnownSites()
+        .then((rows: KnownApp[]) => {
+          if (!cancelled) setKnownSites(Array.isArray(rows) ? rows : []);
+        })
+        .catch(() => {
+          if (!cancelled) setKnownSites([]);
+        });
+    }
     return () => {
       cancelled = true;
     };
@@ -163,14 +173,18 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
                 </button>
               </div>
             ) : (
-              <FocusAppPicker knownApps={knownApps} selected={apps} onChange={setApps} />
+              <FocusAppPicker
+                knownApps={knownApps.filter(a => !a.is_browser_tracking)}
+                selected={apps}
+                onChange={setApps}
+              />
             )}
           </div>
 
           <div>
             {fieldLabel(<Globe className="w-3 h-3" />, 'Allowed sites')}
             <FocusAppPicker
-              knownApps={[]}
+              knownApps={knownSites}
               selected={domains}
               onChange={setDomains}
               placeholder="Type to add sites…"

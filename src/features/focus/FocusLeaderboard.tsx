@@ -87,12 +87,12 @@ export function FocusLeaderboard({ history }: FocusLeaderboardProps) {
         titleClassName="font-display"
         icon={<Trophy className="w-4 h-4 text-yellow-400" />}
         action={
-          <div className="flex gap-1">
+          <div className="flex flex-wrap justify-end gap-1 min-w-0">
             {PERIOD_TABS.map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setPeriod(tab.key)}
-                className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                className={`shrink-0 px-1.5 py-0.5 text-[10px] rounded transition-colors ${
                   period === tab.key
                     ? 'bg-yellow-400/20 text-yellow-400'
                     : 'bg-zinc-800/40 text-zinc-500 hover:bg-zinc-700'

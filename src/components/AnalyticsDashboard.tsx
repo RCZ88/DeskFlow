@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Database, BarChart3, DollarSign, Zap, AlertTriangle,
@@ -63,32 +63,6 @@ const barOptions = {
   },
 };
 
-const makeStripedPattern = (color: string): string | CanvasPattern => {
-  try {
-    if (typeof document === 'undefined') return color;
-    const tile = 8;
-    const c = document.createElement('canvas');
-    c.width = tile; c.height = tile;
-    const ctx = c.getContext('2d');
-    if (!ctx) return color;
-    ctx.clearRect(0, 0, tile, tile);
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.4;
-    ctx.fillRect(0, 0, tile, tile);
-    ctx.globalAlpha = 0.9;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, 0); ctx.lineTo(tile, tile);
-    ctx.moveTo(tile * 0.5, -tile * 0.5); ctx.lineTo(tile * 1.5, tile * 0.5);
-    ctx.moveTo(-tile * 0.5, tile * 0.5); ctx.lineTo(tile * 0.5, tile * 1.5);
-    ctx.stroke();
-    return ctx.createPattern(c, 'repeat');
-  } catch {
-    return color;
-  }
-};
-
 const crosshairPlugin = {
   id: 'dashedCrosshair',
   afterDraw(chart: any) {
@@ -129,6 +103,7 @@ export interface CodeStats {
   daily: { date: string; additions: number; deletions: number; commits: number }[];
   weekly: { weekStart: string; additions: number; deletions: number; commits: number }[];
   error?: string;
+  codeActivity?: any;
 }
 
 function StatCard({ icon: Icon, iconColor, iconBg, value, label, sub, delay = 0 }: {
@@ -136,7 +111,7 @@ function StatCard({ icon: Icon, iconColor, iconBg, value, label, sub, delay = 0 
 }) {
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay, duration: 0.3 }}>
-      <WorkspaceCard className="flex items-center gap-3 min-w-0 !p-4">
+      <WorkspaceCard className="flex items-center gap-3 min-w-0 !p-5">
         <div className={`flex-shrink-0 w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center`}>
           <Icon className={`w-5 h-5 ${iconColor}`} />
         </div>
@@ -177,22 +152,24 @@ function ChartCard({ title, icon: Icon, subtitle, children, isEmpty, emptyText, 
 
 type DashboardVariant = 'project' | 'workspace' | 'full';
 
-function CodeChanges({ codeStats }: { codeStats?: CodeStats | null }) {
-  const [mode, setMode] = useState<'daily' | 'weekly'>('daily');
+function CodeChanges({ codeStats, codeActivity }: { codeStats?: CodeStats | null; codeActivity?: any }) {
+  const hasActivity = !!codeActivity && (codeActivity.totalEvents || 0) > 0;
   const series = useMemo(() => {
-    const rows = mode === 'daily' ? codeStats?.daily || [] : codeStats?.weekly || [];
-    return rows.map((r: any) => ({
+    return (codeActivity?.daily || []).map((r: any) => ({
       label: (() => {
-        try { return format(new Date((r.date || r.weekStart) + 'T00:00:00'), 'MMM d'); } catch { return r.date || r.weekStart; }
+        try { return format(new Date((r.date || '') + 'T00:00:00'), 'MMM d'); } catch { return r.date; }
       })(),
-      additions: r.additions || 0,
-      deletions: r.deletions || 0,
+      durationMs: r.durationMs || 0,
+      additions: r.linesAdded || 0,
+      deletions: r.linesRemoved || 0,
+      edits: r.edits || 0,
+      files: r.files || 0,
     }));
-  }, [codeStats, mode]);
+  }, [codeActivity]);
 
-  const isEmpty = !codeStats || (codeStats.totalCommits === 0 && series.length === 0);
-  const isLoading = codeStats === undefined;
-  const netLines = (codeStats?.totalAdditions || 0) - (codeStats?.totalDeletions || 0);
+  const isEmpty = !hasActivity || series.length === 0;
+  const isLoading = codeStats === undefined && codeActivity === undefined;
+  const totalSec = Math.round((codeActivity?.totalDurationMs || 0) / 1000);
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.35 }} className="space-y-4">
@@ -203,54 +180,44 @@ function CodeChanges({ codeStats }: { codeStats?: CodeStats | null }) {
           ))
         ) : (
           <>
-        <StatCard icon={GitCommitHorizontal} iconColor="text-cyan-400" iconBg="bg-cyan-500/10"
-          value={fmtNum(codeStats?.totalCommits || 0)} label="Total Commits"
-          sub={!isEmpty ? `${codeStats?.daily?.length || 0} active days` : undefined} delay={0} />
-        <StatCard icon={Code2} iconColor={netLines >= 0 ? 'text-emerald-400' : 'text-rose-400'} iconBg={netLines >= 0 ? 'bg-emerald-500/12' : 'bg-rose-500/10'}
-          value={`${netLines >= 0 ? '+' : ''}${fmtNum(netLines)}`} label="Net Lines"
-          sub={!isEmpty ? `+${fmtNum(codeStats?.totalAdditions || 0)} / -${fmtNum(codeStats?.totalDeletions || 0)}` : undefined} delay={0.05} />
-        <StatCard icon={Clock} iconColor="text-amber-400" iconBg="bg-amber-500/10"
-          value={fmtNum(codeStats?.totalHours || 0)} label="Hours Coded"
-          sub={!isEmpty ? `${fmtNum(codeStats?.totalHours || 0)}h estimated` : undefined} delay={0.1} />
+            <StatCard icon={Clock} iconColor="text-emerald-400" iconBg="bg-emerald-500/12"
+              value={fmtSec(totalSec)} label="Active Coded Time"
+              sub={!isEmpty ? `${codeActivity?.activeDays || 0} active days` : undefined} delay={0} />
+            <StatCard icon={Code2} iconColor="text-cyan-400" iconBg="bg-cyan-500/10"
+              value={`+${fmtNum(codeActivity?.totalLinesAdded || 0)}`} label="Lines Added"
+              sub={!isEmpty ? `${fmtNum(codeActivity?.filesTouched || 0)} files touched` : undefined} delay={0.05} />
+            <StatCard icon={GitCommitHorizontal} iconColor="text-rose-400" iconBg="bg-rose-500/10"
+              value={`-${fmtNum(codeActivity?.totalLinesRemoved || 0)}`} label="Lines Removed"
+              sub={!isEmpty ? `${fmtNum(codeActivity?.totalEdits || 0)} edits` : undefined} delay={0.1} />
           </>
         )}
       </div>
 
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.35 }}
         className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-xl !p-5">
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <div className="flex items-center gap-2">
-            <GitCommitHorizontal className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-sm font-medium text-zinc-200">Code Velocity</h3>
-          </div>
-          <div className="flex items-center gap-1 bg-zinc-800/60 rounded-lg p-0.5">
-            {(['daily', 'weekly'] as const).map(m => (
-              <button key={m} onClick={() => setMode(m)}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${mode === m ? 'bg-zinc-700/80 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'}`}>
-                {m === 'daily' ? 'Daily' : 'Weekly'}
-              </button>
-            ))}
-          </div>
+        <div className="flex items-center gap-2 mb-1">
+          <Code2 className="w-4 h-4 text-emerald-400" />
+          <h3 className="text-sm font-medium text-zinc-200">Coding Activity</h3>
         </div>
+        <p className="text-[11px] text-zinc-600 mb-1">Live from the DeskFlow VS Code extension</p>
         {isLoading ? (
           <div className="py-4">
             <Skeleton className="h-4 w-32 mb-4" />
             <Skeleton className="h-[200px] rounded-lg" />
           </div>
-        ) : codeStats?.error ? (
-          <p className="text-xs text-rose-400 text-center py-10">Failed to load commit data.</p>
         ) : isEmpty ? (
           <div className="flex flex-col items-center justify-center py-10 text-zinc-600">
-            <GitCommitHorizontal className="w-8 h-8 mb-2 opacity-30" />
-            <span className="text-xs text-center max-w-xs">No commits synced yet. Run 'Sync Commits' from project settings to track code changes.</span>
+            <Code2 className="w-8 h-8 mb-2 opacity-30" />
+            <span className="text-xs text-center max-w-xs">No code activity yet. Install the DeskFlow VS Code extension to track live coding.</span>
           </div>
         ) : (
           <div className="relative mt-2" style={{ height: 240 }}>
             <Bar data={{
               labels: series.map(s => s.label),
               datasets: [
-                { label: 'Additions', data: series.map(s => s.additions), backgroundColor: makeStripedPattern('#10b981'), borderColor: '#10b981', borderWidth: 1, borderRadius: 4, hoverBackgroundColor: '#10b981' },
-                { label: 'Deletions', data: series.map(s => s.deletions), backgroundColor: makeStripedPattern('#f87171'), borderColor: '#f87171', borderWidth: 1, borderRadius: 4, hoverBackgroundColor: '#f87171' },
+                { label: 'Active Time (h)', data: series.map(s => +(s.durationMs / 3600000).toFixed(2)), backgroundColor: CHART_COLORS[2], borderColor: CHART_BORDERS[2], borderWidth: 1, borderRadius: 4 },
+                { label: 'Lines Added', data: series.map(s => s.additions), backgroundColor: CHART_COLORS[1], borderColor: CHART_BORDERS[1], borderWidth: 1, borderRadius: 4 },
+                { label: 'Lines Removed', data: series.map(s => s.deletions), backgroundColor: CHART_COLORS[3], borderColor: CHART_BORDERS[3], borderWidth: 1, borderRadius: 4 },
               ],
             }} options={stackedBarOptions} plugins={[crosshairPlugin]} />
           </div>
@@ -260,8 +227,33 @@ function CodeChanges({ codeStats }: { codeStats?: CodeStats | null }) {
   );
 }
 
-export default function AnalyticsDashboard({ aiUsage, sessions, problems, requests, dailyStats, appStats, promptHistory, loading, period, variant = 'full', projectLanguages, codeStats }: {
-  aiUsage?: any; sessions: any[]; problems?: any[]; requests?: any[]; dailyStats?: any[]; appStats?: any[]; promptHistory?: any[]; loading: boolean; period: string; variant?: DashboardVariant; projectLanguages?: { language: string; count: number }[]; codeStats?: CodeStats | null;
+function TopFilesList({ codeActivity }: { codeActivity?: any }) {
+  const files = codeActivity?.topFiles || [];
+  const hasActivity = !!codeActivity && (codeActivity.totalEvents || 0) > 0;
+  return (
+    <ChartCard title="Most Active Files" icon={FileText} subtitle="By active coding time" isEmpty={!hasActivity || files.length === 0} emptyText="No file activity yet — install the VS Code extension">
+      {files.length > 0 && (
+        <div className="space-y-2 overflow-y-auto max-h-[240px] pr-2 custom-scrollbar">
+          {files.slice(0, 5).map((file: any) => (
+            <div key={file.file_path} className="flex items-center justify-between text-xs bg-zinc-800/30 rounded-lg p-2">
+              <span className="text-zinc-300 truncate font-mono" title={file.file_path}>
+                {file.file_path.split(/[\\/]/).pop()}
+              </span>
+              <div className="flex items-center gap-3 text-zinc-500 flex-shrink-0">
+                <span className="text-emerald-400">+{file.linesAdded || 0}</span>
+                <span className="text-rose-400">-{file.linesRemoved || 0}</span>
+                <span className="text-cyan-400">{fmtSec((file.durationMs || 0) / 1000)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </ChartCard>
+  );
+}
+
+export default function AnalyticsDashboard({ aiUsage, sessions, problems, requests, dailyStats, appStats, promptHistory, loading, period, variant = 'full', projectLanguages, codeStats, codeActivity }: {
+  aiUsage?: any; sessions: any[]; problems?: any[]; requests?: any[]; dailyStats?: any[]; appStats?: any[]; promptHistory?: any[]; loading: boolean; period: string; variant?: DashboardVariant; projectLanguages?: { language: string; count: number }[]; codeStats?: CodeStats | null; codeActivity?: any;
 }) {
   const tokenByTool = useMemo(() => {
     if (!aiUsage?.byTool) return { labels: [], values: [] };
@@ -518,7 +510,8 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
         )}
       </motion.div>
 
-      <CodeChanges codeStats={codeStats} />
+      <CodeChanges codeStats={codeStats} codeActivity={codeActivity} />
+      <TopFilesList codeActivity={codeActivity} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.35 }}
@@ -728,7 +721,7 @@ export default function AnalyticsDashboard({ aiUsage, sessions, problems, reques
         )}
       </motion.div>
 
-      <CodeChanges codeStats={codeStats} />
+      <CodeChanges codeStats={codeStats} codeActivity={codeActivity} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.35 }}

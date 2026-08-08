@@ -253,6 +253,13 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
       const rawY = dragRef.current.origY + dy
       const snappedX = Math.round(rawX / CELL) * CELL
       const snappedY = Math.round(rawY / CELL) * CELL
+      // FIX R3: Commit the snapped DOM transform BEFORE onDragEnd triggers a
+      // React re-render that removes .dragging. Without this, the 0.2s CSS
+      // transition on .dk-canvas-card animates the card from its dragged
+      // position to the committed position — a visible "sliding" snap-back.
+      if (cardRef.current) {
+        cardRef.current.style.transform = `translate(${snappedX}px, ${snappedY}px)`
+      }
       onDragEnd(card.id, { x: snappedX, y: snappedY })
       suppressClickRef.current = true
     }

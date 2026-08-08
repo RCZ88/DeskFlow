@@ -79,6 +79,7 @@ export type CanvasAction =
   | { type: 'ARRANGE_GROUP'; id: string; positions: Record<string, { x: number; y: number }>; size: { w: number; h: number } }
   | { type: 'ADD_GENERATED_CARD'; card: CanvasCard }
   | { type: 'REMOVE_GENERATED_CARD'; id: string }
+  | { type: 'SYNC_AUTOMATIONS'; automations: any[]; usedPositions: Set<string> }
 
 export const DEFAULT_STATE: CanvasState = {
   cards: {},
@@ -295,6 +296,38 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
     case 'REMOVE_GENERATED_CARD': {
       const { [action.id]: _, ...restCards } = state.cards
       return { ...state, cards: restCards }
+    }
+    case 'SYNC_AUTOMATIONS': {
+      const updatedCards = { ...state.cards }
+      let nextZ = state.nextZIndex
+      const payloadIds = new Set(action.automations.map((a: any) => `auto-${a.ruleId}`))
+
+      // Remove deleted automations
+      for (const [id, c] of Object.entries(updatedCards)) {
+        if (c.type === 'automation' && !payloadIds.has(id)) delete updatedCards[id]
+      }
+
+      // Add new / update existing
+      let col = 0, row = 0
+      for (const auto of action.automations) {
+        const id = `auto-${auto.ruleId}`
+        if (updatedCards[id]) {
+          updatedCards[id] = { ...updatedCards[id], data: { ...updatedCards[id].data, automation: auto } }
+        } else {
+          while (action.usedPositions.has(`${col},${row}`)) {
+            col += 6
+            if (col > 18) { col = 0; row += 6 }
+          }
+          action.usedPositions.add(`${col},${row}`)
+          updatedCards[id] = {
+            id, type: 'automation', position: { x: 40 + col * 40, y: 40 + row * 40 },
+            size: { w: 8, h: 5 }, zIndex: nextZ, pinned: true, source: 'system',
+            status: 'live', data: { automation: auto }, createdAt: Date.now(),
+          }
+          nextZ++
+        }
+      }
+      return { ...state, cards: updatedCards, nextZIndex: nextZ }
     }
     default:
       return state

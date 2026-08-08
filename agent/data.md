@@ -223,6 +223,23 @@
 
 Preload: `window.deskflowAPI.lifePhase*` (8 methods, typed in `src/types/deskflow-api.d.ts`). Renderer: `src/hooks/useLifePhases.ts`, `src/lib/riverMath.ts`, `src/components/life-river/`.
 
+## Finance Monthly Recap (added 2026-08-07)
+
+### DB table
+- `finance_monthly_recaps` — id INTEGER PK AUTOINCREMENT, month TEXT UNIQUE NOT NULL (YYYY-MM), title TEXT, summary TEXT (AI narrative), stats_json TEXT NOT NULL (camelCase keys: income.total/count, expense.total/count, net, activeDays, previousMonth, momDelta, topCategories, walletSpend, walletBalanceDelta, subscriptionsBilled, fixedExpenses, followThrough, biggestExpense, biggestIncome, displayCurrency), status TEXT (pending|generated|failed), provider_id TEXT, error_message TEXT, created_at/updated_at TEXT
+
+### IPC (all return `{ ok, data?, error? }`)
+| Channel | Purpose |
+|---------|---------|
+| `finance:recap-list` | All recaps, latest month first (list query uses json_extract for income/expense/net) |
+| `finance:recap-get` | One recap by month; `{ ok, data: null }` when missing |
+| `finance:recap-generate` | Generate/regenerate a month; params `{ month, force? }`; idempotent unless force |
+| `finance:recap-delete` | Delete recap row by month |
+| `finance:recap-months-with-data` | DISTINCT months having real transactions (excludes is_adjustment) |
+
+- Auto-gen: `checkMonthlyRecaps(db)` runs at `whenReady` + every 6h; only the immediate previous calendar month; skips if row exists or no data. AI: provider chain (`buildChain(pState,'monthlyRecap')` + `runWithFallback`) then OpenRouter fallback `ai_briefModel || 'google/gemini-2.0-flash-001'`. There is NO `getLastUsedProviderId()` — provider comes from `runWithFallback`'s `usedProviderId`.
+- Preload: `window.deskflowAPI.financeRecap*` (5 methods). Renderer: `src/components/finance/RecapPanel.tsx` (Finance page → Recap tab). Spec: `agent/docs/generate-prompt-docs/finance-monthly-recap-07082026/RESULT.md`.
+
 ### Weekly vs Today Inconsistency
 - **Issue:** Weekly timeframe shows less time than Today (12h vs 10h)
 - **Investigation:** Checking getAppStats query in main.ts

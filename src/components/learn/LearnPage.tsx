@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Grid3X3, Network, Keyboard } from 'lucide-react';
+import { Keyboard } from 'lucide-react';
+import { Switch } from '../ui/switch';
 import { LearnNavBar, type BreadcrumbSegment } from './LearnNavBar';
 import { LearnTabBar, type LearnView } from './LearnTabBar';
 import { LearnHome } from './LearnHome';
@@ -15,6 +16,7 @@ import { LearnerSetup } from './LearnerSetup';
 import { LearnerProfilePanel } from './LearnerProfilePanel';
 import { OnboardingPanel } from './OnboardingPanel';
 import { LessonDetailModal } from './LessonDetailModal';
+import { ChapterGroupsModal } from './ChapterGroupsModal';
 import { InlineAnswerCard, type InlineAnswerState, type InlineMode } from './InlineAnswerCard';
 import { TutorPanel } from './TutorPanel';
 import { viewVariants, viewTransition } from './transitions';
@@ -57,6 +59,12 @@ export function LearnPage() {
   const [importWarnings, setImportWarnings] = useState<ValidationIssue[]>([]);
   const [importingExample, setImportingExample] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [shortcutsEnabled, setShortcutsEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lyceum.shortcutsEnabled');
+      return saved === null ? true : saved !== 'false';
+    } catch { return true; }
+  });
   const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedPart, setSelectedPart] = useState<CurriculumPart | null>(null);
@@ -66,6 +74,7 @@ export function LearnPage() {
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [detailLesson, setDetailLesson] = useState<LessonSummary | null>(null);
+  const [showGroupsModal, setShowGroupsModal] = useState(false);
   const setupChecked = useRef(false);
   const [inlineAnswer, setInlineAnswer] = useState<InlineAnswerState | null>(null);
   const inlineStreamCleanup = useRef<(() => void) | null>(null);
@@ -136,6 +145,9 @@ export function LearnPage() {
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
+      // When shortcuts are disabled, only Esc (close dialogs) and '?' (re-open this modal) stay active
+      if (!shortcutsEnabled && e.key !== 'Escape' && e.key !== '?') return;
+
       // Global shortcuts
       if (e.key === 'Escape') {
         if (showCreateDialog) { setShowCreateDialog(false); return; }
@@ -161,7 +173,7 @@ export function LearnPage() {
 
       if (e.key === 'c' && !showCreateDialog) setShowCreateDialog(true);
       if (e.key === 'i' && !importDialogOpen) setImportDialogOpen(true);
-      if (e.key === '?' && view === 'reader') setShowShortcuts(s => !s);
+      if (e.key === '?') setShowShortcuts(s => !s);
 
       // Reader-specific shortcuts
       if (view === 'reader' && lessonData) {
@@ -190,7 +202,14 @@ export function LearnPage() {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [view, lessonData, selectedNode, graphView, tutorOpen, showCreateDialog, importDialogOpen, intentPanelOpen, showProfilePanel, showShortcuts, selectedLesson, navigate]);
+  }, [view, lessonData, selectedNode, graphView, tutorOpen, showCreateDialog, importDialogOpen, intentPanelOpen, showProfilePanel, showShortcuts, selectedLesson, navigate, shortcutsEnabled]);
+
+  // Persist shortcuts preference
+  useEffect(() => {
+    try {
+      localStorage.setItem('lyceum.shortcutsEnabled', String(shortcutsEnabled));
+    } catch { /* ignore */ }
+  }, [shortcutsEnabled]);
 
   // Data fetching
   const loadLessons = async () => {
@@ -463,6 +482,7 @@ export function LearnPage() {
             onOpenProfile={() => setShowProfilePanel(true)}
             getDashboard={dashboardGetDashboard}
             onNavigateToNode={dashboardNavigateToNode}
+            onManageGroups={() => setShowGroupsModal(true)}
           />
         );
       case 'reader':
@@ -483,6 +503,8 @@ export function LearnPage() {
             tutorAnswer={tutorAnswer}
             tutorLoading={tutorLoading}
             graphView={graphView}
+            onSetGraphView={setGraphView}
+            onOpenShortcuts={() => setShowShortcuts(true)}
             progress={progress}
             mobileOutlineOpen={mobileOutlineOpen}
             setMobileOutlineOpen={setMobileOutlineOpen}
@@ -492,7 +514,6 @@ export function LearnPage() {
             onToggleCheck={(id: string) => {
               setCompletedItems((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
             }}
-            completedParts={completedParts}
             onApproveProposal={handleApproveProposal}
             onRejectProposal={handleRejectProposal}
             onAddMessage={handleAddMessage}
@@ -522,33 +543,6 @@ export function LearnPage() {
 
       <div className="flex flex-1 min-h-0">
         <main className="flex-1 min-h-0 overflow-hidden relative">
-          {/* Reader-specific toolbar */}
-          {view === 'reader' && lessonData && (
-            <div className="absolute top-2 right-4 z-20 flex items-center gap-1">
-              <button
-                onClick={() => setShowShortcuts(!showShortcuts)}
-                className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition"
-                title="Keyboard shortcuts"
-              >
-                <Keyboard className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setGraphView('grid')}
-                className={`p-1.5 rounded transition ${graphView === 'grid' ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
-                title="Grid view"
-              >
-                <Grid3X3 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setGraphView('graph')}
-                className={`p-1.5 rounded transition ${graphView === 'graph' ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
-                title="Graph view"
-              >
-                <Network className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
           <AnimatePresence mode="wait" custom={direction}>
             <motion.div
               key={view}
@@ -594,7 +588,18 @@ export function LearnPage() {
                 <Keyboard className="w-4 h-4 text-clay-400" />
                 Keyboard Shortcuts
               </h3>
-              <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/40 mb-3">
+                <div>
+                  <p className="text-xs font-medium text-zinc-200">Enable shortcuts</p>
+                  <p className="text-[10px] text-zinc-500 mt-0.5">Off: typing only — Esc &amp; ? stay active</p>
+                </div>
+                <Switch
+                  checked={shortcutsEnabled}
+                  onCheckedChange={setShortcutsEnabled}
+                  aria-label="Enable keyboard shortcuts"
+                />
+              </div>
+              <div className={`space-y-2 text-xs transition-opacity ${shortcutsEnabled ? '' : 'opacity-40'}`}>
                 {[
                   ['g h', 'Go to Home'],
                   ['g l', 'Go to Library'],
@@ -674,6 +679,7 @@ export function LearnPage() {
         onUpdated={() => { setDetailLesson(null); loadLessons(); }}
         onOpenReader={(id) => { setDetailLesson(null); loadLesson(id); }}
       />
+      <ChapterGroupsModal open={showGroupsModal} onClose={() => setShowGroupsModal(false)} />
     </div>
   );
 }

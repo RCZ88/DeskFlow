@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import * as React from 'react'
 import { useCallback, useMemo, useState } from 'react'
@@ -59,7 +59,7 @@ export function LifeRiver({ className }: LifeRiverProps) {
 
   const handleSave = async (phase: LifePhase) => {
     const ok = await store.savePhase(phase)
-    if (ok) showToast(phase.title ? `“${phase.title}” saved` : 'Phase saved')
+    if (ok) showToast(phase.title ? `ΓÇ£${phase.title}ΓÇ¥ saved` : 'Phase saved')
   }
 
   const summarize = async () => {
@@ -67,7 +67,7 @@ export function LifeRiver({ className }: LifeRiverProps) {
     const text = await store.summarize()
     setSummaryBusy(false)
     if (text) showToast('Journey summarized')
-    else showToast('Summary failed — check your AI provider')
+    else showToast('Summary failed ΓÇö check your AI provider')
   }
 
   return (
@@ -80,7 +80,7 @@ export function LifeRiver({ className }: LifeRiverProps) {
               The River of Years
             </h2>
             <p className="font-serif mt-0.5 text-[12.5px] text-zinc-500 italic">
-              your life, flowing water — each phase a reach of the river
+              your life, flowing water ΓÇö each phase a reach of the river
             </p>
           </div>
           <Button

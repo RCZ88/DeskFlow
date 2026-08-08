@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { FlowBlock as FlowBlockType } from '../../../shared/learn/types';
 import { ZoomPan } from './ZoomPan';
+import { loadMermaid, renderMermaidWithTimeout } from './mermaidLoader';
 
 interface Props {
   block: FlowBlockType;
@@ -10,7 +11,9 @@ interface Props {
 function edgesToMermaid(block: FlowBlockType): string {
   if (block.edges && block.edges.length > 0) {
     if (block.variant === 'sankey') {
-      const lines = block.edges.map((e) => `${JSON.stringify(e.from)} -->|${e.value}| ${JSON.stringify(e.to)}`);
+      // Mermaid sankey-beta syntax is:  A --> B : 10  (NO JSON.stringify quotes
+      // and NO |value| labels — quoted/labeled links hang this mermaid version)
+      const lines = block.edges.map((e) => `${e.from} --> ${e.to} : ${e.value}`);
       return `sankey-beta\n${lines.join('\n')}`;
     }
     const lines = block.edges.map((e) => `${JSON.stringify(e.from)}[${e.from}] --> ${JSON.stringify(e.to)}[${e.to}]`);
@@ -31,17 +34,13 @@ export function FlowBlock({ block, onAsk }: Props) {
 
     const mermaidSrc = edgesToMermaid(block);
 
-    import('mermaid').then(async (mermaid) => {
-      mermaid.default.initialize({
-        startOnLoad: false,
-        theme: 'dark',
-        securityLevel: 'loose',
-        flowchart: { useMaxWidth: false, htmlLabels: true },
-        sequence: { useMaxWidth: false },
-      });
+    loadMermaid().then(async (m) => {
+      if (!mounted) return;
 
       try {
-        const { svg } = await mermaid.default.render(`flow-${block.id}`, mermaidSrc);
+        const diagramId = `flow-${block.id}-${Date.now()}`;
+        const { svg } = await renderMermaidWithTimeout(m, diagramId, mermaidSrc);
+
         if (mounted && containerRef.current) {
           containerRef.current.innerHTML = svg;
           const svgEl = containerRef.current.querySelector('svg');
@@ -58,9 +57,18 @@ export function FlowBlock({ block, onAsk }: Props) {
         }
       } catch (err: any) {
         if (mounted) {
-          setError(`Flow render error: ${err.message}`);
+          const msg = err?.message || String(err);
+          const shortMsg = msg.includes('Syntax error')
+            ? `Mermaid syntax error — check the diagram source below`
+            : msg.length > 200 ? msg.slice(0, 200) + '...' : msg;
+          setError(shortMsg);
           setLoading(false);
         }
+      }
+    }).catch((err: any) => {
+      if (mounted) {
+        setError(`Failed to load Mermaid library: ${err?.message ?? err}`);
+        setLoading(false);
       }
     });
 
@@ -75,12 +83,16 @@ export function FlowBlock({ block, onAsk }: Props) {
         </div>
       )}
       {error && (
-        <div className="text-red-400 text-sm">
-          <div>{error}</div>
-          <pre className="mt-2 text-xs bg-zinc-900/50 p-2 rounded overflow-x-auto">{block.spec}</pre>
+        <div className="text-sm">
+          <div className="text-amber-400 font-medium mb-1">⚠ Diagram could not render</div>
+          <div className="text-zinc-500 text-xs mb-2">{error}</div>
+          <details className="group/details">
+            <summary className="text-xs text-zinc-600 cursor-pointer hover:text-zinc-400 transition">Show diagram source</summary>
+            <pre className="mt-2 text-xs bg-zinc-900/80 p-3 rounded overflow-x-auto text-zinc-400 border border-zinc-800/50">{edgesToMermaid(block)}</pre>
+          </details>
         </div>
       )}
-      {!error && (
+      {!error && !loading && (
         <ZoomPan minH={220}>
           <div ref={containerRef} className={loading ? 'hidden' : ''} />
         </ZoomPan>

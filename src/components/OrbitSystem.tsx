@@ -3018,7 +3018,7 @@ function GalaxyView({
     const brightness = Math.min(1, system.totalTime / 60);
     // Small sphere ~same visual weight as dust particles (size 2.5)
     const sphereSize = 1.2;
-    const hitboxSize = sphereSize * 5;
+    const hitboxSize = sphereSize * 7;
     
     return (
       <group key={`solar-${system.category}`} position={basePos}>
@@ -3036,8 +3036,15 @@ function GalaxyView({
           <meshBasicMaterial transparent opacity={0} />
         </mesh>
         
-        {/* Visual core sphere - small, like a bright star cluster */}
-        <mesh>
+        {/* Visual core sphere - small, like a bright star cluster.
+            Also clickable (both sphere AND label open the system —
+            previously only the label did in the websites galaxy) */}
+        <mesh
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectSystem(system.category);
+          }}
+        >
           <sphereGeometry args={[sphereSize, 16, 16]} />
           <meshBasicMaterial
             color={config.color}
@@ -3063,9 +3070,11 @@ function GalaxyView({
             <Html center zIndexRange={[40, 0]}>
               <div
                 ref={(el) => { if (el) labelRefs.current[`${scope}__${system.category}`] = el; }}
-                className="px-3 py-1.5 rounded-lg text-white font-bold whitespace-nowrap"
+                className="px-3 py-1.5 rounded-lg text-white font-bold whitespace-nowrap cursor-pointer select-none"
+                onClick={() => onSelectSystem(system.category)}
+                title={`Open ${system.category}`}
                 style={{
-                  pointerEvents: 'none',
+                  pointerEvents: 'auto',
                   fontSize: '13px',
                   background: 'rgba(8, 8, 24, 0.85)',
                   border: `1.5px solid ${config.color}66`,
@@ -4070,23 +4079,12 @@ export default function OrbitSystem({ logs, appColors, categoryOverrides, websit
         )}
       </div>
       
-      <div ref={(el) => {
-          if (el) {
-            const ro = new ResizeObserver((entries) => {
-              for (const entry of entries) {
-                const { width, height } = entry.contentRect;
-                const canvas = el.querySelector('canvas');
-                if (canvas) {
-                  canvas.width = width * window.devicePixelRatio;
-                  canvas.height = height * window.devicePixelRatio;
-                  canvas.style.width = width + 'px';
-                  canvas.style.height = height + 'px';
-                }
-              }
-            });
-            ro.observe(el);
-          }
-        }} className="w-full flex-1 bg-transparent">
+      {/* Canvas sized by R3F itself (resize={{ offsetSize: true }} below).
+          A manual ResizeObserver here RACES R3F's gl.setSize: it writes the
+          backing store with an unclamped dpr AFTER R3F set its viewport, so
+          the GL viewport stays smaller than the CSS box → scene shrinks into
+          the top-left with gaps at top/right and Html labels mis-project. */}
+      <div className="w-full flex-1 bg-transparent">
         {(() => {
           try {
             return (

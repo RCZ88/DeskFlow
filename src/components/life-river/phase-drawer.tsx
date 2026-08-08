@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import * as React from 'react'
 import { useEffect, useState } from 'react'
@@ -117,7 +117,7 @@ export function PhaseDrawer({
     if (!t || t === draft.title) return
     onRename(draft.id, t)
     commit({ ...draft, title: t })
-    onToast(`Phase renamed to “${t}”`)
+    onToast(`Phase renamed to ΓÇ£${t}ΓÇ¥`)
   }
 
   const handleDelete = () => {
@@ -144,7 +144,7 @@ export function PhaseDrawer({
             >
               <SheetHeader>
                 <SheetTitle className="text-[13px] text-amber-300">
-                  Reflect on “{draft.title}”
+                  Reflect on ΓÇ£{draft.title}ΓÇ¥
                 </SheetTitle>
                 <SheetDescription>Three questions. One honest paragraph.</SheetDescription>
               </SheetHeader>
@@ -211,7 +211,7 @@ export function PhaseDrawer({
                   )}
                 </div>
                 <SheetDescription>
-                  {phaseAgeLabel(draft)} long · {magnitudeWords(draft.magnitude)}
+                  {phaseAgeLabel(draft)} long ┬╖ {magnitudeWords(draft.magnitude)}
                 </SheetDescription>
               </SheetHeader>
 
@@ -318,7 +318,7 @@ export function PhaseDrawer({
                           className="opacity-60 transition-opacity hover:opacity-100"
                           aria-label={`Unlink ${target.title}`}
                         >
-                          ×
+                          ├ù
                         </button>
                       </span>
                     )

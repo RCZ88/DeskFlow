@@ -1,0 +1,33 @@
+- generic [active] [ref=f2e1]:
+  - heading "Font candidates -- pick the one that fits" [level=2] [ref=f2e2]
+  - generic [ref=f2e3]:
+    - generic [ref=f2e4]:
+      - generic [ref=f2e5]:
+        - code [ref=f2e7]: classic-authority
+        - generic [ref=f2e8]: Libre Caslon Text 700 / Source Serif 4 400 / JetBrains Mono
+      - generic [ref=f2e9]:
+        - heading "July 2026 Recap" [level=1] [ref=f2e10]
+        - paragraph [ref=f2e11]: // 2026-07 recap // · NET +$412 · 21 active days · BCA · CRYPTO
+        - button "Regenerate" [ref=f2e12] [cursor=pointer]
+        - paragraph [ref=f2e13]: You spent $1,240 across 14 categories in July — 12% less than June, and dining out alone took 23% of the total. Your BCA wallet absorbed most of the month's spending while the crypto vault quietly grew. Rent on the 1st and a Netflix renewal on the 14th were your two biggest fixed hits, and Maya still owes you $85 from last month's groceries.
+        - generic [ref=f2e14]: "classic-authority � aA bB 0123 -> ::"
+    - generic [ref=f2e15]:
+      - generic [ref=f2e16]:
+        - code [ref=f2e18]: structured-data
+        - generic [ref=f2e19]: Archivo 600 / Public Sans 400 / Spline Sans Mono
+      - generic [ref=f2e20]:
+        - heading "July 2026 Recap" [level=1] [ref=f2e21]
+        - paragraph [ref=f2e22]: // 2026-07 recap // · NET +$412 · 21 active days · BCA · CRYPTO
+        - button "Regenerate" [ref=f2e23] [cursor=pointer]
+        - paragraph [ref=f2e24]: You spent $1,240 across 14 categories in July — 12% less than June, and dining out alone took 23% of the total. Your BCA wallet absorbed most of the month's spending while the crypto vault quietly grew. Rent on the 1st and a Netflix renewal on the 14th were your two biggest fixed hits, and Maya still owes you $85 from last month's groceries.
+        - generic [ref=f2e25]: "structured-data � aA bB 0123 -> ::"
+    - generic [ref=f2e26]:
+      - generic [ref=f2e27]:
+        - code [ref=f2e29]: technical-precision
+        - generic [ref=f2e30]: Space Grotesk 600 / Inter 400 / JetBrains Mono
+      - generic [ref=f2e31]:
+        - heading "July 2026 Recap" [level=1] [ref=f2e32]
+        - paragraph [ref=f2e33]: // 2026-07 recap // · NET +$412 · 21 active days · BCA · CRYPTO
+        - button "Regenerate" [ref=f2e34] [cursor=pointer]
+        - paragraph [ref=f2e35]: You spent $1,240 across 14 categories in July — 12% less than June, and dining out alone took 23% of the total. Your BCA wallet absorbed most of the month's spending while the crypto vault quietly grew. Rent on the 1st and a Netflix renewal on the 14th were your two biggest fixed hits, and Maya still owes you $85 from last month's groceries.
+        - generic [ref=f2e36]: "technical-precision � aA bB 0123 -> ::"

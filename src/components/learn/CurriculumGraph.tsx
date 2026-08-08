@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, BookOpen } from 'lucide-react';
 import type { RenderableNode, NodeProgress, MasteryLevel } from '../../shared/learn/types';
 
 const LEVEL_COLORS: Record<MasteryLevel, string> = {
@@ -92,9 +92,10 @@ interface Props {
   progress: Record<string, NodeProgress>;
   selectedNode: string | null;
   onSelectNode: (id: string) => void;
+  onExit?: () => void;
 }
 
-export function CurriculumGraph({ nodes, progress, selectedNode, onSelectNode }: Props) {
+export function CurriculumGraph({ nodes, progress, selectedNode, onSelectNode, onExit }: Props) {
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
@@ -141,8 +142,20 @@ export function CurriculumGraph({ nodes, progress, selectedNode, onSelectNode }:
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 shrink-0">
-        <span className="text-xs text-zinc-500">Prerequisite DAG — nodes colored by mastery</span>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-3 min-w-0">
+          {onExit && (
+            <button
+              onClick={onExit}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition"
+              title="Back to reader"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              Reader
+            </button>
+          )}
+          <span className="text-xs text-zinc-500 truncate">Prerequisite DAG — nodes colored by mastery</span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
           <button onClick={() => setScale((s) => Math.min(2, s + 0.2))} className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition" aria-label="Zoom in">
             <ZoomIn className="w-3.5 h-3.5" />
           </button>

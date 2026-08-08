@@ -1,6 +1,26 @@
 // Shared types for the Lyceum "Learn" module — used by both main and renderer
 
 export type MasteryLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
+
+/** Human-readable labels for mastery levels — use these in UI instead of raw L0-L5 codes */
+export const MASTERY_LABELS: Record<MasteryLevel, string> = {
+  L0: 'Beginner',
+  L1: 'Aware',
+  L2: 'Apprentice',
+  L3: 'Practitioner',
+  L4: 'Proficient',
+  L5: 'Expert',
+};
+
+/** Short labels for tight UI spaces */
+export const MASTERY_SHORT: Record<MasteryLevel, string> = {
+  L0: 'New',
+  L1: 'Heard of it',
+  L2: 'Can do it',
+  L3: 'Independent',
+  L4: 'Deep knowledge',
+  L5: 'Can teach it',
+};
 export type BlockType = 'prose' | 'math' | 'mermaid' | 'code' | 'image' | 'video' | 'widget' | 'quiz' | 'callout' | 'layer' | 'chart' | 'table' | 'flow' | 'finchart' | 'svg' | 'tutor' | 'proposal' | 'conversation' | 'notes'
   | 'viz_heatmap' | 'viz_graph' | 'viz_timeline' | 'viz_concept_map'
   | 'flashcard' | 'flashcard_occlusion' | 'layer_reveal' | 'whiteboard'
@@ -333,6 +353,18 @@ export type QuizAppetite = 'light' | 'normal' | 'heavy';
 export type ChunkSize = 'micro' | 'standard' | 'deep';
 export type Tone = 'gentle' | 'balanced' | 'demanding';
 
+export interface KnowledgeEntry {
+  id: string;
+  statement: string;
+  topic?: string;
+  partIds?: number[];
+  linkedLessons?: string[];
+  keywords?: string[];
+  level?: MasteryLevel;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LearnerProfile {
   version: 1;
   density: Density;
@@ -346,7 +378,9 @@ export interface LearnerProfile {
   layerRevealDefault: MasteryLevel;
   tone: Tone;
   priorKnowledge: Partial<Record<number, MasteryLevel>>;
+  knowledgeBase: KnowledgeEntry[];
   confidence: Record<string, number>;
+  customChapters: string[];
   updatedAt: string;
 }
 
@@ -362,7 +396,9 @@ export const DEFAULT_PROFILE: LearnerProfile = {
   mathDepth: 'intuition_first', handsOn: 2, codeStagingDepth: 'numpy_plus',
   quizAppetite: 'normal', chunkSize: 'standard', layerRevealDefault: 'L3',
   tone: 'demanding', priorKnowledge: {},
+  knowledgeBase: [],
   confidence: Object.fromEntries(PROFILE_KNOBS.map((k) => [k, 0.3])) as Record<string, number>,
+  customChapters: [],
   updatedAt: new Date(0).toISOString(),
 };
 

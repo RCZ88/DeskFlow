@@ -3,6 +3,7 @@ import { useState, useCallback } from 'react';
 import { BlurFade } from '../ui/blur-fade';
 import { FeatureShowcase } from '../showcase/FeatureShowcase';
 import { BookOpening } from './BookOpening';
+import { HierarchyGuide } from './HierarchyGuide';
 
 const api = (window as any).deskflowAPI;
 
@@ -117,6 +118,11 @@ export function LearnHome(props: LearnHomeProps) {
       {/* Quick actions — natural document flow */}
       <section className="mx-auto max-w-5xl px-6 pb-12">
         <BlurFade delay={0.32} inView>
+          {/* Hierarchy guide — real visual tree */}
+          <div className="mb-6">
+            <HierarchyGuide />
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-3">
             <button
               onClick={props.onTryExample}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { ClipboardList, RotateCcw } from 'lucide-react';
 import type { QuizBlock } from '../../../shared/learn/types';
 
 interface Props {
@@ -16,8 +17,6 @@ export function QuizBlock({ block, onSubmit }: Props) {
   const handleSubmit = async () => {
     const response = block.format === 'mcq'
       ? String(selected)
-      : block.format === 'numeric'
-      ? textAnswer
       : textAnswer;
 
     if (!response && response !== 0) return;
@@ -37,16 +36,23 @@ export function QuizBlock({ block, onSubmit }: Props) {
     setSubmitted(true);
   };
 
+  const handleReset = () => {
+    setSelected(null);
+    setTextAnswer('');
+    setResult(null);
+    setSubmitted(false);
+  };
+
   return (
     <div className="my-6 p-5 rounded-xl border border-amber-500/20 bg-amber-500/5" data-block-id={block.id}>
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-lg">📝</span>
+        <ClipboardList className="w-4 h-4 text-amber-400" />
         <span className="text-sm font-medium text-amber-300">
           Quiz · {block.format.toUpperCase()} · Target: {block.level}
         </span>
       </div>
 
-      <p className="text-zinc-200 mb-4">{block.q}</p>
+      <p className="text-zinc-200 mb-4 leading-relaxed">{block.q}</p>
 
       {/* MCQ */}
       {block.format === 'mcq' && block.options && (
@@ -91,8 +97,9 @@ export function QuizBlock({ block, onSubmit }: Props) {
             type="number"
             value={textAnswer}
             onChange={(e) => setTextAnswer(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
             className="w-full max-w-[200px] px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-sm focus:border-amber-500/50 focus:outline-none"
-            placeholder="Enter number..."
+            placeholder="Enter number... (Enter to submit)"
             disabled={submitted}
           />
         </div>
@@ -124,7 +131,8 @@ export function QuizBlock({ block, onSubmit }: Props) {
       {!submitted && (
         <button
           onClick={handleSubmit}
-          className="px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-sm font-medium transition border border-amber-500/30"
+          disabled={block.format === 'mcq' ? selected === null : !textAnswer.trim()}
+          className="px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-sm font-medium transition border border-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Submit Answer
         </button>
@@ -137,6 +145,24 @@ export function QuizBlock({ block, onSubmit }: Props) {
           </div>
           <div className="text-xs text-zinc-400 mt-1">{result.explanation}</div>
         </div>
+      )}
+
+      {submitted && block.format !== 'mcq' && (
+        <div className="mt-3 p-3 rounded-lg bg-zinc-800/40 border border-zinc-700/30">
+          <div className="text-sm font-medium text-zinc-300">✓ Answer recorded</div>
+          <div className="text-xs text-zinc-500 mt-1">
+            Your coach will review open answers and mark progress — check the tutor panel for feedback.
+          </div>
+        </div>
+      )}
+
+      {submitted && block.format === 'mcq' && (
+        <button
+          onClick={handleReset}
+          className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition"
+        >
+          <RotateCcw className="w-3 h-3" /> Try again
+        </button>
       )}
     </div>
   );

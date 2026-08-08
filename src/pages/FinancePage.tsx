@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown, Bell, RefreshCw, History, Users, BarChart3, Receipt, Target } from 'lucide-react';
+import { LayoutDashboard, Wallet, ArrowUpRight, Tag, Plus, Shield, ChevronDown, Bell, RefreshCw, History, Users, BarChart3, Receipt, Target, BookOpenText } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { TabBar } from '../components/TabBar';
 import { FinanceLockScreen } from '../components/finance/FinanceLockScreen';
@@ -19,6 +19,7 @@ import { ArchivedItemsModal } from '../components/finance/ArchivedItemsModal';
 import { PasswordConfirmDialog } from '../components/finance/PasswordConfirmDialog';
 import { RecalculateBalanceModal, type RecalculateBreakdown } from '../components/finance/RecalculateBalanceModal';
 import { WalletDetailView } from '../components/finance/WalletDetailView';
+import { RecapPanel } from '../components/finance/RecapPanel';
 import { SubscriptionsTab } from '../components/finance/SubscriptionsTab';
 import { SubscriptionsPageView } from './SubscriptionsPage';
 import { AuditLogTab } from '../components/finance/AuditLogTab';
@@ -66,6 +67,7 @@ const tabs: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'budget', label: 'Budget & Expenses', icon: <Target className="w-3.5 h-3.5" /> },
   { key: 'audit', label: 'Audit Log', icon: <Shield className="w-3.5 h-3.5" /> },
   { key: 'charts', label: 'Charts', icon: <BarChart3 className="w-3.5 h-3.5" /> },
+  { key: 'recap', label: 'Recap', icon: <BookOpenText className="w-3.5 h-3.5" /> },
 ];
 
 export function FinancePage() {
@@ -1437,9 +1439,25 @@ export function FinancePage() {
                   exit="exit"
                   transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
                 >
-                  <AuditLogTab
+                   <AuditLogTab
                     data-section="finance.audit"
                     displayCurrency={displayCurrency}
+                  />
+                </motion.div>
+              )}
+               {activeTab === 'recap' && (
+                <motion.div
+                  key="recap"
+                  variants={tabPanel}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <RecapPanel
+                    data-section="finance.recap"
+                    displayCurrency={displayCurrency}
+                    onNotify={(msg, type) => { setNotifMsg(msg); setTimeout(() => setNotifMsg(null), 3000); }}
                   />
                 </motion.div>
               )}

@@ -737,3 +737,20 @@ If you encounter issues:
 **Last Updated:** 2026-08-06
 
 **Maintained By:** DeskFlow Team
+
+---
+
+## VS Code Activity Extension
+
+The `vscode-extension/` folder contains the **DeskFlow Activity Tracker** VS Code extension — it captures live coding telemetry (files opened, lines changed, active duration) and batches it to the DeskFlow local capture server (port `54321`, POST `/code-activity`) every 60 seconds, feeding the `code_activity` table behind the IDE page's "Coding Activity" charts and Live Pulse grid.
+
+**Installing the VS Code Extension**
+
+1. `cd vscode-extension`
+2. `npm install`
+3. `npm run compile`
+4. Press **F5** in VS Code to test in an Extension Development Host, or package and install:
+   - `npx @vscode/vsce package` to build `deskflow-vscode-1.0.0.vsix`
+   - VS Code ? Extensions ? `...` ? **Install from VSIX...** ? select the `.vsix` file
+
+Requirements: DeskFlow must be running (the local capture server is always-on, even when browser tracking is disabled). The extension posts to `http://localhost:54321/code-activity`.

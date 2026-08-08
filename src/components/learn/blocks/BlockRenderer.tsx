@@ -1,7 +1,8 @@
 // BlockRenderer — dispatches to typed block components
 // Unknown types render a graceful "unsupported block" placeholder
 
-import React from 'react';
+import React, { useState } from 'react';
+import { FileCode2 } from 'lucide-react';
 import type { LdocBlock } from '../../shared/learn/types';
 import { ProseBlock } from './ProseBlock';
 import { MathBlock } from './MathBlock';
@@ -49,6 +50,7 @@ interface BlockRendererProps {
 const VISUAL_TYPES = new Set(['mermaid', 'chart', 'flow', 'finchart', 'table', 'image', 'widget', 'svg', 'math', 'code', 'video', 'viz_heatmap', 'viz_graph', 'viz_timeline', 'viz_concept_map', 'whiteboard', 'illustration']);
 
 export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, onQuizSubmit, currentLevel, nodeId, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin }: BlockRendererProps) {
+  const [showSource, setShowSource] = useState(false);
   const sharedProps = { block, onAsk };
   const isVisual = VISUAL_TYPES.has(block.type);
   const wrapper = isVisual ? 'max-w-4xl w-full mx-auto' : 'max-w-[68ch] mx-auto';
@@ -120,9 +122,55 @@ export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, o
   })();
 
   if (isVisual) {
-    return <div className={wrapper}>{content}</div>;
+    return (
+      <div className={wrapper}>
+        <div className="relative group/block">
+          {content}
+          <button
+            onClick={() => setShowSource(!showSource)}
+            className="absolute -top-1 right-0 opacity-0 group-hover/block:opacity-100 transition-opacity p-1 rounded text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/60 z-10"
+            title={showSource ? 'Hide source' : 'Show LDOC source'}
+          >
+            <FileCode2 className="w-3 h-3" />
+          </button>
+          {showSource && (
+            <div className="mt-2 rounded-lg border border-zinc-800/60 bg-zinc-950/80 overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800/50">
+                <span className="text-[10px] font-mono text-zinc-500">block:{block.id}</span>
+                <span className="text-[10px] font-mono text-zinc-600">{block.type}</span>
+              </div>
+              <pre className="p-3 text-[10px] font-mono leading-relaxed text-zinc-400 whitespace-pre overflow-x-auto max-h-48 overflow-y-auto">
+                {JSON.stringify(block, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
-  return content;
+  return (
+    <div className="relative group/block">
+      {content}
+      <button
+        onClick={() => setShowSource(!showSource)}
+        className="absolute -top-1 right-0 opacity-0 group-hover/block:opacity-100 transition-opacity p-1 rounded text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/60 z-10"
+        title={showSource ? 'Hide source' : 'Show LDOC source'}
+      >
+        <FileCode2 className="w-3 h-3" />
+      </button>
+      {showSource && (
+        <div className="mt-2 rounded-lg border border-zinc-800/60 bg-zinc-950/80 overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800/50">
+            <span className="text-[10px] font-mono text-zinc-500">block:{block.id}</span>
+            <span className="text-[10px] font-mono text-zinc-600">{block.type}</span>
+          </div>
+          <pre className="p-3 text-[10px] font-mono leading-relaxed text-zinc-400 whitespace-pre overflow-x-auto max-h-48 overflow-y-auto">
+            {JSON.stringify(block, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
 }, (prev, next) => {
   // Only re-render if the block reference changed or block content changed
   return prev.block.id === next.block.id

@@ -22,6 +22,7 @@ interface DeskflowAPI {
   onTrackingHeartbeat: (cb: (data: any) => void) => () => void;
   onBrowserTrackingEvent: (cb: (data: any) => void) => () => void;
   onTrackerMindInitProgress: (cb: (data: any) => void) => () => void;
+  onRecapProgress: (cb: (data: { month: string; stage: 'reading' | 'analyzing' | 'writing' | 'saving' | 'done' }) => void) => () => void;
   getLogs: () => Promise<any[]>;
   getLogsByPeriod: (params: { period: 'today' | 'week' | 'month' | 'all'; dateOffset?: number }) => Promise<any[]>;
   getDashboardData: (params: { period: string; dateOffset?: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
@@ -103,6 +104,7 @@ interface DeskflowAPI {
   getCommitStats: (projectId?: string, period?: string) => Promise<any>;
   getIDEProjectsOverview: (period?: string, dateOffset?: number) => Promise<any>;
   getCodeChangeStats: (period?: string, dateOffset?: number, projectId?: string) => Promise<any>;
+  getCodeActivityStats: (period?: string, dateOffset?: number, projectId?: string) => Promise<any>;
   scanIdeDefaultProjects: () => Promise<{ ide: string; projects: { name: string; path: string }[] }[]>;
   detectProjectScripts: (projectPath: string) => Promise<any>;
   getProjectRunConfig: (projectId: string) => Promise<any>;
@@ -281,6 +283,11 @@ interface DeskflowAPI {
   financeStoreWebAuthnCredential: (credentialId: string) => Promise<any>;
   financeGetDisplayCurrency: () => Promise<{ currency: string }>;
   financeSetDisplayCurrency: (currency: string) => Promise<{ success: boolean }>;
+  financeRecapList: () => Promise<{ ok: boolean; data?: any[]; error?: string }>;
+  financeRecapGet: (month: string) => Promise<{ ok: boolean; data?: any; error?: string }>;
+  financeRecapGenerate: (month: string, force?: boolean) => Promise<{ ok: boolean; data?: any; error?: string }>;
+  financeRecapDelete: (month: string) => Promise<{ ok: boolean; error?: string }>;
+  financeRecapMonthsWithData: () => Promise<{ ok: boolean; data?: string[]; error?: string }>;
   financeCryptoCacheStatus: () => Promise<{ lastFetch: number; cacheAgeS: number; rateLimited: boolean; retryIn: number; coinsTracked: number }>;
   financeFetchCryptoPrices: (coinIds: string[], currency?: string) => Promise<any[]>;
   financeGetCryptoHistory: (coinId: string, days?: number, currency?: string) => Promise<any[]>;

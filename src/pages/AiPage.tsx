@@ -229,38 +229,34 @@ export function AiPage() {
     return { x: base.x + offset, y: base.y + offset }
   }
 
-  // Canvas-mode automation cards (spec §12) — derived from the live automation list
+  // Canvas-mode automation cards: sync automations into the canvas store as first-class cards
   const { toggleAutomation, deleteAutomation, testRun } = automationActions;
-  const automationCanvasCards = useMemo(() => {
-    const existing = Object.values(canvas.allCards).filter((c: any) => c.type === 'automation')
-    const usedPositions = new Set(existing.map((c: any) => `${Math.round(c.position.x / 40)},${Math.round(c.position.y / 40)}`))
-    let col = 0, row = 0
-    return automationActions.automations.map((auto, i) => {
-      while (usedPositions.has(`${col},${row}`)) {
-        col += 6
-        if (col > 18) { col = 0; row += 6 }
+
+  useEffect(() => {
+    canvas.syncAutomations(automationActions.automations)
+  }, [automationActions.automations, canvas.syncAutomations])
+
+  // Inject live closures into automation cards before rendering
+  const enrichedCards = useMemo(() => {
+    return canvas.cards.map((c: any) => {
+      if (c.type === 'automation' && c.data?.automation) {
+        const auto = automationActions.automations.find((a: any) => a.ruleId === c.data.automation.ruleId)
+        if (auto) {
+          return {
+            ...c,
+            data: {
+              ...c.data,
+              automation: auto,
+              onToggle: () => toggleAutomation(auto.ruleId, auto.enabled),
+              onDelete: () => deleteAutomation(auto.ruleId, auto.name),
+              onTestRun: () => testRun(auto.ruleId, auto.name),
+            }
+          }
+        }
       }
-      usedPositions.add(`${col},${row}`)
-      const pos = { x: 40 + col * 40, y: 40 + row * 40 }
-      return {
-        id: `auto-${auto.ruleId}`,
-        type: 'automation' as CardType,
-        position: pos,
-        size: { w: 8, h: 5 },
-        zIndex: 20 + i,
-        pinned: true,
-        data: {
-          automation: auto,
-          onToggle: () => toggleAutomation(auto.ruleId, auto.enabled),
-          onDelete: () => deleteAutomation(auto.ruleId, auto.name),
-          onTestRun: () => testRun(auto.ruleId, auto.name),
-        },
-        source: 'ai' as const,
-        status: 'live' as const,
-        createdAt: Date.now(),
-      }
+      return c
     })
-  }, [automationActions.automations, canvas.allCards, toggleAutomation, deleteAutomation, testRun])
+  }, [canvas.cards, automationActions.automations, toggleAutomation, deleteAutomation, testRun])
 
   function spawnTypedCard(parsed: any, pos: { x: number; y: number }, msgId: string): string | null {
     const dataHash = JSON.stringify(parsed).slice(0, 100)
@@ -1660,7 +1656,7 @@ export function AiPage() {
           ) : (
           <div data-tutorial="ai.canvas" style={{ flex: 1, minHeight: 0 }}>
             <CanvasContainer
-              cards={[...canvas.cards, ...automationCanvasCards]}
+              cards={enrichedCards}
               onMoveCard={canvas.moveCard}
               onDismissCard={canvas.dismissCard}
               onArrangeCards={canvas.arrangeCards}

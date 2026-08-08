@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, FileUp, Sparkles, BookMarked, LayoutGrid, Rows3 } from 'lucide-react';
+import { Plus, FileUp, Sparkles, BookMarked, LayoutGrid, Rows3, FolderCog } from 'lucide-react';
 import type { LessonSummary, TutorDashboardData } from '../../shared/learn/types';
 import { BookCard } from './BookCard';
 import { BookSpine } from './BookSpine';
@@ -26,6 +26,7 @@ export interface LessonLibraryProps {
   onOpenProfile?: () => void;
   getDashboard?: () => Promise<TutorDashboardData>;
   onNavigateToNode?: (nodeId: string) => void;
+  onManageGroups?: () => void;
 }
 
 function LibrarySkeletons({ spine }: { spine?: boolean }) {
@@ -52,7 +53,7 @@ function LibrarySkeletons({ spine }: { spine?: boolean }) {
 
 type ViewMode = 'covers' | 'spines';
 
-export function LessonLibrary({ lessons, loading, onOpen, onInfo, onCompose, onImport, onWelcome, stats, onOpenProfile, getDashboard, onNavigateToNode }: LessonLibraryProps) {
+export function LessonLibrary({ lessons, loading, onOpen, onInfo, onCompose, onImport, onWelcome, stats, onOpenProfile, getDashboard, onNavigateToNode, onManageGroups }: LessonLibraryProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('covers');
 
   // Group lessons into shelves by part so the library reads like a curriculum.
@@ -115,6 +116,16 @@ export function LessonLibrary({ lessons, loading, onOpen, onInfo, onCompose, onI
               <FileUp className="mr-2 h-4 w-4" />
               Import
             </Button>
+            {onManageGroups && (
+              <button
+                onClick={onManageGroups}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700/50 bg-zinc-800/40 px-4 py-2.5 text-sm font-medium text-zinc-300 transition-all hover:bg-zinc-700/50 hover:border-zinc-600/60"
+                title="Manage chapter groups"
+              >
+                <FolderCog className="h-4 w-4" />
+                Groups
+              </button>
+            )}
             <button
               onClick={onCompose}
               className="inline-flex items-center gap-2 rounded-xl border border-clay-400/40 bg-clay-500/15 px-5 py-2.5 font-serif text-sm font-semibold text-glow transition-all hover:bg-clay-500/25 hover:shadow-[0_0_20px_rgba(194,85,58,0.25)]"
@@ -157,7 +168,7 @@ export function LessonLibrary({ lessons, loading, onOpen, onInfo, onCompose, onI
                 <div className="mb-4 flex items-center gap-3">
                   <Sparkles className="h-3.5 w-3.5 text-amber-400" />
                   <h2 className="font-mono text-[11px] uppercase tracking-[0.28em] text-zinc-400">
-                    {partInfo?.emoji || '📖'} Part {String(part).padStart(2, '0')} — {partInfo?.title || `Part ${part}`}
+                    {partInfo?.emoji || '📖'} Topic {String(part).padStart(2, '0')} — {partInfo?.title || `Topic ${part}`}
                   </h2>
                   <span className="h-px flex-1 bg-white/10" />
                 </div>
@@ -203,7 +214,7 @@ export function LessonLibrary({ lessons, loading, onOpen, onInfo, onCompose, onI
                 <div className="mb-4 flex items-center gap-3">
                   <Sparkles className="h-3.5 w-3.5 text-amber-400" />
                   <h2 className="font-mono text-[11px] uppercase tracking-[0.28em] text-zinc-400">
-                    Part {String(part).padStart(2, '0')}
+                    Topic {String(part).padStart(2, '0')}
                   </h2>
                   <span className="h-px flex-1 bg-white/10" />
                 </div>

@@ -310,6 +310,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Dashboard Overview
   getIDEProjectsOverview: (period?: string, dateOffset?: number) => ipcRenderer.invoke('get-ide-projects-overview', period, dateOffset),
   getCodeChangeStats: (period?: string, dateOffset?: number, projectId?: string) => ipcRenderer.invoke('get-code-change-stats', period, dateOffset, projectId),
+  getCodeActivityStats: (period?: string, dateOffset?: number, projectId?: string) => ipcRenderer.invoke('get-code-activity-stats', period, dateOffset, projectId),
 
   // AI Usage Sync
   syncAIUsage: () => ipcRenderer.invoke('sync-ai-usage'),
@@ -752,6 +753,11 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     ipcRenderer.on('session-metadata-updated', handler);
     return () => { ipcRenderer.removeListener('session-metadata-updated', handler); };
   },
+  onRecapProgress: (callback: (data: { month: string; stage: 'reading' | 'analyzing' | 'writing' | 'saving' | 'done' }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on('finance:recap-progress', handler);
+    return () => { ipcRenderer.removeListener('finance:recap-progress', handler); };
+  },
 
   // ========= Agent Files (from project) =========
   readAgentFiles: (projectPath: string) => ipcRenderer.invoke('read-agent-files', projectPath),
@@ -1058,6 +1064,12 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeGetDisplayCurrency: () => ipcRenderer.invoke('finance:get-display-currency'),
   financeSetDisplayCurrency: (currency: string) => ipcRenderer.invoke('finance:set-display-currency', currency),
 
+  financeRecapList: () => ipcRenderer.invoke('finance:recap-list'),
+  financeRecapGet: (month: string) => ipcRenderer.invoke('finance:recap-get', { month }),
+  financeRecapGenerate: (month: string, force = false) => ipcRenderer.invoke('finance:recap-generate', { month, force }),
+  financeRecapDelete: (month: string) => ipcRenderer.invoke('finance:recap-delete', { month }),
+  financeRecapMonthsWithData: () => ipcRenderer.invoke('finance:recap-months-with-data'),
+
   financeGetArchivedAccounts: () => ipcRenderer.invoke('finance:get-archived-accounts'),
   financeGetArchivedWallets: () => ipcRenderer.invoke('finance:get-archived-wallets'),
   financeUnarchiveAccount: (id: number) => ipcRenderer.invoke('finance:unarchive-account', id),
@@ -1173,7 +1185,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   learnGetWorkedExample: () => ipcRenderer.invoke('learn:get-worked-example'),
   learnGetSchema: () => ipcRenderer.invoke('learn:get-schema'),
   learnGetAuthorGuide: () => ipcRenderer.invoke('learn:get-author-guide'),
-  learnBuildPrompt: (params: { userInput?: string; topic?: string; description?: string; contextDoc?: string; numNodes?: number; masteryTargets?: string[] }) =>
+  learnBuildPrompt: (params: { userInput?: string; topic?: string; description?: string; contextDoc?: string; numNodes?: number; masteryTargets?: string[]; chapter?: string }) =>
     ipcRenderer.invoke('learn:buildPrompt', params),
   learnGenerateLdoc: (params: { prompt: string; systemPrompt: string }) =>
     ipcRenderer.invoke('learn:generateLdoc', params),
@@ -1255,6 +1267,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   learnExplainWithImage: (args: { selectedText: string; contextText: string; nodeId?: string }) => ipcRenderer.invoke('learn:explainWithImage', args),
   learnUploadIllustration: (args: { lessonId?: string; filename?: string }) => ipcRenderer.invoke('learn:uploadIllustration', args),
 
+  // ========== Code Execution (CodeBlock Run button) ==========
+  learnRunCode: (args: { lang?: string; code: string; cwd?: string }) => ipcRenderer.invoke('learn:runCode', args),
+
   // ========== Learning Intents ==========
   learnSaveIntent: (args: { title: string; description?: string; context?: string; category?: string }) => ipcRenderer.invoke('learn:saveIntent', args),
   learnListIntents: () => ipcRenderer.invoke('learn:listIntents'),
@@ -1295,6 +1310,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // ========== Smart Gap Fill ==========
   getKnownApps: () => ipcRenderer.invoke('get-known-apps'),
+  getKnownSites: () => ipcRenderer.invoke('get-known-sites'),
   predictGapFill: (start: string, end: string, mode?: 'combined' | 'separate') =>
     ipcRenderer.invoke('predict-gap-fill', { start, end, mode: mode || 'combined' }),
    confirmGapFill: (fills: Array<{ slotStart: string; slotEnd: string; app: string; category: string; activityId?: string }>) =>

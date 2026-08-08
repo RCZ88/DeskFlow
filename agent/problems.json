@@ -1554,5 +1554,63 @@
     "checks": [],
     "created_at": "2026-06-19T00:00:00.000Z",
     "updated_at": "2026-06-19T00:00:00.000Z"
+  },
+  {
+    "id": "181",
+    "title": "Solar system canvas shrinks into top-left with gaps top/right; Html labels mis-project",
+    "status": "AI Attempted Fix",
+    "priority": "high",
+    "category": "bug-fix",
+    "terminal_id": null,
+    "session_id": "opencode-term-1-solar",
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": "Scene renders small in the top-left corner with empty gaps on the right/top, and galaxy/planet labels appear offset from their objects — worse during the modal entrance animation and after fullscreen toggles.",
+    "fix_description": "Root cause: a manual ResizeObserver (OrbitSystem.tsx ~4073-4088) wrote canvas.width/height = contentRect * devicePixelRatio, racing R3F's own resize (resize={{scroll:false, offsetSize:true}}) — the GL backing store ended up smaller than the CSS box so the viewport renders shrunk top-left and drei Html label projection (canvas position math) is offset. Fix: deleted the manual ResizeObserver entirely; R3F owns canvas sizing.",
+    "files": [
+      "src/components/OrbitSystem.tsx"
+    ],
+    "checks": [],
+    "created_at": "2026-08-07T02:00:00.000Z",
+    "updated_at": "2026-08-07T02:00:00.000Z"
+  },
+  {
+    "id": "182",
+    "title": "Websites galaxy spheres not clickable — only labels open the system",
+    "status": "AI Attempted Fix",
+    "priority": "medium",
+    "category": "bug-fix",
+    "terminal_id": null,
+    "session_id": "opencode-term-1-solar",
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": "In the Websites galaxy, clicking the dust spheres does nothing; the system only opens when clicking the label text chip.",
+    "fix_description": "Made interaction deterministic: hitbox sphere enlarged sphereSize*5 -> *7, direct DOM onClick added to the label div (pointerEvents 'auto', cursor pointer, select-none) AND onClick attached to the visual core sphere itself. Both paths call onSelectSystem(system.category).",
+    "files": [
+      "src/components/OrbitSystem.tsx"
+    ],
+    "checks": [],
+    "created_at": "2026-08-07T02:00:00.000Z",
+    "updated_at": "2026-08-07T02:00:00.000Z"
+  },
+  {
+    "id": "183",
+    "title": "Dashboard freezes on 'All Time' period switch; AI city ignores period prop",
+    "status": "AI Attempted Fix",
+    "priority": "high",
+    "category": "bug-fix",
+    "terminal_id": null,
+    "session_id": "opencode-term-1-solar",
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": "Switching the dashboard/AI page to All Time can freeze the UI for seconds; the AICityscape city never reacts to the period selector.",
+    "fix_description": "Not data-size-dependent (DB tiny: 10.4K logs). Structural bound: computePeriodRange('all') now uses the REAL earliest tracked date (MIN(stats_daily.date) cached 5 min, fallback 2000-01-01) instead of a hardcoded 2000-01-01; all-time weeklyHeatmap capped to last 365 days for the chart (totals stay all-time); FROZEN-DBG timing log at weeklyHeatmap; AICityscape now honors `period` via a remount key on CityScene (fully procedural — cheap, no GLB reloads).",
+    "files": [
+      "src/main.ts",
+      "src/components/AICityscape.tsx"
+    ],
+    "checks": [],
+    "created_at": "2026-08-07T02:00:00.000Z",
+    "updated_at": "2026-08-07T02:00:00.000Z"
   }
 ]

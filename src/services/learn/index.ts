@@ -147,13 +147,17 @@ export function registerLearnHandlers(
   });
 
   ipcMain.handle('learn:validate', (_event, payload: { source?: string; json?: unknown }) => {
+    // Get all published node IDs for cross-lesson prereq resolution
+    const publishedIds = new Set(
+      (db.prepare('SELECT id FROM learn_nodes').all() as any[]).map((r: any) => r.id)
+    );
     if (typeof payload.source === 'string') {
       const doc = toLdocDocument(payload.source);
       if (!doc.ok) return { ok: false, errors: [{ rule: 'parse', message: doc.error }], warnings: [] };
-      return validateFull(doc.data);
+      return validateFull(doc.data, publishedIds);
     }
     if (payload.json && typeof payload.json === 'object') {
-      return validateFull(payload.json);
+      return validateFull(payload.json, publishedIds);
     }
     return { ok: false, errors: [{ rule: 'parse', message: 'Invalid payload: expected source (string) or json (object)' }], warnings: [] };
   });
@@ -381,6 +385,7 @@ export function registerLearnHandlers(
     contextDoc?: string;
     numNodes?: number;
     masteryTargets?: string[];
+    chapter?: string;
   }) => {
     // Use composed prompt library when available
     const readResource = (rel: string) => {
@@ -388,7 +393,7 @@ export function registerLearnHandlers(
       return existsSync(fp) ? readFileSync(fp, 'utf-8') : null;
     };
 
-    const { loadPromptLibrary, composeAuthorSystemPrompt, composeTopicUserPrompt } = require('./promptLibrary');
+    const { loadPromptLibrary, composeAuthorSystemPrompt, composeTopicUserPrompt, selectKnowledgeForTopic, composeKnowledgeContextBlock } = require('./promptLibrary');
     const { CURRICULUM_BLUEPRINT } = require('./curriculum');
 
     const lib = loadPromptLibrary(readResource);
@@ -399,7 +404,14 @@ export function registerLearnHandlers(
       : undefined;
 
     const profile = loadLearnerProfile(db);
-    const systemPrompt = composeAuthorSystemPrompt(lib, { part: part?.part, profile: profile ?? undefined });
+
+    // Relevance-filtered knowledge: ONLY entries related to this topic are injected
+    const knowledge = selectKnowledgeForTopic(profile, { part: part?.part, topic: params.topic });
+
+    let systemPrompt = composeAuthorSystemPrompt(lib, { part: part?.part, profile: profile ?? undefined });
+    if (knowledge.entries.length || knowledge.relatedParts.length) {
+      systemPrompt += '\n\n---\n\n' + composeKnowledgeContextBlock(knowledge);
+    }
 
     let userPrompt: string;
 
@@ -442,20 +454,31 @@ export function registerLearnHandlers(
       userPrompt += `\nIMPORTANT: When referencing a prerequisite from another lesson, use the EXACT node ID from the list above. Do NOT guess or modify the ID — copy it character-for-character.`;
     }
 
-    // Inject existing chapters so the AI can assign lessons to them or suggest new ones
-    const existingChapters = db.prepare(
-      "SELECT DISTINCT chapter, part FROM learn_lessons WHERE chapter != '' ORDER BY part, chapter"
-    ).all() as any[];
-    if (existingChapters.length > 0) {
-      const chapterList = existingChapters.map((c: any) => `  Part ${c.part}: "${c.chapter}"`).join('\n');
-      userPrompt += `\n\n--- EXISTING CHAPTERS (assign this lesson to one of these if it fits, otherwise create a new chapter name) ---\n${chapterList}\n`;
-      userPrompt += `\nIMPORTANT: Include a "chapter" field in the lesson metadata with the chapter name you chose.`;
+    if (params.chapter && params.chapter.trim()) {
+      const chosen = params.chapter.trim();
+      userPrompt += `\n\n--- CHAPTER ASSIGNMENT (HARD REQUIREMENT) ---\nThe learner has explicitly chosen to place this lesson in the chapter/group: "${chosen}".\nIMPORTANT: Include a "chapter" field in the lesson metadata with EXACTLY this name: ${JSON.stringify(chosen)}. Do NOT use a different chapter name or invent one.`;
     } else {
-      userPrompt += `\n\nIMPORTANT: Include a "chapter" field in the lesson metadata with a descriptive chapter name for this lesson (e.g. "Introduction", "Core Concepts", "Advanced Topics").`;
+      // Inject existing chapters so the AI can assign lessons to them or suggest new ones
+      const existingChapters = db.prepare(
+        "SELECT DISTINCT chapter, part FROM learn_lessons WHERE chapter != '' ORDER BY part, chapter"
+      ).all() as any[];
+      if (existingChapters.length > 0) {
+        const chapterList = existingChapters.map((c: any) => `  Part ${c.part}: "${c.chapter}"`).join('\n');
+        userPrompt += `\n\n--- EXISTING CHAPTERS (assign this lesson to one of these if it fits, otherwise create a new chapter name) ---\n${chapterList}\n`;
+        userPrompt += `\nIMPORTANT: Include a "chapter" field in the lesson metadata with the chapter name you chose.`;
+      } else {
+        userPrompt += `\n\nIMPORTANT: Include a "chapter" field in the lesson metadata with a descriptive chapter name for this lesson (e.g. "Introduction", "Core Concepts", "Advanced Topics").`;
+      }
     }
 
     const fullPrompt = systemPrompt + '\n\n---\n\n' + userPrompt;
-    return { ok: true, prompt: fullPrompt, systemPrompt, userPrompt };
+    return {
+      ok: true, prompt: fullPrompt, systemPrompt, userPrompt,
+      knowledgeUsed: {
+        entries: knowledge.entries.map((e: any) => ({ id: e.id, statement: e.statement, topic: e.topic, level: e.level })),
+        relatedTopics: knowledge.relatedParts.map((p: any) => ({ part: p.part, title: p.title, emoji: p.emoji })),
+      },
+    };
   });
 
   ipcMain.handle('learn:generateLdoc', async (_event, { prompt, systemPrompt }: {
@@ -1107,6 +1130,61 @@ export function registerLearnHandlers(
       }};
     } catch (e: any) {
       return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Run code snippet (CodeBlock Run button) ──
+  ipcMain.handle('learn:runCode', async (_event, args: { lang?: string; code: string; cwd?: string }) => {
+    const { exec } = require('child_process');
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const lang = (args.lang || 'text').toLowerCase();
+
+    const RUNNERS: Record<string, { ext: string; interpreter: string }> = {
+      python: { ext: 'py', interpreter: 'python' },
+      py: { ext: 'py', interpreter: 'python' },
+      javascript: { ext: 'js', interpreter: 'node' },
+      js: { ext: 'js', interpreter: 'node' },
+    };
+
+    const run = (command: string, cwd?: string) => new Promise<{ ok: boolean; stdout: string; stderr: string; error?: string; code?: number }>((resolve) => {
+      exec(command, { cwd: cwd || undefined, timeout: 15000, maxBuffer: 1024 * 1024 }, (error: any, stdout: string, stderr: string) => {
+        resolve({ ok: !error, stdout, stderr, error: error ? error.message : undefined, code: error?.code });
+      });
+    });
+
+    try {
+      let command: string;
+      let tempFile: string | null = null;
+
+      if (lang === 'shell' || lang === 'bash' || lang === 'cmd') {
+        command = args.code;
+      } else if (RUNNERS[lang]) {
+        const runner = RUNNERS[lang];
+        const dir = path.join(os.tmpdir(), 'lyceum-run');
+        fs.mkdirSync(dir, { recursive: true });
+        tempFile = path.join(dir, `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${runner.ext}`);
+        fs.writeFileSync(tempFile, args.code, 'utf8');
+        command = `${runner.interpreter} "${tempFile}"`;
+      } else {
+        return { ok: false, error: `Running ${lang} code isn't supported yet.` };
+      }
+
+      const result = await run(command, args.cwd);
+      return { ok: result.ok, stdout: result.stdout, stderr: result.stderr, error: result.error, code: result.code };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    } finally {
+      // Scratch cleanup — only ever removes files we just created in our own temp dir
+      try {
+        const fs = require('fs');
+        const dir = path.join(os.tmpdir(), 'lyceum-run');
+        for (const f of fs.readdirSync(dir)) {
+          const full = path.join(dir, f);
+          if (Date.now() - fs.statSync(full).mtimeMs > 60 * 60 * 1000) fs.unlinkSync(full);
+        }
+      } catch { /* ignore */ }
     }
   });
 }

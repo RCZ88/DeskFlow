@@ -8,12 +8,13 @@ interface MemoryCardProps {
   memory: LoadedMemory;
   onOpen: () => void;
   span?: 'sm' | 'lg';
+  idPrefix?: string;
 }
 
 const hoverAnimate = { y: -3, scale: 1.015 };
 const hoverTransition = { duration: 0.18, ease: [0.16, 1, 0.3, 1] as const };
 
-export function MemoryCard({ memory, onOpen, span = 'sm' }: MemoryCardProps) {
+export function MemoryCard({ memory, onOpen, span = 'sm', idPrefix }: MemoryCardProps) {
   const [poster, setPoster] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export function MemoryCard({ memory, onOpen, span = 'sm' }: MemoryCardProps) {
 
   return (
     <motion.button
-      layoutId={`memory-${memory.meta.id}`}
+      layoutId={`${idPrefix ? `${idPrefix}-` : ''}memory-${memory.meta.id}`}
       onClick={onOpen}
       whileHover={hoverAnimate}
       transition={hoverTransition}

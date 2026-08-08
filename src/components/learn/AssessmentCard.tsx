@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { CheckCircle, XCircle, ClipboardCheck, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface Question {
   id: string;
@@ -58,11 +58,16 @@ export function AssessmentCard({
         aria-expanded={expanded}
       >
         <div className="lyceum-assessment-title-row">
-          <AlertCircle size={16} />
+          <ClipboardCheck size={16} />
           <h3 className="lyceum-assessment-title">{title}</h3>
           {submitted && (
             <span className={`lyceum-assessment-score${allCorrect ? ' perfect' : ''}`}>
               {score}/{questions.length}
+            </span>
+          )}
+          {!submitted && Object.keys(answers).length > 0 && (
+            <span className="text-[11px] text-zinc-500">
+              {Object.keys(answers).length}/{questions.length} answered
             </span>
           )}
         </div>

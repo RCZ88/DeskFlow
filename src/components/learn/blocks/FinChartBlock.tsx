@@ -1,27 +1,52 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { FinChartBlock as FinChartBlockType } from '../../../shared/learn/types';
+import { isDynamicImportFailure, autoHealDynamicImport } from '../../ErrorBoundary';
 
 interface Props {
   block: FinChartBlockType;
   onAsk?: (blockId: string, question: string) => void;
 }
 
+type Row = Record<string, unknown>;
+
+/**
+ * Extract the data array from a finchart block. The parser passes full
+ * vega-lite specs where the data lives at `spec.data.values` (NOT at the
+ * top level), so `(parsed.data ?? parsed)` alone throws "No data series
+ * found". Also accept plain arrays and OHLC rows.
+ */
+function extractData(parsed: unknown): Row[] {
+  const anyParsed = parsed as any;
+  if (Array.isArray(parsed)) return parsed as Row[];
+  if (!anyParsed || typeof anyParsed !== 'object') return [];
+  if (Array.isArray(anyParsed.data)) return anyParsed.data as Row[];
+  const values = anyParsed.data?.values;
+  if (Array.isArray(values)) return values as Row[];
+  const encValues = anyParsed.encoding?.x?.data;
+  if (Array.isArray(encValues)) return encValues as Row[];
+  return [];
+}
+
+const SERIES_COLORS = ['#d96846', '#22c55e', '#3b82f6', '#a78bfa', '#f59e0b', '#ec4899', '#06b6d4', '#f43f5e'];
+
 export function FinChartBlock({ block, onAsk }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let mounted = true;
     setLoading(true);
     setError(null);
 
-    let data: Record<string, unknown>[];
+    let data: Row[];
+    let parsed: any;
     try {
-      const parsed = block.parsed ?? JSON.parse(block.spec);
-      data = (parsed.data ?? parsed) as Record<string, unknown>[];
-      if (!Array.isArray(data) || data.length === 0) {
-        throw new Error('No data series found');
+      parsed = block.parsed ?? JSON.parse(block.spec);
+      data = extractData(parsed);
+      if (!data.length) {
+        throw new Error('No data series found — expected a data array or a vega-lite spec with data.values');
       }
     } catch (e: any) {
       if (mounted) {
@@ -31,10 +56,13 @@ export function FinChartBlock({ block, onAsk }: Props) {
       return;
     }
 
+    let chart: any = null;
+    let handleResize: () => void = () => {};
+
     import('lightweight-charts').then((lwc) => {
       if (!mounted || !containerRef.current) return;
 
-      const chart = lwc.createChart(containerRef.current, {
+      chart = lwc.createChart(containerRef.current, {
         width: containerRef.current.clientWidth,
         height: 300,
         layout: {
@@ -65,36 +93,72 @@ export function FinChartBlock({ block, onAsk }: Props) {
           wickDownColor: '#ef4444',
         });
       } else {
-        chart.addAreaSeries({
-          data: data as any,
-          lineColor: '#d96846',
-          topColor: 'rgba(217, 104, 70, 0.3)',
-          bottomColor: 'rgba(217, 104, 70, 0.01)',
+        // Find the categorical x-field (string values) — everything numeric
+        // that isn't the x-field becomes its own series.
+        const first = data[0] as Row;
+        let xField: string | null = null;
+        for (const [k, v] of Object.entries(first)) {
+          if (typeof v === 'string' && !xField) xField = k;
+        }
+        const numericFields = Object.keys(first).filter((k) => k !== xField && typeof first[k] === 'number');
+        const fields = numericFields.length ? numericFields : Object.keys(first).filter((k) => k !== xField);
+
+        if (!fields.length) {
+          throw new Error('No numeric series found in the data');
+        }
+
+        const labels = xField ? data.map((r) => String(r[xField] ?? '')) : null;
+        const timeFor = (i: number) => i as any;
+
+        fields.forEach((field, fi) => {
+          const color = SERIES_COLORS[fi % SERIES_COLORS.length];
+          const points = data.map((r, i) => ({ time: timeFor(i), value: Number(r[field] ?? 0) }));
+          const mark = (parsed?.mark as string) || (parsed?.encoding?.x?.mark as string) || 'line';
+          if (mark === 'bar' || mark === 'histogram') {
+            chart.addHistogramSeries({ color, priceFormat: { type: 'price' } }).setData(points as any);
+          } else if (mark === 'area') {
+            chart.addAreaSeries({
+              lineColor: color,
+              topColor: `${color}4d`,
+              bottomColor: `${color}0d`,
+            }).setData(points as any);
+          } else {
+            chart.addLineSeries({ color, lineWidth: 2 }).setData(points as any);
+          }
         });
+
+        if (labels) {
+          chart.timeScale().applyOptions({
+            tickMarkFormatter: (t: any) => labels[Number(t)] ?? '',
+          });
+        }
       }
 
-      const handleResize = () => {
+      handleResize = () => {
         if (containerRef.current) {
-          chart.applyOptions({ width: containerRef.current.clientWidth });
+          chart?.applyOptions({ width: containerRef.current.clientWidth });
         }
       };
       window.addEventListener('resize', handleResize);
 
       setLoading(false);
-
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        chart.remove();
-      };
     }).catch((err: any) => {
       if (mounted) {
+        if (isDynamicImportFailure(err)) {
+          autoHealDynamicImport();
+          return;
+        }
         setError(`Chart error: ${err.message}`);
         setLoading(false);
       }
     });
 
-    return () => { mounted = false; };
-  }, [block.id, block.spec, block.parsed]);
+    return () => {
+      mounted = false;
+      window.removeEventListener('resize', handleResize);
+      try { chart?.remove(); } catch { /* already removed */ }
+    };
+  }, [block.id, block.spec, block.parsed, retry]);
 
   return (
     <div className="my-6 py-4 px-4 rounded-xl bg-zinc-800/30 border border-zinc-700/40 group relative" data-block-id={block.id}>
@@ -107,9 +171,15 @@ export function FinChartBlock({ block, onAsk }: Props) {
         <div className="text-red-400 text-sm">
           <div>{error}</div>
           <pre className="mt-2 text-xs bg-zinc-900/50 p-2 rounded overflow-x-auto">{block.spec}</pre>
+          <button
+            onClick={() => setRetry((r) => r + 1)}
+            className="mt-2 text-xs font-medium text-clay-400 hover:text-clay-300 transition"
+          >
+            ↻ Retry
+          </button>
         </div>
       )}
-      <div ref={containerRef} className={loading ? 'hidden' : 'w-full'} />
+      <div ref={containerRef} className={loading || error ? 'hidden' : 'w-full'} />
       {block.caption && (
         <div className="mt-2 text-sm text-zinc-500 italic text-center">{block.caption}</div>
       )}

@@ -1,0 +1,419 @@
+"use client"
+
+import * as React from 'react'
+import { useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
+
+import { WarmCard } from '../../features/warmth/WarmCard'
+import { MemoryCard } from '../../features/memories/MemoryCard'
+import type { LoadedMemory } from '../../features/memories/useMemories'
+import { AnimatedCircularProgressBar } from '@/components/ui/animated-circular-progress-bar'
+import type { LongTermGoal } from '@/components/dashboard/types'
+import {
+  categoryOf,
+  getContrastColor,
+  phaseSpanLabel,
+  type LifePhase,
+  type LifePhaseMilestone,
+  type LifePhasePerson,
+  type PhaseMoodTag,
+  type LifePhaseConnection,
+} from '@/lib/riverMath'
+import { cn } from '@/lib/utils'
+import { Pencil, Sparkles, Users, BookOpen, Quote } from 'lucide-react'
+
+import { PhaseFormDialog } from './phase-form-dialog'
+import { ReflectionFlow } from './reflection-flow'
+
+const MOOD_COLORS: Record<number, string> = {
+  [-3]: '#ef4444',
+  [-2]: '#f97316',
+  [-1]: '#eab308',
+  [0]: '#a1a1aa',
+  [1]: '#84cc16',
+  [2]: '#22c55e',
+  [3]: '#fbbf24',
+}
+
+function moodPosition(val: number | null): number {
+  if (val == null) return 50
+  return ((val + 3) / 6) * 100
+}
+
+function Ring({ pct, size = 32 }: { pct: number; size?: number }) {
+  return (
+    <div className="relative shrink-0">
+      <AnimatedCircularProgressBar
+        value={Math.min(100, pct)}
+        size={size}
+        strokeWidth={3}
+        gaugePrimaryColor="#fbbf24"
+        gaugeSecondaryColor="rgba(63,63,70,0.5)"
+      />
+      <span className="absolute inset-0 flex items-center justify-center text-[8px] font-semibold text-zinc-300 tabular-nums">
+        {Math.round(pct)}
+      </span>
+    </div>
+  )
+}
+
+interface PhaseCardProps {
+  phase: LifePhase
+  active: boolean
+  memories: LoadedMemory[]
+  longTermGoals: LongTermGoal[]
+  onActiveChange: (id: string | null) => void
+  onSave: (phase: LifePhase) => void
+  onReflect: (phase: LifePhase, answers: string[]) => Promise<string | null>
+  onKeepReflection: (phase: LifePhase, text: string) => void
+  onOpenMemory: (memory: LoadedMemory) => void
+}
+
+export function PhaseCard({
+  phase,
+  active,
+  memories,
+  longTermGoals,
+  onActiveChange,
+  onSave,
+  onReflect,
+  onKeepReflection,
+  onOpenMemory,
+}: PhaseCardProps) {
+  const [editing, setEditing] = useState(false)
+  const [reflecting, setReflecting] = useState(false)
+  const [storyExpanded, setStoryExpanded] = useState(false)
+
+  const now = new Date().getFullYear()
+  const color = phase.color || categoryOf(phase.category).color
+  const contrast = getContrastColor(color)
+
+  const phaseMemories = useMemo(() => {
+    const endY = phase.endYear && phase.endYear > 0 ? phase.endYear : now
+    return memories.filter(m => {
+      const y = parseInt((m.meta.date || '').slice(0, 4), 10)
+      return Number.isFinite(y) && y >= phase.startYear && y <= endY
+    })
+  }, [memories, phase.startYear, phase.endYear, now])
+
+  const phaseLtgs = useMemo(() => {
+    const endY = phase.endYear && phase.endYear > 0 ? phase.endYear : now
+    const yearOf = (s?: string | null) => {
+      if (!s) return NaN
+      const y = parseInt(String(s).slice(0, 4), 10)
+      return Number.isFinite(y) ? y : NaN
+    }
+    return longTermGoals.filter(ltg => {
+      const y = yearOf(ltg.deadline) || yearOf(ltg.createdAt)
+      return Number.isFinite(y) && y >= phase.startYear && y <= endY
+    })
+  }, [longTermGoals, phase.startYear, phase.endYear, now])
+
+  const handleKeep = (text: string) => {
+    onKeepReflection(phase, text)
+    setReflecting(false)
+  }
+
+  const people = phase.people || []
+  const moodTags = phase.moodTags || []
+  const milestones = phase.milestones || []
+
+  return (
+    <motion.div
+      data-lifephase="phase-card"
+      data-phase-id={phase.id}
+      className={cn(
+        'overflow-hidden rounded-xl transition-shadow duration-300',
+        active
+          ? 'shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_25px_50px_-12px_rgba(0,0,0,0.7)]'
+          : 'shadow-[0_8px_30px_-12px_rgba(0,0,0,0.5)]'
+      )}
+    >
+      {/* ── Solid Era Monolith: h-64 color header ── */}
+      <button
+        onClick={() => onActiveChange(phase.id)}
+        data-lifephase="phase-band"
+        className="relative flex h-64 w-full items-end gap-4 rounded-t-xl p-6 text-left overflow-hidden"
+        style={{
+          backgroundColor: color,
+          boxShadow: `0 25px 50px -12px ${color}40`,
+        }}
+      >
+        {/* Slow-drifting radial gradient texture */}
+        <motion.div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: `radial-gradient(circle at 30% 30%, ${color}40, transparent 60%)`,
+          }}
+          animate={{ backgroundPosition: ['0% 0%', '100% 100%'] }}
+          transition={{ duration: 26, repeat: Infinity, repeatType: 'mirror', ease: 'linear' }}
+        />
+
+        {/* Atmospheric gradient overlay */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: `linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%, rgba(0,0,0,0.15) 100%)`,
+          }}
+        />
+
+        {/* Magnitude ghost number */}
+        <span className="absolute right-5 top-3 font-display text-8xl text-white/10 select-none leading-none">
+          {phase.magnitude}
+        </span>
+
+        <div className="relative z-10 flex-1 min-w-0">
+          <h2
+            className="warmth-serif text-3xl font-medium leading-tight truncate"
+            style={{ color: contrast }}
+          >
+            {phase.title}
+          </h2>
+          <p
+            className="font-mono text-sm mt-1.5 opacity-80"
+            style={{ color: contrast }}
+          >
+            {phaseSpanLabel(phase)}
+          </p>
+        </div>
+      </button>
+
+      {/* ── Dark glass body — 8 sections ── */}
+      <WarmCard className="rounded-t-none border-t-0 relative overflow-hidden p-6 space-y-6">
+        {/* 1. Memory Pearls — scattered polaroids */}
+        {phaseMemories.length > 0 && (
+          <div>
+            <div className="relative" style={{ minHeight: Math.min(phaseMemories.length, 6) > 3 ? '160px' : '90px' }}>
+              {phaseMemories.slice(0, 6).map((m, i) => {
+                const rotation = (i % 3 === 0 ? -4 : i % 3 === 1 ? 3 : -2)
+                const offsetX = i * 55
+                const offsetY = i % 2 === 0 ? 0 : 18
+                return (
+                  <motion.div
+                    key={m.meta.id}
+                    className="absolute w-28 h-28 rounded-lg overflow-hidden border-2 border-zinc-800 shadow-xl cursor-pointer"
+                    style={{
+                      left: `${offsetX}px`,
+                      top: `${offsetY}px`,
+                      rotate: `${rotation}deg`,
+                      zIndex: i,
+                    }}
+                    whileHover={{
+                      scale: 1.12,
+                      rotate: 0,
+                      zIndex: 50,
+                      transition: { type: 'spring', stiffness: 300, damping: 20 },
+                    }}
+                    onClick={() => onOpenMemory(m)}
+                  >
+                    <MemoryCard
+                      idPrefix={`phase-${phase.id}`}
+                      memory={m}
+                      onOpen={() => onOpenMemory(m)}
+                    />
+                  </motion.div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 2. Story */}
+        {phase.description && (
+          <div>
+            <p className={cn(
+              'warmth-serif text-base leading-relaxed text-zinc-300',
+              !storyExpanded && 'line-clamp-5'
+            )}>
+              {phase.description}
+            </p>
+            {phase.description.length > 200 && (
+              <button
+                onClick={() => setStoryExpanded(!storyExpanded)}
+                className="text-[12px] text-zinc-500 hover:text-zinc-300 mt-1 transition-colors"
+              >
+                {storyExpanded ? 'Show less' : 'Read more'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* 3. Key Moments — vertical timeline */}
+        {milestones.length > 0 && (
+          <div>
+            <p className="mb-2 text-[10.5px] uppercase tracking-wider text-zinc-600">Key Moments</p>
+            <div className="border-l border-zinc-700 pl-4 space-y-3">
+              {milestones.map((m, i) => (
+                <motion.div
+                  key={m.id}
+                  className="relative"
+                  initial={{ opacity: 0, x: -10 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <div
+                    className="absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-zinc-800"
+                    style={{ backgroundColor: color }}
+                  />
+                  <p className="font-mono text-xs text-zinc-500">{m.date}</p>
+                  <p className="text-sm text-zinc-200">{m.label}</p>
+                  {m.note && <p className="text-[12px] text-zinc-500 mt-0.5">{m.note}</p>}
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 4. People — avatar chips */}
+        {people.length > 0 && (
+          <div>
+            <p className="mb-2 text-[10.5px] uppercase tracking-wider text-zinc-600">The People</p>
+            <div className="flex flex-wrap gap-2">
+              {people.map(p => (
+                <div key={p.id} className="flex items-center gap-2 rounded-full bg-zinc-800/60 border border-zinc-700/50 px-3 py-1.5">
+                  <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] font-semibold text-zinc-300">
+                    {p.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <span className="text-[12px] text-zinc-300">{p.name}</span>
+                    <span className="text-[10px] text-zinc-500 ml-1">{p.role}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 5. Mood — gradient bar + tags */}
+        {(phase.moodStart != null || phase.moodEnd != null) && (
+          <div>
+            <p className="mb-2 text-[10.5px] uppercase tracking-wider text-zinc-600">Mood</p>
+            <div className="relative h-2 rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="absolute h-full rounded-full"
+                style={{
+                  left: `${moodPosition(phase.moodStart)}%`,
+                  width: `${Math.abs(moodPosition(phase.moodEnd) - moodPosition(phase.moodStart))}%`,
+                  background: `linear-gradient(90deg, ${MOOD_COLORS[phase.moodStart ?? 0]}, ${MOOD_COLORS[phase.moodEnd ?? 0]})`,
+                }}
+              />
+            </div>
+            <div className="flex justify-between mt-1">
+              <span className="text-[9px] text-zinc-600">Struggling</span>
+              <span className="text-[9px] text-zinc-600">Thriving</span>
+            </div>
+            {moodTags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {moodTags.map(tag => (
+                  <span key={tag} className="px-2 py-0.5 rounded-full bg-zinc-800/60 text-[10px] text-zinc-400 border border-zinc-700/50">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 6. Lessons — pull-quote */}
+        {phase.lessonsLearned && (
+          <div className="relative">
+            <Quote size={32} className="absolute -left-1 -top-1 text-zinc-800/40" />
+            <blockquote className="warmth-serif italic text-xl text-zinc-300 leading-relaxed border-l-2 pl-6" style={{ borderColor: color }}>
+              {phase.lessonsLearned}
+            </blockquote>
+          </div>
+        )}
+
+        {/* 7. Impact Notes */}
+        {phase.impactNotes && (
+          <div>
+            <p className="mb-1 text-[10.5px] uppercase tracking-wider text-zinc-600">Impact</p>
+            <p className="text-[13px] text-zinc-400 leading-relaxed">{phase.impactNotes}</p>
+          </div>
+        )}
+
+        {/* 8. Feelings */}
+        {phase.feelingsNote && (
+          <div>
+            <p className="mb-1 text-[10.5px] uppercase tracking-wider text-zinc-600">How it felt</p>
+            <p className="warmth-serif italic text-[13px] text-zinc-400 leading-relaxed">{phase.feelingsNote}</p>
+          </div>
+        )}
+
+        {/* Long-term goals attached to this era */}
+        {phaseLtgs.length > 0 && (
+          <div>
+            <p className="mb-2 text-[10.5px] uppercase tracking-wider text-zinc-600">Long-term goals</p>
+            <ul className="space-y-1.5">
+              {phaseLtgs.map(ltg => (
+                <li key={ltg.id} className="flex items-center gap-2.5 rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-2.5 py-2">
+                  <Ring pct={ltg.progress ?? 0} />
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-zinc-300">{ltg.title}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Connections */}
+        {phase.connections.length > 0 && (
+          <div>
+            <p className="mb-2 text-[10.5px] uppercase tracking-wider text-zinc-600">Connected to</p>
+            <div className="flex flex-wrap gap-1.5">
+              {phase.connections.map((conn, i) => (
+                <span key={i} className="px-2 py-1 rounded-md bg-zinc-800/60 text-[11px] text-zinc-400 border border-zinc-700/50">
+                  → {conn.targetPhaseId.slice(0, 8)}
+                  {conn.note && <span className="text-zinc-600 ml-1">({conn.note})</span>}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Reflection */}
+        {reflecting ? (
+          <ReflectionFlow
+            onBack={() => setReflecting(false)}
+            onSubmit={answers => onReflect(phase, answers)}
+            onKeep={handleKeep}
+          />
+        ) : (
+          phase.reflection && (
+            <blockquote className="warmth-serif italic text-lg text-amber-100/80 leading-relaxed border-l-2 border-amber-400/30 pl-4">
+              {phase.reflection}
+            </blockquote>
+          )
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 border-t border-zinc-800/50 pt-4">
+          <button
+            onClick={() => setReflecting(true)}
+            data-lifephase="reflect-phase"
+            className="flex items-center gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[12px] font-medium text-amber-300 transition-colors hover:bg-amber-500/20"
+          >
+            <Sparkles size={13} /> Reflect
+          </button>
+          <button
+            onClick={() => setEditing(true)}
+            data-lifephase="edit-phase"
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-700/60 bg-zinc-800/40 px-3 py-2 text-[12px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800/70"
+          >
+            <Pencil size={13} /> Edit
+          </button>
+        </div>
+      </WarmCard>
+
+      <PhaseFormDialog
+        open={editing}
+        onOpenChange={setEditing}
+        initial={phase}
+        onSave={p => {
+          onSave(p)
+          setEditing(false)
+        }}
+      />
+    </motion.div>
+  )
+}

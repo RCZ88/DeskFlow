@@ -1,0 +1,28 @@
+{
+  "name": "rheo-vscode",
+  "displayName": "RHEO Activity Tracker",
+  "description": "Captures live coding activity (files opened, lines changed, active duration) and batches it to the RHEO local capture server every 60 seconds.",
+  "version": "1.0.0",
+  "icon": "./icon.ico",
+  "engines": { "vscode": "^1.85.0" },
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "license": "MIT",
+  "keywords": ["activity", "tracking", "coding", "metrics", "rheo"],
+  "categories": ["Other"],
+  "contributes": {},
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "20.x",
+    "typescript": "^5.3.0"
+  }
+}

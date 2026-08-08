@@ -14,6 +14,12 @@ export function WidgetHost({ block }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [height, setHeight] = useState(300);
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    // Reset any stale error state when the widget content changes
+    setError(null);
+  }, [block.html, block.id]);
 
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
@@ -42,11 +48,18 @@ export function WidgetHost({ block }: Props) {
       )}
       {error ? (
         <div className="flex items-center gap-2 px-4 py-3 text-sm text-red-400">
-          <AlertCircle className="w-4 h-4" />
+          <AlertCircle className="w-4 h-4 shrink-0" />
           <span>Widget failed to load: {error}</span>
+          <button
+            onClick={() => { setError(null); setRetry((r) => r + 1); }}
+            className="ml-2 text-xs font-medium text-clay-400 hover:text-clay-300 transition"
+          >
+            ↻ Retry
+          </button>
         </div>
       ) : (
         <iframe
+          key={`${block.id}-${retry}`}
           ref={iframeRef}
           srcDoc={block.html}
           className="w-full border-none"

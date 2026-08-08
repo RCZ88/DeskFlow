@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { TableBlock as TableBlockType } from '../../../shared/learn/types';
+import { isDynamicImportFailure, autoHealDynamicImport } from '../../ErrorBoundary';
+
+// Tabulator v6 themes are CSS-only — without this import every table renders
+// as unstyled stacked text inside a bordered panel.
+import 'tabulator-tables/dist/css/tabulator.min.css';
+import 'tabulator-tables/dist/css/tabulator_site_dark.min.css';
 
 interface Props {
   block: TableBlockType;
@@ -27,12 +33,19 @@ export function TableBlock({ block, onAsk }: Props) {
           field: c.field,
         })),
         layout: 'fitColumns',
-        theme: 'dark',
+        // v6 dropped the `theme` option (CSS classes only) — `theme: 'dark'`
+        // was silently ignored; the site-dark CSS import above handles it.
         ...block.options,
       });
       setLoading(false);
     }).catch((err: any) => {
       if (mounted) {
+        // If the dynamic import failed with a stale chunk (old hash after a
+        // rebuild), self-heal with a reload instead of showing a dead table.
+        if (isDynamicImportFailure(err)) {
+          autoHealDynamicImport();
+          return;
+        }
         setError(`Table error: ${err.message}`);
         setLoading(false);
       }
@@ -49,9 +62,15 @@ export function TableBlock({ block, onAsk }: Props) {
         </div>
       )}
       {error && (
-        <div className="text-red-400 text-sm">{error}</div>
+        <div className="text-red-400 text-sm">
+          <div>{error}</div>
+          <details className="mt-1 group/details">
+            <summary className="text-xs text-zinc-600 cursor-pointer hover:text-zinc-400 transition">Show plain table instead</summary>
+            <PlainTable block={block} />
+          </details>
+        </div>
       )}
-      <div ref={containerRef} className={loading ? 'hidden' : ''} />
+      <div ref={containerRef} className={loading || error ? 'hidden' : ''} />
       {block.caption && (
         <div className="mt-2 text-sm text-zinc-500 italic text-center">{block.caption}</div>
       )}
@@ -64,6 +83,31 @@ export function TableBlock({ block, onAsk }: Props) {
           💡
         </button>
       )}
+    </div>
+  );
+}
+
+function PlainTable({ block }: { block: TableBlockType }) {
+  return (
+    <div className="mt-2 overflow-x-auto rounded-lg border border-zinc-700/50">
+      <table className="w-full text-xs text-zinc-300">
+        <thead>
+          <tr className="bg-zinc-800/80 text-left">
+            {block.columns.map((c) => (
+              <th key={c.field} className="px-3 py-2 font-medium text-zinc-400 border-b border-zinc-700/60 whitespace-nowrap">{c.title}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {block.rows.map((row, ri) => (
+            <tr key={ri} className="odd:bg-zinc-900/40">
+              {block.columns.map((c) => (
+                <td key={c.field} className="px-3 py-1.5 border-b border-zinc-800/60 align-top">{String(row[c.field] ?? '')}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

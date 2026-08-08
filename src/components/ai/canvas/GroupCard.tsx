@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, Edit3, Palette, Ungroup, X, Layers } from 'lucide-react'
+import { ChevronDown, Edit3, Palette, Ungroup, Layers } from 'lucide-react'
 import { GROUP_COLORS, type CanvasCard, type CanvasGroup } from '../../../types/canvas'
 
 const CELL = 40
@@ -196,18 +196,28 @@ export function GroupCard({ group, cards, renderChild, onUpdateGroup, onUngroup,
                 placed.map(({ card, left, top }) => (
                   <div
                     key={card.id}
-                    className="group-real-card"
-                    style={{ left, top, width: card.size.w * CELL, height: card.size.h * CELL }}
+                    className="group-real-card dk-canvas-card"
+                    style={{
+                      left, top, width: card.size.w * CELL, height: card.size.h * CELL,
+                      position: 'absolute', zIndex: 0, cursor: 'default',
+                      // Override hover transform (group cards shouldn't lift)
+                      transform: 'none',
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
                   >
-                    {renderChild(card)}
-                    <button
-                      type="button"
-                      className="group-real-remove"
-                      onClick={(e) => { e.stopPropagation(); onRemoveFromGroup(card.id) }}
-                      title="Remove from group"
-                    >
-                      <X size={10} />
-                    </button>
+                    <div className="dk-canvas-card-header" style={{ cursor: 'default' }}>
+                      <span className="dk-canvas-card-type">{card.type}</span>
+                      <div className="dk-canvas-card-actions">
+                        <button
+                          className="dk-canvas-dismiss"
+                          onClick={(e) => { e.stopPropagation(); onRemoveFromGroup(card.id) }}
+                          title="Remove from group"
+                        >✕</button>
+                      </div>
+                    </div>
+                    <div className="dk-canvas-card-body" style={{ overflow: 'hidden' }}>
+                      {renderChild(card)}
+                    </div>
                   </div>
                 ))
               )}

@@ -1,9 +1,70 @@
 ﻿# PROBLEMS.md
 
-> **Purpose:** Issue tracker for AI agents and humans ΓÇö all known bugs, feature requests, and their resolution status.
-> **Last Updated:** 2026-07-03 (Research Digest Overhaul)
-> **Total Issues:** 125
+> **Purpose:** Issue tracker for AI agents and humans — all known bugs, feature requests, and their resolution status.
+> **Last Updated:** 2026-08-08 (Lyceum Learn 9-renderer-bug fix round)
+> **Total Issues:** 137
 > **Parse Priority:** High
+
+---
+
+## 🚨 2026-08-08 — Lyceum Learn: 9 renderer bugs from errorsfound.md (session opencode-term-1-lyc2, round-01)
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| P1 | Table blocks render as unstyled stacked text (Tabulator CSS never imported) | AI Attempted Fix | `TableBlock.tsx` imports `tabulator.min.css` + `tabulator_site_dark.min.css`; removed invalid v6 `theme:'dark'` option; auto-heal on stale chunk; plain-HTML fallback table. Build OK, runtime NOT LAUNCHED |
+| P2 | Mermaid/flow diagrams hang forever (per-render `initialize` blocks mermaid 11.16) | AI Attempted Fix | NEW `blocks/mermaidLoader.ts`: singleton init + 15s render timeout; both MermaidBlock + FlowBlock use it. Build OK, runtime NOT LAUNCHED |
+| P3 | Chart block stale-chunk import → infinite spinner (`.catch` swallowed error, self-heal never fired) | AI Attempted Fix | ChartBlock/FinChartBlock/TableBlock/FlowBlock now call `autoHealDynamicImport()` on `isDynamicImportFailure` + Retry buttons. Build OK, runtime NOT LAUNCHED |
+| P4 | FinChart "No data series found" — vega-lite spec data lives at `spec.data.values`, old code expected top-level array | AI Attempted Fix | New `extractData()` (data.values / plain array / OHLC); multi-series line/area/bar; fixed cleanup (chart.remove now runs); auto-heal + Retry. Build OK, runtime NOT LAUNCHED |
+| P5 | Sankey flow emits `sankey-beta` with JSON.stringify quotes + pipe labels — hangs mermaid | AI Attempted Fix | FlowBlock emits proper `A --> B : 10` sankey syntax; singleton init + timeout + auto-heal. Build OK, runtime NOT LAUNCHED |
+| P6 | Code block double-highlight corruption (`class="text-emerald-400">400"</span>`) | AI Attempted Fix | `highlightCode` rewritten as single regex pass over escaped source (strings→comments→numbers→keywords); verified no span-inside-span. Build OK, runtime NOT LAUNCHED |
+| P7 | Widget iframe rendered empty (stale build artifact) | AI Attempted Fix | WidgetHost hardened: per-block remount key + retry button + error reset on content change. Build OK, runtime NOT LAUNCHED |
+| P8 | `:::illustration` without space after `:::` parses as prose | AI Attempted Fix | Parser directive regex now `^:{3,}(?:\s+)?(\w+)` (open + nested detection); bare `:::` still closes. Verified via bundle test on lesson.txt: 1 illustration block. dist-electron/services/learn/* recompiled. Build OK, runtime NOT LAUNCHED |
+| P9 | PendingIllustrationsPanel done-items lack prompt/copy/upload (user requirement) | AI Attempted Fix | Every illustration card (pending AND done) shows prompt + Copy + Upload/Replace; done items show image preview. Build OK, runtime NOT LAUNCHED |
+
+---
+
+## 🚨 2026-08-08 — Lyceum Learn fix round: mermaid / prereq / prompts / hierarchy (session opencode-term-1-lyc2)
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| L4 | Mermaid & flow diagrams load infinitely (stale chunk 404 → `import()` never resolves) | AI Attempted Fix | MermaidBlock.tsx + FlowBlock.tsx: `.catch` on `import('mermaid')`, `mermaid.default \|\| mermaid` (11.x), unique per-render id (`-${Date.now()}`), `logLevel: 'error'`, human error UI + collapsible `<details>` with raw diagram source. Build OK, runtime NOT LAUNCHED |
+| L5 | Prereq validation rejects valid cross-lesson node IDs (learn:validate didn't pass `publishedIds`) | AI Attempted Fix | `learn:validate`/`learn:generateLdoc`/ImportService now pass `publishedIds` from `SELECT id FROM learn_nodes`; `checkPrereqIds` errors include sample valid IDs; `checkVisual` matches parser's 19-type VISUAL_TYPES exactly. dist-electron/services/learn/* recompiled via esbuild (rebuild-main.mjs does NOT rebuild service files). Runtime NOT LAUNCHED |
+| L6 | AI-generated lessons violate the parser contract (wrong heading levels, 4-colon directives, `know:` trailing punctuation, single block type, placeholders) | AI Attempted Fix | `resources/learn/author-guide.md` + `prompts/master-prompt.md` rewritten to v4.0 aligned with parser: nodes = single `#` H1, `::: kind` open / bare `:::` close, `know:` ends exactly `[source_id]`, ≥4 block-type variety enforced, code-quality rules (no 500/TODO/placeholder/echo). Parser fixes: `know:` regex tolerates trailing `[.!?,;:]*`, `explain\|explanation` alias, `question:`/`Q:` prefix stripped. Runtime NOT LAUNCHED |
+| L7 | Hierarchy explanation was text-only (badges list) — user demanded a REAL visual hierarchy (Topic → Group → Lesson → Node) | AI Attempted Fix | NEW `src/components/learn/HierarchyGuide.tsx` — tree with connecting lines, colored per-level cards (clay/sage/amber/violet), real "Observer Pattern" example with 3 nodes + mastery badges, mastery/groups footer. WIRED into LearnHome (replaces text strip) + OnboardingPanel step 1 (showHeader={false}). Verified: vite build OK, component present in dist/assets/index.*.js bundle. Runtime NOT LAUNCHED |
+| L8 | Shortcut disable toggle only worked from Reader view (gated `view === 'reader'`) | AI Attempted Fix | LearnPage.tsx: `?` keydown handler no longer gated — shortcuts modal opens from any Learn view. Build OK, runtime NOT LAUNCHED |
+| L9 | KaTeX CSS preload error in dev (`Unable to preload CSS for .../katex.*.css`) | Not Started | Vite dev-server stale module graph — restart `npm run dev`; not reproducible in production build |
+
+---
+
+## ?? 2026-08-08 - Finance Monthly Recap: raw AI output shown verbatim (session opencode-term-1-layo)
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| R1 | Recap narrative contains raw provider boilerplate: "Financial Biographer" brief, echoed data bullets ("Food & Groceries: 1,399,000 (6 txns)"), "Thought:" blocks, preamble ("This is a narrative summary… Please read the data below…") | AI Attempted Fix | Implemented: `src/shared/recap.ts` `cleanRecapSummary` (BRIEF_PATTERNS + DATA_PATTERNS) applied at generate-time in main.ts AND render-time in RecapPanel (legacy rows); system prompt strict OUTPUT FORMAT; fixture-verified against real June 2026 output (brief/echo/Thought all stripped, narrative + figures intact). Needs CZ runtime verification |
+| R2 | No visual feedback during AI generation — user can't tell if recap is being written | AI Attempted Fix | Implemented: stage model (reading→analyzing→writing→saving→done) over `finance:recap-progress` IPC; RecapPanel animated stage bar + stage-labeled buttons; done event ends spinner. Needs CZ runtime verification |
+| R3 | APEX insight card was empty boilerplate (AI was supposed to invent it in narrative) | AI Attempted Fix | Implemented: `computeApexInsight(stats)` computes from REAL stats (dominant category ≥30% → net swing → wallet delta ≥5000 → biggest expense), stored in stats_json, rendered by RecapPanel. Needs CZ runtime verification |
+
+---
+
+
+
+## 🚨 2026-08-08 — AI Canvas: drag / resize / grouping (package canvas-drag-group-resize-07082026)
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| C1 | Dragging automation cards (`auto-*`) doesn't work — card snaps back | AI Attempted Fix | Implemented: `SYNC_AUTOMATIONS` reducer action promotes automation cards to first-class store citizens (canvas.ts). `syncAutomations()` dispatcher (useCanvasState.ts). AiPage syncs automations via useEffect + injects live closures via enrichedCards memo. Needs CZ runtime verification |
+| C2 | Drop-to-group silently no-ops when target is an automation card | AI Attempted Fix | Fixed by C1: automation cards now live in `state.cards`, so `canvas.allCards[id]` + `createGroup` find them. Same package |
+| C3 | Grouping must SHOW the real card and must NOT change how the grouped card displays (user HARD requirement) | AI Attempted Fix | GroupCard now wraps children with full `.dk-canvas-card` frame (header + type label + dismiss + body) at real positions/sizes. Internal pointer events stopped. CSS cleaned up (dead flex-column/max-height rules removed). Needs CZ visual verification |
+
+---
+
+## 🚨 2026-08-08 — Lyceum Learn refinement round (session opencode-term-1-kbse)
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| L1 | Chart block infinite spinner (exact markup user reported: `<div class="h-40 ... border-t-clay-400 ... animate-spin">` = ChartBlock.tsx:60-64) | NEW | `import('vega-embed')` has NO .catch — if the dynamic chunk fails (stale-hash 404, known repo issue) `loading` stays true forever with no error. FinChartBlock has the same pattern (line 34) but with a chain .catch. Fix: catch the import() rejection → setError + setLoading(false) |
+| L2 | Reader toolbar cluster (Keyboard/Grid/Graph at LearnPage.tsx:527 `absolute top-2 right-4 z-20`) covers controls behind it — user says an "auto" button is hidden behind the cluster | NEW | No literal "Auto" button exists in learn source (searched all title/labels) — the covered control is likely ReaderView's tab-bar buttons (Tutor toggle / "N illustrations pending"). Verify exact covered control with user, then move cluster or raise tab-bar z-index |
+| L3 | Quiz block + assessment styles need improvement | AI Attempted Fix | QuizBlock.tsx — ClipboardList lucide icon, Enter-to-submit (numeric), open-format "Answer recorded — coach reviews" state + rubric display, MCQ Try-again reset; AssessmentCard.tsx — ClipboardCheck icon, "x/y answered" progress hint. Build OK, runtime NOT LAUNCHED (pending user relaunch) |
 
 ---
 
@@ -14,7 +75,7 @@
 | NEW | 0 |
 | Not Started | 0 |
 | In Progress | 0 |
-| AI Attempted Fix | 3 |
+| AI Attempted Fix | 12 |
 | User Testing | 0 |
 | Fixed | ~110 |
 

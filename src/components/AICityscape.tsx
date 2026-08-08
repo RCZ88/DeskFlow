@@ -45,6 +45,7 @@ export default function AICityscape({
   tokenDisplayMode,
   loading,
   className,
+  period = "week",
 }: AICityscapeProps) {
   const prevAgentsFingerprintRef = useRef('');
   const prevMetricKeyRef = useRef('');
@@ -120,7 +121,7 @@ export default function AICityscape({
           )}
         </div>
       ) : (
-        <CityScene heroes={heroes} seed="deskflow" rings={10} hdrFile="/cyber_assets/hdri/night_sky.hdr" />
+        <CityScene key={`city-${period}`} heroes={heroes} seed="deskflow" rings={10} hdrFile="/cyber_assets/hdri/night_sky.hdr" />
       )}
     </div>
   );

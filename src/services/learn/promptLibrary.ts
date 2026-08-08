@@ -1,6 +1,7 @@
 import { getSystemPromptForSlug, getCoachingNoteForSlug } from './topicPrompts';
 import { CURRICULUM_BLUEPRINT } from './curriculum';
-import type { LearnerProfile, MasteryLevel } from '../../shared/learn/types';
+import type { CurriculumPart } from './curriculum';
+import type { LearnerProfile, MasteryLevel, KnowledgeEntry } from '../../shared/learn/types';
 
 // ── Prompt library types ──
 
@@ -259,7 +260,96 @@ ${composeLearnerProfileBlock(profile)}`;
   return preamble;
 }
 
-// ── Prompt recipes (kept for IPC convenience) ──
+// ── Knowledge Base: relevance selection + prompt injection ──
+
+export interface KnowledgeSelection {
+  entries: KnowledgeEntry[];
+  relatedParts: CurriculumPart[];
+}
+
+const KNOWLEDGE_TOP_N = 6;
+
+function tokenize(s: string): string[] {
+  return (s ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9+#.\s-]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 1);
+}
+
+/**
+ * Select ONLY the knowledge entries relevant to the topic being learned.
+ * Scores by: explicit curriculum-part match, keyword overlap, topic-token overlap,
+ * statement-token overlap. Never returns everything — unrelated knowledge is
+ * deliberately excluded to avoid wasting context/tokens.
+ */
+export function selectKnowledgeForTopic(
+  profile: LearnerProfile | null | undefined,
+  opts: { part?: number; topic?: string } = {},
+): KnowledgeSelection {
+  const entries = profile?.knowledgeBase ?? [];
+  const relatedParts: CurriculumPart[] = [];
+
+  if (!entries.length && !profile?.priorKnowledge) return { entries: [], relatedParts };
+
+  const topicTokens = new Set(tokenize(opts.topic ?? ''));
+  const targetPartMeta = opts.part != null
+    ? CURRICULUM_BLUEPRINT.find((p) => p.part === opts.part)
+    : undefined;
+  const targetTokens = new Set(tokenize(targetPartMeta?.title ?? ''));
+
+  const scored = entries
+    .map((e) => {
+      let score = 0;
+      if (opts.part != null && e.partIds?.includes(opts.part)) score += 4;
+      const eKw = new Set((e.keywords ?? []).flatMap(tokenize));
+      for (const t of topicTokens) if (eKw.has(t)) score += 2;
+      const eTopic = tokenize(e.topic ?? '');
+      for (const t of eTopic) if (topicTokens.has(t) || targetTokens.has(t)) score += 2;
+      const eLinked = (e.linkedLessons ?? []).flatMap(tokenize);
+      for (const t of eLinked) if (topicTokens.has(t) || targetTokens.has(t)) score += 2;
+      const eStmt = tokenize(e.statement);
+      for (const t of eStmt) if (topicTokens.has(t) || targetTokens.has(t)) score += 1;
+      return { e, score };
+    })
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, KNOWLEDGE_TOP_N)
+    .map((s) => s.e);
+
+  // Related topics: only surfaced when the learner has NO relevant entries —
+  // the user's rule: "if you say none for a topic, only refer to related topics".
+  if (scored.length === 0) {
+    for (const cp of CURRICULUM_BLUEPRINT) {
+      if (cp.part === opts.part) continue;
+      const lvl = profile?.priorKnowledge?.[cp.part];
+      if (lvl && lvl !== 'L0' && lvl !== 'L1') relatedParts.push(cp);
+    }
+  }
+
+  return { entries: scored, relatedParts };
+}
+
+export function composeKnowledgeContextBlock(k: KnowledgeSelection): string {
+  const lines: string[] = ["## Learner's Existing Knowledge (build on these; verify — never invent)"];
+  if (k.entries.length) {
+    lines.push('The learner has recorded these knowledge items that RELATE to this topic. Treat them as already-known foundation, reuse their concepts, and connect new material to them:');
+    k.entries.forEach((e, i) => {
+      const tags = [
+        e.level ? `level ${e.level}` : '',
+        e.topic ? `topic "${e.topic}"` : '',
+      ].filter(Boolean).join(', ');
+      lines.push(`${i + 1}. ${e.statement}${tags ? ` (${tags})` : ''}`);
+    });
+  } else {
+    lines.push('The learner has NO recorded knowledge relevant to this topic. Do not assume any prior knowledge here; teach from first principles.');
+    if (k.relatedParts.length) {
+      const parts = k.relatedParts.map((p) => `${p.emoji} ${p.title}`).join('; ');
+      lines.push(`\nRelated topics the learner already knows (reference ONLY as bridges to those domains — do not assume their content): ${parts}`);
+    }
+  }
+  return lines.join('\n');
+}
 
 const recipes: PromptRecipe[] = [
   {

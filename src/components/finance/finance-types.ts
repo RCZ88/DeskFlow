@@ -448,4 +448,4 @@ export interface RecurringPatternSuggestion {
 }
 
 // ── Extended tab key ──
-export type FinanceTabKey = 'overview' | 'wallets' | 'transactions' | 'categories' | 'people' | 'subscriptions' | 'budget' | 'audit' | 'charts';
+export type FinanceTabKey = 'overview' | 'wallets' | 'transactions' | 'categories' | 'people' | 'subscriptions' | 'budget' | 'audit' | 'charts' | 'recap';

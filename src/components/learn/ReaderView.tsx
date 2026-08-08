@@ -1,13 +1,12 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Grid3X3, Network, Keyboard, BookOpen, Brain, RotateCcw, ImageIcon } from 'lucide-react';
+import { Grid3X3, Network, Keyboard, BookOpen, Brain, RotateCcw, ImageIcon, FileCode2, Loader2 } from 'lucide-react';
 import { BlockRenderer } from './blocks/BlockRenderer';
 import { PendingIllustrationsPanel } from './blocks/PendingIllustrationsPanel';
 import { FlashcardBlock } from './blocks/FlashcardBlock';
 import { TutorPanel } from './TutorPanel';
 import { MasteryRing } from './MasteryRing';
 import { CurriculumGraph } from './CurriculumGraph';
-import { TableOfContents, type TOCHeading } from './TableOfContents';
 import { ChecklistProgress } from './ChecklistProgress';
 import { AssessmentCard, AssessmentCardBlock, parseAssessmentBlock, type Question } from './AssessmentCard';
 import { SelectionActions } from './SelectionActions';
@@ -16,7 +15,7 @@ import type { LessonWithNodes, RenderableNode, TutorAnswer, MasteryLevel, NodePr
 
 const api = (window as any).deskflowAPI;
 
-export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, currentLevel, onAsk, onSelectionAsk, onQuizSubmit, tutorOpen, setTutorOpen, tutorQuestion, setTutorQuestion, tutorAnswer, tutorLoading, graphView, progress, mobileOutlineOpen, setMobileOutlineOpen, containerRef, highlights, completedItems, onToggleCheck, completedParts, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin, tutorConfig }: {
+export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, currentLevel, onAsk, onSelectionAsk, onQuizSubmit, tutorOpen, setTutorOpen, tutorQuestion, setTutorQuestion,   tutorAnswer, tutorLoading, graphView, onSetGraphView, onOpenShortcuts, progress, mobileOutlineOpen, setMobileOutlineOpen, containerRef, highlights, completedItems, onToggleCheck, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin, tutorConfig }: {
   lesson: LessonWithNodes;
   selectedNode: string | null;
   onSelectNode: (id: string) => void;
@@ -32,6 +31,8 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
   tutorAnswer: TutorAnswer | null;
   tutorLoading: boolean;
   graphView: 'grid' | 'graph';
+  onSetGraphView: (v: 'grid' | 'graph') => void;
+  onOpenShortcuts: () => void;
   progress: Record<string, NodeProgress>;
   mobileOutlineOpen: boolean;
   setMobileOutlineOpen: (v: boolean) => void;
@@ -39,7 +40,6 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
   highlights: ReturnType<typeof useHighlights>;
   completedItems: string[];
   onToggleCheck: (id: string) => void;
-  completedParts: string[];
   onApproveProposal?: (blockId: string) => void;
   onRejectProposal?: (blockId: string, reason?: string) => void;
   onAddMessage?: (blockId: string, text: string) => void;
@@ -54,22 +54,12 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
     return null;
   }
 
-  const { getPart } = (window as any).__LYCEUM_CURRICULUM__ || {};
-  const part = lesson.lesson ? { slug: `part-${lesson.lesson.part}`, title: lesson.lesson.title, checklist: [], defaultMasteryTarget: 'L2' as MasteryLevel } : null;
-
   // Scroll to top when node changes
   useEffect(() => {
     if (containerRef?.current) {
       containerRef.current.scrollTop = 0;
     }
   }, [currentNode?.id]);
-
-  // Memoize TOC headings — only changes when nodes change
-  const tocHeadings: TOCHeading[] = useMemo(() => lesson.nodes.map((n) => ({
-    id: n.id,
-    text: n.title,
-    level: 1,
-  })), [lesson.nodes]);
 
   // Memoize assessment questions — only changes when currentNode blocks change
   const assessmentQuestions: Question[] = useMemo(() => {
@@ -117,6 +107,38 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
 
   // Illustrations panel
   const [showIllustrations, setShowIllustrations] = useState(false);
+
+  // LDOC source viewer
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [sourceText, setSourceText] = useState<string | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
+
+  const lessonId = lesson.lesson.id != null ? String(lesson.lesson.id) : `lesson-${lesson.lesson.part}`;
+
+  const toggleSource = useCallback(async () => {
+    if (sourceOpen) { setSourceOpen(false); return; }
+    setSourceOpen(true);
+    setSourceLoading(true);
+    setSourceError(null);
+    try {
+      const result = await api.learnGetLessonSource({ lessonId });
+      if (result.ok && result.data) {
+        let text = result.data;
+        if (typeof text === 'string') {
+          try { text = JSON.stringify(JSON.parse(text), null, 2); } catch { /* keep raw */ }
+        } else {
+          text = JSON.stringify(text, null, 2);
+        }
+        setSourceText(text);
+      } else {
+        setSourceError(result.error || 'Failed to load lesson source');
+      }
+    } catch (e: any) {
+      setSourceError(e.message || 'Failed to load lesson source');
+    }
+    setSourceLoading(false);
+  }, [sourceOpen, lessonId]);
 
   // Count pending illustrations across all nodes
   const pendingIllustrationCount = useMemo(() => {
@@ -245,26 +267,6 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
               })}
             </div>
           </div>
-          {/* Curriculum TOC */}
-          <div className="p-3">
-            <TableOfContents
-              part={part || { slug: '', title: lesson.lesson.title, checklist: [], defaultMasteryTarget: 'L2', emoji: '\uD83D\uDCD6', trailer: { what: '', why: '', where: '' }, intro: '', rarity: 1, phase: 1 }}
-              headings={tocHeadings}
-              completedItems={completedItems}
-              onNavigate={(id) => onSelectNode(id)}
-              activeId={selectedNode ?? undefined}
-            />
-          </div>
-          {/* Checklist compact */}
-          <div className="px-3 pb-3">
-            <ChecklistProgress
-              items={lesson.nodes.map((n) => n.title)}
-              completedIds={completedItems}
-              onToggle={onToggleCheck}
-              partSlug={lesson.lesson.id ?? `lesson-${lesson.lesson.part}`}
-              compact
-            />
-          </div>
         </div>
 
         {/* Center: Node content OR Graph view */}
@@ -275,6 +277,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
               progress={progress}
               selectedNode={selectedNode}
               onSelectNode={onSelectNode}
+              onExit={() => onSetGraphView('grid')}
             />
           ) : (
             <>
@@ -300,6 +303,21 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                     {label}
                   </button>
                 ))}
+
+                {/* Source (raw LDOC) */}
+                <button
+                  onClick={toggleSource}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    sourceOpen
+                      ? 'bg-zinc-800 text-zinc-100'
+                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'
+                  }`}
+                  title="View raw lesson source"
+                  aria-label="View raw lesson source"
+                >
+                  <FileCode2 className="w-3 h-3" />
+                  Source
+                </button>
 
                 {/* Spacer */}
                 <div className="flex-1" />
@@ -327,10 +345,73 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                   <Brain className="w-3 h-3" />
                   Tutor
                 </button>
+
+                <div className="w-px h-4 bg-zinc-800 mx-1" />
+
+                {/* Keyboard shortcuts */}
+                <button
+                  onClick={onOpenShortcuts}
+                  className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition"
+                  title="Keyboard shortcuts"
+                  aria-label="Keyboard shortcuts"
+                >
+                  <Keyboard className="w-3.5 h-3.5" />
+                </button>
+
+                {/* View toggle: grid | graph */}
+                <div className="flex items-center rounded-lg bg-zinc-900/60 border border-zinc-800 p-0.5">
+                  <button
+                    onClick={() => onSetGraphView('grid')}
+                    className={`p-1 rounded transition ${graphView === 'grid' ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    title="Grid view"
+                    aria-label="Grid view"
+                  >
+                    <Grid3X3 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => onSetGraphView('graph')}
+                    className={`p-1 rounded transition ${graphView === 'graph' ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    title="Graph view"
+                    aria-label="Graph view"
+                  >
+                    <Network className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               {/* Content area */}
-              {readerTab === 'content' ? (
+              {readerTab === 'content' && sourceOpen ? (
+                <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 ws-scroll">
+                  <div className="max-w-[88ch] mx-auto">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
+                        <FileCode2 className="w-4 h-4 text-clay-400" />
+                        Lesson source (.ldoc)
+                      </h3>
+                      <span className="font-mono text-[10px] text-zinc-600">{lessonId}</span>
+                    </div>
+                    {sourceLoading ? (
+                      <div className="flex items-center justify-center py-16">
+                        <Loader2 className="w-5 h-5 text-clay-400 animate-spin" />
+                      </div>
+                    ) : sourceError ? (
+                      <div className="flex flex-col items-center gap-3 py-16">
+                        <p className="text-xs text-red-400">{sourceError}</p>
+                        <button
+                          onClick={toggleSource}
+                          className="text-[11px] text-zinc-500 hover:text-zinc-300 transition"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    ) : (
+                      <pre className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/60 text-[11px] font-mono leading-relaxed text-zinc-400 whitespace-pre overflow-x-auto max-h-[70vh] overflow-y-auto">
+                        {sourceText}
+                      </pre>
+                    )}
+                  </div>
+                </div>
+              ) : readerTab === 'content' ? (
                 <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 ws-scroll" ref={containerRef} style={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
                   {currentNode ? (
                     <AnimatePresence mode="wait">
@@ -463,7 +544,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
               ) : null}
 
               {/* Selection toolbar — OUTSIDE the motion.div, rendered via portal to document.body */}
-              {readerTab === 'content' && (
+              {readerTab === 'content' && !sourceOpen && (
                 <SelectionActions
                   containerRef={containerRef as React.RefObject<HTMLDivElement>}
                   onCreateHighlight={handleCreateHighlight}

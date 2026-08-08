@@ -3,12 +3,30 @@
 
 export interface LifePhaseMilestone {
   id: string
-  month?: number
-  year: number
+  date: string              // ISO date, day precision
   label: string
+  note?: string | null
+  photoMemoryId?: string | null
+}
+
+export interface LifePhasePerson {
+  id: string
+  name: string
+  role: string               // free text: "mentor", "co-founder", "mom"
+  note?: string | null
+}
+
+export type PhaseMoodTag =
+  | 'hopeful' | 'exhausted' | 'proud' | 'lost' | 'grateful' | 'anxious'
+  | 'free' | 'lonely' | 'inspired' | 'stuck' | 'peaceful' | 'restless'
+
+export interface LifePhaseConnection {
+  targetPhaseId: string
+  note?: string | null
 }
 
 export interface LifePhase {
+  // ── existing, unchanged ──────────────────────────────
   id: string
   title: string
   description: string
@@ -17,14 +35,39 @@ export interface LifePhase {
   startYear: number
   endMonth?: number | null
   endYear?: number | null
-  magnitude: number
-  color?: string | null
+  magnitude: number          // 1–10
+  color: string
   reflection: string
   eraTrends: string
   impactNotes: string
   milestones: LifePhaseMilestone[]
-  connections: string[]
+  connections: LifePhaseConnection[]
+
+  // ── new, additive, all nullable ──────────────────────
+  people?: LifePhasePerson[] | null
+  moodStart?: number | null         // -3 (struggling) … +3 (thriving)
+  moodEnd?: number | null
+  moodTags?: PhaseMoodTag[] | null
+  feelingsNote?: string | null
+  lessonsLearned?: string | null
+  headerImageMemoryId?: string | null
+  colorSource?: 'category' | 'custom' | null
+  reflectionSource?: 'manual' | 'ai' | 'ai-edited' | null
+  reflectionGeneratedAt?: string | null
   updatedAt?: string
+}
+
+export const PHASE_MOOD_TAGS: PhaseMoodTag[] = [
+  'hopeful', 'exhausted', 'proud', 'lost', 'grateful', 'anxious',
+  'free', 'lonely', 'inspired', 'stuck', 'peaceful', 'restless',
+]
+
+export const MAGNITUDE_LABELS: Record<string, string> = {
+  '1-2': 'Quiet',
+  '3-4': 'Notable',
+  '5-6': 'Significant',
+  '7-8': 'Defining',
+  '9-10': 'Everything changed',
 }
 
 export const MONTHS = [
@@ -85,6 +128,24 @@ export function rampFill(from: number, to: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - from) / (to - from)))
   return t * t * (3 - 2 * t)
 }
+
+/** Readable text color on top of a solid hex fill: dark on bright, white on dark. */
+export function getContrastColor(hex: string): string {
+  const clean = hex.replace('#', '')
+  const r = parseInt(clean.slice(0, 2), 16)
+  const g = parseInt(clean.slice(2, 4), 16)
+  const b = parseInt(clean.slice(4, 6), 16)
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return '#f4f4f5'
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.6 ? '#18181b' : '#f4f4f5'
+}
+
+/** Named zoom stops for the map controls — mapped onto the canvas' 0..4 zoom levels. */
+export const ZOOM_STOPS = [
+  { label: 'Life', zoom: 0 },
+  { label: 'Decade', zoom: 2 },
+  { label: 'Year', zoom: 4 },
+] as const
 
 export interface ZoomView {
   zoom: number

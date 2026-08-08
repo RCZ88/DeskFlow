@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, SkipForward, Check } from 'lucide-react';
-import { saveProfile, hasProfile, markSetupComplete } from '../../services/learn/learnerProfile';
-import { CURRICULUM_BLUEPRINT } from '../../services/learn/curriculum';
+import { ChevronLeft, ChevronRight, SkipForward, Check, BookOpen, Plus, X } from 'lucide-react';
+import { saveProfile, hasProfile, markSetupComplete, loadProfile, loadUserLessons } from '../../services/learn/learnerProfile';
 import { DEFAULT_PROFILE, PROFILE_KNOBS } from '../../shared/learn/types';
 import type { LearnerProfile, Density, ModalityBias, ExampleStance, MathDepth, ChunkSize, Tone, MasteryLevel } from '../../shared/learn/types';
 
@@ -11,21 +10,56 @@ interface Props {
   onClose: () => void;
 }
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 
 export function LearnerSetup({ open, onClose }: Props) {
+  // Start from the existing profile (if any) so re-running setup adjusts answers
+  // instead of wiping knobs / prior knowledge / knowledge base.
+  const [initial] = useState<LearnerProfile>(() => loadProfile());
   const [step, setStep] = useState(0);
-  const [profile, setProfile] = useState<LearnerProfile>(() => ({ ...DEFAULT_PROFILE, confidence: Object.fromEntries(PROFILE_KNOBS.map(k => [k, 0.3])) as Record<string, number> }));
-  const [priorKnowledge, setPriorKnowledge] = useState<Partial<Record<number, MasteryLevel>>>({});
+  const [profile, setProfile] = useState<LearnerProfile>(() => ({
+    ...initial,
+    confidence: Object.fromEntries(PROFILE_KNOBS.map((k) => [k, initial.confidence?.[k] ?? 0.3])) as Record<string, number>,
+  }));
+  const [priorKnowledge, setPriorKnowledge] = useState<Partial<Record<number, MasteryLevel>>>(() => ({ ...(initial.priorKnowledge ?? {}) }));
+  const [knowledge, setKnowledge] = useState<{ statement: string; topic: string; keywords: string; linkedLessons: string[]; level: MasteryLevel | '' }[]>(() =>
+    (initial.knowledgeBase ?? []).map((e) => ({
+      statement: e.statement,
+      topic: e.topic ?? '',
+      keywords: (e.keywords ?? []).join(', '),
+      linkedLessons: e.linkedLessons ?? [],
+      level: e.level ?? '',
+    })),
+  );
+  const [userLessons, setUserLessons] = useState<{ titles: string[]; parts: number[] }>({ titles: [], parts: [] });
+
+  useEffect(() => {
+    let mounted = true;
+    loadUserLessons()
+      .then((l) => { if (mounted) setUserLessons(l); })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   if (!open) return null;
 
   const finish = () => {
+    const now = new Date().toISOString();
     const final: LearnerProfile = {
       ...profile,
       priorKnowledge,
+      knowledgeBase: knowledge.map((k, i) => ({
+        id: `setup-kb-${i}-${Date.now().toString(36)}`,
+        statement: k.statement.trim(),
+        topic: k.topic.trim() || undefined,
+        linkedLessons: k.linkedLessons.length ? k.linkedLessons : undefined,
+        keywords: k.keywords.split(',').map(s => s.trim()).filter(Boolean),
+        level: k.level || undefined,
+        createdAt: now,
+        updatedAt: now,
+      })),
       confidence: Object.fromEntries(PROFILE_KNOBS.map(k => [k, 0.35])) as Record<string, number>,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     };
     saveProfile(final);
     markSetupComplete();
@@ -89,7 +123,8 @@ export function LearnerSetup({ open, onClose }: Props) {
               {step === 4 && <Q5 value={profile} onChange={update} />}
               {step === 5 && <Q6 value={profile} onChange={update} />}
               {step === 6 && <Q7 value={profile} onChange={update} />}
-              {step === 7 && <Q8 priorKnowledge={priorKnowledge} setPriorKnowledge={setPriorKnowledge} />}
+              {step === 7 && <Q8 priorKnowledge={priorKnowledge} setPriorKnowledge={setPriorKnowledge} lessonParts={userLessons.parts} />}
+              {step === 8 && <Q9 knowledge={knowledge} setKnowledge={setKnowledge} lessonTitles={userLessons.titles} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -243,12 +278,25 @@ function Q7({ value, onChange }: { value: LearnerProfile; onChange: <K extends k
   );
 }
 
-function Q8({ priorKnowledge, setPriorKnowledge }: { priorKnowledge: Partial<Record<number, MasteryLevel>>; setPriorKnowledge: (pk: Partial<Record<number, MasteryLevel>>) => void }) {
+function Q8({ priorKnowledge, setPriorKnowledge, lessonParts }: { priorKnowledge: Partial<Record<number, MasteryLevel>>; setPriorKnowledge: (pk: Partial<Record<number, MasteryLevel>>) => void; lessonParts: number[] }) {
+  const [lessonTitles, setLessonTitles] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    let mounted = true;
+    loadUserLessons().then((l) => {
+      if (!mounted) return;
+      const map: Record<number, string> = {};
+      l.parts.forEach((p, i) => { map[p] = l.titles[i] ?? `Part ${p}`; });
+      setLessonTitles(map);
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
+
   const options: { label: string; level: MasteryLevel }[] = [
     { label: 'New', level: 'L0' },
     { label: 'Some', level: 'L2' },
     { label: 'Solid', level: 'L3' },
-    { label: 'Teach it', level: 'L4' },
+    { label: 'Deep', level: 'L4' },
   ];
 
   const cycle = (part: number) => {
@@ -273,19 +321,175 @@ function Q8({ priorKnowledge, setPriorKnowledge }: { priorKnowledge: Partial<Rec
     <div>
       <h3 className="font-serif text-lg text-zinc-100 mb-2">How well do you know each topic?</h3>
       <p className="text-xs text-zinc-500 mb-4">Tap to cycle: New → Some → Solid → Teach it</p>
-      <div className="flex flex-wrap gap-2">
-        {CURRICULUM_BLUEPRINT.map((cp) => (
-          <button
-            key={cp.part}
-            onClick={() => cycle(cp.part)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition ${levelColor(cp.part)} border border-white/5`}
-          >
-            <span>{cp.emoji}</span>
-            <span className="truncate max-w-[100px]">{cp.title}</span>
-            <span className="font-mono text-[9px] opacity-60">{levelLabel(cp.part)}</span>
-          </button>
-        ))}
-      </div>
+      {lessonParts.length === 0 ? (
+        <p className="text-xs text-zinc-500 bg-zinc-800/40 border border-zinc-700/40 rounded-lg px-3 py-2.5">
+          You haven't created any lessons yet — topics appear here as you add lessons in the library. Skip this for now, or add lessons first.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {lessonParts.map((part) => (
+            <button
+              key={part}
+              onClick={() => cycle(part)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition ${levelColor(part)} border border-white/5`}
+            >
+              <span className="truncate max-w-[120px]">{lessonTitles[part] ?? `Part ${part}`}</span>
+              <span className="font-mono text-[9px] opacity-60">{levelLabel(part)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface SetupKnowledge {
+  statement: string;
+  topic: string;
+  keywords: string;
+  linkedLessons: string[];
+  level: MasteryLevel | '';
+}
+
+function Q9({ knowledge, setKnowledge, lessonTitles }: { knowledge: SetupKnowledge[]; setKnowledge: (k: SetupKnowledge[]) => void; lessonTitles: string[] }) {
+  const [draft, setDraft] = useState<SetupKnowledge>({ statement: '', topic: '', keywords: '', linkedLessons: [], level: '' });
+  const [showForm, setShowForm] = useState(false);
+
+  const toggleLesson = (title: string) => {
+    setDraft((d) => ({ ...d, linkedLessons: d.linkedLessons.includes(title) ? d.linkedLessons.filter((t) => t !== title) : [...d.linkedLessons, title] }));
+  };
+
+  const add = () => {
+    const statement = draft.statement.trim();
+    if (!statement) return;
+    setKnowledge([...knowledge, { ...draft, statement }]);
+    setDraft({ statement: '', topic: '', keywords: '', linkedLessons: [], level: '' });
+    setShowForm(false);
+  };
+
+  return (
+    <div>
+      <h3 className="font-serif text-lg text-zinc-100 mb-2 flex items-center gap-2">
+        <BookOpen className="w-4 h-4 text-clay-400" />
+        What do you already know?
+      </h3>
+      <p className="text-xs text-zinc-500 mb-4">
+        Add things you can already do, in your own words. Lessons will only use the entries that relate to the topic — skip or add a few now, edit anytime in your profile.
+      </p>
+
+      {knowledge.length > 0 && (
+        <div className="space-y-1.5 mb-4 max-h-32 overflow-y-auto pr-1">
+          {knowledge.map((k, i) => (
+            <div key={i} className="flex items-start justify-between gap-2 rounded-lg border border-zinc-800/70 bg-zinc-800/20 px-2.5 py-2">
+              <div className="min-w-0">
+                <p className="text-[11px] text-zinc-300 leading-relaxed">{k.statement}</p>
+                {(k.topic || k.level || k.linkedLessons.length > 0) && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {k.topic && <span className="px-1.5 py-0.5 rounded bg-zinc-700/40 text-[9px] text-zinc-400">{k.topic}</span>}
+                    {k.level && <span className="px-1.5 py-0.5 rounded bg-sage-500/10 text-[9px] text-sage-400 font-mono">{k.level}</span>}
+                    {k.linkedLessons.map((t) => <span key={t} className="px-1.5 py-0.5 rounded bg-clay-500/10 text-[9px] text-clay-400">{t}</span>)}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setKnowledge(knowledge.filter((_, j) => j !== i))}
+                className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition shrink-0"
+                title="Remove"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!showForm ? (
+        <button
+          onClick={() => setShowForm(true)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-clay-300 bg-clay-500/10 border border-clay-500/20 hover:bg-clay-500/20 transition"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add something you know
+        </button>
+      ) : (
+        <div className="space-y-3 rounded-xl border border-zinc-700/40 bg-zinc-800/30 p-3.5">
+          <div>
+            <label className="block text-[10px] font-medium text-zinc-500 mb-1">What do you know? <span className="text-clay-400">*</span></label>
+            <textarea
+              value={draft.statement}
+              onChange={(e) => setDraft((d) => ({ ...d, statement: e.target.value }))}
+              placeholder="e.g. I can implement gradient descent in NumPy and understand backpropagation end-to-end."
+              className="w-full px-2.5 py-2 rounded-lg bg-zinc-900/60 border border-zinc-700/50 text-zinc-200 text-[11px] leading-relaxed focus:outline-none focus:border-clay-500/40 placeholder:text-zinc-600 min-h-[56px] resize-y"
+            />
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="block text-[10px] font-medium text-zinc-500 mb-1">Topic (optional)</label>
+              <input
+                value={draft.topic}
+                onChange={(e) => setDraft((d) => ({ ...d, topic: e.target.value }))}
+                placeholder="e.g. Deep Learning"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-700/50 text-zinc-200 text-[11px] focus:outline-none focus:border-clay-500/40 placeholder:text-zinc-600"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-zinc-500 mb-1">Level</label>
+              <select
+                value={draft.level}
+                onChange={(e) => setDraft((d) => ({ ...d, level: e.target.value as MasteryLevel | '' }))}
+                className="px-2 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-700/50 text-zinc-300 text-[11px] focus:outline-none focus:border-clay-500/40"
+              >
+                <option value="">—</option>
+                {(['L1', 'L2', 'L3', 'L4', 'L5'] as MasteryLevel[]).map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-medium text-zinc-500 mb-1">Keywords (comma-separated, for relevance)</label>
+            <input
+              value={draft.keywords}
+              onChange={(e) => setDraft((d) => ({ ...d, keywords: e.target.value }))}
+              placeholder="gradient descent, backprop, neural nets"
+              className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-700/50 text-zinc-200 text-[11px] focus:outline-none focus:border-clay-500/40 placeholder:text-zinc-600"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-medium text-zinc-500 mb-1">Your lessons</label>
+            {lessonTitles.length === 0 ? (
+              <p className="text-[10px] text-zinc-600 bg-zinc-900/40 border border-zinc-700/30 rounded-lg px-2.5 py-2">
+                No lessons yet — this entry will relate to every topic until you create lessons and tag them.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {lessonTitles.map((title) => (
+                  <button
+                    key={title}
+                    onClick={() => toggleLesson(title)}
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-medium transition border ${
+                      draft.linkedLessons.includes(title)
+                        ? 'bg-clay-500/15 text-clay-300 border-clay-500/30'
+                        : 'bg-zinc-900/40 text-zinc-500 border-zinc-700/30 hover:text-zinc-300'
+                    }`}
+                  >
+                    {title.slice(0, 22)}{title.length > 22 ? '…' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-1.5">
+            <button onClick={() => setShowForm(false)} className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium text-zinc-500 hover:text-zinc-300 transition">
+              Cancel
+            </button>
+            <button
+              onClick={add}
+              disabled={!draft.statement.trim()}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-medium text-clay-300 bg-clay-500/15 border border-clay-500/25 hover:bg-clay-500/25 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Add to knowledge
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,18 +1,44 @@
 import React, { useState } from 'react';
+import { Play, Loader2, TerminalSquare, X } from 'lucide-react';
 import type { CodeBlock } from '../../../shared/learn/types';
+
+const api = (window as any).deskflowAPI;
 
 interface Props {
   block: CodeBlock;
   onAsk?: (blockId: string, question: string) => void;
 }
 
+const RUNNABLE_LANGS = new Set(['python', 'py', 'javascript', 'js', 'shell', 'bash', 'cmd']);
+
 export function CodeBlock({ block, onAsk }: Props) {
   const [copied, setCopied] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [output, setOutput] = useState<{ stdout: string; stderr: string; error?: string } | null>(null);
+
+  const canRun = RUNNABLE_LANGS.has((block.lang || '').toLowerCase());
 
   const handleCopy = () => {
     navigator.clipboard.writeText(block.src);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleRun = async () => {
+    if (!canRun) return;
+    setRunning(true);
+    setOutput(null);
+    try {
+      const result = await api.learnRunCode({ lang: block.lang, code: block.src });
+      setOutput({
+        stdout: result?.stdout ?? '',
+        stderr: result?.stderr ?? '',
+        error: result?.error ?? undefined,
+      });
+    } catch (e: any) {
+      setOutput({ stdout: '', stderr: '', error: e.message || 'Failed to run code' });
+    }
+    setRunning(false);
   };
 
   // Simple syntax highlighting via Prism
@@ -40,17 +66,48 @@ export function CodeBlock({ block, onAsk }: Props) {
             </span>
           )}
         </div>
-        <button
-          onClick={handleCopy}
-          className="text-xs text-zinc-500 hover:text-zinc-300 transition"
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </button>
+        <div className="flex items-center gap-3">
+          {canRun && (
+            <button
+              onClick={handleRun}
+              disabled={running}
+              className="flex items-center gap-1 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition disabled:opacity-50"
+            >
+              {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+              {running ? 'Running' : 'Run'}
+            </button>
+          )}
+          <button
+            onClick={handleCopy}
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition"
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
       </div>
       {/* Code */}
       <pre className="p-4 bg-zinc-900/80 overflow-x-auto text-[13px] font-mono leading-relaxed">
         <code dangerouslySetInnerHTML={{ __html: highlighted }} />
       </pre>
+      {/* Output */}
+      {output && (
+        <div className="border-t border-zinc-700/40 bg-zinc-950/60">
+          <div className="flex items-center justify-between px-4 py-1.5 border-b border-zinc-800/60">
+            <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
+              <TerminalSquare className="w-3 h-3" /> Output
+            </span>
+            <button onClick={() => setOutput(null)} className="text-zinc-600 hover:text-zinc-300 transition" title="Clear">
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+          <pre className="px-4 py-3 overflow-x-auto text-[11px] font-mono leading-relaxed max-h-60 overflow-y-auto whitespace-pre-wrap">
+            {output.error && <span className="text-red-400">{output.error}</span>}
+            {output.stderr && <span className="text-amber-400">{output.stderr}</span>}
+            {output.stdout && <span className="text-zinc-300">{output.stdout}</span>}
+            {!output.error && !output.stderr && !output.stdout && <span className="text-zinc-600">(no output)</span>}
+          </pre>
+        </div>
+      )}
       {onAsk && (
         <button
           onClick={() => onAsk(block.id, `Explain this ${block.lang} code`)}
@@ -81,15 +138,29 @@ function highlightCode(code: string, lang: string): string {
   };
 
   const langKeywords = keywords[lang] || keywords['javascript'] || [];
-  const keywordRegex = new RegExp(`\\b(${langKeywords.join('|')})\\b`, 'g');
-  escaped = escaped.replace(keywordRegex, '<span class="text-emerald-400">$1</span>');
+  const kwPattern = langKeywords.join('|');
 
-  // String highlighting
-  escaped = escaped.replace(/(["'`])(?:(?!\1|\\).|\\.)*?\1/g, '<span class="text-emerald-400">$&</span>');
-  // Comment highlighting
-  escaped = escaped.replace(/(\/\/.*$|#.*$)/gm, '<span class="text-zinc-500">$1</span>');
-  // Number highlighting
-  escaped = escaped.replace(/\b(\d+\.?\d*)\b/g, '<span class="text-amber-400">$1</span>');
+  // SINGLE PASS — one alternation over the ESCAPED SOURCE ONLY. Tokens are
+  // wrapped in <span> the moment they are matched, and the engine never
+  // re-scans the emitted HTML. (The old multi-pass version re-scanned its own
+  // inserted spans, corrupting output like `class="text-emerald-400">400"</span>`.)
+  // Alternative order = precedence: strings first, then comments, then
+  // numbers, then keywords — so `#` inside a string can never become a comment.
+  const pattern = new RegExp(
+    '("""[\\s\\S]*?"""|\'\'\'[\\s\\S]*?\'\'\'|"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|`(?:\\\\.|[^`\\\\])*`|\\/\\/[^\\n]*|#[^\\n]*|\\b\\d+(?:\\.\\d+)?\\b|\\b(?:' + kwPattern + ')\\b)',
+    'g',
+  );
 
-  return escaped;
+  return escaped.replace(pattern, (match) => {
+    if (match.startsWith('"""') || match.startsWith("'''") || /^["'`]/.test(match)) {
+      return `<span class="text-emerald-400">${match}</span>`;
+    }
+    if (match.startsWith('//') || match.startsWith('#')) {
+      return `<span class="text-zinc-500">${match}</span>`;
+    }
+    if (/^\d/.test(match)) {
+      return `<span class="text-amber-400">${match}</span>`;
+    }
+    return `<span class="text-emerald-400">${match}</span>`;
+  });
 }

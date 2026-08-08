@@ -211,6 +211,12 @@ export function useCanvasState() {
     dispatch({ type: 'REMOVE_FROM_GROUP', cardId, newPosition })
   }, [])
 
+  const syncAutomations = useCallback((automations: any[]) => {
+    const currentCards = Object.values(stateRef.current.cards) as CanvasCard[]
+    const usedPositions = new Set(currentCards.map((c) => `${Math.round(c.position.x / 40)},${Math.round(c.position.y / 40)}`))
+    dispatch({ type: 'SYNC_AUTOMATIONS', automations, usedPositions })
+  }, [])
+
   const arrangeGroup = useCallback((groupId: string, mode: 'grid' | 'stack' | 'mosaic' | 'custom', customPositions?: Record<string, { x: number; y: number }>) => {
     const group = state.groups[groupId]
     if (!group) return
@@ -332,7 +338,7 @@ export function useCanvasState() {
     cards, allCards: state.cards, groups, nextZIndex: state.nextZIndex, saveStatus,
     addCard, updateCard, removeCard, moveCard, resizeCard, pinCard, dismissCard,
     setStatus, resetLayout, arrangeCards, clearAll, forceSave, setPanZoom,
-    createGroup, updateGroup, ungroup, deleteGroup, addToGroup, removeFromGroup, arrangeGroup,
+    createGroup, updateGroup, ungroup, deleteGroup, addToGroup, removeFromGroup, arrangeGroup, syncAutomations,
     canvasList, saveAs, loadCanvas, rename, removeCanvas, refreshList,
   }
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { MermaidBlock } from '../../../shared/learn/types';
+import { loadMermaid, renderMermaidWithTimeout } from './mermaidLoader';
 
 interface Props {
   block: MermaidBlock;
@@ -14,18 +15,16 @@ export function MermaidBlock({ block, onAsk }: Props) {
   useEffect(() => {
     let mounted = true;
     setLoading(true);
+    setError(null);
 
-    import('mermaid').then(async (mermaid) => {
-      mermaid.default.initialize({
-        startOnLoad: false,
-        theme: 'dark',
-        securityLevel: 'loose',
-        flowchart: { useMaxWidth: true, htmlLabels: true },
-        sequence: { useMaxWidth: true },
-      });
+    loadMermaid().then(async (m) => {
+      if (!mounted) return;
 
       try {
-        const { svg } = await mermaid.default.render(`mermaid-${block.id}`, block.src);
+        // Generate a unique ID to avoid conflicts with multiple diagrams
+        const diagramId = `mermaid-${block.id}-${Date.now()}`;
+        const { svg } = await renderMermaidWithTimeout(m, diagramId, block.src);
+
         if (mounted && containerRef.current) {
           containerRef.current.innerHTML = svg;
           const svgEl = containerRef.current.querySelector('svg');
@@ -41,9 +40,20 @@ export function MermaidBlock({ block, onAsk }: Props) {
         }
       } catch (err: any) {
         if (mounted) {
-          setError(err.message);
+          // Extract the useful part of the error message
+          const msg = err?.message || String(err);
+          // Mermaid often wraps the real error in a longer message
+          const shortMsg = msg.includes('Syntax error')
+            ? `Mermaid syntax error — check the diagram source below`
+            : msg.length > 200 ? msg.slice(0, 200) + '...' : msg;
+          setError(shortMsg);
           setLoading(false);
         }
+      }
+    }).catch((err: any) => {
+      if (mounted) {
+        setError(`Failed to load Mermaid library: ${err?.message ?? err}`);
+        setLoading(false);
       }
     });
 
@@ -58,9 +68,13 @@ export function MermaidBlock({ block, onAsk }: Props) {
         </div>
       )}
       {error && (
-        <div className="p-4 text-red-400 text-sm">
-          <div>Mermaid render error</div>
-          <pre className="mt-2 text-xs bg-zinc-900/50 p-2 rounded overflow-x-auto">{block.src}</pre>
+        <div className="p-4 text-sm">
+          <div className="text-amber-400 font-medium mb-1">⚠ Diagram could not render</div>
+          <div className="text-zinc-500 text-xs mb-2">{error}</div>
+          <details className="group/details">
+            <summary className="text-xs text-zinc-600 cursor-pointer hover:text-zinc-400 transition">Show diagram source</summary>
+            <pre className="mt-2 text-xs bg-zinc-900/80 p-3 rounded overflow-x-auto text-zinc-400 border border-zinc-800/50">{block.src}</pre>
+          </details>
         </div>
       )}
       {!error && !loading && (

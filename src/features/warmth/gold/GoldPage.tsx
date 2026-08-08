@@ -17,9 +17,9 @@ import { NumberTicker } from '../../../components/ui/number-ticker';
 import { BorderBeam } from '../../../components/ui/border-beam';
 import { AnimatedCircularProgressBar } from '../../../components/ui/animated-circular-progress-bar';
 import { VoiceInputWrapper } from '../../../components/VoiceInputWrapper';
-import { LifeRiver } from '../../../components/life-river/river';
 import type { Goal, LongTermGoal, GoalCategory } from '../../../components/dashboard/types';
 import { loadCompletions } from '../../covenant/storage';
+import { LifeRiver } from '../../../components/life-river/river';
 
 /* ═══════════════════ helpers ═══════════════════ */
 
@@ -113,7 +113,7 @@ function buildPrompts(data: DailyReflection, streak: number): string[] {
 /* species predicate — this is the whole routing logic */
 const isWeeklyish = (g: Goal) => !!g.isHabit || g.cadence === 'weekly' || g.period === 'weekly';
 
-const CAT_META: Record<string, { label: string; dot: string }> = {
+export const CAT_META: Record<string, { label: string; dot: string }> = {
   work:          { label: 'Work',          dot: '#ec4899' },
   personal:      { label: 'Personal',      dot: '#8b5cf6' },
   health:        { label: 'Health',        dot: '#34d399' },
@@ -121,9 +121,9 @@ const CAT_META: Record<string, { label: string; dot: string }> = {
   finance:       { label: 'Finance',       dot: '#fbbf24' },
   relationships: { label: 'Relationships', dot: '#fb7185' },
 };
-const catDot = (c: string) => (CAT_META[c] || CAT_META.work).dot;
+export const catDot = (c: string) => (CAT_META[c] || CAT_META.work).dot;
 
-const defaultCriteria: CriteriaForm = {
+export const defaultCriteria: CriteriaForm = {
   title: '', description: '', category: 'work', period: 'daily',
   targetType: 'completion', targetHours: 0, targetMinutes: 30, matchCategory: '',
   detectionEnabled: false, detectionMode: 'positive', detectionKeywords: '',
@@ -145,7 +145,7 @@ function goalToCriteria(g: Goal): CriteriaForm {
   };
 }
 
-function criteriaToGoal(c: CriteriaForm, date: string, existingId?: string): Goal {
+export function criteriaToGoal(c: CriteriaForm, date: string, existingId?: string): Goal {
   return {
     id: existingId || `goal_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     title: c.title.trim(),
@@ -457,16 +457,16 @@ function ProgressRing({ pct }: { pct: number }) {
   );
 }
 
-interface LTGForm {
+export interface LTGForm {
   title: string;
   description: string;
   category: GoalCategory;
   priority: number;
   deadline: string;
 }
-const emptyLTGForm: LTGForm = { title: '', description: '', category: 'work', priority: 1, deadline: '' };
+export const emptyLTGForm: LTGForm = { title: '', description: '', category: 'work', priority: 1, deadline: '' };
 
-const PRIORITY_OPTIONS: { value: number; label: string }[] = [
+export const PRIORITY_OPTIONS: { value: number; label: string }[] = [
   { value: 0, label: 'Top' },
   { value: 1, label: 'High' },
   { value: 2, label: 'Medium' },
@@ -1294,10 +1294,11 @@ export default function GoldPage({ embedded }: { embedded?: boolean }) {
             onSave={async s => { setReviewSummary(s); try { await api.saveGoalReview(selectedDate, s); } catch {} }} />
 
           <WeekReview weekDates={weekDates} reflections={weekReflections} />
+
+          {/* River of Years — embedded phases */}
+          <LifeRiver />
         </div>
       </div>
-
-      <LifeRiver />
     </div>
   );
 }

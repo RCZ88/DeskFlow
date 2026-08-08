@@ -1,0 +1,36 @@
+{
+  "headline": "July 2026 Recap",
+  "subhead": "// 2026-07 recap // · NET +$412 · 21 active days · BCA · CRYPTO",
+  "body": "You spent $1,240 across 14 categories in July — 12% less than June, and dining out alone took 23% of the total. Your BCA wallet absorbed most of the month's spending while the crypto vault quietly grew. Rent on the 1st and a Netflix renewal on the 14th were your two biggest fixed hits, and Maya still owes you $85 from last month's groceries.",
+  "button_label": "Regenerate",
+  "bg_color": "#18181b",
+  "text_color": "#f4f4f5",
+  "accent_color": "#34d399",
+  "dark": true,
+  "candidates": [
+    {
+      "id": "classic-authority",
+      "heading_font": "Libre Caslon Text",
+      "heading_weight": 700,
+      "body_font": "Source Serif 4",
+      "body_weight": 400,
+      "mono_font": "JetBrains Mono"
+    },
+    {
+      "id": "structured-data",
+      "heading_font": "Archivo",
+      "heading_weight": 600,
+      "body_font": "Public Sans",
+      "body_weight": 400,
+      "mono_font": "Spline Sans Mono"
+    },
+    {
+      "id": "technical-precision",
+      "heading_font": "Space Grotesk",
+      "heading_weight": 600,
+      "body_font": "Inter",
+      "body_weight": 400,
+      "mono_font": "JetBrains Mono"
+    }
+  ]
+}
