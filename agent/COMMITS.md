@@ -4,13 +4,33 @@
 
 ### Commit Message
 ```
-feat: Lyceum Learn 9-block renderer fixes + accumulated multi-session work (finance recap, life phases, IDE analytics extension, canvas/focus fixes)
+feat: Lyceum round-02 runtime fixes (CSP unsafe-eval, finchart v5 API, sankey CSV grammar, insertNode upsert) + accumulated multi-session work (life phases overhaul, top-bar smart fill, sleep day-lookup fix)
 ```
 
-**Hash:** `6fc82f3`
-**Date:** 2026-08-08
+**Hash:** `10dc7a8`
+**Date:** 2026-08-09
 
 ### Detailed Changes
+
+#### Lyceum Learn — round-02 runtime verification fixes (opencode-term-1-lyc2)
+- **`src/main.ts`** — CSP `script-src` now includes `'unsafe-eval'` (onHeadersReceived ~19414): fixes ChartBlock CSP violation — vega-lite compiles spec expressions via `new Function`.
+- **`src/components/learn/blocks/FinChartBlock.tsx`** — lightweight-charts v5 API: `chart.addLineSeries()` etc. are REMOVED; series created via `chart.addSeries(lwc.LineSeries/AreaSeries/HistogramSeries/CandlestickSeries, opts)` (named exports). Fixes `addLineSeries is not a function`.
+- **`src/components/learn/blocks/FlowBlock.tsx`** — sankey now emits RFC 4180 CSV (`sankey-beta` header + one `source,target,value` row per link, quoted when fields contain `,`/`"`). Mermaid 11.16 sankey grammar is CSV — `A --> B : 10` NEVER parses (`Expecting 'COMMA', got 'NEWLINE'`); empirically verified in node. ⚠ Corrects round-01's wrong `A --> B : 10` claim (also fixed in COMMITS.md 6fc82f3 entry below is superseded by this).
+- **`src/services/learn/db/repo.ts`** — `insertNode` now `ON CONFLICT(id) DO UPDATE`: re-importing a CHANGED lesson no longer throws `UNIQUE constraint failed` and rolls back the whole import. Deliberately NOT `INSERT OR REPLACE` (learn_progress FK ON DELETE CASCADE would wipe progress).
+- **Docs** — `conversation/round-02.md` (root causes + fixes + verification); `PROBLEMS.md` new R1–R5 section + P5 superseded note (total 145); `MEMORY.md` corrected the 08-08 sankey rule + added CSP / lightweight-charts-v5 / insertNode-upsert / DB-byte-scan lessons.
+
+#### Life Phases Overhaul (opencode-term-1-layo)
+- **`RingCanvas.tsx`**, **`TimelineView.tsx`**, **`ConnectionDataStrip.tsx`**, **`CoreSample.tsx`**, **`NotesTab.tsx`** (new) — ring & grain design for life-phase periods; period context split (main returns SQLite aggregates only; memories/covenant filled renderer-side).
+- `RiverMap.tsx` / `PhaseCard.tsx` / `phase-form-dialog.tsx` / `reflection-flow.tsx`, `LifePage.tsx`, `useLifePhases.ts`, `riverMath.ts`, `index.css` — visual overhaul per RESULT (10).md.
+
+#### Sleep day-lookup + top-bar Smart Fill (opencode-term-1-mojib)
+- `main.ts` — `get-sleep-for-date` rewritten to local grouped-evening window (`started_at ∈ [X 12:00, X+1d 12:00)` ASC, first match) — fixes "popup stuck at 7 / wrong night" in UTC+7.
+- `App.tsx` — top-bar Smart Fill button dispatching `open-gap-drawer`; `ExternalPage.tsx`/`GapFillModal.tsx` reorder; `ActivityMosaic.tsx`, `grid.ts`; `preload.ts` + `deskflow-api.d.ts`.
+
+#### Agent state & docs
+- Spokes: `opencode-term-1-4de3`, `-hrcx`, `-layo`, `-lyc2`, `-mojib`; `agent/state.md` regenerated; `FEATURE_TRACKER.md`, `agent-reflect/problem.md`, `generate-prompt-docs/lyceum-hierarchy-expansion-08082026/`, `backandfourth-docs/life-phases-overhaul-08082026/conversation/round-02.md`.
+
+### Detailed Changes — 6fc82f3 (2026-08-08, previous commit)
 
 #### Lyceum Learn — 9 renderer bugs fixed (opencode-term-1-lyc2 round-01)
 - **`src/components/learn/blocks/mermaidLoader.ts`** (new) — mermaid 11.16 hangs when `initialize()` runs before EVERY render; initialize EXACTLY ONCE per session + 15s render timeout with readable error. Used by MermaidBlock + FlowBlock.
