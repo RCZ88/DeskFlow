@@ -11,9 +11,14 @@ interface Props {
 function edgesToMermaid(block: FlowBlockType): string {
   if (block.edges && block.edges.length > 0) {
     if (block.variant === 'sankey') {
-      // Mermaid sankey-beta syntax is:  A --> B : 10  (NO JSON.stringify quotes
-      // and NO |value| labels — quoted/labeled links hang this mermaid version)
-      const lines = block.edges.map((e) => `${e.from} --> ${e.to} : ${e.value}`);
+      // Mermaid 11 sankey grammar is CSV (RFC 4180), 3 columns:
+      // source,target,value — NOT "A --> B : 10" (that syntax fails to parse
+      // with "Expecting 'COMMA'" on any node name containing a space).
+      const lines = block.edges.map((e) => {
+        const from = /[",]/.test(e.from) ? `"${e.from.replaceAll('"', '""')}"` : e.from;
+        const to = /[",]/.test(e.to) ? `"${e.to.replaceAll('"', '""')}"` : e.to;
+        return `${from},${to},${e.value}`;
+      });
       return `sankey-beta\n${lines.join('\n')}`;
     }
     const lines = block.edges.map((e) => `${JSON.stringify(e.from)}[${e.from}] --> ${JSON.stringify(e.to)}[${e.to}]`);

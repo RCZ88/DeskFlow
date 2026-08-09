@@ -1,9 +1,41 @@
 ﻿# PROBLEMS.md
 
-> **Purpose:** Issue tracker for AI agents and humans — all known bugs, feature requests, and their resolution status.
-> **Last Updated:** 2026-08-08 (Lyceum Learn 9-renderer-bug fix round)
-> **Total Issues:** 137
+> **Purpose:** Issue tracker for AI agents and humans - all known bugs, feature requests, and their resolution status.
+> **Last Updated:** 2026-08-09 (Lyceum round-02: CSP unsafe-eval + finchart v5 API + sankey CSV grammar + insertNode upsert)
+> **Total Issues:** 145
 > **Parse Priority:** High
+
+---
+
+## 🚨 2026-08-09 — Lyceum Learn round-02: CZ-verified runtime failures (session opencode-term-1-lyc2)
+
+> CZ runtime test after round-01: E1 table WORKS, E7 code WORKS, E8 widget WORKS. Broken: chart CSP error, finchart error, sankey parse error, illustration absent. Details in `agent/docs/lyceum-featurefix-08082026/conversation/round-02.md`.
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| R1 | Chart block CSP violation: `'unsafe-eval' is not an allowed source of script: script-src 'self' 'unsafe-inline'` | AI Attempted Fix | **ROOT CAUSE:** Electron injects CSP via `onHeadersReceived` at main.ts:19414 — `script-src` lacked `'unsafe-eval'` (vega-lite compiles spec expressions via `new Function`). **FIX:** `'unsafe-eval'` added to script-src. main.cjs rebuilt. Verify on relaunch |
+| R2 | FinChart `chart.addLineSeries is not a function` | AI Attempted Fix | **ROOT CAUSE:** lightweight-charts is v5.2.0 — `addLineSeries/addAreaSeries/addHistogramSeries/addCandlestickSeries` REMOVED. **FIX:** FinChartBlock uses `chart.addSeries(lwc.LineSeries/AreaSeries/HistogramSeries/CandlestickSeries, opts)` (named exports verified). Verify on relaunch |
+| R3 | Sankey `Parse error on line 2 … Expecting 'COMMA', got 'NEWLINE'` | AI Attempted Fix | **ROOT CAUSE:** mermaid 11.16 sankey grammar is CSV (RFC 4180): `sankey-beta` header + one `source,target,value` row per link — `A --> B : 10` NEVER parses (empirically reproduced for every variant; upstream jison confirms). **FIX:** FlowBlock.edgesToMermaid emits CSV with RFC4180 quoting. Corrects round-01 P5. Verify on relaunch |
+| R4 | Illustration block absent in rendered lesson (E9) | Not Started (user action) | **ROOT CAUSE = stale stored lesson, NOT a code bug:** byte-scanned %APPDATA%\RHEO\deskflow-data.db (122 MB) — `testing-the-lyceum-parser` has ZERO `"type":"illustration"` blocks (prose 274 / leaf 145 / quiz 103 / code 95 / mermaid 47 …). Current parser DOES emit 1 illustration block from lesson.txt. **FIX PATH:** user re-imports lesson.txt via Learn → Import → Validate & Import (`learnImportLdoc` upserts changed nodes) |
+| R5 | Re-importing a changed lesson throws `UNIQUE constraint failed: learn_nodes.id` (latent) | AI Attempted Fix | `repo.insertNode` was a plain INSERT — the changed illustration node would have rolled back the whole import. **FIX:** `ON CONFLICT(id) DO UPDATE` (NOT `INSERT OR REPLACE` — FK ON DELETE CASCADE would wipe `learn_progress`). repo.js recompiled per-file (no --bundle) |
+
+---
+
+## 🐛 2026-08-09 — External sleep popup opens the NEXT night's sleep + CSP/mermaid errors (session opencode-term-1-mojib)
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| P1 | Sleep popup shows the wrong sleep: correct only on the LAST bar of the week, earlier bars "stuck at 7", then a 2-day gap | AI Attempted Fix | **ROOT CAUSE:** `get-sleep-for-date` SQL matched `date(started_at) = ? OR date(ended_at) = ? OR date(started_at) = date(?, '+1 day')` with `ORDER BY started_at DESC LIMIT 1` — in UTC+7 every local after-midnight bedtime landed in BOTH the bar day and the next day, and DESC picked the NEXT night's sleep. **FIX:** rewrote handler (main.ts ~19973): local window `[dateStr 12:00, +24h)` on started_at, ASC, first match — same grouping rule as the chart (`getSleepGroupDate`: bedtime hour < 12 → previous evening). The 2-day gap was REAL (no sleep sessions after Aug 6 evening). App must be FULLY relaunched to pick up new main.cjs. |
+| P2 | Learn/widget blob iframes blocked: `Framing 'blob:http://localhost:61996/...#widget' violates CSP "frame-src https://www.realtimecolors.com"` | AI Attempted Fix | main.ts CSP (~19179) `frame-src` now includes `blob:` (WidgetHost sets iframe.src = createObjectURL + '#widget'). main.cjs rebuilt. Needs relaunch + verify Learn widget renders. |
+| P3 | Mermaid "Syntax error in text" + dynamic-import chunk 404s after rebuilds | AI Attempted Fix | Stale in-memory bundle (was on index.BePRB46W.js) requesting deleted hashed chunks — NOT a source bug. Latest build = index.5bS-a6wD.js. User must fully close + relaunch RHEO. |
+
+---
+
+## 🐛 2026-08-08 - Lyceum Learn: ALL learn:* IPC "No handler registered" at runtime (session opencode-term-1-lyc2)
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| P10 | Every `learn:*` IPC (listLessons, getTutorConfig, getProfile, setProfile) errors "No handler registered"; TopicDigest returns empty cached brief | AI Attempted Fix | **ROOT CAUSE:** my 8/8 4:52 PM manual recompile of `dist-electron/services/learn/index.js` used `esbuild --bundle`, inlining `db/repo.js`'s `runMigration` — its `path.join(__dirname, 'migrations')` then resolved against the BUNDLE dir (`dist-electron/services/learn`) instead of `.../learn/db` → `readdirSync` ENOENT → `registerLearnHandlers` threw inside main.ts:3673's catch → zero handlers registered. Same class of bug for `validator/validate.ts`'s `../../../schemas/ldoc-1.0.json`. **FIX:** recompiled per-file WITHOUT `--bundle` (build.mjs Step-3 style) for index.ts, validator/validate.ts, parseLessonMarkdown.ts (was also stale 16:48 src vs 15:47 dist). Verified: index.js now requires sibling files (`./db/repo`, `./validator/validate`…), migrations dir resolves to 7 .sql files, schema exists, main.cjs still external-requires `./services/learn/index`. MEMORY.md lesson corrected (was instructing --bundle, which CAUSED this). **App must be FULLY relaunched to pick up fixed dist files.**
 
 ---
 
@@ -15,7 +47,7 @@
 | P2 | Mermaid/flow diagrams hang forever (per-render `initialize` blocks mermaid 11.16) | AI Attempted Fix | NEW `blocks/mermaidLoader.ts`: singleton init + 15s render timeout; both MermaidBlock + FlowBlock use it. Build OK, runtime NOT LAUNCHED |
 | P3 | Chart block stale-chunk import → infinite spinner (`.catch` swallowed error, self-heal never fired) | AI Attempted Fix | ChartBlock/FinChartBlock/TableBlock/FlowBlock now call `autoHealDynamicImport()` on `isDynamicImportFailure` + Retry buttons. Build OK, runtime NOT LAUNCHED |
 | P4 | FinChart "No data series found" — vega-lite spec data lives at `spec.data.values`, old code expected top-level array | AI Attempted Fix | New `extractData()` (data.values / plain array / OHLC); multi-series line/area/bar; fixed cleanup (chart.remove now runs); auto-heal + Retry. Build OK, runtime NOT LAUNCHED |
-| P5 | Sankey flow emits `sankey-beta` with JSON.stringify quotes + pipe labels — hangs mermaid | AI Attempted Fix | FlowBlock emits proper `A --> B : 10` sankey syntax; singleton init + timeout + auto-heal. Build OK, runtime NOT LAUNCHED |
+| P5 | Sankey flow emits `sankey-beta` with JSON.stringify quotes + pipe labels — hangs mermaid | AI Attempted Fix | FlowBlock emits `A --> B : 10` sankey syntax; singleton init + timeout + auto-heal. Build OK, runtime NOT LAUNCHED. ⚠ SUPERSEDED 08-09 (round-02): `A --> B : 10` NEVER parses — mermaid 11 sankey grammar is CSV (`sankey-beta` header + `source,target,value` rows). See round-02 section R3 |
 | P6 | Code block double-highlight corruption (`class="text-emerald-400">400"</span>`) | AI Attempted Fix | `highlightCode` rewritten as single regex pass over escaped source (strings→comments→numbers→keywords); verified no span-inside-span. Build OK, runtime NOT LAUNCHED |
 | P7 | Widget iframe rendered empty (stale build artifact) | AI Attempted Fix | WidgetHost hardened: per-block remount key + retry button + error reset on content change. Build OK, runtime NOT LAUNCHED |
 | P8 | `:::illustration` without space after `:::` parses as prose | AI Attempted Fix | Parser directive regex now `^:{3,}(?:\s+)?(\w+)` (open + nested detection); bare `:::` still closes. Verified via bundle test on lesson.txt: 1 illustration block. dist-electron/services/learn/* recompiled. Build OK, runtime NOT LAUNCHED |

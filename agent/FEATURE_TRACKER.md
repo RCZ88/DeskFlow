@@ -2,9 +2,48 @@
 
 **Purpose:** Complete inventory of every page and feature in DeskFlow app.
 
-**Last Updated:** 2026-06-20
+**Last Updated:** 2026-08-09
 
 **Maintainer:** AI Development Team
+
+---
+
+## NEW: App-sidebar (navigation rail) config persistence hardening — 2026-08-08 (session opencode-term-1-4de3)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | Sidebar page-order persistence verified end-to-end: `df-sidebar-order` (JSON array of paths) load/persist/reset + new-item merge; `df-sidebar-collapsed` (expanded/collapsed "orientation") init/toggle — both already try/catch-wrapped | Verified (build OK, NOT LAUNCHED) | `src/App.tsx` — `loadSidebarOrder`/`persistSidebarOrder`/`clearSidebarOrder` (L87-107), `sidebarCollapsed` state (L423-433) |
+| F2 | Harden reorder save path: `persistSidebarOrder` moved OUT of the `setSidebarOrder` updater into a `useEffect([sidebarOrder])` (skip first render) — one write per committed change, immune to StrictMode/concurrent updater replay | Implemented (build OK, NOT LAUNCHED) | `src/App.tsx` — `handleSidebarDragEnd` (L2511) + persist effect after `handleResetSidebarOrder` (L2531) |
+
+Note: Terminal workspace sidebar has a SEPARATE gap (not in this scope): `handleSaveWorkspace` never sends `sidebarWidth` (DB always writes 400 default) and `sidebarOpen` (collapsed) is not persisted at all — pending user request.
+
+---
+
+## NEW: Life Phases Overhaul (RESULT (10).md) - full-stack implement - 2026-08-09 (session opencode-term-1-layo)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | Ring & Grain hero (Apex Map): concentric life-rings (oldest to center), thickness proportional to magnitude, feTurbulence grain filter, seeded flecks, 4 lenses (Phases/Covenant/Gold/Memories) with layoutId pill, LTG branches + progress buds, Today's Edge breathing dashed ring (df-edge-breath keyframes), reduced-motion guard | Implemented (build OK, NOT LAUNCHED) | `src/components/life-river/RingCanvas.tsx` + `CoreSample.tsx` (new); LifePage Apex Map hero stack: CoreSample -> TimelineView -> RiverMap |
+| F2 | TimelineView: proportional phase blocks, All time/By year zoom with year gridlines, pulsing now marker, dashed gap segments, click -> onJump | Implemented (build OK, NOT LAUNCHED) | `src/components/life-river/TimelineView.tsx` (new) |
+| F3 | ConnectionDataStrip on PhaseCard: collapsed header, lazy-loads `lifePhaseGetPeriodContext` on expand, merges renderer-side memories + covenant rate (useCovenant: completions/(commitments x days) capped 1); Goals chips / Focus bars / External chips / Memories thumbnails / App bars / Covenant rate with empty states | Implemented (build OK, NOT LAUNCHED) | `src/components/life-river/ConnectionDataStrip.tsx` (new) |
+| F4 | 9-step PhaseFormDialog stepper: basics/story/moments/people/feelings/lessons/color/connections/review; useReducer draft, live PhaseCardPreview (scale-0.62), aiAssist questions, generate-reflection, Save as draft, per-step validation | Implemented (build OK, NOT LAUNCHED) | `src/components/life-river/phase-form-dialog.tsx` (rewritten) |
+| F5 | AI reflection contract: `onSubmit(phase, answers, variation?) -> {text, confidence: grounded\|sparse}`; sparse inline note; "Try again" regenerates with variation; tone-contract system prompt; legacy `{phase, answers}` compat | Implemented (build OK, NOT LAUNCHED) | `reflection-flow.tsx` (rewritten), `useLifePhases.ts` reflect(), main.ts `lifePhase:aiReflect` |
+| F6 | PhaseCard header band: pinned memory image (mix-blend-luminosity + duotone overlay + lighten(20%)); connection chips resolve titles via `allPhases` + `onJump` + hover ring; edit dialog gets allPhases | Implemented (build OK, NOT LAUNCHED) | `src/components/life-river/PhaseCard.tsx` |
+| F7 | Backend: `lifePhase:aiAssist` (lessons questions), `lifePhase:getPeriodContext` (SQLite aggregates - goals/focus/external/logs; sleep + is_browser_tracking excluded; memories/covenant filled renderer-side), `lifePhase:aiReflect` extended | Implemented (build OK, NOT LAUNCHED) | src/main.ts (~L16945+), preload.ts (~934), deskflow-api.d.ts (~201) |
+| F8 | Shared helpers: `lighten(hex, pct)` (HSL) + `memoryUrl(memories, id)` + `MemoryRef` in riverMath.ts | Implemented (build OK, NOT LAUNCHED) | `src/lib/riverMath.ts` |
+
+Deviation notes: ring "unroll" implemented as click -> smooth-scroll + 900ms amber highlight (not a true framer layoutId shared element); PeriodContext memories[]/covenantCompletionRate are filled renderer-side (main returns empty/null - memories are IndexedDB, covenant is localStorage).
+
+---
+
+## NEW: External page round — gap-fill top-bar entry + beautiful-charts Overview + segment reorder — 2026-08-09 (session opencode-term-1-mojib)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | Smart Fill button in the GLOBAL top bar (app-wide gap-fill drawer entry, was External-page-only) | Implemented (build OK, NOT LAUNCHED) | App.tsx top bar (line ~2813) — dispatches same `open-gap-drawer` event; ExternalPage header button kept |
+| F2 | beautiful-charts (Dribbble/Hyper Charts) restyle of External Overview tab: gradient bar fills + neon caps, glass tooltips, donut glow + legend dot glows | Implemented (build OK, NOT LAUNCHED) | ExternalPage.tsx `vizTab === 'grid'` — `barGradient`/`hexWithAlpha`/`glassTooltip` helpers (~899), all 3 Overview cards |
+| F3 | Drag-to-reorder of segments in the External Fill Gap popup (dnd-kit, grip handle) | Implemented (build OK, NOT LAUNCHED) | `src/components/external/GapFillModal.tsx` — SortableSegmentRow + sensors + arrayMove |
+| F4 | Sleep popup day-lookup rewrite: matches the LOCAL grouped evening date (startH<12 → previous day) instead of UTC date() + '+1 day' + ORDER BY DESC (which returned the NEXT night's sleep) | Implemented (build OK, NOT LAUNCHED) | main.ts `get-sleep-for-date` — window query `[dateStr 12:00 local, +24h)`, ASC, first match |
 
 ---
 

@@ -27,6 +27,18 @@
   .tapestry-shimmer { animation: none !important; }
 }
 
+/* ===== Life Phases — Ring & Grain "Today's Edge" breathing ===== */
+@keyframes df-edge-breath {
+  0%, 100% { opacity: 0.28; }
+  50% { opacity: 0.6; }
+}
+.df-edge-breath {
+  animation: df-edge-breath 4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .df-edge-breath { animation: none !important; }
+}
+
 /* Voice solidify animation — text glows and brightens when transcription completes */
 .voice-solidify {
   animation: voiceSolidify 0.8s ease-out forwards;

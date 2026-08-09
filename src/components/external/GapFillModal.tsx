@@ -1,8 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   Check,
   Clock,
+  GripVertical,
   Monitor,
   Plus,
   Search,
@@ -23,6 +41,45 @@ interface InternalSegment {
   id: string;
   activityId: string | null;
   durationSeconds: number;
+}
+
+function SortableSegmentRow({
+  id,
+  canDrag,
+  children,
+}: {
+  id: string;
+  canDrag: boolean;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id, disabled: !canDrag });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={isDragging ? "relative z-10" : ""}
+    >
+      <div
+        className={`flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2 ${
+          isDragging ? "opacity-70 ring-1 ring-amber-500/40" : ""
+        }`}
+      >
+        {canDrag && (
+          <button
+            {...attributes}
+            {...listeners}
+            className="shrink-0 cursor-grab touch-none rounded-lg p-1 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300 active:cursor-grabbing"
+            title="Drag to reorder"
+            aria-label="Drag to reorder"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function formatTime(date: Date): string {
@@ -167,6 +224,22 @@ export function GapFillModal({
     });
     setPickingFor((prev) => (prev === segId ? null : prev));
   }, [gapSeconds]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleSegmentDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setSegments((current) => {
+      const oldIndex = current.findIndex((segment) => segment.id === String(active.id));
+      const newIndex = current.findIndex((segment) => segment.id === String(over.id));
+      if (oldIndex < 0 || newIndex < 0) return current;
+      return arrayMove(current, oldIndex, newIndex);
+    });
+  }, []);
 
   const pickActivity = useCallback((segId: string, activity: ExternalActivity) => {
     setSegments((current) =>
@@ -377,79 +450,90 @@ export function GapFillModal({
 
               {/* Segments */}
               <div className="space-y-2">
-                {segments.map((segment) => {
-                  const activity = getActivity(segment.activityId);
-                  const isPicking = pickingFor === segment.id;
-                  return (
-                    <div key={segment.id}>
-                      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
-                        {/* Duration control */}
-                        <div className="flex w-[5.5rem] shrink-0 items-center gap-1">
-                          <button
-                            onClick={() => setSegmentDuration(segment.id, segment.durationSeconds - 60)}
-                            className="rounded p-0.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
-                            aria-label="Decrease duration"
-                          >
-                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                          </button>
-                          <input
-                            type="number"
-                            min={1}
-                            max={Math.floor(gapSeconds / 60)}
-                            value={Math.round(segment.durationSeconds / 60)}
-                            onChange={(e) => {
-                              const mins = parseInt(e.target.value) || 1;
-                              setSegmentDuration(segment.id, mins * 60);
-                            }}
-                            className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-center font-mono text-[11px] tabular-nums text-zinc-400 focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                          />
-                          <span className="w-5 text-[10px] text-zinc-600">min</span>
-                          <button
-                            onClick={() => setSegmentDuration(segment.id, segment.durationSeconds + 60)}
-                            className="rounded p-0.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
-                            aria-label="Increase duration"
-                          >
-                            <Plus className="h-3 w-3" />
-                          </button>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleSegmentDragEnd}
+                >
+                  <SortableContext
+                    items={segments.map((segment) => segment.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {segments.map((segment) => {
+                      const activity = getActivity(segment.activityId);
+                      const isPicking = pickingFor === segment.id;
+                      return (
+                        <div key={segment.id}>
+                          <SortableSegmentRow id={segment.id} canDrag={segments.length > 1}>
+                            {/* Duration control */}
+                            <div className="flex w-[5.5rem] shrink-0 items-center gap-1">
+                              <button
+                                onClick={() => setSegmentDuration(segment.id, segment.durationSeconds - 60)}
+                                className="rounded p-0.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
+                                aria-label="Decrease duration"
+                              >
+                                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                              </button>
+                              <input
+                                type="number"
+                                min={1}
+                                max={Math.floor(gapSeconds / 60)}
+                                value={Math.round(segment.durationSeconds / 60)}
+                                onChange={(e) => {
+                                  const mins = parseInt(e.target.value) || 1;
+                                  setSegmentDuration(segment.id, mins * 60);
+                                }}
+                                className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-center font-mono text-[11px] tabular-nums text-zinc-400 focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                              />
+                              <span className="w-5 text-[10px] text-zinc-600">min</span>
+                              <button
+                                onClick={() => setSegmentDuration(segment.id, segment.durationSeconds + 60)}
+                                className="rounded p-0.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
+                                aria-label="Increase duration"
+                              >
+                                <Plus className="h-3 w-3" />
+                              </button>
+                            </div>
+
+                            {/* Activity picker button */}
+                            <button
+                              onClick={() => setPickingFor(isPicking ? null : segment.id)}
+                              className="flex flex-1 items-center gap-2 rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-left transition hover:bg-white/[0.08]"
+                            >
+                              <div
+                                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: activity?.color || "#52525b" }}
+                              />
+                              <span className={`truncate text-xs ${activity ? "text-zinc-200" : "italic text-zinc-500"}`}>
+                                {activity ? activity.name : "Choose activity"}
+                              </span>
+                            </button>
+
+                            {segments.length > 1 && (
+                              <button
+                                onClick={() => removeSegment(segment.id)}
+                                className="shrink-0 rounded-lg p-1 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
+                                aria-label="Remove segment"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </SortableSegmentRow>
+
+                          {/* Inline activity picker */}
+                          {isPicking && (
+                            <ActivityPickerGrid
+                              activities={pickableActivities}
+                              currentId={segment.activityId}
+                              onPick={(activity) => pickActivity(segment.id, activity)}
+                              onClose={() => setPickingFor(null)}
+                            />
+                          )}
                         </div>
-
-                        {/* Activity picker button */}
-                        <button
-                          onClick={() => setPickingFor(isPicking ? null : segment.id)}
-                          className="flex flex-1 items-center gap-2 rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-left transition hover:bg-white/[0.08]"
-                        >
-                          <div
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: activity?.color || "#52525b" }}
-                          />
-                          <span className={`truncate text-xs ${activity ? "text-zinc-200" : "italic text-zinc-500"}`}>
-                            {activity ? activity.name : "Choose activity"}
-                          </span>
-                        </button>
-
-                        {segments.length > 1 && (
-                          <button
-                            onClick={() => removeSegment(segment.id)}
-                            className="shrink-0 rounded-lg p-1 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
-                            aria-label="Remove segment"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Inline activity picker */}
-                      {isPicking && (
-                        <ActivityPickerGrid
-                          activities={pickableActivities}
-                          currentId={segment.activityId}
-                          onPick={(activity) => pickActivity(segment.id, activity)}
-                          onClose={() => setPickingFor(null)}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                  </SortableContext>
+                </DndContext>
 
                 {/* Split time */}
                 <button

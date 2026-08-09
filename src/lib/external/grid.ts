@@ -9,6 +9,26 @@ export type GridSizeTier = "hero" | "secondary" | "medium" | "small";
 
 export type Hierarchy = "subtle" | "balanced" | "dramatic";
 
+/**
+ * How literally a card's size tracks its real tracked time.
+ * Graduated from the historical compressed look to a zero-processing scale:
+ *   gentle  → log1p compression (huge differences flattened, all cards legible)
+ *   soft    → mild power compression (1+s)^0.35
+ *   natural → light power compression (1+s)^0.7
+ *   true    → PURE proportion: weight = seconds. No log, no gamma, no cap —
+ *             a 90% dominant activity really takes ~90% of the grid.
+ */
+export type ScaleMode = "gentle" | "soft" | "natural" | "true";
+
+export const SCALE_MODES: ScaleMode[] = ["gentle", "soft", "natural", "true"];
+
+export const SCALE_EXPONENT: Record<ScaleMode, number> = {
+  gentle: 0, // special-cased to log1p
+  soft: 0.35,
+  natural: 0.7,
+  true: 1, // direct proportion — no processing
+};
+
 export type ActivityGridCell = {
   activity: ExternalActivity;
   seconds: number;
@@ -41,13 +61,20 @@ type TreemapItem = {
 };
 
 /**
- * Log-scaled visual weight for an activity's duration.
- * Using raw seconds makes tiny activities invisible next to a dominant one;
- * log1p compresses the range so every tracked activity stays legible while
- * preserving ordering.
+ * Scale-aware visual weight for an activity's duration.
+ * `true` returns the RAW seconds — directly proportional, zero processing.
+ * `gentle` uses log1p (the historical look): it compresses the range so every
+ * tracked activity stays legible next to a dominant one while preserving
+ * ordering. `soft`/`natural` are partial power compressions on the way to
+ * linear: (1+s)^k with k → 1 meaning "less processing, closer to the real
+ * scale". The +1 keeps the transform defined for 0 and harmless.
  */
-function visualWeight(seconds: number): number {
-  return Math.log(1 + Math.max(0, seconds));
+function visualWeight(seconds: number, scale: ScaleMode): number {
+  const s = Math.max(0, seconds);
+  if (scale === "true") return s;
+  const k = SCALE_EXPONENT[scale] ?? 0;
+  if (k <= 0) return Math.log(1 + s);
+  return Math.pow(1 + s, k);
 }
 
 /**
@@ -124,16 +151,24 @@ function applyMaxShare(weights: number[], maxShare: number): number[] {
  * The old model hardcoded a fixed ladder (hero 0.55 / secondary 0.27 / rest
  * sharing ~0.18) — the user reported the sizes look FIXED, not proportional
  * to actual tracked time. This version derives everything from the data:
- *   1. w_i = log(1 + seconds)  (log1p compresses the range so every tracked
- *      activity stays visible next to a dominant one, preserving ordering)
+ *   1. w_i = scale-aware weight (see visualWeight): `true` = raw seconds
+ *      (directly proportional, NO log/gamma/cap), `gentle` = log1p,
+ *      `soft`/`natural` = partial power compression toward linear.
  *   2. s_i = w_i^gamma         (gamma < 1 flattens → subtle, gamma = 1 pure
- *      proportion, gamma > 1 exaggerates → dramatic)
+ *      proportion, gamma > 1 exaggerates → dramatic). Bypassed when the
+ *      scale is `true` — zero processing means exactly that.
  *   3. s_i normalized so the fractions sum to 1 → each card's area IS its
  *      share of tracked time. Dominance emerges from the data, not a ladder.
- *   4. applyMaxShare() caps the biggest card per mode (subtle 18% / balanced
- *      30% / dramatic 48%) so no card can ever swallow the grid.
+ *   4. applyMaxShare() caps the biggest card per hierarchy (subtle 18% /
+ *      balanced 30% / dramatic 48%) so no card can ever swallow the grid —
+ *      EXCEPT in `true` scale, where the cap is lifted so a genuinely
+ *      dominant activity is allowed to take its real share.
  */
-export function buildTargetWeights(sorted: ActivityWithSeconds[], hierarchy: Hierarchy = "balanced"): number[] {
+export function buildTargetWeights(
+  sorted: ActivityWithSeconds[],
+  hierarchy: Hierarchy = "balanced",
+  scale: ScaleMode = "gentle"
+): number[] {
   const n = sorted.length;
 
   if (n === 0) return [];
@@ -143,10 +178,11 @@ export function buildTargetWeights(sorted: ActivityWithSeconds[], hierarchy: Hie
     balanced: 1.0,
     dramatic: 1.55,
   };
-  const gamma = gammaMap[hierarchy] ?? 1.0;
+  const isLiteral = scale === "true";
+  const gamma = isLiteral ? 1 : gammaMap[hierarchy] ?? 1.0;
 
   const raw = sorted.map((item) => {
-    const w = visualWeight(item.seconds);
+    const w = visualWeight(item.seconds, scale);
     return w > 0 ? Math.pow(w, gamma) : 0;
   });
   const total = raw.reduce((sum, w) => sum + w, 0);
@@ -157,7 +193,9 @@ export function buildTargetWeights(sorted: ActivityWithSeconds[], hierarchy: Hie
 
   const normalized = raw.map((w) => w / total);
 
-  return applyMaxShare(normalized, MAX_SHARE_MAP[hierarchy] ?? 0.3);
+  const cap = isLiteral ? 1 : (MAX_SHARE_MAP[hierarchy] ?? 0.3);
+
+  return applyMaxShare(normalized, cap);
 }
 
 /**
@@ -337,6 +375,7 @@ export function computeActivityGridLayout(options: {
   aspect?: number;
   width?: number;
   hierarchy?: Hierarchy;
+  scale?: ScaleMode;
   minCellAreaFraction?: number;
 }): ActivityGridLayout {
   const {
@@ -345,6 +384,7 @@ export function computeActivityGridLayout(options: {
     aspect = 16 / 9,
     width = 1200,
     hierarchy = "balanced",
+    scale = "gentle",
     minCellAreaFraction = 0.04,
   } = options;
 
@@ -382,7 +422,7 @@ export function computeActivityGridLayout(options: {
     };
   }
 
-  const fractions = buildTargetWeights(main, hierarchy);
+  const fractions = buildTargetWeights(main, hierarchy, scale);
 
   // K-cap: any activity whose share falls below the readable floor is dropped
   // from the main grid (its weight can't fill a readable cell) and overflowed

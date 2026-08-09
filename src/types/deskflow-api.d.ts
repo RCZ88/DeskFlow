@@ -203,7 +203,9 @@ interface DeskflowAPI {
   lifePhaseSave: (phase: any) => Promise<{ ok: boolean; data?: any; error?: string }>;
   lifePhaseDelete: (phaseId: string) => Promise<{ ok: boolean; data?: any; error?: string }>;
   lifePhaseSaveAll: (phases: any[]) => Promise<{ ok: boolean; data?: any[]; error?: string }>;
-  lifePhaseAiReflect: (params: { phase: any; answers: string[] }) => Promise<{ ok: boolean; data?: string; error?: string }>;
+  lifePhaseAiAssist: (params: { kind?: string; context?: any }) => Promise<{ ok: boolean; data?: { questions: string[] }; error?: string }>;
+  lifePhaseGetPeriodContext: (params: { startDate: string; endDate: string }) => Promise<{ ok: boolean; data?: any; error?: string }>;
+  lifePhaseAiReflect: (params: any) => Promise<{ ok: boolean; data?: any; error?: string }>;
   lifePhaseAiEraTrends: (params: { startYear: number; endYear: number | null; title: string }) => Promise<{ ok: boolean; data?: string; error?: string }>;
   lifePhaseAiSummarize: (phases: any[]) => Promise<{ ok: boolean; data?: string; error?: string }>;
   connectors: {

@@ -12,6 +12,8 @@ import type { LongTermGoal } from '@/components/dashboard/types'
 import {
   categoryOf,
   getContrastColor,
+  lighten,
+  memoryUrl,
   phaseSpanLabel,
   type LifePhase,
   type LifePhaseMilestone,
@@ -23,7 +25,8 @@ import { cn } from '@/lib/utils'
 import { Pencil, Sparkles, Users, BookOpen, Quote } from 'lucide-react'
 
 import { PhaseFormDialog } from './phase-form-dialog'
-import { ReflectionFlow } from './reflection-flow'
+import { ReflectionFlow, type AiReflectResult } from './reflection-flow'
+import { ConnectionDataStrip } from './ConnectionDataStrip'
 
 const MOOD_COLORS: Record<number, string> = {
   [-3]: '#ef4444',
@@ -60,18 +63,21 @@ function Ring({ pct, size = 32 }: { pct: number; size?: number }) {
 interface PhaseCardProps {
   phase: LifePhase
   active: boolean
+  allPhases?: LifePhase[]
   memories: LoadedMemory[]
   longTermGoals: LongTermGoal[]
   onActiveChange: (id: string | null) => void
   onSave: (phase: LifePhase) => void
-  onReflect: (phase: LifePhase, answers: string[]) => Promise<string | null>
+  onReflect: (phase: LifePhase, answers: string[], variation?: string) => Promise<AiReflectResult | null>
   onKeepReflection: (phase: LifePhase, text: string) => void
   onOpenMemory: (memory: LoadedMemory) => void
+  onJump?: (phaseId: string) => void
 }
 
 export function PhaseCard({
   phase,
   active,
+  allPhases = [],
   memories,
   longTermGoals,
   onActiveChange,
@@ -79,6 +85,7 @@ export function PhaseCard({
   onReflect,
   onKeepReflection,
   onOpenMemory,
+  onJump,
 }: PhaseCardProps) {
   const [editing, setEditing] = useState(false)
   const [reflecting, setReflecting] = useState(false)
@@ -139,11 +146,23 @@ export function PhaseCard({
           boxShadow: `0 25px 50px -12px ${color}40`,
         }}
       >
-        {/* Slow-drifting radial gradient texture */}
+        {/* Memory photo at luminosity blend if one is pinned to this chapter */}
+        {phase.headerImageMemoryId && (
+          <img
+            src={memoryUrl(memories, phase.headerImageMemoryId) ?? ''}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover mix-blend-luminosity opacity-60"
+          />
+        )}
+        {/* Duotone color overlay at ~70% when a memory photo sits underneath */}
+        {phase.headerImageMemoryId && (
+          <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: color, opacity: 0.7 }} />
+        )}
+        {/* Slow-drifting radial gradient texture, lightened by 20% */}
         <motion.div
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: `radial-gradient(circle at 30% 30%, ${color}40, transparent 60%)`,
+            background: `radial-gradient(circle at 30% 30%, ${lighten(color, 20)}, transparent 60%)`,
           }}
           animate={{ backgroundPosition: ['0% 0%', '100% 100%'] }}
           transition={{ duration: 26, repeat: Infinity, repeatType: 'mirror', ease: 'linear' }}
@@ -361,21 +380,38 @@ export function PhaseCard({
           <div>
             <p className="mb-2 text-[10.5px] uppercase tracking-wider text-zinc-600">Connected to</p>
             <div className="flex flex-wrap gap-1.5">
-              {phase.connections.map((conn, i) => (
-                <span key={i} className="px-2 py-1 rounded-md bg-zinc-800/60 text-[11px] text-zinc-400 border border-zinc-700/50">
-                  → {conn.targetPhaseId.slice(0, 8)}
-                  {conn.note && <span className="text-zinc-600 ml-1">({conn.note})</span>}
-                </span>
-              ))}
+              {phase.connections.map((conn, i) => {
+                const target = allPhases.find(p => p.id === conn.targetPhaseId)
+                return (
+                  <button
+                    key={i}
+                    onClick={() => onJump?.(conn.targetPhaseId)}
+                    data-lifephase="connection-chip"
+                    className="flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-800/60 text-[11px] text-zinc-300 border border-zinc-700/50 transition-all hover:bg-zinc-800 hover:border-zinc-600 hover:ring-1 hover:ring-zinc-500"
+                  >
+                    → {target?.title ?? conn.targetPhaseId.slice(0, 8)}
+                    {conn.note && <span className="text-zinc-500">({conn.note})</span>}
+                  </button>
+                )
+              })}
             </div>
           </div>
         )}
 
+        {/* 8. Connection strip (data) — collapsed by default */}
+        <ConnectionDataStrip
+          phaseId={phase.id}
+          startYear={phase.startYear}
+          endYear={phase.endYear}
+          memories={memories}
+        />
+
         {/* Reflection */}
         {reflecting ? (
           <ReflectionFlow
+            phase={phase}
             onBack={() => setReflecting(false)}
-            onSubmit={answers => onReflect(phase, answers)}
+            onSubmit={onReflect}
             onKeep={handleKeep}
           />
         ) : (
@@ -409,6 +445,7 @@ export function PhaseCard({
         open={editing}
         onOpenChange={setEditing}
         initial={phase}
+        allPhases={allPhases}
         onSave={p => {
           onSave(p)
           setEditing(false)

@@ -129,16 +129,31 @@ export function useLifePhases() {
   }, [])
 
   const reflect = useCallback(
-    async (phase: LifePhase, answers: string[]): Promise<string | null> => {
+    async (phase: LifePhase, answers: string[], variation?: string): Promise<{ text: string; confidence: 'grounded' | 'sparse' } | null> => {
       try {
-        const res = await api().lifePhaseAiReflect({ phase, answers })
+        const res = await api().lifePhaseAiReflect({
+          phaseId: phase.id,
+          title: phase.title,
+          category: phase.category,
+          story: phase.description,
+          milestones: phase.milestones ?? [],
+          people: phase.people ?? [],
+          moodStart: phase.moodStart ?? null,
+          moodEnd: phase.moodEnd ?? null,
+          moodTags: phase.moodTags ?? [],
+          feelingsNote: phase.feelingsNote ?? null,
+          lessonsLearned: phase.lessonsLearned ?? null,
+          impactNotes: phase.impactNotes ?? null,
+          variation: variation ?? null,
+        })
         if (!res.ok) {
           setError(res.error ?? 'Reflection failed')
           return null
         }
-        const text = (res.data as string) ?? ''
-        setPhases(prev => sortPhases(prev.map(p => (p.id === phase.id ? { ...p, reflection: text } : p))))
-        return text
+        const text = (res.data?.reflection ?? '') as string
+        const confidence = (res.data?.confidence === 'sparse' ? 'sparse' : 'grounded') as 'grounded' | 'sparse'
+        setPhases(prev => sortPhases(prev.map(p => (p.id === phase.id ? { ...p, reflection: text, reflectionSource: 'ai', reflectionGeneratedAt: new Date().toISOString() } : p))))
+        return { text, confidence }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Reflection failed')
         return null

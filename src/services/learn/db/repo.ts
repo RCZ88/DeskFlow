@@ -69,6 +69,9 @@ export function insertNode(db: Database, node: {
   db.prepare(`
     INSERT INTO learn_nodes (id, lesson_id, title, mastery_target, content_hash, ord, blocks_json, grounding_json)
     VALUES (@id, @lesson_id, @title, @mastery_target, @content_hash, @ord, @blocks_json, @grounding_json)
+    ON CONFLICT(id) DO UPDATE SET
+      lesson_id = @lesson_id, title = @title, mastery_target = @mastery_target,
+      content_hash = @content_hash, ord = @ord, blocks_json = @blocks_json, grounding_json = @grounding_json
   `).run(node);
 }
 

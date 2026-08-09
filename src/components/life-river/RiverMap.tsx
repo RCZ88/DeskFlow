@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 
 import { cn } from '@/lib/utils'
@@ -37,23 +37,35 @@ export function RiverMap({
   const { pathD, markers, nowX } = useMemo(() => {
     if (phases.length === 0) return { pathD: '', markers: [], nowX: 95 }
 
-    const years = phases.flatMap(p => [p.startYear, p.endYear && p.endYear > 0 ? p.endYear : new Date().getFullYear()])
-    const minYear = Math.min(...years)
-    const maxYear = Math.max(...years, new Date().getFullYear())
-    const span = Math.max(maxYear - minYear, 1)
+    const today = new Date()
+    const nowYearF = today.getFullYear() + (today.getMonth() + 1) / 12
+    const yearF = (p: LifePhase, isEnd: boolean) => {
+      if (isEnd && (!p.endYear || p.endYear <= 0)) return nowYearF
+      const y = isEnd ? p.endYear! : p.startYear
+      const m = isEnd ? (p.endMonth || 12) : (p.startMonth || 1)
+      return y + (m - 1) / 12
+    }
+    const years = phases.flatMap(p => [yearF(p, false), yearF(p, true)])
+
+    /* Anchor with 2 years of breathing room on each side so a single ongoing
+       phase (e.g. started this year) still stretches across the map instead of
+       collapsing into a dot at the left edge. */
+    const minYearF = Math.min(...years, nowYearF) - 2
+    const maxYearF = Math.max(...years, nowYearF) + 2
+    const span = Math.max(maxYearF - minYearF, 4)
     const pad = 5
     const w = 100 - pad * 2
     const h = 80
     const cy = 50
 
-    const yearToX = (y: number) => pad + ((y - minYear) / span) * w
+    const yearToX = (y: number) => pad + ((y - minYearF) / span) * w
 
     /* Build a smooth sweeping SVG path */
     const pts = phases
       .sort((a, b) => a.startYear - b.startYear)
       .map(p => {
-        const x1 = yearToX(p.startYear)
-        const x2 = yearToX(p.endYear && p.endYear > 0 ? p.endYear : new Date().getFullYear())
+        const x1 = yearToX(yearF(p, false))
+        const x2 = yearToX(yearF(p, true))
         const xm = (x1 + x2) / 2
         return { x1, x2, xm, phase: p }
       })
@@ -78,10 +90,29 @@ export function RiverMap({
       active: false,
     }))
 
-    const nowX = yearToX(new Date().getFullYear())
+    const nowX = yearToX(nowYearF)
 
     return { pathD: d, markers, nowX }
   }, [phases])
+
+  /* Measure the SVG's rendered width so the viewBox keeps a 1:1 aspect ratio —
+     with preserveAspectRatio="none" and a fixed 100-unit viewBox stretched to
+     a wide strip, strokes become fat flat bars and dots become wide ellipses. */
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [vbW, setVbW] = useState(100)
+  useLayoutEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const measure = () => {
+      const w = el.clientWidth
+      const h = el.clientHeight || 176
+      if (w > 0) setVbW(Math.max(20, (w / h) * 100))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   return (
     <div
@@ -124,8 +155,9 @@ export function RiverMap({
         ) : (
           <div className="overflow-hidden rounded-lg">
             <svg
-              viewBox="0 0 100 100"
-              className="w-full h-24"
+              ref={svgRef}
+              viewBox={`0 0 ${vbW} 100`}
+              className="w-full h-44"
               preserveAspectRatio="none"
             >
               {/* Background glow */}
@@ -144,50 +176,54 @@ export function RiverMap({
                 </filter>
               </defs>
 
-              {/* Glow path */}
-              <path
-                d={pathD}
-                fill="none"
-                stroke="url(#river-glow)"
-                strokeWidth="4"
-                strokeLinecap="round"
-                filter="url(#glow)"
-              />
+              {/* Paths live in the 100-unit space, stretched uniformly to the
+                  measured width via transform scale — strokes stay thin. */}
+              <g transform={`scale(${vbW / 100})`}>
+                {/* Glow path */}
+                <path
+                  d={pathD}
+                  fill="none"
+                  stroke="url(#river-glow)"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  filter="url(#glow)"
+                />
 
-              {/* Main river path */}
-              <path
-                d={pathD}
-                fill="none"
-                stroke="rgba(255,255,255,0.15)"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeDasharray="2 2"
-              />
+                {/* Main river path */}
+                <path
+                  d={pathD}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.15)"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeDasharray="2 2"
+                />
+              </g>
 
               {/* Phase markers */}
               {markers.map(m => (
                 <g key={m.id} onClick={() => { scrollToPhase(m.id); onPhaseClick(m.id) }} className="cursor-pointer">
                   <circle
-                    cx={m.x}
+                    cx={m.x * (vbW / 100)}
                     cy={m.y}
-                    r={activePhaseId === m.id ? 4 : 3}
+                    r={activePhaseId === m.id ? 5 : 4}
                     fill={m.color}
                     opacity={activePhaseId === m.id ? 1 : 0.7}
                     className="transition-all duration-300"
                   />
                   {activePhaseId === m.id && (
                     <circle
-                      cx={m.x}
+                      cx={m.x * (vbW / 100)}
                       cy={m.y}
-                      r="6"
+                      r="8"
                       fill="none"
                       stroke={m.color}
-                      strokeWidth="1"
+                      strokeWidth="1.2"
                       opacity="0.4"
                     >
                       <animate
                         attributeName="r"
-                        values="4;7;4"
+                        values="6;10;6"
                         dur="2s"
                         repeatCount="indefinite"
                       />
@@ -204,18 +240,18 @@ export function RiverMap({
 
               {/* "Now" pulsing amber star */}
               <g>
-                <circle cx={nowX} cy={50} r="3" fill="#fbbf24">
+                <circle cx={nowX * (vbW / 100)} cy={50} r="4" fill="#fbbf24">
                   <animate
                     attributeName="r"
-                    values="2.5;4;2.5"
+                    values="3;5;3"
                     dur="3s"
                     repeatCount="indefinite"
                   />
                 </circle>
-                <circle cx={nowX} cy={50} r="6" fill="none" stroke="#fbbf24" strokeWidth="0.5" opacity="0.3">
+                <circle cx={nowX * (vbW / 100)} cy={50} r="7" fill="none" stroke="#fbbf24" strokeWidth="0.8" opacity="0.3">
                   <animate
                     attributeName="r"
-                    values="5;8;5"
+                    values="6;10;6"
                     dur="3s"
                     repeatCount="indefinite"
                   />
@@ -227,8 +263,8 @@ export function RiverMap({
                   />
                 </circle>
                 <text
-                  x={nowX}
-                  y={68}
+                  x={nowX * (vbW / 100)}
+                  y={66}
                   textAnchor="middle"
                   className="fill-zinc-500"
                   fontSize="4"

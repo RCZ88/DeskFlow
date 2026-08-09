@@ -936,9 +936,19 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   lifePhaseSave: (phase: any) => ipcRenderer.invoke('lifePhase:save', phase),
   lifePhaseDelete: (phaseId: string) => ipcRenderer.invoke('lifePhase:delete', phaseId),
   lifePhaseSaveAll: (phases: any[]) => ipcRenderer.invoke('lifePhase:saveAll', phases),
-  lifePhaseAiReflect: (params: { phase: any; answers: string[] }) => ipcRenderer.invoke('lifePhase:aiReflect', params),
+  lifePhaseAiAssist: (params: { kind?: string; context?: any }) => ipcRenderer.invoke('lifePhase:aiAssist', params),
+  lifePhaseGetPeriodContext: (params: { startDate: string; endDate: string }) => ipcRenderer.invoke('lifePhase:getPeriodContext', params),
+  lifePhaseAiReflect: (params: any) => ipcRenderer.invoke('lifePhase:aiReflect', params),
   lifePhaseAiEraTrends: (params: { startYear: number; endYear: number | null; title: string }) => ipcRenderer.invoke('lifePhase:aiEraTrends', params),
   lifePhaseAiSummarize: (phases: any[]) => ipcRenderer.invoke('lifePhase:aiSummarize', phases),
+
+  // Notes
+  notesList: (params?: { search?: string; tag?: string; group?: string }) => ipcRenderer.invoke('notes:list', params),
+  notesCreate: (data: { title?: string; content: string; tags?: string[]; group_name?: string }) => ipcRenderer.invoke('notes:create', data),
+  notesUpdate: (data: { id: string; title?: string; content?: string; tags?: string[]; group_name?: string }) => ipcRenderer.invoke('notes:update', data),
+  notesDelete: (id: string) => ipcRenderer.invoke('notes:delete', id),
+  notesGroups: () => ipcRenderer.invoke('notes:groups'),
+
   linkGoalToEntity: (goalId: string, link: { type: 'problem' | 'request'; id: string; label?: string }) => ipcRenderer.invoke('link-goal-to-entity', goalId, link),
   unlinkGoalFromEntity: (goalId: string, type: 'problem' | 'request', entityId: string) => ipcRenderer.invoke('unlink-goal-from-entity', goalId, type, entityId),
 

@@ -11,7 +11,7 @@ import {
   Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard,
   ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
   X,   FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen, Wallet, GraduationCap, Activity, Smartphone, Brain,
-  HeartHandshake,
+  HeartHandshake, Sparkles,
   PanelLeftClose, PanelRightClose, GitBranch, FileCode, GripVertical, Pencil, Check, RotateCcw
 } from 'lucide-react';
 import {
@@ -2516,11 +2516,9 @@ Trend: +14% vs. yesterday. Keep it up!`;
       const oldIndex = current.indexOf(String(active.id));
       const newIndex = current.indexOf(String(over.id));
       if (oldIndex < 0 || newIndex < 0) return prev;
-      const next = arrayMove(current, oldIndex, newIndex);
-      persistSidebarOrder(next);
-      flashOrderSaved();
-      return next;
+      return arrayMove(current, oldIndex, newIndex);
     });
+    flashOrderSaved();
   }, [flashOrderSaved]);
 
   const handleResetSidebarOrder = useCallback(() => {
@@ -2528,6 +2526,16 @@ Trend: +14% vs. yesterday. Keep it up!`;
     setSidebarOrder(null);
     flashOrderSaved();
   }, [flashOrderSaved]);
+
+  // Persist the reordered sidebar to localStorage whenever it changes (skip initial mount)
+  const isFirstOrderRender = useRef(true);
+  useEffect(() => {
+    if (isFirstOrderRender.current) {
+      isFirstOrderRender.current = false;
+      return;
+    }
+    if (sidebarOrder) persistSidebarOrder(sidebarOrder);
+  }, [sidebarOrder]);
 
   return (
     <VoiceProvider>
@@ -2810,6 +2818,15 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+
+            <button
+              onClick={() => window.dispatchEvent(new Event('open-gap-drawer'))}
+              title="Fill gaps with tracked apps, websites, or external activities"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 transition"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Smart Fill
+            </button>
 
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 text-sm text-zinc-400">

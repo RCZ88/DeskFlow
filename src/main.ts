@@ -2863,6 +2863,20 @@ function initializeStorage() {
           )
         `);
 
+        // Notes table (personal note-taking)
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS notes (
+            id TEXT PRIMARY KEY,
+            title TEXT DEFAULT '',
+            content TEXT NOT NULL,
+            tags TEXT DEFAULT '[]',
+            group_name TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at)');
+
         // ========== Schedule & Planning Tables ==========
         db.exec(`
           CREATE TABLE IF NOT EXISTS schedule_entries (
@@ -4733,10 +4747,34 @@ function createWindow() {
                 res.end(data);
             });
         });
-        server.listen(0, '127.0.0.1', () => {
-            const addr = server.address();
-            const port = addr && typeof addr === 'object' ? addr.port : 38123;
-            console.log('[DeskFlow] Serving on http://localhost:' + port);
+        // Serve on a FIXED port so the renderer origin (host:port) stays stable across
+        // launches. A random port (listen(0)) changes the origin every run and Chromium
+        // partitions localStorage per-origin (scheme+host+PORT) — so ALL localStorage-
+        // backed settings (shortcut toggles, sidebar order, resume builder, gap banner,
+        // lyceum prefs...) would silently reset to defaults on every restart.
+        // Fall back to an ephemeral port ONLY if the fixed one is taken (orphan instance).
+        const FIXED_PROD_PORT = 38123;
+        const startProdServer = (port: number, onReady: (usedPort: number) => void) => {
+            const up = () => {
+                const addr = server.address();
+                const usedPort = addr && typeof addr === 'object' ? addr.port : FIXED_PROD_PORT;
+                console.log('[DeskFlow] Serving on http://localhost:' + usedPort);
+                onReady(usedPort);
+            };
+            server.once('listening', up);
+            server.once('error', (err: any) => {
+                if (err && err.code === 'EADDRINUSE') {
+                    server.removeListener('listening', up);
+                    console.log('[DeskFlow] Port ' + port + ' in use — falling back to ephemeral port (localStorage persistence unavailable this launch)');
+                    startProdServer(0, onReady);
+                    return;
+                }
+                console.error('[DeskFlow] Prod server error:', err);
+                onReady(FIXED_PROD_PORT);
+            });
+            server.listen(port, '127.0.0.1');
+        };
+        startProdServer(FIXED_PROD_PORT, (port) => {
             mainWindow.loadURL('http://localhost:' + port + '/index.html');
         });
     }
@@ -16974,18 +17012,6 @@ electron_1.ipcMain.handle('lifePhase:saveAll', async (_event, phases: any[]) => 
   } catch (err: any) { return { ok: false, error: err.message }; }
 });
 
-electron_1.ipcMain.handle('lifePhase:aiReflect', async (_event, params: { phase: any; answers: string[] }) => {
-  try {
-    const { phase, answers = [] } = params || {};
-    const milestoneTxt = (phase?.milestones || []).map((m: any) => `${m.month}/${m.year} - ${m.label}`).join('; ');
-    const range = phase?.endMonth ? `${phase.endMonth}/${phase.endYear}` : 'ongoing';
-    const systemPrompt = 'You are a warm, precise biographer. Write in first person, 90-130 words, no clich�s, no self-help tone. Weave the user\'s three answers and their milestones. End with one sentence pointing toward what this chapter made possible next.';
-    const userMsg = `Chapter: "${phase?.title || ''}" (${phase?.category || 'growth'}), ${phase?.startMonth}/${phase?.startYear} -> ${range}. Magnitude: ${phase?.magnitude ?? 50}/100. Description: ${phase?.description || '(none)'}. Milestones: ${milestoneTxt || '(none)'}. My three answers: 1) ${answers[0] || ''} 2) ${answers[1] || ''} 3) ${answers[2] || ''}`;
-    const content = await runLifePhaseAI(systemPrompt, userMsg, 350);
-    return { ok: true, data: content };
-  } catch (err: any) { return { ok: false, error: err.message }; }
-});
-
 electron_1.ipcMain.handle('lifePhase:aiEraTrends', async (_event, params: { startYear: number; endYear: number | null; title: string }) => {
   try {
     const { startYear, endYear, title } = params || {};
@@ -17004,6 +17030,134 @@ electron_1.ipcMain.handle('lifePhase:aiSummarize', async (_event, phases: any[])
     db!.prepare('INSERT OR REPLACE INTO life_timeline_meta (key, value) VALUES (?, ?)').run('summary', content);
     db!.prepare('INSERT OR REPLACE INTO life_timeline_meta (key, value) VALUES (?, ?)').run('summary.updatedAt', new Date().toISOString());
     return { ok: true, data: content };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+// Life Phases Overhaul — lessons framing assist (§10): returns 2–3 open questions, never answers.
+electron_1.ipcMain.handle('lifePhase:aiAssist', async (_event, params: { kind?: string; context?: any }) => {
+  try {
+    const { kind = 'lessons', context = {} } = params || {};
+    const milestoneTxt = (context.milestones || []).map((m: any) => m.label).join('; ');
+    const peopleTxt = (context.people || []).map((p: any) => p.name).join(', ');
+    const systemPrompt = 'You are a thoughtful interviewer for someone writing their life story. Given a life phase context, generate 2-3 open-ended reflective questions that help the person articulate what this chapter taught them. Do NOT answer the questions. Do NOT invent facts. Each question must reference something specific from the context (a milestone, a person, a feeling). Return strict JSON: {"questions": ["...", "...", "..."]}.';
+    const userMsg = `Chapter context — story: ${context.story || '(none)'}. Feelings: ${context.feelingsNote || '(none)'}. Milestones: ${milestoneTxt || '(none)'}. People: ${peopleTxt || '(none)'}.`;
+    const content = await runLifePhaseAI(systemPrompt, userMsg, 300);
+    let questions: string[] = [];
+    try {
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed?.questions)) questions = parsed.questions.slice(0, 3).map(String);
+    } catch {
+      questions = content.split(/\n+/).map(s => s.replace(/^[-•*\d.]+/, '').trim()).filter(Boolean).slice(0, 3);
+    }
+    return { ok: true, data: { questions } };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+// Life Phases Overhaul — Connection Points PeriodContext (§8.1): date-range aggregates over goals/focus/external/app usage.
+electron_1.ipcMain.handle('lifePhase:getPeriodContext', async (_event, params: { startDate: string; endDate: string }) => {
+  try {
+    const { startDate, endDate } = params || {};
+    if (!startDate || !endDate) return { ok: false, error: 'startDate and endDate are required' };
+    const start = `${String(startDate).slice(0, 10)}T00:00:00`;
+    const end = `${String(endDate).slice(0, 10)}T23:59:59`;
+
+    // Goals: completed daily goals in range + up to 3 long-term goal titles.
+    const goalRow = db!.prepare(
+      `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) AS done
+       FROM goals WHERE date >= ? AND date <= ?`
+    ).get(startDate, endDate) as any;
+    const ltgTitles = (db!.prepare(
+      `SELECT title FROM goals WHERE period = 'longterm' AND status != 'cancelled' ORDER BY created_at ASC LIMIT 3`
+    ).all() as any[]).map((r: any) => r.title);
+
+    // Focus groups: total real focus time per group within range.
+    const focusRows = db!.prepare(
+      `SELECT fg.name AS name, COALESCE(SUM(dfs.actual_sec), 0) AS total_sec
+       FROM focus_group_usage u
+       JOIN deep_focus_sessions dfs ON dfs.id = u.session_id
+       JOIN focus_groups fg ON fg.id = u.group_id
+       WHERE dfs.started_at >= ? AND dfs.started_at <= ?
+       GROUP BY fg.id
+       HAVING total_sec > 0
+       ORDER BY total_sec DESC`
+    ).all(start, end) as any[];
+    const focusGroups = focusRows.map((r: any) => ({ name: r.name, totalMs: r.total_sec * 1000 }));
+
+    // External activities (sleep excluded per product rule): top by time.
+    const extRows = db!.prepare(
+      `SELECT a.name AS name, COALESCE(SUM(s.duration_seconds), 0) AS total_sec
+       FROM external_sessions s
+       JOIN external_activities a ON a.id = s.activity_id
+       WHERE a.type != 'sleep' AND s.started_at >= ? AND s.started_at <= ?
+       GROUP BY a.id
+       HAVING total_sec > 0
+       ORDER BY total_sec DESC
+       LIMIT 5`
+    ).all(start, end) as any[];
+    const externalActivities = extRows.map((r: any) => ({ label: r.name, totalMs: r.total_sec * 1000 }));
+
+    // App usage: top apps by tracked time in range (browser website rows excluded from totals).
+    const appRows = db!.prepare(
+      `SELECT app AS name, COALESCE(SUM(duration_ms), 0) AS total_ms
+       FROM logs
+       WHERE timestamp >= ? AND timestamp <= ? AND COALESCE(is_browser_tracking, 0) = 0
+       GROUP BY app
+       ORDER BY total_ms DESC
+       LIMIT 5`
+    ).all(start, end) as any[];
+    const topApps = appRows.map((r: any) => ({ name: r.name, totalMs: r.total_ms }));
+
+    return {
+      ok: true,
+      data: {
+        goals: { completedCount: Number(goalRow?.done ?? 0), longTermGoalTitles: ltgTitles },
+        focusGroups,
+        externalActivities,
+        memories: [], // IndexedDB-backed — filled renderer-side from useMemories
+        appUsage: topApps.length > 0 ? { topApps } : null,
+        covenantCompletionRate: null, // localStorage-backed — computed renderer-side from useCovenant
+      },
+    };
+  } catch (err: any) { return { ok: false, error: err.message }; }
+});
+
+// Life Phases Overhaul — AI reflection (§7): new payload, tone contract, confidence + variation regeneration.
+electron_1.ipcMain.handle('lifePhase:aiReflect', async (_event, params: any) => {
+  try {
+    const req = params || {};
+    // Backward-compat: old shape { phase, answers: string[] }
+    const legacy = !req.phaseId && req.phase;
+    const phase = legacy ? req.phase : null;
+    const answers = legacy ? (req.answers || []) : [];
+    const title = legacy ? phase?.title : req.title;
+    const category = legacy ? phase?.category : req.category;
+    const story = legacy ? phase?.description : req.story;
+    const milestones = legacy ? (phase?.milestones || []) : (req.milestones || []);
+    const people = legacy ? (phase?.people || []) : (req.people || []);
+    const feelingsNote = legacy ? null : req.feelingsNote;
+    const lessonsLearned = legacy ? null : req.lessonsLearned;
+    const impactNotes = legacy ? null : req.impactNotes;
+    const moodStart = legacy ? null : req.moodStart;
+    const moodEnd = legacy ? null : req.moodEnd;
+    const moodTags = legacy ? [] : (req.moodTags || []);
+    const periodContext = legacy ? null : (req.periodContext || null);
+    const variation = req.variation || null;
+
+    const milestoneTxt = milestones.map((m: any) => `${m.date || `${m.month}/${m.year}`} - ${m.label}${m.note ? ` (${m.note})` : ''}`).join('; ');
+    const peopleTxt = people.map((p: any) => `${p.name}${p.role ? ` (${p.role})` : ''}`).join(', ');
+    const contextSummary = periodContext
+      ? `What I was doing then: ${periodContext.goals?.completedCount ?? 0} goals completed; focus groups ${(periodContext.focusGroups || []).map((f: any) => `${f.name} (${Math.round((f.totalMs || 0) / 3600000)}h)`).join(', ') || 'none'}; activities ${(periodContext.externalActivities || []).map((a: any) => `${a.label} (${Math.round((a.totalMs || 0) / 3600000)}h)`).join(', ') || 'none'}.`
+      : '';
+    const variationLine = variation ? `\nVariation request: ${variation}` : '';
+    const systemPrompt = 'Write as a perceptive, warm friend who has read this person\'s own words about this chapter — not a corporate summary bot, not a therapist, not a hype machine. Reference specific things they wrote (a milestone, a person, a lesson). One tight paragraph, 60-120 words. Never invent facts, numbers, or events not present in the input. If mood data suggests hardship, acknowledge it honestly before naming what came out of it. First person, no clichés, no self-help tone. End with one sentence pointing toward what this chapter made possible next.' + variationLine;
+    const userMsg = `Chapter: "${title || ''}" (${category || 'growth'}). Story: ${story || '(none)'}. Milestones: ${milestoneTxt || '(none)'}. People: ${peopleTxt || '(none)'}. Mood: start ${moodStart ?? 'n/a'}, end ${moodEnd ?? 'n/a'}${moodTags.length ? `, tags: ${moodTags.join(', ')}` : ''}. Feelings: ${feelingsNote || '(none)'}. Lessons: ${lessonsLearned || '(none)'}. Impact: ${impactNotes || '(none)'}.${legacy ? ` My three answers: 1) ${answers[0] || ''} 2) ${answers[1] || ''} 3) ${answers[2] || ''}` : ''} ${contextSummary}`;
+    const content = await runLifePhaseAI(systemPrompt, userMsg, 350);
+
+    // Groundedness heuristic: enough concrete input to write specifics.
+    const signalLen = (story?.length || 0) + (milestones?.length || 0) * 40 + (people?.length || 0) * 30 + (lessonsLearned?.length || 0) + (feelingsNote?.length || 0);
+    const confidence = signalLen >= 120 ? 'grounded' : 'sparse';
+
+    return { ok: true, data: { reflection: content, confidence } };
   } catch (err: any) { return { ok: false, error: err.message }; }
 });
 
@@ -17313,6 +17467,87 @@ electron_1.ipcMain.handle('delete-reminder', async (_event, id: string) => {
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };
+  }
+});
+
+// --- Notes IPC -----------------------------------------------------------------------
+electron_1.ipcMain.handle('notes:list', async (_event, params?: { search?: string; tag?: string; group?: string }) => {
+  try {
+    let sql = 'SELECT * FROM notes';
+    const conditions: string[] = [];
+    const args: any[] = [];
+    if (params?.search) {
+      conditions.push('(title LIKE ? OR content LIKE ?)');
+      args.push(`%${params.search}%`, `%${params.search}%`);
+    }
+    if (params?.tag) {
+      conditions.push('tags LIKE ?');
+      args.push(`%"${params.tag}"%`);
+    }
+    if (params?.group) {
+      conditions.push('group_name = ?');
+      args.push(params.group);
+    }
+    if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
+    sql += ' ORDER BY updated_at DESC';
+    const rows = db!.prepare(sql).all(...args) as any[];
+    return {
+      success: true,
+      notes: rows.map(r => ({
+        ...r,
+        tags: (() => { try { return JSON.parse(r.tags || '[]'); } catch { return []; } })(),
+      })),
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message, notes: [] };
+  }
+});
+
+electron_1.ipcMain.handle('notes:create', async (_event, data: { title?: string; content: string; tags?: string[]; group_name?: string }) => {
+  try {
+    const id = 'note_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    db!.prepare('INSERT INTO notes (id, title, content, tags, group_name) VALUES (?, ?, ?, ?, ?)').run(
+      id, data.title || '', data.content, JSON.stringify(data.tags || []), data.group_name || '',
+    );
+    return { success: true, id };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('notes:update', async (_event, data: { id: string; title?: string; content?: string; tags?: string[]; group_name?: string }) => {
+  try {
+    const sets: string[] = [];
+    const args: any[] = [];
+    if (data.title !== undefined) { sets.push('title = ?'); args.push(data.title); }
+    if (data.content !== undefined) { sets.push('content = ?'); args.push(data.content); }
+    if (data.tags !== undefined) { sets.push('tags = ?'); args.push(JSON.stringify(data.tags)); }
+    if (data.group_name !== undefined) { sets.push('group_name = ?'); args.push(data.group_name); }
+    if (sets.length === 0) return { success: true };
+    sets.push("updated_at = datetime('now')");
+    args.push(data.id);
+    db!.prepare(`UPDATE notes SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('notes:delete', async (_event, id: string) => {
+  try {
+    db!.prepare('DELETE FROM notes WHERE id = ?').run(id);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+electron_1.ipcMain.handle('notes:groups', async () => {
+  try {
+    const rows = db!.prepare('SELECT DISTINCT group_name FROM notes WHERE group_name != \'\' ORDER BY group_name').all() as any[];
+    return { success: true, groups: rows.map(r => r.group_name) };
+  } catch (err: any) {
+    return { success: false, error: err.message, groups: [] };
   }
 });
 
@@ -19176,7 +19411,7 @@ electron_1.app.whenReady().then(() => {
             responseHeaders: {
                 ...details.responseHeaders,
                 'Content-Security-Policy': [
-                    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; frame-src https://www.realtimecolors.com; img-src 'self' data: https:; connect-src 'self' http://localhost:* https://api.exchangerate-api.com https://raw.githack.com; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'none'"
+                    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; frame-src https://www.realtimecolors.com blob:; img-src 'self' data: https:; connect-src 'self' http://localhost:* https://api.exchangerate-api.com https://raw.githack.com; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'none'"
                 ]
             }
         });
@@ -19753,14 +19988,18 @@ electron_1.ipcMain.handle('get-sleep-for-date', (event, dateStr: string) => {
         const sleepActivity = db.prepare(`SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1`).get() as any;
         if (!sleepActivity) return null;
 
-        // Match by bedtime date, wake-up date, or the evening date the sleep chart
-        // groups the sleep under (bedtime before 6 AM belongs to the previous day's evening)
-        const session = db.prepare(`
+        // Match by the LOCAL evening date the sleep chart groups the sleep under:
+        // bedtime hour < 12 (after midnight) belongs to the PREVIOUS day's evening.
+        // Equivalent window: started_at (local) in [dateStr 12:00, dateStr+1 12:00).
+        const winStart = new Date(dateStr + 'T12:00:00');
+        const winEnd = new Date(winStart.getTime() + 24 * 3600 * 1000);
+        const sessions = db.prepare(`
             SELECT * FROM external_sessions
             WHERE activity_id = ? AND ended_at IS NOT NULL
-              AND (date(started_at) = ? OR date(ended_at) = ? OR date(started_at) = date(?, '+1 day'))
-            ORDER BY started_at DESC LIMIT 1
-        `).get(sleepActivity.id, dateStr, dateStr, dateStr) as any;
+              AND started_at >= ? AND started_at < ?
+            ORDER BY started_at ASC
+        `).all(sleepActivity.id, winStart.toISOString(), winEnd.toISOString()) as any[];
+        const session = sessions[0] || null;
 
         if (!session) return null;
 

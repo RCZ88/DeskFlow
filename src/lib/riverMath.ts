@@ -216,6 +216,62 @@ export function phaseAgeLabel(p: LifePhase): string {
   return `${Math.round(years)} years`
 }
 
+/** Lighten (or darken, with a negative percent) a #rrggbb hex color via HSL. */
+export function lighten(hex: string, percent: number): string {
+  const clean = (hex || '').trim().replace('#', '')
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return hex || '#fbbf24'
+  const r = parseInt(clean.slice(0, 2), 16) / 255
+  const g = parseInt(clean.slice(2, 4), 16) / 255
+  const b = parseInt(clean.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  let h = 0
+  let s = 0
+  const l = (max + min) / 2
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break
+      case g: h = (b - r) / d + 2; break
+      default: h = (r - g) / d + 4
+    }
+    h /= 6
+  }
+  const nl = Math.min(1, Math.max(0, l + percent / 100))
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  let q2 = nl < 0.5 ? nl * (1 + s) : nl + s - nl * s
+  let p2 = 2 * nl - q2
+  const nr = hue2rgb(p2, q2, h + 1 / 3)
+  const ng = hue2rgb(p2, q2, h)
+  const nb = hue2rgb(p2, q2, h - 1 / 3)
+  const toHex = (v: number) => Math.round(v * 255).toString(16).padStart(2, '0')
+  return `#${toHex(nr)}${toHex(ng)}${toHex(nb)}`
+}
+
+/** Minimal structural ref to a loaded memory — keeps riverMath free of React/IndexedDB imports. */
+export interface MemoryRef {
+  meta: { id: string; date?: string | null }
+  url: string
+}
+
+/**
+ * Resolve a memory id to its renderable blob URL.
+ * Memories live in IndexedDB blobs surfaced by `useMemories()` — object URLs only exist
+ * for the current session, so the loaded list must be passed in.
+ */
+export function memoryUrl(memories: MemoryRef[], memoryId: string | null | undefined): string | null {
+  if (!memoryId) return null
+  return memories.find(m => m.meta.id === memoryId)?.url ?? null
+}
+
 export function uid(prefix = 'id'): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }

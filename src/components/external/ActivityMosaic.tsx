@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { computeActivityGridLayout } from "@/lib/external/grid";
-import type { Hierarchy } from "@/lib/external/grid";
+import type { Hierarchy, ScaleMode } from "@/lib/external/grid";
+import { SCALE_MODES } from "@/lib/external/grid";
 import type { ExternalActivity, ExternalSession, ExternalStats } from "@/types/external";
 import { ActivityMosaicCard } from "./ActivityMosaicCard";
 import { EmptyState } from "@/components/EmptyState";
 
 const HIERARCHY_KEY = "external-mosaic-hierarchy";
+const SCALE_KEY = "external-mosaic-scale";
 
 function readStoredHierarchy(): Hierarchy {
   try {
@@ -19,6 +21,37 @@ function readStoredHierarchy(): Hierarchy {
   }
   return "balanced";
 }
+
+function readStoredScale(): ScaleMode {
+  try {
+    const stored = localStorage.getItem(SCALE_KEY);
+    if (stored === "gentle" || stored === "soft" || stored === "natural" || stored === "true") {
+      return stored;
+    }
+  } catch {
+    // localStorage unavailable — fall through to default
+  }
+  return "gentle";
+}
+
+const SCALE_LABELS: Record<ScaleMode, { label: string; title: string }> = {
+  gentle: {
+    label: "Gentle",
+    title: "Log-compressed — huge differences flattened, every card stays legible",
+  },
+  soft: {
+    label: "Soft",
+    title: "Mild compression — a step closer to the real scale",
+  },
+  natural: {
+    label: "Natural",
+    title: "Light compression — sizes mostly match real time",
+  },
+  true: {
+    label: "True",
+    title: "Directly proportional — no log, no processing. A dominant activity takes its real share",
+  },
+};
 
 export function ActivityMosaic({
   activities,
@@ -38,6 +71,7 @@ export function ActivityMosaic({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [aspect, setAspect] = useState(16 / 9);
   const [hierarchy, setHierarchy] = useState<Hierarchy>(readStoredHierarchy);
+  const [scale, setScale] = useState<ScaleMode>(readStoredScale);
 
   const handleHierarchyChange = (next: Hierarchy) => {
     setHierarchy(next);
@@ -45,6 +79,15 @@ export function ActivityMosaic({
       localStorage.setItem(HIERARCHY_KEY, next);
     } catch {
       // localStorage unavailable — hierarchy just won't persist
+    }
+  };
+
+  const handleScaleChange = (next: ScaleMode) => {
+    setScale(next);
+    try {
+      localStorage.setItem(SCALE_KEY, next);
+    } catch {
+      // localStorage unavailable — scale just won't persist
     }
   };
 
@@ -79,8 +122,9 @@ export function ActivityMosaic({
       aspect,
       width: 1200,
       hierarchy,
+      scale,
     });
-  }, [activities, stats, aspect, hierarchy]);
+  }, [activities, stats, aspect, hierarchy, scale]);
 
   const sparklines = useMemo(() => {
     const days: { start: number; end: number }[] = [];
@@ -124,8 +168,30 @@ export function ActivityMosaic({
     <div ref={containerRef} className="w-full space-y-2">
       {layout.hasMainGrid && (
         <>
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <div className="flex items-center gap-1 rounded-full border border-white/10 bg-zinc-900/60 p-1 backdrop-blur-xl">
+              {SCALE_MODES.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  title={SCALE_LABELS[option].title}
+                  onClick={() => handleScaleChange(option)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
+                    scale === option
+                      ? "bg-white/10 text-zinc-100"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  {SCALE_LABELS[option].label}
+                </button>
+              ))}
+            </div>
+            <div
+              title="Size emphasis (no effect when Scale is True — it is already literal)"
+              className={`flex items-center gap-1 rounded-full border border-white/10 bg-zinc-900/60 p-1 backdrop-blur-xl transition-opacity ${
+                scale === "true" ? "opacity-40" : ""
+              }`}
+            >
               {(["subtle", "balanced", "dramatic"] as Hierarchy[]).map((option) => (
                 <button
                   key={option}

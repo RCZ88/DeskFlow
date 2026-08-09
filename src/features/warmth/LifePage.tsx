@@ -1,17 +1,20 @@
 "use client"
 
 import * as React from 'react'
-import { useCallback, useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
-import { HeartHandshake, Images, Layers, Map } from 'lucide-react'
+import { HeartHandshake, Images, Layers, Map, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 import { RiverMap } from '@/components/life-river/RiverMap'
+import { TimelineView } from '@/components/life-river/TimelineView'
+import { CoreSample } from '@/components/life-river/CoreSample'
 import { TodayTributary } from '@/components/life-river/TodayTributary'
 import { PhaseCard } from '@/components/life-river/PhaseCard'
 import { PhaseFormDialog } from '@/components/life-river/phase-form-dialog'
 import { MemoryLightbox } from '@/components/life-river/memory-lightbox'
 import { LifeRiver } from '@/components/life-river/river'
+import { NotesTab } from '@/components/life-river/NotesTab'
 import CovenantPage from '../../features/covenant/CovenantPage'
 import MemoriesPage from '../../features/memories/MemoriesPage'
 import GoldPage from '../../features/warmth/gold/GoldPage'
@@ -27,12 +30,13 @@ const toStr = (d: Date) =>
 const todayStr = () => toStr(new Date())
 
 type ViewMode = 'pages' | 'river'
-type PageTab = 'covenant' | 'memories' | 'gold'
+type PageTab = 'covenant' | 'memories' | 'gold' | 'notes'
 
 const PAGE_TABS: { key: PageTab; label: string; icon: typeof HeartHandshake; accent: string }[] = [
   { key: 'covenant', label: 'Covenant', icon: HeartHandshake, accent: '#e8866b' },
   { key: 'memories', label: 'Memories', icon: Images, accent: '#6fb38f' },
   { key: 'gold', label: 'Gold', icon: Layers, accent: '#fbbf24' },
+  { key: 'notes', label: 'Notes', icon: BookOpen, accent: '#a78bfa' },
 ]
 
 const crossfade = {
@@ -56,6 +60,8 @@ export default function LifePage() {
 
   const [zoomStop, setZoomStop] = useState('Life')
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [adding, setAdding] = useState(false)
   const [goals, setGoals] = useState<Goal[]>([])
   const [ltgs, setLtgs] = useState<LongTermGoal[]>([])
@@ -65,6 +71,10 @@ export default function LifePage() {
   const { scrollY } = useScroll({ container: feedRef })
   const mapOpacity = useTransform(scrollY, [0, 200], [1, 0.85])
   const mapScale = useTransform(scrollY, [0, 300], [1, 0.97])
+
+  useEffect(() => () => {
+    if (highlightTimer.current) clearTimeout(highlightTimer.current)
+  }, [])
 
   const setMode = useCallback((m: ViewMode) => {
     setViewMode(m)
@@ -103,6 +113,9 @@ export default function LifePage() {
 
   const scrollToPhase = useCallback((id: string) => {
     setActivePhaseId(id)
+    setHighlightId(id)
+    if (highlightTimer.current) clearTimeout(highlightTimer.current)
+    highlightTimer.current = setTimeout(() => setHighlightId(null), 900)
     try {
       document.getElementById(`phase-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     } catch { /* ignore */ }
@@ -166,6 +179,37 @@ export default function LifePage() {
     },
     [savePhase]
   )
+
+  // Per-phase aggregates for the Ring & Grain hero.
+  const nowYear = new Date().getFullYear()
+  const memoriesByPhase = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const p of phases) {
+      const endY = p.endYear && p.endYear > 0 ? p.endYear : nowYear
+      map[p.id] = memories.items.filter(m => {
+        const y = parseInt((m.meta.date || '').slice(0, 4), 10)
+        return Number.isFinite(y) && y >= p.startYear && y <= endY
+      }).length
+    }
+    return map
+  }, [phases, memories.items, nowYear])
+
+  const ltgsByPhase = useMemo(() => {
+    const map: Record<string, LongTermGoal[]> = {}
+    const yearOf = (s?: string | null) => {
+      if (!s) return NaN
+      const y = parseInt(String(s).slice(0, 4), 10)
+      return Number.isFinite(y) ? y : NaN
+    }
+    for (const p of phases) {
+      const endY = p.endYear && p.endYear > 0 ? p.endYear : nowYear
+      map[p.id] = ltgs.filter(ltg => {
+        const y = yearOf(ltg.deadline) || yearOf(ltg.createdAt)
+        return Number.isFinite(y) && y >= p.startYear && y <= endY
+      })
+    }
+    return map
+  }, [phases, ltgs, nowYear])
 
   if (loading && phases.length === 0) {
     return (
@@ -277,6 +321,11 @@ export default function LifePage() {
                 <GoldPage />
               </motion.div>
             )}
+            {pageTab === 'notes' && (
+              <motion.div key="notes" {...crossfade} className="max-w-5xl mx-auto">
+                <NotesTab />
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       ) : (
@@ -291,7 +340,26 @@ export default function LifePage() {
           />
 
           {/* Apex Map (sticky with scroll parallax) */}
-          <motion.div style={{ opacity: mapOpacity, scale: mapScale }}>
+          <motion.div style={{ opacity: mapOpacity, scale: mapScale }} className="space-y-3">
+            <CoreSample
+              phases={phases}
+              covenant={{ completions: covenant.completions, commitments: covenant.commitments }}
+              memoriesByPhase={memoriesByPhase}
+              ltgsByPhase={ltgsByPhase}
+              selectedPhaseId={activePhaseId}
+              onPhaseClick={scrollToPhase}
+              onOpenMemories={phaseId => {
+                const first = memories.items.find(m => {
+                  const y = parseInt((m.meta.date || '').slice(0, 4), 10)
+                  const p = phases.find(ph => ph.id === phaseId)
+                  return p && Number.isFinite(y) && y >= p.startYear && y <= (p.endYear || nowYear)
+                })
+                if (first) setViewing(first)
+              }}
+            />
+            {phases.length > 0 && (
+              <TimelineView phases={phases} onJump={scrollToPhase} />
+            )}
             <RiverMap
               phases={phases}
               zoomStop={zoomStop}
@@ -338,17 +406,26 @@ export default function LifePage() {
                     viewport={{ once: true, margin: '-100px' }}
                     transition={{ duration: 0.5, delay: i * 0.05, ease: [0.16, 1, 0.3, 1] }}
                   >
+                    <div
+                      className={cn(
+                        'rounded-xl transition-shadow duration-300',
+                        highlightId === phase.id && 'ring-2 ring-amber-400/80 shadow-[0_0_30px_rgba(251,191,36,0.35)]'
+                      )}
+                    >
                     <PhaseCard
                       phase={phase}
                       active={activePhaseId === phase.id}
+                      allPhases={phases}
                       memories={memories.items}
                       longTermGoals={ltgs}
                       onActiveChange={setActivePhaseId}
                       onSave={p => { savePhase(p) }}
-                      onReflect={(p, answers) => reflect(p, answers)}
+                      onReflect={(p, answers, variation) => reflect(p, answers, variation)}
                       onKeepReflection={handleKeepReflection}
                       onOpenMemory={setViewing}
+                      onJump={scrollToPhase}
                     />
+                    </div>
                   </motion.div>
                 ))
               )}
@@ -358,6 +435,7 @@ export default function LifePage() {
           <PhaseFormDialog
             open={adding}
             onOpenChange={setAdding}
+            allPhases={phases}
             onSave={p => {
               savePhase(p)
               setAdding(false)

@@ -896,6 +896,29 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     }
   }, [selectedPeriod]);
 
+  // Beautiful-charts (Hyper Charts) helpers: soft gradient bar fills, neon caps, glass tooltips
+  const hexWithAlpha = (color: string, alpha: string) =>
+    /^#[0-9a-fA-F]{6}$/.test(color) ? color + alpha : color;
+  const barGradient = (color: string) => (ctx: any) => {
+    const area = ctx.chart?.chartArea;
+    if (!area) return color;
+    const g = ctx.chart.ctx.createLinearGradient(0, area.bottom, 0, area.top);
+    g.addColorStop(0, hexWithAlpha(color, '22'));
+    g.addColorStop(1, hexWithAlpha(color, 'E6'));
+    return g;
+  };
+  const glassTooltip = {
+    backgroundColor: 'rgba(20, 22, 30, 0.85)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1,
+    padding: 10,
+    cornerRadius: 10,
+    titleColor: '#ffffff',
+    bodyColor: '#a1a1aa',
+    displayColors: false,
+    boxPadding: 4,
+  };
+
   return (
     <PageShell page="external" variant="sticky-header">
       {/* Header */}
@@ -1993,10 +2016,20 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                     {breakdownData.labels.length > 0 ? (
                       <Bar data={{
                         labels: breakdownData.labels,
-                        datasets: [{ label: 'Hours', data: breakdownData.data, backgroundColor: breakdownData.colors, borderRadius: 4 }]
+                        datasets: [{
+                          label: 'Hours',
+                          data: breakdownData.data,
+                          backgroundColor: (ctx: any) => barGradient(breakdownData.colors[ctx.dataIndex])(ctx),
+                          borderColor: (ctx: any) => hexWithAlpha(breakdownData.colors[ctx.dataIndex], '66'),
+                          borderWidth: 1,
+                          borderSkipped: false,
+                          borderRadius: { topLeft: 6, topRight: 6 },
+                        }]
                       }} options={{
                         responsive: true, maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
+                        interaction: { mode: 'index', intersect: false },
+                        animation: { duration: 600, easing: 'easeOutQuart' },
+                        plugins: { legend: { display: false }, tooltip: glassTooltip },
                         scales: { x: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
                       }} />
                     ) : (
@@ -2022,9 +2055,9 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                       });
                       return (
                         <div className="relative w-32 h-32">
-                          <div className="w-full h-full rounded-full" style={{ background: `conic-gradient(${conicStr})` }}>
+                          <div className="w-full h-full rounded-full ring-1 ring-white/10" style={{ background: `conic-gradient(${conicStr})`, filter: 'drop-shadow(0 0 16px rgba(255,255,255,0.06)) drop-shadow(0 0 24px rgba(0,0,0,0.4))' }}>
                             <div className="absolute inset-3 rounded-full bg-zinc-900 flex items-center justify-center">
-                              <span className="text-lg font-bold text-zinc-100">{Math.round(total)}h</span>
+                              <span className="font-display text-lg font-bold text-zinc-100">{Math.round(total)}h</span>
                             </div>
                           </div>
                         </div>
@@ -2036,7 +2069,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                   <div className="flex flex-wrap gap-x-3 gap-y-1 mt-4 justify-center">
                     {breakdownData.labels.slice(0, 6).map((name, i) => (
                       <div key={name} className="flex items-center gap-1.5 text-xs">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: breakdownData.colors[i] }} />
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: breakdownData.colors[i], boxShadow: `0 0 6px ${hexWithAlpha(breakdownData.colors[i], '66')}` }} />
                         <span className="text-zinc-400 truncate max-w-24">{name}</span>
                       </div>
                     ))}
@@ -2049,10 +2082,20 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                     {trendChartData.labels.length > 0 ? (
                       <Bar data={{
                         labels: trendChartData.labels,
-                        datasets: [{ label: 'Hours', data: trendChartData.data, backgroundColor: '#8b5cf6', borderRadius: 4 }]
+                        datasets: [{
+                          label: 'Hours',
+                          data: trendChartData.data,
+                          backgroundColor: barGradient('#8b5cf6'),
+                          borderColor: 'rgba(139, 92, 246, 0.6)',
+                          borderWidth: 1,
+                          borderSkipped: false,
+                          borderRadius: { topLeft: 6, topRight: 6 },
+                        }]
                       }} options={{
                         responsive: true, maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
+                        interaction: { mode: 'index', intersect: false },
+                        animation: { duration: 600, easing: 'easeOutQuart' },
+                        plugins: { legend: { display: false }, tooltip: glassTooltip },
                         scales: { x: { grid: { display: false }, ticks: { color: '#a1a1aa' } }, y: { grid: { color: '#3f3f46' }, ticks: { color: '#a1a1aa' } } }
                       }} />
                     ) : (

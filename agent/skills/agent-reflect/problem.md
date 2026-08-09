@@ -112,3 +112,21 @@ Every feature/bug must have an entry in `agent/requests.json` / `agent/problems.
 ## 18. Resolve CONTEXT_GAPS in the doc when the code pivots
 
 If the implementation makes a decision that answers an OPEN gap (e.g. "db-pid primary instead of output-parsing"), mark it `[RESOLVED]` with the reason IN THE DOC, same cycle. Stale gap docs = future agents re-litigate closed decisions.
+
+## 19. Date-keyed lookups: LOCAL grouping, window + ASC, never `'+1 day'` + `ORDER BY DESC LIMIT 1`
+
+The "popup stuck at 7" bug class (2026-08-09): any IPC resolving "the record for date X" (sleep popups, day lookups) must match the UI's OWN grouping key:
+- The UI (sleep chart) groups by LOCAL evening date — bedtime hour < 12 → previous day (`getSleepGroupDate`).
+- The backend MUST use the same rule: window on started_at `[X 12:00 local, X+1d 12:00 local)`, ORDER BY ASC, first match.
+- NEVER use SQLite UTC `date(started_at) = ?` OR `date(started_at) = date(?, '+1 day')` with `ORDER BY <ts> DESC LIMIT 1` — in any UTC+7+ timezone every after-midnight record matches both days and DESC returns the NEXT period's record for EVERY lookup except the newest.
+
+**Diagnostic signature:** user reports "correct only on the LAST item / all earlier ones show the same wrong value" = bare DESC-LIMIT-1 (or un-ordered `.get()`) with an over-wide predicate. Fix the predicate window first, not the ordering.
+
+## 20. Symptom reports: verify "gaps"/"missing data" against the DB before treating as a bug
+
+When a user report includes a "gap", "missing days", or "no data after X" claim (e.g. the sleep "2 day gap" in the same bug), query the real DB (read-only) BEFORE writing a fix. Real absence of data is not a bug — state it explicitly in the report instead of inventing behavior to cover it.
+
+## 21. Persist user requests to the trackers AT REQUEST TIME, not session end
+
+Every user request ("can we have X", "apply skill Y to Z", "the ability to...") gets a FEATURE_TRACKER.md / PROBLEMS.md entry the moment it is made (or at minimum before the first build). Requests that live only in chat are lost; the user asking "where was my request?" means the rule was violated. Answer such questions FROM the trackers and own the miss.
+

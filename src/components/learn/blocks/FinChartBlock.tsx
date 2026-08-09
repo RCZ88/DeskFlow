@@ -83,7 +83,7 @@ export function FinChartBlock({ block, onAsk }: Props) {
 
       const hasOhlc = data[0] && 'open' in data[0] && 'high' in data[0] && 'low' in data[0] && 'close' in data[0];
       if (hasOhlc) {
-        chart.addCandlestickSeries({
+        chart.addSeries(lwc.CandlestickSeries, {
           data: data as any,
           upColor: '#22c55e',
           downColor: '#ef4444',
@@ -115,15 +115,15 @@ export function FinChartBlock({ block, onAsk }: Props) {
           const points = data.map((r, i) => ({ time: timeFor(i), value: Number(r[field] ?? 0) }));
           const mark = (parsed?.mark as string) || (parsed?.encoding?.x?.mark as string) || 'line';
           if (mark === 'bar' || mark === 'histogram') {
-            chart.addHistogramSeries({ color, priceFormat: { type: 'price' } }).setData(points as any);
+            chart.addSeries(lwc.HistogramSeries, { color, priceFormat: { type: 'price' } }).setData(points as any);
           } else if (mark === 'area') {
-            chart.addAreaSeries({
+            chart.addSeries(lwc.AreaSeries, {
               lineColor: color,
               topColor: `${color}4d`,
               bottomColor: `${color}0d`,
             }).setData(points as any);
           } else {
-            chart.addLineSeries({ color, lineWidth: 2 }).setData(points as any);
+            chart.addSeries(lwc.LineSeries, { color, lineWidth: 2 }).setData(points as any);
           }
         });
 
